@@ -76,10 +76,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private var sidebarExpandedConstraints: [NSLayoutConstraint] = []
     private var sidebarCollapsedConstraint: NSLayoutConstraint?
 
-    /// The titlebar accessory hosting the sidebar action icons; its width
-    /// tracks the sidebar so the icons hug the divider. Kept so it can be
-    /// re-attached when appearance syncs rebuild the titlebar.
-    private var sidebarChromeAccessory: NSTitlebarAccessoryViewController?
+    /// The sidebar action icons, added straight into the titlebar
+    /// container and centered on the traffic lights; the trailing
+    /// constraint tracks the sidebar so the icons hug the divider.
+    private var sidebarChromeView: NSView?
+    private var sidebarChromeTrailingConstraint: NSLayoutConstraint?
 
     /// The config fallback width used before any user drag is persisted.
     private var sidebarDefaultWidth: CGFloat = 240
@@ -640,9 +641,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Appearance syncs can rebuild titlebar contents (e.g. after a
         // theme change); make sure the sidebar's titlebar UI survives.
-        if sidebarChromeAccessory != nil {
+        if sidebarChromeView != nil {
             DispatchQueue.main.async { [weak self] in
-                self?.syncSidebarChromeWidth()
+                self?.attachSidebarChrome()
                 (self?.window as? TerminalWindow)?.ensureSidebarTitlebarDecorations()
             }
         }
@@ -1210,13 +1211,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             store: .shared,
             layout: layout
         ))
-        chromeHosting.frame = NSRect(x: 0, y: 0, width: 160, height: 22)
+        chromeHosting.translatesAutoresizingMaskIntoConstraints = false
+        self.sidebarChromeView = chromeHosting
 
-        let chromeAccessory = NSTitlebarAccessoryViewController()
-        chromeAccessory.view = chromeHosting
-        chromeAccessory.layoutAttribute = .leading
-        self.sidebarChromeAccessory = chromeAccessory
-        window.addTitlebarAccessoryViewController(chromeAccessory)
+        DispatchQueue.main.async { [weak self] in
+            self?.attachSidebarChrome()
+        }
 
         sidebarLayoutCancellable = layout.$isCollapsed
             .removeDuplicates()
@@ -1320,30 +1320,57 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         splitView.setPosition(target, ofDividerAt: 0)
     }
 
-    /// Sizes the titlebar chrome so its trailing icons sit at the
-    /// sidebar's right edge: sidebar width minus the traffic-light zone
-    /// the leading accessory is laid out after. Also re-attaches the
-    /// accessory when a titlebar rebuild (theme change, appearance sync)
-    /// has dropped it.
-    private func syncSidebarChromeWidth() {
-        guard let accessory = sidebarChromeAccessory, let window else { return }
-
-        if !window.titlebarAccessoryViewControllers.contains(accessory) {
-            window.addTitlebarAccessoryViewController(accessory)
+    /// Adds the chrome into the titlebar container, vertically centered
+    /// on the traffic lights. Safe to call repeatedly: re-attaches after
+    /// titlebar rebuilds (theme changes, appearance syncs).
+    private func attachSidebarChrome() {
+        guard let chrome = sidebarChromeView,
+              let closeButton = window?.standardWindowButton(.closeButton),
+              let titlebar = closeButton.superview
+        else { return }
+        guard chrome.superview != titlebar else {
+            syncSidebarChromeWidth()
+            return
         }
+
+        chrome.removeFromSuperview()
+        titlebar.addSubview(chrome)
+
+        let trailing = chrome.trailingAnchor.constraint(
+            equalTo: titlebar.leadingAnchor,
+            constant: sharedSidebarWidth - 8
+        )
+        NSLayoutConstraint.activate([
+            trailing,
+            chrome.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+        ])
+        sidebarChromeTrailingConstraint = trailing
+
+        syncSidebarChromeWidth()
+    }
+
+    /// Keeps the chrome's trailing edge at the sidebar's right edge
+    /// (or parked next to the traffic lights when collapsed).
+    private func syncSidebarChromeWidth() {
+        guard let chrome = sidebarChromeView else { return }
+
+        if chrome.superview == nil {
+            attachSidebarChrome()
+            return
+        }
+
+        guard let constraint = sidebarChromeTrailingConstraint, let window else { return }
 
         let trafficLightsInset = window.standardWindowButton(.zoomButton)
             .map { $0.frame.maxX + 6 } ?? 78
 
-        let width: CGFloat
         if sidebarLayout?.isCollapsed == true {
-            width = 34
+            constraint.constant = trafficLightsInset + 32
         } else {
             let sidebarWidth = sidebarSplitView?.arrangedSubviews.first?.frame.width
                 ?? sharedSidebarWidth
-            width = max(34, sidebarWidth - trafficLightsInset)
+            constraint.constant = max(trafficLightsInset + 32, sidebarWidth - 8)
         }
-        accessory.view.setFrameSize(NSSize(width: width, height: 22))
     }
 
     // MARK: NSSplitViewDelegate

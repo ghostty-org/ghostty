@@ -133,8 +133,6 @@ struct SidebarTitlebarChrome: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            Spacer(minLength: 0)
-
             if !layout.isCollapsed {
                 SidebarChromeButton(icon: "plus", help: "New Terminal") {
                     layout.onNewTab()
@@ -154,8 +152,6 @@ struct SidebarTitlebarChrome: View {
                 layout.isCollapsed.toggle()
             }
         }
-        .padding(.trailing, 6)
-        .frame(maxHeight: .infinity, alignment: .center)
     }
 }
 
