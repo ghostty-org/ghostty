@@ -13,10 +13,23 @@ extension Ghostty {
         /// If multiple items map to the same shortcut, the most recent one wins.
         private var menuItemsByShortcut: [MenuShortcutKey: Weak<NSMenuItem>] = [:]
 
-        /// Original shortcut configured in xib indexed by their action
-        private var restorableMenuItemsByOriginalShortcut: [MenuShortcutKey: (Weak<NSMenuItem>, String?)] = [:]
+        /// A menu item whose xib-configured shortcut can be restored while a non-terminal
+        /// responder has focus, and re-synced with the config once a terminal regains it.
+        private struct RestorableMenuItem {
+            /// We store a weak reference so this can never be the owner of the menu item.
+            let item: Weak<NSMenuItem>
 
-        private var menuItemsRestored = [(Weak<NSMenuItem>, String?)]()
+            /// The original shortcut configured in the xib.
+            let originalShortcut: MenuShortcutKey
+
+            /// The Ghostty keybind action used to re-sync the item with the config, if any.
+            let action: String?
+
+            /// Whether the original shortcut is currently applied to the item.
+            var isRestored = false
+        }
+
+        private var restorableMenuItems: [RestorableMenuItem] = []
 
         func saveRestorableMenuItem(_ item: NSMenuItem?, action ghosttyAction: String?) {
             guard
@@ -25,32 +38,39 @@ extension Ghostty {
             else {
                 return
             }
-            // Later registrations intentionally override earlier ones for the same key.
-            restorableMenuItemsByOriginalShortcut[key] = (.init(item), ghosttyAction)
+            restorableMenuItems.append(.init(
+                item: .init(item),
+                originalShortcut: key,
+                action: ghosttyAction))
         }
 
         /// Restore shortcuts for the items that are registered
         ///
-        /// - Important: the item is only restored when the current shortcut is empty
+        /// - Important: an item is only restored when its current shortcut is empty, so
+        ///   config-bound shortcuts are never overwritten. Calling this repeatedly is safe:
+        ///   items restored by an earlier call stay marked as restored.
         func restoreMenuShortcuts() {
-            menuItemsRestored.removeAll()
-            for (key, item) in restorableMenuItemsByOriginalShortcut {
-                if let menuItem = item.0.value, menuItem.keyEquivalent.isEmpty {
-                    menuItem.keyEquivalent = key.keyEquivalent
-                    menuItem.keyEquivalentModifierMask = key.modifierFlags
-                    menuItemsRestored.append(item)
-                }
+            for index in restorableMenuItems.indices {
+                guard
+                    let menuItem = restorableMenuItems[index].item.value,
+                    menuItem.keyEquivalent.isEmpty
+                else { continue }
+
+                let key = restorableMenuItems[index].originalShortcut
+                menuItem.keyEquivalent = key.keyEquivalent
+                menuItem.keyEquivalentModifierMask = key.modifierFlags
+                restorableMenuItems[index].isRestored = true
             }
         }
 
         /// Re-sync shortcuts for the items that are restored
         func reSyncRestoredMenuShortcuts(config: Ghostty.Config) {
-            for item in menuItemsRestored {
-                if let menuItem = item.0.value {
-                    syncMenuShortcut(config, action: item.1, menuItem: menuItem)
+            for index in restorableMenuItems.indices where restorableMenuItems[index].isRestored {
+                if let menuItem = restorableMenuItems[index].item.value {
+                    syncMenuShortcut(config, action: restorableMenuItems[index].action, menuItem: menuItem)
                 }
+                restorableMenuItems[index].isRestored = false
             }
-            menuItemsRestored.removeAll()
         }
 
         /// Reset our shortcut index since we're about to rebuild all menu bindings.
