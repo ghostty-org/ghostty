@@ -1207,6 +1207,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         self.sidebarCollapsedConstraint =
             sidebarHosting.widthAnchor.constraint(equalToConstant: 0)
 
+        // Pin the exact shared width for the first layout pass so new
+        // tabs appear at the right size instead of snapping a frame
+        // later, then release it so the divider stays draggable.
+        if !SidebarCollapseState.shared.isCollapsed {
+            let initialWidth = sidebarHosting.widthAnchor.constraint(
+                equalToConstant: sharedSidebarWidth
+            )
+            initialWidth.isActive = true
+            DispatchQueue.main.async { initialWidth.isActive = false }
+        }
+
         let chromeHosting = NSHostingView(rootView: SidebarTitlebarChrome(
             store: .shared,
             layout: layout
@@ -1218,7 +1229,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             self?.attachSidebarChrome()
         }
 
-        sidebarLayoutCancellable = layout.$isCollapsed
+        sidebarLayoutCancellable = SidebarCollapseState.shared.$isCollapsed
             .removeDuplicates()
             .sink { [weak self] collapsed in
                 guard let self else { return }
@@ -1236,10 +1247,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     self?.syncSidebarChromeWidth()
                 }
             }
-
-        DispatchQueue.main.async { [weak self] in
-            self?.syncSidebarChromeWidth()
-        }
 
         let splitView = NSSplitView()
         splitView.isVertical = true
@@ -1364,7 +1371,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let trafficLightsInset = window.standardWindowButton(.zoomButton)
             .map { $0.frame.maxX + 6 } ?? 78
 
-        if sidebarLayout?.isCollapsed == true {
+        if SidebarCollapseState.shared.isCollapsed {
             constraint.constant = trafficLightsInset + 32
         } else {
             let sidebarWidth = sidebarSplitView?.arrangedSubviews.first?.frame.width

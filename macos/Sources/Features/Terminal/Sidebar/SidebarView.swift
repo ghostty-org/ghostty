@@ -62,7 +62,7 @@ struct SidebarView: View {
             ScrollView {
                 let content = resolved
 
-                LazyVStack(spacing: 8) {
+                VStack(spacing: 8) {
                     ForEach(content.sections) { section in
                         SidebarGroupSection(
                             group: section.group,
@@ -72,6 +72,7 @@ struct SidebarView: View {
                             dragState: dragState,
                             onNewTab: onNewTabInGroup
                         )
+                        .transition(.opacity)
                     }
 
                     VStack(spacing: 2) {
@@ -83,10 +84,14 @@ struct SidebarView: View {
                                 store: store,
                                 dragState: dragState
                             )
+                            .transition(.opacity)
                         }
                     }
                 }
                 .padding(8)
+                .animation(.snappy(duration: 0.22), value: content.sections.map(\.id))
+                .animation(.snappy(duration: 0.22), value: store.tabOrder)
+                .animation(.snappy(duration: 0.22), value: tabManager.tabs.map(\.id))
             }
             .onDrop(of: [.plainText], isTargeted: nil) { providers in
                 appendDroppedToUngrouped(providers)
@@ -128,12 +133,13 @@ struct SidebarView: View {
 struct SidebarTitlebarChrome: View {
     @ObservedObject var store: SidebarGroupStore
     @ObservedObject var layout: SidebarLayoutModel
+    @ObservedObject var collapse: SidebarCollapseState = .shared
 
     @State private var isCreatingGroup = false
 
     var body: some View {
         HStack(spacing: 2) {
-            if !layout.isCollapsed {
+            if !collapse.isCollapsed {
                 SidebarChromeButton(icon: "plus", help: "New Terminal") {
                     layout.onNewTab()
                 }
@@ -147,11 +153,12 @@ struct SidebarTitlebarChrome: View {
 
             SidebarChromeButton(
                 icon: "sidebar.left",
-                help: layout.isCollapsed ? "Show Sidebar" : "Hide Sidebar"
+                help: collapse.isCollapsed ? "Show Sidebar" : "Hide Sidebar"
             ) {
-                layout.isCollapsed.toggle()
+                collapse.isCollapsed.toggle()
             }
         }
+        .animation(.easeOut(duration: 0.15), value: collapse.isCollapsed)
     }
 }
 
@@ -240,6 +247,8 @@ private struct SidebarGroupSection: View {
         .onDrop(of: [.plainText], isTargeted: $isDropTarget) { providers in
             handleDrop(providers)
         }
+        .animation(.snappy(duration: 0.2), value: collapsed)
+        .animation(.easeOut(duration: 0.12), value: isDropTarget)
         .sheet(isPresented: $isEditing) {
             SidebarGroupEditor(group: group, store: store)
         }
@@ -250,9 +259,10 @@ private struct SidebarGroupSection: View {
             Button {
                 store.toggleCollapsed(group.id)
             } label: {
-                Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                Image(systemName: "chevron.right")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(collapsed ? 0 : 90))
                     .frame(width: 12)
             }
             .buttonStyle(.plain)
@@ -527,9 +537,16 @@ private struct SidebarTabRow: View {
                             .foregroundStyle(Color.accentColor)
                             .help("Open pull request")
                     }
+
+                    // Reserve the subtitle line even while pwd/branch
+                    // haven't arrived yet so row heights never shift.
+                    if showDirectory || showGitBranch {
+                        Text(" ")
+                    }
                 }
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
+                .frame(height: 11)
             }
 
             Spacer(minLength: 0)
@@ -567,13 +584,16 @@ private struct SidebarTabRow: View {
         .overlay(alignment: .top) {
             if insertAfter == false {
                 Rectangle().fill(Color.accentColor).frame(height: 2)
+                    .transition(.opacity)
             }
         }
         .overlay(alignment: .bottom) {
             if insertAfter == true {
                 Rectangle().fill(Color.accentColor).frame(height: 2)
+                    .transition(.opacity)
             }
         }
+        .animation(.easeOut(duration: 0.1), value: insertAfter)
         .contextMenu { tabMenu }
         .sheet(isPresented: $isCreatingGroup) {
             SidebarGroupEditor(
