@@ -167,6 +167,33 @@ pub fn loopEnter(self: *Metal) void {
         @ptrCast(&displayCallback),
         @ptrCast(renderer),
     );
+
+    // The iOS sublayer has bounds before the callback is registered, so it
+    // won't request a display automatically. loopEnter runs on the renderer
+    // thread, so dispatch the Core Animation mutation to the main queue.
+    if (comptime builtin.os.tag == .ios) {
+        var block = SetNeedsDisplayBlock.init(.{
+            .layer = self.layer.layer.value,
+        }, &setNeedsDisplayCallback);
+        macos.dispatch.dispatch_async(
+            @ptrCast(macos.dispatch.queue.getMain()),
+            @ptrCast(&block),
+        );
+    }
+}
+
+const SetNeedsDisplayBlock = objc.Block(struct {
+    layer: objc.c.id,
+}, .{}, void);
+
+fn setNeedsDisplayCallback(
+    block: *const SetNeedsDisplayBlock.Context,
+) callconv(.c) void {
+    objc.Object.fromId(block.layer).msgSend(
+        void,
+        objc.sel("setNeedsDisplay"),
+        .{},
+    );
 }
 
 fn displayCallback(renderer: *Renderer) align(8) void {
