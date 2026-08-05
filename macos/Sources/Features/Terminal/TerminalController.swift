@@ -5,7 +5,7 @@ import Combine
 import GhosttyKit
 
 /// A classic, tabbed terminal experience.
-class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
+class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller, NSSplitViewDelegate {
     override var windowNibName: NSNib.Name? {
         let defaultValue = "Terminal"
 
@@ -63,6 +63,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// The tab read-model backing the sidebar, when the sidebar is enabled.
     private(set) var sidebarTabManager: SidebarTabManager?
+
+    /// The split view hosting the sidebar, kept to sync divider position
+    /// across all windows in the tab group.
+    private var sidebarSplitView: NSSplitView?
+
+    /// The config fallback width used before any user drag is persisted.
+    private var sidebarDefaultWidth: CGFloat = 240
+
+    /// UserDefaults key holding the app-wide sidebar width. Shared by all
+    /// windows so dragging the divider in one tab applies to every tab.
+    static let sidebarWidthDefaultsKey = "GhosttySidebarWidth"
 
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
@@ -1162,13 +1173,56 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         splitView.addArrangedSubview(terminalContainer)
         splitView.setHoldingPriority(.defaultLow + 1, forSubviewAt: 0)
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
-        splitView.autosaveName = "GhosttySidebarSplit"
+        splitView.delegate = self
 
-        DispatchQueue.main.async {
-            splitView.setPosition(config.sidebarWidth, ofDividerAt: 0)
+        self.sidebarSplitView = splitView
+        self.sidebarDefaultWidth = config.sidebarWidth
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sidebarWindowDidBecomeKey(_:)),
+            name: NSWindow.didBecomeKeyNotification,
+            object: window
+        )
+
+        DispatchQueue.main.async { [weak self] in
+            self?.applySharedSidebarWidth()
         }
 
         return splitView
+    }
+
+    /// The app-wide sidebar width: last width the user dragged to in any
+    /// window, falling back to the config value.
+    private var sharedSidebarWidth: CGFloat {
+        let saved = UserDefaults.standard.double(forKey: Self.sidebarWidthDefaultsKey)
+        return saved > 0 ? CGFloat(saved) : sidebarDefaultWidth
+    }
+
+    /// Applied when this window becomes key so a drag done in another tab
+    /// carries over to this one.
+    @objc private func sidebarWindowDidBecomeKey(_ notification: Notification) {
+        applySharedSidebarWidth()
+    }
+
+    private func applySharedSidebarWidth() {
+        guard let splitView = sidebarSplitView,
+              let sidebar = splitView.arrangedSubviews.first
+        else { return }
+        let target = sharedSidebarWidth
+        guard abs(sidebar.frame.width - target) > 0.5 else { return }
+        splitView.setPosition(target, ofDividerAt: 0)
+    }
+
+    // MARK: NSSplitViewDelegate
+
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        guard let splitView = sidebarSplitView,
+              window?.isKeyWindow == true,
+              let width = splitView.arrangedSubviews.first?.frame.width,
+              width > 0
+        else { return }
+        UserDefaults.standard.set(Double(width), forKey: Self.sidebarWidthDefaultsKey)
     }
 
     /// Setup correct window frame before showing the window

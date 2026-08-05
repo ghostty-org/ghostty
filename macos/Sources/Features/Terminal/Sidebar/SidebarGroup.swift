@@ -56,6 +56,7 @@ struct SidebarGroup: Identifiable, Codable, Equatable {
 /// non-ASCII string renders as emoji text, anything else as an SF Symbol.
 struct SidebarGroupIcon: View {
     let icon: String
+    var size: CGFloat = 12
 
     private var isEmoji: Bool {
         icon.count == 1 && !(icon.unicodeScalars.first?.isASCII ?? true)
@@ -64,10 +65,10 @@ struct SidebarGroupIcon: View {
     var body: some View {
         if isEmoji {
             Text(icon)
-                .font(.system(size: 12))
+                .font(.system(size: size))
         } else {
             Image(systemName: icon.isEmpty ? "folder" : icon)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: size - 1, weight: .medium))
         }
     }
 }

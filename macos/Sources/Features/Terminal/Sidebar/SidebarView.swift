@@ -218,6 +218,7 @@ private struct SidebarTabRow: View {
     @ObservedObject var store: SidebarGroupStore
 
     @State private var isHovered = false
+    @State private var isCreatingGroup = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -255,6 +256,13 @@ private struct SidebarTabRow: View {
             NSItemProvider(object: (tab.surfaceId?.uuidString ?? "") as NSString)
         }
         .contextMenu { tabMenu }
+        .popover(isPresented: $isCreatingGroup) {
+            SidebarGroupEditor(
+                group: nil,
+                store: store,
+                assignSurfaceId: tab.surfaceId
+            )
+        }
     }
 
     private var rowBackground: some ShapeStyle {
@@ -274,6 +282,14 @@ private struct SidebarTabRow: View {
                     guard let surfaceId = tab.surfaceId else { return }
                     store.assign(surfaceId: surfaceId, to: group.id)
                 }
+            }
+
+            if !store.groups.isEmpty {
+                Divider()
+            }
+
+            Button("New Group…") {
+                isCreatingGroup = true
             }
 
             Divider()
@@ -316,11 +332,127 @@ private struct SidebarFooter: View {
     }
 }
 
+/// One cell of the icon grid: hover highlight, accent fill when selected.
+private struct SidebarIconCell: View {
+    let symbol: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(isSelected ? .white : .primary)
+                .frame(width: 32, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isSelected
+                            ? AnyShapeStyle(Color.accentColor)
+                            : isHovered ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+}
+
+/// Visual icon picker: an evenly-filled grid of curated SF Symbols plus
+/// a compact emoji field for anything the grid doesn't cover.
+private struct SidebarIconPicker: View {
+    @Binding var selection: String
+
+    @State private var emoji: String = ""
+
+    private static let symbols: [String] = [
+        "folder", "terminal", "flame", "bolt", "star", "heart",
+        "hammer", "wrench.and.screwdriver", "gearshape", "shippingbox", "cube", "globe",
+        "server.rack", "cloud", "externaldrive", "chart.bar", "doc.text", "book",
+        "briefcase", "building.2", "cart", "creditcard", "testtube.2", "ladybug",
+        "leaf", "moon.stars", "sparkles", "gamecontroller", "music.note", "paintbrush",
+    ]
+
+    private let columns = [GridItem(.adaptive(minimum: 32), spacing: 6)]
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 6) {
+            ForEach(Self.symbols, id: \.self) { symbol in
+                SidebarIconCell(symbol: symbol, isSelected: selection == symbol) {
+                    selection = symbol
+                    emoji = ""
+                }
+            }
+        }
+        .padding(.vertical, 4)
+
+        LabeledContent("Emoji") {
+            TextField("🔥", text: $emoji)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 48)
+                .multilineTextAlignment(.center)
+                .onChange(of: emoji) { value in
+                    guard let first = value.first else { return }
+                    let single = String(first)
+                    if emoji != single { emoji = single }
+                    selection = single
+                }
+        }
+        .onAppear {
+            if !selection.isEmpty && !Self.symbols.contains(selection) {
+                emoji = selection
+            }
+        }
+    }
+}
+
+/// One circular color swatch, ringed when selected — the Reminders
+/// list-editor pattern.
+private struct SidebarColorSwatch: View {
+    let color: TerminalTabColor
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .strokeBorder(
+                        isSelected ? Color.primary.opacity(0.6) : .clear,
+                        lineWidth: 1.5
+                    )
+                    .frame(width: 22, height: 22)
+
+                if let accent = color.sidebarAccent {
+                    Circle()
+                        .fill(accent)
+                        .frame(width: 15, height: 15)
+                } else {
+                    Circle()
+                        .strokeBorder(Color.secondary, lineWidth: 1)
+                        .frame(width: 15, height: 15)
+                        .overlay(
+                            Image(systemName: "line.diagonal")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(.secondary)
+                        )
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help(color.localizedName)
+    }
+}
+
 /// Popover to create or edit a group: name, icon (emoji or SF Symbol),
 /// project root for rule-based groups, and color.
 private struct SidebarGroupEditor: View {
     let group: SidebarGroup?
     @ObservedObject var store: SidebarGroupStore
+
+    /// When creating a group from a tab's context menu, the tab to move
+    /// into the new group on save.
+    var assignSurfaceId: UUID? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -331,28 +463,49 @@ private struct SidebarGroupEditor: View {
     @State private var projectRoot: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(group == nil ? "New Group" : "Edit Group")
-                .font(.headline)
+        VStack(spacing: 0) {
+            Form {
+                Section {
+                    VStack(spacing: 12) {
+                        previewBadge
 
-            TextField("Name", text: $name)
-                .textFieldStyle(.roundedBorder)
+                        TextField("Name", text: $name)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 13, weight: .medium))
+                            .multilineTextAlignment(.center)
 
-            TextField("Icon (emoji or SF Symbol)", text: $icon)
-                .textFieldStyle(.roundedBorder)
+                        HStack(spacing: 7) {
+                            ForEach(TerminalTabColor.allCases, id: \.self) { swatch in
+                                SidebarColorSwatch(color: swatch, isSelected: color == swatch) {
+                                    color = swatch
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                }
 
-            Picker("Color", selection: $color) {
-                ForEach(TerminalTabColor.allCases, id: \.self) { color in
-                    Text(color.localizedName).tag(color)
+                Section("Icon") {
+                    SidebarIconPicker(selection: $icon)
+                }
+
+                Section {
+                    Toggle("Project group", isOn: $isProject.animation(.default))
+
+                    if isProject {
+                        TextField("~/Projects/front-app-eita", text: $projectRoot)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                } footer: {
+                    Text("Project groups automatically claim tabs whose working directory is inside the project root.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
+            .formStyle(.grouped)
 
-            Toggle("Project group (auto-claim by directory)", isOn: $isProject)
-
-            if isProject {
-                TextField("Project root (e.g. ~/Projects/front-app-eita)", text: $projectRoot)
-                    .textFieldStyle(.roundedBorder)
-            }
+            Divider()
 
             HStack {
                 Spacer()
@@ -364,10 +517,25 @@ private struct SidebarGroupEditor: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
+            .padding(12)
         }
-        .padding(12)
-        .frame(width: 280)
+        .frame(width: 330, height: 520)
         .onAppear { populate() }
+    }
+
+    private var previewBadge: some View {
+        ZStack {
+            Circle()
+                .fill((color.sidebarAccent ?? Color(nsColor: .systemGray)).gradient)
+
+            SidebarGroupIcon(icon: icon, size: 22)
+                .foregroundStyle(.white)
+        }
+        .frame(width: 48, height: 48)
+        .shadow(
+            color: (color.sidebarAccent ?? .black).opacity(0.35),
+            radius: 5, y: 2
+        )
     }
 
     private func populate() {
@@ -394,7 +562,10 @@ private struct SidebarGroupEditor: View {
                 $0.kind = kind
             }
         } else {
-            _ = store.createGroup(name: name, icon: icon, color: color, kind: kind)
+            let created = store.createGroup(name: name, icon: icon, color: color, kind: kind)
+            if let assignSurfaceId {
+                store.assign(surfaceId: assignSurfaceId, to: created.id)
+            }
         }
     }
 }
