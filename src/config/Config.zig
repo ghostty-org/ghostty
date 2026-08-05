@@ -2323,6 +2323,19 @@ keybind: Keybinds = .{},
 /// Currently only supported on Linux (GTK).
 @"window-show-tab-bar": WindowShowTabBar = .auto,
 
+/// Show a vertical sidebar listing all tabs in the window, grouped into
+/// user-defined sections. When enabled, the native tab bar is hidden and
+/// tabs are managed through the sidebar instead. Tab keybinds (e.g.
+/// `cmd+1` through `cmd+9` on macOS) continue to work.
+///
+/// Currently only supported on macOS.
+sidebar: bool = false,
+
+/// The width of the sidebar in points.
+///
+/// Currently only supported on macOS.
+@"sidebar-width": u32 = 240,
+
 /// Background color for the window titlebar. This only takes effect if
 /// window-theme is set to ghostty. Currently only supported in the GTK app
 /// runtime.

@@ -61,6 +61,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
+    /// The tab read-model backing the sidebar, when the sidebar is enabled.
+    private(set) var sidebarTabManager: SidebarTabManager?
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -1083,7 +1086,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // SwiftUI focus chain.
         container.initialContentSize = focusedSurface?.initialSize
 
-        window.contentView = container
+        if config.sidebar {
+            window.contentView = makeSidebarSplitView(
+                terminalContainer: container,
+                window: window,
+                config: config
+            )
+        } else {
+            window.contentView = container
+        }
 
         // If we have a default size, we want to apply it.
         if let defaultSize {
@@ -1121,6 +1132,43 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // apply this based on the root config but change it later based on surface
         // config (see focused surface change callback).
         syncAppearance(.init(config))
+    }
+
+    /// Builds the sidebar | terminal split view used as the window content
+    /// view when the sidebar is enabled. Native tabbing stays untouched;
+    /// the sidebar is purely an alternative presentation of the tab group.
+    private func makeSidebarSplitView(
+        terminalContainer: NSView,
+        window: NSWindow,
+        config: Ghostty.Config
+    ) -> NSView {
+        (window as? TerminalWindow)?.sidebarActive = true
+
+        let tabManager = SidebarTabManager(window: window)
+        self.sidebarTabManager = tabManager
+
+        let sidebarHosting = NSHostingView(rootView: SidebarView(
+            tabManager: tabManager,
+            store: .shared
+        ))
+        sidebarHosting.translatesAutoresizingMaskIntoConstraints = false
+        sidebarHosting.widthAnchor.constraint(greaterThanOrEqualToConstant: 180).isActive = true
+        sidebarHosting.widthAnchor.constraint(lessThanOrEqualToConstant: 480).isActive = true
+
+        let splitView = NSSplitView()
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        splitView.addArrangedSubview(sidebarHosting)
+        splitView.addArrangedSubview(terminalContainer)
+        splitView.setHoldingPriority(.defaultLow + 1, forSubviewAt: 0)
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
+        splitView.autosaveName = "GhosttySidebarSplit"
+
+        DispatchQueue.main.async {
+            splitView.setPosition(config.sidebarWidth, ofDividerAt: 0)
+        }
+
+        return splitView
     }
 
     /// Setup correct window frame before showing the window

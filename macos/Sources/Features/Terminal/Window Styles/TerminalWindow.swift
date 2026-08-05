@@ -50,6 +50,17 @@ class TerminalWindow: NSWindow {
         true
     }
 
+    /// When true, the sidebar replaces the native tab bar as the tab UI:
+    /// any tab bar accessory AppKit attaches is immediately hidden.
+    var sidebarActive: Bool = false {
+        didSet {
+            guard sidebarActive != oldValue else { return }
+            for accessory in titlebarAccessoryViewControllers where isTabBar(accessory) {
+                accessory.isHidden = sidebarActive
+            }
+        }
+    }
+
     /// Glass effect view for liquid glass background when transparency is enabled
     private var glassEffectView: NSView?
 
@@ -259,6 +270,9 @@ class TerminalWindow: NSWindow {
         // it. This has been verified to work on macOS 12 to 26
         if isTabBar(childViewController) {
             childViewController.identifier = Self.tabBarIdentifier
+            if sidebarActive {
+                childViewController.isHidden = true
+            }
             tabBarDidAppear()
         }
     }
