@@ -203,6 +203,11 @@ class AppDelegate: NSObject,
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Materialize the GUI settings file (and its config-file include)
+        // so fork defaults like the sidebar exist even before the
+        // settings window is ever opened.
+        _ = GuiConfigStore.shared
+
         // System settings overrides
         UserDefaults.ghostty.register(defaults: [
             // Disable this so that repeated key events make it through to our terminal views.
