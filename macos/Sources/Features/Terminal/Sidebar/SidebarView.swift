@@ -142,7 +142,7 @@ struct SidebarTitlebarChrome: View {
                 SidebarChromeButton(icon: "folder.badge.plus", help: "New Group") {
                     isCreatingGroup = true
                 }
-                .popover(isPresented: $isCreatingGroup) {
+                .sheet(isPresented: $isCreatingGroup) {
                     SidebarGroupEditor(group: nil, store: store)
                 }
             }
@@ -243,7 +243,7 @@ private struct SidebarGroupSection: View {
         .onDrop(of: [.plainText], isTargeted: $isDropTarget) { providers in
             handleDrop(providers)
         }
-        .popover(isPresented: $isEditing) {
+        .sheet(isPresented: $isEditing) {
             SidebarGroupEditor(group: group, store: store)
         }
     }
@@ -454,25 +454,47 @@ private struct SidebarTabRow: View {
     let tabManager: SidebarTabManager
     @ObservedObject var store: SidebarGroupStore
     @ObservedObject var dragState: SidebarDragState
+    @ObservedObject var stateCenter: TabStateCenter = .shared
 
     @State private var isHovered = false
     @State private var isCreatingGroup = false
+    @State private var isCustomizing = false
 
     private var insertAfter: Bool? {
         guard dragState.target?.row == tab.id else { return nil }
         return dragState.target?.after
     }
 
+    private var override: SidebarGroupStore.TabOverride? {
+        tab.surfaceId.flatMap { store.tabOverrides[$0] }
+    }
+
+    private var agentState: AgentTabState? {
+        tab.surfaceId.flatMap { stateCenter.states[$0] }
+    }
+
+    private var displayTitle: String {
+        if let custom = override?.name, !custom.isEmpty { return custom }
+        return tab.title.isEmpty ? "Terminal" : tab.title
+    }
+
     var body: some View {
         HStack(spacing: 6) {
-            if tab.needsAttention {
+            statusIndicator
+
+            if let icon = override?.icon, !icon.isEmpty {
+                SidebarGroupIcon(icon: icon, size: 11)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let accent = override?.color?.sidebarAccent {
                 Circle()
-                    .fill(.orange)
+                    .fill(accent)
                     .frame(width: 6, height: 6)
             }
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(tab.title.isEmpty ? "Terminal" : tab.title)
+                Text(displayTitle)
                     .font(.system(size: 11, weight: tab.isSelected ? .semibold : .regular))
                     .lineLimit(1)
 
@@ -493,7 +515,16 @@ private struct SidebarTabRow: View {
                 .fill(rowBackground)
         )
         .contentShape(Rectangle())
-        .onTapGesture { tabManager.select(tab) }
+        .onTapGesture {
+            tabManager.select(tab)
+            if let surfaceId = tab.surfaceId {
+                stateCenter.clearDone(surfaceId: surfaceId)
+            }
+        }
+        .onChange(of: tab.isSelected) { selected in
+            guard selected, let surfaceId = tab.surfaceId else { return }
+            stateCenter.clearDone(surfaceId: surfaceId)
+        }
         .onHover { isHovered = $0 }
         .onDrag {
             NSItemProvider(object: (tab.surfaceId?.uuidString ?? "") as NSString)
@@ -518,12 +549,48 @@ private struct SidebarTabRow: View {
             }
         }
         .contextMenu { tabMenu }
-        .popover(isPresented: $isCreatingGroup) {
+        .sheet(isPresented: $isCreatingGroup) {
             SidebarGroupEditor(
                 group: nil,
                 store: store,
                 assignSurfaceId: tab.surfaceId
             )
+        }
+        .sheet(isPresented: $isCustomizing) {
+            if let surfaceId = tab.surfaceId {
+                SidebarTabEditor(
+                    surfaceId: surfaceId,
+                    currentTitle: tab.title,
+                    store: store
+                )
+            }
+        }
+    }
+
+    /// Leading status: agent state takes precedence (spinner while
+    /// working, bubble while waiting for input, green dot when output is
+    /// ready), then the bell attention dot.
+    @ViewBuilder
+    private var statusIndicator: some View {
+        switch agentState {
+        case .working:
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: 12, height: 12)
+        case .awaiting:
+            Image(systemName: "questionmark.bubble.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(.yellow)
+        case .done:
+            Circle()
+                .fill(.green)
+                .frame(width: 6, height: 6)
+        case nil:
+            if tab.needsAttention {
+                Circle()
+                    .fill(.orange)
+                    .frame(width: 6, height: 6)
+            }
         }
     }
 
@@ -538,6 +605,11 @@ private struct SidebarTabRow: View {
 
     @ViewBuilder
     private var tabMenu: some View {
+        Button("Customize Tab…") { isCustomizing = true }
+            .disabled(tab.surfaceId == nil)
+
+        Divider()
+
         Menu("Move to Group") {
             ForEach(store.groups) { group in
                 Button(group.name) {
@@ -677,6 +749,92 @@ private struct SidebarColorSwatch: View {
         }
         .buttonStyle(.plain)
         .help(color.localizedName)
+    }
+}
+
+/// Per-tab customization sheet: custom display name, icon and color dot.
+private struct SidebarTabEditor: View {
+    let surfaceId: UUID
+    let currentTitle: String
+    @ObservedObject var store: SidebarGroupStore
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name = ""
+    @State private var icon = ""
+    @State private var color: TerminalTabColor = .none
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Form {
+                Section {
+                    LabeledContent("Name") {
+                        TextField(
+                            "",
+                            text: $name,
+                            prompt: Text(currentTitle.isEmpty ? "Terminal" : currentTitle)
+                        )
+                        .labelsHidden()
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    LabeledContent("Color") {
+                        HStack(spacing: 6) {
+                            ForEach(TerminalTabColor.allCases, id: \.self) { swatch in
+                                SidebarColorSwatch(color: swatch, isSelected: color == swatch) {
+                                    color = swatch
+                                }
+                            }
+                        }
+                    }
+                } footer: {
+                    Text("Leave the name empty to keep the terminal's own title.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Icon") {
+                    SidebarIconPicker(selection: $icon)
+                }
+            }
+            .formStyle(.grouped)
+
+            Divider()
+
+            HStack {
+                Button("Reset") {
+                    store.setTabOverride(surfaceId: surfaceId, .init())
+                    dismiss()
+                }
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Save") {
+                    save()
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(12)
+        }
+        .frame(width: 330, height: 420)
+        .onAppear { populate() }
+    }
+
+    private func populate() {
+        guard let override = store.tabOverrides[surfaceId] else { return }
+        name = override.name ?? ""
+        icon = override.icon ?? ""
+        color = override.color ?? .none
+    }
+
+    private func save() {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        store.setTabOverride(surfaceId: surfaceId, .init(
+            name: trimmed.isEmpty ? nil : trimmed,
+            icon: icon.isEmpty ? nil : icon,
+            color: color == .none ? nil : color
+        ))
     }
 }
 

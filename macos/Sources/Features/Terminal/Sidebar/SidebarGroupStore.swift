@@ -18,14 +18,29 @@ final class SidebarGroupStore: ObservableObject {
         let assignedAt: Date
     }
 
+    /// Per-tab customization: any of a custom display name, an icon and
+    /// a color dot, keyed by surface id.
+    struct TabOverride: Codable, Equatable {
+        var name: String?
+        var icon: String?
+        var color: TerminalTabColor?
+
+        var isEmpty: Bool {
+            (name?.isEmpty ?? true) && (icon?.isEmpty ?? true)
+                && (color ?? .none) == .none
+        }
+    }
+
     private struct State: Codable {
         var groups: [SidebarGroup]
         var assignments: [UUID: Assignment]
         var tabOrder: [UUID]?
+        var tabOverrides: [UUID: TabOverride]?
     }
 
     @Published private(set) var groups: [SidebarGroup] = []
     @Published private(set) var assignments: [UUID: Assignment] = [:]
+    @Published private(set) var tabOverrides: [UUID: TabOverride] = [:]
 
     /// Display order of tabs in the sidebar, by surface id. Tabs not in
     /// the list sort after ordered ones, in native tab-group order.
@@ -110,6 +125,15 @@ final class SidebarGroupStore: ObservableObject {
         scheduleSave()
     }
 
+    func setTabOverride(surfaceId: UUID, _ override: TabOverride) {
+        if override.isEmpty {
+            tabOverrides.removeValue(forKey: surfaceId)
+        } else {
+            tabOverrides[surfaceId] = override
+        }
+        scheduleSave()
+    }
+
     /// Moves a tab next to another tab (drag-and-drop reorder), also
     /// adopting the target's group so a single drop both repositions
     /// and regroups.
@@ -175,6 +199,7 @@ final class SidebarGroupStore: ObservableObject {
         groups = state.groups
         assignments = state.assignments.filter { $0.value.assignedAt > cutoff }
         tabOrder = Array((state.tabOrder ?? []).suffix(300))
+        tabOverrides = state.tabOverrides ?? [:]
     }
 
     private func scheduleSave() {
@@ -187,7 +212,12 @@ final class SidebarGroupStore: ObservableObject {
     }
 
     private func saveNow() {
-        let state = State(groups: groups, assignments: assignments, tabOrder: tabOrder)
+        let state = State(
+            groups: groups,
+            assignments: assignments,
+            tabOrder: tabOrder,
+            tabOverrides: tabOverrides
+        )
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
