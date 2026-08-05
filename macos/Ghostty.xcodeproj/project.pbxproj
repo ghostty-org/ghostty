@@ -254,6 +254,7 @@
 				Helpers/Private/Dock.swift,
 				Helpers/TabGroupCloseCoordinator.swift,
 				Helpers/TabTitleEditor.swift,
+				Helpers/TextViewAlert.swift,
 				Helpers/VibrantLayer.m,
 			);
 			target = A5D4499C2B53AE7B000F5B83 /* Ghostty-iOS */;
