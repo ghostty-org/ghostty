@@ -17,6 +17,7 @@ final class SidebarTabManager: ObservableObject {
         let isSelected: Bool
         let needsAttention: Bool
         let gitBranch: String?
+        let repoRoot: String?
         unowned let window: NSWindow
 
         var directoryName: String? {
@@ -32,6 +33,7 @@ final class SidebarTabManager: ObservableObject {
                 && lhs.isSelected == rhs.isSelected
                 && lhs.needsAttention == rhs.needsAttention
                 && lhs.gitBranch == rhs.gitBranch
+                && lhs.repoRoot == rhs.repoRoot
         }
     }
 
@@ -140,6 +142,11 @@ final class SidebarTabManager: ObservableObject {
 
             subscribe(to: surface)
 
+            let git = Self.gitInfo(for: surface?.pwd)
+            if let git {
+                GitStatusCenter.shared.requestRefresh(root: git.root, branch: git.branch)
+            }
+
             return TabItem(
                 id: identifier,
                 title: tabWindow.title,
@@ -147,7 +154,8 @@ final class SidebarTabManager: ObservableObject {
                 surfaceId: surface?.id,
                 isSelected: isSelected,
                 needsAttention: attentionWindows.contains(identifier),
-                gitBranch: Self.gitBranch(for: surface?.pwd),
+                gitBranch: git?.branch,
+                repoRoot: git?.root,
                 window: tabWindow
             )
         }
@@ -174,11 +182,11 @@ final class SidebarTabManager: ObservableObject {
         item.window.makeKeyAndOrderFront(nil)
     }
 
-    /// Resolves the git branch for a working directory by walking up to
-    /// the repository and reading `HEAD` directly — no git execution.
-    /// Worktrees (a `.git` file pointing at the real git dir) are
-    /// followed; a detached HEAD shows the short commit hash.
-    nonisolated static func gitBranch(for pwd: String?) -> String? {
+    /// Resolves the repository root and current branch for a working
+    /// directory by walking up to `.git` and reading `HEAD` directly —
+    /// no git execution. Worktrees (a `.git` file pointing at the real
+    /// git dir) are followed; a detached HEAD yields the short hash.
+    nonisolated static func gitInfo(for pwd: String?) -> (root: String, branch: String?)? {
         guard let pwd, !pwd.isEmpty else { return nil }
         let fm = FileManager.default
         var dir = URL(fileURLWithPath: pwd)
@@ -193,7 +201,7 @@ final class SidebarTabManager: ObservableObject {
                 } else {
                     guard let content = try? String(contentsOf: gitURL, encoding: .utf8),
                           content.hasPrefix("gitdir:")
-                    else { return nil }
+                    else { return (dir.path, nil) }
                     let path = content.dropFirst("gitdir:".count)
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     let gitDir = path.hasPrefix("/")
@@ -203,12 +211,12 @@ final class SidebarTabManager: ObservableObject {
                 }
 
                 guard let head = try? String(contentsOf: headURL, encoding: .utf8)
-                else { return nil }
+                else { return (dir.path, nil) }
                 let trimmed = head.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.hasPrefix("ref: refs/heads/") {
-                    return String(trimmed.dropFirst("ref: refs/heads/".count))
+                    return (dir.path, String(trimmed.dropFirst("ref: refs/heads/".count)))
                 }
-                return String(trimmed.prefix(7))
+                return (dir.path, String(trimmed.prefix(7)))
             }
 
             if dir.path == "/" { break }

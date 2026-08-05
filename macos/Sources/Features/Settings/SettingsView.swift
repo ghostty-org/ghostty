@@ -166,6 +166,9 @@ struct SidebarSettingsView: View {
 
     @AppStorage("SidebarShowDirectory") private var showDirectory = true
     @AppStorage("SidebarShowGitBranch") private var showGitBranch = true
+    @AppStorage("SidebarShowGitStatus") private var showGitStatus = true
+    @AppStorage("SidebarShowPullRequest") private var showPullRequest = true
+    @AppStorage("SidebarRestoreAgentSessions") private var restoreAgentSessions = true
 
     var body: some View {
         Form {
@@ -202,6 +205,19 @@ struct SidebarSettingsView: View {
                     .toggleStyle(.switch)
                 Toggle("Show Git Branch", isOn: $showGitBranch)
                     .toggleStyle(.switch)
+                Toggle("Show Uncommitted Changes", isOn: $showGitStatus)
+                    .toggleStyle(.switch)
+                Toggle("Show Open Pull Request", isOn: $showPullRequest)
+                    .toggleStyle(.switch)
+            }
+
+            Section {
+                Toggle("Resume Agent Sessions on Restore", isOn: $restoreAgentSessions)
+                    .toggleStyle(.switch)
+            } footer: {
+                Text("When windows are restored, tabs that were running a Claude Code session run `claude --continue` to pick the conversation back up.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

@@ -1852,6 +1852,13 @@ extension Ghostty {
             let savedTitle = try container.decodeIfPresent(String.self, forKey: .title)
             let isUserSetTitle = try container.decodeIfPresent(Bool.self, forKey: .isUserSetTitle) ?? false
 
+            // Restored surfaces keep their tab-state hookup: same UUID,
+            // same state file, so sidebar indicators keep working.
+            if let uuid {
+                config.environmentVariables["GHOSTTY_TAB_STATE_FILE"] =
+                    TabStateCenter.stateFileURL(for: uuid).path
+            }
+
             self.init(app, baseConfig: config, uuid: uuid)
 
             // Restore the saved title after initialization
@@ -1860,6 +1867,22 @@ extension Ghostty {
                 // If this was a user-set title, we need to prevent it from being overwritten
                 if isUserSetTitle {
                     self.titleFromTerminal = title
+                }
+            }
+
+            // If a coding agent session was live in this surface when the
+            // app quit (tab state file still present), resume it in place.
+            // Delayed so the shell is up before the command is typed.
+            if let uuid,
+               UserDefaults.standard.object(forKey: "SidebarRestoreAgentSessions") as? Bool ?? true,
+               FileManager.default.fileExists(atPath: TabStateCenter.stateFileURL(for: uuid).path) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                    guard let self, let surface = self.surface else { return }
+                    let command = "claude --continue\n"
+                    let len = command.utf8CString.count
+                    command.withCString { ptr in
+                        ghostty_surface_text(surface, ptr, UInt(len - 1))
+                    }
                 }
             }
         }

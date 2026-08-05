@@ -25,6 +25,13 @@ final class GuiConfigStore: ObservableObject {
     init(configDir: URL? = nil) {
         self.configDir = configDir ?? Self.defaultConfigDir()
         load()
+
+        // Session restore is the expected default for the sidebar fork:
+        // windows, tabs and working directories come back on relaunch.
+        if values["window-save-state"] == nil {
+            values["window-save-state"] = "always"
+            save()
+        }
     }
 
     /// Ghostty reads XDG first on macOS; prefer an existing XDG dir, then

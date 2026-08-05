@@ -155,6 +155,7 @@ struct SidebarTitlebarChrome: View {
             }
         }
         .padding(.trailing, 6)
+        .frame(maxHeight: .infinity, alignment: .center)
     }
 }
 
@@ -456,6 +457,14 @@ private struct SidebarTabRow: View {
 
     @AppStorage("SidebarShowDirectory") private var showDirectory = true
     @AppStorage("SidebarShowGitBranch") private var showGitBranch = true
+    @AppStorage("SidebarShowGitStatus") private var showGitStatus = true
+    @AppStorage("SidebarShowPullRequest") private var showPullRequest = true
+
+    @ObservedObject private var gitCenter: GitStatusCenter = .shared
+
+    private var repoInfo: GitStatusCenter.RepoInfo? {
+        gitCenter.info(forRoot: tab.repoRoot)
+    }
 
     private var insertAfter: Bool? {
         guard dragState.target?.row == tab.id else { return nil }
@@ -507,7 +516,20 @@ private struct SidebarTabRow: View {
                                 .font(.system(size: 8))
                             Text(branch)
                                 .lineLimit(1)
+
+                            if showGitStatus, repoInfo?.isDirty == true {
+                                Circle()
+                                    .fill(.yellow)
+                                    .frame(width: 4, height: 4)
+                                    .help("Uncommitted changes")
+                            }
                         }
+                    }
+
+                    if showPullRequest, let prNumber = repoInfo?.prNumber {
+                        Text("#\(prNumber)")
+                            .foregroundStyle(Color.accentColor)
+                            .help("Open pull request")
                     }
                 }
                 .font(.system(size: 9))
@@ -615,6 +637,13 @@ private struct SidebarTabRow: View {
     private var tabMenu: some View {
         Button("Customize Tab…") { isCustomizing = true }
             .disabled(tab.surfaceId == nil)
+
+        if let prNumber = repoInfo?.prNumber,
+           let prURL = repoInfo?.prURL.flatMap(URL.init(string:)) {
+            Button("Open Pull Request #\(prNumber)…") {
+                NSWorkspace.shared.open(prURL)
+            }
+        }
 
         Divider()
 

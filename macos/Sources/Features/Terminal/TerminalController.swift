@@ -1210,7 +1210,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             store: .shared,
             layout: layout
         ))
-        chromeHosting.frame = NSRect(x: 0, y: 0, width: 160, height: 26)
+        chromeHosting.frame = NSRect(x: 0, y: 0, width: 160, height: 22)
 
         let chromeAccessory = NSTitlebarAccessoryViewController()
         chromeAccessory.view = chromeHosting
@@ -1343,7 +1343,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 ?? sharedSidebarWidth
             width = max(34, sidebarWidth - trafficLightsInset)
         }
-        accessory.view.setFrameSize(NSSize(width: width, height: 26))
+        accessory.view.setFrameSize(NSSize(width: width, height: 22))
     }
 
     // MARK: NSSplitViewDelegate
