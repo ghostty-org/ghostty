@@ -263,12 +263,6 @@ private struct SidebarGroupSection: View {
             SidebarGroupIcon(icon: group.icon)
                 .foregroundStyle(accent ?? Color.secondary)
 
-            if let accent {
-                Circle()
-                    .fill(accent)
-                    .frame(width: 6, height: 6)
-            }
-
             VStack(alignment: .leading, spacing: 1) {
                 Text(group.name)
                     .font(.system(size: 11, weight: .semibold))
@@ -460,6 +454,9 @@ private struct SidebarTabRow: View {
     @State private var isCreatingGroup = false
     @State private var isCustomizing = false
 
+    @AppStorage("SidebarShowDirectory") private var showDirectory = true
+    @AppStorage("SidebarShowGitBranch") private var showGitBranch = true
+
     private var insertAfter: Bool? {
         guard dragState.target?.row == tab.id else { return nil }
         return dragState.target?.after
@@ -498,12 +495,23 @@ private struct SidebarTabRow: View {
                     .font(.system(size: 11, weight: tab.isSelected ? .semibold : .regular))
                     .lineLimit(1)
 
-                if let dir = tab.directoryName {
-                    Text(dir)
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                HStack(spacing: 6) {
+                    if showDirectory, let dir = tab.directoryName {
+                        Text(dir)
+                            .lineLimit(1)
+                    }
+
+                    if showGitBranch, let branch = tab.gitBranch {
+                        HStack(spacing: 2) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 8))
+                            Text(branch)
+                                .lineLimit(1)
+                        }
+                    }
                 }
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 0)

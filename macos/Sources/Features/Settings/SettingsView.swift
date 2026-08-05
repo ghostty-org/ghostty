@@ -164,6 +164,9 @@ struct SidebarSettingsView: View {
     @State private var sidebarEnabled: Bool = false
     @State private var sidebarWidth: Double = 240
 
+    @AppStorage("SidebarShowDirectory") private var showDirectory = true
+    @AppStorage("SidebarShowGitBranch") private var showGitBranch = true
+
     var body: some View {
         Form {
             Section {
@@ -192,6 +195,13 @@ struct SidebarSettingsView: View {
                 Text("The sidebar toggle applies to new windows. Dragging the divider overrides the default width.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section("Tab Info") {
+                Toggle("Show Working Directory", isOn: $showDirectory)
+                    .toggleStyle(.switch)
+                Toggle("Show Git Branch", isOn: $showGitBranch)
+                    .toggleStyle(.switch)
             }
         }
         .formStyle(.grouped)

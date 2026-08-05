@@ -1,8 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Theme management: browse built-in and imported themes with live
-/// previews, import theme files, and build custom themes locally.
+/// Theme management: a curated set of well-known themes split into dark
+/// and light sections, import of external theme files, and an inline
+/// theme creator at the bottom of the screen.
 struct AppearanceSettingsView: View {
     let ghostty: Ghostty.App
     @ObservedObject var store: GuiConfigStore
@@ -10,8 +11,26 @@ struct AppearanceSettingsView: View {
     @StateObject private var catalog: ThemeCatalog
 
     @State private var search = ""
-    @State private var isCustomizing = false
-    @State private var customizerSeed: TerminalTheme?
+
+    /// Famous themes shown by default; searching looks through the whole
+    /// catalog. Names match the bundled theme files exactly.
+    private static let curated: Set<String> = [
+        "Dracula", "Dracula+",
+        "TokyoNight", "TokyoNight Storm", "TokyoNight Moon", "TokyoNight Day",
+        "Catppuccin Mocha", "Catppuccin Macchiato", "Catppuccin Frappe", "Catppuccin Latte",
+        "Gruvbox Dark", "Gruvbox Dark Hard", "Gruvbox Light",
+        "Nord", "Nord Light",
+        "One Half Dark", "One Half Light",
+        "Monokai Pro", "Monokai Remastered", "Monokai Pro Light",
+        "GitHub Dark Default", "GitHub Light Default",
+        "Solarized Dark Higher Contrast", "iTerm2 Solarized Light",
+        "Ayu", "Ayu Mirage", "Ayu Light",
+        "Night Owl", "Night Owlish Light",
+        "Rose Pine", "Rose Pine Moon", "Rose Pine Dawn",
+        "Kanagawa Dragon", "Kanagawa Lotus",
+        "Everforest Dark Hard", "Everforest Light Med",
+        "Snazzy", "Material Ocean", "Cobalt2", "Synthwave Everything",
+    ]
 
     init(ghostty: Ghostty.App, store: GuiConfigStore) {
         self.ghostty = ghostty
@@ -23,11 +42,36 @@ struct AppearanceSettingsView: View {
         store.string("theme") ?? ""
     }
 
-    private var filtered: [TerminalTheme] {
-        guard !search.isEmpty else { return catalog.themes }
-        return catalog.themes.filter {
-            $0.name.localizedCaseInsensitiveContains(search)
+    private struct ThemeGroups {
+        var user: [TerminalTheme] = []
+        var dark: [TerminalTheme] = []
+        var light: [TerminalTheme] = []
+    }
+
+    private var groups: ThemeGroups {
+        var result = ThemeGroups()
+
+        let visible: [TerminalTheme]
+        if search.isEmpty {
+            visible = catalog.themes.filter {
+                $0.source == .user || Self.curated.contains($0.name)
+            }
+        } else {
+            visible = catalog.themes.filter {
+                $0.name.localizedCaseInsensitiveContains(search)
+            }
         }
+
+        for theme in visible {
+            if theme.source == .user {
+                result.user.append(theme)
+            } else if theme.background?.isLightColor == true {
+                result.light.append(theme)
+            } else {
+                result.dark.append(theme)
+            }
+        }
+        return result
     }
 
     var body: some View {
@@ -42,95 +86,95 @@ struct AppearanceSettingsView: View {
                 Spacer()
             } else {
                 ScrollView {
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 170), spacing: 10)],
-                        spacing: 10
-                    ) {
-                        ForEach(filtered) { theme in
-                            ThemeCard(
-                                theme: theme,
-                                isSelected: theme.name == currentTheme
-                            ) {
-                                applyTheme(theme)
-                            }
-                            .contextMenu {
-                                if theme.source == .user {
-                                    Button("Edit…") {
-                                        customizerSeed = theme
-                                        isCustomizing = true
-                                    }
-                                    Button("Delete", role: .destructive) {
-                                        deleteTheme(theme)
-                                    }
-                                } else {
-                                    Button("Duplicate as Custom…") {
-                                        customizerSeed = theme
-                                        isCustomizing = true
-                                    }
-                                }
-                            }
+                    let groups = groups
+
+                    VStack(alignment: .leading, spacing: 18) {
+                        if !groups.user.isEmpty {
+                            themeSection("My Themes", groups.user)
                         }
+                        if !groups.dark.isEmpty {
+                            themeSection("Dark", groups.dark)
+                        }
+                        if !groups.light.isEmpty {
+                            themeSection("Light", groups.light)
+                        }
+
+                        Divider()
+                            .padding(.top, 6)
+
+                        ThemeCreatorView(
+                            ghostty: ghostty,
+                            store: store,
+                            catalog: catalog,
+                            seed: catalog.themes.first { $0.name == currentTheme }
+                        )
                     }
-                    .padding(12)
+                    .padding(14)
                 }
             }
         }
         .navigationTitle("Appearance")
-        .onAppear { catalog.loadIfNeeded() }
-        .sheet(isPresented: $isCustomizing) {
-            ThemeCustomizerView(
-                ghostty: ghostty,
-                store: store,
-                catalog: catalog,
-                seed: customizerSeed
-            )
+        .onAppear {
+            catalog.loadIfNeeded()
+            applyDefaultThemeIfNeeded()
         }
+    }
+
+    /// Dracula is the out-of-the-box theme until the user picks another.
+    private func applyDefaultThemeIfNeeded() {
+        guard currentTheme.isEmpty else { return }
+        store.set("theme", "Dracula")
+        store.apply(ghostty: ghostty)
     }
 
     private var toolbar: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("", text: $search, prompt: Text("Search \(catalog.themes.count) themes"))
+            TextField("", text: $search, prompt: Text("Search all \(catalog.themes.count) themes"))
                 .textFieldStyle(.plain)
 
-            if !currentTheme.isEmpty {
-                Button("Reset Theme") {
-                    store.set("theme", nil)
-                    store.apply(ghostty: ghostty)
-                }
-                .buttonStyle(.link)
-                .font(.caption)
-            }
-
             Button("Import…") { importThemes() }
-
-            Button {
-                customizerSeed = catalog.themes.first { $0.name == currentTheme }
-                isCustomizing = true
-            } label: {
-                Label("New Theme", systemImage: "plus")
-            }
         }
         .padding(10)
     }
 
-    private func applyTheme(_ theme: TerminalTheme) {
-        store.set("theme", theme.name)
-        store.apply(ghostty: ghostty)
+    private func themeSection(_ title: String, _ themes: [TerminalTheme]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 150), spacing: 10)],
+                spacing: 10
+            ) {
+                ForEach(themes) { theme in
+                    ThemeCard(theme: theme, isSelected: theme.name == currentTheme) {
+                        store.set("theme", theme.name)
+                        store.apply(ghostty: ghostty)
+                    }
+                    .contextMenu {
+                        if theme.source == .user {
+                            Button("Delete", role: .destructive) { deleteTheme(theme) }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func deleteTheme(_ theme: TerminalTheme) {
         guard theme.source == .user else { return }
         try? FileManager.default.removeItem(at: theme.url)
         if currentTheme == theme.name {
-            store.set("theme", nil)
+            store.set("theme", "Dracula")
             store.apply(ghostty: ghostty)
         }
         catalog.reload()
     }
 
-    /// Copies picked theme files into the user themes directory.
     private func importThemes() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -152,16 +196,42 @@ struct AppearanceSettingsView: View {
     }
 }
 
-/// One theme in the grid: a mini terminal mock plus the palette strip.
+/// One theme in the grid: a small terminal mock over the theme's real
+/// background with a prompt line and the ANSI accent dots.
 private struct ThemeCard: View {
     let theme: TerminalTheme
     let isSelected: Bool
     let action: () -> Void
 
+    private var background: Color { Color(nsColor: theme.background ?? .black) }
+    private var foreground: Color { Color(nsColor: theme.foreground ?? .white) }
+    private var green: Color {
+        Color(nsColor: theme.palette[2] ?? theme.foreground ?? .green)
+    }
+
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 0) {
-                preview
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 4) {
+                        Text("❯")
+                            .foregroundStyle(green)
+                        Text("echo hello")
+                            .foregroundStyle(foreground)
+                    }
+                    .font(.system(size: 9, design: .monospaced))
+
+                    HStack(spacing: 4) {
+                        ForEach(Array(theme.previewColors.enumerated()), id: \.offset) { _, color in
+                            Circle()
+                                .fill(Color(nsColor: color))
+                                .frame(width: 7, height: 7)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(background)
 
                 HStack(spacing: 4) {
                     Text(theme.name)
@@ -170,144 +240,209 @@ private struct ThemeCard: View {
 
                     Spacer(minLength: 0)
 
-                    if theme.source == .user {
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.accentColor)
+                    } else if theme.source == .user {
                         Image(systemName: "person.fill")
                             .font(.system(size: 8))
                             .foregroundStyle(.secondary)
-                            .help("Custom theme")
                     }
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
+                .background(Color(nsColor: .controlBackgroundColor))
             }
-            .background(Color(nsColor: .controlBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(
-                        isSelected ? Color.accentColor : Color.primary.opacity(0.1),
+                        isSelected ? Color.accentColor : Color.primary.opacity(0.12),
                         lineWidth: isSelected ? 2 : 1
                     )
             )
         }
         .buttonStyle(.plain)
     }
+}
 
-    private var preview: some View {
-        ZStack(alignment: .topLeading) {
-            Color(nsColor: theme.background ?? .black)
+/// A labeled compact color well used by the theme creator grids.
+private struct NamedColorWell: View {
+    let label: String
+    @Binding var color: Color
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("$ ghostty --theme")
-                    .font(.system(size: 8, design: .monospaced))
-                    .foregroundStyle(Color(nsColor: theme.foreground ?? .white))
+    var body: some View {
+        VStack(spacing: 3) {
+            ColorPicker("", selection: $color, supportsOpacity: false)
+                .labelsHidden()
 
-                HStack(spacing: 3) {
-                    ForEach(Array(theme.previewColors.enumerated()), id: \.offset) { _, color in
-                        RoundedRectangle(cornerRadius: 1.5)
-                            .fill(Color(nsColor: color))
-                            .frame(width: 12, height: 8)
-                    }
-                }
-            }
-            .padding(8)
+            Text(label)
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
-        .frame(height: 56)
+        .frame(maxWidth: .infinity)
     }
 }
 
-/// Local theme editor: name, core colors and the 16 ANSI palette
-/// entries, saved as a theme file in the user themes directory.
-private struct ThemeCustomizerView: View {
+/// Inline theme creator: every color is labeled with what it applies to,
+/// grouped by terminal element. Lives at the bottom of the Appearance
+/// screen — no modal.
+private struct ThemeCreatorView: View {
     let ghostty: Ghostty.App
     @ObservedObject var store: GuiConfigStore
     @ObservedObject var catalog: ThemeCatalog
-
-    /// Starting point: an existing theme to copy values from, or nil for
-    /// a plain dark seed.
     let seed: TerminalTheme?
 
-    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var background = Color(nsColor: NSColor(hex: "#282a36")!)
+    @State private var foreground = Color(nsColor: NSColor(hex: "#f8f8f2")!)
+    @State private var cursor = Color(nsColor: NSColor(hex: "#f8f8f2")!)
+    @State private var selectionBackground = Color(nsColor: NSColor(hex: "#44475a")!)
+    @State private var palette: [Color] = Self.draculaPalette.map { Color(nsColor: $0) }
+    @State private var savedName: String?
 
-    @State private var name = "My Theme"
-    @State private var background = Color(nsColor: NSColor(hex: "#1d1f21")!)
-    @State private var foreground = Color(nsColor: NSColor(hex: "#c5c8c6")!)
-    @State private var cursor = Color(nsColor: NSColor(hex: "#c5c8c6")!)
-    @State private var selectionBackground = Color(nsColor: NSColor(hex: "#373b41")!)
-    @State private var palette: [Color] = Self.defaultPalette.map { Color(nsColor: $0) }
-
-    private static let defaultPalette: [NSColor] = [
-        "#282a2e", "#a54242", "#8c9440", "#de935f",
-        "#5f819d", "#85678f", "#5e8d87", "#707880",
-        "#373b41", "#cc6666", "#b5bd68", "#f0c674",
-        "#81a2be", "#b294bb", "#8abeb7", "#c5c8c6",
+    private static let draculaPalette: [NSColor] = [
+        "#21222c", "#ff5555", "#50fa7b", "#f1fa8c",
+        "#bd93f9", "#ff79c6", "#8be9fd", "#f8f8f2",
+        "#6272a4", "#ff6e6e", "#69ff94", "#ffffa5",
+        "#d6acff", "#ff92df", "#a4ffff", "#ffffff",
     ].map { NSColor(hex: $0)! }
 
-    private static let paletteLabels = [
-        "Black", "Red", "Green", "Yellow",
-        "Blue", "Magenta", "Cyan", "White",
-        "Bright Black", "Bright Red", "Bright Green", "Bright Yellow",
-        "Bright Blue", "Bright Magenta", "Bright Cyan", "Bright White",
+    private static let ansiNames = [
+        "Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White",
     ]
 
+    private let ansiColumns = Array(
+        repeating: GridItem(.flexible(), spacing: 6),
+        count: 8
+    )
+
     var body: some View {
-        VStack(spacing: 0) {
-            Form {
-                Section {
-                    LabeledContent("Name") {
-                        TextField("", text: $name, prompt: Text("My Theme"))
-                            .labelsHidden()
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Create Theme")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+
+                Spacer()
+
+                if let seed {
+                    Button("Start from \(seed.name)") { populate(from: seed) }
+                        .font(.caption)
+                }
+            }
+
+            HStack(spacing: 10) {
+                TextField("", text: $name, prompt: Text("Theme name"))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 220)
+
+                livePreview
+            }
+
+            colorGroup("Terminal") {
+                HStack(spacing: 14) {
+                    labeledWell("Background", $background)
+                    labeledWell("Text", $foreground)
+                    labeledWell("Cursor", $cursor)
+                    labeledWell("Selection", $selectionBackground)
+                    Spacer()
+                }
+            }
+
+            colorGroup("ANSI Colors") {
+                LazyVGrid(columns: ansiColumns, spacing: 6) {
+                    ForEach(0..<8, id: \.self) { index in
+                        NamedColorWell(label: Self.ansiNames[index], color: $palette[index])
                     }
                 }
+            }
 
-                Section("Colors") {
-                    ColorPicker("Background", selection: $background, supportsOpacity: false)
-                    ColorPicker("Foreground", selection: $foreground, supportsOpacity: false)
-                    ColorPicker("Cursor", selection: $cursor, supportsOpacity: false)
-                    ColorPicker("Selection", selection: $selectionBackground, supportsOpacity: false)
-                }
-
-                Section("ANSI Palette") {
-                    ForEach(0..<16, id: \.self) { index in
-                        ColorPicker(
-                            Self.paletteLabels[index],
-                            selection: $palette[index],
-                            supportsOpacity: false
+            colorGroup("ANSI Bright Colors") {
+                LazyVGrid(columns: ansiColumns, spacing: 6) {
+                    ForEach(8..<16, id: \.self) { index in
+                        NamedColorWell(
+                            label: Self.ansiNames[index - 8],
+                            color: $palette[index]
                         )
                     }
                 }
             }
-            .formStyle(.grouped)
-
-            Divider()
 
             HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-                Button("Save & Apply") {
-                    save()
-                    dismiss()
+                if let savedName {
+                    Label("Saved and applied: \(savedName)", systemImage: "checkmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                Spacer()
+
+                Button("Save & Apply") { save() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .padding(12)
         }
-        .frame(width: 380, height: 560)
-        .onAppear { populate() }
     }
 
-    private func populate() {
-        guard let seed else { return }
-        name = seed.source == .user ? seed.name : "\(seed.name) Custom"
-        if let value = seed.background { background = Color(nsColor: value) }
-        if let value = seed.foreground { foreground = Color(nsColor: value) }
-        if let value = seed.cursorColor { cursor = Color(nsColor: value) }
-        if let value = seed.selectionBackground { selectionBackground = Color(nsColor: value) }
+    private var livePreview: some View {
+        HStack(spacing: 4) {
+            Text("❯")
+                .foregroundStyle(palette[2])
+            Text("echo hello")
+                .foregroundStyle(foreground)
+            Rectangle()
+                .fill(cursor)
+                .frame(width: 6, height: 12)
+        }
+        .font(.system(size: 10, design: .monospaced))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(background)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+        )
+    }
+
+    private func colorGroup<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+            content()
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        )
+    }
+
+    private func labeledWell(_ label: String, _ binding: Binding<Color>) -> some View {
+        HStack(spacing: 6) {
+            ColorPicker("", selection: binding, supportsOpacity: false)
+                .labelsHidden()
+            Text(label)
+                .font(.system(size: 11))
+        }
+    }
+
+    private func populate(from theme: TerminalTheme) {
+        name = theme.source == .user ? theme.name : "\(theme.name) Custom"
+        if let value = theme.background { background = Color(nsColor: value) }
+        if let value = theme.foreground { foreground = Color(nsColor: value) }
+        if let value = theme.cursorColor { cursor = Color(nsColor: value) }
+        if let value = theme.selectionBackground { selectionBackground = Color(nsColor: value) }
         for index in 0..<16 {
-            if let value = seed.palette[index] { palette[index] = Color(nsColor: value) }
+            if let value = theme.palette[index] { palette[index] = Color(nsColor: value) }
         }
     }
 
@@ -332,6 +467,7 @@ private struct ThemeCustomizerView: View {
         store.set("theme", trimmedName)
         store.apply(ghostty: ghostty)
         catalog.reload()
+        savedName = trimmedName
     }
 
     private func hex(_ color: Color) -> String {

@@ -16,6 +16,7 @@ final class SidebarTabManager: ObservableObject {
         let surfaceId: UUID?
         let isSelected: Bool
         let needsAttention: Bool
+        let gitBranch: String?
         unowned let window: NSWindow
 
         var directoryName: String? {
@@ -30,6 +31,7 @@ final class SidebarTabManager: ObservableObject {
                 && lhs.surfaceId == rhs.surfaceId
                 && lhs.isSelected == rhs.isSelected
                 && lhs.needsAttention == rhs.needsAttention
+                && lhs.gitBranch == rhs.gitBranch
         }
     }
 
@@ -41,13 +43,26 @@ final class SidebarTabManager: ObservableObject {
     private var attentionWindows: Set<ObjectIdentifier> = []
     private var pendingRefresh = false
 
+    /// Git branches change without any pwd/title event (e.g. `git
+    /// checkout`), so a slow timer keeps them fresh. Reading HEAD is a
+    /// few bytes per tab; the cost is negligible.
+    private var gitRefreshTimer: Timer?
+
     init(window: NSWindow) {
         self.window = window
         setupObservers()
         refresh()
+
+        gitRefreshTimer = Timer.scheduledTimer(
+            withTimeInterval: 5,
+            repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.refresh() }
+        }
     }
 
     deinit {
+        gitRefreshTimer?.invalidate()
         notificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
@@ -132,6 +147,7 @@ final class SidebarTabManager: ObservableObject {
                 surfaceId: surface?.id,
                 isSelected: isSelected,
                 needsAttention: attentionWindows.contains(identifier),
+                gitBranch: Self.gitBranch(for: surface?.pwd),
                 window: tabWindow
             )
         }
@@ -156,5 +172,48 @@ final class SidebarTabManager: ObservableObject {
     /// Activates the given tab (window) within the group.
     func select(_ item: TabItem) {
         item.window.makeKeyAndOrderFront(nil)
+    }
+
+    /// Resolves the git branch for a working directory by walking up to
+    /// the repository and reading `HEAD` directly — no git execution.
+    /// Worktrees (a `.git` file pointing at the real git dir) are
+    /// followed; a detached HEAD shows the short commit hash.
+    nonisolated static func gitBranch(for pwd: String?) -> String? {
+        guard let pwd, !pwd.isEmpty else { return nil }
+        let fm = FileManager.default
+        var dir = URL(fileURLWithPath: pwd)
+
+        for _ in 0..<16 {
+            let gitURL = dir.appendingPathComponent(".git")
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: gitURL.path, isDirectory: &isDir) {
+                let headURL: URL
+                if isDir.boolValue {
+                    headURL = gitURL.appendingPathComponent("HEAD")
+                } else {
+                    guard let content = try? String(contentsOf: gitURL, encoding: .utf8),
+                          content.hasPrefix("gitdir:")
+                    else { return nil }
+                    let path = content.dropFirst("gitdir:".count)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    let gitDir = path.hasPrefix("/")
+                        ? URL(fileURLWithPath: path)
+                        : dir.appendingPathComponent(path)
+                    headURL = gitDir.appendingPathComponent("HEAD")
+                }
+
+                guard let head = try? String(contentsOf: headURL, encoding: .utf8)
+                else { return nil }
+                let trimmed = head.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.hasPrefix("ref: refs/heads/") {
+                    return String(trimmed.dropFirst("ref: refs/heads/".count))
+                }
+                return String(trimmed.prefix(7))
+            }
+
+            if dir.path == "/" { break }
+            dir.deleteLastPathComponent()
+        }
+        return nil
     }
 }
