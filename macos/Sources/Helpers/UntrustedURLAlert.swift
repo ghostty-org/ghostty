@@ -18,6 +18,7 @@ enum UntrustedURLAlert {
             and trust the destination.
             """
             alert.addButton(withTitle: "Cancel")
+                .keyEquivalent = "\r"
 
             alert.addButton(withTitle: "Open Link")
 
