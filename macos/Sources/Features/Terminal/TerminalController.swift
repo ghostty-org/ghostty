@@ -77,8 +77,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private var sidebarCollapsedConstraint: NSLayoutConstraint?
 
     /// The titlebar accessory hosting the sidebar action icons; its width
-    /// tracks the sidebar so the icons hug the divider.
-    private var sidebarChromeWidthConstraint: NSLayoutConstraint?
+    /// tracks the sidebar so the icons hug the divider. Kept so it can be
+    /// re-attached when appearance syncs rebuild the titlebar.
+    private var sidebarChromeAccessory: NSTitlebarAccessoryViewController?
 
     /// The config fallback width used before any user drag is persisted.
     private var sidebarDefaultWidth: CGFloat = 240
@@ -636,6 +637,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // currently focused surface.
         guard let focusedSurface else { return }
         syncAppearance(focusedSurface.derivedConfig)
+
+        // Appearance syncs can rebuild titlebar contents (e.g. after a
+        // theme change); make sure the sidebar's titlebar UI survives.
+        if sidebarChromeAccessory != nil {
+            DispatchQueue.main.async { [weak self] in
+                self?.syncSidebarChromeWidth()
+                (self?.window as? TerminalWindow)?.ensureSidebarTitlebarDecorations()
+            }
+        }
     }
 
     private func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
@@ -1200,14 +1210,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             store: .shared,
             layout: layout
         ))
-        chromeHosting.translatesAutoresizingMaskIntoConstraints = false
-        let chromeWidth = chromeHosting.widthAnchor.constraint(equalToConstant: 160)
-        chromeWidth.isActive = true
-        self.sidebarChromeWidthConstraint = chromeWidth
+        chromeHosting.frame = NSRect(x: 0, y: 0, width: 160, height: 26)
 
         let chromeAccessory = NSTitlebarAccessoryViewController()
         chromeAccessory.view = chromeHosting
         chromeAccessory.layoutAttribute = .leading
+        self.sidebarChromeAccessory = chromeAccessory
         window.addTitlebarAccessoryViewController(chromeAccessory)
 
         sidebarLayoutCancellable = layout.$isCollapsed
@@ -1314,21 +1322,28 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// Sizes the titlebar chrome so its trailing icons sit at the
     /// sidebar's right edge: sidebar width minus the traffic-light zone
-    /// the leading accessory is laid out after.
+    /// the leading accessory is laid out after. Also re-attaches the
+    /// accessory when a titlebar rebuild (theme change, appearance sync)
+    /// has dropped it.
     private func syncSidebarChromeWidth() {
-        guard let constraint = sidebarChromeWidthConstraint else { return }
+        guard let accessory = sidebarChromeAccessory, let window else { return }
 
-        let trafficLightsInset = window?.standardWindowButton(.zoomButton)
-            .map { $0.frame.maxX + 6 } ?? 78
-
-        if sidebarLayout?.isCollapsed == true {
-            constraint.constant = 34
-            return
+        if !window.titlebarAccessoryViewControllers.contains(accessory) {
+            window.addTitlebarAccessoryViewController(accessory)
         }
 
-        let sidebarWidth = sidebarSplitView?.arrangedSubviews.first?.frame.width
-            ?? sharedSidebarWidth
-        constraint.constant = max(34, sidebarWidth - trafficLightsInset)
+        let trafficLightsInset = window.standardWindowButton(.zoomButton)
+            .map { $0.frame.maxX + 6 } ?? 78
+
+        let width: CGFloat
+        if sidebarLayout?.isCollapsed == true {
+            width = 34
+        } else {
+            let sidebarWidth = sidebarSplitView?.arrangedSubviews.first?.frame.width
+                ?? sharedSidebarWidth
+            width = max(34, sidebarWidth - trafficLightsInset)
+        }
+        accessory.view.setFrameSize(NSSize(width: width, height: 26))
     }
 
     // MARK: NSSplitViewDelegate

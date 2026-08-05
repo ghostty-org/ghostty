@@ -58,11 +58,12 @@ final class SidebarGroupStore: ObservableObject {
 
     func createGroup(
         name: String,
+        details: String? = nil,
         icon: String = "folder",
         color: TerminalTabColor = .none,
         kind: SidebarGroup.Kind = .manual
     ) -> SidebarGroup {
-        let group = SidebarGroup(name: name, icon: icon, color: color, kind: kind)
+        let group = SidebarGroup(name: name, details: details, icon: icon, color: color, kind: kind)
         groups.append(group)
         scheduleSave()
         return group

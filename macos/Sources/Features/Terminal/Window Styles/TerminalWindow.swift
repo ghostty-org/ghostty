@@ -112,6 +112,19 @@ class TerminalWindow: NSWindow {
         titleVisibility = .visible
     }
 
+    /// Re-applies the sidebar's titlebar decorations after appearance
+    /// syncs that rebuild titlebar contents.
+    func ensureSidebarTitlebarDecorations() {
+        guard sidebarActive else { return }
+        titleVisibility = .hidden
+        if let field = centeredTitleField, field.superview == nil {
+            removeCenteredTitle()
+        }
+        if centeredTitleField == nil {
+            installCenteredTitle()
+        }
+    }
+
     /// Glass effect view for liquid glass background when transparency is enabled
     private var glassEffectView: NSView?
 

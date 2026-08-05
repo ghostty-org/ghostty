@@ -1,11 +1,21 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// The single active drop-insertion target for the whole sidebar. One
+/// shared instance (instead of per-row state) means a missed dropExited
+/// can never leave a stale insertion indicator behind: the next
+/// dropUpdated anywhere replaces it, and every performDrop clears it.
+final class SidebarDragState: ObservableObject {
+    @Published var target: (row: ObjectIdentifier, after: Bool)?
+}
+
 /// The vertical tab sidebar: tabs grouped into user-defined sections.
 struct SidebarView: View {
     @ObservedObject var tabManager: SidebarTabManager
     @ObservedObject var store: SidebarGroupStore
     @ObservedObject var layout: SidebarLayoutModel
+
+    @StateObject private var dragState = SidebarDragState()
 
     /// Creates a terminal tab inside the given group (nil for ungrouped),
     /// following the group's working-directory rule.
@@ -59,6 +69,7 @@ struct SidebarView: View {
                             tabs: section.tabs,
                             tabManager: tabManager,
                             store: store,
+                            dragState: dragState,
                             onNewTab: onNewTabInGroup
                         )
                     }
@@ -69,7 +80,8 @@ struct SidebarView: View {
                                 tab: tab,
                                 groupId: nil,
                                 tabManager: tabManager,
-                                store: store
+                                store: store,
+                                dragState: dragState
                             )
                         }
                     }
@@ -86,6 +98,7 @@ struct SidebarView: View {
     /// groups move to the end of the group list.
     private func appendDroppedToUngrouped(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
+        dragState.target = nil
         let lastUngrouped = resolved.ungrouped.last?.surfaceId
         _ = provider.loadObject(ofClass: NSString.self) { object, _ in
             guard let string = object as? String else { return }
@@ -177,6 +190,7 @@ private struct SidebarGroupSection: View {
     let tabs: [SidebarTabManager.TabItem]
     let tabManager: SidebarTabManager
     @ObservedObject var store: SidebarGroupStore
+    let dragState: SidebarDragState
     var onNewTab: (SidebarGroup?) -> Void = { _ in }
 
     @State private var isDropTarget = false
@@ -197,7 +211,8 @@ private struct SidebarGroupSection: View {
                             tab: tab,
                             groupId: group.id,
                             tabManager: tabManager,
-                            store: store
+                            store: store,
+                            dragState: dragState
                         )
                     }
                     if tabs.isEmpty {
@@ -254,9 +269,18 @@ private struct SidebarGroupSection: View {
                     .frame(width: 6, height: 6)
             }
 
-            Text(group.name)
-                .font(.system(size: 11, weight: .semibold))
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(group.name)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+
+                if let details = group.details, !details.isEmpty {
+                    Text(details)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
 
             Spacer(minLength: 0)
 
@@ -333,6 +357,7 @@ private struct SidebarGroupSection: View {
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
         let targetGroupId = group.id
+        dragState.target = nil
         _ = provider.loadObject(ofClass: NSString.self) { object, _ in
             guard let string = object as? String else { return }
             Task { @MainActor in
@@ -375,20 +400,22 @@ private struct TabRowDropDelegate: DropDelegate {
     let target: SidebarTabManager.TabItem
     let groupId: UUID?
     let store: SidebarGroupStore
-    @Binding var insertAfter: Bool?
+    let dragState: SidebarDragState
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        insertAfter = info.location.y > 18
+        dragState.target = (row: target.id, after: info.location.y > 18)
         return DropProposal(operation: .move)
     }
 
     func dropExited(info: DropInfo) {
-        insertAfter = nil
+        if dragState.target?.row == target.id {
+            dragState.target = nil
+        }
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        let after = insertAfter ?? true
-        insertAfter = nil
+        let after = dragState.target?.after ?? true
+        dragState.target = nil
 
         guard let provider = info.itemProviders(for: [.plainText]).first,
               let targetId = target.surfaceId
@@ -426,10 +453,15 @@ private struct SidebarTabRow: View {
     let groupId: UUID?
     let tabManager: SidebarTabManager
     @ObservedObject var store: SidebarGroupStore
+    @ObservedObject var dragState: SidebarDragState
 
     @State private var isHovered = false
     @State private var isCreatingGroup = false
-    @State private var insertAfter: Bool? = nil
+
+    private var insertAfter: Bool? {
+        guard dragState.target?.row == tab.id else { return nil }
+        return dragState.target?.after
+    }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -472,7 +504,7 @@ private struct SidebarTabRow: View {
                 target: tab,
                 groupId: groupId,
                 store: store,
-                insertAfter: $insertAfter
+                dragState: dragState
             )
         )
         .overlay(alignment: .top) {
@@ -661,6 +693,7 @@ private struct SidebarGroupEditor: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var name: String = ""
+    @State private var details: String = ""
     @State private var icon: String = "folder"
     @State private var color: TerminalTabColor = .none
     @State private var isProject: Bool = false
@@ -672,6 +705,13 @@ private struct SidebarGroupEditor: View {
                 Section {
                     LabeledContent("Name") {
                         TextField("", text: $name, prompt: Text("Group name"))
+                            .labelsHidden()
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    LabeledContent("Description") {
+                        TextField("", text: $details, prompt: Text("Optional"))
                             .labelsHidden()
                             .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -750,13 +790,14 @@ private struct SidebarGroupEditor: View {
             }
             .padding(12)
         }
-        .frame(width: 330, height: 470)
+        .frame(width: 330, height: 505)
         .onAppear { populate() }
     }
 
     private func populate() {
         guard let group else { return }
         name = group.name
+        details = group.details ?? ""
         icon = group.icon
         color = group.color
         if case .project(let root) = group.kind {
@@ -787,15 +828,24 @@ private struct SidebarGroupEditor: View {
             ? .project(root: projectRoot)
             : .manual
 
+        let trimmedDetails = details.trimmingCharacters(in: .whitespaces)
+
         if let group {
             store.update(group.id) {
                 $0.name = name
+                $0.details = trimmedDetails.isEmpty ? nil : trimmedDetails
                 $0.icon = icon
                 $0.color = color
                 $0.kind = kind
             }
         } else {
-            let created = store.createGroup(name: name, icon: icon, color: color, kind: kind)
+            let created = store.createGroup(
+                name: name,
+                details: trimmedDetails.isEmpty ? nil : trimmedDetails,
+                icon: icon,
+                color: color,
+                kind: kind
+            )
             if let assignSurfaceId {
                 store.assign(surfaceId: assignSurfaceId, to: created.id)
             }

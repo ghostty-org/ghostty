@@ -19,6 +19,9 @@ struct SidebarGroup: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
 
+    /// Optional secondary line rendered under the name in the header.
+    var details: String?
+
     /// A single emoji or an SF Symbol name. `SidebarGroupIcon` resolves
     /// which of the two it is at render time.
     var icon: String
@@ -30,6 +33,7 @@ struct SidebarGroup: Identifiable, Codable, Equatable {
     init(
         id: UUID = UUID(),
         name: String,
+        details: String? = nil,
         icon: String = "folder",
         color: TerminalTabColor = .none,
         collapsed: Bool = false,
@@ -37,6 +41,7 @@ struct SidebarGroup: Identifiable, Codable, Equatable {
     ) {
         self.id = id
         self.name = name
+        self.details = details
         self.icon = icon
         self.color = color
         self.collapsed = collapsed
