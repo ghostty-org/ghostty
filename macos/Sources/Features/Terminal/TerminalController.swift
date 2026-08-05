@@ -68,6 +68,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// across all windows in the tab group.
     private var sidebarSplitView: NSSplitView?
 
+    /// Layout state shared with the sidebar view (collapse, actions).
+    private var sidebarLayout: SidebarLayoutModel?
+    private var sidebarLayoutCancellable: AnyCancellable?
+
+    /// Width constraints swapped when the sidebar collapses.
+    private var sidebarExpandedConstraints: [NSLayoutConstraint] = []
+    private var sidebarCollapsedConstraint: NSLayoutConstraint?
+
+    /// The titlebar accessory hosting the sidebar action icons; its width
+    /// tracks the sidebar so the icons hug the divider.
+    private var sidebarChromeWidthConstraint: NSLayoutConstraint?
+
     /// The config fallback width used before any user drag is persisted.
     private var sidebarDefaultWidth: CGFloat = 240
 
@@ -1158,13 +1170,68 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let tabManager = SidebarTabManager(window: window)
         self.sidebarTabManager = tabManager
 
+        let layout = SidebarLayoutModel()
+        layout.onNewTab = { [weak self] in
+            guard let self, let window = self.window else { return }
+            _ = Self.newTab(self.ghostty, from: window)
+        }
+        self.sidebarLayout = layout
+
         let sidebarHosting = NSHostingView(rootView: SidebarView(
             tabManager: tabManager,
-            store: .shared
+            store: .shared,
+            layout: layout,
+            onNewTabInGroup: { [weak self] group in
+                self?.newSidebarTab(in: group)
+            }
         ))
         sidebarHosting.translatesAutoresizingMaskIntoConstraints = false
-        sidebarHosting.widthAnchor.constraint(greaterThanOrEqualToConstant: 180).isActive = true
-        sidebarHosting.widthAnchor.constraint(lessThanOrEqualToConstant: 480).isActive = true
+
+        let expanded = [
+            sidebarHosting.widthAnchor.constraint(greaterThanOrEqualToConstant: 180),
+            sidebarHosting.widthAnchor.constraint(lessThanOrEqualToConstant: 480),
+        ]
+        NSLayoutConstraint.activate(expanded)
+        self.sidebarExpandedConstraints = expanded
+        self.sidebarCollapsedConstraint =
+            sidebarHosting.widthAnchor.constraint(equalToConstant: 0)
+
+        let chromeHosting = NSHostingView(rootView: SidebarTitlebarChrome(
+            store: .shared,
+            layout: layout
+        ))
+        chromeHosting.translatesAutoresizingMaskIntoConstraints = false
+        let chromeWidth = chromeHosting.widthAnchor.constraint(equalToConstant: 160)
+        chromeWidth.isActive = true
+        self.sidebarChromeWidthConstraint = chromeWidth
+
+        let chromeAccessory = NSTitlebarAccessoryViewController()
+        chromeAccessory.view = chromeHosting
+        chromeAccessory.layoutAttribute = .leading
+        window.addTitlebarAccessoryViewController(chromeAccessory)
+
+        sidebarLayoutCancellable = layout.$isCollapsed
+            .removeDuplicates()
+            .sink { [weak self] collapsed in
+                guard let self else { return }
+                if collapsed {
+                    NSLayoutConstraint.deactivate(self.sidebarExpandedConstraints)
+                    self.sidebarCollapsedConstraint?.isActive = true
+                } else {
+                    self.sidebarCollapsedConstraint?.isActive = false
+                    NSLayoutConstraint.activate(self.sidebarExpandedConstraints)
+                    DispatchQueue.main.async { [weak self] in
+                        self?.applySharedSidebarWidth()
+                    }
+                }
+                DispatchQueue.main.async { [weak self] in
+                    self?.syncSidebarChromeWidth()
+                }
+            }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.syncSidebarChromeWidth()
+        }
 
         let splitView = NSSplitView()
         splitView.isVertical = true
@@ -1192,6 +1259,36 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return splitView
     }
 
+    /// Creates a terminal tab that starts inside the given group.
+    ///
+    /// Working directory rule: project groups start at the project root;
+    /// manual groups (and the ungrouped section) start at the pwd of the
+    /// currently selected tab. The new surface is pinned to the group so
+    /// later `cd`s never move it out.
+    private func newSidebarTab(in group: SidebarGroup?) {
+        guard let window else { return }
+
+        var baseConfig = Ghostty.SurfaceConfiguration()
+        if case .project(let root) = group?.kind {
+            baseConfig.workingDirectory = (root as NSString).expandingTildeInPath
+        } else if let selected = sidebarTabManager?.tabs.first(where: \.isSelected),
+                  let pwd = selected.pwd, !pwd.isEmpty {
+            baseConfig.workingDirectory = pwd
+        }
+
+        guard let controller = Self.newTab(ghostty, from: window, withBaseConfig: baseConfig)
+        else { return }
+
+        guard let group else { return }
+        DispatchQueue.main.async {
+            guard let surface = controller.focusedSurface
+                ?? controller.surfaceTree.root?.leftmostLeaf()
+            else { return }
+            SidebarGroupStore.shared.assign(surfaceId: surface.id, to: group.id)
+            self.sidebarTabManager?.scheduleRefresh()
+        }
+    }
+
     /// The app-wide sidebar width: last width the user dragged to in any
     /// window, falling back to the config value.
     private var sharedSidebarWidth: CGFloat {
@@ -1209,14 +1306,36 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let splitView = sidebarSplitView,
               let sidebar = splitView.arrangedSubviews.first
         else { return }
+        defer { syncSidebarChromeWidth() }
         let target = sharedSidebarWidth
         guard abs(sidebar.frame.width - target) > 0.5 else { return }
         splitView.setPosition(target, ofDividerAt: 0)
     }
 
+    /// Sizes the titlebar chrome so its trailing icons sit at the
+    /// sidebar's right edge: sidebar width minus the traffic-light zone
+    /// the leading accessory is laid out after.
+    private func syncSidebarChromeWidth() {
+        guard let constraint = sidebarChromeWidthConstraint else { return }
+
+        let trafficLightsInset = window?.standardWindowButton(.zoomButton)
+            .map { $0.frame.maxX + 6 } ?? 78
+
+        if sidebarLayout?.isCollapsed == true {
+            constraint.constant = 34
+            return
+        }
+
+        let sidebarWidth = sidebarSplitView?.arrangedSubviews.first?.frame.width
+            ?? sharedSidebarWidth
+        constraint.constant = max(34, sidebarWidth - trafficLightsInset)
+    }
+
     // MARK: NSSplitViewDelegate
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
+        syncSidebarChromeWidth()
+
         guard let splitView = sidebarSplitView,
               window?.isKeyWindow == true,
               let width = splitView.arrangedSubviews.first?.frame.width,

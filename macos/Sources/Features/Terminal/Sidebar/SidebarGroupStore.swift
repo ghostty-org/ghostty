@@ -21,10 +21,15 @@ final class SidebarGroupStore: ObservableObject {
     private struct State: Codable {
         var groups: [SidebarGroup]
         var assignments: [UUID: Assignment]
+        var tabOrder: [UUID]?
     }
 
     @Published private(set) var groups: [SidebarGroup] = []
     @Published private(set) var assignments: [UUID: Assignment] = [:]
+
+    /// Display order of tabs in the sidebar, by surface id. Tabs not in
+    /// the list sort after ordered ones, in native tab-group order.
+    @Published private(set) var tabOrder: [UUID] = []
 
     private let fileURL: URL
     private var saveTask: Task<Void, Never>?
@@ -82,6 +87,17 @@ final class SidebarGroupStore: ObservableObject {
         scheduleSave()
     }
 
+    /// Moves a group to another group's position (drag-and-drop reorder).
+    func moveGroup(_ id: UUID, before targetId: UUID) {
+        guard id != targetId,
+              let from = groups.firstIndex(where: { $0.id == id })
+        else { return }
+        let group = groups.remove(at: from)
+        let to = groups.firstIndex(where: { $0.id == targetId }) ?? groups.count
+        groups.insert(group, at: to)
+        scheduleSave()
+    }
+
     func toggleCollapsed(_ id: UUID) {
         update(id) { $0.collapsed.toggle() }
     }
@@ -91,6 +107,42 @@ final class SidebarGroupStore: ObservableObject {
     func assign(surfaceId: UUID, to groupId: UUID?) {
         assignments[surfaceId] = Assignment(groupId: groupId, assignedAt: Date())
         scheduleSave()
+    }
+
+    /// Moves a tab next to another tab (drag-and-drop reorder), also
+    /// adopting the target's group so a single drop both repositions
+    /// and regroups.
+    func insert(surfaceId: UUID, near targetSurfaceId: UUID, after: Bool, groupId: UUID?) {
+        guard surfaceId != targetSurfaceId else { return }
+
+        assign(surfaceId: surfaceId, to: groupId)
+
+        var order = tabOrder.filter { $0 != surfaceId }
+        if !order.contains(targetSurfaceId) {
+            order.append(targetSurfaceId)
+        }
+        let targetIndex = order.firstIndex(of: targetSurfaceId)!
+        order.insert(surfaceId, at: after ? targetIndex + 1 : targetIndex)
+        tabOrder = order
+        scheduleSave()
+    }
+
+    /// Sorts tabs by the persisted sidebar order; unknown tabs keep
+    /// their native relative order after the ordered ones.
+    func sorted<T>(_ tabs: [T], id: (T) -> UUID?) -> [T] {
+        let indexById = Dictionary(
+            uniqueKeysWithValues: tabOrder.enumerated().map { ($1, $0) }
+        )
+        return tabs.enumerated().sorted { lhs, rhs in
+            let lo = id(lhs.element).flatMap { indexById[$0] }
+            let ro = id(rhs.element).flatMap { indexById[$0] }
+            switch (lo, ro) {
+            case let (l?, r?): return l < r
+            case (_?, nil): return true
+            case (nil, _?): return false
+            case (nil, nil): return lhs.offset < rhs.offset
+            }
+        }.map(\.element)
     }
 
     func unassign(surfaceId: UUID) {
@@ -121,6 +173,7 @@ final class SidebarGroupStore: ObservableObject {
         let cutoff = Date().addingTimeInterval(-Self.assignmentMaxAge)
         groups = state.groups
         assignments = state.assignments.filter { $0.value.assignedAt > cutoff }
+        tabOrder = Array((state.tabOrder ?? []).suffix(300))
     }
 
     private func scheduleSave() {
@@ -133,7 +186,7 @@ final class SidebarGroupStore: ObservableObject {
     }
 
     private func saveNow() {
-        let state = State(groups: groups, assignments: assignments)
+        let state = State(groups: groups, assignments: assignments, tabOrder: tabOrder)
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),

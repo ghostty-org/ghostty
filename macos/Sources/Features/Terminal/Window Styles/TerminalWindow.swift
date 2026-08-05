@@ -51,14 +51,65 @@ class TerminalWindow: NSWindow {
     }
 
     /// When true, the sidebar replaces the native tab bar as the tab UI:
-    /// any tab bar accessory AppKit attaches is immediately hidden.
+    /// any tab bar accessory AppKit attaches is immediately hidden and
+    /// the window title is re-rendered centered in the titlebar (the
+    /// standard leading title reads wrong next to a full-height sidebar).
     var sidebarActive: Bool = false {
         didSet {
             guard sidebarActive != oldValue else { return }
             for accessory in titlebarAccessoryViewControllers where isTabBar(accessory) {
                 accessory.isHidden = sidebarActive
             }
+            if sidebarActive {
+                installCenteredTitle()
+            } else {
+                removeCenteredTitle()
+            }
         }
+    }
+
+    // MARK: Centered Title
+
+    private var centeredTitleField: NSTextField?
+    private var centeredTitleObservation: NSKeyValueObservation?
+
+    private func installCenteredTitle() {
+        guard centeredTitleField == nil,
+              let titlebar = standardWindowButton(.closeButton)?.superview
+        else { return }
+
+        titleVisibility = .hidden
+
+        let field = NSTextField(labelWithString: title)
+        field.font = .titleBarFont(ofSize: NSFont.systemFontSize)
+        field.textColor = .secondaryLabelColor
+        field.alignment = .center
+        field.lineBreakMode = .byTruncatingMiddle
+        field.translatesAutoresizingMaskIntoConstraints = false
+        titlebar.addSubview(field)
+
+        NSLayoutConstraint.activate([
+            field.centerXAnchor.constraint(equalTo: titlebar.centerXAnchor),
+            field.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor),
+            field.widthAnchor.constraint(
+                lessThanOrEqualTo: titlebar.widthAnchor,
+                multiplier: 0.6
+            ),
+        ])
+
+        centeredTitleField = field
+        centeredTitleObservation = observe(\.title, options: [.new]) { [weak field] _, change in
+            guard let newTitle = change.newValue else { return }
+            DispatchQueue.main.async { field?.stringValue = newTitle }
+        }
+    }
+
+    private func removeCenteredTitle() {
+        centeredTitleObservation?.invalidate()
+        centeredTitleObservation = nil
+        centeredTitleField?.removeFromSuperview()
+        centeredTitleField = nil
+        titleVisibility = .visible
     }
 
     /// Glass effect view for liquid glass background when transparency is enabled

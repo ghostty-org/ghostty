@@ -5,17 +5,22 @@ import UniformTypeIdentifiers
 struct SidebarView: View {
     @ObservedObject var tabManager: SidebarTabManager
     @ObservedObject var store: SidebarGroupStore
+    @ObservedObject var layout: SidebarLayoutModel
 
-    /// One rendered section: a group (nil for the default section) and
-    /// the tabs resolved into it.
+    /// Creates a terminal tab inside the given group (nil for ungrouped),
+    /// following the group's working-directory rule.
+    var onNewTabInGroup: (SidebarGroup?) -> Void = { _ in }
+
+    /// One rendered group section and the tabs resolved into it, in
+    /// sidebar display order.
     private struct Section: Identifiable {
-        let group: SidebarGroup?
+        let group: SidebarGroup
         let tabs: [SidebarTabManager.TabItem]
 
-        var id: UUID { group?.id ?? UUID(uuidString: "00000000-0000-0000-0000-000000000000")! }
+        var id: UUID { group.id }
     }
 
-    private var sections: [Section] {
+    private var resolved: (sections: [Section], ungrouped: [SidebarTabManager.TabItem]) {
         var byGroup: [UUID: [SidebarTabManager.TabItem]] = [:]
         var ungrouped: [SidebarTabManager.TabItem] = []
 
@@ -27,51 +32,159 @@ struct SidebarView: View {
             }
         }
 
-        var result = store.groups.map { Section(group: $0, tabs: byGroup[$0.id] ?? []) }
-        if !ungrouped.isEmpty || result.isEmpty {
-            result.append(Section(group: nil, tabs: ungrouped))
+        let sections = store.groups.map { group in
+            Section(
+                group: group,
+                tabs: store.sorted(byGroup[group.id] ?? [], id: \.surfaceId)
+            )
         }
-        return result
+        return (sections, store.sorted(ungrouped, id: \.surfaceId))
     }
 
     var body: some View {
+        expanded
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.ultraThinMaterial)
+    }
+
+    private var expanded: some View {
         VStack(spacing: 0) {
             ScrollView {
+                let content = resolved
+
                 LazyVStack(spacing: 8) {
-                    ForEach(sections) { section in
+                    ForEach(content.sections) { section in
                         SidebarGroupSection(
                             group: section.group,
                             tabs: section.tabs,
                             tabManager: tabManager,
-                            store: store
+                            store: store,
+                            onNewTab: onNewTabInGroup
                         )
+                    }
+
+                    VStack(spacing: 2) {
+                        ForEach(content.ungrouped) { tab in
+                            SidebarTabRow(
+                                tab: tab,
+                                groupId: nil,
+                                tabManager: tabManager,
+                                store: store
+                            )
+                        }
                     }
                 }
                 .padding(8)
             }
-
-            Divider()
-
-            SidebarFooter(store: store)
+            .onDrop(of: [.plainText], isTargeted: nil) { providers in
+                appendDroppedToUngrouped(providers)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.ultraThinMaterial)
+    }
+
+    /// Drop on the list background: tabs move to the end ungrouped,
+    /// groups move to the end of the group list.
+    private func appendDroppedToUngrouped(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        let lastUngrouped = resolved.ungrouped.last?.surfaceId
+        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let string = object as? String else { return }
+            Task { @MainActor in
+                switch SidebarDragPayload(string) {
+                case .tab(let surfaceId):
+                    if let lastUngrouped, lastUngrouped != surfaceId {
+                        store.insert(surfaceId: surfaceId, near: lastUngrouped, after: true, groupId: nil)
+                    } else {
+                        store.assign(surfaceId: surfaceId, to: nil)
+                    }
+                case .group(let movedId):
+                    store.moveGroup(movedId, toIndex: store.groups.count)
+                case nil:
+                    break
+                }
+            }
+        }
+        return true
+    }
+
+}
+
+/// The sidebar action icons rendered inside the window titlebar (as a
+/// leading titlebar accessory), trailing-aligned so they hug the
+/// sidebar's edge like a native toolbar.
+struct SidebarTitlebarChrome: View {
+    @ObservedObject var store: SidebarGroupStore
+    @ObservedObject var layout: SidebarLayoutModel
+
+    @State private var isCreatingGroup = false
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Spacer(minLength: 0)
+
+            if !layout.isCollapsed {
+                SidebarChromeButton(icon: "plus", help: "New Terminal") {
+                    layout.onNewTab()
+                }
+                SidebarChromeButton(icon: "folder.badge.plus", help: "New Group") {
+                    isCreatingGroup = true
+                }
+                .popover(isPresented: $isCreatingGroup) {
+                    SidebarGroupEditor(group: nil, store: store)
+                }
+            }
+
+            SidebarChromeButton(
+                icon: "sidebar.left",
+                help: layout.isCollapsed ? "Show Sidebar" : "Hide Sidebar"
+            ) {
+                layout.isCollapsed.toggle()
+            }
+        }
+        .padding(.trailing, 6)
+    }
+}
+
+/// A small borderless icon button for the sidebar chrome row.
+private struct SidebarChromeButton: View {
+    let icon: String
+    let help: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 22)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(isHovered ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(help)
     }
 }
 
 /// A group block: tinted header with icon, name and color dot, a colored
 /// border around the whole block, and the tab rows when expanded.
 private struct SidebarGroupSection: View {
-    let group: SidebarGroup?
+    let group: SidebarGroup
     let tabs: [SidebarTabManager.TabItem]
     let tabManager: SidebarTabManager
     @ObservedObject var store: SidebarGroupStore
+    var onNewTab: (SidebarGroup?) -> Void = { _ in }
 
     @State private var isDropTarget = false
     @State private var isEditing = false
+    @State private var isHeaderHovered = false
 
-    private var accent: Color? { group?.color.sidebarAccent }
-    private var collapsed: Bool { group?.collapsed ?? false }
+    private var accent: Color? { group.color.sidebarAccent }
+    private var collapsed: Bool { group.collapsed }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -80,7 +193,12 @@ private struct SidebarGroupSection: View {
             if !collapsed {
                 VStack(spacing: 2) {
                     ForEach(tabs) { tab in
-                        SidebarTabRow(tab: tab, tabManager: tabManager, store: store)
+                        SidebarTabRow(
+                            tab: tab,
+                            groupId: group.id,
+                            tabManager: tabManager,
+                            store: store
+                        )
                     }
                     if tabs.isEmpty {
                         Text("No tabs")
@@ -95,7 +213,7 @@ private struct SidebarGroupSection: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill((accent ?? .secondary).opacity(group == nil ? 0 : 0.06))
+                .fill((accent ?? .secondary).opacity(0.06))
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
@@ -103,7 +221,7 @@ private struct SidebarGroupSection: View {
                 .strokeBorder(
                     isDropTarget
                         ? (accent ?? .accentColor)
-                        : (accent ?? .secondary).opacity(group == nil ? 0 : 0.35),
+                        : (accent ?? .secondary).opacity(0.35),
                     lineWidth: isDropTarget ? 2 : 1
                 )
         )
@@ -111,16 +229,14 @@ private struct SidebarGroupSection: View {
             handleDrop(providers)
         }
         .popover(isPresented: $isEditing) {
-            if let group {
-                SidebarGroupEditor(group: group, store: store)
-            }
+            SidebarGroupEditor(group: group, store: store)
         }
     }
 
     private var header: some View {
         HStack(spacing: 6) {
             Button {
-                if let group { store.toggleCollapsed(group.id) }
+                store.toggleCollapsed(group.id)
             } label: {
                 Image(systemName: collapsed ? "chevron.right" : "chevron.down")
                     .font(.system(size: 9, weight: .semibold))
@@ -128,10 +244,8 @@ private struct SidebarGroupSection: View {
                     .frame(width: 12)
             }
             .buttonStyle(.plain)
-            .opacity(group == nil ? 0 : 1)
-            .disabled(group == nil)
 
-            SidebarGroupIcon(icon: group?.icon ?? "square.stack")
+            SidebarGroupIcon(icon: group.icon)
                 .foregroundStyle(accent ?? Color.secondary)
 
             if let accent {
@@ -140,11 +254,24 @@ private struct SidebarGroupSection: View {
                     .frame(width: 6, height: 6)
             }
 
-            Text(group?.name ?? "Tabs")
+            Text(group.name)
                 .font(.system(size: 11, weight: .semibold))
                 .lineLimit(1)
 
             Spacer(minLength: 0)
+
+            Button {
+                onNewTab(group)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.plain)
+            .opacity(isHeaderHovered ? 1 : 0)
+            .allowsHitTesting(isHeaderHovered)
+            .help("New Terminal in Group")
 
             Text("\(tabs.count)")
                 .font(.system(size: 10, weight: .medium))
@@ -155,56 +282,138 @@ private struct SidebarGroupSection: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background((accent ?? .clear).opacity(group == nil ? 0 : 0.18))
+        .background((accent ?? .clear).opacity(0.18))
         .contentShape(Rectangle())
         .onTapGesture {
-            if let group { store.toggleCollapsed(group.id) }
+            store.toggleCollapsed(group.id)
+        }
+        .onHover { isHeaderHovered = $0 }
+        .onDrag {
+            NSItemProvider(object: "group:\(group.id.uuidString)" as NSString)
         }
         .contextMenu { groupMenu }
     }
 
     @ViewBuilder
     private var groupMenu: some View {
-        if let group {
-            Button("Edit Group…") { isEditing = true }
+        Button("New Terminal in Group") { onNewTab(group) }
 
-            Menu("Color") {
-                ForEach(TerminalTabColor.allCases, id: \.self) { color in
-                    Button {
-                        store.update(group.id) { $0.color = color }
-                    } label: {
-                        HStack {
-                            Text(color.localizedName)
-                            if group.color == color {
-                                Image(systemName: "checkmark")
-                            }
+        Divider()
+
+        Button("Edit Group…") { isEditing = true }
+
+        Menu("Color") {
+            ForEach(TerminalTabColor.allCases, id: \.self) { color in
+                Button {
+                    store.update(group.id) { $0.color = color }
+                } label: {
+                    HStack {
+                        Text(color.localizedName)
+                        if group.color == color {
+                            Image(systemName: "checkmark")
                         }
                     }
                 }
             }
+        }
 
-            Divider()
+        Divider()
 
-            Button(collapsed ? "Expand" : "Collapse") {
-                store.toggleCollapsed(group.id)
-            }
+        Button(collapsed ? "Expand" : "Collapse") {
+            store.toggleCollapsed(group.id)
+        }
 
-            Divider()
+        Divider()
 
-            Button("Delete Group", role: .destructive) {
-                store.deleteGroup(group.id)
-            }
+        Button("Delete Group", role: .destructive) {
+            store.deleteGroup(group.id)
         }
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
+        let targetGroupId = group.id
         _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-            guard let string = object as? String,
-                  let surfaceId = UUID(uuidString: string)
-            else { return }
+            guard let string = object as? String else { return }
             Task { @MainActor in
-                store.assign(surfaceId: surfaceId, to: group?.id)
+                switch SidebarDragPayload(string) {
+                case .group(let movedId):
+                    store.moveGroup(movedId, before: targetGroupId)
+                case .tab(let surfaceId):
+                    store.assign(surfaceId: surfaceId, to: targetGroupId)
+                case nil:
+                    break
+                }
+            }
+        }
+        return true
+    }
+}
+
+/// The two things draggable in the sidebar, encoded as plain strings:
+/// a raw surface UUID for tabs, `group:<uuid>` for group headers.
+private enum SidebarDragPayload {
+    case tab(UUID)
+    case group(UUID)
+
+    init?(_ string: String) {
+        if string.hasPrefix("group:") {
+            guard let id = UUID(uuidString: String(string.dropFirst("group:".count)))
+            else { return nil }
+            self = .group(id)
+        } else if let id = UUID(uuidString: string) {
+            self = .tab(id)
+        } else {
+            return nil
+        }
+    }
+}
+
+/// Insert-between drop handling for a tab row: the drop position within
+/// the row picks before/after, and the drop adopts the row's group.
+private struct TabRowDropDelegate: DropDelegate {
+    let target: SidebarTabManager.TabItem
+    let groupId: UUID?
+    let store: SidebarGroupStore
+    @Binding var insertAfter: Bool?
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        insertAfter = info.location.y > 18
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) {
+        insertAfter = nil
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let after = insertAfter ?? true
+        insertAfter = nil
+
+        guard let provider = info.itemProviders(for: [.plainText]).first,
+              let targetId = target.surfaceId
+        else { return false }
+
+        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let string = object as? String else { return }
+            Task { @MainActor in
+                switch SidebarDragPayload(string) {
+                case .tab(let surfaceId):
+                    store.insert(
+                        surfaceId: surfaceId,
+                        near: targetId,
+                        after: after,
+                        groupId: groupId
+                    )
+                case .group(let movedId):
+                    if let groupId {
+                        store.moveGroup(movedId, before: groupId)
+                    } else {
+                        store.moveGroup(movedId, toIndex: store.groups.count)
+                    }
+                case nil:
+                    break
+                }
             }
         }
         return true
@@ -214,11 +423,13 @@ private struct SidebarGroupSection: View {
 /// One tab row: title + working directory, click to activate.
 private struct SidebarTabRow: View {
     let tab: SidebarTabManager.TabItem
+    let groupId: UUID?
     let tabManager: SidebarTabManager
     @ObservedObject var store: SidebarGroupStore
 
     @State private var isHovered = false
     @State private var isCreatingGroup = false
+    @State private var insertAfter: Bool? = nil
 
     var body: some View {
         HStack(spacing: 6) {
@@ -254,6 +465,25 @@ private struct SidebarTabRow: View {
         .onHover { isHovered = $0 }
         .onDrag {
             NSItemProvider(object: (tab.surfaceId?.uuidString ?? "") as NSString)
+        }
+        .onDrop(
+            of: [.plainText],
+            delegate: TabRowDropDelegate(
+                target: tab,
+                groupId: groupId,
+                store: store,
+                insertAfter: $insertAfter
+            )
+        )
+        .overlay(alignment: .top) {
+            if insertAfter == false {
+                Rectangle().fill(Color.accentColor).frame(height: 2)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if insertAfter == true {
+                Rectangle().fill(Color.accentColor).frame(height: 2)
+            }
         }
         .contextMenu { tabMenu }
         .popover(isPresented: $isCreatingGroup) {
@@ -303,32 +533,6 @@ private struct SidebarTabRow: View {
         Button("Close Tab", role: .destructive) {
             tab.window.performClose(nil)
         }
-    }
-}
-
-/// Footer with the "new group" action.
-private struct SidebarFooter: View {
-    @ObservedObject var store: SidebarGroupStore
-
-    @State private var isCreating = false
-
-    var body: some View {
-        HStack {
-            Button {
-                isCreating = true
-            } label: {
-                Label("New Group", systemImage: "plus")
-                    .font(.system(size: 11))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .popover(isPresented: $isCreating) {
-                SidebarGroupEditor(group: nil, store: store)
-            }
-
-            Spacer()
-        }
-        .padding(8)
     }
 }
 
@@ -388,7 +592,7 @@ private struct SidebarIconPicker: View {
 
         LabeledContent("Emoji") {
             TextField("🔥", text: $emoji)
-                .textFieldStyle(.roundedBorder)
+                .labelsHidden()
                 .frame(width: 48)
                 .multilineTextAlignment(.center)
                 .onChange(of: emoji) { value in
@@ -466,15 +670,15 @@ private struct SidebarGroupEditor: View {
         VStack(spacing: 0) {
             Form {
                 Section {
-                    VStack(spacing: 12) {
-                        previewBadge
+                    LabeledContent("Name") {
+                        TextField("", text: $name, prompt: Text("Group name"))
+                            .labelsHidden()
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
 
-                        TextField("Name", text: $name)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 13, weight: .medium))
-                            .multilineTextAlignment(.center)
-
-                        HStack(spacing: 7) {
+                    LabeledContent("Color") {
+                        HStack(spacing: 6) {
                             ForEach(TerminalTabColor.allCases, id: \.self) { swatch in
                                 SidebarColorSwatch(color: swatch, isSelected: color == swatch) {
                                     color = swatch
@@ -482,8 +686,6 @@ private struct SidebarGroupEditor: View {
                             }
                         }
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
                 }
 
                 Section("Icon") {
@@ -491,11 +693,40 @@ private struct SidebarGroupEditor: View {
                 }
 
                 Section {
-                    Toggle("Project group", isOn: $isProject.animation(.default))
+                    Toggle("Project group", isOn: $isProject)
+                        .toggleStyle(.switch)
 
                     if isProject {
-                        TextField("~/Projects/front-app-eita", text: $projectRoot)
-                            .textFieldStyle(.roundedBorder)
+                        HStack(spacing: 6) {
+                            TextField(
+                                "",
+                                text: $projectRoot,
+                                prompt: Text("~/Projects/front-app-eita")
+                            )
+                            .labelsHidden()
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            Button {
+                                if let pasted = NSPasteboard.general.string(forType: .string) {
+                                    projectRoot = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                                }
+                            } label: {
+                                Image(systemName: "doc.on.clipboard")
+                                    .font(.system(size: 11))
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Paste Path")
+
+                            Button {
+                                chooseProjectRoot()
+                            } label: {
+                                Image(systemName: "folder")
+                                    .font(.system(size: 11))
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Choose Folder…")
+                        }
                     }
                 } footer: {
                     Text("Project groups automatically claim tabs whose working directory is inside the project root.")
@@ -519,23 +750,8 @@ private struct SidebarGroupEditor: View {
             }
             .padding(12)
         }
-        .frame(width: 330, height: 520)
+        .frame(width: 330, height: 470)
         .onAppear { populate() }
-    }
-
-    private var previewBadge: some View {
-        ZStack {
-            Circle()
-                .fill((color.sidebarAccent ?? Color(nsColor: .systemGray)).gradient)
-
-            SidebarGroupIcon(icon: icon, size: 22)
-                .foregroundStyle(.white)
-        }
-        .frame(width: 48, height: 48)
-        .shadow(
-            color: (color.sidebarAccent ?? .black).opacity(0.35),
-            radius: 5, y: 2
-        )
     }
 
     private func populate() {
@@ -547,6 +763,23 @@ private struct SidebarGroupEditor: View {
             isProject = true
             projectRoot = root
         }
+    }
+
+    /// Opens a Finder panel to pick the project root directory.
+    private func chooseProjectRoot() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        if !projectRoot.isEmpty {
+            panel.directoryURL = URL(
+                fileURLWithPath: (projectRoot as NSString).expandingTildeInPath
+            )
+        }
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        projectRoot = (url.path as NSString).abbreviatingWithTildeInPath
     }
 
     private func save() {

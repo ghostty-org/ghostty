@@ -1,31 +1,204 @@
 import SwiftUI
 
-struct SettingsView: View {
-    // We need access to our app delegate to know if we're quitting or not.
-    @EnvironmentObject private var appDelegate: AppDelegate
+/// Root of the settings window: section list on the left, the selected
+/// section's form on the right.
+struct SettingsRootView: View {
+    let ghostty: Ghostty.App
 
-    var body: some View {
-        HStack {
-            Image("AppIconImage")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 128, height: 128)
+    @ObservedObject private var store = GuiConfigStore.shared
 
-            VStack(alignment: .leading) {
-                Text("Coming Soon. 🚧").font(.title)
-                Text("You can't configure settings in the GUI yet. To modify settings, " +
-                     "edit the file at $HOME/.config/ghostty/config.ghostty and restart Ghostty.")
-                .multilineTextAlignment(.leading)
-                .lineLimit(nil)
+    enum SettingsSection: String, CaseIterable, Identifiable {
+        case general
+        case appearance
+        case sidebar
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .general: return "General"
+            case .appearance: return "Appearance"
+            case .sidebar: return "Sidebar"
             }
         }
-        .padding()
-        .frame(minWidth: 500, maxWidth: 500, minHeight: 156, maxHeight: 156)
+
+        var icon: String {
+            switch self {
+            case .general: return "gearshape"
+            case .appearance: return "paintpalette"
+            case .sidebar: return "sidebar.left"
+            }
+        }
+    }
+
+    @State private var selection: SettingsSection = .general
+
+    var body: some View {
+        NavigationSplitView {
+            List(SettingsSection.allCases, selection: $selection) { section in
+                Label(section.title, systemImage: section.icon)
+                    .tag(section)
+            }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
+        } detail: {
+            switch selection {
+            case .general:
+                GeneralSettingsView(ghostty: ghostty, store: store)
+            case .appearance:
+                AppearanceSettingsView(ghostty: ghostty, store: store)
+            case .sidebar:
+                SidebarSettingsView(ghostty: ghostty, store: store)
+            }
+        }
+        .frame(minWidth: 700, minHeight: 480)
     }
 }
 
-struct SettingsView_Previews: PreviewProvider {
-    static var previews: some View {
-        SettingsView()
+/// Basic terminal options: font, opacity, cursor.
+struct GeneralSettingsView: View {
+    let ghostty: Ghostty.App
+    @ObservedObject var store: GuiConfigStore
+
+    @State private var fontFamily: String = ""
+    @State private var fontSize: Double = 13
+    @State private var backgroundOpacity: Double = 1
+    @State private var cursorStyle: String = ""
+
+    private static let cursorStyles: [(value: String, label: String)] = [
+        ("", "Default"),
+        ("block", "Block"),
+        ("bar", "Bar"),
+        ("underline", "Underline"),
+        ("block_hollow", "Hollow Block"),
+    ]
+
+    var body: some View {
+        Form {
+            Section("Font") {
+                LabeledContent("Family") {
+                    TextField("", text: $fontFamily, prompt: Text("System default"))
+                        .labelsHidden()
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .onSubmit { apply("font-family", fontFamily) }
+                }
+
+                LabeledContent("Size") {
+                    HStack {
+                        Slider(value: $fontSize, in: 8...32, step: 1) { editing in
+                            if !editing { apply("font-size", String(Int(fontSize))) }
+                        }
+                        Text("\(Int(fontSize)) pt")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
+            }
+
+            Section("Window") {
+                LabeledContent("Background Opacity") {
+                    HStack {
+                        Slider(value: $backgroundOpacity, in: 0.3...1) { editing in
+                            if !editing {
+                                apply("background-opacity", formatOpacity(backgroundOpacity))
+                            }
+                        }
+                        Text(formatOpacity(backgroundOpacity))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
+
+                Picker("Cursor Style", selection: $cursorStyle) {
+                    ForEach(Self.cursorStyles, id: \.value) { style in
+                        Text(style.label).tag(style.value)
+                    }
+                }
+                .onChange(of: cursorStyle) { value in
+                    apply("cursor-style", value)
+                }
+            }
+
+            Section {
+                LabeledContent("Config File") {
+                    Button("Open in Editor") {
+                        ghostty.openConfig()
+                    }
+                }
+            } footer: {
+                Text("Settings changed here are stored in \(GuiConfigStore.fileName) and included from your config file. Hand-written options stay untouched.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("General")
+        .onAppear { populate() }
+    }
+
+    private func populate() {
+        fontFamily = store.string("font-family") ?? ""
+        fontSize = store.double("font-size", default: 13)
+        backgroundOpacity = store.double("background-opacity", default: 1)
+        cursorStyle = store.string("cursor-style") ?? ""
+    }
+
+    private func apply(_ key: String, _ value: String) {
+        store.set(key, value.isEmpty ? nil : value)
+        store.apply(ghostty: ghostty)
+    }
+
+    private func formatOpacity(_ value: Double) -> String {
+        String(format: "%.2f", value)
+    }
+}
+
+/// Options for the tab sidebar itself.
+struct SidebarSettingsView: View {
+    let ghostty: Ghostty.App
+    @ObservedObject var store: GuiConfigStore
+
+    @State private var sidebarEnabled: Bool = false
+    @State private var sidebarWidth: Double = 240
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Show Sidebar", isOn: $sidebarEnabled)
+                    .toggleStyle(.switch)
+                    .onChange(of: sidebarEnabled) { value in
+                        store.set("sidebar", value ? "true" : "false")
+                        store.apply(ghostty: ghostty)
+                    }
+
+                LabeledContent("Default Width") {
+                    HStack {
+                        Slider(value: $sidebarWidth, in: 180...480, step: 10) { editing in
+                            if !editing {
+                                store.set("sidebar-width", String(Int(sidebarWidth)))
+                                store.apply(ghostty: ghostty)
+                            }
+                        }
+                        Text("\(Int(sidebarWidth)) pt")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 48, alignment: .trailing)
+                    }
+                }
+            } footer: {
+                Text("The sidebar toggle applies to new windows. Dragging the divider overrides the default width.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Sidebar")
+        .onAppear {
+            sidebarEnabled = store.bool("sidebar")
+            sidebarWidth = store.double("sidebar-width", default: 240)
+        }
     }
 }

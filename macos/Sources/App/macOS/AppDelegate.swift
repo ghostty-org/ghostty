@@ -934,7 +934,7 @@ class AppDelegate: NSObject,
     // MARK: - IB Actions
 
     @IBAction func openConfig(_ sender: Any?) {
-        ghostty.openConfig()
+        SettingsWindowController.shared.show(ghostty: ghostty)
     }
 
     @IBAction func reloadConfig(_ sender: Any?) {
