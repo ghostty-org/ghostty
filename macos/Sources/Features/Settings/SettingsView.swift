@@ -13,6 +13,7 @@ struct SettingsRootView: View {
         case appearance
         case sidebar
         case behaviors
+        case agents
 
         var id: String { rawValue }
 
@@ -22,6 +23,7 @@ struct SettingsRootView: View {
             case .appearance: return "Appearance"
             case .sidebar: return "Sidebar"
             case .behaviors: return "Behaviors"
+            case .agents: return "Agents"
             }
         }
 
@@ -31,6 +33,7 @@ struct SettingsRootView: View {
             case .appearance: return "paintpalette"
             case .sidebar: return "sidebar.left"
             case .behaviors: return "slider.horizontal.3"
+            case .agents: return "sparkles"
             }
         }
     }
@@ -55,6 +58,8 @@ struct SettingsRootView: View {
                 SidebarSettingsView(ghostty: ghostty, store: store)
             case .behaviors:
                 BehaviorsSettingsView(ghostty: ghostty, store: store)
+            case .agents:
+                AgentsSettingsView()
             }
         }
         .frame(minWidth: 700, minHeight: 480)
@@ -183,6 +188,61 @@ struct BehaviorsSettingsView: View {
         .navigationTitle("Behaviors")
         .onAppear {
             restoreWindows = (store.string("window-save-state") ?? "always") == "always"
+        }
+    }
+}
+
+
+/// Integration with AI coding agents: installs the terminal-side hooks
+/// that surface agent activity in the sidebar. Claude Code today; more
+/// agents later.
+struct AgentsSettingsView: View {
+    @State private var installed = ClaudeHooksInstaller.isInstalled
+    @State private var lastActionFailed = false
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Claude Code") {
+                    HStack(spacing: 10) {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(installed ? Color.green : Color.secondary)
+                                .frame(width: 7, height: 7)
+                            Text(installed ? "Hooks installed" : "Not installed")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Button(installed ? "Reinstall Hooks" : "Install Hooks") {
+                            lastActionFailed = !ClaudeHooksInstaller.install()
+                            installed = ClaudeHooksInstaller.isInstalled
+                        }
+
+                        if installed {
+                            Button("Remove") {
+                                lastActionFailed = !ClaudeHooksInstaller.uninstall()
+                                installed = ClaudeHooksInstaller.isInstalled
+                            }
+                        }
+                    }
+                }
+
+                if lastActionFailed {
+                    Text("Something went wrong updating ~/.claude/settings.json — check the file and try again.")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            } footer: {
+                Text("Installs a hook script in ~/.claude/hooks and registers it in ~/.claude/settings.json (existing hooks are preserved). With the hooks in place, tabs running Claude Code show a spinner while it works, a bubble while it waits for input, and an attention dot when a response is ready — and sessions resume on window restore.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Agents")
+        .onAppear {
+            installed = ClaudeHooksInstaller.isInstalled
         }
     }
 }
