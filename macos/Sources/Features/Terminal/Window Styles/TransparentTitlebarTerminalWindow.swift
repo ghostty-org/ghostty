@@ -68,9 +68,8 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // Save our config in case we need to reapply
         lastSurfaceConfig = surfaceConfig
 
-        // Re-asserted on every sync: the panes paint the titlebar strip
-        // themselves, and AppKit restores its hairline whenever the tab
-        // group or titlebar views are rebuilt.
+        // Re-asserted on every sync: AppKit restores the hairline whenever
+        // the tab group or the titlebar views are rebuilt.
         if sidebarActive {
             titlebarSeparatorStyle = .none
         }
@@ -116,6 +115,23 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // In all cases, we have to hide the background view since this has multiple subviews
         // that force a background color.
         titlebarBackgroundView?.isHidden = true
+
+        if sidebarActive {
+            hideTitlebarSeparators()
+        }
+    }
+
+    /// Hides the separators AppKit draws inside the titlebar.
+    ///
+    /// `titlebarSeparatorStyle = .none` covers the line under the titlebar
+    /// but not these: with a split view as the content, AppKit also draws a
+    /// vertical separator at the split boundary. The sidebar is a pane of a
+    /// continuous surface, so both are wrong here.
+    private func hideTitlebarSeparators() {
+        guard let titlebarContainer else { return }
+        for view in titlebarContainer.descendants(withClassName: "NSTitlebarSeparatorView") {
+            view.isHidden = true
+        }
     }
 
     @available(macOS 13.0, *)

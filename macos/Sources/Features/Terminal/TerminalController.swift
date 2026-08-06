@@ -683,9 +683,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             window: window as? TerminalWindow
         )
 
-        // The divider paints the pane color when hidden, so it has to learn
-        // about every effect/theme change the panes do.
-        (sidebarSplitView as? SidebarSplitView)?.paneColor = paneColor
+        // The divider gets its own color, not the pane's: under glass the
+        // pane paints nothing, but the divider strip has no glass behind it
+        // and would show the desktop through.
+        (sidebarSplitView as? SidebarSplitView)?.hiddenFillColor =
+            AppearanceCoordinator.dividerFillColor(
+                window: window as? TerminalWindow
+            )
 
         guard let sidebarBackgroundView else { return }
         sidebarBackgroundView.layer?.backgroundColor = paneColor?.cgColor
@@ -731,16 +735,36 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         let store = GuiConfigStore.shared
-        let base = (window as? TerminalWindow)?.preferredBackgroundColor?
-            .withAlphaComponent(1) ?? .black
         // Square glass in panes: the window frame rounds the composite.
         glass.configure(
-            style: .regular,
-            backgroundColor: base,
+            style: AppearanceCoordinator.blurStyle.isGlassClear ? .clear : .regular,
+            backgroundColor: sidebarGlassBaseColor,
             backgroundOpacity: store.double("background-opacity", default: 1),
             cornerRadius: 0,
             isKeyWindow: window?.isKeyWindow ?? true
         )
+#endif
+    }
+
+    /// The opaque theme color the sidebar's glass is tinted from. The alpha
+    /// comes from the opacity setting, applied by the glass view itself.
+    private var sidebarGlassBaseColor: NSColor {
+        (window as? TerminalWindow)?.preferredBackgroundColor?
+            .withAlphaComponent(1) ?? .black
+    }
+
+    /// Mirrors the terminal's inactive-window tint onto the sidebar's glass.
+    ///
+    /// Without this the sidebar keeps whatever tint it was last configured
+    /// with: changing a setting from the settings window configures it as
+    /// inactive, and only the terminal's overlay was ever cleared again, so
+    /// the sidebar stayed flat and stopped tracking opacity entirely.
+    private func updateSidebarGlassTintOverlay(isKeyWindow: Bool) {
+#if compiler(>=6.2)
+        guard #available(macOS 26.0, *),
+              let glass = sidebarGlassView as? TerminalGlassView
+        else { return }
+        glass.updateKeyStatus(isKeyWindow, backgroundColor: sidebarGlassBaseColor)
 #endif
     }
 
@@ -1302,9 +1326,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     ) -> NSView {
         (window as? TerminalWindow)?.sidebarActive = true
 
-        // The panes (not the native titlebar) paint the window's
-        // background/effect uniformly, so the content view needs to
-        // extend under the titlebar strip for that color to reach it.
+        // The sidebar pane runs the full height of the window so its glass
+        // layer reaches the titlebar strip. The strip's own color comes from
+        // the titlebar, not the panes — see the hosting view's top anchor.
         window.styleMask.insert(.fullSizeContentView)
 
         let tabManager = SidebarTabManager(window: window)
@@ -1341,7 +1365,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         sidebarPane.translatesAutoresizingMaskIntoConstraints = false
         sidebarPane.addSubview(sidebarHosting)
         NSLayoutConstraint.activate([
-            sidebarHosting.topAnchor.constraint(equalTo: sidebarPane.topAnchor),
+            // Stops at the titlebar, not the window top: this view's layer is
+            // what paints the sidebar, and the titlebar paints that strip
+            // already. Reaching under it stacked the same translucent color
+            // twice, making the strip visibly darker over the sidebar than
+            // over the terminal. The pane itself still runs full height, so
+            // the glass layer below still covers the strip.
+            sidebarHosting.topAnchor.constraint(
+                equalTo: sidebarPane.safeAreaLayoutGuide.topAnchor
+            ),
             sidebarHosting.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor),
             sidebarHosting.bottomAnchor.constraint(equalTo: sidebarPane.bottomAnchor),
             sidebarHosting.trailingAnchor.constraint(equalTo: sidebarPane.trailingAnchor),
@@ -1678,11 +1710,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         self.relabelTabs()
         self.fixTabBar()
         terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: true)
+        updateSidebarGlassTintOverlay(isKeyWindow: true)
     }
 
     override func windowDidResignKey(_ notification: Notification) {
         super.windowDidResignKey(notification)
         terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: false)
+        updateSidebarGlassTintOverlay(isKeyWindow: false)
     }
 
     override func windowDidMove(_ notification: Notification) {

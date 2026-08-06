@@ -7,7 +7,20 @@ import SwiftUI
 /// colored copy: dark themes get a light tint so the mark stays legible,
 /// light themes get the artwork's own clay color.
 struct ClaudeIcon: View {
+    /// Which tint the mark takes.
+    enum Tint {
+        /// Follows the terminal theme: legible on dark, the artwork's own
+        /// color on light. For anything drawn over a themed surface.
+        case theme
+
+        /// Always the artwork's own color. For surfaces that follow the
+        /// system appearance rather than the terminal theme — the settings
+        /// window, for one.
+        case original
+    }
+
     var size: CGFloat = 12
+    var tint: Tint = .theme
 
     @ObservedObject private var themePalette: ThemePalette = .shared
 
@@ -19,8 +32,14 @@ struct ClaudeIcon: View {
         blue: 0x57 / 255
     )
 
-    private var isLightTheme: Bool {
-        themePalette.background?.isLightColor ?? false
+    private var color: Color {
+        switch tint {
+        case .original:
+            return Self.claySwatch
+        case .theme:
+            let isLight = themePalette.background?.isLightColor ?? false
+            return isLight ? Self.claySwatch : Color.white
+        }
     }
 
     var body: some View {
@@ -29,6 +48,6 @@ struct ClaudeIcon: View {
             .resizable()
             .scaledToFit()
             .frame(width: size, height: size)
-            .foregroundStyle(isLightTheme ? Self.claySwatch : Color.white)
+            .foregroundStyle(color)
     }
 }

@@ -274,6 +274,11 @@ private struct SidebarGroupSection: View {
     var onNewTab: (SidebarGroup?) -> Void = { _ in }
     var onNewClaudeTab: (SidebarGroup?) -> Void = { _ in }
 
+    @AppStorage("SidebarGroupShowPullRequests") private var showPullRequests = true
+    @AppStorage("SidebarGroupShowClaude") private var showClaude = true
+    @AppStorage("SidebarGroupShowNewTerminal") private var showNewTerminal = true
+    @AppStorage("SidebarGroupShowCount") private var showCount = true
+
     @State private var isDropTarget = false
     @State private var isEditing = false
     @State private var isHeaderHovered = false
@@ -363,45 +368,53 @@ private struct SidebarGroupSection: View {
 
             Spacer(minLength: 0)
 
-            SidebarIconButton(help: "Pull Requests in Group") {
-                isShowingPRs = true
-            } label: {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 11, weight: .medium))
+            if showPullRequests {
+                SidebarIconButton(help: "Pull Requests in Group") {
+                    isShowingPRs = true
+                } label: {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .opacity(isHeaderHovered ? 1 : 0)
+                .allowsHitTesting(isHeaderHovered)
+                .popover(isPresented: $isShowingPRs) {
+                    GroupPRListView(
+                        roots: Array(Set(tabs.compactMap(\.repoRoot))).sorted()
+                    )
+                }
+            }
+
+            if showClaude {
+                SidebarIconButton(help: "New Claude Session in Group") {
+                    onNewClaudeTab(group)
+                } label: {
+                    ClaudeIcon(size: 12)
+                }
+                .opacity(isHeaderHovered ? 1 : 0)
+                .allowsHitTesting(isHeaderHovered)
+            }
+
+            if showNewTerminal {
+                SidebarIconButton(help: "New Terminal in Group") {
+                    onNewTab(group)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .opacity(isHeaderHovered ? 1 : 0)
+                .allowsHitTesting(isHeaderHovered)
+            }
+
+            if showCount {
+                Text(verbatim: "\(tabs.count)")
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(.quaternary))
             }
-            .opacity(isHeaderHovered ? 1 : 0)
-            .allowsHitTesting(isHeaderHovered)
-            .popover(isPresented: $isShowingPRs) {
-                GroupPRListView(
-                    roots: Array(Set(tabs.compactMap(\.repoRoot))).sorted()
-                )
-            }
-
-            SidebarIconButton(help: "New Claude Session in Group") {
-                onNewClaudeTab(group)
-            } label: {
-                ClaudeIcon(size: 12)
-            }
-            .opacity(isHeaderHovered ? 1 : 0)
-            .allowsHitTesting(isHeaderHovered)
-
-            SidebarIconButton(help: "New Terminal in Group") {
-                onNewTab(group)
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-            .opacity(isHeaderHovered ? 1 : 0)
-            .allowsHitTesting(isHeaderHovered)
-
-            Text("\(tabs.count)")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 1)
-                .background(Capsule().fill(.quaternary))
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)

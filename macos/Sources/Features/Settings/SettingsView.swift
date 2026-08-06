@@ -109,6 +109,11 @@ struct SidebarSettingsView: View {
     @AppStorage("SidebarShowPullRequest") private var showPullRequest = true
     @AppStorage("SidebarShowDevServer") private var showDevServer = true
 
+    @AppStorage("SidebarGroupShowPullRequests") private var groupShowPullRequests = true
+    @AppStorage("SidebarGroupShowClaude") private var groupShowClaude = true
+    @AppStorage("SidebarGroupShowNewTerminal") private var groupShowNewTerminal = true
+    @AppStorage("SidebarGroupShowCount") private var groupShowCount = true
+
     var body: some View {
         Form {
             Section {
@@ -136,6 +141,23 @@ struct SidebarSettingsView: View {
                     .toggleStyle(.switch)
                 Toggle("Show Dev Server Port", isOn: $showDevServer)
                     .toggleStyle(.switch)
+            }
+
+            Section {
+                Toggle("Show Pull Requests", isOn: $groupShowPullRequests)
+                    .toggleStyle(.switch)
+                Toggle("Show New Claude Session", isOn: $groupShowClaude)
+                    .toggleStyle(.switch)
+                Toggle("Show New Terminal", isOn: $groupShowNewTerminal)
+                    .toggleStyle(.switch)
+                Toggle("Show Terminal Count", isOn: $groupShowCount)
+                    .toggleStyle(.switch)
+            } header: {
+                Text("Group")
+            } footer: {
+                Text("The action icons appear in a group's header on hover. The group's icon, name and color are set per group, from its context menu.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
         }
@@ -210,7 +232,7 @@ struct AgentsSettingsView: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("Claude Code") {
+                LabeledContent {
                     HStack(spacing: 10) {
                         HStack(spacing: 4) {
                             Circle()
@@ -222,7 +244,7 @@ struct AgentsSettingsView: View {
                         }
 
                         if installed {
-                            Button("Uninstall Hooks") {
+                            Button("Uninstall") {
                                 let ok = ClaudeHooksInstaller.uninstall()
                                 installed = ClaudeHooksInstaller.isInstalled
                                 feedback = ok && !installed
@@ -230,7 +252,7 @@ struct AgentsSettingsView: View {
                                     : "Removal failed: \(ClaudeHooksInstaller.lastError ?? "check ~/.claude/settings.json")"
                             }
                         } else {
-                            Button("Install Hooks") {
+                            Button("Install") {
                                 let ok = ClaudeHooksInstaller.install()
                                 installed = ClaudeHooksInstaller.isInstalled
                                 feedback = ok && installed
@@ -239,6 +261,11 @@ struct AgentsSettingsView: View {
                             }
                         }
                     }
+                } label: {
+                    HStack(spacing: 6) {
+                        ClaudeIcon(size: 14, tint: .original)
+                        Text("Claude Code")
+                    }
                 }
 
                 if let feedback {
@@ -246,6 +273,8 @@ struct AgentsSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(feedback.contains("failed") ? .red : .secondary)
                 }
+            } header: {
+                Text("Hooks")
             } footer: {
                 Text("Installs a hook script in ~/.claude/hooks and registers it in ~/.claude/settings.json (existing hooks are preserved). With the hooks in place, tabs running Claude Code show a spinner while it works, a bubble while it waits for input, and an attention dot when a response is ready — and sessions resume on window restore.")
                     .font(.caption)

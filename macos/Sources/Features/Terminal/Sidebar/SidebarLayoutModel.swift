@@ -34,12 +34,11 @@ final class SidebarLayoutModel: ObservableObject {
 /// The sidebar | terminal split view, with a user-configurable divider:
 /// default system color, hidden, or a custom color.
 final class SidebarSplitView: NSSplitView {
-    /// What the panes on either side are painting, so a hidden divider can
-    /// paint the same thing. Kept in sync by the controller via
-    /// `AppearanceCoordinator`; nil means the panes paint nothing (glass).
-    var paneColor: NSColor? {
+    /// What a hidden divider paints to vanish between the panes. Kept in
+    /// sync by the controller via `AppearanceCoordinator.dividerFillColor`.
+    var hiddenFillColor: NSColor? {
         didSet {
-            guard paneColor != oldValue else { return }
+            guard hiddenFillColor != oldValue else { return }
             needsDisplay = true
         }
     }
@@ -78,15 +77,28 @@ final class SidebarSplitView: NSSplitView {
     /// property for an already-drawn divider, so a mode change in settings
     /// left the old divider on screen until the window was recreated.
     override func drawDivider(in rect: NSRect) {
+        // The titlebar paints its own strip and composites above this view,
+        // so drawing the divider up into it stacks a second coat over that
+        // one column — a short dark tick in an otherwise even strip.
+        let inset = safeAreaInsets.top
+        let rect = rect.intersection(
+            NSRect(
+                x: bounds.minX,
+                y: isFlipped ? bounds.minY + inset : bounds.minY,
+                width: bounds.width,
+                height: bounds.height - inset
+            )
+        )
+        guard !rect.isEmpty else { return }
+
         switch DividerMode.current {
         case .hidden:
-            // Hiding means painting what the panes paint, not skipping the
-            // draw: the divider keeps its width either way, so an unpainted
-            // one exposes the window behind it — which reads as a visible
-            // seam at any opacity below fully opaque. Under glass the panes
-            // paint nothing, and so does this.
-            guard let paneColor else { return }
-            paneColor.setFill()
+            // Hiding means painting the theme color, not skipping the draw:
+            // the divider keeps its width either way, so an unpainted one
+            // exposes the window behind it — the desktop, at any opacity
+            // below fully opaque or under glass.
+            guard let hiddenFillColor else { return }
+            hiddenFillColor.setFill()
             rect.fill()
         case .custom(let color):
             color.setFill()
