@@ -1872,7 +1872,6 @@ extension Ghostty {
 
             // If a coding agent session was live in this surface when the
             // app quit (tab state file still present), resume it in place.
-            // Delayed so the shell is up before the command is typed.
             if let uuid,
                UserDefaults.standard.object(forKey: "SidebarRestoreAgentSessions") as? Bool ?? true,
                let rawState = try? String(
@@ -1880,14 +1879,7 @@ extension Ghostty {
                    encoding: .utf8
                ),
                rawState.trimmingCharacters(in: .whitespacesAndNewlines) != "ended" {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                    guard let self, let surface = self.surface else { return }
-                    let command = "claude --continue\n"
-                    let len = command.utf8CString.count
-                    command.withCString { ptr in
-                        ghostty_surface_text(surface, ptr, UInt(len - 1))
-                    }
-                }
+                ClaudeSession.run("claude --continue", in: self)
             }
         }
 

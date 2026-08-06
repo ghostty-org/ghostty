@@ -679,11 +679,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// AppearanceCoordinator so every blur/opacity/mode combination is
     /// decided in one place.
     private func syncSidebarBackground() {
+        let paneColor = AppearanceCoordinator.sidebarLayerColor(
+            window: window as? TerminalWindow
+        )
+
+        // The divider paints the pane color when hidden, so it has to learn
+        // about every effect/theme change the panes do.
+        (sidebarSplitView as? SidebarSplitView)?.paneColor = paneColor
+
         guard let sidebarBackgroundView else { return }
-        sidebarBackgroundView.layer?.backgroundColor =
-            AppearanceCoordinator.sidebarLayerColor(
-                window: window as? TerminalWindow
-            )?.cgColor
+        sidebarBackgroundView.layer?.backgroundColor = paneColor?.cgColor
         syncSidebarGlass()
     }
 
@@ -1310,6 +1315,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             guard let self, let window = self.window else { return }
             _ = Self.newTab(self.ghostty, from: window)
         }
+        layout.onNewClaudeTab = { [weak self] in
+            self?.newSidebarTab(in: nil, runningClaude: true)
+        }
         self.sidebarLayout = layout
 
         let sidebarHosting = NSHostingView(rootView: SidebarView(
@@ -1318,6 +1326,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             layout: layout,
             onNewTabInGroup: { [weak self] group in
                 self?.newSidebarTab(in: group)
+            },
+            onNewClaudeTabInGroup: { [weak self] group in
+                self?.newSidebarTab(in: group, runningClaude: true)
             }
         ))
         sidebarHosting.translatesAutoresizingMaskIntoConstraints = false
@@ -1432,7 +1443,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// manual groups (and the ungrouped section) start at the pwd of the
     /// currently selected tab. The new surface is pinned to the group so
     /// later `cd`s never move it out.
-    private func newSidebarTab(in group: SidebarGroup?) {
+    private func newSidebarTab(in group: SidebarGroup?, runningClaude: Bool = false) {
         guard let window else { return }
 
         var baseConfig = Ghostty.SurfaceConfiguration()
@@ -1446,10 +1457,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let controller = Self.newTab(ghostty, from: window, withBaseConfig: baseConfig)
         else { return }
 
-        guard let group,
-              let surface = controller.focusedSurface
-                ?? controller.surfaceTree.root?.leftmostLeaf()
-        else { return }
+        let surface = controller.focusedSurface
+            ?? controller.surfaceTree.root?.leftmostLeaf()
+
+        if runningClaude, let surface {
+            ClaudeSession.run("claude", in: surface)
+        }
+
+        guard let group, let surface else { return }
         SidebarGroupStore.shared.assign(surfaceId: surface.id, to: group.id)
         sidebarTabManager?.scheduleRefresh()
         controller.sidebarTabManager?.scheduleRefresh()

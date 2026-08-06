@@ -68,6 +68,13 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // Save our config in case we need to reapply
         lastSurfaceConfig = surfaceConfig
 
+        // Re-asserted on every sync: the panes paint the titlebar strip
+        // themselves, and AppKit restores its hairline whenever the tab
+        // group or titlebar views are rebuilt.
+        if sidebarActive {
+            titlebarSeparatorStyle = .none
+        }
+
         // Every time we change appearance, set KVO up again in case any of our
         // references changed (e.g. tabGroup is new).
         setupKVO()
@@ -96,11 +103,12 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
             let isTransparentTitlebar = derivedConfig.macosTitlebarStyle == .transparent ||
             derivedConfig.macosTitlebarStyle == .tabs
 
-            // With the sidebar active the panes extend under the
-            // titlebar and paint it uniformly in every effect mode; the
-            // native titlebar background must stay clear so it doesn't
-            // double-paint over (or mismatch) the pane color.
-            titlebarView.layer?.backgroundColor = (sidebarActive || (isGlassStyle && isTransparentTitlebar))
+            // The titlebar paints the pane color itself rather than being
+            // left clear for the panes to show through: only the sidebar
+            // pane's own layer reaches under the titlebar, so a clear strip
+            // exposed the window — and with any transparency, the desktop —
+            // as a pale band over the terminal half.
+            titlebarView.layer?.backgroundColor = (isGlassStyle && isTransparentTitlebar)
                 ? NSColor.clear.cgColor
                 : preferredBackgroundColor?.cgColor
         }
@@ -118,9 +126,7 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // sidebar active the panes paint the titlebar area themselves,
         // so it stays clear rather than double-painting.
         titlebarContainer.wantsLayer = true
-        titlebarContainer.layer?.backgroundColor = sidebarActive
-            ? NSColor.clear.cgColor
-            : preferredBackgroundColor?.cgColor
+        titlebarContainer.layer?.backgroundColor = preferredBackgroundColor?.cgColor
 
         // See the docs for the function that sets this to true on why
         effectViewIsHidden = false

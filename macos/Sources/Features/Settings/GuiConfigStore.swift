@@ -47,10 +47,29 @@ final class GuiConfigStore: ObservableObject {
         if needsSave { save() }
     }
 
+    /// The main config file the Ghostty core should load, resolved without
+    /// touching the shared instance so it can be read before the app (and
+    /// thus the main actor) is up — see `AppDelegate.init`.
+    ///
+    /// Creates the file when it is missing: the core logs an error and falls
+    /// back to built-in defaults for a path that doesn't exist, which on a
+    /// first launch would silently discard the user's configuration until
+    /// something happened to write it.
+    nonisolated static func bootstrapMainConfigPath() -> String {
+        let dir = defaultConfigDir()
+        let url = dir.appendingPathComponent("config")
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: url.path) {
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? Data().write(to: url)
+        }
+        return url.path
+    }
+
     /// Phantom is a distinct app from Ghostty and keeps its own config
     /// directory so the two never collide on the same machine — even
     /// though Phantom reads XDG first on macOS same as Ghostty does.
-    private static func defaultConfigDir() -> URL {
+    nonisolated private static func defaultConfigDir() -> URL {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser
 

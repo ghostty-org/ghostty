@@ -35,7 +35,7 @@ final class TabStateCenter: ObservableObject {
     static let stateDir: URL = FileManager.default
         .homeDirectoryForCurrentUser
         .appendingPathComponent(".cache", isDirectory: true)
-        .appendingPathComponent("ghostty", isDirectory: true)
+        .appendingPathComponent("phantom", isDirectory: true)
         .appendingPathComponent("tab-states", isDirectory: true)
 
     static func stateFileURL(for surfaceId: UUID) -> URL {

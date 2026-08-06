@@ -78,19 +78,30 @@ enum ClaudeHooksInstaller {
     /// Logs each component of the install check, for diagnosis.
     static func logStatus() {
         let scriptExists = FileManager.default.fileExists(atPath: scriptURL.path)
-        let data = try? Data(contentsOf: settingsURL)
-        let contains = data
-            .flatMap { String(data: $0, encoding: .utf8) }?
-            .contains(scriptURL.path) ?? false
-        log("status script=\(scriptExists) settingsRead=\(data != nil) registered=\(contains) home=\(FileManager.default.homeDirectoryForCurrentUser.path)")
+        let readable = (try? Data(contentsOf: settingsURL)) != nil
+        log("status script=\(scriptExists) settingsRead=\(readable) registered=\(isRegistered) home=\(FileManager.default.homeDirectoryForCurrentUser.path)")
+    }
+
+    /// Whether the hook script is registered for at least one event.
+    ///
+    /// Checked against the parsed JSON rather than the raw file text: the
+    /// serializer's escaping of the path is an implementation detail, and a
+    /// substring search would also match the path appearing under some
+    /// unrelated key.
+    private static var isRegistered: Bool {
+        guard let settings = readSettings(),
+              let hooks = settings["hooks"] as? [String: Any]
+        else { return false }
+
+        return hooks.values.contains { value in
+            (value as? [[String: Any]] ?? []).contains { entry in
+                commandsIn(entry).contains { $0.contains(scriptName) }
+            }
+        }
     }
 
     static var isInstalled: Bool {
-        guard FileManager.default.fileExists(atPath: scriptURL.path),
-              let data = try? Data(contentsOf: settingsURL),
-              let text = String(data: data, encoding: .utf8)
-        else { return false }
-        return text.contains(scriptURL.path)
+        FileManager.default.fileExists(atPath: scriptURL.path) && isRegistered
     }
 
     @discardableResult
@@ -140,6 +151,14 @@ enum ClaudeHooksInstaller {
         guard writeSettings(settings) else {
             return fail("writing settings.json")
         }
+
+        // Re-read from disk rather than trusting the write: another process
+        // owns this file too (Claude Code rewrites it when its own settings
+        // change) and can land a stale copy over ours.
+        guard isInstalled else {
+            return fail("settings.json was written but the hooks are not registered")
+        }
+
         lastError = nil
         log("install ok")
         return true
@@ -168,7 +187,11 @@ enum ClaudeHooksInstaller {
         guard writeSettings(settings) else {
             return fail("writing settings.json")
         }
+        guard !isRegistered else {
+            return fail("settings.json was written but the hooks are still registered")
+        }
         lastError = nil
+        log("uninstall ok")
         return true
     }
 

@@ -62,8 +62,13 @@ class TerminalWindow: NSWindow {
             }
             if sidebarActive {
                 installCenteredTitle()
+                // The panes run the full height of the window and paint the
+                // titlebar strip themselves, so AppKit's hairline under it
+                // is a seam across a surface that is meant to be continuous.
+                titlebarSeparatorStyle = .none
             } else {
                 removeCenteredTitle()
+                titlebarSeparatorStyle = .automatic
             }
         }
     }

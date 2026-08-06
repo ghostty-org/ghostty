@@ -93,7 +93,9 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
             }
         }
 
-		titlebarSeparatorStyle = tabbedWindows != nil && !titlebarTabs ? .line : .none
+		// With the sidebar as the tab UI the panes paint the titlebar strip,
+		// so the separator would cut across a continuous surface.
+		titlebarSeparatorStyle = !sidebarActive && tabbedWindows != nil && !titlebarTabs ? .line : .none
         if titlebarTabs {
             hideToolbarOverflowButton()
             hideTitleBarSeparators()

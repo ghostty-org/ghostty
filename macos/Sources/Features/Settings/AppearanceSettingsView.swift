@@ -363,8 +363,9 @@ private struct AppearanceStylePanel: View {
                             Text("Hidden").tag("hidden")
                             Text("Custom").tag("custom")
                         }
+                        .pickerStyle(.segmented)
                         .labelsHidden()
-                        .frame(maxWidth: 130)
+                        .frame(maxWidth: 220)
                         .onChange(of: dividerMode) { _ in saveDivider() }
 
                         if dividerMode == "custom" {

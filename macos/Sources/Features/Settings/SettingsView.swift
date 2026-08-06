@@ -107,6 +107,7 @@ struct SidebarSettingsView: View {
     @AppStorage("SidebarShowGitBranch") private var showGitBranch = true
     @AppStorage("SidebarShowGitStatus") private var showGitStatus = true
     @AppStorage("SidebarShowPullRequest") private var showPullRequest = true
+    @AppStorage("SidebarShowDevServer") private var showDevServer = true
 
     var body: some View {
         Form {
@@ -132,6 +133,8 @@ struct SidebarSettingsView: View {
                 Toggle("Show Uncommitted Changes", isOn: $showGitStatus)
                     .toggleStyle(.switch)
                 Toggle("Show Open Pull Request", isOn: $showPullRequest)
+                    .toggleStyle(.switch)
+                Toggle("Show Dev Server Port", isOn: $showDevServer)
                     .toggleStyle(.switch)
             }
 
@@ -218,21 +221,21 @@ struct AgentsSettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
 
-                        Button(installed ? "Reinstall Hooks" : "Install Hooks") {
-                            let ok = ClaudeHooksInstaller.install()
-                            installed = ClaudeHooksInstaller.isInstalled
-                            feedback = ok && installed
-                                ? "Hooks installed \u{2713}"
-                                : "Install failed: \(ClaudeHooksInstaller.lastError ?? "status did not update")"
-                        }
-
                         if installed {
-                            Button("Remove") {
+                            Button("Uninstall Hooks") {
                                 let ok = ClaudeHooksInstaller.uninstall()
                                 installed = ClaudeHooksInstaller.isInstalled
                                 feedback = ok && !installed
                                     ? "Hooks removed"
-                                    : "Removal failed — check ~/.claude/settings.json"
+                                    : "Removal failed: \(ClaudeHooksInstaller.lastError ?? "check ~/.claude/settings.json")"
+                            }
+                        } else {
+                            Button("Install Hooks") {
+                                let ok = ClaudeHooksInstaller.install()
+                                installed = ClaudeHooksInstaller.isInstalled
+                                feedback = ok && installed
+                                    ? "Hooks installed \u{2713}"
+                                    : "Install failed: \(ClaudeHooksInstaller.lastError ?? "status did not update")"
                             }
                         }
                     }
@@ -253,6 +256,16 @@ struct AgentsSettingsView: View {
         .navigationTitle("Agents")
         .onAppear {
             ClaudeHooksInstaller.logStatus()
+            installed = ClaudeHooksInstaller.isInstalled
+        }
+        // Claude Code owns this settings file too and rewrites it when its
+        // own settings change, which can drop our registrations. Recheck on
+        // every activation so the buttons never describe a stale state.
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: NSApplication.didBecomeActiveNotification
+            )
+        ) { _ in
             installed = ClaudeHooksInstaller.isInstalled
         }
     }

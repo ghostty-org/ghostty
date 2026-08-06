@@ -35,9 +35,9 @@ final class SidebarTabManager: ObservableObject {
     private var pendingRefresh = false
     private var didInitialPopulation = false
 
-    /// Git branches change without any pwd/title event (e.g. `git
-    /// checkout`), so a slow timer keeps them fresh.
-    private var gitRefreshTimer: Timer?
+    /// Some metadata changes with no pwd/title event to observe — `git
+    /// checkout`, or a dev server starting — so a slow timer keeps it fresh.
+    private var metadataRefreshTimer: Timer?
 
     init(window: NSWindow) {
         self.window = window
@@ -57,16 +57,16 @@ final class SidebarTabManager: ObservableObject {
             self?.animationsEnabled = true
         }
 
-        gitRefreshTimer = Timer.scheduledTimer(
+        metadataRefreshTimer = Timer.scheduledTimer(
             withTimeInterval: 5,
             repeats: true
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.refreshGit() }
+            Task { @MainActor [weak self] in self?.refreshMetadata() }
         }
     }
 
     deinit {
-        gitRefreshTimer?.invalidate()
+        metadataRefreshTimer?.invalidate()
         notificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
@@ -156,6 +156,19 @@ final class SidebarTabManager: ObservableObject {
                         prNumber: info.prNumber,
                         prURL: info.prURL
                     )
+                }
+            }
+            .store(in: &centerCancellables)
+
+        DevServerCenter.shared.$servers
+            .sink { [weak self] servers in
+                guard let self else { return }
+                for model in self.models {
+                    guard let pid = model.foregroundPID else {
+                        model.setDevServerPort(nil)
+                        continue
+                    }
+                    model.setDevServerPort(servers[pid]?.port)
                 }
             }
             .store(in: &centerCancellables)
@@ -251,7 +264,26 @@ final class SidebarTabManager: ObservableObject {
         }
 
         applyPwd(surface?.pwd, to: model)
+        applyDevServer(surface, to: model)
         subscribe(model, to: surface)
+    }
+
+    /// The foreground PID changes every time a command starts or stops, so
+    /// it is re-read on each pass and the scan is asked for again — the
+    /// center coalesces that into one system-wide scan per TTL window.
+    private func applyDevServer(
+        _ surface: Ghostty.SurfaceView?,
+        to model: SidebarTabModel
+    ) {
+        guard let pid = surface?.surfaceModel?.foregroundPID else {
+            model.setForegroundPID(nil)
+            model.setDevServerPort(nil)
+            return
+        }
+
+        model.setForegroundPID(pid)
+        model.setDevServerPort(DevServerCenter.shared.port(forPID: pid))
+        DevServerCenter.shared.requestRefresh(pid: pid)
     }
 
     private func applyPwd(_ pwd: String?, to model: SidebarTabModel) {
@@ -315,14 +347,27 @@ final class SidebarTabManager: ObservableObject {
         SidebarGroupStore.shared.registerNewTab(surfaceId: surfaceId, atStart: atStart)
     }
 
-    private func refreshGit() {
+    /// The periodic pass: re-reads what changes with no notification to
+    /// hang off of — git state, and the process each tab is running.
+    private func refreshMetadata() {
         guard isSidebarVisible else { return }
+
         for model in models {
             let git = Self.gitInfo(for: model.pwd)
             model.setGit(branch: git?.branch, root: git?.root)
             if let git {
                 GitStatusCenter.shared.requestRefresh(root: git.root, branch: git.branch)
             }
+        }
+
+        for tabWindow in groupWindows {
+            guard let controller = tabWindow.windowController as? BaseTerminalController,
+                  let model = modelsById[ObjectIdentifier(tabWindow)]
+            else { continue }
+            applyDevServer(
+                controller.focusedSurface ?? controller.surfaceTree.root?.leftmostLeaf(),
+                to: model
+            )
         }
     }
 

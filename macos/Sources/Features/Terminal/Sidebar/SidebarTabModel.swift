@@ -24,6 +24,13 @@ final class SidebarTabModel: ObservableObject, Identifiable {
     @Published private(set) var prNumber: Int?
     @Published private(set) var prURL: String?
 
+    /// The PTY's foreground process group, used to find a dev server
+    /// running anywhere below it.
+    @Published private(set) var foregroundPID: Int?
+
+    /// The port a dev server in this tab is listening on, if any.
+    @Published private(set) var devServerPort: Int?
+
     var surfaceCancellables: Set<AnyCancellable> = []
 
     var directoryName: String? {
@@ -72,5 +79,13 @@ final class SidebarTabModel: ObservableObject, Identifiable {
         if self.isDirty != isDirty { self.isDirty = isDirty }
         if self.prNumber != prNumber { self.prNumber = prNumber }
         if self.prURL != prURL { self.prURL = prURL }
+    }
+
+    func setForegroundPID(_ value: Int?) {
+        if foregroundPID != value { foregroundPID = value }
+    }
+
+    func setDevServerPort(_ value: Int?) {
+        if devServerPort != value { devServerPort = value }
     }
 }

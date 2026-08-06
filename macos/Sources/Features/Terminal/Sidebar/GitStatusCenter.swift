@@ -171,32 +171,6 @@ final class GitStatusCenter: ObservableObject {
         cwd: String? = nil,
         timeout: TimeInterval
     ) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: launchPath)
-        process.arguments = arguments
-        if let cwd { process.currentDirectoryURL = URL(fileURLWithPath: cwd) }
-
-        let stdout = Pipe()
-        process.standardOutput = stdout
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline {
-            usleep(50_000)
-        }
-        if process.isRunning {
-            process.terminate()
-            return nil
-        }
-
-        guard process.terminationStatus == 0 else { return nil }
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8)
+        ShellCommand.run(launchPath, arguments, cwd: cwd, timeout: timeout)
     }
 }

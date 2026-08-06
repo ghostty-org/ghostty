@@ -6,7 +6,50 @@ import UniformTypeIdentifiers
 /// can never leave a stale insertion indicator behind: the next
 /// dropUpdated anywhere replaces it, and every performDrop clears it.
 final class SidebarDragState: ObservableObject {
-    @Published var target: (row: ObjectIdentifier, after: Bool)?
+    @Published private(set) var target: (row: ObjectIdentifier, after: Bool)?
+
+    private var expiry: DispatchWorkItem?
+
+    /// How long the indicator outlives the last drag update.
+    private static let expiryDelay: TimeInterval = 0.6
+
+    /// Places the insertion indicator, and arms its expiry.
+    ///
+    /// Drop delegates report where the indicator goes, but nothing reports a
+    /// drag that ended *without* a drop — released over a gap, or cancelled
+    /// — which left the indicator on screen for good. A live drag keeps
+    /// refreshing this (AppKit sends periodic updates even while the pointer
+    /// holds still), so letting it lapse is what reliably clears it.
+    func mark(row: ObjectIdentifier, after: Bool) {
+        if target?.row != row || target?.after != after {
+            target = (row: row, after: after)
+        }
+
+        expiry?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.target = nil
+            self?.expiry = nil
+        }
+        expiry = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.expiryDelay, execute: work)
+    }
+
+    /// Clears the indicator. Pass `row` to only clear it when that row is
+    /// the one currently marked, so a row being exited doesn't wipe the
+    /// indicator the row being entered just placed.
+    func clear(row: ObjectIdentifier? = nil) {
+        if let row, target?.row != row { return }
+        expiry?.cancel()
+        expiry = nil
+        if target != nil { target = nil }
+    }
+}
+
+enum SidebarMetrics {
+    /// The one gap used between every item in the list — groups, loose
+    /// terminals, and tabs within a group — so the whole sidebar keeps a
+    /// single rhythm regardless of what an item is.
+    static let itemSpacing: CGFloat = 8
 }
 
 /// The vertical tab sidebar: tabs grouped into user-defined sections.
@@ -20,6 +63,9 @@ struct SidebarView: View {
     /// Creates a terminal tab inside the given group (nil for ungrouped),
     /// following the group's working-directory rule.
     var onNewTabInGroup: (SidebarGroup?) -> Void = { _ in }
+
+    /// Same as `onNewTabInGroup`, with a Claude session started in it.
+    var onNewClaudeTabInGroup: (SidebarGroup?) -> Void = { _ in }
 
     /// List animations are suspended while the sidebar first populates.
     private var listAnimation: Animation? {
@@ -68,7 +114,7 @@ struct SidebarView: View {
             ScrollView {
                 let content = resolved
 
-                VStack(spacing: 8) {
+                VStack(spacing: SidebarMetrics.itemSpacing) {
                     ForEach(content.sections) { section in
                         SidebarGroupSection(
                             group: section.group,
@@ -76,22 +122,24 @@ struct SidebarView: View {
                             tabManager: tabManager,
                             store: store,
                             dragState: dragState,
-                            onNewTab: onNewTabInGroup
+                            onNewTab: onNewTabInGroup,
+                            onNewClaudeTab: onNewClaudeTabInGroup
                         )
                         .transition(.opacity)
                     }
 
-                    VStack(spacing: 2) {
-                        ForEach(content.ungrouped) { tab in
-                            SidebarTabRow(
-                                tab: tab,
-                                groupId: nil,
-                                tabManager: tabManager,
-                                store: store,
-                                dragState: dragState
-                            )
-                            .transition(.opacity)
-                        }
+                    // Same spacing as between groups: every item in the
+                    // list sits on the one rhythm, whether it's a group or
+                    // a loose terminal.
+                    ForEach(content.ungrouped) { tab in
+                        SidebarTabRow(
+                            tab: tab,
+                            groupId: nil,
+                            tabManager: tabManager,
+                            store: store,
+                            dragState: dragState
+                        )
+                        .transition(.opacity)
                     }
                 }
                 .padding(8)
@@ -110,7 +158,7 @@ struct SidebarView: View {
     /// groups move to the end of the group list.
     private func appendDroppedToUngrouped(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
-        dragState.target = nil
+        dragState.clear()
         let lastUngrouped = resolved.ungrouped.last?.surfaceId
         _ = provider.loadObject(ofClass: NSString.self) { object, _ in
             guard let string = object as? String else { return }
@@ -150,6 +198,11 @@ struct SidebarTitlebarChrome: View {
                 SidebarChromeButton(icon: "plus", help: "New Terminal") {
                     layout.onNewTab()
                 }
+                SidebarIconButton(help: "New Claude Session") {
+                    layout.onNewClaudeTab()
+                } label: {
+                    ClaudeIcon(size: 12)
+                }
                 SidebarChromeButton(icon: "folder.badge.plus", help: "New Group") {
                     isCreatingGroup = true
                 }
@@ -169,19 +222,20 @@ struct SidebarTitlebarChrome: View {
     }
 }
 
-/// A small borderless icon button for the sidebar chrome row.
-private struct SidebarChromeButton: View {
-    let icon: String
+/// The hit area and hover treatment shared by every icon button in the
+/// sidebar. Group headers and tab rows reuse this so their icons are as
+/// easy to hit as the chrome row's — undersized targets there meant a near
+/// miss landed on the row or header gesture behind the button instead.
+private struct SidebarIconButton<Label: View>: View {
     let help: String
     let action: () -> Void
+    @ViewBuilder let label: () -> Label
 
     @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
+            label()
                 .frame(width: 24, height: 22)
                 .background(
                     RoundedRectangle(cornerRadius: 5)
@@ -194,6 +248,21 @@ private struct SidebarChromeButton: View {
     }
 }
 
+/// A small borderless icon button for the sidebar chrome row.
+private struct SidebarChromeButton: View {
+    let icon: String
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        SidebarIconButton(help: help, action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 /// A group block: tinted header with icon, name and color dot, a colored
 /// border around the whole block, and the tab rows when expanded.
 private struct SidebarGroupSection: View {
@@ -203,6 +272,7 @@ private struct SidebarGroupSection: View {
     @ObservedObject var store: SidebarGroupStore
     let dragState: SidebarDragState
     var onNewTab: (SidebarGroup?) -> Void = { _ in }
+    var onNewClaudeTab: (SidebarGroup?) -> Void = { _ in }
 
     @State private var isDropTarget = false
     @State private var isEditing = false
@@ -217,7 +287,7 @@ private struct SidebarGroupSection: View {
             header
 
             if !collapsed {
-                VStack(spacing: 2) {
+                VStack(spacing: SidebarMetrics.itemSpacing) {
                     ForEach(tabs) { tab in
                         SidebarTabRow(
                             tab: tab,
@@ -264,16 +334,16 @@ private struct SidebarGroupSection: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Button {
+            SidebarIconButton(
+                help: collapsed ? "Expand Group" : "Collapse Group"
+            ) {
                 store.toggleCollapsed(group.id)
             } label: {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .rotationEffect(.degrees(collapsed ? 0 : 90))
-                    .frame(width: 12)
             }
-            .buttonStyle(.plain)
 
             SidebarGroupIcon(icon: group.icon)
                 .foregroundStyle(accent ?? Color.secondary)
@@ -293,36 +363,38 @@ private struct SidebarGroupSection: View {
 
             Spacer(minLength: 0)
 
-            Button {
+            SidebarIconButton(help: "Pull Requests in Group") {
                 isShowingPRs = true
             } label: {
                 Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 16, height: 16)
             }
-            .buttonStyle(.plain)
             .opacity(isHeaderHovered ? 1 : 0)
             .allowsHitTesting(isHeaderHovered)
-            .help("Pull Requests in Group")
             .popover(isPresented: $isShowingPRs) {
                 GroupPRListView(
                     roots: Array(Set(tabs.compactMap(\.repoRoot))).sorted()
                 )
             }
 
-            Button {
+            SidebarIconButton(help: "New Claude Session in Group") {
+                onNewClaudeTab(group)
+            } label: {
+                ClaudeIcon(size: 12)
+            }
+            .opacity(isHeaderHovered ? 1 : 0)
+            .allowsHitTesting(isHeaderHovered)
+
+            SidebarIconButton(help: "New Terminal in Group") {
                 onNewTab(group)
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 16, height: 16)
             }
-            .buttonStyle(.plain)
             .opacity(isHeaderHovered ? 1 : 0)
             .allowsHitTesting(isHeaderHovered)
-            .help("New Terminal in Group")
 
             Text("\(tabs.count)")
                 .font(.system(size: 10, weight: .medium))
@@ -348,6 +420,7 @@ private struct SidebarGroupSection: View {
     @ViewBuilder
     private var groupMenu: some View {
         Button("New Terminal in Group") { onNewTab(group) }
+        Button("New Claude Session in Group") { onNewClaudeTab(group) }
 
         Divider()
 
@@ -409,7 +482,7 @@ private struct SidebarGroupSection: View {
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
         let targetGroupId = group.id
-        dragState.target = nil
+        dragState.clear()
         _ = provider.loadObject(ofClass: NSString.self) { object, _ in
             guard let string = object as? String else { return }
             Task { @MainActor in
@@ -531,19 +604,17 @@ private struct TabRowDropDelegate: DropDelegate {
     let dragState: SidebarDragState
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        dragState.target = (row: target.id, after: info.location.y > 18)
+        dragState.mark(row: target.id, after: info.location.y > 18)
         return DropProposal(operation: .move)
     }
 
     func dropExited(info: DropInfo) {
-        if dragState.target?.row == target.id {
-            dragState.target = nil
-        }
+        dragState.clear(row: target.id)
     }
 
     func performDrop(info: DropInfo) -> Bool {
         let after = dragState.target?.after ?? true
-        dragState.target = nil
+        dragState.clear()
 
         guard let provider = info.itemProviders(for: [.plainText]).first,
               let targetId = target.surfaceId
@@ -585,7 +656,6 @@ private struct SidebarTabRow: View {
     @ObservedObject private var themePalette: ThemePalette = .shared
 
     @State private var isHovered = false
-    @State private var isCloseHovered = false
     @State private var isCreatingGroup = false
     @State private var isCustomizing = false
 
@@ -593,6 +663,7 @@ private struct SidebarTabRow: View {
     @AppStorage("SidebarShowGitBranch") private var showGitBranch = true
     @AppStorage("SidebarShowGitStatus") private var showGitStatus = true
     @AppStorage("SidebarShowPullRequest") private var showPullRequest = true
+    @AppStorage("SidebarShowDevServer") private var showDevServer = true
     @AppStorage("SidebarTabDensity") private var density = "default"
 
     private var isCompact: Bool { density == "compact" }
@@ -614,7 +685,7 @@ private struct SidebarTabRow: View {
     var body: some View {
         HStack(spacing: 6) {
             if let icon = override?.icon, !icon.isEmpty {
-                SidebarGroupIcon(icon: icon, size: 11)
+                SidebarGroupIcon(icon: icon, size: 13)
                     .foregroundStyle(.secondary)
             }
 
@@ -649,6 +720,10 @@ private struct SidebarTabRow: View {
                         prChip(number: prNumber)
                     }
 
+                    if showDevServer, let port = tab.devServerPort {
+                        devServerChip(port: port)
+                    }
+
                     // Reserve the metadata line even while pwd/branch
                     // haven't arrived yet so row heights never shift.
                     if showDirectory || showGitBranch {
@@ -664,24 +739,17 @@ private struct SidebarTabRow: View {
                 statusIndicator
                     .opacity(isHovered ? 0 : 1)
 
-                Button {
+                SidebarIconButton(help: "Close Terminal") {
                     tab.window.performClose(nil)
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 16, height: 16)
-                        .background(
-                            Circle().fill(isCloseHovered ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
-                        )
                 }
-                .buttonStyle(.plain)
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(isHovered)
-                .onHover { isCloseHovered = $0 }
-                .help("Close Terminal")
             }
-            .frame(width: 18, height: 18)
+            .frame(width: 24, height: 22)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, isCompact ? 5 : 8)
@@ -772,19 +840,28 @@ private struct SidebarTabRow: View {
         }
     }
 
+    /// The shared line box every chip element is centered within.
+    private var chipLineHeight: CGFloat { 11 }
+
     /// A small rounded tag for row metadata (directory, git branch).
     private func metaChip(icon: String? = nil, text: String, dirty: Bool = false) -> some View {
-        HStack(spacing: 3) {
+        // Every element is centered in one fixed-height line box: the symbol's
+        // layout box is taller than the text's, so letting each size itself
+        // pushes the label and the dirty dot visibly below the icon.
+        HStack(alignment: .center, spacing: 3) {
             if let icon {
                 Image(systemName: icon)
                     .font(.system(size: 8))
+                    .frame(height: chipLineHeight)
             }
             Text(text)
                 .lineLimit(1)
+                .frame(height: chipLineHeight)
             if dirty {
                 Circle()
                     .fill(.yellow)
                     .frame(width: 4, height: 4)
+                    .frame(height: chipLineHeight)
             }
         }
         .font(.system(size: 9))
@@ -805,7 +882,7 @@ private struct SidebarTabRow: View {
                 NSWorkspace.shared.open(url)
             }
         } label: {
-            Text("#\(number)")
+            Text(verbatim: "#\(number)")
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(Color.accentColor)
                 .padding(.horizontal, 5)
@@ -819,15 +896,53 @@ private struct SidebarTabRow: View {
         .help("Open Pull Request #\(number)")
     }
 
-    private var rowBackground: some ShapeStyle {
-        if tab.isSelected {
-            let color = themePalette.primary.map { Color(nsColor: $0) }
-                ?? Color(nsColor: .selectedContentBackgroundColor)
-            return AnyShapeStyle(color.opacity(0.6))
-        } else if isHovered {
-            return AnyShapeStyle(.quaternary)
+    /// The clickable dev-server tag: opens the port this tab is serving.
+    private func devServerChip(port: Int) -> some View {
+        Button {
+            if let url = URL(string: "http://localhost:\(port)") {
+                NSWorkspace.shared.open(url)
+            }
+        } label: {
+            HStack(alignment: .center, spacing: 3) {
+                Image(systemName: "globe")
+                    .font(.system(size: 8))
+                    .frame(height: chipLineHeight)
+                // Verbatim: a plain interpolation is a LocalizedStringKey,
+                // which formats the number for the locale and turns port
+                // 8899 into "8.899".
+                Text(verbatim: ":\(port)")
+                    .frame(height: chipLineHeight)
+            }
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(Color.green)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.green.opacity(0.15))
+            )
         }
-        return AnyShapeStyle(.clear)
+        .buttonStyle(.plain)
+        .help("Open http://localhost:\(port)")
+    }
+
+    /// Rows always carry a fill, not only when hovered or selected: over a
+    /// transparent window an unfilled row leaves its text floating on the
+    /// desktop with nothing to separate one terminal from the next. The
+    /// tint comes from the theme so the sidebar matches the terminal.
+    private var rowBackground: AnyShapeStyle {
+        let accent = themePalette.primary.map { Color(nsColor: $0) }
+            ?? Color(nsColor: .selectedContentBackgroundColor)
+
+        let opacity: Double = if tab.isSelected {
+            0.6
+        } else if isHovered {
+            0.28
+        } else {
+            0.12
+        }
+
+        return AnyShapeStyle(accent.opacity(opacity))
     }
 
     @ViewBuilder
