@@ -1280,6 +1280,10 @@ pub const Application = extern struct {
         const priv = self.private();
         priv.config.unref();
         priv.config = config.ref();
+
+        // Apply GTK appearance settings from the new config.
+        self.syncStyleManager();
+
         self.as(gobject.Object).notifyByPspec(properties.config.impl.param_spec);
 
         // Show our errors if we have any
@@ -1421,15 +1425,12 @@ pub const Application = extern struct {
         }
     }
 
-    /// Setup the style manager on startup. The primary task here is to
-    /// setup our initial light/dark mode based on the configuration and
-    /// setup listeners for changes to the style manager.
-    fn startupStyleManager(self: *Self) void {
+    /// Sync the configured window theme.
+    fn syncStyleManager(self: *Self) void {
         const priv = self.private();
         const config = priv.config.get();
-
-        // Setup our initial light/dark
         const style = self.as(adw.Application).getStyleManager();
+
         style.setColorScheme(switch (config.@"window-theme") {
             .auto, .ghostty => auto: {
                 const lum = config.background.toTerminalRGB().perceivedLuminance();
@@ -1442,6 +1443,16 @@ pub const Application = extern struct {
             .dark => .force_dark,
             .light => .force_light,
         });
+    }
+
+    /// Setup the style manager on startup. The primary task here is to
+    /// setup our initial light/dark mode based on the configuration and
+    /// setup listeners for changes to the style manager.
+    fn startupStyleManager(self: *Self) void {
+        const style = self.as(adw.Application).getStyleManager();
+
+        // Setup our initial light/dark.
+        self.syncStyleManager();
 
         // Setup color change notifications
         _ = gobject.Object.signals.notify.connect(
