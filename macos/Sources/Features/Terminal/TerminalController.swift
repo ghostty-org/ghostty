@@ -480,8 +480,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 Self.applyCascade(to: window, hasFixedPos: hasFixedPos)
             }
 
-            controller.showWindow(self)
-            window.makeKeyAndOrderFront(self)
+            // showWindow makes regular windows key and ordered front. AppKit can
+            // throw while selecting a tab if its fullscreen stack is inconsistent,
+            // so this must cross the Objective-C exception bridge.
+            controller.showWindowSafely(self)
 
             // We also activate our app so that it becomes front. This may be
             // necessary for the dock menu.
@@ -667,12 +669,20 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // More than 1 window means we have tabs and we're closing a tab
         if window?.tabGroup?.windows.count ?? 0 > 1 {
-            closeTab(nil)
+            if withConfirmation {
+                closeTab(nil)
+            } else {
+                closeTabImmediately()
+            }
             return
         }
 
         // 1 window, closing the window
-        closeWindow(nil)
+        if withConfirmation {
+            closeWindow(nil)
+        } else {
+            closeWindowImmediately()
+        }
     }
 
     func closeTabImmediately(registerRedo: Bool = true) {

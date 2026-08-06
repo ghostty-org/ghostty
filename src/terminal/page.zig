@@ -89,6 +89,7 @@ const AllocWindows = struct {
 /// for alignment.
 const grapheme_chunk_len = 4;
 const grapheme_chunk = grapheme_chunk_len * @sizeOf(u21);
+pub const grapheme_max_len = 64;
 const GraphemeAlloc = BitmapAllocator(grapheme_chunk);
 const grapheme_count_default = GraphemeAlloc.bitmap_bit_size;
 pub const grapheme_bytes_default = grapheme_count_default * grapheme_chunk;
@@ -1502,7 +1503,8 @@ pub const Page = struct {
     }
 
     /// Set the graphemes for the given cell. This asserts that the cell
-    /// has no graphemes set, and only contains a single codepoint.
+    /// has no graphemes set, and only contains a single codepoint. Input
+    /// beyond grapheme_max_len is ignored.
     pub inline fn setGraphemes(
         self: *Page,
         row: *Row,
@@ -1516,14 +1518,15 @@ pub const Page = struct {
 
         const cell_offset = getOffset(Cell, self.memory, cell);
         var map = self.grapheme_map.map(self.memory);
+        const stored_cps = cps[0..@min(cps.len, grapheme_max_len)];
 
-        const slice = self.grapheme_alloc.alloc(u21, self.memory, cps.len) catch |e| {
+        const slice = self.grapheme_alloc.alloc(u21, self.memory, stored_cps.len) catch |e| {
             comptime assert(@TypeOf(e) == error{OutOfMemory});
             // The grapheme alloc capacity needs to be increased.
             return error.GraphemeAllocOutOfMemory;
         };
         errdefer self.grapheme_alloc.free(self.memory, slice);
-        @memcpy(slice, cps);
+        @memcpy(slice, stored_cps);
 
         map.putNoClobber(cell_offset, .{
             .offset = getOffset(u21, self.memory, @ptrCast(slice.ptr)),
@@ -1541,7 +1544,8 @@ pub const Page = struct {
         return;
     }
 
-    /// Append a codepoint to the given cell as a grapheme.
+    /// Append a codepoint to the given cell as a grapheme. Once the cell has
+    /// grapheme_max_len suffix codepoints, additional codepoints are ignored.
     pub fn appendGrapheme(self: *Page, row: *Row, cell: *Cell, cp: u21) Allocator.Error!void {
         defer self.assertIntegrity();
 
@@ -1574,6 +1578,10 @@ pub const Page = struct {
         assert(row.grapheme);
 
         const slice = map.getPtr(cell_offset).?;
+
+        // Terminal input is untrusted. In addition to bounding memory, this
+        // prevents repeated chunk growth and copying from becoming quadratic.
+        if (slice.len >= grapheme_max_len) return;
 
         // If our slice len doesn't divide evenly by the grapheme chunk
         // length then we can utilize the additional chunk space.
@@ -2829,6 +2837,49 @@ test "Page appendGrapheme larger than chunk" {
     for (0..count) |i| {
         try testing.expectEqual(@as(u21, @intCast(0x0A + i)), cps[i]);
     }
+}
+
+test "Page appendGrapheme caps codepoints per cell" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const rac = page.getRowAndCell(0, 0);
+    rac.cell.* = .init('A');
+
+    for (0..grapheme_max_len + 16) |i| {
+        try page.appendGrapheme(rac.row, rac.cell, @intCast(0x0300 + i));
+    }
+
+    const cps = page.lookupGrapheme(rac.cell).?;
+    try testing.expectEqual(@as(usize, grapheme_max_len), cps.len);
+    for (0..grapheme_max_len) |i| {
+        try testing.expectEqual(@as(u21, @intCast(0x0300 + i)), cps[i]);
+    }
+}
+
+test "Page setGraphemes caps codepoints per cell" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    var input: [grapheme_max_len + 16]u21 = undefined;
+    for (&input, 0..) |*cp, i| cp.* = @intCast(0x0300 + i);
+
+    const rac = page.getRowAndCell(0, 0);
+    rac.cell.* = .init('A');
+    try page.setGraphemes(rac.row, rac.cell, &input);
+
+    try testing.expectEqual(
+        @as(usize, grapheme_max_len),
+        page.lookupGrapheme(rac.cell).?.len,
+    );
 }
 
 test "Page clearGrapheme not all cells" {

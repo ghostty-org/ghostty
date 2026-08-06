@@ -16643,7 +16643,7 @@ test "PageList resize reflow exceeds grapheme memory forcing capacity increase" 
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try init(alloc, .{ .cols = 2, .rows = 10, .max_size = 0 });
+    var s = try init(alloc, .{ .cols = 4, .rows = 10, .max_size = 0 });
     defer s.deinit();
     try testing.expectEqual(@as(usize, 1), s.totalPages());
 
@@ -16665,44 +16665,38 @@ test "PageList resize reflow exceeds grapheme memory forcing capacity increase" 
         try std.testing.expectEqual(s.pages.last.?, s.pages.first.?.next);
     }
 
-    // We use almost all grapheme alloc capacity with a grapheme in the final
-    // row of the first page, and do the same on the first row of the second
-    // page. We also mark the row as wrapped so that when we resize with more
-    // cols the row unwraps and we have a single row that requires almost two
-    // times the base grapheme alloc capacity.
+    // We use all grapheme alloc capacity with four maximum-sized graphemes on
+    // each page. The two rows form one wrapped logical line across the page
+    // boundary, so resizing wider moves all eight graphemes into one page and
+    // requires almost two times the base grapheme alloc capacity.
     //
     // This forces the reflow to increase capacity.
     //
-    //  +--+ = PAGE 0
+    //  +----+ = PAGE 0
     //  :  :
-    //  | X… <- where X is a grapheme which uses almost all the capacity.
-    //  +--+
-    //  +--+ = PAGE 1
-    //  …X | <- X here also almost hits grapheme cap.
-    //  +--+
+    //  |XXXX| <- four capped graphemes in one wrapped row.
+    //  +----+
+    //  +----+ = PAGE 1
+    //  |XXXX| <- four more capped graphemes continue the logical line.
+    //  +----+
 
-    // Almost hit grapheme alloc cap in bottom right of first page.
-    // Mark the final row as wrapped.
+    const suffixes: [pagepkg.grapheme_max_len]u21 = @splat('a');
+
+    // Fill the final row of the first page and mark it as wrapped.
     {
         const page = s.pages.first.?.page();
-        const rac = page.getRowAndCell(page.size.cols - 1, page.size.rows - 1);
-        rac.row.wrap = true;
-        rac.cell.* = .{
-            .content_tag = .codepoint,
-            .content = .{ .codepoint = .{ .data = 'X' } },
-        };
-        try page.setGraphemes(
-            rac.row,
-            rac.cell,
-            &@as(
-                [
-                    @divFloor(
-                        pagepkg.grapheme_bytes_default - 1,
-                        @sizeOf(u21),
-                    )
-                ]u21,
-                @splat('a'),
-            ),
+        const y = page.size.rows - 1;
+        const row = page.getRow(y);
+        row.wrap = true;
+
+        for (0..page.size.cols) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .init('X');
+            try page.setGraphemes(rac.row, rac.cell, &suffixes);
+        }
+        try std.testing.expectEqual(
+            page.grapheme_alloc.capacityBytes(),
+            page.grapheme_alloc.usedBytes(page.memory),
         );
         try std.testing.expectError(
             error.OutOfMemory,
@@ -16714,29 +16708,17 @@ test "PageList resize reflow exceeds grapheme memory forcing capacity increase" 
         );
     }
 
-    // Almost hit grapheme alloc cap in top left of second page.
-    // Mark the first row as a wrap continuation.
+    // Fill the first row of the second page and mark it as a continuation.
     {
         const page = s.pages.last.?.page();
-        const rac = page.getRowAndCell(0, 0);
-        rac.row.wrap = true;
-        rac.cell.* = .{
-            .content_tag = .codepoint,
-            .content = .{ .codepoint = .{ .data = 'X' } },
-        };
-        try page.setGraphemes(
-            rac.row,
-            rac.cell,
-            &@as(
-                [
-                    @divFloor(
-                        pagepkg.grapheme_bytes_default - 1,
-                        @sizeOf(u21),
-                    )
-                ]u21,
-                @splat('a'),
-            ),
-        );
+        const row = page.getRow(0);
+        row.wrap_continuation = true;
+
+        for (0..page.size.cols) |x| {
+            const rac = page.getRowAndCell(x, 0);
+            rac.cell.* = .init('X');
+            try page.setGraphemes(rac.row, rac.cell, &suffixes);
+        }
         try std.testing.expectError(
             error.OutOfMemory,
             page.grapheme_alloc.alloc(

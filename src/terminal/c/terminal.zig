@@ -889,6 +889,7 @@ pub const Option = enum(c_int) {
     desktop_notification = 29,
     progress_report = 30,
     continuation_max_bytes = 31,
+    title_report = 32,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -913,6 +914,7 @@ pub const Option = enum(c_int) {
             .kitty_image_medium_file,
             .kitty_image_medium_shared_mem,
             .glyph_protocol,
+            .title_report,
             => ?*const bool,
             .kitty_image_medium_temp_file => ?*const lib.String,
             .apc_max_bytes,
@@ -970,6 +972,10 @@ fn setTyped(
         .progress_report => wrapper.effects.progress_report = value,
         .size_cb => wrapper.effects.size_cb = value,
         .clipboard_write => wrapper.effects.clipboard_write = value,
+        .title_report => wrapper.stream.handler.title_report = if (value) |ptr|
+            ptr.*
+        else
+            false,
         .title => {
             const str = if (value) |v| v.ptr[0..v.len] else "";
             wrapper.terminal.setTitle(str) catch return .out_of_memory;
@@ -1002,7 +1008,7 @@ fn setTyped(
             var it = wrapper.terminal.screens.all.iterator();
             while (it.next()) |entry| {
                 const screen = entry.value.*;
-                screen.kitty_images.setLimit(screen.io, screen.alloc, screen, limit) catch return .out_of_memory;
+                screen.kitty_images.setLimit(screen.io, screen.alloc, screen, limit);
             }
         },
         .kitty_image_medium_file,
@@ -4341,6 +4347,65 @@ test "get title set via vt_write" {
     var title: lib.String = undefined;
     try testing.expectEqual(Result.success, get(t, .title, @ptrCast(&title)));
     try testing.expectEqualStrings("VT Title", title.ptr[0..title.len]);
+}
+
+test "title report requires explicit opt in" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var last_data: ?[]u8 = null;
+
+        fn deinit() void {
+            if (last_data) |data| testing.allocator.free(data);
+            last_data = null;
+        }
+
+        fn writePty(
+            _: Terminal,
+            _: ?*anyopaque,
+            ptr: [*]const u8,
+            len: usize,
+        ) callconv(lib.calling_conv) void {
+            if (last_data) |data| testing.allocator.free(data);
+            last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
+        }
+    };
+    S.last_data = null;
+    defer S.deinit();
+
+    try testing.expectEqual(
+        Result.success,
+        set(t, .write_pty, @ptrCast(&S.writePty)),
+    );
+
+    const set_title = "\x1B]2;echo vulnerable\x1B\\";
+    const query_title = "\x1B[21t";
+    vt_write(t, set_title, set_title.len);
+
+    // WRITE_PTY alone must not enable the security-sensitive response.
+    vt_write(t, query_title, query_title.len);
+    try testing.expect(S.last_data == null);
+
+    const enabled = true;
+    try testing.expectEqual(Result.success, set(t, .title_report, &enabled));
+    vt_write(t, query_title, query_title.len);
+    try testing.expectEqualStrings(
+        "\x1b]lecho vulnerable\x1b\\",
+        S.last_data.?,
+    );
+
+    // NULL restores the secure default.
+    S.deinit();
+    try testing.expectEqual(Result.success, set(t, .title_report, null));
+    vt_write(t, query_title, query_title.len);
+    try testing.expect(S.last_data == null);
 }
 
 test "resize updates pixel dimensions" {

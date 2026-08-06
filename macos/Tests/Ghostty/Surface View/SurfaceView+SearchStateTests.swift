@@ -57,9 +57,35 @@ import Testing
             from: StartSearch(c: .init(needle: nil)),
             pasteboard: pasteboard
         )
-        sut.needle = "sut"
+        sut.setNeedle("sut")
         sut.writePasteboardNeedle()
         #expect(pasteboard.string(forType: .string) == "sut")
+    }
+
+    @Test func setNeedle_clearsNeedleSelection() {
+        let sut = SearchState(
+            from: StartSearch(c: .init(needle: nil)),
+            pasteboard: pasteboard
+        )
+        sut.setNeedleSelection(sut.needle.startIndex..<sut.needle.endIndex)
+
+        sut.setNeedle("x")
+
+        #expect(sut.needle == "x")
+        #expect(sut.needleSelection == nil)
+    }
+
+    @Test func setNeedleSelection_ignoresRangeFromLongerNeedle() {
+        let sut = SearchState(
+            from: StartSearch(c: .init(needle: nil)),
+            pasteboard: pasteboard
+        )
+        let oldNeedle = "abcdefghijklmnopqrstuvwxyz"
+
+        sut.setNeedle("x")
+        sut.setNeedleSelection(oldNeedle.startIndex..<oldNeedle.endIndex)
+
+        #expect(sut.needleSelection == nil)
     }
 
     @Test func readPasteboardNeedle_whenPasteboardNeedleIsNil() {
@@ -68,7 +94,7 @@ import Testing
             pasteboard: pasteboard
         )
         pasteboard.clearContents()
-        sut.needle = "sut"
+        sut.setNeedle("sut")
         sut.readPasteboardNeedle()
         #expect(sut.needle == "sut")
     }
@@ -78,7 +104,7 @@ import Testing
             from: StartSearch(c: .init(needle: nil)),
             pasteboard: pasteboard
         )
-        sut.needle = "sut"
+        sut.setNeedle("sut")
         sut.readPasteboardNeedle()
         #expect(sut.needle == "pb")
     }
@@ -88,7 +114,7 @@ import Testing
             from: StartSearch(c: .init(needle: nil)),
             pasteboard: pasteboard
         )
-        sut.needle = "sut"
+        sut.setNeedle("sut")
         sut.readPasteboardNeedle()
 
         let expected = "pb".startIndex..<"pb".endIndex

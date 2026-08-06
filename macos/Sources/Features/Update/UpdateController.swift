@@ -1,6 +1,7 @@
 import Sparkle
 import Cocoa
 import Combine
+import SwiftUI
 
 /// Standard controller for managing Sparkle updates in Ghostty.
 ///
@@ -15,13 +16,9 @@ class UpdateController {
         userDriver.viewModel
     }
 
-    /// True if we're installing an update.
-    var isInstalling: Bool {
-        if case .installing = viewModel.state {
-            return true
-        } else {
-            return false
-        }
+    /// True if we're installing an update triggered manually.
+    var shouldTerminateWithoutWarning: Bool {
+        viewModel.state.shouldTerminateWithoutWarning
     }
 
     /// Initialize a new update controller.
@@ -69,6 +66,30 @@ class UpdateController {
             return
         }
 
+        if case let .installing(installing) = viewModel.state {
+            // If the update is already installed, we can't actually
+            // cancel it, and SPUUpdater.checkForUpdates will simply fail,
+            // so we just show an alert to remind the user to restart.
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            let accessoryView = NSHostingView(
+                rootView: InstallingAccessoryView(installing: installing)
+                    .frame(width: 228, alignment: .leading)
+            )
+            accessoryView.frame = .init(origin: .zero, size: accessoryView.fittingSize)
+            alert.accessoryView = accessoryView
+            alert.addButton(withTitle: "Restart Now")
+            alert.addButton(withTitle: "Restart Later")
+                .keyEquivalent = .init([KeyboardShortcut(.escape).key.character])
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                viewModel.state.confirm()
+            default:
+                break
+            }
+            return
+        }
+
         // If we're not idle then we need to cancel any prior state.
         viewModel.state.cancel()
 
@@ -89,5 +110,48 @@ class UpdateController {
             return updater.canCheckForUpdates
         }
         return true
+    }
+}
+
+private struct InstallingAccessoryView: View {
+    let installing: UpdateState.Installing
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Restart Required")
+                    .font(.system(size: 13, weight: .semibold))
+
+                Text("The update is ready. Please restart the application to complete the installation.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let item = installing.appcastItem, let releaseNotesURL = installing.releaseNotes?.url {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Link(destination: releaseNotesURL) {
+                            HStack(spacing: 6) {
+                                Text("Version:")
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 60, alignment: .trailing)
+                                Text(item.displayVersionString)
+                            }
+                            .font(.system(size: 11))
+                        }
+
+                        if let date = item.date {
+                            HStack(spacing: 6) {
+                                Text("Released:")
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 60, alignment: .trailing)
+                                Text(date.formatted(date: .abbreviated, time: .omitted))
+                            }
+                            .font(.system(size: 11))
+                        }
+                    }
+                    .textSelection(.enabled)
+                }
+            }
+        }
     }
 }

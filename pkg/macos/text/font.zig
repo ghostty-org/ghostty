@@ -156,7 +156,7 @@ pub const Font = opaque {
         return @ptrFromInt(@intFromPtr(c.CTFontCopyFamilyName(@ptrCast(self))));
     }
 
-    pub fn copyDisplayName(self: *Font) *foundation.String {
+    pub fn copyDisplayName(self: *Font) ?*foundation.String {
         return @ptrFromInt(@intFromPtr(c.CTFontCopyDisplayName(@ptrCast(self))));
     }
 

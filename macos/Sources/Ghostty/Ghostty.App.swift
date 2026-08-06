@@ -3,6 +3,10 @@ import UniformTypeIdentifiers
 import UserNotifications
 import GhosttyKit
 
+#if os(macOS)
+import AppKit
+#endif
+
 protocol GhosttyAppDelegate: AnyObject {
     #if os(macOS)
     /// Called when a callback needs access to a specific surface. This should return nil
@@ -716,6 +720,13 @@ extension Ghostty {
         ) -> Bool {
             let action = Ghostty.Action.OpenURL(c: v)
 
+            // OSC 8 targets are producer-controlled terminal output. Keep them
+            // out of the unrestricted generic opener so unsafe local files and
+            // deceptive targets cannot reach Launch Services directly.
+            if action.kind == .osc8 {
+                return openUntrustedURL(action.url)
+            }
+
             // If the URL doesn't have a valid scheme we assume its a file path. The URL
             // initializer will gladly take invalid URLs (e.g. plain file paths) and turn
             // them into schema-less URLs, but these won't open properly in text editors.
@@ -745,10 +756,38 @@ extension Ghostty {
 
             case .unknown:
                 break
+
+            case .osc8:
+                assertionFailure("OSC 8 URLs must use the safe-opening policy")
+                return true
             }
 
             // Open with the default application for the URL
             NSWorkspace.shared.open(url)
+            return true
+        }
+
+        private static func openUntrustedURL(_ value: String) -> Bool {
+            let target = UntrustedURL(value)
+            switch target.decision {
+            case .allow(let url):
+                _ = NSWorkspace.shared.open(url)
+
+            case .confirm(let url):
+                UntrustedURLAlert.presentConfirmation(
+                    for: url,
+                    displayString: target.displayString
+                )
+
+            case .deny(let reason):
+                UntrustedURLAlert.presentBlock(
+                    reason: reason,
+                    displayString: target.displayString
+                )
+            }
+
+            // Always report OSC 8 actions as handled. Returning false would
+            // cause the core to retry with the unrestricted fallback opener.
             return true
         }
 
@@ -2125,7 +2164,7 @@ extension Ghostty {
                 DispatchQueue.main.async {
                     if let searchState = surfaceView.searchState {
                         if let needle = startSearch.needle, !needle.isEmpty {
-                            searchState.needle = needle
+                            searchState.setNeedle(needle)
                         }
                     } else {
                         surfaceView.searchState = Ghostty.SurfaceView.SearchState(from: startSearch)

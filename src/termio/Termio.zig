@@ -460,7 +460,7 @@ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !voi
     };
 
     // Set the image limits
-    try self.terminal.setKittyGraphicsSizeLimit(self.alloc, config.image_storage_limit);
+    self.terminal.setKittyGraphicsSizeLimit(self.alloc, config.image_storage_limit);
     self.terminal.setKittyGraphicsLoadingLimits(.allWithTempDir(global.tmpDirPath()));
 }
 

@@ -501,7 +501,7 @@ fn drainMailbox(self: *Thread) !void {
 
             .macos_display_id => |v| {
                 if (@hasDecl(rendererpkg.Renderer, "setMacOSDisplayID")) {
-                    try self.renderer.setMacOSDisplayID(v);
+                    try self.renderer.setMacOSDisplayID(v, &self.draw_now);
                 }
             },
         }

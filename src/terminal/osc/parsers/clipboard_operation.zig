@@ -12,7 +12,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
         parser.state = .invalid;
         return null;
     };
-    cap.writer.writeByte(0) catch {
+    cap.writeByte(0) catch {
         parser.state = .invalid;
         return null;
     };

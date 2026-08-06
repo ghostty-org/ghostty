@@ -1454,8 +1454,15 @@ pub const LineIterator = struct {
                 entry = entry[0..trim.len];
             }
 
-            // Ignore blank lines and comments
-            if (entry.len == 0 or entry[0] == '#') continue;
+            // Ignore blank lines and comments. If this line consumed the
+            // remaining buffer, refill before the loop condition checks for
+            // more data.
+            if (entry.len == 0 or entry[0] == '#') {
+                if (self.r.seek == self.r.end) {
+                    self.r.fillMore() catch {};
+                }
+                continue;
+            }
             break entry;
         } else return null;
 
@@ -1622,4 +1629,28 @@ test "LineIterator with buffered and primed reader" {
     try testing.expectEqualStrings("--B=C", iter.next().?);
     try testing.expectEqual(@as(?[]const u8, null), iter.next());
     try testing.expectEqual(@as(?[]const u8, null), iter.next());
+}
+
+test "LineIterator refills after ignored line at buffer boundary" {
+    const testing = std.testing;
+
+    {
+        var f: std.Io.Reader = .fixed("#\nA\n");
+        var buf: [2]u8 = undefined;
+        var r = f.limited(.unlimited, &buf);
+        var iter: LineIterator = .init(&r.interface);
+
+        try testing.expectEqualStrings("--A", iter.next().?);
+        try testing.expectEqual(@as(?[]const u8, null), iter.next());
+    }
+
+    {
+        var f: std.Io.Reader = .fixed("\nA\n");
+        var buf: [1]u8 = undefined;
+        var r = f.limited(.unlimited, &buf);
+        var iter: LineIterator = .init(&r.interface);
+
+        try testing.expectEqualStrings("--A", iter.next().?);
+        try testing.expectEqual(@as(?[]const u8, null), iter.next());
+    }
 }

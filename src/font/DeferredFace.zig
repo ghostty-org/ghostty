@@ -184,7 +184,8 @@ pub fn name(self: DeferredFace, buf: []u8) ![]const u8 {
         .coretext_harfbuzz,
         .coretext_noshape,
         => if (self.ct) |ct| {
-            const display_name = ct.font.copyDisplayName();
+            const display_name = ct.font.copyDisplayName() orelse
+                return self.familyName(buf);
             return display_name.cstringPtr(.utf8) orelse unsupported: {
                 // "NULL if the internal storage of theString does not allow
                 // this to be returned efficiently." In this case, we need

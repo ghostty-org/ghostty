@@ -77,7 +77,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
     };
 
     // Write a NUL byte to ensure that `text` is NUL-terminated
-    cap.writer.writeByte(0) catch {
+    cap.writeByte(0) catch {
         parser.state = .invalid;
         return null;
     };

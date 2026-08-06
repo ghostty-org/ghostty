@@ -505,7 +505,7 @@ pub fn decode(
             alloc,
             &result,
             options.kitty_image_storage_limit,
-        ) catch unreachable;
+        );
         result.kitty_images.image_limits = options.kitty_image_loading_limits;
     }
 

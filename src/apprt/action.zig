@@ -941,6 +941,11 @@ pub const OpenUrl = struct {
         /// The URL is known to contain HTML content.
         html,
 
+        /// The URL came from an OSC 8 hyperlink. Application runtimes should
+        /// treat this as untrusted terminal output and apply a platform-specific
+        /// safe-opening policy.
+        osc8,
+
         test "ghostty.h OpenUrl.Kind" {
             try lib.checkGhosttyHEnum(Kind, "GHOSTTY_ACTION_OPEN_URL_KIND_");
         }

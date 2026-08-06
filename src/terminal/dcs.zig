@@ -523,6 +523,7 @@ test "DECRQSS largest response fits fixed buffer" {
     try t.setAttribute(.inverse);
     try t.setAttribute(.invisible);
     try t.setAttribute(.strikethrough);
+    try t.setAttribute(.overline);
     try t.setAttribute(.{ .direct_color_fg = .{
         .r = 255,
         .g = 255,
@@ -538,7 +539,7 @@ test "DECRQSS largest response fits fixed buffer" {
     const encoded = try Command.DECRQSS.sgr.encode(&t, &buf);
 
     const expected =
-        "\x1BP1$r0;1;2;3;4:5;5;7;8;9" ++
+        "\x1BP1$r0;1;2;3;4:5;53;5;7;8;9" ++
         ";38:2::255:255:255" ++
         ";48:2::255:255:255m\x1B\\";
     try testing.expectEqualStrings(expected, encoded);

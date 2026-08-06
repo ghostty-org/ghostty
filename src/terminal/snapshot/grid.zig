@@ -1806,9 +1806,9 @@ test "grid drops undeliverable grapheme entries" {
 test "grid drops a complete grapheme when capacity fails mid-cluster" {
     const testing = std.testing;
     var page = try TerminalPage.init(.{
-        .cols = 1,
+        .cols = 4,
         .rows = 1,
-        .grapheme_bytes = 16,
+        .grapheme_bytes = 512,
     });
     defer page.deinit();
     var style_remap = try StyleRemap.init(testing.allocator);
@@ -1819,30 +1819,38 @@ test "grid drops a complete grapheme when capacity fails mid-cluster" {
     var payload: [1024]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&payload);
     try writer.writeByte(@bitCast(Row{ .cell_width = .eight }));
-    try io.writeInt(&writer, u16, 1);
-    try io.writeInt(&writer, u64, @bitCast(Cell{ .kind = 1, .content = 'x' }));
-    try io.writeInt(&writer, u32, 1);
-    try io.writeInt(&writer, u16, 0);
-    try io.writeInt(&writer, u16, 0);
-    // BitmapAllocator rounds this capacity to 64 four-codepoint chunks. The
-    // 129th suffix needs 33 new chunks while the old 32-chunk slice is still
-    // live, forcing the append's atomic replacement allocation to fail.
-    try io.writeInt(&writer, u16, 129);
-    for (0..129) |i| try io.writeInt(
+    try io.writeInt(&writer, u16, 4);
+    for (0..4) |i| try io.writeInt(
         &writer,
-        u32,
-        @intCast(0x0300 + i),
+        u64,
+        @bitCast(Cell{ .kind = 1, .content = @intCast('x' + i) }),
     );
+
+    // BitmapAllocator rounds this capacity to 64 four-codepoint chunks. The
+    // first three cells consume 34 chunks. On the fourth cell, appending the
+    // 61st suffix needs 16 new chunks while the old 15-chunk slice is still
+    // live, exceeding capacity and forcing the complete suffix to be dropped.
+    try io.writeInt(&writer, u32, 4);
+    for ([_]u16{ 64, 64, 8, 61 }, 0..) |count, x| {
+        try io.writeInt(&writer, u16, 0);
+        try io.writeInt(&writer, u16, @intCast(x));
+        try io.writeInt(&writer, u16, count);
+        for (0..count) |i| try io.writeInt(
+            &writer,
+            u32,
+            @intCast(0x0300 + i),
+        );
+    }
 
     var reader: std.Io.Reader = .fixed(writer.buffered());
     try decode(&page, &reader, &style_remap, &hyperlink_remap);
     try page.verifyIntegrity(testing.allocator);
 
-    const cell = page.getRowAndCell(0, 0);
-    try testing.expectEqual(@as(u21, 'x'), cell.cell.codepoint());
+    const cell = page.getRowAndCell(3, 0);
+    try testing.expectEqual(@as(u21, @intCast('x' + 3)), cell.cell.codepoint());
     try testing.expect(!cell.cell.hasGrapheme());
-    try testing.expect(!cell.row.grapheme);
-    try testing.expectEqual(@as(usize, 0), page.graphemeCount());
+    try testing.expect(cell.row.grapheme);
+    try testing.expectEqual(@as(usize, 3), page.graphemeCount());
 }
 
 test "grid encodes rows at their narrowest width" {

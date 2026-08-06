@@ -379,8 +379,14 @@ extension Ghostty {
                 HStack(spacing: 4) {
                     BackportSelectionTextField(
                         "Search",
-                        text: $searchState.needle,
-                        selection: $searchState.needleSelection
+                        text: Binding(
+                            get: { searchState.needle },
+                            set: { searchState.setNeedle($0) }
+                        ),
+                        selection: Binding(
+                            get: { searchState.needleSelection },
+                            set: { searchState.setNeedleSelection($0) }
+                        )
                     )
                     .textFieldStyle(.plain)
                     .frame(width: 180)

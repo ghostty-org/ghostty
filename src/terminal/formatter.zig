@@ -443,6 +443,43 @@ pub const TerminalFormatter = struct {
             }
         }
 
+        // Emit tabstop positions before the screen contents because setting
+        // them moves the cursor. Screen formatting will restore the requested
+        // cursor position afterwards.
+        if (self.opts.emit == .vt and self.extra.tabstops) {
+            // Clear all tabs (CSI 3 g)
+            try writer.print("\x1b[3g", .{});
+
+            // Set each configured tabstop by moving cursor and using HTS
+            for (0..self.terminal.cols) |col| {
+                if (self.terminal.tabstops.get(col)) {
+                    // Move cursor to the column (1-indexed)
+                    try writer.print("\x1b[{d}G", .{col + 1});
+                    // Set tab (HTS)
+                    try writer.print("\x1bH", .{});
+                }
+            }
+
+            // If we have a pin_map, add the bytes we wrote to map.
+            if (self.pin_map) |*m| {
+                var discarding: std.Io.Writer.Discarding = .init(&.{});
+                var extra_formatter: TerminalFormatter = self;
+                extra_formatter.content = .none;
+                extra_formatter.pin_map = null;
+                extra_formatter.extra = .none;
+                extra_formatter.extra.tabstops = true;
+                try extra_formatter.format(&discarding.writer);
+
+                // Map all those bytes to the same pin. Use the top left to ensure
+                // the node pointer is always properly initialized.
+                m.map.append(
+                    m.alloc,
+                    self.terminal.screens.active.pages.getTopLeft(.screen),
+                    std.math.cast(usize, discarding.count) orelse return error.WriteFailed,
+                ) catch return error.WriteFailed;
+            }
+        }
+
         var screen_formatter: ScreenFormatter = .init(self.terminal.screens.active, self.opts);
         screen_formatter.content = self.content;
         screen_formatter.extra = self.extra.screen;
@@ -469,22 +506,6 @@ pub const TerminalFormatter = struct {
                 }
             }
 
-            // Emit tabstop positions
-            if (self.extra.tabstops) {
-                // Clear all tabs (CSI 3 g)
-                try writer.print("\x1b[3g", .{});
-
-                // Set each configured tabstop by moving cursor and using HTS
-                for (0..self.terminal.cols) |col| {
-                    if (self.terminal.tabstops.get(col)) {
-                        // Move cursor to the column (1-indexed)
-                        try writer.print("\x1b[{d}G", .{col + 1});
-                        // Set tab (HTS)
-                        try writer.print("\x1bH", .{});
-                    }
-                }
-            }
-
             // Emit keyboard modes such as ModifyOtherKeys
             if (self.extra.keyboard) {
                 // Only emit if modify_other_keys_2 is true
@@ -507,7 +528,6 @@ pub const TerminalFormatter = struct {
                 extra_formatter.pin_map = null;
                 extra_formatter.extra = .none;
                 extra_formatter.extra.scrolling_region = self.extra.scrolling_region;
-                extra_formatter.extra.tabstops = self.extra.tabstops;
                 extra_formatter.extra.keyboard = self.extra.keyboard;
                 extra_formatter.extra.pwd = self.extra.pwd;
                 try extra_formatter.format(&discarding.writer);
@@ -5599,8 +5619,13 @@ test "Terminal vt with tabstops" {
     s.nextSlice("\x1b[30G\x1bH"); // Set tab at column 30
     s.nextSlice("hello");
 
+    var pin_map: PinMap.Map = .empty;
+    defer pin_map.deinit(alloc);
+
     var formatter: TerminalFormatter = .init(&t, .vt);
     formatter.extra.tabstops = true;
+    formatter.extra.screen.cursor = true;
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
@@ -5625,6 +5650,14 @@ test "Terminal vt with tabstops" {
     try testing.expect(t2.tabstops.get(14)); // Column 15 (1-indexed)
     try testing.expect(t2.tabstops.get(29)); // Column 30 (1-indexed)
     try testing.expect(!t2.tabstops.get(8)); // Not a tab
+
+    // Emitting tabstops moves the cursor to each configured column. When
+    // cursor state is included, it must be restored afterwards.
+    try testing.expectEqual(t.screens.active.cursor.x, t2.screens.active.cursor.x);
+    try testing.expectEqual(t.screens.active.cursor.y, t2.screens.active.cursor.y);
+
+    // Verify the reordered terminal state is still represented in the map.
+    try testing.expectEqual(output.len, pin_map.count());
 }
 
 test "Terminal vt with keyboard modes" {

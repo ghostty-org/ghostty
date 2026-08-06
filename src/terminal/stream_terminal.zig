@@ -56,6 +56,11 @@ pub const Handler = struct {
     /// effects.
     effects: Effects = .readonly,
 
+    /// Whether CSI 21 t may report the terminal title. This is disabled by
+    /// default because reporting an attacker-controlled title to the pty can
+    /// inject text into the input stream of the foreground process.
+    title_report: bool = false,
+
     /// The APC command handler maintains the APC state. APC is like
     /// CSI or OSC, but it is a private escape sequence that is used
     /// to send commands to the terminal emulator. This is used by
@@ -565,6 +570,7 @@ pub const Handler = struct {
         // Build the response.
         switch (style) {
             .csi_21_t => {
+                if (!self.title_report) return;
                 const title = self.terminal.getTitle() orelse "";
                 aw.writer.print("\x1b]l{s}\x1b\\", .{title}) catch return;
             },
@@ -1443,13 +1449,17 @@ test "DECRQSS responses" {
     s.nextSlice("\x1B[1m\x1BP$qm\x1B\\");
     try S.expectResponse("\x1BP1$r0;1m\x1B\\");
 
+    // Overline
+    s.nextSlice("\x1B[0;53m\x1BP$qm\x1B\\");
+    try S.expectResponse("\x1BP1$r0;53m\x1B\\");
+
     // Requests larger than the parser's fixed request buffer are ignored,
     // and the next DCS command must still be processed normally.
     s.nextSlice("\x1BP$qfoo\x1B\\");
     try testing.expectEqual(@as(usize, 0), S.calls);
     try testing.expect(!s.handler.semantic_failure);
     s.nextSlice("\x1BP$qm\x1B\\");
-    try S.expectResponse("\x1BP1$r0;1m\x1B\\");
+    try S.expectResponse("\x1BP1$r0;53m\x1B\\");
 }
 
 test "DECRQSS without write effect is ignored" {
@@ -1667,6 +1677,9 @@ test "OSC 11 set and reset background color" {
     var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
+    const default: color.RGB = .{ .r = 0x10, .g = 0x20, .b = 0x30 };
+    t.colors.background.default = default;
+
     // Set background to green
     s.nextSlice("\x1b]11;rgb:00/ff/00\x1b\\");
     const bg = t.colors.background.get().?;
@@ -1676,7 +1689,13 @@ test "OSC 11 set and reset background color" {
 
     // Reset background
     s.nextSlice("\x1b]111\x1b\\");
-    try testing.expect(t.colors.background.get() == null);
+    try testing.expectEqual(default, t.colors.background.get().?);
+    try testing.expectEqual(null, t.colors.background.override);
+
+    // A reset color continues to follow later configuration changes.
+    const updated: color.RGB = .{ .r = 0x40, .g = 0x50, .b = 0x60 };
+    t.colors.background.default = updated;
+    try testing.expectEqual(updated, t.colors.background.get().?);
 }
 
 test "OSC 12 set and reset cursor color" {
@@ -2385,6 +2404,10 @@ test "request mode DECRQM with write_pty callback" {
         // Query an unknown mode
         s.nextSlice("\x1B[?9999$p");
         try testing.expectEqualStrings("\x1B[?9999;0$y", S.last_response.?);
+
+        // Query DECECM, which Ghostty recognizes but does not allow changing
+        s.nextSlice("\x1B[?117$p");
+        try testing.expectEqualStrings("\x1B[?117;4$y", S.last_response.?);
     }
 }
 
@@ -2684,7 +2707,7 @@ test "size report no effect callback" {
     try testing.expect(S.written == null);
 }
 
-test "size report csi_21_t title" {
+test "size report csi_21_t title disabled by default" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
 
@@ -2698,6 +2721,33 @@ test "size report csi_21_t title" {
 
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // Set a title first
+    s.nextSlice("\x1b]2;My Title\x1b\\");
+
+    // CSI 21 t - report title (no size effect needed)
+    s.nextSlice("\x1b[21t");
+    try testing.expect(S.written == null);
+}
+
+test "size report csi_21_t title enabled" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var written: ?[]const u8 = null;
+        fn writePty(_: *Handler, data: [:0]const u8) void {
+            written = testing.allocator.dupe(u8, data) catch @panic("OOM");
+        }
+    };
+    S.written = null;
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    handler.title_report = true;
 
     var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();

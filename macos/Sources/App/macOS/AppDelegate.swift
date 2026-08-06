@@ -376,7 +376,7 @@ class AppDelegate: NSObject,
 
         // If we've already accepted to install an update, then we don't need to
         // confirm quit. The user is already expecting the update to happen.
-        if updateController.isInstalling {
+        if updateController.shouldTerminateWithoutWarning {
             return .terminateNow
         }
 

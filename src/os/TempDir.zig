@@ -2,6 +2,7 @@
 //! store temporary data and is destroyed on deinit.
 const TempDir = @This();
 
+const builtin = @import("builtin");
 const std = @import("std");
 const Dir = std.Io.Dir;
 const file = @import("file.zig");
@@ -61,25 +62,94 @@ pub fn name(self: *TempDir) []const u8 {
 /// Finish with the temporary directory. This deletes all contents in the
 /// directory.
 pub fn deinit(self: *TempDir) void {
+    self.close(.delete);
+}
+
+pub const CloseMode = enum { delete, retain };
+
+/// Close the directory handles, optionally retaining the temporary directory
+/// and its contents on disk.
+pub fn close(self: *TempDir, mode: CloseMode) void {
     self.dir.close(global.io());
-    self.parent.deleteTree(global.io(), self.name()) catch |err|
-        log.err("error deleting temp dir err={}", .{err});
+    switch (mode) {
+        .delete => self.parent.deleteTree(global.io(), self.name()) catch |err|
+            log.err("error deleting temp dir err={}", .{err}),
+        .retain => {},
+    }
+    self.parent.close(global.io());
 }
 
 test {
     const testing = std.testing;
 
-    var td = try init();
-    errdefer td.deinit();
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_len: usize = undefined;
+    var dir_handle: Dir.Handle = undefined;
+    var parent_handle: Dir.Handle = undefined;
+    {
+        var td = try init();
+        errdefer td.deinit();
 
-    const nameval = td.name();
-    try testing.expect(nameval.len > 0);
+        const nameval = td.name();
+        try testing.expect(nameval.len > 0);
 
-    // Can open a new handle to it proves it exists.
-    var dir = try td.parent.openDir(testing.io, nameval, .{});
+        // Can open a new handle to it proves it exists.
+        var dir = try td.parent.openDir(testing.io, nameval, .{});
+        dir.close(testing.io);
+
+        path_len = try td.dir.realPath(testing.io, &path_buf);
+        dir_handle = td.dir.handle;
+        parent_handle = td.parent.handle;
+
+        // Should be deleted after we deinit.
+        td.deinit();
+    }
+
+    switch (builtin.os.tag) {
+        .freebsd, .ios, .linux, .macos => {
+            for ([_]Dir.Handle{ dir_handle, parent_handle }) |handle| {
+                const result = std.posix.system.fcntl(handle, std.posix.F.GETFD);
+                try testing.expectEqual(std.posix.E.BADF, std.posix.errno(result));
+            }
+        },
+
+        else => {},
+    }
+    try testing.expectError(
+        error.FileNotFound,
+        Dir.openDirAbsolute(testing.io, path_buf[0..path_len], .{}),
+    );
+}
+
+test "close retains temporary directory" {
+    const testing = std.testing;
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_len: usize = undefined;
+    var dir_handle: Dir.Handle = undefined;
+    var parent_handle: Dir.Handle = undefined;
+    {
+        var td = try init();
+        errdefer td.deinit();
+
+        path_len = try td.dir.realPath(testing.io, &path_buf);
+        dir_handle = td.dir.handle;
+        parent_handle = td.parent.handle;
+
+        td.close(.retain);
+    }
+    defer Dir.deleteDirAbsolute(testing.io, path_buf[0..path_len]) catch {};
+
+    switch (builtin.os.tag) {
+        .freebsd, .ios, .linux, .macos => {
+            for ([_]Dir.Handle{ dir_handle, parent_handle }) |handle| {
+                const result = std.posix.system.fcntl(handle, std.posix.F.GETFD);
+                try testing.expectEqual(std.posix.E.BADF, std.posix.errno(result));
+            }
+        },
+
+        else => {},
+    }
+    var dir = try Dir.openDirAbsolute(testing.io, path_buf[0..path_len], .{});
     dir.close(testing.io);
-
-    // Should be deleted after we deinit
-    td.deinit();
-    try testing.expectError(error.FileNotFound, td.parent.openDir(testing.io, nameval, .{}));
 }

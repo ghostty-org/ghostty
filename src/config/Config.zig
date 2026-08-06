@@ -1469,6 +1469,14 @@ link: RepeatableLink = .{},
 /// `link`). If you want to customize URL matching, use `link` and disable this.
 @"link-url": bool = true,
 
+/// Enable hyperlinks created with the OSC 8 escape sequence. When disabled,
+/// OSC 8 hyperlinks are not highlighted, previewed, copied, or opened.
+///
+/// This does not affect URL matching controlled by `link-url`.
+///
+/// Available since: 1.4.0
+@"link-osc8": bool = true,
+
 /// Show link previews for a matched URL.
 ///
 /// When true, link previews are shown for all matched URLs. When false, link
@@ -8749,9 +8757,16 @@ pub const RepeatableCommand = struct {
         try self.value.ensureUnusedCapacity(alloc, inputpkg.command.defaults.len);
         try self.value_c.ensureUnusedCapacity(alloc, inputpkg.command.defaults.len);
         for (inputpkg.command.defaults) |cmd| {
-            const translated = cmd.translated();
-            self.value.appendAssumeCapacity(translated);
-            self.value_c.appendAssumeCapacity(try translated.cval(alloc));
+            // Translation is currently a GTK-only feature. In particular,
+            // translating these shared strings for the embedded runtime gives
+            // the macOS app a localized command palette in an otherwise
+            // unlocalized UI.
+            const localized = if (comptime build_config.app_runtime == .gtk)
+                cmd.translated()
+            else
+                cmd;
+            self.value.appendAssumeCapacity(localized);
+            self.value_c.appendAssumeCapacity(try localized.cval(alloc));
         }
     }
 

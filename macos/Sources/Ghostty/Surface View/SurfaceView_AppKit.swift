@@ -2370,6 +2370,7 @@ extension Ghostty.SurfaceView {
 /// We use this to cache our surface content. This probably should be extracted some day
 /// to a more generic helper.
 class CachedValue<T> {
+    private let lock = NSLock()
     private var value: T?
     private let fetch: () -> T
     private let duration: Duration
@@ -2381,10 +2382,15 @@ class CachedValue<T> {
     }
 
     deinit {
+        lock.lock()
         expiryTask?.cancel()
+        lock.unlock()
     }
 
     func get() -> T {
+        lock.lock()
+        defer { lock.unlock() }
+
         if let value {
             return value
         }
@@ -2399,13 +2405,20 @@ class CachedValue<T> {
         expiryTask = Task { [weak self] in
             do {
                 try await Task.sleep(until: expires)
-                self?.value = nil
-                self?.expiryTask = nil
+                self?.expire()
             } catch {
                 // Task was cancelled, do nothing
             }
         }
 
         return result
+    }
+
+    private func expire() {
+        lock.lock()
+        defer { lock.unlock() }
+
+        value = nil
+        expiryTask = nil
     }
 }

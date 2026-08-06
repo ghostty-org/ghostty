@@ -1048,6 +1048,18 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: size_t*
    */
   GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES = 31,
+
+  /**
+   * Enable window title reports in response to CSI 21 t.
+   *
+   * This is disabled by default because a running program can set a title and
+   * query it back into the pty input stream, potentially injecting commands
+   * that execute after user interaction. Passing NULL or a pointer to false
+   * disables title reporting.
+   *
+   * Input type: bool*
+   */
+  GHOSTTY_TERMINAL_OPT_TITLE_REPORT = 32,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 
