@@ -1314,14 +1314,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let controller = Self.newTab(ghostty, from: window, withBaseConfig: baseConfig)
         else { return }
 
-        guard let group else { return }
-        DispatchQueue.main.async {
-            guard let surface = controller.focusedSurface
+        guard let group,
+              let surface = controller.focusedSurface
                 ?? controller.surfaceTree.root?.leftmostLeaf()
-            else { return }
-            SidebarGroupStore.shared.assign(surfaceId: surface.id, to: group.id)
-            self.sidebarTabManager?.scheduleRefresh()
-        }
+        else { return }
+        SidebarGroupStore.shared.assign(surfaceId: surface.id, to: group.id)
+        sidebarTabManager?.scheduleRefresh()
+        controller.sidebarTabManager?.scheduleRefresh()
     }
 
     /// The app-wide sidebar width: last width the user dragged to in any

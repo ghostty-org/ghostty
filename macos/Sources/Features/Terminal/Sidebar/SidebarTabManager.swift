@@ -21,6 +21,13 @@ final class SidebarTabManager: ObservableObject {
     @Published private(set) var animationsEnabled = false
 
     private weak var window: NSWindow?
+
+    /// A newly created tab's window renders its sidebar before AppKit
+    /// adds it to the tab group; until then, the parent group (the key
+    /// window's at creation time) seeds the list so the sidebar never
+    /// flashes empty.
+    private weak var seedTabGroup: NSWindowTabGroup?
+
     private var modelsById: [ObjectIdentifier: SidebarTabModel] = [:]
     private var notificationObservers: [NSObjectProtocol] = []
     private var centerCancellables: Set<AnyCancellable> = []
@@ -34,6 +41,13 @@ final class SidebarTabManager: ObservableObject {
 
     init(window: NSWindow) {
         self.window = window
+
+        if let keyWindow = NSApp.keyWindow as? TerminalWindow,
+           keyWindow !== window,
+           let parentGroup = keyWindow.tabGroup {
+            self.seedTabGroup = parentGroup
+        }
+
         setupObservers()
         subscribeCenters()
         refresh()
@@ -56,10 +70,20 @@ final class SidebarTabManager: ObservableObject {
         notificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
-    /// All windows participating in this sidebar: the tab group when one
-    /// exists, otherwise just our own window.
+    /// All windows participating in this sidebar: our tab group once
+    /// joined, else the seed (parent) group plus ourselves, else just us.
     private var groupWindows: [NSWindow] {
         guard let window else { return [] }
+
+        if let own = window.tabGroup?.windows, own.count > 1 {
+            seedTabGroup = nil
+            return own
+        }
+
+        if let seeded = seedTabGroup?.windows, !seeded.isEmpty {
+            return seeded.contains(window) ? seeded : seeded + [window]
+        }
+
         return window.tabGroup?.windows ?? [window]
     }
 
