@@ -716,22 +716,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             glass = TerminalGlassView(topOffset: -topInset)
             glass.translatesAutoresizingMaskIntoConstraints = false
             sidebarPane.addSubview(glass, positioned: .below, relativeTo: nil)
-
-            // The pane's inner edge sits mid-window: extend the glass
-            // past the divider and clip, so its corner radius only
-            // shows on the window's own corners.
-            let overflow = windowCornerRadiusValue() ?? 16
-            sidebarPane.wantsLayer = true
-            sidebarPane.layer?.masksToBounds = true
-
             NSLayoutConstraint.activate([
                 glass.topAnchor.constraint(equalTo: sidebarPane.topAnchor),
                 glass.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor),
                 glass.bottomAnchor.constraint(equalTo: sidebarPane.bottomAnchor),
-                glass.trailingAnchor.constraint(
-                    equalTo: sidebarPane.trailingAnchor,
-                    constant: overflow
-                ),
+                glass.trailingAnchor.constraint(equalTo: sidebarPane.trailingAnchor),
             ])
             sidebarGlassView = glass
         }
@@ -739,12 +728,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let store = GuiConfigStore.shared
         let base = (window as? TerminalWindow)?.preferredBackgroundColor?
             .withAlphaComponent(1) ?? .black
-        let cornerRadius = windowCornerRadiusValue()
+        // Square glass in panes: the window frame rounds the composite.
         glass.configure(
             style: .regular,
             backgroundColor: base,
             backgroundOpacity: store.double("background-opacity", default: 1),
-            cornerRadius: cornerRadius,
+            cornerRadius: 0,
             isKeyWindow: window?.isKeyWindow ?? true
         )
 #endif

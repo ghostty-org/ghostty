@@ -11,6 +11,7 @@ struct AppearanceSettingsView: View {
     @StateObject private var catalog: ThemeCatalog
 
     @State private var search = ""
+    @State private var expandedSections: Set<String> = []
 
     /// Famous themes shown by default; searching looks through the whole
     /// catalog. Names match the bundled theme files exactly.
@@ -144,18 +145,45 @@ struct AppearanceSettingsView: View {
         .padding(10)
     }
 
+    /// Sections collapse to their first row; searching expands results.
     private func themeSection(_ title: String, _ themes: [TerminalTheme]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
+        let isExpanded = expandedSections.contains(title) || !search.isEmpty
+        let visible = isExpanded ? themes : Array(themes.prefix(3))
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+
+                Spacer()
+
+                if themes.count > 3 && search.isEmpty {
+                    Button {
+                        if isExpanded {
+                            expandedSections.remove(title)
+                        } else {
+                            expandedSections.insert(title)
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text(isExpanded ? "Show Less" : "Show All (\(themes.count))")
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8, weight: .semibold))
+                                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        }
+                        .font(.caption)
+                    }
+                    .buttonStyle(.link)
+                }
+            }
 
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 150), spacing: 10)],
                 spacing: 10
             ) {
-                ForEach(themes) { theme in
+                ForEach(visible) { theme in
                     ThemeCard(theme: theme, isSelected: theme.name == currentTheme) {
                         store.set("theme", theme.name)
                         store.apply(ghostty: ghostty)
