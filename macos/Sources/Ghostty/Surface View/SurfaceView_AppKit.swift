@@ -1875,7 +1875,11 @@ extension Ghostty {
             // Delayed so the shell is up before the command is typed.
             if let uuid,
                UserDefaults.standard.object(forKey: "SidebarRestoreAgentSessions") as? Bool ?? true,
-               FileManager.default.fileExists(atPath: TabStateCenter.stateFileURL(for: uuid).path) {
+               let rawState = try? String(
+                   contentsOf: TabStateCenter.stateFileURL(for: uuid),
+                   encoding: .utf8
+               ),
+               rawState.trimmingCharacters(in: .whitespacesAndNewlines) != "ended" {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
                     guard let self, let surface = self.surface else { return }
                     let command = "claude --continue\n"

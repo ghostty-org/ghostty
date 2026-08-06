@@ -86,7 +86,17 @@ class TerminalViewContainer: NSView {
 
 extension BaseTerminalController {
     var terminalViewContainer: TerminalViewContainer? {
-        window?.contentView as? TerminalViewContainer
+        if let direct = window?.contentView as? TerminalViewContainer {
+            return direct
+        }
+        // With the sidebar active the content view is a split view and
+        // the container is its terminal pane.
+        if let split = window?.contentView as? NSSplitView {
+            return split.arrangedSubviews
+                .compactMap { $0 as? TerminalViewContainer }
+                .first
+        }
+        return nil
     }
 }
 
@@ -96,7 +106,7 @@ extension BaseTerminalController {
 /// an inactive-window tint overlay.
 #if compiler(>=6.2)
 @available(macOS 26.0, *)
-private class TerminalGlassView: NSView {
+class TerminalGlassView: NSView {
     private let glassEffectView: NSGlassEffectView
     private var topConstraint: NSLayoutConstraint!
     private let tintOverlay: NSView

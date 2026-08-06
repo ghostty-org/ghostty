@@ -80,6 +80,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// background (color + opacity) so both panes always match.
     private var sidebarBackgroundView: NSView?
 
+    /// The sidebar pane container and its glass layer (glass effect
+    /// modes cover every pane, so the sidebar carries its own).
+    private weak var sidebarPane: NSView?
+    private var sidebarGlassView: NSView?
+
     /// The sidebar action icons, added straight into the titlebar
     /// container and centered on the traffic lights; the trailing
     /// constraint tracks the sidebar so the icons hug the divider.
@@ -667,6 +672,51 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             AppearanceCoordinator.sidebarLayerColor(
                 window: window as? TerminalWindow
             )?.cgColor
+        syncSidebarGlass()
+    }
+
+    /// Keeps the sidebar pane's glass layer in lockstep with the
+    /// window-wide effect: present and tinted like the terminal's glass
+    /// while a glass style is active, absent otherwise.
+    private func syncSidebarGlass() {
+#if compiler(>=6.2)
+        guard #available(macOS 26.0, *) else { return }
+        guard let sidebarPane else { return }
+
+        guard AppearanceCoordinator.blurStyle.isGlass else {
+            sidebarGlassView?.removeFromSuperview()
+            sidebarGlassView = nil
+            return
+        }
+
+        let glass: TerminalGlassView
+        if let existing = sidebarGlassView as? TerminalGlassView {
+            glass = existing
+        } else {
+            let topInset = window?.contentView?.superview?.safeAreaInsets.top ?? 0
+            glass = TerminalGlassView(topOffset: -topInset)
+            glass.translatesAutoresizingMaskIntoConstraints = false
+            sidebarPane.addSubview(glass, positioned: .below, relativeTo: nil)
+            NSLayoutConstraint.activate([
+                glass.topAnchor.constraint(equalTo: sidebarPane.topAnchor),
+                glass.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor),
+                glass.bottomAnchor.constraint(equalTo: sidebarPane.bottomAnchor),
+                glass.trailingAnchor.constraint(equalTo: sidebarPane.trailingAnchor),
+            ])
+            sidebarGlassView = glass
+        }
+
+        let store = GuiConfigStore.shared
+        let base = (window as? TerminalWindow)?.preferredBackgroundColor?
+            .withAlphaComponent(1) ?? .black
+        glass.configure(
+            style: .regular,
+            backgroundColor: base,
+            backgroundOpacity: store.double("background-opacity", default: 1),
+            cornerRadius: nil,
+            isKeyWindow: window?.isKeyWindow ?? true
+        )
+#endif
     }
 
     /// Masks the first presentation of this window's terminal pane: the
@@ -1249,20 +1299,33 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         sidebarHosting.wantsLayer = true
         self.sidebarBackgroundView = sidebarHosting
 
+        // The pane wraps the hosting view so a glass layer can slot in
+        // underneath when the glass effect is active.
+        let sidebarPane = NSView()
+        sidebarPane.translatesAutoresizingMaskIntoConstraints = false
+        sidebarPane.addSubview(sidebarHosting)
+        NSLayoutConstraint.activate([
+            sidebarHosting.topAnchor.constraint(equalTo: sidebarPane.topAnchor),
+            sidebarHosting.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor),
+            sidebarHosting.bottomAnchor.constraint(equalTo: sidebarPane.bottomAnchor),
+            sidebarHosting.trailingAnchor.constraint(equalTo: sidebarPane.trailingAnchor),
+        ])
+        self.sidebarPane = sidebarPane
+
         let expanded = [
-            sidebarHosting.widthAnchor.constraint(greaterThanOrEqualToConstant: 180),
-            sidebarHosting.widthAnchor.constraint(lessThanOrEqualToConstant: 480),
+            sidebarPane.widthAnchor.constraint(greaterThanOrEqualToConstant: 180),
+            sidebarPane.widthAnchor.constraint(lessThanOrEqualToConstant: 480),
         ]
         NSLayoutConstraint.activate(expanded)
         self.sidebarExpandedConstraints = expanded
         self.sidebarCollapsedConstraint =
-            sidebarHosting.widthAnchor.constraint(equalToConstant: 0)
+            sidebarPane.widthAnchor.constraint(equalToConstant: 0)
 
         // Pin the exact shared width for the first layout pass so new
         // tabs appear at the right size instead of snapping a frame
         // later, then release it so the divider stays draggable.
         if !SidebarCollapseState.shared.isCollapsed {
-            let initialWidth = sidebarHosting.widthAnchor.constraint(
+            let initialWidth = sidebarPane.widthAnchor.constraint(
                 equalToConstant: sharedSidebarWidth
             )
             initialWidth.isActive = true
@@ -1303,7 +1366,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let splitView = SidebarSplitView()
         splitView.isVertical = true
         splitView.dividerStyle = .thin
-        splitView.addArrangedSubview(sidebarHosting)
+        splitView.addArrangedSubview(sidebarPane)
         splitView.addArrangedSubview(terminalContainer)
         splitView.setHoldingPriority(.defaultLow + 1, forSubviewAt: 0)
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)

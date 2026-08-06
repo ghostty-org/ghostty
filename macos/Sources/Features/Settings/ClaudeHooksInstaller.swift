@@ -35,7 +35,7 @@ enum ClaudeHooksInstaller {
         ("PostToolUse", "working"),
         ("PermissionRequest", "awaiting"),
         ("Stop", "done"),
-        ("SessionEnd", "clear"),
+        ("SessionEnd", "ended"),
     ]
 
     private static let scriptBody = """
@@ -46,11 +46,6 @@ enum ClaudeHooksInstaller {
     [ -n "$GHOSTTY_TAB_STATE_FILE" ] || exit 0
 
     STATE="$1"
-
-    if [ "$STATE" = "clear" ]; then
-      rm -f "$GHOSTTY_TAB_STATE_FILE"
-      exit 0
-    fi
 
     printf '%s' "$STATE" > "$GHOSTTY_TAB_STATE_FILE.tmp" \\
       && mv "$GHOSTTY_TAB_STATE_FILE.tmp" "$GHOSTTY_TAB_STATE_FILE"

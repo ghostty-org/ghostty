@@ -612,8 +612,6 @@ private struct SidebarTabRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            statusIndicator
-
             if let icon = override?.icon, !icon.isEmpty {
                 SidebarGroupIcon(icon: icon, size: 11)
                     .foregroundStyle(.secondary)
@@ -661,22 +659,28 @@ private struct SidebarTabRow: View {
 
             Spacer(minLength: 0)
 
-            Button {
-                tab.window.performClose(nil)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16, height: 16)
-                    .background(
-                        Circle().fill(isCloseHovered ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
-                    )
+            ZStack {
+                statusIndicator
+                    .opacity(isHovered ? 0 : 1)
+
+                Button {
+                    tab.window.performClose(nil)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16, height: 16)
+                        .background(
+                            Circle().fill(isCloseHovered ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
+                        )
+                }
+                .buttonStyle(.plain)
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+                .onHover { isCloseHovered = $0 }
+                .help("Close Terminal")
             }
-            .buttonStyle(.plain)
-            .opacity(isHovered ? 1 : 0)
-            .allowsHitTesting(isHovered)
-            .onHover { isCloseHovered = $0 }
-            .help("Close Terminal")
+            .frame(width: 18, height: 18)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, isCompact ? 5 : 8)
@@ -740,9 +744,9 @@ private struct SidebarTabRow: View {
         }
     }
 
-    /// Leading status: agent state takes precedence (spinner while
-    /// working, bubble while waiting for input, green dot when output is
-    /// ready), then the bell attention dot.
+    /// Trailing status: spinner while the agent works, a raised hand
+    /// while it waits for input, an accent dot when a response is ready
+    /// (cleared on selection), and the bell attention dot otherwise.
     @ViewBuilder
     private var statusIndicator: some View {
         switch tab.agentState {
@@ -751,14 +755,14 @@ private struct SidebarTabRow: View {
                 .controlSize(.mini)
                 .frame(width: 12, height: 12)
         case .awaiting:
-            Image(systemName: "questionmark.bubble.fill")
-                .font(.system(size: 10))
-                .foregroundStyle(.yellow)
+            Image(systemName: "hand.raised.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(.orange)
         case .done:
             Circle()
-                .fill(.green)
-                .frame(width: 6, height: 6)
-        case nil:
+                .fill(Color.accentColor)
+                .frame(width: 8, height: 8)
+        case .ended, nil:
             if tab.needsAttention {
                 Circle()
                     .fill(.orange)

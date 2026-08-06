@@ -152,6 +152,7 @@ struct BehaviorsSettingsView: View {
 
     @AppStorage("SidebarRestoreAgentSessions") private var restoreAgentSessions = true
     @AppStorage("SidebarNewTabPosition") private var newTabPosition = "end"
+    @AppStorage("AgentNotificationsEnabled") private var agentNotifications = true
 
     @State private var restoreWindows = true
 
@@ -168,6 +169,9 @@ struct BehaviorsSettingsView: View {
 
             Section {
                 Toggle("Resume Agent Sessions on Restore", isOn: $restoreAgentSessions)
+                    .toggleStyle(.switch)
+
+                Toggle("Notify on Agent Activity", isOn: $agentNotifications)
                     .toggleStyle(.switch)
             } header: {
                 Text("Terminal")
@@ -198,7 +202,7 @@ struct BehaviorsSettingsView: View {
 /// agents later.
 struct AgentsSettingsView: View {
     @State private var installed = ClaudeHooksInstaller.isInstalled
-    @State private var lastActionFailed = false
+    @State private var feedback: String?
 
     var body: some View {
         Form {
@@ -215,23 +219,29 @@ struct AgentsSettingsView: View {
                         }
 
                         Button(installed ? "Reinstall Hooks" : "Install Hooks") {
-                            lastActionFailed = !ClaudeHooksInstaller.install()
+                            let ok = ClaudeHooksInstaller.install()
                             installed = ClaudeHooksInstaller.isInstalled
+                            feedback = ok && installed
+                                ? "Hooks installed \u{2713}"
+                                : "Install failed — check ~/.claude/settings.json"
                         }
 
                         if installed {
                             Button("Remove") {
-                                lastActionFailed = !ClaudeHooksInstaller.uninstall()
+                                let ok = ClaudeHooksInstaller.uninstall()
                                 installed = ClaudeHooksInstaller.isInstalled
+                                feedback = ok && !installed
+                                    ? "Hooks removed"
+                                    : "Removal failed — check ~/.claude/settings.json"
                             }
                         }
                     }
                 }
 
-                if lastActionFailed {
-                    Text("Something went wrong updating ~/.claude/settings.json — check the file and try again.")
+                if let feedback {
+                    Text(feedback)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(feedback.contains("failed") ? .red : .secondary)
                 }
             } footer: {
                 Text("Installs a hook script in ~/.claude/hooks and registers it in ~/.claude/settings.json (existing hooks are preserved). With the hooks in place, tabs running Claude Code show a spinner while it works, a bubble while it waits for input, and an attention dot when a response is ready — and sessions resume on window restore.")
