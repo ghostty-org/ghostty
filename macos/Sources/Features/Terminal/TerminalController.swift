@@ -1321,7 +1321,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             }
 
-        let splitView = NSSplitView()
+        let splitView = SidebarSplitView()
         splitView.isVertical = true
         splitView.dividerStyle = .thin
         splitView.addArrangedSubview(sidebarHosting)
@@ -1398,6 +1398,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     @objc private func sidebarTintDidChangeNotification(_ notification: Notification) {
         syncSidebarBackground()
+        sidebarSplitView?.needsDisplay = true
     }
 
     private func applySharedSidebarWidth() {

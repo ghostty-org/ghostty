@@ -102,6 +102,11 @@ struct AppearanceSettingsView: View {
                         Divider()
                             .padding(.top, 6)
 
+                        AppearanceStylePanel(ghostty: ghostty, store: store)
+
+                        Divider()
+                            .padding(.top, 6)
+
                         ThemeCreatorView(
                             ghostty: ghostty,
                             store: store,
@@ -193,6 +198,317 @@ struct AppearanceSettingsView: View {
             try? fm.copyItem(at: url, to: destination)
         }
         catalog.reload()
+    }
+}
+
+/// Every style control in one place, sectioned by area — the specific
+/// settings tabs keep only behavior.
+private struct AppearanceStylePanel: View {
+    let ghostty: Ghostty.App
+    @ObservedObject var store: GuiConfigStore
+
+    @State private var fontFamily: String = ""
+    @State private var fontSize: Double = 13
+    @State private var cursorStyle: String = ""
+    @State private var backgroundOpacity: Double = 1
+    @State private var blurMode: String = "off"
+    @State private var blurRadius: Double = 20
+    @State private var backgroundColorOverride: Color?
+    @State private var sidebarBackgroundMode: String = "theme"
+    @State private var tintColor: Color = .black
+    @State private var tintOpacity: Double = 0
+    @State private var sidebarWidth: Double = 240
+    @State private var dividerMode: String = "default"
+    @State private var dividerColor: Color = .gray
+
+    @AppStorage("SidebarTabDensity") private var tabDensity = "default"
+
+    private static let cursorStyles: [(value: String, label: String)] = [
+        ("", "Default"),
+        ("block", "Block"),
+        ("bar", "Bar"),
+        ("underline", "Underline"),
+        ("block_hollow", "Hollow Block"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            styleGroup("Terminal") {
+                LabeledContent("Font Family") {
+                    TextField("", text: $fontFamily, prompt: Text("System default"))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 220)
+                        .onSubmit { apply("font-family", fontFamily) }
+                }
+
+                LabeledContent("Font Size") {
+                    HStack {
+                        Slider(value: $fontSize, in: 8...32, step: 1) { editing in
+                            if !editing { apply("font-size", String(Int(fontSize))) }
+                        }
+                        Text("\(Int(fontSize)) pt")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
+
+                LabeledContent("Cursor Style") {
+                    Picker("", selection: $cursorStyle) {
+                        ForEach(Self.cursorStyles, id: \.value) { style in
+                            Text(style.label).tag(style.value)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 160)
+                    .onChange(of: cursorStyle) { value in
+                        apply("cursor-style", value)
+                    }
+                }
+            }
+
+            styleGroup("Window") {
+                LabeledContent("Background Color") {
+                    HStack(spacing: 8) {
+                        if backgroundColorOverride != nil {
+                            Button("Use Theme Color") {
+                                backgroundColorOverride = nil
+                                apply("background", "")
+                            }
+                            .buttonStyle(.link)
+                            .font(.caption)
+                        }
+
+                        ColorPicker(
+                            "",
+                            selection: Binding(
+                                get: { backgroundColorOverride ?? .black },
+                                set: { newValue in
+                                    backgroundColorOverride = newValue
+                                    apply("background", NSColor(newValue).hexString ?? "")
+                                }
+                            ),
+                            supportsOpacity: false
+                        )
+                        .labelsHidden()
+                    }
+                }
+
+                LabeledContent("Background Opacity") {
+                    HStack {
+                        Slider(value: $backgroundOpacity, in: 0.3...1) { editing in
+                            if !editing {
+                                apply("background-opacity", String(format: "%.2f", backgroundOpacity))
+                            }
+                        }
+                        Text(String(format: "%.2f", backgroundOpacity))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
+
+                LabeledContent("Background Blur") {
+                    Picker("", selection: $blurMode) {
+                        Text("Off").tag("off")
+                        Text("Blur Radius").tag("radius")
+                        Text("Glass").tag("glass-regular")
+                        Text("Glass (Clear)").tag("glass-clear")
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 160)
+                    .onChange(of: blurMode) { _ in applyBlur() }
+                }
+
+                if blurMode == "radius" {
+                    LabeledContent("Blur Intensity") {
+                        HStack {
+                            Slider(value: $blurRadius, in: 1...80, step: 1) { editing in
+                                if !editing { applyBlur() }
+                            }
+                            Text("\(Int(blurRadius))")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .frame(width: 44, alignment: .trailing)
+                        }
+                    }
+                }
+            }
+
+            styleGroup("Sidebar") {
+                LabeledContent("Background") {
+                    Picker("", selection: $sidebarBackgroundMode) {
+                        Text("Match Theme").tag("theme")
+                        Text("Match Window").tag("window")
+                        Text("Custom Tint").tag("custom")
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 160)
+                    .onChange(of: sidebarBackgroundMode) { _ in saveTint() }
+                }
+
+                if sidebarBackgroundMode == "custom" {
+                    LabeledContent("Tint") {
+                        HStack {
+                            Slider(value: $tintOpacity, in: 0...1) { editing in
+                                if !editing { saveTint() }
+                            }
+                            ColorPicker("", selection: $tintColor, supportsOpacity: false)
+                                .labelsHidden()
+                                .onChange(of: tintColor) { _ in saveTint() }
+                        }
+                    }
+                }
+
+                LabeledContent("Default Width") {
+                    HStack {
+                        Slider(value: $sidebarWidth, in: 180...480, step: 10) { editing in
+                            if !editing {
+                                store.set("sidebar-width", String(Int(sidebarWidth)))
+                                store.apply(ghostty: ghostty)
+                            }
+                        }
+                        Text("\(Int(sidebarWidth)) pt")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 48, alignment: .trailing)
+                    }
+                }
+
+                LabeledContent("Divider") {
+                    HStack(spacing: 8) {
+                        Picker("", selection: $dividerMode) {
+                            Text("Default").tag("default")
+                            Text("Hidden").tag("hidden")
+                            Text("Custom").tag("custom")
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 130)
+                        .onChange(of: dividerMode) { _ in saveDivider() }
+
+                        if dividerMode == "custom" {
+                            ColorPicker("", selection: $dividerColor, supportsOpacity: false)
+                                .labelsHidden()
+                                .onChange(of: dividerColor) { _ in saveDivider() }
+                        }
+                    }
+                }
+            }
+
+            styleGroup("Tab Item") {
+                LabeledContent("Style") {
+                    Picker("", selection: $tabDensity) {
+                        Text("Default").tag("default")
+                        Text("Compact").tag("compact")
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 200)
+                }
+            }
+        }
+        .onAppear { populate() }
+    }
+
+    private func styleGroup<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+
+            VStack(alignment: .leading, spacing: 10) {
+                content()
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+            )
+        }
+    }
+
+    private func populate() {
+        fontFamily = store.string("font-family") ?? ""
+        fontSize = store.double("font-size", default: 13)
+        backgroundOpacity = store.double("background-opacity", default: 1)
+        cursorStyle = store.string("cursor-style") ?? ""
+        backgroundColorOverride = store.string("background")
+            .flatMap { NSColor(hex: $0) }
+            .map { Color(nsColor: $0) }
+        sidebarWidth = store.double("sidebar-width", default: 240)
+
+        switch store.string("background-blur") ?? "false" {
+        case "false":
+            blurMode = "off"
+        case "true":
+            blurMode = "radius"
+            blurRadius = 20
+        case "macos-glass-regular":
+            blurMode = "glass-regular"
+        case "macos-glass-clear":
+            blurMode = "glass-clear"
+        case let raw:
+            if let value = Double(raw), value > 0 {
+                blurMode = "radius"
+                blurRadius = value
+            } else {
+                blurMode = "off"
+            }
+        }
+
+        let defaults = UserDefaults.standard
+        sidebarBackgroundMode = defaults.string(forKey: "SidebarBackgroundMode") ?? "theme"
+        tintOpacity = defaults.double(forKey: "SidebarTintOpacity")
+        if let hex = defaults.string(forKey: "SidebarTintHex"),
+           let color = NSColor(hex: hex) {
+            tintColor = Color(nsColor: color)
+        }
+        dividerMode = defaults.string(forKey: "SidebarDividerMode") ?? "default"
+        if let hex = defaults.string(forKey: "SidebarDividerColorHex"),
+           let color = NSColor(hex: hex) {
+            dividerColor = Color(nsColor: color)
+        }
+    }
+
+    private func saveDivider() {
+        let defaults = UserDefaults.standard
+        defaults.set(dividerMode, forKey: "SidebarDividerMode")
+        defaults.set(NSColor(dividerColor).hexString ?? "#808080", forKey: "SidebarDividerColorHex")
+        NotificationCenter.default.post(
+            name: TerminalController.sidebarTintDidChange,
+            object: nil
+        )
+    }
+
+    private func apply(_ key: String, _ value: String) {
+        store.set(key, value.isEmpty ? nil : value)
+        store.apply(ghostty: ghostty)
+    }
+
+    private func applyBlur() {
+        let value: String
+        switch blurMode {
+        case "radius": value = String(Int(blurRadius))
+        case "glass-regular": value = "macos-glass-regular"
+        case "glass-clear": value = "macos-glass-clear"
+        default: value = "false"
+        }
+        apply("background-blur", value)
+    }
+
+    private func saveTint() {
+        let defaults = UserDefaults.standard
+        defaults.set(sidebarBackgroundMode, forKey: "SidebarBackgroundMode")
+        defaults.set(NSColor(tintColor).hexString ?? "#000000", forKey: "SidebarTintHex")
+        defaults.set(tintOpacity, forKey: "SidebarTintOpacity")
+        NotificationCenter.default.post(
+            name: TerminalController.sidebarTintDidChange,
+            object: nil
+        )
     }
 }
 

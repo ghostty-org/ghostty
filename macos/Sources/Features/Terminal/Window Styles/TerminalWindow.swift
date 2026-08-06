@@ -569,6 +569,13 @@ class TerminalWindow: NSWindow {
             // Terminal.app more easily.
             backgroundColor = .white.withAlphaComponent(0.001)
 
+            // The regular glass style keeps the theme's tint over the
+            // glass; only the clear variant is fully colorless.
+            if case .macosGlassRegular = surfaceConfig.backgroundBlur,
+               let tint = preferredBackgroundColor {
+                backgroundColor = tint
+            }
+
             // We don't need to set blur when using glass
             if !surfaceConfig.backgroundBlur.isGlassStyle, let appDelegate = NSApp.delegate as? AppDelegate {
                 ghostty_set_window_background_blur(
