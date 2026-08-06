@@ -1345,6 +1345,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             name: Self.sidebarTintDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(guiConfigDidApplyNotification(_:)),
+            name: GuiConfigStore.didApply,
+            object: nil
+        )
 
         DispatchQueue.main.async { [weak self] in
             self?.applySharedSidebarWidth()
@@ -1399,6 +1405,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     @objc private func sidebarTintDidChangeNotification(_ notification: Notification) {
         syncSidebarBackground()
         sidebarSplitView?.needsDisplay = true
+    }
+
+    /// Settings applies hot-reload the config; the surface colors that
+    /// feed the sidebar background land a beat later, so sync twice.
+    @objc private func guiConfigDidApplyNotification(_ notification: Notification) {
+        syncSidebarBackground()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            self?.syncSidebarBackground()
+            self?.sidebarSplitView?.needsDisplay = true
+        }
     }
 
     private func applySharedSidebarWidth() {
