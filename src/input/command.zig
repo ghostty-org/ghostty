@@ -734,6 +734,7 @@ fn actionCommands(action: Action.Key) []const Command {
         => comptime &.{},
 
         // No commands for obvious reasons
+        .system_color_scheme_changed,
         .ignore,
         .unbind,
         => comptime &.{},
