@@ -1119,10 +1119,12 @@ pub const Window = extern struct {
         self: *Self,
     ) callconv(.c) void {
         const priv = self.private();
-        if (priv.config) |config_obj| {
-            const config = config_obj.get();
-            if (config.@"app-notifications".@"config-reload") {
-                self.addToast(i18n._("Reloaded the configuration"));
+        if (!Application.default().configReloadIsSoft()) {
+            if (priv.config) |config_obj| {
+                const config = config_obj.get();
+                if (config.@"app-notifications".@"config-reload") {
+                    self.addToast(i18n._("Reloaded the configuration"));
+                }
             }
         }
 

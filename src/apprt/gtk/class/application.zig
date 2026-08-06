@@ -193,6 +193,9 @@ pub const Application = extern struct {
         /// only be set by the main loop thread.
         running: bool = false,
 
+        /// Whether the current configuration reload is a soft reload.
+        config_reload_soft: bool = false,
+
         /// The timer used to quit the application after the last window is
         /// closed. Even if there is no quit delay set, this is the state
         /// used to determine to close the app.
@@ -241,6 +244,11 @@ pub const Application = extern struct {
     pub fn default() *Self {
         const app = gio.Application.getDefault().?;
         return gobject.ext.cast(Self, app).?;
+    }
+
+    /// Returns whether the current configuration reload is soft.
+    pub fn configReloadIsSoft(self: *Self) bool {
+        return self.private().config_reload_soft;
     }
 
     /// Creates a new Application instance.
@@ -2731,6 +2739,13 @@ const Action = struct {
             break :config try .new(alloc, &config);
         };
         defer config.unref();
+
+        // Track whether this config propagation came from an internal soft
+        // reload so windows can avoid showing a duplicate reload toast.
+        const priv = self.private();
+        const previous_soft = priv.config_reload_soft;
+        priv.config_reload_soft = opts.soft;
+        defer priv.config_reload_soft = previous_soft;
 
         // Update the proper target. This will trigger a `config_change`
         // apprt action which will propagate the config properly to our
