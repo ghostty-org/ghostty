@@ -569,6 +569,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             Notification.Name.GhosttyConfigChangeKey
         ] as? Ghostty.Config else { return }
 
+        // Any config reload (settings window, CLI action, file edit)
+        // re-resolves the sidebar treatments once the surface state
+        // settles — never only the settings-window path.
+        if sidebarChromeView != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.syncSidebarBackground()
+                self?.attachSidebarChrome()
+                (self?.window as? TerminalWindow)?.ensureSidebarTitlebarDecorations()
+                self?.sidebarSplitView?.needsDisplay = true
+            }
+        }
+
         // If this is an app-level config update then we update some things.
         if notification.object == nil {
             // Update our derived config

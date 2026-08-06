@@ -53,6 +53,38 @@ enum ClaudeHooksInstaller {
 
     """
 
+    /// Human-readable detail of the last failure, for the settings UI.
+    static private(set) var lastError: String?
+
+    private static func fail(_ stage: String, _ error: Error? = nil) -> Bool {
+        let detail = error.map { "\(stage): \($0.localizedDescription)" } ?? stage
+        lastError = detail
+        log("FAIL \(detail)")
+        return false
+    }
+
+    private static func log(_ message: String) {
+        let line = "\(Date()) \(message)\n"
+        let url = URL(fileURLWithPath: "/tmp/phantom-hooks.log")
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            try? handle.close()
+        } else {
+            try? line.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// Logs each component of the install check, for diagnosis.
+    static func logStatus() {
+        let scriptExists = FileManager.default.fileExists(atPath: scriptURL.path)
+        let data = try? Data(contentsOf: settingsURL)
+        let contains = data
+            .flatMap { String(data: $0, encoding: .utf8) }?
+            .contains(scriptURL.path) ?? false
+        log("status script=\(scriptExists) settingsRead=\(data != nil) registered=\(contains) home=\(FileManager.default.homeDirectoryForCurrentUser.path)")
+    }
+
     static var isInstalled: Bool {
         guard FileManager.default.fileExists(atPath: scriptURL.path),
               let data = try? Data(contentsOf: settingsURL),
@@ -76,10 +108,12 @@ enum ClaudeHooksInstaller {
                 ofItemAtPath: scriptURL.path
             )
         } catch {
-            return false
+            return fail("writing hook script", error)
         }
 
-        guard var settings = readSettings() else { return false }
+        guard var settings = readSettings() else {
+            return fail("settings.json unreadable or not an object")
+        }
         var hooks = settings["hooks"] as? [String: Any] ?? [:]
 
         for (event, state) in eventStates {
@@ -103,12 +137,19 @@ enum ClaudeHooksInstaller {
         }
 
         settings["hooks"] = hooks
-        return writeSettings(settings)
+        guard writeSettings(settings) else {
+            return fail("writing settings.json")
+        }
+        lastError = nil
+        log("install ok")
+        return true
     }
 
     @discardableResult
     static func uninstall() -> Bool {
-        guard var settings = readSettings() else { return false }
+        guard var settings = readSettings() else {
+            return fail("settings.json unreadable or not an object")
+        }
 
         if var hooks = settings["hooks"] as? [String: Any] {
             for (event, value) in hooks {
@@ -124,7 +165,11 @@ enum ClaudeHooksInstaller {
         }
 
         try? FileManager.default.removeItem(at: scriptURL)
-        return writeSettings(settings)
+        guard writeSettings(settings) else {
+            return fail("writing settings.json")
+        }
+        lastError = nil
+        return true
     }
 
     private static func commandsIn(_ entry: [String: Any]) -> [String] {

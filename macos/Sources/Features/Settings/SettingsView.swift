@@ -223,7 +223,7 @@ struct AgentsSettingsView: View {
                             installed = ClaudeHooksInstaller.isInstalled
                             feedback = ok && installed
                                 ? "Hooks installed \u{2713}"
-                                : "Install failed — check ~/.claude/settings.json"
+                                : "Install failed: \(ClaudeHooksInstaller.lastError ?? "status did not update")"
                         }
 
                         if installed {
@@ -252,6 +252,7 @@ struct AgentsSettingsView: View {
         .formStyle(.grouped)
         .navigationTitle("Agents")
         .onAppear {
+            ClaudeHooksInstaller.logStatus()
             installed = ClaudeHooksInstaller.isInstalled
         }
     }
