@@ -15,6 +15,11 @@ final class SidebarTabManager: ObservableObject {
     @Published private(set) var models: [SidebarTabModel] = []
     @Published private(set) var groupingVersion = 0
 
+    /// List animations stay off while a fresh sidebar populates: a new
+    /// window's sidebar first sees only itself, then the whole group a
+    /// beat later — animating that burst unfolds the entire list.
+    @Published private(set) var animationsEnabled = false
+
     private weak var window: NSWindow?
     private var modelsById: [ObjectIdentifier: SidebarTabModel] = [:]
     private var notificationObservers: [NSObjectProtocol] = []
@@ -33,6 +38,10 @@ final class SidebarTabManager: ObservableObject {
         subscribeCenters()
         refresh()
         didInitialPopulation = true
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            self?.animationsEnabled = true
+        }
 
         gitRefreshTimer = Timer.scheduledTimer(
             withTimeInterval: 5,

@@ -21,6 +21,11 @@ struct SidebarView: View {
     /// following the group's working-directory rule.
     var onNewTabInGroup: (SidebarGroup?) -> Void = { _ in }
 
+    /// List animations are suspended while the sidebar first populates.
+    private var listAnimation: Animation? {
+        tabManager.animationsEnabled ? .snappy(duration: 0.22) : nil
+    }
+
     /// One rendered group section and the tabs resolved into it, in
     /// sidebar display order.
     private struct Section: Identifiable {
@@ -90,9 +95,9 @@ struct SidebarView: View {
                     }
                 }
                 .padding(8)
-                .animation(.snappy(duration: 0.22), value: content.sections.map(\.id))
-                .animation(.snappy(duration: 0.22), value: store.tabOrder)
-                .animation(.snappy(duration: 0.22), value: tabManager.models.map(\.id))
+                .animation(listAnimation, value: content.sections.map(\.id))
+                .animation(listAnimation, value: store.tabOrder)
+                .animation(listAnimation, value: tabManager.models.map(\.id))
             }
             .onDrop(of: [.plainText], isTargeted: nil) { providers in
                 appendDroppedToUngrouped(providers)
@@ -458,6 +463,7 @@ private struct SidebarTabRow: View {
     @ObservedObject var dragState: SidebarDragState
 
     @State private var isHovered = false
+    @State private var isCloseHovered = false
     @State private var isCreatingGroup = false
     @State private var isCustomizing = false
 
@@ -540,6 +546,23 @@ private struct SidebarTabRow: View {
             }
 
             Spacer(minLength: 0)
+
+            Button {
+                tab.window.performClose(nil)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16, height: 16)
+                    .background(
+                        Circle().fill(isCloseHovered ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
+                    )
+            }
+            .buttonStyle(.plain)
+            .opacity(isHovered ? 1 : 0)
+            .allowsHitTesting(isHovered)
+            .onHover { isCloseHovered = $0 }
+            .help("Close Terminal")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
