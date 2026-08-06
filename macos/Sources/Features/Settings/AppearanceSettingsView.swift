@@ -541,14 +541,19 @@ private struct ThemeCard: View {
                         .font(.system(size: 11, weight: .medium))
                         .lineLimit(1)
 
+                    if theme.source == .user {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 8))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .overlay(alignment: .trailing) {
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 10))
                             .foregroundStyle(Color.accentColor)
-                    } else if theme.source == .user {
-                        Image(systemName: "person.fill")
-                            .font(.system(size: 8))
-                            .foregroundStyle(.secondary)
+                            .padding(.trailing, 2)
                     }
                 }
             }

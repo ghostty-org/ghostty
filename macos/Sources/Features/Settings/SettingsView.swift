@@ -69,13 +69,19 @@ struct GeneralSettingsView: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("Config File") {
+                LabeledContent("Phantom Settings File") {
+                    Button("Open in Editor") {
+                        NSWorkspace.shared.open(store.guiFileURL)
+                    }
+                }
+
+                LabeledContent("Main Config File") {
                     Button("Open in Editor") {
                         ghostty.openConfig()
                     }
                 }
             } footer: {
-                Text("Settings changed in this window are stored in \(GuiConfigStore.fileName) and included from your config file. Hand-written options stay untouched. Style options (fonts, colors, blur) live in Appearance.")
+                Text("Everything changed in this window is stored in \(GuiConfigStore.fileName) (the Phantom settings file), which is included from your main config. Hand-written options in the main config stay untouched. Style options (fonts, colors, blur) live in Appearance.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

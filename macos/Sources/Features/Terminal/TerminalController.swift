@@ -658,36 +658,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// Posted by settings when the sidebar tint changes.
     static let sidebarTintDidChange = Notification.Name("PhantomSidebarTintDidChange")
 
-    /// Background layering: the window paints the base (color, opacity,
-    /// blur — General settings) and the terminal adds its theme
-    /// background on top. The sidebar pane has three modes:
-    /// theme (default) mirrors the terminal's effective background so
-    /// theme switches recolor it too; window paints nothing, showing the
-    /// raw base/blur; custom paints a user tint at a chosen opacity.
+    /// The sidebar's background treatment is resolved centrally by
+    /// AppearanceCoordinator so every blur/opacity/mode combination is
+    /// decided in one place.
     private func syncSidebarBackground() {
         guard let sidebarBackgroundView else { return }
-
-        let defaults = UserDefaults.standard
-        switch defaults.string(forKey: "SidebarBackgroundMode") ?? "theme" {
-        case "window":
-            sidebarBackgroundView.layer?.backgroundColor = nil
-
-        case "custom":
-            let opacity = defaults.double(forKey: "SidebarTintOpacity")
-            guard opacity > 0.001,
-                  let hex = defaults.string(forKey: "SidebarTintHex"),
-                  let color = NSColor(hex: hex)
-            else {
-                sidebarBackgroundView.layer?.backgroundColor = nil
-                return
-            }
-            sidebarBackgroundView.layer?.backgroundColor =
-                color.withAlphaComponent(opacity).cgColor
-
-        default:
-            sidebarBackgroundView.layer?.backgroundColor =
-                (window as? TerminalWindow)?.preferredBackgroundColor?.cgColor
-        }
+        sidebarBackgroundView.layer?.backgroundColor =
+            AppearanceCoordinator.sidebarLayerColor(
+                window: window as? TerminalWindow
+            )?.cgColor
     }
 
     /// Masks the first presentation of this window's terminal pane: the
