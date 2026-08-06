@@ -96,7 +96,11 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
             let isTransparentTitlebar = derivedConfig.macosTitlebarStyle == .transparent ||
             derivedConfig.macosTitlebarStyle == .tabs
 
-            titlebarView.layer?.backgroundColor = (isGlassStyle && isTransparentTitlebar)
+            // With the sidebar active the panes extend under the
+            // titlebar and paint it uniformly in every effect mode; the
+            // native titlebar background must stay clear so it doesn't
+            // double-paint over (or mismatch) the pane color.
+            titlebarView.layer?.backgroundColor = (sidebarActive || (isGlassStyle && isTransparentTitlebar))
                 ? NSColor.clear.cgColor
                 : preferredBackgroundColor?.cgColor
         }
@@ -110,9 +114,13 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
     private func syncAppearanceVentura(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
         guard let titlebarContainer else { return }
 
-        // Setup the titlebar background color to match ours
+        // Setup the titlebar background color to match ours. With the
+        // sidebar active the panes paint the titlebar area themselves,
+        // so it stays clear rather than double-painting.
         titlebarContainer.wantsLayer = true
-        titlebarContainer.layer?.backgroundColor = preferredBackgroundColor?.cgColor
+        titlebarContainer.layer?.backgroundColor = sidebarActive
+            ? NSColor.clear.cgColor
+            : preferredBackgroundColor?.cgColor
 
         // See the docs for the function that sets this to true on why
         effectViewIsHidden = false

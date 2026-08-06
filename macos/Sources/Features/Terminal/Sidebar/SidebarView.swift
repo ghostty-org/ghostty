@@ -582,6 +582,7 @@ private struct SidebarTabRow: View {
     let tabManager: SidebarTabManager
     @ObservedObject var store: SidebarGroupStore
     @ObservedObject var dragState: SidebarDragState
+    @ObservedObject private var themePalette: ThemePalette = .shared
 
     @State private var isHovered = false
     @State private var isCloseHovered = false
@@ -820,7 +821,9 @@ private struct SidebarTabRow: View {
 
     private var rowBackground: some ShapeStyle {
         if tab.isSelected {
-            return AnyShapeStyle(Color(nsColor: .selectedContentBackgroundColor).opacity(0.6))
+            let color = themePalette.primary.map { Color(nsColor: $0) }
+                ?? Color(nsColor: .selectedContentBackgroundColor)
+            return AnyShapeStyle(color.opacity(0.6))
         } else if isHovered {
             return AnyShapeStyle(.quaternary)
         }

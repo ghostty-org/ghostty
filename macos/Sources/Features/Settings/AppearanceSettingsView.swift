@@ -298,14 +298,15 @@ private struct AppearanceStylePanel: View {
             styleGroup("Effect") {
                 LabeledContent("Style") {
                     Picker("", selection: $blurMode) {
+                        Text("Solid").tag("solid")
                         Text("Clear").tag("off")
                         Text("Blur").tag("radius")
                         Text("Glass").tag("glass-regular")
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    .frame(maxWidth: 240)
-                    .onChange(of: blurMode) { _ in applyBlur() }
+                    .frame(maxWidth: 300)
+                    .onChange(of: blurMode) { _ in applyEffectChange() }
                 }
 
                 if blurMode == "radius" {
@@ -322,17 +323,19 @@ private struct AppearanceStylePanel: View {
                     }
                 }
 
-                LabeledContent("Opacity") {
-                    HStack {
-                        Slider(value: $backgroundOpacity, in: 0.3...1) { editing in
-                            if !editing {
-                                apply("background-opacity", String(format: "%.2f", backgroundOpacity))
+                if blurMode != "off" {
+                    LabeledContent("Opacity") {
+                        HStack {
+                            Slider(value: $backgroundOpacity, in: 0...1) { editing in
+                                if !editing {
+                                    apply("background-opacity", String(format: "%.2f", backgroundOpacity))
+                                }
                             }
+                            Text(String(format: "%.2f", backgroundOpacity))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .frame(width: 44, alignment: .trailing)
                         }
-                        Text(String(format: "%.2f", backgroundOpacity))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .frame(width: 44, alignment: .trailing)
                     }
                 }
             }
@@ -418,20 +421,20 @@ private struct AppearanceStylePanel: View {
 
         switch store.string("background-blur") ?? "false" {
         case "false":
-            blurMode = "off"
+            // "false" covers both Solid and Clear — opacity tells them
+            // apart, since Clear is pinned near zero and Solid isn't.
+            blurMode = backgroundOpacity <= 0.05 ? "off" : "solid"
         case "true":
             blurMode = "radius"
             blurRadius = 20
-        case "macos-glass-regular":
-            blurMode = "glass-regular"
-        case "macos-glass-clear":
+        case "macos-glass-regular", "macos-glass-clear":
             blurMode = "glass-regular"
         case let raw:
             if let value = Double(raw), value > 0 {
                 blurMode = "radius"
                 blurRadius = value
             } else {
-                blurMode = "off"
+                blurMode = backgroundOpacity <= 0.05 ? "off" : "solid"
             }
         }
 
@@ -466,6 +469,30 @@ private struct AppearanceStylePanel: View {
         default: value = "false"
         }
         apply("background-blur", value)
+    }
+
+    /// Effect selection drives opacity: Solid snaps to fully opaque
+    /// (still adjustable afterward), Clear pins full transparency with
+    /// no adjustment, and Blur/Glass nudge away from either extreme —
+    /// at 0% or 100% neither effect would be visible — unless the user
+    /// already set a deliberate in-between value, which is left alone.
+    private func applyEffectChange() {
+        switch blurMode {
+        case "solid":
+            backgroundOpacity = 1.0
+            store.set("background-opacity", "1.00")
+        case "off":
+            backgroundOpacity = 0.0
+            store.set("background-opacity", "0.00")
+        case "radius", "glass-regular":
+            if backgroundOpacity <= 0.02 || backgroundOpacity >= 0.98 {
+                backgroundOpacity = 0.5
+                store.set("background-opacity", "0.50")
+            }
+        default:
+            break
+        }
+        applyBlur()
     }
 
 }

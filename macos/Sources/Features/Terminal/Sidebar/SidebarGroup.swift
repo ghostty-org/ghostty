@@ -131,6 +131,10 @@ final class ThemePalette: ObservableObject {
     @Published private(set) var colors: [NSColor] = []
     @Published private(set) var background: NSColor?
 
+    /// The theme's primary/accent swatch — ANSI index 4 (Blue) by
+    /// convention, matching the accent already used in theme previews.
+    var primary: NSColor? { colors.count > 4 ? colors[4] : nil }
+
     static let ansiNames = [
         "Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White",
         "Bright Black", "Bright Red", "Bright Green", "Bright Yellow",

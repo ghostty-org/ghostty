@@ -1297,6 +1297,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     ) -> NSView {
         (window as? TerminalWindow)?.sidebarActive = true
 
+        // The panes (not the native titlebar) paint the window's
+        // background/effect uniformly, so the content view needs to
+        // extend under the titlebar strip for that color to reach it.
+        window.styleMask.insert(.fullSizeContentView)
+
         let tabManager = SidebarTabManager(window: window)
         self.sidebarTabManager = tabManager
 
@@ -1466,7 +1471,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     @objc private func sidebarTintDidChangeNotification(_ notification: Notification) {
         syncSidebarBackground()
-        sidebarSplitView?.needsDisplay = true
+        // An immediate, synchronous redraw — not just a dirty flag for
+        // the next display cycle — so divider style/color changes in
+        // Settings reflect right away instead of needing a reopen.
+        sidebarSplitView?.display()
     }
 
     /// Settings applies hot-reload the config; the surface state that
