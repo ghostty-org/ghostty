@@ -225,6 +225,9 @@ struct SidebarSettingsView: View {
     @AppStorage("SidebarRestoreAgentSessions") private var restoreAgentSessions = true
     @AppStorage("SidebarNewTabPosition") private var newTabPosition = "end"
 
+    @State private var tintColor: Color = .black
+    @State private var tintOpacity: Double = 0
+
     var body: some View {
         Form {
             Section {
@@ -262,6 +265,29 @@ struct SidebarSettingsView: View {
                 }
             }
 
+            Section {
+                LabeledContent("Sidebar Tint") {
+                    HStack {
+                        Slider(value: $tintOpacity, in: 0...0.9) { editing in
+                            if !editing { saveTint() }
+                        }
+
+                        ColorPicker("", selection: $tintColor, supportsOpacity: false)
+                            .labelsHidden()
+                            .onChange(of: tintColor) { _ in saveTint() }
+
+                        Text(tintOpacity <= 0.001 ? "Off" : String(format: "%.0f%%", tintOpacity * 100))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 40, alignment: .trailing)
+                    }
+                }
+            } footer: {
+                Text("Backgrounds are layered: the window background (General) is the base for every pane, the terminal adds its theme background, and the sidebar adds this tint. Keep it at zero so the sidebar matches the window exactly, or raise it with a dark (or light) color to set the sidebar apart.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Tab Info") {
                 Toggle("Show Working Directory", isOn: $showDirectory)
                     .toggleStyle(.switch)
@@ -287,6 +313,23 @@ struct SidebarSettingsView: View {
         .onAppear {
             sidebarEnabled = store.bool("sidebar")
             sidebarWidth = store.double("sidebar-width", default: 240)
+
+            let defaults = UserDefaults.standard
+            tintOpacity = defaults.double(forKey: "SidebarTintOpacity")
+            if let hex = defaults.string(forKey: "SidebarTintHex"),
+               let color = NSColor(hex: hex) {
+                tintColor = Color(nsColor: color)
+            }
         }
+    }
+
+    private func saveTint() {
+        let defaults = UserDefaults.standard
+        defaults.set(NSColor(tintColor).hexString ?? "#000000", forKey: "SidebarTintHex")
+        defaults.set(tintOpacity, forKey: "SidebarTintOpacity")
+        NotificationCenter.default.post(
+            name: TerminalController.sidebarTintDidChange,
+            object: nil
+        )
     }
 }

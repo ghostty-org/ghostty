@@ -340,6 +340,7 @@ private struct SidebarGroupSection: View {
                     store.update(group.id) { $0.color = color }
                 } label: {
                     HStack {
+                        Image(nsImage: color.menuSwatch)
                         Text(color.localizedName)
                         if group.color == color {
                             Image(systemName: "checkmark")
@@ -740,15 +741,21 @@ private struct SidebarIconPicker: View {
 
     @State private var emoji: String = ""
 
+    @FocusState private var emojiFieldFocused: Bool
+
+    /// A full 5×7 grid of terminal-life symbols.
     private static let symbols: [String] = [
-        "folder", "terminal", "flame", "bolt", "star", "heart",
-        "hammer", "wrench.and.screwdriver", "gearshape", "shippingbox", "cube", "globe",
-        "server.rack", "cloud", "externaldrive", "chart.bar", "doc.text", "book",
-        "briefcase", "building.2", "cart", "creditcard", "testtube.2", "ladybug",
-        "leaf", "moon.stars", "sparkles", "gamecontroller", "music.note", "paintbrush",
+        "folder", "terminal", "flame", "bolt", "star", "heart", "hammer",
+        "wrench.and.screwdriver", "gearshape", "shippingbox", "cube", "globe", "server.rack", "cloud",
+        "externaldrive", "chart.bar", "doc.text", "book", "briefcase", "building.2", "cart",
+        "creditcard", "testtube.2", "ladybug", "leaf", "moon.stars", "sparkles", "gamecontroller",
+        "music.note", "paintbrush", "curlybraces", "cpu", "network", "lock", "bell",
     ]
 
-    private let columns = [GridItem(.adaptive(minimum: 32), spacing: 6)]
+    private let columns = Array(
+        repeating: GridItem(.flexible(), spacing: 6),
+        count: 7
+    )
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 6) {
@@ -762,16 +769,31 @@ private struct SidebarIconPicker: View {
         .padding(.vertical, 4)
 
         LabeledContent("Emoji") {
-            TextField("🔥", text: $emoji)
-                .labelsHidden()
-                .frame(width: 48)
-                .multilineTextAlignment(.center)
-                .onChange(of: emoji) { value in
-                    guard let first = value.first else { return }
-                    let single = String(first)
-                    if emoji != single { emoji = single }
-                    selection = single
+            HStack(spacing: 6) {
+                TextField("", text: $emoji, prompt: Text("🔥"))
+                    .labelsHidden()
+                    .focused($emojiFieldFocused)
+                    .frame(width: 48)
+                    .multilineTextAlignment(.center)
+                    .onChange(of: emoji) { value in
+                        guard let first = value.first else { return }
+                        let single = String(first)
+                        if emoji != single { emoji = single }
+                        selection = single
+                    }
+
+                Button {
+                    emojiFieldFocused = true
+                    DispatchQueue.main.async {
+                        NSApp.orderFrontCharacterPalette(nil)
+                    }
+                } label: {
+                    Image(systemName: "face.smiling")
+                        .font(.system(size: 12))
                 }
+                .buttonStyle(.borderless)
+                .help("Choose Emoji…")
+            }
         }
         .onAppear {
             if !selection.isEmpty && !Self.symbols.contains(selection) {
@@ -1015,7 +1037,7 @@ private struct SidebarGroupEditor: View {
             }
             .padding(12)
         }
-        .frame(width: 330, height: 505)
+        .frame(width: 380, height: 780)
         .onAppear { populate() }
     }
 

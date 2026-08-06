@@ -84,4 +84,23 @@ extension TerminalTabColor {
         guard let nsColor = displayColor else { return nil }
         return Color(nsColor: nsColor)
     }
+
+    /// A small filled-circle swatch for menu rows, where SF Symbols
+    /// render as templates and lose their tint.
+    var menuSwatch: NSImage {
+        let image = NSImage(size: NSSize(width: 14, height: 14), flipped: false) { rect in
+            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 1.5, dy: 1.5))
+            if let color = self.displayColor {
+                color.setFill()
+                circle.fill()
+            } else {
+                NSColor.tertiaryLabelColor.setStroke()
+                circle.lineWidth = 1.2
+                circle.stroke()
+            }
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
 }

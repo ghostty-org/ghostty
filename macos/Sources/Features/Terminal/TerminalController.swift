@@ -655,15 +655,57 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
-    /// Paints the sidebar with the terminal's effective background: the
-    /// surface background color at the configured opacity, exactly what
-    /// the terminal pane renders over the (blurred) window.
+    /// Posted by settings when the sidebar tint changes.
+    static let sidebarTintDidChange = Notification.Name("PhantomSidebarTintDidChange")
+
+    /// Background layering: the window paints the base (color, opacity,
+    /// blur — General settings); the terminal pane adds its theme
+    /// background on top; the sidebar adds only this optional tint. At
+    /// zero opacity the sidebar shows the pure window base, matching the
+    /// rest of the chrome exactly.
     private func syncSidebarBackground() {
-        guard let sidebarBackgroundView,
-              let terminalWindow = window as? TerminalWindow
-        else { return }
+        guard let sidebarBackgroundView else { return }
+
+        let defaults = UserDefaults.standard
+        let opacity = defaults.double(forKey: "SidebarTintOpacity")
+        guard opacity > 0.001,
+              let hex = defaults.string(forKey: "SidebarTintHex"),
+              let color = NSColor(hex: hex)
+        else {
+            sidebarBackgroundView.layer?.backgroundColor = nil
+            return
+        }
         sidebarBackgroundView.layer?.backgroundColor =
-            terminalWindow.preferredBackgroundColor?.cgColor
+            color.withAlphaComponent(opacity).cgColor
+    }
+
+    /// Masks the first presentation of this window's terminal pane: the
+    /// Metal surface takes a few frames to draw its first content, and
+    /// until then the near-transparent window shows raw desktop blur — a
+    /// visible flash when clicking a tab that was never displayed.
+    private var didShieldFirstPresentation = false
+
+    private func shieldFirstPresentationFlash() {
+        guard !didShieldFirstPresentation,
+              let terminalWindow = window as? TerminalWindow,
+              let container = sidebarSplitView?.arrangedSubviews.last
+        else { return }
+        didShieldFirstPresentation = true
+
+        let shield = NSView(frame: container.bounds)
+        shield.autoresizingMask = [.width, .height]
+        shield.wantsLayer = true
+        shield.layer?.backgroundColor = terminalWindow.preferredBackgroundColor?.cgColor
+        container.addSubview(shield)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.12
+                shield.animator().alphaValue = 0
+            }, completionHandler: {
+                shield.removeFromSuperview()
+            })
+        }
     }
 
     private func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
@@ -1286,6 +1328,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             name: NSWindow.didBecomeKeyNotification,
             object: window
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sidebarTintDidChangeNotification(_:)),
+            name: Self.sidebarTintDidChange,
+            object: nil
+        )
 
         DispatchQueue.main.async { [weak self] in
             self?.applySharedSidebarWidth()
@@ -1334,6 +1382,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// carries over to this one.
     @objc private func sidebarWindowDidBecomeKey(_ notification: Notification) {
         applySharedSidebarWidth()
+        shieldFirstPresentationFlash()
+    }
+
+    @objc private func sidebarTintDidChangeNotification(_ notification: Notification) {
+        syncSidebarBackground()
     }
 
     private func applySharedSidebarWidth() {
