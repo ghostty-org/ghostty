@@ -77,7 +77,7 @@ final class SidebarGroupStore: ObservableObject {
             in: .userDomainMask
         ).first!
         return base
-            .appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+            .appendingPathComponent("com.ipetinate.phantom", isDirectory: true)
             .appendingPathComponent("sidebar-groups.json")
     }
 

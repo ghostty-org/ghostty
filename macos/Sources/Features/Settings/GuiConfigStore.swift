@@ -47,8 +47,9 @@ final class GuiConfigStore: ObservableObject {
         if needsSave { save() }
     }
 
-    /// Ghostty reads XDG first on macOS; prefer an existing XDG dir, then
-    /// an existing Application Support dir, then default to creating XDG.
+    /// Phantom is a distinct app from Ghostty and keeps its own config
+    /// directory so the two never collide on the same machine — even
+    /// though Phantom reads XDG first on macOS same as Ghostty does.
     private static func defaultConfigDir() -> URL {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser
@@ -56,12 +57,12 @@ final class GuiConfigStore: ObservableObject {
         let xdgBase = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
             .map { URL(fileURLWithPath: $0) }
             ?? home.appendingPathComponent(".config")
-        let xdg = xdgBase.appendingPathComponent("ghostty", isDirectory: true)
+        let xdg = xdgBase.appendingPathComponent("phantom", isDirectory: true)
         if fm.fileExists(atPath: xdg.path) { return xdg }
 
         let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first!
-            .appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+            .appendingPathComponent("com.ipetinate.phantom", isDirectory: true)
         if fm.fileExists(atPath: appSupport.appendingPathComponent("config").path) {
             return appSupport
         }
