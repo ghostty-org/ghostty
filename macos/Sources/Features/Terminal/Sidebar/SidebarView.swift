@@ -99,6 +99,7 @@ struct SidebarView: View {
                 .animation(listAnimation, value: store.tabOrder)
                 .animation(listAnimation, value: tabManager.models.map(\.id))
             }
+            .scrollIndicators(.hidden)
             .onDrop(of: [.plainText], isTargeted: nil) { providers in
                 appendDroppedToUngrouped(providers)
             }

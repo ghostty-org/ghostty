@@ -161,9 +161,20 @@ final class SidebarTabManager: ObservableObject {
             .store(in: &centerCancellables)
     }
 
+    /// Only the selected tab's sidebar is on screen; hidden ones skip
+    /// work entirely and catch up when their window is revealed (its
+    /// didBecomeKey notification lands here as a scheduleRefresh).
+    private var isSidebarVisible: Bool {
+        guard let window else { return false }
+        guard let group = window.tabGroup, group.windows.count > 1 else {
+            return true
+        }
+        return group.selectedWindow == window
+    }
+
     /// Coalesces bursts of notifications into a single pass per runloop turn.
     func scheduleRefresh() {
-        guard !pendingRefresh else { return }
+        guard !pendingRefresh, isSidebarVisible else { return }
         pendingRefresh = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -305,6 +316,7 @@ final class SidebarTabManager: ObservableObject {
     }
 
     private func refreshGit() {
+        guard isSidebarVisible else { return }
         for model in models {
             let git = Self.gitInfo(for: model.pwd)
             model.setGit(branch: git?.branch, root: git?.root)
