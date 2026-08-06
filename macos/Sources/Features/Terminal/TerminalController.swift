@@ -675,6 +675,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         syncSidebarGlass()
     }
 
+    /// The window's private corner radius, safely probed.
+    private func windowCornerRadiusValue() -> CGFloat? {
+        guard let window, window.responds(to: Selector(("_cornerRadius")))
+        else { return nil }
+        return window.value(forKey: "_cornerRadius") as? CGFloat
+    }
+
     /// Keeps the sidebar pane's glass layer in lockstep with the
     /// window-wide effect: present and tinted like the terminal's glass
     /// while a glass style is active, absent otherwise.
@@ -697,11 +704,22 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             glass = TerminalGlassView(topOffset: -topInset)
             glass.translatesAutoresizingMaskIntoConstraints = false
             sidebarPane.addSubview(glass, positioned: .below, relativeTo: nil)
+
+            // The pane's inner edge sits mid-window: extend the glass
+            // past the divider and clip, so its corner radius only
+            // shows on the window's own corners.
+            let overflow = windowCornerRadiusValue() ?? 16
+            sidebarPane.wantsLayer = true
+            sidebarPane.layer?.masksToBounds = true
+
             NSLayoutConstraint.activate([
                 glass.topAnchor.constraint(equalTo: sidebarPane.topAnchor),
                 glass.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor),
                 glass.bottomAnchor.constraint(equalTo: sidebarPane.bottomAnchor),
-                glass.trailingAnchor.constraint(equalTo: sidebarPane.trailingAnchor),
+                glass.trailingAnchor.constraint(
+                    equalTo: sidebarPane.trailingAnchor,
+                    constant: overflow
+                ),
             ])
             sidebarGlassView = glass
         }
@@ -709,11 +727,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let store = GuiConfigStore.shared
         let base = (window as? TerminalWindow)?.preferredBackgroundColor?
             .withAlphaComponent(1) ?? .black
+        let cornerRadius = windowCornerRadiusValue()
         glass.configure(
             style: .regular,
             backgroundColor: base,
             backgroundOpacity: store.double("background-opacity", default: 1),
-            cornerRadius: nil,
+            cornerRadius: cornerRadius,
             isKeyWindow: window?.isKeyWindow ?? true
         )
 #endif

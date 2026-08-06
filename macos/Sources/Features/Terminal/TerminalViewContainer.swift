@@ -202,9 +202,23 @@ extension TerminalViewContainer {
         }
         let effectView = TerminalGlassView(topOffset: -themeFrameView.safeAreaInsets.top)
         addSubview(effectView, positioned: .below, relativeTo: terminalView)
+
+        // As a split pane (sidebar active) the container's inner edge
+        // sits mid-window: extend the glass past it and clip, so the
+        // glass corner radius only shows on real window corners.
+        let isPane = window?.contentView !== self
+        let innerOverflow: CGFloat = isPane ? (windowCornerRadius ?? 16) : 0
+        if isPane {
+            wantsLayer = true
+            layer?.masksToBounds = true
+        }
+
         NSLayoutConstraint.activate([
             effectView.topAnchor.constraint(equalTo: topAnchor),
-            effectView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            effectView.leadingAnchor.constraint(
+                equalTo: leadingAnchor,
+                constant: -innerOverflow
+            ),
             effectView.bottomAnchor.constraint(equalTo: bottomAnchor),
             effectView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
