@@ -63,6 +63,8 @@ struct GeneralSettingsView: View {
     @State private var fontFamily: String = ""
     @State private var fontSize: Double = 13
     @State private var backgroundOpacity: Double = 1
+    @State private var blurRadius: Double = 0
+    @State private var backgroundColorOverride: Color?
     @State private var cursorStyle: String = ""
 
     private static let cursorStyles: [(value: String, label: String)] = [
@@ -98,6 +100,32 @@ struct GeneralSettingsView: View {
             }
 
             Section("Window") {
+                LabeledContent("Background Color") {
+                    HStack(spacing: 8) {
+                        if backgroundColorOverride != nil {
+                            Button("Use Theme Color") {
+                                backgroundColorOverride = nil
+                                apply("background", "")
+                            }
+                            .buttonStyle(.link)
+                            .font(.caption)
+                        }
+
+                        ColorPicker(
+                            "",
+                            selection: Binding(
+                                get: { backgroundColorOverride ?? .black },
+                                set: { newValue in
+                                    backgroundColorOverride = newValue
+                                    apply("background", NSColor(newValue).hexString ?? "")
+                                }
+                            ),
+                            supportsOpacity: false
+                        )
+                        .labelsHidden()
+                    }
+                }
+
                 LabeledContent("Background Opacity") {
                     HStack {
                         Slider(value: $backgroundOpacity, in: 0.3...1) { editing in
@@ -106,6 +134,23 @@ struct GeneralSettingsView: View {
                             }
                         }
                         Text(formatOpacity(backgroundOpacity))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
+
+                LabeledContent("Background Blur") {
+                    HStack {
+                        Slider(value: $blurRadius, in: 0...40, step: 1) { editing in
+                            if !editing {
+                                apply(
+                                    "background-blur",
+                                    blurRadius <= 0 ? "false" : String(Int(blurRadius))
+                                )
+                            }
+                        }
+                        Text(blurRadius <= 0 ? "Off" : "\(Int(blurRadius))")
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                             .frame(width: 44, alignment: .trailing)
@@ -143,6 +188,15 @@ struct GeneralSettingsView: View {
         fontFamily = store.string("font-family") ?? ""
         fontSize = store.double("font-size", default: 13)
         backgroundOpacity = store.double("background-opacity", default: 1)
+        let rawBlur = store.string("background-blur") ?? "false"
+        if rawBlur == "true" {
+            blurRadius = 20
+        } else {
+            blurRadius = Double(rawBlur) ?? 0
+        }
+        backgroundColorOverride = store.string("background")
+            .flatMap { NSColor(hex: $0) }
+            .map { Color(nsColor: $0) }
         cursorStyle = store.string("cursor-style") ?? ""
     }
 
@@ -169,6 +223,7 @@ struct SidebarSettingsView: View {
     @AppStorage("SidebarShowGitStatus") private var showGitStatus = true
     @AppStorage("SidebarShowPullRequest") private var showPullRequest = true
     @AppStorage("SidebarRestoreAgentSessions") private var restoreAgentSessions = true
+    @AppStorage("SidebarNewTabPosition") private var newTabPosition = "end"
 
     var body: some View {
         Form {
@@ -198,6 +253,13 @@ struct SidebarSettingsView: View {
                 Text("The sidebar toggle applies to new windows. Dragging the divider overrides the default width.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker("New Terminal Position", selection: $newTabPosition) {
+                    Text("Bottom of List").tag("end")
+                    Text("Top of List").tag("start")
+                }
             }
 
             Section("Tab Info") {

@@ -125,6 +125,18 @@ final class SidebarGroupStore: ObservableObject {
         scheduleSave()
     }
 
+    /// Places a newly created tab at the top or bottom of the sidebar
+    /// display order. No-op for tabs already ordered (e.g. restored).
+    func registerNewTab(surfaceId: UUID, atStart: Bool) {
+        guard !tabOrder.contains(surfaceId) else { return }
+        if atStart {
+            tabOrder.insert(surfaceId, at: 0)
+        } else {
+            tabOrder.append(surfaceId)
+        }
+        scheduleSave()
+    }
+
     func setTabOverride(surfaceId: UUID, _ override: TabOverride) {
         if override.isEmpty {
             tabOverrides.removeValue(forKey: surfaceId)

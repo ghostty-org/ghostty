@@ -25,16 +25,16 @@ struct SidebarView: View {
     /// sidebar display order.
     private struct Section: Identifiable {
         let group: SidebarGroup
-        let tabs: [SidebarTabManager.TabItem]
+        let tabs: [SidebarTabModel]
 
         var id: UUID { group.id }
     }
 
-    private var resolved: (sections: [Section], ungrouped: [SidebarTabManager.TabItem]) {
-        var byGroup: [UUID: [SidebarTabManager.TabItem]] = [:]
-        var ungrouped: [SidebarTabManager.TabItem] = []
+    private var resolved: (sections: [Section], ungrouped: [SidebarTabModel]) {
+        var byGroup: [UUID: [SidebarTabModel]] = [:]
+        var ungrouped: [SidebarTabModel] = []
 
-        for tab in tabManager.tabs {
+        for tab in tabManager.models {
             if let group = store.resolveGroup(surfaceId: tab.surfaceId, pwd: tab.pwd) {
                 byGroup[group.id, default: []].append(tab)
             } else {
@@ -52,9 +52,10 @@ struct SidebarView: View {
     }
 
     var body: some View {
+        // No background of its own: the window paints the theme color,
+        // opacity and blur, so the sidebar always matches the terminal.
         expanded
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(.ultraThinMaterial)
     }
 
     private var expanded: some View {
@@ -91,7 +92,7 @@ struct SidebarView: View {
                 .padding(8)
                 .animation(.snappy(duration: 0.22), value: content.sections.map(\.id))
                 .animation(.snappy(duration: 0.22), value: store.tabOrder)
-                .animation(.snappy(duration: 0.22), value: tabManager.tabs.map(\.id))
+                .animation(.snappy(duration: 0.22), value: tabManager.models.map(\.id))
             }
             .onDrop(of: [.plainText], isTargeted: nil) { providers in
                 appendDroppedToUngrouped(providers)
@@ -191,7 +192,7 @@ private struct SidebarChromeButton: View {
 /// border around the whole block, and the tab rows when expanded.
 private struct SidebarGroupSection: View {
     let group: SidebarGroup
-    let tabs: [SidebarTabManager.TabItem]
+    let tabs: [SidebarTabModel]
     let tabManager: SidebarTabManager
     @ObservedObject var store: SidebarGroupStore
     let dragState: SidebarDragState
@@ -398,7 +399,7 @@ private enum SidebarDragPayload {
 /// Insert-between drop handling for a tab row: the drop position within
 /// the row picks before/after, and the drop adopts the row's group.
 private struct TabRowDropDelegate: DropDelegate {
-    let target: SidebarTabManager.TabItem
+    let target: SidebarTabModel
     let groupId: UUID?
     let store: SidebarGroupStore
     let dragState: SidebarDragState
@@ -450,12 +451,11 @@ private struct TabRowDropDelegate: DropDelegate {
 
 /// One tab row: title + working directory, click to activate.
 private struct SidebarTabRow: View {
-    let tab: SidebarTabManager.TabItem
+    @ObservedObject var tab: SidebarTabModel
     let groupId: UUID?
     let tabManager: SidebarTabManager
     @ObservedObject var store: SidebarGroupStore
     @ObservedObject var dragState: SidebarDragState
-    @ObservedObject var stateCenter: TabStateCenter = .shared
 
     @State private var isHovered = false
     @State private var isCreatingGroup = false
@@ -466,12 +466,6 @@ private struct SidebarTabRow: View {
     @AppStorage("SidebarShowGitStatus") private var showGitStatus = true
     @AppStorage("SidebarShowPullRequest") private var showPullRequest = true
 
-    @ObservedObject private var gitCenter: GitStatusCenter = .shared
-
-    private var repoInfo: GitStatusCenter.RepoInfo? {
-        gitCenter.info(forRoot: tab.repoRoot)
-    }
-
     private var insertAfter: Bool? {
         guard dragState.target?.row == tab.id else { return nil }
         return dragState.target?.after
@@ -479,10 +473,6 @@ private struct SidebarTabRow: View {
 
     private var override: SidebarGroupStore.TabOverride? {
         tab.surfaceId.flatMap { store.tabOverrides[$0] }
-    }
-
-    private var agentState: AgentTabState? {
-        tab.surfaceId.flatMap { stateCenter.states[$0] }
     }
 
     private var displayTitle: String {
@@ -523,7 +513,7 @@ private struct SidebarTabRow: View {
                             Text(branch)
                                 .lineLimit(1)
 
-                            if showGitStatus, repoInfo?.isDirty == true {
+                            if showGitStatus, tab.isDirty == true {
                                 Circle()
                                     .fill(.yellow)
                                     .frame(width: 4, height: 4)
@@ -532,7 +522,7 @@ private struct SidebarTabRow: View {
                         }
                     }
 
-                    if showPullRequest, let prNumber = repoInfo?.prNumber {
+                    if showPullRequest, let prNumber = tab.prNumber {
                         Text("#\(prNumber)")
                             .foregroundStyle(Color.accentColor)
                             .help("Open pull request")
@@ -561,12 +551,12 @@ private struct SidebarTabRow: View {
         .onTapGesture {
             tabManager.select(tab)
             if let surfaceId = tab.surfaceId {
-                stateCenter.clearDone(surfaceId: surfaceId)
+                TabStateCenter.shared.clearDone(surfaceId: surfaceId)
             }
         }
         .onChange(of: tab.isSelected) { selected in
             guard selected, let surfaceId = tab.surfaceId else { return }
-            stateCenter.clearDone(surfaceId: surfaceId)
+            TabStateCenter.shared.clearDone(surfaceId: surfaceId)
         }
         .onHover { isHovered = $0 }
         .onDrag {
@@ -618,7 +608,7 @@ private struct SidebarTabRow: View {
     /// ready), then the bell attention dot.
     @ViewBuilder
     private var statusIndicator: some View {
-        switch agentState {
+        switch tab.agentState {
         case .working:
             ProgressView()
                 .controlSize(.mini)
@@ -654,8 +644,8 @@ private struct SidebarTabRow: View {
         Button("Customize Tab…") { isCustomizing = true }
             .disabled(tab.surfaceId == nil)
 
-        if let prNumber = repoInfo?.prNumber,
-           let prURL = repoInfo?.prURL.flatMap(URL.init(string:)) {
+        if let prNumber = tab.prNumber,
+           let prURL = tab.prURL.flatMap(URL.init(string:)) {
             Button("Open Pull Request #\(prNumber)…") {
                 NSWorkspace.shared.open(prURL)
             }

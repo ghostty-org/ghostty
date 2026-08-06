@@ -76,6 +76,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private var sidebarExpandedConstraints: [NSLayoutConstraint] = []
     private var sidebarCollapsedConstraint: NSLayoutConstraint?
 
+    /// The sidebar hosting view, tinted with the terminal's effective
+    /// background (color + opacity) so both panes always match.
+    private var sidebarBackgroundView: NSView?
+
     /// The sidebar action icons, added straight into the titlebar
     /// container and centered on the traffic lights; the trailing
     /// constraint tracks the sidebar so the icons hug the divider.
@@ -640,13 +644,26 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         syncAppearance(focusedSurface.derivedConfig)
 
         // Appearance syncs can rebuild titlebar contents (e.g. after a
-        // theme change); make sure the sidebar's titlebar UI survives.
+        // theme change); make sure the sidebar's titlebar UI survives
+        // and the sidebar tint tracks the terminal background.
         if sidebarChromeView != nil {
             DispatchQueue.main.async { [weak self] in
                 self?.attachSidebarChrome()
+                self?.syncSidebarBackground()
                 (self?.window as? TerminalWindow)?.ensureSidebarTitlebarDecorations()
             }
         }
+    }
+
+    /// Paints the sidebar with the terminal's effective background: the
+    /// surface background color at the configured opacity, exactly what
+    /// the terminal pane renders over the (blurred) window.
+    private func syncSidebarBackground() {
+        guard let sidebarBackgroundView,
+              let terminalWindow = window as? TerminalWindow
+        else { return }
+        sidebarBackgroundView.layer?.backgroundColor =
+            terminalWindow.preferredBackgroundColor?.cgColor
     }
 
     private func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
@@ -1197,6 +1214,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             }
         ))
         sidebarHosting.translatesAutoresizingMaskIntoConstraints = false
+        sidebarHosting.wantsLayer = true
+        self.sidebarBackgroundView = sidebarHosting
 
         let expanded = [
             sidebarHosting.widthAnchor.constraint(greaterThanOrEqualToConstant: 180),
@@ -1227,6 +1246,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         DispatchQueue.main.async { [weak self] in
             self?.attachSidebarChrome()
+            self?.syncSidebarBackground()
         }
 
         sidebarLayoutCancellable = SidebarCollapseState.shared.$isCollapsed
@@ -1286,7 +1306,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         var baseConfig = Ghostty.SurfaceConfiguration()
         if case .project(let root) = group?.kind {
             baseConfig.workingDirectory = (root as NSString).expandingTildeInPath
-        } else if let selected = sidebarTabManager?.tabs.first(where: \.isSelected),
+        } else if let selected = sidebarTabManager?.models.first(where: { $0.isSelected }),
                   let pwd = selected.pwd, !pwd.isEmpty {
             baseConfig.workingDirectory = pwd
         }

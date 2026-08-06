@@ -80,10 +80,10 @@ struct AboutView: View {
 
             VStack(alignment: .center, spacing: 32) {
                 VStack(alignment: .center, spacing: 8) {
-                    Text("Ghostty")
+                    Text(Phantom.name)
                         .bold()
                         .font(.title)
-                    Text("Fast, native, feature-rich terminal \nemulator pushing modern features.")
+                    Text(Phantom.tagline)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                         .font(.caption)
@@ -93,48 +93,40 @@ struct AboutView: View {
                 .textSelection(.enabled)
 
                 VStack(spacing: 2) {
-                    switch versionConfig {
-                    case .stable(let version):
-                        PropertyRow(label: "Version", text: version, url: versionConfig.url)
-                    case .tip:
-                        PropertyRow(label: "Version", text: "Tip Release")
-                    case .other(let v):
-                        PropertyRow(label: "Version", text: v)
-                    case .none:
-                        EmptyView()
-                    }
+                    PropertyRow(label: "Version", text: Phantom.version)
+                    PropertyRow(label: "Ghostty Core", text: Phantom.upstreamVersion)
                     if let build {
                         PropertyRow(label: "Build", text: build)
-                    }
-                    if let commit, commit != "",
-                       let url = githubURL?.appendingPathComponent("/commits/\(commit)") {
-                        PropertyRow(label: "Commit", text: commit, url: url)
                     }
                 }
                 .frame(maxWidth: .infinity)
 
                 HStack(spacing: 8) {
-                    if let url = docsURL {
-                        Button("Docs") {
-                            openURL(url)
-                        }
+                    Button("GitHub") {
+                        openURL(Phantom.repositoryURL)
                     }
-                    if let url = githubURL {
-                        Button("GitHub") {
-                            openURL(url)
-                        }
+                    Button("Ghostty") {
+                        openURL(Phantom.upstreamURL)
                     }
                 }
 
-                if let copy = self.copyright {
-                    Text(copy)
+                VStack(spacing: 6) {
+                    Text("Built on Ghostty, by Mitchell Hashimoto\nand the Ghostty contributors. 👻")
                         .font(.caption)
-                        .textSelection(.enabled)
                         .tint(.secondary)
                         .opacity(0.8)
                         .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
+
+                    if let copy = self.copyright {
+                        Text(copy)
+                            .font(.caption)
+                            .textSelection(.enabled)
+                            .tint(.secondary)
+                            .opacity(0.8)
+                            .multilineTextAlignment(.center)
+                    }
                 }
+                .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity)
         }

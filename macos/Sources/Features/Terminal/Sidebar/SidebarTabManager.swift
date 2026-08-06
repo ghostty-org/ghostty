@@ -1,65 +1,44 @@
 import AppKit
 import Combine
 
-/// Observes the native tab group of a window and publishes a flat list
-/// of tab metadata for the sidebar to render.
+/// Observes the native tab group of a window and maintains one
+/// `SidebarTabModel` per tab.
 ///
-/// The sidebar never replaces native tabbing: each tab is still an
-/// `NSWindow` in the window's `tabGroup`, so shortcuts, splits and
-/// restoration keep working. This manager is a read-model on top.
+/// The published `models` array changes only when tabs are added,
+/// removed or natively reordered; everything else (title, pwd, git,
+/// selection, agent state) mutates the affected model in place so only
+/// its row re-renders. `groupingVersion` bumps when group membership
+/// inputs (pwd, surface id) change, signalling the view to re-resolve
+/// sections without rebuilding rows.
 @MainActor
 final class SidebarTabManager: ObservableObject {
-    struct TabItem: Identifiable, Equatable {
-        let id: ObjectIdentifier
-        let title: String
-        let pwd: String?
-        let surfaceId: UUID?
-        let isSelected: Bool
-        let needsAttention: Bool
-        let gitBranch: String?
-        let repoRoot: String?
-        unowned let window: NSWindow
-
-        var directoryName: String? {
-            guard let pwd, !pwd.isEmpty else { return nil }
-            return (pwd as NSString).lastPathComponent
-        }
-
-        static func == (lhs: TabItem, rhs: TabItem) -> Bool {
-            lhs.id == rhs.id
-                && lhs.title == rhs.title
-                && lhs.pwd == rhs.pwd
-                && lhs.surfaceId == rhs.surfaceId
-                && lhs.isSelected == rhs.isSelected
-                && lhs.needsAttention == rhs.needsAttention
-                && lhs.gitBranch == rhs.gitBranch
-                && lhs.repoRoot == rhs.repoRoot
-        }
-    }
-
-    @Published private(set) var tabs: [TabItem] = []
+    @Published private(set) var models: [SidebarTabModel] = []
+    @Published private(set) var groupingVersion = 0
 
     private weak var window: NSWindow?
+    private var modelsById: [ObjectIdentifier: SidebarTabModel] = [:]
     private var notificationObservers: [NSObjectProtocol] = []
-    private var surfaceCancellables: Set<AnyCancellable> = []
+    private var centerCancellables: Set<AnyCancellable> = []
     private var attentionWindows: Set<ObjectIdentifier> = []
     private var pendingRefresh = false
+    private var didInitialPopulation = false
 
     /// Git branches change without any pwd/title event (e.g. `git
-    /// checkout`), so a slow timer keeps them fresh. Reading HEAD is a
-    /// few bytes per tab; the cost is negligible.
+    /// checkout`), so a slow timer keeps them fresh.
     private var gitRefreshTimer: Timer?
 
     init(window: NSWindow) {
         self.window = window
         setupObservers()
+        subscribeCenters()
         refresh()
+        didInitialPopulation = true
 
         gitRefreshTimer = Timer.scheduledTimer(
             withTimeInterval: 5,
             repeats: true
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.refresh() }
+            Task { @MainActor [weak self] in self?.refreshGit() }
         }
     }
 
@@ -105,17 +84,51 @@ final class SidebarTabManager: ObservableObject {
                     Notification.Name.terminalWindowHasBellKey
                 ] as? Bool ?? false
 
+                let identifier = ObjectIdentifier(bellWindow)
                 if hasBell, bellWindow != NSApp.keyWindow {
-                    self.attentionWindows.insert(ObjectIdentifier(bellWindow))
+                    self.attentionWindows.insert(identifier)
                 } else {
-                    self.attentionWindows.remove(ObjectIdentifier(bellWindow))
+                    self.attentionWindows.remove(identifier)
                 }
-                self.scheduleRefresh()
+                self.modelsById[identifier]?.setNeedsAttention(
+                    self.attentionWindows.contains(identifier)
+                )
             }
         })
     }
 
-    /// Coalesces bursts of notifications into a single rebuild per runloop turn.
+    /// Shared centers are observed once here and distributed into the
+    /// affected models, so rows never observe app-wide state.
+    private func subscribeCenters() {
+        TabStateCenter.shared.$states
+            .sink { [weak self] states in
+                guard let self else { return }
+                for model in self.models {
+                    guard let surfaceId = model.surfaceId else { continue }
+                    model.setAgentState(states[surfaceId])
+                }
+            }
+            .store(in: &centerCancellables)
+
+        GitStatusCenter.shared.$repos
+            .sink { [weak self] repos in
+                guard let self else { return }
+                for model in self.models {
+                    guard let root = model.repoRoot, let info = repos[root] else {
+                        model.setRepoStatus(isDirty: nil, prNumber: nil, prURL: nil)
+                        continue
+                    }
+                    model.setRepoStatus(
+                        isDirty: info.isDirty,
+                        prNumber: info.prNumber,
+                        prURL: info.prURL
+                    )
+                }
+            }
+            .store(in: &centerCancellables)
+    }
+
+    /// Coalesces bursts of notifications into a single pass per runloop turn.
     func scheduleRefresh() {
         guard !pendingRefresh else { return }
         pendingRefresh = true
@@ -126,60 +139,151 @@ final class SidebarTabManager: ObservableObject {
         }
     }
 
+    /// Reconciles models against the native tab group: updates existing
+    /// models in place, creates models for new tabs, drops closed ones.
+    /// The published array is only reassigned when membership or native
+    /// order actually changed.
     func refresh() {
-        surfaceCancellables.removeAll()
+        let windows = groupWindows
+        var seen = Set<ObjectIdentifier>()
 
-        let items: [TabItem] = groupWindows.compactMap { tabWindow in
+        for tabWindow in windows {
             guard let controller = tabWindow.windowController as? BaseTerminalController
-            else { return nil }
+            else { continue }
 
-            let surface = controller.focusedSurface ?? controller.surfaceTree.root?.leftmostLeaf()
             let identifier = ObjectIdentifier(tabWindow)
-            let isSelected = tabWindow.isKeyWindow
-                || (tabWindow.tabGroup?.selectedWindow == tabWindow)
+            seen.insert(identifier)
 
-            if isSelected { attentionWindows.remove(identifier) }
+            let model: SidebarTabModel
+            if let existing = modelsById[identifier] {
+                model = existing
+            } else {
+                model = SidebarTabModel(window: tabWindow)
+                modelsById[identifier] = model
+                if didInitialPopulation {
+                    registerNewTab(model, controller: controller)
+                }
+            }
 
-            subscribe(to: surface)
+            update(model, window: tabWindow, controller: controller)
+        }
 
-            let git = Self.gitInfo(for: surface?.pwd)
+        for (identifier, _) in modelsById where !seen.contains(identifier) {
+            modelsById.removeValue(forKey: identifier)
+            attentionWindows.remove(identifier)
+        }
+
+        let ordered = windows.compactMap { modelsById[ObjectIdentifier($0)] }
+        if ordered.map(\.id) != models.map(\.id) {
+            models = ordered
+        }
+    }
+
+    private func update(
+        _ model: SidebarTabModel,
+        window tabWindow: NSWindow,
+        controller: BaseTerminalController
+    ) {
+        let surface = controller.focusedSurface
+            ?? controller.surfaceTree.root?.leftmostLeaf()
+
+        model.setTitle(tabWindow.title)
+        model.setSelected(
+            tabWindow.isKeyWindow || (tabWindow.tabGroup?.selectedWindow == tabWindow)
+        )
+        if model.isSelected {
+            attentionWindows.remove(model.id)
+        }
+        model.setNeedsAttention(attentionWindows.contains(model.id))
+
+        if model.surfaceId != surface?.id {
+            model.setSurfaceId(surface?.id)
+            if let surfaceId = surface?.id {
+                model.setAgentState(TabStateCenter.shared.states[surfaceId])
+            } else {
+                model.setAgentState(nil)
+            }
+            bumpGrouping()
+        }
+
+        applyPwd(surface?.pwd, to: model)
+        subscribe(model, to: surface)
+    }
+
+    private func applyPwd(_ pwd: String?, to model: SidebarTabModel) {
+        guard model.pwd != pwd else { return }
+        model.setPwd(pwd)
+        bumpGrouping()
+
+        let git = Self.gitInfo(for: pwd)
+        model.setGit(branch: git?.branch, root: git?.root)
+        if let git {
+            GitStatusCenter.shared.requestRefresh(root: git.root, branch: git.branch)
+            let info = GitStatusCenter.shared.info(forRoot: git.root)
+            model.setRepoStatus(
+                isDirty: info?.isDirty,
+                prNumber: info?.prNumber,
+                prURL: info?.prURL
+            )
+        } else {
+            model.setRepoStatus(isDirty: nil, prNumber: nil, prURL: nil)
+        }
+    }
+
+    /// Surface publishers update the model directly — no list refresh.
+    private func subscribe(_ model: SidebarTabModel, to surface: Ghostty.SurfaceView?) {
+        guard let surface, model.surfaceCancellables.isEmpty else { return }
+
+        surface.$title
+            .removeDuplicates()
+            .sink { [weak model] _ in
+                guard let model else { return }
+                model.setTitle(model.window.title)
+            }
+            .store(in: &model.surfaceCancellables)
+
+        surface.$pwd
+            .removeDuplicates()
+            .sink { [weak self, weak model] pwd in
+                guard let self, let model else { return }
+                self.applyPwd(pwd, to: model)
+            }
+            .store(in: &model.surfaceCancellables)
+    }
+
+    private func bumpGrouping() {
+        groupingVersion &+= 1
+    }
+
+    /// New tabs are placed at the top or bottom of the sidebar order,
+    /// per the user's setting.
+    private func registerNewTab(
+        _ model: SidebarTabModel,
+        controller: BaseTerminalController
+    ) {
+        let surface = controller.focusedSurface
+            ?? controller.surfaceTree.root?.leftmostLeaf()
+        guard let surfaceId = surface?.id else { return }
+
+        let atStart = UserDefaults.standard.string(
+            forKey: "SidebarNewTabPosition"
+        ) == "start"
+        SidebarGroupStore.shared.registerNewTab(surfaceId: surfaceId, atStart: atStart)
+    }
+
+    private func refreshGit() {
+        for model in models {
+            let git = Self.gitInfo(for: model.pwd)
+            model.setGit(branch: git?.branch, root: git?.root)
             if let git {
                 GitStatusCenter.shared.requestRefresh(root: git.root, branch: git.branch)
             }
-
-            return TabItem(
-                id: identifier,
-                title: tabWindow.title,
-                pwd: surface?.pwd,
-                surfaceId: surface?.id,
-                isSelected: isSelected,
-                needsAttention: attentionWindows.contains(identifier),
-                gitBranch: git?.branch,
-                repoRoot: git?.root,
-                window: tabWindow
-            )
         }
-
-        if items != tabs { tabs = items }
-    }
-
-    private func subscribe(to surface: Ghostty.SurfaceView?) {
-        guard let surface else { return }
-        surface.$title
-            .dropFirst()
-            .removeDuplicates()
-            .sink { [weak self] _ in self?.scheduleRefresh() }
-            .store(in: &surfaceCancellables)
-        surface.$pwd
-            .dropFirst()
-            .removeDuplicates()
-            .sink { [weak self] _ in self?.scheduleRefresh() }
-            .store(in: &surfaceCancellables)
     }
 
     /// Activates the given tab (window) within the group.
-    func select(_ item: TabItem) {
-        item.window.makeKeyAndOrderFront(nil)
+    func select(_ model: SidebarTabModel) {
+        model.window.makeKeyAndOrderFront(nil)
     }
 
     /// Resolves the repository root and current branch for a working
