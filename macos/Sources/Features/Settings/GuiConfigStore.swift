@@ -30,6 +30,12 @@ final class GuiConfigStore: ObservableObject {
         // the sidebar is the point of this fork, and session restore is
         // expected behavior with it.
         var needsSave = false
+        // The appearance model is theme -> effect + intensity + opacity;
+        // a background color override no longer exists.
+        if values["background"] != nil {
+            values.removeValue(forKey: "background")
+            needsSave = true
+        }
         if values["sidebar"] == nil {
             values["sidebar"] = "true"
             needsSave = true

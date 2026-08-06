@@ -72,31 +72,12 @@ enum AppearanceCoordinator {
         BlurStyle(configValue: GuiConfigStore.shared.string("background-blur"))
     }
 
-    /// The layer color the sidebar pane should paint, per the map above.
-    /// `window` supplies the live effective background (theme or
-    /// override, at the configured opacity).
+    /// The layer color the sidebar pane should paint: nothing under
+    /// glass (the pane's glass layer carries the look), otherwise the
+    /// theme's effective background — the sidebar always matches the
+    /// terminal, by construction.
     static func sidebarLayerColor(window: TerminalWindow?) -> NSColor? {
-        let defaults = UserDefaults.standard
-        let mode = defaults.string(forKey: "SidebarBackgroundMode") ?? "theme"
-
-        if mode == "custom" {
-            let opacity = defaults.double(forKey: "SidebarTintOpacity")
-            guard opacity > 0.001,
-                  let hex = defaults.string(forKey: "SidebarTintHex"),
-                  let color = NSColor(hex: hex)
-            else { return nil }
-            return color.withAlphaComponent(opacity)
-        }
-
-        // Under glass the window carries the (tinted) background for
-        // every pane; any extra layer breaks the uniform look.
         if blurStyle.isGlass { return nil }
-
-        switch mode {
-        case "window":
-            return nil
-        default:
-            return window?.preferredBackgroundColor
-        }
+        return window?.preferredBackgroundColor
     }
 }

@@ -213,10 +213,6 @@ private struct AppearanceStylePanel: View {
     @State private var backgroundOpacity: Double = 1
     @State private var blurMode: String = "off"
     @State private var blurRadius: Double = 20
-    @State private var backgroundColorOverride: Color?
-    @State private var sidebarBackgroundMode: String = "theme"
-    @State private var tintColor: Color = .black
-    @State private var tintOpacity: Double = 0
     @State private var sidebarWidth: Double = 240
     @State private var dividerMode: String = "default"
     @State private var dividerColor: Color = .gray
@@ -267,49 +263,6 @@ private struct AppearanceStylePanel: View {
                 }
             }
 
-            styleGroup("Window") {
-                LabeledContent("Background Color") {
-                    HStack(spacing: 8) {
-                        if backgroundColorOverride != nil {
-                            Button("Use Theme Color") {
-                                backgroundColorOverride = nil
-                                apply("background", "")
-                            }
-                            .buttonStyle(.link)
-                            .font(.caption)
-                        }
-
-                        ColorPicker(
-                            "",
-                            selection: Binding(
-                                get: { backgroundColorOverride ?? .black },
-                                set: { newValue in
-                                    backgroundColorOverride = newValue
-                                    apply("background", NSColor(newValue).hexString ?? "")
-                                }
-                            ),
-                            supportsOpacity: false
-                        )
-                        .labelsHidden()
-                    }
-                }
-
-                LabeledContent("Background Opacity") {
-                    HStack {
-                        Slider(value: $backgroundOpacity, in: 0.3...1) { editing in
-                            if !editing {
-                                apply("background-opacity", String(format: "%.2f", backgroundOpacity))
-                            }
-                        }
-                        Text(String(format: "%.2f", backgroundOpacity))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .frame(width: 44, alignment: .trailing)
-                    }
-                }
-
-            }
-
             styleGroup("Effect") {
                 LabeledContent("Style") {
                     Picker("", selection: $blurMode) {
@@ -336,33 +289,23 @@ private struct AppearanceStylePanel: View {
                         }
                     }
                 }
+
+                LabeledContent("Opacity") {
+                    HStack {
+                        Slider(value: $backgroundOpacity, in: 0.3...1) { editing in
+                            if !editing {
+                                apply("background-opacity", String(format: "%.2f", backgroundOpacity))
+                            }
+                        }
+                        Text(String(format: "%.2f", backgroundOpacity))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
             }
 
             styleGroup("Sidebar") {
-                LabeledContent("Background") {
-                    Picker("", selection: $sidebarBackgroundMode) {
-                        Text("Match Theme").tag("theme")
-                        Text("Match Window").tag("window")
-                        Text("Custom Tint").tag("custom")
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 160)
-                    .onChange(of: sidebarBackgroundMode) { _ in saveTint() }
-                }
-
-                if sidebarBackgroundMode == "custom" {
-                    LabeledContent("Tint") {
-                        HStack {
-                            Slider(value: $tintOpacity, in: 0...1) { editing in
-                                if !editing { saveTint() }
-                            }
-                            ColorPicker("", selection: $tintColor, supportsOpacity: false)
-                                .labelsHidden()
-                                .onChange(of: tintColor) { _ in saveTint() }
-                        }
-                    }
-                }
-
                 LabeledContent("Default Width") {
                     HStack {
                         Slider(value: $sidebarWidth, in: 180...480, step: 10) { editing in
@@ -439,9 +382,6 @@ private struct AppearanceStylePanel: View {
         fontSize = store.double("font-size", default: 13)
         backgroundOpacity = store.double("background-opacity", default: 1)
         cursorStyle = store.string("cursor-style") ?? ""
-        backgroundColorOverride = store.string("background")
-            .flatMap { NSColor(hex: $0) }
-            .map { Color(nsColor: $0) }
         sidebarWidth = store.double("sidebar-width", default: 240)
 
         switch store.string("background-blur") ?? "false" {
@@ -464,12 +404,6 @@ private struct AppearanceStylePanel: View {
         }
 
         let defaults = UserDefaults.standard
-        sidebarBackgroundMode = defaults.string(forKey: "SidebarBackgroundMode") ?? "theme"
-        tintOpacity = defaults.double(forKey: "SidebarTintOpacity")
-        if let hex = defaults.string(forKey: "SidebarTintHex"),
-           let color = NSColor(hex: hex) {
-            tintColor = Color(nsColor: color)
-        }
         dividerMode = defaults.string(forKey: "SidebarDividerMode") ?? "default"
         if let hex = defaults.string(forKey: "SidebarDividerColorHex"),
            let color = NSColor(hex: hex) {
@@ -502,16 +436,6 @@ private struct AppearanceStylePanel: View {
         apply("background-blur", value)
     }
 
-    private func saveTint() {
-        let defaults = UserDefaults.standard
-        defaults.set(sidebarBackgroundMode, forKey: "SidebarBackgroundMode")
-        defaults.set(NSColor(tintColor).hexString ?? "#000000", forKey: "SidebarTintHex")
-        defaults.set(tintOpacity, forKey: "SidebarTintOpacity")
-        NotificationCenter.default.post(
-            name: TerminalController.sidebarTintDidChange,
-            object: nil
-        )
-    }
 }
 
 /// One theme in the grid: a miniature Phantom window — sidebar strip,
