@@ -140,6 +140,10 @@ struct AppearanceSettingsView: View {
             TextField("", text: $search, prompt: Text("Search all \(catalog.themes.count) themes"))
                 .textFieldStyle(.plain)
 
+            Button("Browse All…") {
+                AllThemesWindowController.shared.show(ghostty: ghostty, store: store)
+            }
+
             Button("Import…") { importThemes() }
         }
         .padding(10)
@@ -784,5 +788,204 @@ private struct ThemeCreatorView: View {
 
     private func hex(_ color: Color) -> String {
         NSColor(color).hexString ?? "#000000"
+    }
+}
+
+
+/// A dedicated window listing every theme in the catalog — curated or
+/// not — with the same live preview cards. Click applies; right-click
+/// offers the theme's source.
+@MainActor
+final class AllThemesWindowController: NSWindowController {
+    static let shared = AllThemesWindowController()
+
+    private init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 920, height: 680),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: true
+        )
+        window.title = "All Themes"
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.setFrameAutosaveName("PhantomAllThemes")
+        super.init(window: window)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    func show(ghostty: Ghostty.App, store: GuiConfigStore) {
+        window?.contentView = NSHostingView(
+            rootView: AllThemesView(ghostty: ghostty, store: store)
+        )
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct AllThemesView: View {
+    let ghostty: Ghostty.App
+    @ObservedObject var store: GuiConfigStore
+
+    @StateObject private var catalog: ThemeCatalog
+
+    @State private var search = ""
+    @State private var sourceTheme: TerminalTheme?
+
+    init(ghostty: Ghostty.App, store: GuiConfigStore) {
+        self.ghostty = ghostty
+        self.store = store
+        _catalog = StateObject(wrappedValue: ThemeCatalog(userThemesDir: store.themesDirURL))
+    }
+
+    private var currentTheme: String {
+        store.string("theme") ?? ""
+    }
+
+    private var filtered: [TerminalTheme] {
+        guard !search.isEmpty else { return catalog.themes }
+        return catalog.themes.filter {
+            $0.name.localizedCaseInsensitiveContains(search)
+        }
+    }
+
+    private var sections: [(title: String, themes: [TerminalTheme])] {
+        var user: [TerminalTheme] = []
+        var dark: [TerminalTheme] = []
+        var light: [TerminalTheme] = []
+
+        for theme in filtered {
+            if theme.source == .user {
+                user.append(theme)
+            } else if theme.background?.isLightColor == true {
+                light.append(theme)
+            } else {
+                dark.append(theme)
+            }
+        }
+
+        return [
+            ("My Themes", user),
+            ("Dark", dark),
+            ("Light", light),
+        ].filter { !$0.1.isEmpty }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField(
+                    "",
+                    text: $search,
+                    prompt: Text("Filter \(catalog.themes.count) themes")
+                )
+                .textFieldStyle(.plain)
+            }
+            .padding(10)
+
+            Divider()
+
+            if catalog.isLoading && catalog.themes.isEmpty {
+                Spacer()
+                ProgressView("Loading themes…")
+                Spacer()
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        ForEach(sections, id: \.title) { section in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("\(section.title) (\(section.themes.count))")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                    .textCase(.uppercase)
+
+                                LazyVGrid(
+                                    columns: [GridItem(.adaptive(minimum: 150), spacing: 10)],
+                                    spacing: 10
+                                ) {
+                                    ForEach(section.themes) { theme in
+                                        ThemeCard(
+                                            theme: theme,
+                                            isSelected: theme.name == currentTheme
+                                        ) {
+                                            store.set("theme", theme.name)
+                                            store.apply(ghostty: ghostty)
+                                        }
+                                        .contextMenu {
+                                            Button("View Source…") {
+                                                sourceTheme = theme
+                                            }
+                                            Button("Reveal in Finder") {
+                                                NSWorkspace.shared.activateFileViewerSelecting([theme.url])
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(14)
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
+        .frame(minWidth: 700, minHeight: 480)
+        .onAppear { catalog.loadIfNeeded() }
+        .sheet(item: $sourceTheme) { theme in
+            ThemeSourceView(theme: theme)
+        }
+    }
+}
+
+/// Read-only view of a theme file's definition.
+private struct ThemeSourceView: View {
+    let theme: TerminalTheme
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var contents: String {
+        (try? String(contentsOf: theme.url, encoding: .utf8))
+            ?? "Could not read \(theme.url.path)"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(theme.name)
+                    .font(.headline)
+                Text(theme.url.path)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            .padding(12)
+
+            Divider()
+
+            ScrollView {
+                Text(contents)
+                    .font(.system(size: 11, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+            }
+
+            Divider()
+
+            HStack {
+                Button("Reveal in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([theme.url])
+                }
+                Spacer()
+                Button("Close") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(12)
+        }
+        .frame(width: 500, height: 560)
     }
 }
