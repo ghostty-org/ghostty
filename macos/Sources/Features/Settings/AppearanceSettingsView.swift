@@ -308,20 +308,23 @@ private struct AppearanceStylePanel: View {
                     }
                 }
 
-                LabeledContent("Background Blur") {
+            }
+
+            styleGroup("Effect") {
+                LabeledContent("Style") {
                     Picker("", selection: $blurMode) {
-                        Text("Off").tag("off")
-                        Text("Blur Radius").tag("radius")
+                        Text("Clear").tag("off")
+                        Text("Blur").tag("radius")
                         Text("Glass").tag("glass-regular")
-                        Text("Glass (Clear)").tag("glass-clear")
                     }
+                    .pickerStyle(.segmented)
                     .labelsHidden()
-                    .frame(maxWidth: 160)
+                    .frame(maxWidth: 240)
                     .onChange(of: blurMode) { _ in applyBlur() }
                 }
 
                 if blurMode == "radius" {
-                    LabeledContent("Blur Intensity") {
+                    LabeledContent("Intensity") {
                         HStack {
                             Slider(value: $blurRadius, in: 1...80, step: 1) { editing in
                                 if !editing { applyBlur() }
@@ -450,7 +453,7 @@ private struct AppearanceStylePanel: View {
         case "macos-glass-regular":
             blurMode = "glass-regular"
         case "macos-glass-clear":
-            blurMode = "glass-clear"
+            blurMode = "glass-regular"
         case let raw:
             if let value = Double(raw), value > 0 {
                 blurMode = "radius"
@@ -494,7 +497,6 @@ private struct AppearanceStylePanel: View {
         switch blurMode {
         case "radius": value = String(Int(blurRadius))
         case "glass-regular": value = "macos-glass-regular"
-        case "glass-clear": value = "macos-glass-clear"
         default: value = "false"
         }
         apply("background-blur", value)

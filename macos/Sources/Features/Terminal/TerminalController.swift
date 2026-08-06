@@ -1386,11 +1386,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         sidebarSplitView?.needsDisplay = true
     }
 
-    /// Settings applies hot-reload the config; the surface colors that
-    /// feed the sidebar background land a beat later, so sync twice.
+    /// Settings applies hot-reload the config; the surface state that
+    /// feeds window and sidebar treatments lands a beat later, so the
+    /// full appearance sync runs twice — immediately and after the
+    /// reload settles. The second pass also re-asserts glass, which the
+    /// window server occasionally drops during background churn.
     @objc private func guiConfigDidApplyNotification(_ notification: Notification) {
+        syncAppearance()
         syncSidebarBackground()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.syncAppearance()
             self?.syncSidebarBackground()
             self?.sidebarSplitView?.needsDisplay = true
         }
