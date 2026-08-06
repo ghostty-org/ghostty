@@ -196,49 +196,34 @@ struct AppearanceSettingsView: View {
     }
 }
 
-/// One theme in the grid: a small terminal mock over the theme's real
-/// background with a prompt line and the ANSI accent dots.
+/// One theme in the grid: a miniature Phantom window — sidebar strip,
+/// prompt line and text skeleton, all in the theme's real colors — with
+/// the name centered underneath.
 private struct ThemeCard: View {
     let theme: TerminalTheme
     let isSelected: Bool
     let action: () -> Void
 
+    @State private var isHovered = false
+
     private var background: Color { Color(nsColor: theme.background ?? .black) }
     private var foreground: Color { Color(nsColor: theme.foreground ?? .white) }
-    private var green: Color {
+    private var prompt: Color {
         Color(nsColor: theme.palette[2] ?? theme.foreground ?? .green)
+    }
+    private var accent: Color {
+        Color(nsColor: theme.palette[4] ?? theme.foreground ?? .blue)
     }
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 4) {
-                        Text("❯")
-                            .foregroundStyle(green)
-                        Text("echo hello")
-                            .foregroundStyle(foreground)
-                    }
-                    .font(.system(size: 9, design: .monospaced))
-
-                    HStack(spacing: 4) {
-                        ForEach(Array(theme.previewColors.enumerated()), id: \.offset) { _, color in
-                            Circle()
-                                .fill(Color(nsColor: color))
-                                .frame(width: 7, height: 7)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(background)
+            VStack(spacing: 7) {
+                miniWindow
 
                 HStack(spacing: 4) {
                     Text(theme.name)
                         .font(.system(size: 11, weight: .medium))
                         .lineLimit(1)
-
-                    Spacer(minLength: 0)
 
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
@@ -250,20 +235,72 @@ private struct ThemeCard: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Color(nsColor: .controlBackgroundColor))
             }
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .padding(7)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isHovered ? AnyShapeStyle(.quaternary.opacity(0.5)) : AnyShapeStyle(.clear))
+            )
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(
-                        isSelected ? Color.accentColor : Color.primary.opacity(0.12),
-                        lineWidth: isSelected ? 2 : 1
+                        isSelected ? Color.accentColor : .clear,
+                        lineWidth: 2
                     )
             )
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+
+    private var miniWindow: some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                skeletonBar(accent.opacity(0.85), width: 22)
+                skeletonBar(foreground.opacity(0.25), width: 16)
+                skeletonBar(foreground.opacity(0.18), width: 19)
+                Spacer(minLength: 0)
+            }
+            .padding(7)
+            .frame(width: 38, alignment: .topLeading)
+            .background(foreground.opacity(0.05))
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 3) {
+                    Circle()
+                        .fill(prompt)
+                        .frame(width: 5, height: 5)
+                    skeletonBar(foreground.opacity(0.75), width: 42)
+                }
+                skeletonBar(foreground.opacity(0.35), width: 64)
+                skeletonBar(foreground.opacity(0.2), width: 50)
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 3) {
+                    ForEach(Array(theme.previewColors.prefix(7).enumerated()), id: \.offset) { _, color in
+                        Circle()
+                            .fill(Color(nsColor: color))
+                            .frame(width: 5, height: 5)
+                    }
+                }
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(height: 86)
+        .background(background)
+        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .overlay(
+            RoundedRectangle(cornerRadius: 9)
+                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+        )
+    }
+
+    private func skeletonBar(_ color: Color, width: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 2)
+            .fill(color)
+            .frame(width: width, height: 4)
     }
 }
 

@@ -63,7 +63,8 @@ struct GeneralSettingsView: View {
     @State private var fontFamily: String = ""
     @State private var fontSize: Double = 13
     @State private var backgroundOpacity: Double = 1
-    @State private var blurRadius: Double = 0
+    @State private var blurMode: String = "off"
+    @State private var blurRadius: Double = 20
     @State private var backgroundColorOverride: Color?
     @State private var cursorStyle: String = ""
 
@@ -140,20 +141,25 @@ struct GeneralSettingsView: View {
                     }
                 }
 
-                LabeledContent("Background Blur") {
-                    HStack {
-                        Slider(value: $blurRadius, in: 0...40, step: 1) { editing in
-                            if !editing {
-                                apply(
-                                    "background-blur",
-                                    blurRadius <= 0 ? "false" : String(Int(blurRadius))
-                                )
+                Picker("Background Blur", selection: $blurMode) {
+                    Text("Off").tag("off")
+                    Text("Blur Radius").tag("radius")
+                    Text("Glass").tag("glass-regular")
+                    Text("Glass (Clear)").tag("glass-clear")
+                }
+                .onChange(of: blurMode) { _ in applyBlur() }
+
+                if blurMode == "radius" {
+                    LabeledContent("Blur Intensity") {
+                        HStack {
+                            Slider(value: $blurRadius, in: 1...80, step: 1) { editing in
+                                if !editing { applyBlur() }
                             }
+                            Text("\(Int(blurRadius))")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .frame(width: 44, alignment: .trailing)
                         }
-                        Text(blurRadius <= 0 ? "Off" : "\(Int(blurRadius))")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .frame(width: 44, alignment: .trailing)
                     }
                 }
 
@@ -188,11 +194,23 @@ struct GeneralSettingsView: View {
         fontFamily = store.string("font-family") ?? ""
         fontSize = store.double("font-size", default: 13)
         backgroundOpacity = store.double("background-opacity", default: 1)
-        let rawBlur = store.string("background-blur") ?? "false"
-        if rawBlur == "true" {
+        switch store.string("background-blur") ?? "false" {
+        case "false":
+            blurMode = "off"
+        case "true":
+            blurMode = "radius"
             blurRadius = 20
-        } else {
-            blurRadius = Double(rawBlur) ?? 0
+        case "macos-glass-regular":
+            blurMode = "glass-regular"
+        case "macos-glass-clear":
+            blurMode = "glass-clear"
+        case let raw:
+            if let value = Double(raw), value > 0 {
+                blurMode = "radius"
+                blurRadius = value
+            } else {
+                blurMode = "off"
+            }
         }
         backgroundColorOverride = store.string("background")
             .flatMap { NSColor(hex: $0) }
@@ -203,6 +221,17 @@ struct GeneralSettingsView: View {
     private func apply(_ key: String, _ value: String) {
         store.set(key, value.isEmpty ? nil : value)
         store.apply(ghostty: ghostty)
+    }
+
+    private func applyBlur() {
+        let value: String
+        switch blurMode {
+        case "radius": value = String(Int(blurRadius))
+        case "glass-regular": value = "macos-glass-regular"
+        case "glass-clear": value = "macos-glass-clear"
+        default: value = "false"
+        }
+        apply("background-blur", value)
     }
 
     private func formatOpacity(_ value: Double) -> String {
@@ -224,7 +253,9 @@ struct SidebarSettingsView: View {
     @AppStorage("SidebarShowPullRequest") private var showPullRequest = true
     @AppStorage("SidebarRestoreAgentSessions") private var restoreAgentSessions = true
     @AppStorage("SidebarNewTabPosition") private var newTabPosition = "end"
+    @AppStorage("SidebarTabDensity") private var tabDensity = "default"
 
+    @State private var backgroundMode: String = "theme"
     @State private var tintColor: Color = .black
     @State private var tintOpacity: Double = 0
 
@@ -266,29 +297,43 @@ struct SidebarSettingsView: View {
             }
 
             Section {
-                LabeledContent("Sidebar Tint") {
-                    HStack {
-                        Slider(value: $tintOpacity, in: 0...0.9) { editing in
-                            if !editing { saveTint() }
+                Picker("Background", selection: $backgroundMode) {
+                    Text("Match Theme").tag("theme")
+                    Text("Match Window").tag("window")
+                    Text("Custom Tint").tag("custom")
+                }
+                .onChange(of: backgroundMode) { _ in saveTint() }
+
+                if backgroundMode == "custom" {
+                    LabeledContent("Tint") {
+                        HStack {
+                            Slider(value: $tintOpacity, in: 0...1) { editing in
+                                if !editing { saveTint() }
+                            }
+
+                            ColorPicker("", selection: $tintColor, supportsOpacity: false)
+                                .labelsHidden()
+                                .onChange(of: tintColor) { _ in saveTint() }
+
+                            Text(tintOpacity <= 0.001 ? "Off" : String(format: "%.0f%%", tintOpacity * 100))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .frame(width: 40, alignment: .trailing)
                         }
-
-                        ColorPicker("", selection: $tintColor, supportsOpacity: false)
-                            .labelsHidden()
-                            .onChange(of: tintColor) { _ in saveTint() }
-
-                        Text(tintOpacity <= 0.001 ? "Off" : String(format: "%.0f%%", tintOpacity * 100))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .frame(width: 40, alignment: .trailing)
                     }
                 }
             } footer: {
-                Text("Backgrounds are layered: the window background (General) is the base for every pane, the terminal adds its theme background, and the sidebar adds this tint. Keep it at zero so the sidebar matches the window exactly, or raise it with a dark (or light) color to set the sidebar apart.")
+                Text("Backgrounds are layered: the window background (General) is the base for every pane and the terminal adds its theme background. Match Theme keeps the sidebar in the theme's color, Match Window leaves only the base showing, and Custom Tint sets the sidebar apart with its own color.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Section("Tab Info") {
+            Section("Tab Item") {
+                Picker("Style", selection: $tabDensity) {
+                    Text("Default").tag("default")
+                    Text("Compact").tag("compact")
+                }
+
                 Toggle("Show Working Directory", isOn: $showDirectory)
                     .toggleStyle(.switch)
                 Toggle("Show Git Branch", isOn: $showGitBranch)
@@ -315,6 +360,7 @@ struct SidebarSettingsView: View {
             sidebarWidth = store.double("sidebar-width", default: 240)
 
             let defaults = UserDefaults.standard
+            backgroundMode = defaults.string(forKey: "SidebarBackgroundMode") ?? "theme"
             tintOpacity = defaults.double(forKey: "SidebarTintOpacity")
             if let hex = defaults.string(forKey: "SidebarTintHex"),
                let color = NSColor(hex: hex) {
@@ -325,6 +371,7 @@ struct SidebarSettingsView: View {
 
     private func saveTint() {
         let defaults = UserDefaults.standard
+        defaults.set(backgroundMode, forKey: "SidebarBackgroundMode")
         defaults.set(NSColor(tintColor).hexString ?? "#000000", forKey: "SidebarTintHex")
         defaults.set(tintOpacity, forKey: "SidebarTintOpacity")
         NotificationCenter.default.post(

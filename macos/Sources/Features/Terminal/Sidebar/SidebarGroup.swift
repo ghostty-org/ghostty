@@ -27,8 +27,20 @@ struct SidebarGroup: Identifiable, Codable, Equatable {
     var icon: String
 
     var color: TerminalTabColor
+
+    /// A theme-palette (or otherwise custom) color; wins over `color`.
+    var colorHex: String?
+
     var collapsed: Bool
     var kind: Kind
+
+    /// The effective accent: custom hex first, then the preset color.
+    var accentColor: Color? {
+        if let colorHex, let nsColor = NSColor(hex: colorHex) {
+            return Color(nsColor: nsColor)
+        }
+        return color.sidebarAccent
+    }
 
     init(
         id: UUID = UUID(),
@@ -88,9 +100,13 @@ extension TerminalTabColor {
     /// A small filled-circle swatch for menu rows, where SF Symbols
     /// render as templates and lose their tint.
     var menuSwatch: NSImage {
+        Self.menuSwatch(for: displayColor)
+    }
+
+    static func menuSwatch(for color: NSColor?) -> NSImage {
         let image = NSImage(size: NSSize(width: 14, height: 14), flipped: false) { rect in
             let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 1.5, dy: 1.5))
-            if let color = self.displayColor {
+            if let color {
                 color.setFill()
                 circle.fill()
             } else {
@@ -102,5 +118,70 @@ extension TerminalTabColor {
         }
         image.isTemplate = false
         return image
+    }
+}
+
+/// The current theme's palette, shared app-wide so color pickers can
+/// offer theme colors next to the preset ones. Reloads whenever the
+/// GUI settings apply (theme switches, config reloads).
+@MainActor
+final class ThemePalette: ObservableObject {
+    static let shared = ThemePalette()
+
+    @Published private(set) var colors: [NSColor] = []
+    @Published private(set) var background: NSColor?
+
+    static let ansiNames = [
+        "Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White",
+        "Bright Black", "Bright Red", "Bright Green", "Bright Yellow",
+        "Bright Blue", "Bright Magenta", "Bright Cyan", "Bright White",
+    ]
+
+    private var observer: NSObjectProtocol?
+
+    init() {
+        reload()
+        observer = NotificationCenter.default.addObserver(
+            forName: GuiConfigStore.didApply,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reload() }
+        }
+    }
+
+    deinit {
+        if let observer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    func reload() {
+        let store = GuiConfigStore.shared
+        guard let name = store.string("theme"), !name.isEmpty else {
+            colors = []
+            background = nil
+            return
+        }
+
+        let userURL = store.themesDirURL.appendingPathComponent(name)
+        let builtinURL = Bundle.main.resourceURL?
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("themes", isDirectory: true)
+            .appendingPathComponent(name)
+        let url = FileManager.default.fileExists(atPath: userURL.path)
+            ? userURL
+            : builtinURL
+
+        guard let url,
+              let theme = ThemeCatalog.parse(url: url, source: .user)
+        else {
+            colors = []
+            background = nil
+            return
+        }
+
+        colors = (0..<16).compactMap { theme.palette[$0] }
+        background = theme.background
     }
 }

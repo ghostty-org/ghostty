@@ -659,24 +659,35 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static let sidebarTintDidChange = Notification.Name("PhantomSidebarTintDidChange")
 
     /// Background layering: the window paints the base (color, opacity,
-    /// blur — General settings); the terminal pane adds its theme
-    /// background on top; the sidebar adds only this optional tint. At
-    /// zero opacity the sidebar shows the pure window base, matching the
-    /// rest of the chrome exactly.
+    /// blur — General settings) and the terminal adds its theme
+    /// background on top. The sidebar pane has three modes:
+    /// theme (default) mirrors the terminal's effective background so
+    /// theme switches recolor it too; window paints nothing, showing the
+    /// raw base/blur; custom paints a user tint at a chosen opacity.
     private func syncSidebarBackground() {
         guard let sidebarBackgroundView else { return }
 
         let defaults = UserDefaults.standard
-        let opacity = defaults.double(forKey: "SidebarTintOpacity")
-        guard opacity > 0.001,
-              let hex = defaults.string(forKey: "SidebarTintHex"),
-              let color = NSColor(hex: hex)
-        else {
+        switch defaults.string(forKey: "SidebarBackgroundMode") ?? "theme" {
+        case "window":
             sidebarBackgroundView.layer?.backgroundColor = nil
-            return
+
+        case "custom":
+            let opacity = defaults.double(forKey: "SidebarTintOpacity")
+            guard opacity > 0.001,
+                  let hex = defaults.string(forKey: "SidebarTintHex"),
+                  let color = NSColor(hex: hex)
+            else {
+                sidebarBackgroundView.layer?.backgroundColor = nil
+                return
+            }
+            sidebarBackgroundView.layer?.backgroundColor =
+                color.withAlphaComponent(opacity).cgColor
+
+        default:
+            sidebarBackgroundView.layer?.backgroundColor =
+                (window as? TerminalWindow)?.preferredBackgroundColor?.cgColor
         }
-        sidebarBackgroundView.layer?.backgroundColor =
-            color.withAlphaComponent(opacity).cgColor
     }
 
     /// Masks the first presentation of this window's terminal pane: the

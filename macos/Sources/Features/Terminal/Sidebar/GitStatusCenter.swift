@@ -21,12 +21,27 @@ final class GitStatusCenter: ObservableObject {
         var prBranch: String?
     }
 
+    struct PullRequest: Identifiable, Equatable {
+        let number: Int
+        let title: String
+        let url: String
+
+        var id: Int { number }
+    }
+
     @Published private(set) var repos: [String: RepoInfo] = [:]
 
+    /// All open PRs per repository root (not just the current branch),
+    /// fetched on demand for the group PR list.
+    @Published private(set) var repoPRLists: [String: [PullRequest]] = [:]
+
     private var inflight: Set<String> = []
+    private var prListInflight: Set<String> = []
+    private var prListFetchedAt: [String: Date] = [:]
 
     private static let dirtyTTL: TimeInterval = 15
     private static let prTTL: TimeInterval = 300
+    private static let prListTTL: TimeInterval = 180
 
     func info(forRoot root: String?) -> RepoInfo? {
         root.flatMap { repos[$0] }
@@ -64,6 +79,50 @@ final class GitStatusCenter: ObservableObject {
                 self.repos[root] = info
                 self.inflight.remove(root)
             }
+        }
+    }
+
+    /// Fetches the repo's open PR list in the background; no-op while
+    /// fresh or in flight. `repoPRLists` publishes when results land.
+    func requestPRList(root: String) {
+        let now = Date()
+        if let fetched = prListFetchedAt[root],
+           now.timeIntervalSince(fetched) < Self.prListTTL {
+            return
+        }
+        guard !prListInflight.contains(root) else { return }
+        prListInflight.insert(root)
+
+        Task.detached(priority: .userInitiated) {
+            let prs = Self.fetchPRList(root: root)
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.repoPRLists[root] = prs ?? []
+                self.prListFetchedAt[root] = Date()
+                self.prListInflight.remove(root)
+            }
+        }
+    }
+
+    nonisolated private static func fetchPRList(root: String) -> [PullRequest]? {
+        guard let gh = ghPath else { return nil }
+        guard let output = run(
+            gh,
+            ["pr", "list", "--json", "number,title,url", "--limit", "25"],
+            cwd: root,
+            timeout: 15
+        ) else { return nil }
+
+        guard let data = output.data(using: .utf8),
+              let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else { return nil }
+
+        return list.compactMap { entry in
+            guard let number = entry["number"] as? Int,
+                  let title = entry["title"] as? String,
+                  let url = entry["url"] as? String
+            else { return nil }
+            return PullRequest(number: number, title: title, url: url)
         }
     }
 

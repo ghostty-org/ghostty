@@ -1,5 +1,6 @@
-import Foundation
+import AppKit
 import Combine
+import SwiftUI
 
 /// App-wide store for sidebar groups and manual tab assignments.
 ///
@@ -25,9 +26,20 @@ final class SidebarGroupStore: ObservableObject {
         var icon: String?
         var color: TerminalTabColor?
 
+        /// A theme-palette (or otherwise custom) color; wins over `color`.
+        var colorHex: String?
+
         var isEmpty: Bool {
             (name?.isEmpty ?? true) && (icon?.isEmpty ?? true)
                 && (color ?? .none) == .none
+                && (colorHex?.isEmpty ?? true)
+        }
+
+        var accentColor: Color? {
+            if let colorHex, let nsColor = NSColor(hex: colorHex) {
+                return Color(nsColor: nsColor)
+            }
+            return color?.sidebarAccent
         }
     }
 

@@ -86,10 +86,14 @@ final class GuiConfigStore: ObservableObject {
         save()
     }
 
+    /// Posted after settings are applied and the config hot-reloaded.
+    static let didApply = Notification.Name("PhantomGuiConfigDidApply")
+
     /// Persists pending values and hot-reloads the app configuration.
     func apply(ghostty: Ghostty.App) {
         save()
         ghostty.reloadConfig(soft: false)
+        NotificationCenter.default.post(name: Self.didApply, object: nil)
     }
 
     // MARK: Persistence

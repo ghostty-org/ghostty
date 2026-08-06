@@ -207,8 +207,9 @@ private struct SidebarGroupSection: View {
     @State private var isDropTarget = false
     @State private var isEditing = false
     @State private var isHeaderHovered = false
+    @State private var isShowingPRs = false
 
-    private var accent: Color? { group.color.sidebarAccent }
+    private var accent: Color? { group.accentColor }
     private var collapsed: Bool { group.collapsed }
 
     var body: some View {
@@ -293,6 +294,24 @@ private struct SidebarGroupSection: View {
             Spacer(minLength: 0)
 
             Button {
+                isShowingPRs = true
+            } label: {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.plain)
+            .opacity(isHeaderHovered ? 1 : 0)
+            .allowsHitTesting(isHeaderHovered)
+            .help("Pull Requests in Group")
+            .popover(isPresented: $isShowingPRs) {
+                GroupPRListView(
+                    roots: Array(Set(tabs.compactMap(\.repoRoot))).sorted()
+                )
+            }
+
+            Button {
                 onNewTab(group)
             } label: {
                 Image(systemName: "plus")
@@ -335,15 +354,39 @@ private struct SidebarGroupSection: View {
         Button("Edit Group…") { isEditing = true }
 
         Menu("Color") {
-            ForEach(TerminalTabColor.allCases, id: \.self) { color in
-                Button {
-                    store.update(group.id) { $0.color = color }
-                } label: {
-                    HStack {
-                        Image(nsImage: color.menuSwatch)
-                        Text(color.localizedName)
-                        if group.color == color {
-                            Image(systemName: "checkmark")
+            Section("General") {
+                ForEach(TerminalTabColor.allCases, id: \.self) { color in
+                    Button {
+                        store.update(group.id) {
+                            $0.color = color
+                            $0.colorHex = nil
+                        }
+                    } label: {
+                        HStack {
+                            Image(nsImage: color.menuSwatch)
+                            Text(color.localizedName)
+                            if group.color == color && group.colorHex == nil {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !ThemePalette.shared.colors.isEmpty {
+                Section("Theme") {
+                    ForEach(Array(ThemePalette.shared.colors.enumerated()), id: \.offset) { index, nsColor in
+                        let hex = nsColor.hexString ?? ""
+                        Button {
+                            store.update(group.id) { $0.colorHex = hex }
+                        } label: {
+                            HStack {
+                                Image(nsImage: TerminalTabColor.menuSwatch(for: nsColor))
+                                Text(ThemePalette.ansiNames[index])
+                                if group.colorHex == hex {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
                         }
                     }
                 }
@@ -399,6 +442,82 @@ private enum SidebarDragPayload {
             self = .tab(id)
         } else {
             return nil
+        }
+    }
+}
+
+/// Lists every open pull request of the repositories present in a
+/// group, fetched on demand — one click opens the PR in the browser.
+private struct GroupPRListView: View {
+    let roots: [String]
+
+    @ObservedObject private var gitCenter: GitStatusCenter = .shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Pull Requests")
+                .font(.headline)
+
+            if roots.isEmpty {
+                Text("No repositories in this group.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(roots, id: \.self) { root in
+                VStack(alignment: .leading, spacing: 4) {
+                    if roots.count > 1 {
+                        Text((root as NSString).lastPathComponent)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                    }
+
+                    if let prs = gitCenter.repoPRLists[root] {
+                        if prs.isEmpty {
+                            Text("No open pull requests.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(prs) { pr in
+                                Button {
+                                    if let url = URL(string: pr.url) {
+                                        NSWorkspace.shared.open(url)
+                                    }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Text("#\(pr.number)")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(Color.accentColor)
+                                        Text(pr.title)
+                                            .font(.system(size: 11))
+                                            .lineLimit(1)
+                                        Spacer(minLength: 0)
+                                        Image(systemName: "arrow.up.forward")
+                                            .font(.system(size: 8))
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    } else {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Loading…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 340)
+        .onAppear {
+            roots.forEach { gitCenter.requestPRList(root: $0) }
         }
     }
 }
@@ -473,6 +592,9 @@ private struct SidebarTabRow: View {
     @AppStorage("SidebarShowGitBranch") private var showGitBranch = true
     @AppStorage("SidebarShowGitStatus") private var showGitStatus = true
     @AppStorage("SidebarShowPullRequest") private var showPullRequest = true
+    @AppStorage("SidebarTabDensity") private var density = "default"
+
+    private var isCompact: Bool { density == "compact" }
 
     private var insertAfter: Bool? {
         guard dragState.target?.row == tab.id else { return nil }
@@ -497,54 +619,44 @@ private struct SidebarTabRow: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let accent = override?.color?.sidebarAccent {
+            if let accent = override?.accentColor {
                 Circle()
                     .fill(accent)
                     .frame(width: 6, height: 6)
             }
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: isCompact ? 2 : 4) {
                 Text(displayTitle)
-                    .font(.system(size: 11, weight: tab.isSelected ? .semibold : .regular))
+                    .font(.system(
+                        size: isCompact ? 11 : 12,
+                        weight: tab.isSelected ? .semibold : .regular
+                    ))
                     .lineLimit(1)
 
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     if showDirectory, let dir = tab.directoryName {
-                        Text(dir)
-                            .lineLimit(1)
+                        metaChip(text: dir)
                     }
 
                     if showGitBranch, let branch = tab.gitBranch {
-                        HStack(spacing: 2) {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 8))
-                            Text(branch)
-                                .lineLimit(1)
-
-                            if showGitStatus, tab.isDirty == true {
-                                Circle()
-                                    .fill(.yellow)
-                                    .frame(width: 4, height: 4)
-                                    .help("Uncommitted changes")
-                            }
-                        }
+                        metaChip(
+                            icon: "arrow.triangle.branch",
+                            text: branch,
+                            dirty: showGitStatus && tab.isDirty == true
+                        )
                     }
 
                     if showPullRequest, let prNumber = tab.prNumber {
-                        Text("#\(prNumber)")
-                            .foregroundStyle(Color.accentColor)
-                            .help("Open pull request")
+                        prChip(number: prNumber)
                     }
 
-                    // Reserve the subtitle line even while pwd/branch
+                    // Reserve the metadata line even while pwd/branch
                     // haven't arrived yet so row heights never shift.
                     if showDirectory || showGitBranch {
-                        Text(" ")
+                        Text(" ").font(.system(size: 9))
                     }
                 }
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
-                .frame(height: 11)
+                .frame(height: isCompact ? 14 : 18)
             }
 
             Spacer(minLength: 0)
@@ -567,7 +679,7 @@ private struct SidebarTabRow: View {
             .help("Close Terminal")
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.vertical, isCompact ? 5 : 8)
         .background(
             RoundedRectangle(cornerRadius: 6)
                 .fill(rowBackground)
@@ -653,6 +765,53 @@ private struct SidebarTabRow: View {
                     .frame(width: 6, height: 6)
             }
         }
+    }
+
+    /// A small rounded tag for row metadata (directory, git branch).
+    private func metaChip(icon: String? = nil, text: String, dirty: Bool = false) -> some View {
+        HStack(spacing: 3) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 8))
+            }
+            Text(text)
+                .lineLimit(1)
+            if dirty {
+                Circle()
+                    .fill(.yellow)
+                    .frame(width: 4, height: 4)
+            }
+        }
+        .font(.system(size: 9))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(.quaternary.opacity(0.6))
+        )
+        .help(dirty ? "Uncommitted changes" : "")
+    }
+
+    /// The clickable PR tag: opens the branch's open pull request.
+    private func prChip(number: Int) -> some View {
+        Button {
+            if let url = tab.prURL.flatMap(URL.init(string:)) {
+                NSWorkspace.shared.open(url)
+            }
+        } label: {
+            Text("#\(number)")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(Color.accentColor)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.accentColor.opacity(0.15))
+                )
+        }
+        .buttonStyle(.plain)
+        .help("Open Pull Request #\(number)")
     }
 
     private var rowBackground: some ShapeStyle {
@@ -803,6 +962,77 @@ private struct SidebarIconPicker: View {
     }
 }
 
+/// A circular swatch for an arbitrary color (theme palette entries).
+private struct SidebarHexSwatch: View {
+    let nsColor: NSColor
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .strokeBorder(
+                        isSelected ? Color.primary.opacity(0.6) : .clear,
+                        lineWidth: 1.5
+                    )
+                    .frame(width: 22, height: 22)
+
+                Circle()
+                    .fill(Color(nsColor: nsColor))
+                    .frame(width: 15, height: 15)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Both color rows used by the group and tab editors: the preset
+/// palette ("General") plus the current theme's ANSI colors.
+private struct SidebarColorRows: View {
+    @Binding var color: TerminalTabColor
+    @Binding var colorHex: String?
+
+    @ObservedObject private var palette: ThemePalette = .shared
+
+    private let themeColumns = Array(
+        repeating: GridItem(.flexible(), spacing: 4),
+        count: 8
+    )
+
+    var body: some View {
+        LabeledContent("Color") {
+            HStack(spacing: 6) {
+                ForEach(TerminalTabColor.allCases, id: \.self) { swatch in
+                    SidebarColorSwatch(
+                        color: swatch,
+                        isSelected: color == swatch && colorHex == nil
+                    ) {
+                        color = swatch
+                        colorHex = nil
+                    }
+                }
+            }
+        }
+
+        if !palette.colors.isEmpty {
+            LabeledContent("Theme") {
+                LazyVGrid(columns: themeColumns, spacing: 4) {
+                    ForEach(Array(palette.colors.enumerated()), id: \.offset) { _, nsColor in
+                        let hex = nsColor.hexString ?? ""
+                        SidebarHexSwatch(
+                            nsColor: nsColor,
+                            isSelected: colorHex == hex
+                        ) {
+                            colorHex = hex
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// One circular color swatch, ringed when selected — the Reminders
 /// list-editor pattern.
 private struct SidebarColorSwatch: View {
@@ -852,6 +1082,7 @@ private struct SidebarTabEditor: View {
     @State private var name = ""
     @State private var icon = ""
     @State private var color: TerminalTabColor = .none
+    @State private var colorHex: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -868,15 +1099,7 @@ private struct SidebarTabEditor: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    LabeledContent("Color") {
-                        HStack(spacing: 6) {
-                            ForEach(TerminalTabColor.allCases, id: \.self) { swatch in
-                                SidebarColorSwatch(color: swatch, isSelected: color == swatch) {
-                                    color = swatch
-                                }
-                            }
-                        }
-                    }
+                    SidebarColorRows(color: $color, colorHex: $colorHex)
                 } footer: {
                     Text("Leave the name empty to keep the terminal's own title.")
                         .font(.caption)
@@ -915,6 +1138,7 @@ private struct SidebarTabEditor: View {
         name = override.name ?? ""
         icon = override.icon ?? ""
         color = override.color ?? .none
+        colorHex = override.colorHex
     }
 
     private func save() {
@@ -922,7 +1146,8 @@ private struct SidebarTabEditor: View {
         store.setTabOverride(surfaceId: surfaceId, .init(
             name: trimmed.isEmpty ? nil : trimmed,
             icon: icon.isEmpty ? nil : icon,
-            color: color == .none ? nil : color
+            color: color == .none ? nil : color,
+            colorHex: colorHex
         ))
     }
 }
@@ -943,6 +1168,7 @@ private struct SidebarGroupEditor: View {
     @State private var details: String = ""
     @State private var icon: String = "folder"
     @State private var color: TerminalTabColor = .none
+    @State private var colorHex: String?
     @State private var isProject: Bool = false
     @State private var projectRoot: String = ""
 
@@ -964,15 +1190,7 @@ private struct SidebarGroupEditor: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    LabeledContent("Color") {
-                        HStack(spacing: 6) {
-                            ForEach(TerminalTabColor.allCases, id: \.self) { swatch in
-                                SidebarColorSwatch(color: swatch, isSelected: color == swatch) {
-                                    color = swatch
-                                }
-                            }
-                        }
-                    }
+                    SidebarColorRows(color: $color, colorHex: $colorHex)
                 }
 
                 Section("Icon") {
@@ -1047,6 +1265,7 @@ private struct SidebarGroupEditor: View {
         details = group.details ?? ""
         icon = group.icon
         color = group.color
+        colorHex = group.colorHex
         if case .project(let root) = group.kind {
             isProject = true
             projectRoot = root
@@ -1083,6 +1302,7 @@ private struct SidebarGroupEditor: View {
                 $0.details = trimmedDetails.isEmpty ? nil : trimmedDetails
                 $0.icon = icon
                 $0.color = color
+                $0.colorHex = colorHex
                 $0.kind = kind
             }
         } else {
@@ -1093,6 +1313,9 @@ private struct SidebarGroupEditor: View {
                 color: color,
                 kind: kind
             )
+            if let colorHex {
+                store.update(created.id) { $0.colorHex = colorHex }
+            }
             if let assignSurfaceId {
                 store.assign(surfaceId: assignSurfaceId, to: created.id)
             }
