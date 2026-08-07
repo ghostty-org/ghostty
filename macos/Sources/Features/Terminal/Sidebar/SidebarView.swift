@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -368,6 +369,10 @@ private struct SidebarGroupSection: View {
                 }
             }
 
+            if collapsed {
+                GroupStatusRollup(tabs: tabs, accent: accent)
+            }
+
             Spacer(minLength: 0)
 
             if showPullRequests {
@@ -513,6 +518,57 @@ private struct SidebarGroupSection: View {
             }
         }
         return true
+    }
+}
+
+/// Rolls every tab's agent state into one glyph on the group header,
+/// shown only while the group is collapsed — expanded, each tab already
+/// carries its own indicator (`SidebarTabRow.statusIndicator`), so this
+/// would just be a second copy of the same thing.
+///
+/// `SidebarGroupSection` holds `tabs` as a plain, non-observed array —
+/// membership changes re-render it, but an existing tab's own `agentState`
+/// flipping doesn't, the same way it doesn't for the list overall (each
+/// row observes its own model directly instead). This does the same thing
+/// at the group level: it subscribes to every tab's publisher itself
+/// rather than trusting `tabs` to change identity when only their
+/// contents do.
+private struct GroupStatusRollup: View {
+    let tabs: [SidebarTabModel]
+    let accent: Color?
+
+    @State private var tick = 0
+
+    var body: some View {
+        content
+            .font(.system(size: 10))
+            .onReceive(Publishers.MergeMany(tabs.map { $0.objectWillChange })) { _ in
+                tick &+= 1
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if tabs.contains(where: { $0.agentState == .awaiting }) {
+            Image(systemName: "hand.raised.fill")
+                .foregroundStyle(.orange)
+                .help("A terminal in this group needs your input")
+        } else if tabs.contains(where: { $0.needsAttention }) {
+            Circle()
+                .fill(.orange)
+                .frame(width: 6, height: 6)
+                .help("A terminal in this group needs attention")
+        } else if tabs.contains(where: { $0.agentState == .working }) {
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: 10, height: 10)
+                .help("A terminal in this group is working")
+        } else if tabs.contains(where: { $0.agentState == .done }) {
+            Circle()
+                .fill(accent ?? Color.accentColor)
+                .frame(width: 6, height: 6)
+                .help("A terminal in this group has a response ready")
+        }
     }
 }
 
