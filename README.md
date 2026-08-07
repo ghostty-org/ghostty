@@ -1,25 +1,27 @@
 <!-- LOGO -->
 <h1>
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/fe853809-ba8b-400b-83ab-a9a0da25be8a" alt="Logo" width="128">
-  <br>Ghostty
+  <img src="images/phantom-logo.png" alt="Phantom" width="128">
+  <br>Phantom
 </h1>
   <p align="center">
-    Fast, native, feature-rich terminal emulator pushing modern features.
+    A terminal with a vertical sidebar: tabs grouped by project, git and dev-server
+    state on every row, and coding agents wired in.
     <br />
-    A native GUI or embeddable library via <code>libghostty</code>.
+    Built on <a href="https://ghostty.org">Ghostty</a>, whose core does the terminal work.
     <br />
     <a href="#about">About</a>
     ·
-    <a href="https://ghostty.org/download">Download</a>
-    ·
-    <a href="https://ghostty.org/docs">Documentation</a>
-    ·
-    <a href="CONTRIBUTING.md">Contributing</a>
+    <a href="https://ghostty.org/docs">Ghostty Documentation</a>
     ·
     <a href="HACKING.md">Developing</a>
   </p>
 </p>
+
+> Phantom is a personal fork of [Ghostty](https://github.com/ghostty-org/ghostty)
+> by Mitchell Hashimoto and contributors. Everything below the GUI — the
+> renderer, the terminal emulation, `libghostty` — is theirs; this fork adds a
+> macOS sidebar and the app around it. The rest of this README is Ghostty's.
 
 ## About
 
