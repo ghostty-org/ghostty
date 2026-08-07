@@ -80,6 +80,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// background (color + opacity) so both panes always match.
     private var sidebarBackgroundView: NSView?
 
+    /// Fills the titlebar strip over the terminal pane, which the terminal's
+    /// own content doesn't reach.
+    private var terminalTitlebarFiller: NSView?
+
     /// The sidebar pane container and its glass layer (glass effect
     /// modes cover every pane, so the sidebar carries its own).
     private weak var sidebarPane: NSView?
@@ -682,6 +686,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let paneColor = AppearanceCoordinator.sidebarLayerColor(
             window: window as? TerminalWindow
         )
+
+        terminalTitlebarFiller?.layer?.backgroundColor = paneColor?.cgColor
 
         guard let sidebarBackgroundView else { return }
         sidebarBackgroundView.layer?.backgroundColor = paneColor?.cgColor
@@ -1357,15 +1363,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         sidebarPane.translatesAutoresizingMaskIntoConstraints = false
         sidebarPane.addSubview(sidebarHosting)
         NSLayoutConstraint.activate([
-            // Stops at the titlebar, not the window top: this view's layer is
-            // what paints the sidebar, and the titlebar paints that strip
-            // already. Reaching under it stacked the same translucent color
-            // twice, making the strip visibly darker over the sidebar than
-            // over the terminal. The pane itself still runs full height, so
-            // the glass layer below still covers the strip.
-            sidebarHosting.topAnchor.constraint(
-                equalTo: sidebarPane.safeAreaLayoutGuide.topAnchor
-            ),
+            sidebarHosting.topAnchor.constraint(equalTo: sidebarPane.topAnchor),
             sidebarHosting.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor),
             sidebarHosting.bottomAnchor.constraint(equalTo: sidebarPane.bottomAnchor),
             sidebarHosting.trailingAnchor.constraint(equalTo: sidebarPane.trailingAnchor),
@@ -1422,6 +1420,25 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     self?.syncSidebarChromeWidth()
                 }
             }
+
+        // The sidebar's hosting view paints the titlebar strip on its half
+        // because its layer runs the full height of the pane. The terminal's
+        // content stops below the titlebar and paints nothing up there, so
+        // this fills exactly that band — one coat on each half, and nothing
+        // at all under glass, where the material shows through instead.
+        let titlebarFiller = NSView()
+        titlebarFiller.translatesAutoresizingMaskIntoConstraints = false
+        titlebarFiller.wantsLayer = true
+        terminalContainer.addSubview(titlebarFiller, positioned: .below, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            titlebarFiller.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
+            titlebarFiller.leadingAnchor.constraint(equalTo: terminalContainer.leadingAnchor),
+            titlebarFiller.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
+            titlebarFiller.bottomAnchor.constraint(
+                equalTo: terminalContainer.safeAreaLayoutGuide.topAnchor
+            ),
+        ])
+        self.terminalTitlebarFiller = titlebarFiller
 
         let splitView = SidebarSplitView()
         splitView.isVertical = true

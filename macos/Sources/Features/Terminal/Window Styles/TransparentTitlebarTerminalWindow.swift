@@ -102,12 +102,11 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
             let isTransparentTitlebar = derivedConfig.macosTitlebarStyle == .transparent ||
             derivedConfig.macosTitlebarStyle == .tabs
 
-            // The titlebar paints the pane color itself rather than being
-            // left clear for the panes to show through: only the sidebar
-            // pane's own layer reaches under the titlebar, so a clear strip
-            // exposed the window — and with any transparency, the desktop —
-            // as a pale band over the terminal half.
-            titlebarView.layer?.backgroundColor = (isGlassStyle && isTransparentTitlebar)
+            // With the sidebar active the panes own the titlebar strip and
+            // this stays out of the way. Painting it here instead put a flat
+            // theme colour over the strip in every mode, which under blur
+            // and glass read lighter than the material below it.
+            titlebarView.layer?.backgroundColor = (sidebarActive || (isGlassStyle && isTransparentTitlebar))
                 ? NSColor.clear.cgColor
                 : preferredBackgroundColor?.cgColor
         }
