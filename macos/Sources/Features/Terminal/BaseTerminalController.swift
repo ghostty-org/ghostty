@@ -445,6 +445,13 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
+    /// Free every surface currently owned by this controller.
+    func freeSurfaces() {
+        for surfaceView in surfaceTree {
+            surfaceView.surfaceModel?.free()
+        }
+    }
+
     /// Close a surface from a view.
     func closeSurface(
         _ view: Ghostty.SurfaceView,
