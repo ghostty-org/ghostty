@@ -51,6 +51,16 @@ private struct TerminalSplitSubtreeView: View {
     var isRoot: Bool = false
     let action: (TerminalSplitOperation) -> Void
 
+    /// The divider setting covers the whole window, splits included: a user
+    /// who turned dividers off doesn't want one reappearing between panes.
+    private static func dividerColor(config: Ghostty.Config) -> Color {
+        switch AppearanceCoordinator.dividerMode {
+        case .hidden: return .clear
+        case .custom(let color): return Color(nsColor: color)
+        case .system: return config.splitDividerColor
+        }
+    }
+
     var body: some View {
         switch node {
         case .leaf(let leafView):
@@ -69,7 +79,7 @@ private struct TerminalSplitSubtreeView: View {
                 }, set: {
                     action(.resize(.init(node: node, ratio: $0)))
                 }),
-                dividerColor: ghostty.config.splitDividerColor,
+                dividerColor: Self.dividerColor(config: ghostty.config),
                 resizeIncrements: .init(width: 1, height: 1),
                 left: {
                     TerminalSplitSubtreeView(node: split.left, action: action)

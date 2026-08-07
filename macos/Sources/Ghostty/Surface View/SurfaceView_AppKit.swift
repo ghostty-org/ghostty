@@ -647,14 +647,19 @@ extension Ghostty {
                   window == event.window else { return event }
 
             // The clicked location in this window should be this view.
-            guard
-                let location = window.contentView?.convert(event.locationInWindow, from: nil)
-            else {
-                return event
-            }
-            // We should use window to perform hitTest here,
-            // because there could be some other overlays on top, like search bar
-            guard window.contentView?.hitTest(location) == self else { return event }
+            //
+            // hitTest takes its point in the receiver's *superview* space,
+            // which for the content view is the window's own coordinates.
+            // Converting into the content view first applies the transform
+            // twice, and when that view is flipped — as it is when the
+            // content view is an NSSplitView — the two compose into a
+            // vertical mirror: a click in the top pane of a vertical split
+            // hit-tests as the bottom one.
+            //
+            // We hit test through the window rather than against self so
+            // overlays on top of the surface, like the search bar, still win.
+            guard window.contentView?.hitTest(event.locationInWindow) == self
+            else { return event }
 
             // We always assume that we're resetting our mouse suppression
             // unless we see the specific scenario below to set it.

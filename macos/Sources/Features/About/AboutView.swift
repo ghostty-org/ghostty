@@ -101,23 +101,15 @@ struct AboutView: View {
                 }
                 .frame(maxWidth: .infinity)
 
-                HStack(spacing: 8) {
-                    Button("GitHub") {
-                        openURL(Phantom.repositoryURL)
-                    }
-                    Button("Ghostty") {
-                        openURL(Phantom.upstreamURL)
-                    }
+                Button("GitHub") {
+                    openURL(Phantom.repositoryURL)
                 }
 
                 VStack(spacing: 14) {
-                    Button {
-                        openURL(Phantom.authorURL)
-                    } label: {
-                        Text("Made by \(Phantom.author)")
-                            .font(.callout)
-                    }
-                    .buttonStyle(.link)
+                    Text("Made by \(Phantom.author)")
+                        .font(.caption)
+                        .opacity(0.8)
+                        .multilineTextAlignment(.center)
 
                     VStack(spacing: 6) {
                         Text("Powered by Ghostty 👻")

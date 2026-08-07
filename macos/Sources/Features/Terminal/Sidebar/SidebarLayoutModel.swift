@@ -34,34 +34,8 @@ final class SidebarLayoutModel: ObservableObject {
 /// The sidebar | terminal split view, with a user-configurable divider:
 /// default system color, hidden, or a custom color.
 final class SidebarSplitView: NSSplitView {
-    private enum DividerMode {
-        case system
-        case hidden
-        case custom(NSColor)
-
-        var isHidden: Bool {
-            if case .hidden = self { return true }
-            return false
-        }
-
-        static var current: DividerMode {
-            let defaults = UserDefaults.standard
-            switch defaults.string(forKey: "SidebarDividerMode") ?? "default" {
-            case "hidden":
-                return .hidden
-            case "custom":
-                guard let hex = defaults.string(forKey: "SidebarDividerColorHex"),
-                      let color = NSColor(hex: hex)
-                else { return .system }
-                return .custom(color)
-            default:
-                return .system
-            }
-        }
-    }
-
     override var dividerColor: NSColor {
-        switch DividerMode.current {
+        switch AppearanceCoordinator.dividerMode {
         case .hidden: return .clear
         case .custom(let color): return color
         case .system: return super.dividerColor
@@ -74,7 +48,7 @@ final class SidebarSplitView: NSSplitView {
     /// The drag area it would have provided is restored by the delegate's
     /// `additionalEffectiveRectOfDividerAt`.
     override var dividerThickness: CGFloat {
-        DividerMode.current.isHidden ? 0 : super.dividerThickness
+        AppearanceCoordinator.dividerMode.isHidden ? 0 : super.dividerThickness
     }
 
     /// Drawing the divider directly rather than relying only on the
@@ -96,7 +70,7 @@ final class SidebarSplitView: NSSplitView {
         )
         guard !rect.isEmpty else { return }
 
-        switch DividerMode.current {
+        switch AppearanceCoordinator.dividerMode {
         case .hidden:
             // Nothing to draw: the divider has no width in this mode.
             return

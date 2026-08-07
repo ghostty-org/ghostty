@@ -57,6 +57,37 @@ enum AppearanceCoordinator {
         BlurStyle(configValue: GuiConfigStore.shared.string("background-blur"))
     }
 
+    /// What the user asked dividers to look like.
+    ///
+    /// The setting is presented under Sidebar, but it governs every divider
+    /// in the window: asking for no divider means none, not "none except
+    /// between split panes".
+    enum DividerMode {
+        case system
+        case hidden
+        case custom(NSColor)
+
+        var isHidden: Bool {
+            if case .hidden = self { return true }
+            return false
+        }
+    }
+
+    static var dividerMode: DividerMode {
+        let defaults = UserDefaults.standard
+        switch defaults.string(forKey: "SidebarDividerMode") ?? "default" {
+        case "hidden":
+            return .hidden
+        case "custom":
+            guard let hex = defaults.string(forKey: "SidebarDividerColorHex"),
+                  let color = NSColor(hex: hex)
+            else { return .system }
+            return .custom(color)
+        default:
+            return .system
+        }
+    }
+
     /// The layer color the sidebar pane paints: the theme's effective
     /// background, which is what the terminal paints too — the two match by
     /// construction, in every effect.

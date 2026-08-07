@@ -8,10 +8,8 @@ enum Phantom {
     static let tagline = "A Ghostty-powered terminal with grouped tabs,\nagent awareness and a native settings experience."
 
     static let author = "Isac Petinate"
-    static let authorURL = URL(string: "https://github.com/ipetinate")!
 
     static let repositoryURL = URL(string: "https://github.com/ipetinate/ghostty")!
-    static let upstreamURL = URL(string: "https://github.com/ghostty-org/ghostty")!
 
     /// Ghostty is not a dependency of this project — it is the project's
     /// engine. The about window says so plainly rather than burying it in a
