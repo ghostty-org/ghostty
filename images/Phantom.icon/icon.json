@@ -18,7 +18,7 @@
           "name" : "Phantom",
           "opacity" : 1,
           "position" : {
-            "scale" : 1,
+            "scale" : 0.78,
             "translation-in-points" : [
               0,
               0
