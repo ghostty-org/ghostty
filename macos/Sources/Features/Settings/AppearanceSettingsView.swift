@@ -40,7 +40,7 @@ struct AppearanceSettingsView: View {
     }
 
     private var currentTheme: String {
-        store.string("theme") ?? ""
+        store.currentThemeName ?? ""
     }
 
     private struct ThemeGroups {
@@ -189,7 +189,7 @@ struct AppearanceSettingsView: View {
             ) {
                 ForEach(visible) { theme in
                     ThemeCard(theme: theme, isSelected: theme.name == currentTheme) {
-                        store.set("theme", theme.name)
+                        store.setTheme(theme)
                         store.apply(ghostty: ghostty)
                     }
                     .contextMenu {
@@ -854,7 +854,7 @@ private struct ThemeCreatorView: View {
         let url = store.themesDirURL.appendingPathComponent(trimmedName)
         try? content.write(to: url, atomically: true, encoding: .utf8)
 
-        store.set("theme", trimmedName)
+        store.set("theme", url.path)
         store.apply(ghostty: ghostty)
         catalog.reload()
         savedName = trimmedName
@@ -915,7 +915,7 @@ private struct AllThemesView: View {
     }
 
     private var currentTheme: String {
-        store.string("theme") ?? ""
+        store.currentThemeName ?? ""
     }
 
     private var filtered: [TerminalTheme] {
@@ -986,7 +986,7 @@ private struct AllThemesView: View {
                                             theme: theme,
                                             isSelected: theme.name == currentTheme
                                         ) {
-                                            store.set("theme", theme.name)
+                                            store.setTheme(theme)
                                             store.apply(ghostty: ghostty)
                                         }
                                         .contextMenu {

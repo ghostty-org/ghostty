@@ -93,6 +93,42 @@ final class GuiConfigStore: ObservableObject {
         values[key]
     }
 
+    // MARK: Theme
+
+    /// Points the theme setting at a theme file Phantom owns.
+    ///
+    /// Written as an absolute path, not a name: the core resolves a bare
+    /// name against its own `themes` directory and its bundle, neither of
+    /// which is Phantom's, so a name here fails to load. An absolute path
+    /// it loads directly.
+    func setTheme(_ theme: TerminalTheme) {
+        switch theme.source {
+        case .user: set("theme", theme.url.path)
+        case .builtin: set("theme", theme.name)
+        }
+    }
+
+    /// The current theme's display name, for matching against the catalog.
+    var currentThemeName: String? {
+        guard let value = string("theme"), !value.isEmpty else { return nil }
+        guard value.hasPrefix("/") else { return value }
+        return (value as NSString).lastPathComponent
+    }
+
+    /// The file the theme setting resolves to, by path or by name.
+    var currentThemeURL: URL? {
+        guard let value = string("theme"), !value.isEmpty else { return nil }
+        if value.hasPrefix("/") { return URL(fileURLWithPath: value) }
+
+        let user = themesDirURL.appendingPathComponent(value)
+        if FileManager.default.fileExists(atPath: user.path) { return user }
+
+        return Bundle.main.resourceURL?
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("themes", isDirectory: true)
+            .appendingPathComponent(value)
+    }
+
     func bool(_ key: String, default defaultValue: Bool = false) -> Bool {
         guard let raw = values[key] else { return defaultValue }
         return raw == "true" || raw == "1"

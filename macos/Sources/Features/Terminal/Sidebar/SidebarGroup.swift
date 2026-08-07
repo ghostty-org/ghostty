@@ -162,22 +162,7 @@ final class ThemePalette: ObservableObject {
 
     func reload() {
         let store = GuiConfigStore.shared
-        guard let name = store.string("theme"), !name.isEmpty else {
-            colors = []
-            background = nil
-            return
-        }
-
-        let userURL = store.themesDirURL.appendingPathComponent(name)
-        let builtinURL = Bundle.main.resourceURL?
-            .appendingPathComponent("ghostty", isDirectory: true)
-            .appendingPathComponent("themes", isDirectory: true)
-            .appendingPathComponent(name)
-        let url = FileManager.default.fileExists(atPath: userURL.path)
-            ? userURL
-            : builtinURL
-
-        guard let url,
+        guard let url = store.currentThemeURL,
               let theme = ThemeCatalog.parse(url: url, source: .user)
         else {
             colors = []
