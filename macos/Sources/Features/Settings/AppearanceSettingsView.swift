@@ -261,6 +261,7 @@ private struct AppearanceStylePanel: View {
 
     @State private var fontFamily: String = ""
     @State private var fontSize: Double = 13
+    @State private var interfaceFontFamily: String = ""
     @State private var cursorStyle: String = ""
     @State private var backgroundOpacity: Double = 1
     @State private var blurMode: String = "off"
@@ -318,13 +319,39 @@ private struct AppearanceStylePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            styleGroup("Interface") {
+                LabeledContent("App Font") {
+                    Button(interfaceFontFamily.isEmpty ? "System Default" : interfaceFontFamily) {
+                        FontPickerWindowController.shared.show(
+                            title: "Interface Font",
+                            currentFamily: interfaceFontFamily.isEmpty ? nil : interfaceFontFamily,
+                            preview: .interface
+                        ) { picked in
+                            interfaceFontFamily = picked ?? ""
+                            UserDefaults.standard.set(interfaceFontFamily, forKey: AppFont.interfaceFamilyKey)
+                        }
+                    }
+                    .frame(maxWidth: 220, alignment: .leading)
+                }
+            }
+
             styleGroup("Terminal") {
                 LabeledContent("Font Family") {
-                    TextField("", text: $fontFamily, prompt: Text("System default"))
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 220)
-                        .onSubmit { apply("font-family", fontFamily) }
+                    Button(fontFamily.isEmpty ? "System Default" : fontFamily) {
+                        FontPickerWindowController.shared.show(
+                            title: "Terminal Font",
+                            currentFamily: fontFamily.isEmpty ? nil : fontFamily,
+                            preview: .terminal
+                        ) { picked in
+                            fontFamily = picked ?? ""
+                            apply("font-family", fontFamily)
+                        }
+                    }
+                    .frame(maxWidth: 220, alignment: .leading)
                 }
+                Text("Applies to new terminals right away; open tabs need to be reopened to pick it up.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 LabeledContent("Font Size") {
                     HStack {
@@ -480,6 +507,7 @@ private struct AppearanceStylePanel: View {
     private func populate() {
         fontFamily = store.string("font-family") ?? ""
         fontSize = store.double("font-size", default: 13)
+        interfaceFontFamily = UserDefaults.standard.string(forKey: AppFont.interfaceFamilyKey) ?? ""
         backgroundOpacity = store.double("background-opacity", default: 1)
         cursorStyle = store.string("cursor-style") ?? ""
         sidebarWidth = store.double("sidebar-width", default: 240)
@@ -604,7 +632,7 @@ private struct ThemeCard: View {
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 10))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(accent)
                             .padding(.trailing, 2)
                     }
                 }
@@ -617,7 +645,7 @@ private struct ThemeCard: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(
-                        isSelected ? Color.accentColor : .clear,
+                        isSelected ? accent : .clear,
                         lineWidth: 2
                     )
             )

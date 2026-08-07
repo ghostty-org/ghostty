@@ -1285,7 +1285,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             onNewClaudeTabInGroup: { [weak self] group in
                 self?.newSidebarTab(in: group, runningClaude: true)
             }
-        ))
+        ).interfaceFont())
         sidebarHosting.translatesAutoresizingMaskIntoConstraints = false
         sidebarHosting.wantsLayer = true
         self.sidebarBackgroundView = sidebarHosting
@@ -1326,7 +1326,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let chromeHosting = NSHostingView(rootView: SidebarTitlebarChrome(
             store: .shared,
             layout: layout
-        ))
+        ).interfaceFont())
         chromeHosting.translatesAutoresizingMaskIntoConstraints = false
         self.sidebarChromeView = chromeHosting
 
