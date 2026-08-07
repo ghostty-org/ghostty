@@ -91,17 +91,16 @@ enum AppearanceCoordinator {
 
     /// What a hidden divider should paint to disappear between the panes.
     ///
-    /// This is a different question from `sidebarLayerColor` and has to stay
-    /// separate: under glass the panes deliberately paint nothing, but each
-    /// pane's glass is clipped to it, so the divider strip between them has
-    /// no material behind it and a transparent window shows the desktop
-    /// through as a bright line. A translucent tint of the theme color is
-    /// indistinguishable from the glass beside it at one point wide — and
-    /// feeding this to the pane layer instead would cover the glass.
-    /// Unlike the pane color this is never nil: `preferredBackgroundColor`
-    /// already carries the opacity alpha, so the same value works for every
-    /// effect — it just must not be handed to the pane layer under glass.
+    /// A different question from `sidebarLayerColor`, and it has to stay
+    /// separate: that one is nil under glass so the pane layer can't cover
+    /// the material, but the divider still needs an answer.
+    ///
+    /// Under glass the answer is also nothing — but for the opposite reason.
+    /// A flat tint there reads as a seam against the material beside it
+    /// instead of hiding in it, so the sidebar's glass is stretched to span
+    /// the divider and carry across (see `syncSidebarGlass`).
     static func dividerFillColor(window: TerminalWindow?) -> NSColor? {
-        window?.preferredBackgroundColor
+        if blurStyle.isGlass { return nil }
+        return window?.preferredBackgroundColor
     }
 }

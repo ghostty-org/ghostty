@@ -729,7 +729,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 glass.topAnchor.constraint(equalTo: sidebarPane.topAnchor),
                 glass.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor),
                 glass.bottomAnchor.constraint(equalTo: sidebarPane.bottomAnchor),
-                glass.trailingAnchor.constraint(equalTo: sidebarPane.trailingAnchor),
+                // Overhangs the pane by the divider's width so the material
+                // runs continuously across the gap. Each pane's glass is
+                // otherwise clipped to it, and the strip between them —
+                // which nothing else paints under glass — reads as a seam.
+                glass.trailingAnchor.constraint(
+                    equalTo: sidebarPane.trailingAnchor,
+                    constant: sidebarSplitView?.dividerThickness ?? 1
+                ),
             ])
             sidebarGlassView = glass
         }

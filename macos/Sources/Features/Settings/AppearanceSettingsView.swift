@@ -251,12 +251,14 @@ private struct AppearanceStylePanel: View {
 
     @AppStorage("SidebarTabDensity") private var tabDensity = "default"
 
-    private static let cursorStyles: [(value: String, label: String)] = [
-        ("", "Default"),
-        ("block", "Block"),
-        ("bar", "Bar"),
-        ("underline", "Underline"),
-        ("block_hollow", "Hollow Block"),
+    /// The icon of each style mirrors the shape the cursor takes, so the
+    /// segments read at a glance. "Default" has no shape of its own.
+    private static let cursorStyles: [(value: String, label: String, icon: String?)] = [
+        ("", "Default", nil),
+        ("block", "Block", "rectangle.fill"),
+        ("bar", "Bar", "text.cursor"),
+        ("underline", "Underline", "minus"),
+        ("block_hollow", "Hollow", "rectangle"),
     ]
 
     var body: some View {
@@ -282,13 +284,13 @@ private struct AppearanceStylePanel: View {
                 }
 
                 LabeledContent("Cursor Style") {
-                    Picker("", selection: $cursorStyle) {
-                        ForEach(Self.cursorStyles, id: \.value) { style in
-                            Text(style.label).tag(style.value)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 160)
+                    IconSegmentedControl(
+                        segments: Self.cursorStyles.map {
+                            .init(value: $0.value, label: $0.label, systemImage: $0.icon)
+                        },
+                        selection: $cursorStyle
+                    )
+                    .frame(height: 24)
                     .onChange(of: cursorStyle) { value in
                         apply("cursor-style", value)
                     }
