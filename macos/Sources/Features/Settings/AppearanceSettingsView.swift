@@ -338,15 +338,18 @@ private struct AppearanceStylePanel: View {
 
             styleGroup("Effect") {
                 LabeledContent("Style") {
+                    // "Glass" is the blurred background. The system glass
+                    // material used to be a fourth option, but it can't hold
+                    // a seam-free surface across the two panes — each pane
+                    // gets its own material and they never match.
                     Picker("", selection: $blurMode) {
                         Text("Solid").tag("solid")
                         Text("Clear").tag("off")
-                        Text("Blur").tag("radius")
-                        Text("Glass").tag("glass-regular")
+                        Text("Glass").tag("radius")
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    .frame(maxWidth: 300)
+                    .frame(maxWidth: 240)
                     .onChange(of: blurMode) { _ in applyEffectChange() }
                 }
 
@@ -470,7 +473,10 @@ private struct AppearanceStylePanel: View {
             blurMode = "radius"
             blurRadius = 20
         case "macos-glass-regular", "macos-glass-clear":
-            blurMode = "glass-regular"
+            // A config left over from when the system glass material was an
+            // option: read it as the blurred background it now maps to.
+            blurMode = "radius"
+            blurRadius = 20
         case let raw:
             if let value = Double(raw), value > 0 {
                 blurMode = "radius"
@@ -507,7 +513,6 @@ private struct AppearanceStylePanel: View {
         let value: String
         switch blurMode {
         case "radius": value = String(Int(blurRadius))
-        case "glass-regular": value = "macos-glass-regular"
         default: value = "false"
         }
         apply("background-blur", value)
@@ -515,9 +520,9 @@ private struct AppearanceStylePanel: View {
 
     /// Effect selection drives opacity: Solid snaps to fully opaque
     /// (still adjustable afterward), Clear pins full transparency with
-    /// no adjustment, and Blur/Glass nudge away from either extreme —
-    /// at 0% or 100% neither effect would be visible — unless the user
-    /// already set a deliberate in-between value, which is left alone.
+    /// no adjustment, and Glass nudges away from either extreme — at 0%
+    /// or 100% the blur wouldn't be visible — unless the user already set
+    /// a deliberate in-between value, which is left alone.
     private func applyEffectChange() {
         switch blurMode {
         case "solid":
@@ -526,7 +531,7 @@ private struct AppearanceStylePanel: View {
         case "off":
             backgroundOpacity = 0.0
             store.set("background-opacity", "0.00")
-        case "radius", "glass-regular":
+        case "radius":
             if backgroundOpacity <= 0.02 || backgroundOpacity >= 0.98 {
                 backgroundOpacity = 0.5
                 store.set("background-opacity", "0.50")

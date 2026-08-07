@@ -20,16 +20,11 @@ import AppKit
 ///       terminal: theme background at opacity (Metal)
 ///       sidebar: same rules as above — theme mode mirrors the terminal
 ///
-///     blur = glass (regular)
-///       window: glass material tinted with the effective background
-///       terminal: transparent, glass shows through
-///       sidebar: ALWAYS nothing — the tinted glass is the shared
-///                background, painting anything on top breaks the pane
-///                uniformity (custom tint is still honored)
-///
-///     blur = glass (clear)
-///       window: colorless glass
-///       terminal & sidebar: same as glass regular, without tint
+/// Every pane paints the same colour in every mode, which is what keeps
+/// the surface seamless. The system glass material was a third mode until
+/// it proved it can't do that: it is applied per-view, so the sidebar and
+/// the terminal each got their own and the boundary between them always
+/// showed. "Glass" in the settings is the blurred background above.
 ///
 /// The window-level treatment itself is applied by
 /// `TerminalWindow.syncAppearance`; the divider by `SidebarSplitView`.
@@ -38,19 +33,16 @@ enum AppearanceCoordinator {
     enum BlurStyle {
         case off
         case radius(Int)
-        case glassRegular
-        case glassClear
 
         init(configValue: String?) {
             switch configValue ?? "false" {
             case "false", "", "0":
                 self = .off
-            case "true":
+            case "true", "macos-glass-regular", "macos-glass-clear":
+                // The glass values are legacy: the system material was an
+                // option until it turned out it can't span the two panes
+                // without a seam. They read as a blurred background now.
                 self = .radius(20)
-            case "macos-glass-regular":
-                self = .glassRegular
-            case "macos-glass-clear":
-                self = .glassClear
             case let raw:
                 if let value = Int(raw), value > 0 {
                     self = .radius(value)
@@ -59,34 +51,16 @@ enum AppearanceCoordinator {
                 }
             }
         }
-
-        var isGlass: Bool {
-            switch self {
-            case .glassRegular, .glassClear: return true
-            default: return false
-            }
-        }
-
-        /// The colorless glass variant, which takes no theme tint.
-        var isGlassClear: Bool {
-            switch self {
-            case .glassClear: return true
-            default: return false
-            }
-        }
     }
 
     static var blurStyle: BlurStyle {
         BlurStyle(configValue: GuiConfigStore.shared.string("background-blur"))
     }
 
-    /// The layer color the sidebar pane should paint: nothing under
-    /// glass (the pane's glass layer carries the look), otherwise the
-    /// theme's effective background — the sidebar always matches the
-    /// terminal, by construction.
+    /// The layer color the sidebar pane paints: the theme's effective
+    /// background, which is what the terminal paints too — the two match by
+    /// construction, in every effect.
     static func sidebarLayerColor(window: TerminalWindow?) -> NSColor? {
-        if blurStyle.isGlass { return nil }
-        return window?.preferredBackgroundColor
+        window?.preferredBackgroundColor
     }
-
 }

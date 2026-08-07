@@ -87,7 +87,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The sidebar pane container and its glass layer (glass effect
     /// modes cover every pane, so the sidebar carries its own).
     private weak var sidebarPane: NSView?
-    private var sidebarGlassView: NSView?
 
     /// The sidebar action icons, added straight into the titlebar
     /// container and centered on the traffic lights; the trailing
@@ -691,7 +690,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         guard let sidebarBackgroundView else { return }
         sidebarBackgroundView.layer?.backgroundColor = paneColor?.cgColor
-        syncSidebarGlass()
     }
 
     /// The window's private corner radius, safely probed.
@@ -699,71 +697,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let window, window.responds(to: Selector(("_cornerRadius")))
         else { return nil }
         return window.value(forKey: "_cornerRadius") as? CGFloat
-    }
-
-    /// Keeps the sidebar pane's glass layer in lockstep with the
-    /// window-wide effect: present and tinted like the terminal's glass
-    /// while a glass style is active, absent otherwise.
-    private func syncSidebarGlass() {
-#if compiler(>=6.2)
-        guard #available(macOS 26.0, *) else { return }
-        guard let sidebarPane else { return }
-
-        guard AppearanceCoordinator.blurStyle.isGlass else {
-            sidebarGlassView?.removeFromSuperview()
-            sidebarGlassView = nil
-            return
-        }
-
-        let glass: TerminalGlassView
-        if let existing = sidebarGlassView as? TerminalGlassView {
-            glass = existing
-        } else {
-            let topInset = window?.contentView?.superview?.safeAreaInsets.top ?? 0
-            glass = TerminalGlassView(topOffset: -topInset)
-            glass.translatesAutoresizingMaskIntoConstraints = false
-            sidebarPane.addSubview(glass, positioned: .below, relativeTo: nil)
-            NSLayoutConstraint.activate([
-                glass.topAnchor.constraint(equalTo: sidebarPane.topAnchor),
-                glass.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor),
-                glass.bottomAnchor.constraint(equalTo: sidebarPane.bottomAnchor),
-                glass.trailingAnchor.constraint(equalTo: sidebarPane.trailingAnchor),
-            ])
-            sidebarGlassView = glass
-        }
-
-        let store = GuiConfigStore.shared
-        // Square glass in panes: the window frame rounds the composite.
-        glass.configure(
-            style: AppearanceCoordinator.blurStyle.isGlassClear ? .clear : .regular,
-            backgroundColor: sidebarGlassBaseColor,
-            backgroundOpacity: store.double("background-opacity", default: 1),
-            cornerRadius: 0,
-            isKeyWindow: window?.isKeyWindow ?? true
-        )
-#endif
-    }
-
-    /// The opaque theme color the sidebar's glass is tinted from. The alpha
-    /// comes from the opacity setting, applied by the glass view itself.
-    private var sidebarGlassBaseColor: NSColor {
-        (window as? TerminalWindow)?.preferredBackgroundColor?
-            .withAlphaComponent(1) ?? .black
-    }
-
-    /// Mirrors the terminal's inactive-window tint onto the sidebar's glass.
-    ///
-    /// Without this the sidebar keeps whatever tint it was last configured
-    /// with: changing a setting from the settings window configures it as
-    /// inactive, and only the terminal's overlay was ever cleared again, so
-    /// the sidebar stayed flat and stopped tracking opacity entirely.
-    private func updateSidebarGlassTintOverlay(isKeyWindow: Bool) {
-#if compiler(>=6.2)
-        guard #available(macOS 26.0, *),
-              let glass = sidebarGlassView as? TerminalGlassView
-        else { return }
-        glass.updateKeyStatus(isKeyWindow, backgroundColor: sidebarGlassBaseColor)
-#endif
     }
 
     /// Masks the first presentation of this window's terminal pane: the
@@ -1434,8 +1367,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             titlebarFiller.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
             titlebarFiller.leadingAnchor.constraint(equalTo: terminalContainer.leadingAnchor),
             titlebarFiller.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
+            // Overlaps a point past where the terminal's content starts.
+            // Meeting it exactly left a sub-pixel gap on some window
+            // positions and not others, and the transparent window showing
+            // through it read as a hairline that came and went.
             titlebarFiller.bottomAnchor.constraint(
-                equalTo: terminalContainer.safeAreaLayoutGuide.topAnchor
+                equalTo: terminalContainer.safeAreaLayoutGuide.topAnchor,
+                constant: 1
             ),
         ])
         self.terminalTitlebarFiller = titlebarFiller
@@ -1741,13 +1679,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         self.relabelTabs()
         self.fixTabBar()
         terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: true)
-        updateSidebarGlassTintOverlay(isKeyWindow: true)
     }
 
     override func windowDidResignKey(_ notification: Notification) {
         super.windowDidResignKey(notification)
         terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: false)
-        updateSidebarGlassTintOverlay(isKeyWindow: false)
     }
 
     override func windowDidMove(_ notification: Notification) {
