@@ -110,21 +110,40 @@ struct AboutView: View {
                     }
                 }
 
-                VStack(spacing: 6) {
-                    Text("Built on Ghostty, by Mitchell Hashimoto\nand the Ghostty contributors. 👻")
-                        .font(.caption)
-                        .tint(.secondary)
-                        .opacity(0.8)
-                        .multilineTextAlignment(.center)
-
-                    if let copy = self.copyright {
-                        Text(copy)
-                            .font(.caption)
-                            .textSelection(.enabled)
-                            .tint(.secondary)
-                            .opacity(0.8)
-                            .multilineTextAlignment(.center)
+                VStack(spacing: 14) {
+                    Button {
+                        openURL(Phantom.authorURL)
+                    } label: {
+                        Text("Made by \(Phantom.author)")
+                            .font(.callout)
                     }
+                    .buttonStyle(.link)
+
+                    VStack(spacing: 6) {
+                        Text("Powered by Ghostty 👻")
+                            .font(.caption)
+                            .fontWeight(.medium)
+
+                        Text(Phantom.upstreamCredit)
+                            .font(.caption)
+                            .opacity(0.75)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        if let copy = self.copyright {
+                            Text(copy)
+                                .font(.caption2)
+                                .textSelection(.enabled)
+                                .opacity(0.6)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(.quaternary.opacity(0.5))
+                    )
                 }
                 .frame(maxWidth: .infinity)
             }
