@@ -9,8 +9,10 @@ import SwiftUI
 struct ClaudeIcon: View {
     /// Which tint the mark takes.
     enum Tint {
-        /// Follows the terminal theme: legible on dark, the artwork's own
-        /// color on light. For anything drawn over a themed surface.
+        /// The same neutral secondary color as the plain SF Symbol icons
+        /// it sits beside in a chrome row (the sidebar's titlebar icons, a
+        /// group header's action buttons) — so it reads as one more icon
+        /// in that row rather than a colored outlier.
         case theme
 
         /// Always the artwork's own color. For surfaces that follow the
@@ -21,8 +23,6 @@ struct ClaudeIcon: View {
 
     var size: CGFloat = 12
     var tint: Tint = .theme
-
-    @ObservedObject private var themePalette: ThemePalette = .shared
 
     /// The artwork's own fill.
     private static let claySwatch = Color(
@@ -37,8 +37,7 @@ struct ClaudeIcon: View {
         case .original:
             return Self.claySwatch
         case .theme:
-            let isLight = themePalette.background?.isLightColor ?? false
-            return isLight ? Self.claySwatch : Color.white
+            return .secondary
         }
     }
 
