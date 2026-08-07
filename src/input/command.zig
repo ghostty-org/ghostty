@@ -540,6 +540,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Toggle the zoom state of the current split."),
         }},
 
+        .detach_split => comptime &.{.{
+            .action = .detach_split,
+            .title = "Detach Split",
+            .description = "Detach the current split into its own window.",
+        }},
+
         .toggle_readonly => comptime &.{.{
             .action = .toggle_readonly,
             .title = i18n.N_("Toggle Read-Only Mode"),
