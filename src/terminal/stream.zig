@@ -2482,6 +2482,7 @@ pub fn Stream(comptime H: type) type {
                 .kitty_text_sizing,
                 .kitty_clipboard_protocol,
                 .kitty_dnd_protocol,
+                .kitty_desktop_notification,
                 .context_signal,
                 => {
                     log.debug("unimplemented OSC callback: {}", .{cmd});

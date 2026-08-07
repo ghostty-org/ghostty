@@ -159,6 +159,9 @@ pub const Command = union(Key) {
     /// Kitty drag and drop protocol (OSC 72)
     kitty_dnd_protocol: KittyDndProtocol,
 
+    /// Kitty desktop notifications (OSC 99)
+    kitty_desktop_notification: KittyDesktopNotification,
+
     /// OSC 3008. Hierarchical context signalling (UAPI spec).
     /// https://uapi-group.org/specifications/specs/osc_context/
     context_signal: parsers.context_signal.Command,
@@ -168,6 +171,8 @@ pub const Command = union(Key) {
     pub const KittyClipboardProtocol = parsers.kitty_clipboard_protocol.OSC;
 
     pub const KittyDndProtocol = parsers.kitty_dnd_protocol.OSC;
+
+    pub const KittyDesktopNotification = parsers.kitty_desktop_notification.OSC;
 
     pub const Key = LibEnum(
         lib.target,
@@ -198,6 +203,7 @@ pub const Command = union(Key) {
             "kitty_text_sizing",
             "kitty_clipboard_protocol",
             "kitty_dnd_protocol",
+            "kitty_desktop_notification",
             "context_signal",
         },
     );
@@ -364,6 +370,7 @@ pub const Parser = struct {
         @"66",
         @"72",
         @"77",
+        @"99",
         @"104",
         @"110",
         @"111",
@@ -444,6 +451,7 @@ pub const Parser = struct {
             .kitty_text_sizing,
             .kitty_clipboard_protocol,
             .kitty_dnd_protocol,
+            .kitty_desktop_notification,
             .context_signal,
             => {},
         }
@@ -783,11 +791,24 @@ pub const Parser = struct {
                 else => self.state = .invalid,
             },
 
+            .@"9",
+            => switch (c) {
+                ';' => self.captureTrailing(.fixed),
+                '9' => self.state = .@"99",
+                else => self.state = .invalid,
+            },
+
+            .@"99",
+            => switch (c) {
+                // OSC 99 can be up to 4096 bytes fully encoded.
+                ';' => self.captureTrailing(.allocating),
+                else => self.state = .invalid,
+            },
+
             .@"0",
             .@"22",
             .@"777",
             .@"8",
-            .@"9",
             => switch (c) {
                 ';' => self.captureTrailing(.fixed),
                 else => self.state = .invalid,
@@ -867,6 +888,8 @@ pub const Parser = struct {
             .@"72" => parsers.kitty_dnd_protocol.parse(self, terminator_ch),
 
             .@"77" => null,
+
+            .@"99" => parsers.kitty_desktop_notification.parse(self, terminator_ch),
 
             .@"133" => parsers.semantic_prompt.parse(self, terminator_ch),
 
