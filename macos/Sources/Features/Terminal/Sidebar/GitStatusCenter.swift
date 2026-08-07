@@ -25,9 +25,21 @@ final class GitStatusCenter: ObservableObject {
         let number: Int
         let title: String
         let url: String
+        let author: String?
 
         var id: Int { number }
     }
+
+    /// The signed-in `gh` user's login, fetched once and cached — compared
+    /// against each PR's author so the list can flag the viewer's own work
+    /// without a per-row lookup.
+    nonisolated static let currentUserLogin: String? = {
+        guard let gh = ghPath else { return nil }
+        guard let output = run(gh, ["api", "user", "--jq", ".login"], timeout: 10)
+        else { return nil }
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }()
 
     @Published private(set) var repos: [String: RepoInfo] = [:]
 
@@ -108,7 +120,7 @@ final class GitStatusCenter: ObservableObject {
         guard let gh = ghPath else { return nil }
         guard let output = run(
             gh,
-            ["pr", "list", "--json", "number,title,url", "--limit", "25"],
+            ["pr", "list", "--json", "number,title,url,author", "--limit", "25"],
             cwd: root,
             timeout: 15
         ) else { return nil }
@@ -122,7 +134,8 @@ final class GitStatusCenter: ObservableObject {
                   let title = entry["title"] as? String,
                   let url = entry["url"] as? String
             else { return nil }
-            return PullRequest(number: number, title: title, url: url)
+            let author = (entry["author"] as? [String: Any])?["login"] as? String
+            return PullRequest(number: number, title: title, url: url, author: author)
         }
     }
 

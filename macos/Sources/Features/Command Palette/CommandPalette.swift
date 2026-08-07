@@ -342,6 +342,9 @@ private struct CommandRow: View {
     @Binding var hoveredID: UUID?
     var action: () -> Void
 
+    @ObservedObject private var palette: ThemePalette = .shared
+    private var accent: Color { palette.accent ?? .accentColor }
+
     private var highlightedTitle: Text {
         guard !query.isEmpty,
               let indices = option.title.matchedIndices(for: query) else {
@@ -358,7 +361,7 @@ private struct CommandRow: View {
             let attrStart = attributed.index(attributed.startIndex, offsetByCharacters: offset)
             let attrEnd = attributed.index(attrStart, offsetByCharacters: 1)
             attributed[attrStart..<attrEnd].font = .body.bold()
-            attributed[attrStart..<attrEnd].foregroundColor = Color.accentColor
+            attributed[attrStart..<attrEnd].foregroundColor = accent
         }
 
         return Text(attributed)
@@ -378,7 +381,7 @@ private struct CommandRow: View {
             let attrStart = attributed.index(attributed.startIndex, offsetByCharacters: offset)
             let attrEnd = attributed.index(attrStart, offsetByCharacters: 1)
             attributed[attrStart..<attrEnd].font = .caption.bold()
-            attributed[attrStart..<attrEnd].foregroundColor = Color.accentColor
+            attributed[attrStart..<attrEnd].foregroundColor = accent
         }
 
         return Text(attributed)
@@ -395,7 +398,7 @@ private struct CommandRow: View {
 
                 if let icon = option.leadingIcon {
                     Image(systemName: icon)
-                        .foregroundStyle(option.emphasis ? Color.accentColor : .secondary)
+                        .foregroundStyle(option.emphasis ? accent : .secondary)
                         .font(.system(size: 14, weight: .medium))
                 }
 
@@ -417,9 +420,9 @@ private struct CommandRow: View {
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .background(
-                            Capsule().fill(Color.accentColor.opacity(0.15))
+                            Capsule().fill(accent.opacity(0.15))
                         )
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(accent)
                 }
 
                 if let symbols = option.symbols {
@@ -431,14 +434,14 @@ private struct CommandRow: View {
             .contentShape(Rectangle())
             .background(
                 isSelected
-                    ? Color.accentColor.opacity(0.2)
+                    ? accent.opacity(0.2)
                     : (hoveredID == option.id
                        ? Color.secondary.opacity(0.2)
                        : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(Color.accentColor.opacity(option.emphasis && !isSelected ? 0.3 : 0), lineWidth: 1.5)
+                    .strokeBorder(accent.opacity(option.emphasis && !isSelected ? 0.3 : 0), lineWidth: 1.5)
             )
             .cornerRadius(5)
         }

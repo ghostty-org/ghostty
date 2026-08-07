@@ -176,6 +176,13 @@ final class ThemePalette: ObservableObject {
     @Published private(set) var colors: [NSColor] = []
     @Published private(set) var background: NSColor?
 
+    /// Phantom's interface font (see `AppFont`), mirrored here so the
+    /// sidebar's rows can react to it: they already pin their own size per
+    /// role, which is exactly what makes them invisible to the environment
+    /// default `.interfaceFont()` applies — this is the escape hatch that
+    /// still lets a fixed-size row honor the family.
+    @Published private(set) var interfaceFontFamily: String = ""
+
     /// The theme's primary/accent swatch — ANSI index 4 (Blue) by
     /// convention, matching the accent already used in theme previews.
     var primary: NSColor? { colors.count > 4 ? colors[4] : nil }
@@ -199,9 +206,11 @@ final class ThemePalette: ObservableObject {
     ]
 
     private var observer: NSObjectProtocol?
+    private var defaultsObserver: NSObjectProtocol?
 
     init() {
         reload()
+        interfaceFontFamily = UserDefaults.standard.string(forKey: AppFont.interfaceFamilyKey) ?? ""
         observer = NotificationCenter.default.addObserver(
             forName: GuiConfigStore.didApply,
             object: nil,
@@ -209,11 +218,21 @@ final class ThemePalette: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.reload() }
         }
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reloadInterfaceFontFamily() }
+        }
     }
 
     deinit {
         if let observer {
             NotificationCenter.default.removeObserver(observer)
+        }
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
         }
     }
 
@@ -230,4 +249,24 @@ final class ThemePalette: ObservableObject {
         colors = (0..<16).compactMap { theme.palette[$0] }
         background = theme.background
     }
+
+    private func reloadInterfaceFontFamily() {
+        let value = UserDefaults.standard.string(forKey: AppFont.interfaceFamilyKey) ?? ""
+        if value != interfaceFontFamily { interfaceFontFamily = value }
+    }
+
+    /// A system-style font at `size`, honoring the interface font override
+    /// for chrome that pins its own size per role (the sidebar) — text that
+    /// does that never sees `.interfaceFont()`'s environment default, since
+    /// an explicit `.font()` on a view always wins over the environment.
+    func font(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        guard !interfaceFontFamily.isEmpty else { return .system(size: size, weight: weight) }
+        return .custom(interfaceFontFamily, size: size).weight(weight)
+    }
+
+    /// Matches macOS's `.caption` at the size the sidebar already assumed.
+    var captionFont: Font { font(size: 11) }
+
+    /// Matches macOS's `.headline`.
+    var headlineFont: Font { font(size: 13, weight: .semibold) }
 }

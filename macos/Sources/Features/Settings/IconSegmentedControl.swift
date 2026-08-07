@@ -4,9 +4,13 @@ import SwiftUI
 /// A segmented control that shows an icon beside each label.
 ///
 /// SwiftUI's segmented `Picker` renders a `Label` as its title alone and
-/// drops the image; `NSSegmentedControl` carries both, which is what lets
-/// options whose meaning is a shape be recognised without reading.
-struct IconSegmentedControl: NSViewRepresentable {
+/// drops the image, which is why this exists at all — but a plain SwiftUI
+/// track (not `NSSegmentedControl`) so the selected segment paints with the
+/// terminal theme's accent like every other control here, rather than the
+/// system accent color `NSSegmentedControl.selectedSegmentBezelColor`
+/// (itself only honored in the `.separated` style, not `.automatic`) would
+/// have been stuck on regardless of theme.
+struct IconSegmentedControl: View {
     struct Segment {
         let value: String
         let label: String
@@ -16,50 +20,40 @@ struct IconSegmentedControl: NSViewRepresentable {
     let segments: [Segment]
     @Binding var selection: String
 
-    func makeNSView(context: Context) -> NSSegmentedControl {
-        let control = NSSegmentedControl()
-        control.segmentStyle = .automatic
-        control.trackingMode = .selectOne
-        control.segmentCount = segments.count
-        control.target = context.coordinator
-        control.action = #selector(Coordinator.selectionChanged(_:))
-        control.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        apply(to: control)
-        return control
-    }
+    @ObservedObject private var palette: ThemePalette = .shared
 
-    func updateNSView(_ control: NSSegmentedControl, context: Context) {
-        context.coordinator.parent = self
-        apply(to: control)
-    }
+    private var accent: Color { palette.accent ?? .accentColor }
 
-    private func apply(to control: NSSegmentedControl) {
-        for (index, segment) in segments.enumerated() {
-            control.setLabel(segment.label, forSegment: index)
-            guard let image = segment.image else { continue }
-            control.setImage(image, forSegment: index)
-            control.setImageScaling(.scaleNone, forSegment: index)
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(segments, id: \.value) { segment in
+                let isSelected = segment.value == selection
+                Button {
+                    selection = segment.value
+                } label: {
+                    HStack(spacing: 4) {
+                        if let image = segment.image {
+                            Image(nsImage: image)
+                        }
+                        Text(segment.label)
+                            .font(palette.font(size: 11, weight: isSelected ? .medium : .regular))
+                    }
+                    .foregroundStyle(isSelected ? Color.white : Color.primary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 20)
+                    .padding(.horizontal, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(isSelected ? accent : Color.clear)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
         }
-
-        let index = segments.firstIndex { $0.value == selection }
-        control.selectedSegment = index ?? -1
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    final class Coordinator: NSObject {
-        var parent: IconSegmentedControl
-
-        init(_ parent: IconSegmentedControl) {
-            self.parent = parent
-        }
-
-        @objc func selectionChanged(_ sender: NSSegmentedControl) {
-            let index = sender.selectedSegment
-            guard parent.segments.indices.contains(index) else { return }
-            parent.selection = parent.segments[index].value
-        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: 7)
+                .fill(Color(nsColor: .quaternaryLabelColor).opacity(0.3))
+        )
     }
 }

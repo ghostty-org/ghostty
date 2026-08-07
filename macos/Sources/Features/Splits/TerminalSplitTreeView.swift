@@ -229,9 +229,10 @@ enum TerminalSplitDropZone: String, Equatable {
         return .bottom
     }
 
+    @MainActor
     @ViewBuilder
     func overlay(in geometry: GeometryProxy) -> some View {
-        let overlayColor = Color.accentColor.opacity(0.3)
+        let overlayColor = (ThemePalette.shared.accent ?? .accentColor).opacity(0.3)
 
         switch self {
         case .top:

@@ -274,6 +274,8 @@ private struct SidebarGroupSection: View {
     var onNewTab: (SidebarGroup?) -> Void = { _ in }
     var onNewClaudeTab: (SidebarGroup?) -> Void = { _ in }
 
+    @ObservedObject private var palette: ThemePalette = .shared
+
     @AppStorage("SidebarGroupShowPullRequests") private var showPullRequests = true
     @AppStorage("SidebarGroupShowClaude") private var showClaude = true
     @AppStorage("SidebarGroupShowNewTerminal") private var showNewTerminal = true
@@ -304,7 +306,7 @@ private struct SidebarGroupSection: View {
                     }
                     if tabs.isEmpty {
                         Text("No tabs")
-                            .font(.caption)
+                            .font(palette.captionFont)
                             .foregroundStyle(.tertiary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 6)
@@ -322,7 +324,7 @@ private struct SidebarGroupSection: View {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(
                     isDropTarget
-                        ? (accent ?? .accentColor)
+                        ? (accent ?? palette.accent ?? .accentColor)
                         : (accent ?? .secondary).opacity(0.35),
                     lineWidth: isDropTarget ? 2 : 1
                 )
@@ -355,12 +357,12 @@ private struct SidebarGroupSection: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(group.name)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(palette.font(size: 11, weight: .semibold))
                     .lineLimit(1)
 
                 if let details = group.details, !details.isEmpty {
                     Text(details)
-                        .font(.system(size: 9))
+                        .font(palette.font(size: 9))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
@@ -410,7 +412,7 @@ private struct SidebarGroupSection: View {
 
             if showCount {
                 Text(verbatim: "\(tabs.count)")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(palette.font(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
@@ -541,6 +543,7 @@ private struct GroupPRListView: View {
 
     @State private var roots: [String] = []
     @ObservedObject private var gitCenter: GitStatusCenter = .shared
+    @ObservedObject private var palette: ThemePalette = .shared
 
     /// Repos a tab happens to be open in, plus — for a project (workspace)
     /// group — every repo discovered under its root, so one that nobody
@@ -563,11 +566,11 @@ private struct GroupPRListView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Pull Requests")
-                .font(.headline)
+                .font(palette.headlineFont)
 
             if roots.isEmpty {
                 Text("No repositories in this group.")
-                    .font(.caption)
+                    .font(palette.captionFont)
                     .foregroundStyle(.secondary)
             }
 
@@ -575,7 +578,7 @@ private struct GroupPRListView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     if roots.count > 1 {
                         Text((root as NSString).lastPathComponent)
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(palette.font(size: 10, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .textCase(.uppercase)
                     }
@@ -583,30 +586,17 @@ private struct GroupPRListView: View {
                     if let prs = gitCenter.repoPRLists[root] {
                         if prs.isEmpty {
                             Text("No open pull requests.")
-                                .font(.caption)
+                                .font(palette.captionFont)
                                 .foregroundStyle(.secondary)
                         } else {
-                            ForEach(prs) { pr in
-                                Button {
-                                    if let url = URL(string: pr.url) {
-                                        NSWorkspace.shared.open(url)
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(prs) { pr in
+                                    PRRow(pr: pr, palette: palette) {
+                                        if let url = URL(string: pr.url) {
+                                            NSWorkspace.shared.open(url)
+                                        }
                                     }
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        Text("#\(pr.number)")
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundStyle(Color.accentColor)
-                                        Text(pr.title)
-                                            .font(.system(size: 11))
-                                            .lineLimit(1)
-                                        Spacer(minLength: 0)
-                                        Image(systemName: "arrow.up.forward")
-                                            .font(.system(size: 8))
-                                            .foregroundStyle(.tertiary)
-                                    }
-                                    .contentShape(Rectangle())
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                     } else {
@@ -614,7 +604,7 @@ private struct GroupPRListView: View {
                             ProgressView()
                                 .controlSize(.small)
                             Text("Loading…")
-                                .font(.caption)
+                                .font(palette.captionFont)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -626,6 +616,65 @@ private struct GroupPRListView: View {
         .onAppear {
             roots = resolveRoots()
             roots.forEach { gitCenter.requestPRList(root: $0) }
+        }
+    }
+}
+
+/// One PR in the group's list: hovering marks it clickable (pointer cursor,
+/// a tinted background) and a small person badge calls out a PR that's the
+/// signed-in user's own, so it doesn't take reading every row to spot.
+private struct PRRow: View {
+    let pr: GitStatusCenter.PullRequest
+    @ObservedObject var palette: ThemePalette
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    private var isMine: Bool {
+        guard let author = pr.author, let me = GitStatusCenter.currentUserLogin else { return false }
+        return author == me
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text("#\(pr.number)")
+                    .font(palette.font(size: 11, weight: .medium))
+                    .foregroundStyle(palette.accent ?? .accentColor)
+
+                if isMine {
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(palette.accent ?? .accentColor)
+                        .help("Your pull request")
+                }
+
+                Text(pr.title)
+                    .font(palette.font(size: 11))
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "arrow.up.forward")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(isHovered ? (palette.accent ?? .accentColor).opacity(0.12) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering {
+                NSCursor.pointingHand.set()
+            } else {
+                NSCursor.arrow.set()
+            }
         }
     }
 }
@@ -732,7 +781,7 @@ private struct SidebarTabRow: View {
 
             VStack(alignment: .leading, spacing: isCompact ? 2 : 4) {
                 Text(displayTitle)
-                    .font(.system(
+                    .font(themePalette.font(
                         size: isCompact ? 11 : 12,
                         weight: tab.isSelected ? .semibold : .regular
                     ))
@@ -818,13 +867,13 @@ private struct SidebarTabRow: View {
         )
         .overlay(alignment: .top) {
             if insertAfter == false {
-                Rectangle().fill(Color.accentColor).frame(height: 2)
+                Rectangle().fill(themePalette.accent ?? .accentColor).frame(height: 2)
                     .transition(.opacity)
             }
         }
         .overlay(alignment: .bottom) {
             if insertAfter == true {
-                Rectangle().fill(Color.accentColor).frame(height: 2)
+                Rectangle().fill(themePalette.accent ?? .accentColor).frame(height: 2)
                     .transition(.opacity)
             }
         }
@@ -864,7 +913,7 @@ private struct SidebarTabRow: View {
                 .foregroundStyle(.orange)
         case .done:
             Circle()
-                .fill(Color.accentColor)
+                .fill(themePalette.accent ?? .accentColor)
                 .frame(width: 8, height: 8)
         case .ended, nil:
             if tab.needsAttention {
@@ -899,7 +948,7 @@ private struct SidebarTabRow: View {
                     .frame(height: chipLineHeight)
             }
         }
-        .font(.system(size: 9))
+        .font(themePalette.font(size: 9))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 5)
         .padding(.vertical, 2)
@@ -918,13 +967,13 @@ private struct SidebarTabRow: View {
             }
         } label: {
             Text(verbatim: "#\(number)")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(Color.accentColor)
+                .font(themePalette.font(size: 9, weight: .medium))
+                .foregroundStyle(themePalette.accent ?? .accentColor)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.accentColor.opacity(0.15))
+                        .fill((themePalette.accent ?? .accentColor).opacity(0.15))
                 )
         }
         .buttonStyle(.plain)
@@ -948,7 +997,7 @@ private struct SidebarTabRow: View {
                 Text(verbatim: ":\(port)")
                     .frame(height: chipLineHeight)
             }
-            .font(.system(size: 9, weight: .medium))
+            .font(themePalette.font(size: 9, weight: .medium))
             .foregroundStyle(Color.green)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
@@ -1031,6 +1080,7 @@ private struct SidebarIconCell: View {
     let action: () -> Void
 
     @State private var isHovered = false
+    @ObservedObject private var palette: ThemePalette = .shared
 
     var body: some View {
         Button(action: action) {
@@ -1041,7 +1091,7 @@ private struct SidebarIconCell: View {
                 .background(
                     RoundedRectangle(cornerRadius: 6)
                         .fill(isSelected
-                            ? AnyShapeStyle(Color.accentColor)
+                            ? AnyShapeStyle(palette.accent ?? .accentColor)
                             : isHovered ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
                 )
         }
@@ -1235,6 +1285,7 @@ private struct SidebarTabEditor: View {
     @ObservedObject var store: SidebarGroupStore
 
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var palette: ThemePalette = .shared
 
     @State private var name = ""
     @State private var icon = ""
@@ -1259,7 +1310,7 @@ private struct SidebarTabEditor: View {
                     SidebarColorRows(color: $color, colorHex: $colorHex)
                 } footer: {
                     Text("Leave the name empty to keep the terminal's own title.")
-                        .font(.caption)
+                        .font(palette.captionFont)
                         .foregroundStyle(.secondary)
                 }
 
@@ -1320,6 +1371,7 @@ private struct SidebarGroupEditor: View {
     var assignSurfaceId: UUID? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var palette: ThemePalette = .shared
 
     @State private var name: String = ""
     @State private var details: String = ""
@@ -1392,7 +1444,7 @@ private struct SidebarGroupEditor: View {
                     }
                 } footer: {
                     Text("Project groups automatically claim tabs whose working directory is inside the project root.")
-                        .font(.caption)
+                        .font(palette.captionFont)
                         .foregroundStyle(.secondary)
                 }
             }
