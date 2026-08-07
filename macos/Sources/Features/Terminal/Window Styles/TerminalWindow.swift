@@ -586,6 +586,13 @@ class TerminalWindow: NSWindow {
             let backgroundColor = preferredBackgroundColor ?? NSColor(surfaceConfig.backgroundColor)
             self.backgroundColor = backgroundColor.withAlphaComponent(1)
         }
+
+        // A non-opaque window's shadow is derived from what its content
+        // actually draws, and macOS keeps the one it computed until asked to
+        // redo it. Changing opacity or the effect leaves that stale shadow
+        // in place — sized for the old content, which reads as an oversized
+        // halo around the window.
+        invalidateShadow()
     }
 
     /// The preferred window background color. The current window background color may not be set

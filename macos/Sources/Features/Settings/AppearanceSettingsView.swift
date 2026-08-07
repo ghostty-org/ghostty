@@ -251,15 +251,50 @@ private struct AppearanceStylePanel: View {
 
     @AppStorage("SidebarTabDensity") private var tabDensity = "default"
 
-    /// The icon of each style mirrors the shape the cursor takes, so the
-    /// segments read at a glance. "Default" has no shape of its own.
-    private static let cursorStyles: [(value: String, label: String, icon: String?)] = [
-        ("", "Default", nil),
-        ("block", "Block", "rectangle.fill"),
-        ("bar", "Bar", "text.cursor"),
-        ("underline", "Underline", "minus"),
-        ("block_hollow", "Hollow", "rectangle"),
+    private static let cursorStyles: [(value: String, label: String)] = [
+        ("", "Default"),
+        ("block", "Block"),
+        ("bar", "Bar"),
+        ("underline", "Underline"),
+        ("block_hollow", "Hollow"),
     ]
+
+    /// Draws the cursor as it appears in the terminal — the shape sitting in
+    /// a character cell. SF Symbols has no glyph that reads as a terminal
+    /// cursor, and the near-matches (a filled rectangle, a dash) look like
+    /// what they are rather than like the setting they stand for.
+    private static func cursorIcon(for style: String) -> NSImage? {
+        guard !style.isEmpty else { return nil }
+
+        let image = NSImage(
+            size: NSSize(width: 12, height: 13),
+            flipped: false
+        ) { _ in
+            let cell = NSRect(x: 1, y: 1, width: 10, height: 11)
+            NSColor.black.setFill()
+            NSColor.black.setStroke()
+
+            switch style {
+            case "block":
+                cell.fill()
+            case "block_hollow":
+                let outline = NSBezierPath(rect: cell.insetBy(dx: 0.75, dy: 0.75))
+                outline.lineWidth = 1.5
+                outline.stroke()
+            case "bar":
+                NSRect(x: cell.minX, y: cell.minY, width: 2, height: cell.height).fill()
+            case "underline":
+                NSRect(x: cell.minX, y: cell.minY, width: cell.width, height: 2).fill()
+            default:
+                break
+            }
+            return true
+        }
+
+        // Template so the control tints it for selected and disabled states.
+        image.isTemplate = true
+        return image
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -286,7 +321,11 @@ private struct AppearanceStylePanel: View {
                 LabeledContent("Cursor Style") {
                     IconSegmentedControl(
                         segments: Self.cursorStyles.map {
-                            .init(value: $0.value, label: $0.label, systemImage: $0.icon)
+                            .init(
+                                value: $0.value,
+                                label: $0.label,
+                                image: Self.cursorIcon(for: $0.value)
+                            )
                         },
                         selection: $cursorStyle
                     )

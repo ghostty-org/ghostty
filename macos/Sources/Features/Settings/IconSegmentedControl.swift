@@ -10,7 +10,7 @@ struct IconSegmentedControl: NSViewRepresentable {
     struct Segment {
         let value: String
         let label: String
-        let systemImage: String?
+        let image: NSImage?
     }
 
     let segments: [Segment]
@@ -36,15 +36,9 @@ struct IconSegmentedControl: NSViewRepresentable {
     private func apply(to control: NSSegmentedControl) {
         for (index, segment) in segments.enumerated() {
             control.setLabel(segment.label, forSegment: index)
-            guard let name = segment.systemImage else { continue }
-            control.setImage(
-                NSImage(
-                    systemSymbolName: name,
-                    accessibilityDescription: segment.label
-                ),
-                forSegment: index
-            )
-            control.setImageScaling(.scaleProportionallyDown, forSegment: index)
+            guard let image = segment.image else { continue }
+            control.setImage(image, forSegment: index)
+            control.setImageScaling(.scaleNone, forSegment: index)
         }
 
         let index = segments.firstIndex { $0.value == selection }
