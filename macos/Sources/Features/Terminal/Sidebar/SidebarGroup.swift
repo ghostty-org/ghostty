@@ -67,6 +67,51 @@ struct SidebarGroup: Identifiable, Codable, Equatable {
         let normalizedRoot = (root as NSString).expandingTildeInPath
         return pwd == normalizedRoot || pwd.hasPrefix(normalizedRoot + "/")
     }
+
+    /// Every git repository at or under a project group's root.
+    ///
+    /// A project group's root is often a *workspace* — a plain folder that
+    /// holds several repos side by side (`~/Projects/Aurora/aurora-backend`,
+    /// `.../front-app-aurora`) — rather than a repo itself. Only tabs whose
+    /// pwd happens to be open inside one of those repos showed up in the
+    /// group's PR list before; a repo nobody has a tab open in didn't, even
+    /// though it belongs to the group just as much.
+    ///
+    /// Bounded to a shallow walk (workspace / repo, or workspace / team /
+    /// repo) so this stays a quick popover-open check rather than a real
+    /// filesystem crawl, and stops descending the moment a repo is found —
+    /// a discovered repo's own contents (which can be enormous) are never
+    /// looked inside.
+    nonisolated static func discoverRepoRoots(
+        under root: String,
+        maxDepth: Int = 2
+    ) -> [String] {
+        let fm = FileManager.default
+        let rootURL = URL(fileURLWithPath: (root as NSString).expandingTildeInPath)
+
+        func isRepo(_ url: URL) -> Bool {
+            fm.fileExists(atPath: url.appendingPathComponent(".git").path)
+        }
+
+        func scan(_ url: URL, depth: Int) -> [String] {
+            if isRepo(url) { return [url.path] }
+            guard depth < maxDepth,
+                  let entries = try? fm.contentsOfDirectory(
+                    at: url,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles]
+                  )
+            else { return [] }
+
+            return entries.flatMap { entry -> [String] in
+                guard (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+                else { return [] }
+                return scan(entry, depth: depth + 1)
+            }
+        }
+
+        return scan(rootURL, depth: 0)
+    }
 }
 
 /// Resolves a group icon string into a SwiftUI view: a single-grapheme

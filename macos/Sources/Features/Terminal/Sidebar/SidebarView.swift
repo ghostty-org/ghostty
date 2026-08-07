@@ -380,7 +380,8 @@ private struct SidebarGroupSection: View {
                 .allowsHitTesting(isHeaderHovered)
                 .popover(isPresented: $isShowingPRs) {
                     GroupPRListView(
-                        roots: Array(Set(tabs.compactMap(\.repoRoot))).sorted()
+                        group: group,
+                        openTabRoots: Array(Set(tabs.compactMap(\.repoRoot)))
                     )
                 }
             }
@@ -535,9 +536,29 @@ private enum SidebarDragPayload {
 /// Lists every open pull request of the repositories present in a
 /// group, fetched on demand — one click opens the PR in the browser.
 private struct GroupPRListView: View {
-    let roots: [String]
+    let group: SidebarGroup
+    let openTabRoots: [String]
 
+    @State private var roots: [String] = []
     @ObservedObject private var gitCenter: GitStatusCenter = .shared
+
+    /// Repos a tab happens to be open in, plus — for a project (workspace)
+    /// group — every repo discovered under its root, so one that nobody
+    /// has a tab open in still shows up.
+    private func resolveRoots() -> [String] {
+        var found = Set(openTabRoots)
+        if case .project(let root) = group.kind {
+            found.formUnion(SidebarGroup.discoverRepoRoots(under: root))
+        }
+        // By project name rather than full path: workspaces group repos
+        // that share a path prefix, but that's not guaranteed in general,
+        // and the name is what the section header actually shows.
+        return found.sorted {
+            ($0 as NSString).lastPathComponent.localizedCaseInsensitiveCompare(
+                ($1 as NSString).lastPathComponent
+            ) == .orderedAscending
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -603,6 +624,7 @@ private struct GroupPRListView: View {
         .padding(14)
         .frame(width: 340)
         .onAppear {
+            roots = resolveRoots()
             roots.forEach { gitCenter.requestPRList(root: $0) }
         }
     }
