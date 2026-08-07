@@ -683,14 +683,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             window: window as? TerminalWindow
         )
 
-        // The divider gets its own color, not the pane's: under glass the
-        // pane paints nothing, but the divider strip has no glass behind it
-        // and would show the desktop through.
-        (sidebarSplitView as? SidebarSplitView)?.hiddenFillColor =
-            AppearanceCoordinator.dividerFillColor(
-                window: window as? TerminalWindow
-            )
-
         guard let sidebarBackgroundView else { return }
         sidebarBackgroundView.layer?.backgroundColor = paneColor?.cgColor
         syncSidebarGlass()
@@ -729,14 +721,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 glass.topAnchor.constraint(equalTo: sidebarPane.topAnchor),
                 glass.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor),
                 glass.bottomAnchor.constraint(equalTo: sidebarPane.bottomAnchor),
-                // Overhangs the pane by the divider's width so the material
-                // runs continuously across the gap. Each pane's glass is
-                // otherwise clipped to it, and the strip between them —
-                // which nothing else paints under glass — reads as a seam.
-                glass.trailingAnchor.constraint(
-                    equalTo: sidebarPane.trailingAnchor,
-                    constant: sidebarSplitView?.dividerThickness ?? 1
-                ),
+                glass.trailingAnchor.constraint(equalTo: sidebarPane.trailingAnchor),
             ])
             sidebarGlassView = glass
         }
@@ -1610,6 +1595,28 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     // MARK: NSSplitViewDelegate
+
+    /// Keeps the sidebar resizable when the divider is hidden.
+    ///
+    /// AppKit derives the drag area from `dividerThickness`, which is zero in
+    /// that mode so the panes can meet with nothing between them to paint.
+    /// This hands back a grabbable band over the seam.
+    func splitView(
+        _ splitView: NSSplitView,
+        additionalEffectiveRectOfDividerAt dividerIndex: Int
+    ) -> NSRect {
+        guard splitView.dividerThickness == 0,
+              let sidebar = splitView.arrangedSubviews.first
+        else { return .zero }
+
+        let grabWidth: CGFloat = 6
+        return NSRect(
+            x: sidebar.frame.maxX - grabWidth / 2,
+            y: splitView.bounds.minY,
+            width: grabWidth,
+            height: splitView.bounds.height
+        )
+    }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
         syncSidebarChromeWidth()

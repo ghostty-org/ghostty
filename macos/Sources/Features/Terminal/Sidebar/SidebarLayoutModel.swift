@@ -34,19 +34,15 @@ final class SidebarLayoutModel: ObservableObject {
 /// The sidebar | terminal split view, with a user-configurable divider:
 /// default system color, hidden, or a custom color.
 final class SidebarSplitView: NSSplitView {
-    /// What a hidden divider paints to vanish between the panes. Kept in
-    /// sync by the controller via `AppearanceCoordinator.dividerFillColor`.
-    var hiddenFillColor: NSColor? {
-        didSet {
-            guard hiddenFillColor != oldValue else { return }
-            needsDisplay = true
-        }
-    }
-
     private enum DividerMode {
         case system
         case hidden
         case custom(NSColor)
+
+        var isHidden: Bool {
+            if case .hidden = self { return true }
+            return false
+        }
 
         static var current: DividerMode {
             let defaults = UserDefaults.standard
@@ -72,6 +68,15 @@ final class SidebarSplitView: NSSplitView {
         }
     }
 
+    /// A hidden divider takes no space at all, so the panes meet edge to
+    /// edge. Painting it to match instead never quite worked: the strip
+    /// still sat above a transparent window, and no fill matches glass.
+    /// The drag area it would have provided is restored by the delegate's
+    /// `additionalEffectiveRectOfDividerAt`.
+    override var dividerThickness: CGFloat {
+        DividerMode.current.isHidden ? 0 : super.dividerThickness
+    }
+
     /// Drawing the divider directly rather than relying only on the
     /// `dividerColor` override: AppKit does not reliably re-read that
     /// property for an already-drawn divider, so a mode change in settings
@@ -93,13 +98,8 @@ final class SidebarSplitView: NSSplitView {
 
         switch DividerMode.current {
         case .hidden:
-            // Hiding means painting the theme color, not skipping the draw:
-            // the divider keeps its width either way, so an unpainted one
-            // exposes the window behind it — the desktop, at any opacity
-            // below fully opaque or under glass.
-            guard let hiddenFillColor else { return }
-            hiddenFillColor.setFill()
-            rect.fill()
+            // Nothing to draw: the divider has no width in this mode.
+            return
         case .custom(let color):
             color.setFill()
             rect.fill()
