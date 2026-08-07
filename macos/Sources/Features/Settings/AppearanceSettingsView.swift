@@ -104,16 +104,6 @@ struct AppearanceSettingsView: View {
                             .padding(.top, 6)
 
                         AppearanceStylePanel(ghostty: ghostty, store: store)
-
-                        Divider()
-                            .padding(.top, 6)
-
-                        ThemeCreatorView(
-                            ghostty: ghostty,
-                            store: store,
-                            catalog: catalog,
-                            seed: catalog.themes.first { $0.name == currentTheme }
-                        )
                     }
                     .padding(14)
                 }
@@ -142,6 +132,10 @@ struct AppearanceSettingsView: View {
 
             Button("Browse All…") {
                 AllThemesWindowController.shared.show(ghostty: ghostty, store: store)
+            }
+
+            Button("Create…") {
+                ThemeCreatorWindowController.shared.show(ghostty: ghostty, store: store)
             }
 
             Button("Import…") { importThemes() }
@@ -676,9 +670,9 @@ private struct NamedColorWell: View {
     }
 }
 
-/// Inline theme creator: every color is labeled with what it applies to,
-/// grouped by terminal element. Lives at the bottom of the Appearance
-/// screen — no modal.
+/// The theme editor: every color labeled with what it applies to, grouped
+/// by terminal element. Presented in its own window, from "Create…" on the
+/// Appearance screen.
 private struct ThemeCreatorView: View {
     let ghostty: Ghostty.App
     @ObservedObject var store: GuiConfigStore
@@ -692,6 +686,8 @@ private struct ThemeCreatorView: View {
     @State private var selectionBackground = Color(nsColor: NSColor(hex: "#44475a")!)
     @State private var palette: [Color] = Self.draculaPalette.map { Color(nsColor: $0) }
     @State private var savedName: String?
+    @State private var isPickingSeed = false
+    @State private var startedFrom: String?
 
     private static let draculaPalette: [NSColor] = [
         "#21222c", "#ff5555", "#50fa7b", "#f1fa8c",
@@ -719,10 +715,10 @@ private struct ThemeCreatorView: View {
 
                 Spacer()
 
-                if let seed {
-                    Button("Start from \(seed.name)") { populate(from: seed) }
-                        .font(.caption)
+                Button(startedFrom.map { "Started from \($0)" } ?? "Start from…") {
+                    isPickingSeed = true
                 }
+                .font(.caption)
             }
 
             HStack(spacing: 10) {
@@ -776,6 +772,21 @@ private struct ThemeCreatorView: View {
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
+        // Opens on the theme in use, which is the one most likely wanted as
+        // a starting point, but any theme can be picked instead. Seeding
+        // also watches for the seed arriving: the catalog loads a beat after
+        // this view first appears, so on that pass there is nothing to seed
+        // from yet.
+        .onAppear { seedIfNeeded() }
+        .onChange(of: seed?.name) { _ in seedIfNeeded() }
+        .sheet(isPresented: $isPickingSeed) {
+            ThemeSeedPicker(
+                catalog: catalog,
+                currentName: store.currentThemeName ?? ""
+            ) { picked in
+                populate(from: picked)
+            }
+        }
     }
 
     private var livePreview: some View {
@@ -825,7 +836,14 @@ private struct ThemeCreatorView: View {
         }
     }
 
+    /// Fills the editor from the seed once, leaving edits alone afterwards.
+    private func seedIfNeeded() {
+        guard startedFrom == nil, let seed else { return }
+        populate(from: seed)
+    }
+
     private func populate(from theme: TerminalTheme) {
+        startedFrom = theme.name
         name = theme.source == .user ? theme.name : "\(theme.name) Custom"
         if let value = theme.background { background = Color(nsColor: value) }
         if let value = theme.foreground { foreground = Color(nsColor: value) }
@@ -865,6 +883,122 @@ private struct ThemeCreatorView: View {
     }
 }
 
+
+/// Picks the theme the editor starts from. The same cards as the browser,
+/// but choosing one fills the fields in instead of applying it.
+private struct ThemeSeedPicker: View {
+    @ObservedObject var catalog: ThemeCatalog
+    let currentName: String
+    let onPick: (TerminalTheme) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var search = ""
+
+    private var filtered: [TerminalTheme] {
+        guard !search.isEmpty else { return catalog.themes }
+        return catalog.themes.filter {
+            $0.name.localizedCaseInsensitiveContains(search)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("", text: $search, prompt: Text("Search \(catalog.themes.count) themes"))
+                    .textFieldStyle(.plain)
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(12)
+
+            Divider()
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 150), spacing: 10)],
+                        spacing: 10
+                    ) {
+                        ForEach(filtered) { theme in
+                            ThemeCard(theme: theme, isSelected: theme.name == currentName) {
+                                onPick(theme)
+                                dismiss()
+                            }
+                            .id(theme.name)
+                        }
+                    }
+                    .padding(12)
+                }
+                .onAppear {
+                    guard !currentName.isEmpty else { return }
+                    proxy.scrollTo(currentName, anchor: .center)
+                }
+            }
+        }
+        .frame(width: 640, height: 520)
+    }
+}
+
+/// A window for building a theme, so the editor isn't a tail on the
+/// Appearance screen competing with the settings above it.
+@MainActor
+final class ThemeCreatorWindowController: NSWindowController {
+    static let shared = ThemeCreatorWindowController()
+
+    private init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 620),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: true
+        )
+        window.title = "Create Theme"
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.setFrameAutosaveName("PhantomThemeCreator")
+        super.init(window: window)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    func show(ghostty: Ghostty.App, store: GuiConfigStore) {
+        window?.contentView = NSHostingView(
+            rootView: ThemeCreatorWindowView(ghostty: ghostty, store: store)
+        )
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct ThemeCreatorWindowView: View {
+    let ghostty: Ghostty.App
+    @ObservedObject var store: GuiConfigStore
+
+    @StateObject private var catalog: ThemeCatalog
+
+    init(ghostty: Ghostty.App, store: GuiConfigStore) {
+        self.ghostty = ghostty
+        self.store = store
+        _catalog = StateObject(wrappedValue: ThemeCatalog(userThemesDir: store.themesDirURL))
+    }
+
+    var body: some View {
+        ScrollView {
+            ThemeCreatorView(
+                ghostty: ghostty,
+                store: store,
+                catalog: catalog,
+                seed: catalog.themes.first { $0.name == store.currentThemeName }
+            )
+            .padding(16)
+        }
+        .frame(minWidth: 640, minHeight: 520)
+        .onAppear { catalog.loadIfNeeded() }
+    }
+}
 
 /// A dedicated window listing every theme in the catalog — curated or
 /// not — with the same live preview cards. Click applies; right-click
