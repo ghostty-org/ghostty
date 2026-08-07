@@ -89,9 +89,17 @@ enum ClaudeHooksInstaller {
     /// substring search would also match the path appearing under some
     /// unrelated key.
     private static var isRegistered: Bool {
-        guard let settings = readSettings(),
-              let hooks = settings["hooks"] as? [String: Any]
-        else { return false }
+        isRegistered(in: readSettings(), scriptName: scriptName)
+    }
+
+    /// The JSON-shape half of `isRegistered`, pulled out so it can be
+    /// tested against fixtures — a registered hook, a settings file with no
+    /// hooks at all, invalid JSON (`readSettings()` returns nil for that,
+    /// same as this taking `nil`) — without touching the real `~/.claude`
+    /// directory. File I/O and path resolution are unchanged; this is the
+    /// same check `isRegistered` always did, just named.
+    static func isRegistered(in settings: [String: Any]?, scriptName: String) -> Bool {
+        guard let hooks = settings?["hooks"] as? [String: Any] else { return false }
 
         return hooks.values.contains { value in
             (value as? [[String: Any]] ?? []).contains { entry in

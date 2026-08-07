@@ -36,7 +36,10 @@ struct SplitView<L: View, R: View>: View {
     /// A hidden divider takes no space rather than being drawn clear: the
     /// strip would still be there, showing the window through it, which over
     /// a transparent background reads as a line of its own.
-    private var splitterVisibleSize: CGFloat {
+    ///
+    /// Internal rather than private so a regression test can check this
+    /// directly instead of only through rendered geometry.
+    var splitterVisibleSize: CGFloat {
         AppearanceCoordinator.dividerMode.isHidden ? 0 : 1
     }
 

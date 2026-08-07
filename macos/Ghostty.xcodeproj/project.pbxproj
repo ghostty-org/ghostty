@@ -783,6 +783,7 @@
 				"OTHER_LDFLAGS[arch=*]" = "-lstdc++";
 				PRODUCT_BUNDLE_IDENTIFIER = com.ipetinate.phantom;
 				PRODUCT_NAME = Phantom;
+				PRODUCT_MODULE_NAME = Ghostty;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "Sources/App/macOS/ghostty-bridging-header.h";
 				SWIFT_VERSION = 5.0;
@@ -965,7 +966,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ghostty.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ghostty";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Phantom.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ghostty";
 			};
 			name = Debug;
 		};
@@ -988,7 +989,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ghostty.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ghostty";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Phantom.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ghostty";
 			};
 			name = Release;
 		};
@@ -1011,7 +1012,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ghostty.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ghostty";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Phantom.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ghostty";
 			};
 			name = ReleaseLocal;
 		};
@@ -1181,6 +1182,7 @@
 				"OTHER_LDFLAGS[arch=*]" = "-lstdc++";
 				PRODUCT_BUNDLE_IDENTIFIER = com.ipetinate.phantom.debug;
 				PRODUCT_NAME = Phantom;
+				PRODUCT_MODULE_NAME = Ghostty;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "Sources/App/macOS/ghostty-bridging-header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -1237,6 +1239,7 @@
 				"OTHER_LDFLAGS[arch=*]" = "-lstdc++";
 				PRODUCT_BUNDLE_IDENTIFIER = com.ipetinate.phantom;
 				PRODUCT_NAME = Phantom;
+				PRODUCT_MODULE_NAME = Ghostty;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "Sources/App/macOS/ghostty-bridging-header.h";
 				SWIFT_VERSION = 5.0;
