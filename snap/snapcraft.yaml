@@ -96,6 +96,9 @@ parts:
       - libglib2.0-0t64
       - libgtk-4-1
       - libgtk-4-media-gstreamer
+      - gstreamer1.0-plugins-base
+      - gstreamer1.0-plugins-good
+      - gstreamer1.0-pulseaudio
       - ibus-gtk4
       - libpciaccess0
       - libtinfo6
