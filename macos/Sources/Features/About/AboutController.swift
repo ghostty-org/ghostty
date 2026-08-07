@@ -12,7 +12,7 @@ class AboutController: NSWindowController, NSWindowDelegate {
         guard let window = window else { return }
         window.center()
         window.isMovableByWindowBackground = true
-        window.contentView = NSHostingView(rootView: AboutView().environmentObject(viewModel))
+        window.contentView = NSHostingView(rootView: AboutView().environmentObject(viewModel).themedChrome())
         window.titlebarAppearsTransparent = true
     }
 

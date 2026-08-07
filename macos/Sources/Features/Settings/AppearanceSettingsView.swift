@@ -1023,7 +1023,7 @@ final class ThemeCreatorWindowController: NSWindowController {
 
     func show(ghostty: Ghostty.App, store: GuiConfigStore) {
         window?.contentView = NSHostingView(
-            rootView: ThemeCreatorWindowView(ghostty: ghostty, store: store)
+            rootView: ThemeCreatorWindowView(ghostty: ghostty, store: store).themedChrome()
         )
         window?.makeKeyAndOrderFront(nil)
     }
@@ -1083,7 +1083,7 @@ final class AllThemesWindowController: NSWindowController {
 
     func show(ghostty: Ghostty.App, store: GuiConfigStore) {
         window?.contentView = NSHostingView(
-            rootView: AllThemesView(ghostty: ghostty, store: store)
+            rootView: AllThemesView(ghostty: ghostty, store: store).themedChrome()
         )
         window?.makeKeyAndOrderFront(nil)
     }

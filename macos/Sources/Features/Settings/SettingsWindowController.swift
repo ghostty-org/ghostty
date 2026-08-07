@@ -31,7 +31,7 @@ final class SettingsWindowController: NSWindowController {
     func show(ghostty: Ghostty.App) {
         if self.ghostty !== ghostty || window?.contentView == nil {
             self.ghostty = ghostty
-            window?.contentView = NSHostingView(rootView: SettingsRootView(ghostty: ghostty))
+            window?.contentView = NSHostingView(rootView: SettingsRootView(ghostty: ghostty).themedChrome())
         }
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

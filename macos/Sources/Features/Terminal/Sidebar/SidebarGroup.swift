@@ -135,6 +135,18 @@ final class ThemePalette: ObservableObject {
     /// convention, matching the accent already used in theme previews.
     var primary: NSColor? { colors.count > 4 ? colors[4] : nil }
 
+    /// The accent for app controls, so a selection in settings is the same
+    /// colour as a selection in the sidebar rather than the system's.
+    var accent: Color? {
+        primary.map { Color(nsColor: $0) }
+    }
+
+    /// Whether the theme reads as light, which decides whether app windows
+    /// take light or dark chrome regardless of the system setting.
+    var isLightBackground: Bool {
+        background?.isLightColor ?? false
+    }
+
     static let ansiNames = [
         "Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White",
         "Bright Black", "Bright Red", "Bright Green", "Bright Yellow",
