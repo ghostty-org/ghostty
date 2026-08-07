@@ -1367,13 +1367,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             titlebarFiller.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
             titlebarFiller.leadingAnchor.constraint(equalTo: terminalContainer.leadingAnchor),
             titlebarFiller.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
-            // Overlaps a point past where the terminal's content starts.
-            // Meeting it exactly left a sub-pixel gap on some window
-            // positions and not others, and the transparent window showing
-            // through it read as a hairline that came and went.
+            // Meets the terminal's content exactly. It cannot do better than
+            // that: overlapping paints that row twice and reads as a dark
+            // line, and falling short leaves the window showing through as a
+            // light one. Two translucent surfaces can't tile seamlessly —
+            // fixing this properly means one backdrop for the whole window
+            // with the terminal drawing no background of its own.
             titlebarFiller.bottomAnchor.constraint(
-                equalTo: terminalContainer.safeAreaLayoutGuide.topAnchor,
-                constant: 1
+                equalTo: terminalContainer.safeAreaLayoutGuide.topAnchor
             ),
         ])
         self.terminalTitlebarFiller = titlebarFiller

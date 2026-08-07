@@ -90,9 +90,7 @@ struct AppearanceSettingsView: View {
                     let groups = groups
 
                     VStack(alignment: .leading, spacing: 18) {
-                        if !groups.user.isEmpty {
-                            themeSection("My Themes", groups.user)
-                        }
+                        currentAndCustomThemes
                         if !groups.dark.isEmpty {
                             themeSection("Dark", groups.dark)
                         }
@@ -143,6 +141,37 @@ struct AppearanceSettingsView: View {
         .padding(10)
     }
 
+    /// The theme in use gets its own card, so what is active is visible
+    /// without hunting for the checkmark in a grid. The user's own themes
+    /// sit beside it and take the rest of the row.
+    @ViewBuilder
+    private var currentAndCustomThemes: some View {
+        let groups = groups
+
+        HStack(alignment: .top, spacing: 18) {
+            if let current = catalog.themes.first(where: { $0.name == currentTheme }) {
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionTitle("Current Theme")
+                    ThemeCard(theme: current, isSelected: true) {}
+                        .frame(width: 150)
+                }
+                .fixedSize(horizontal: true, vertical: false)
+            }
+
+            if !groups.user.isEmpty {
+                themeSection("Custom Themes", groups.user)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .textCase(.uppercase)
+    }
+
     /// Sections collapse to their first row; searching expands results.
     private func themeSection(_ title: String, _ themes: [TerminalTheme]) -> some View {
         let isExpanded = expandedSections.contains(title) || !search.isEmpty
@@ -150,10 +179,7 @@ struct AppearanceSettingsView: View {
 
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(title)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
+                sectionTitle(title)
 
                 Spacer()
 
@@ -654,6 +680,7 @@ private struct ThemeCard: View {
 /// A labeled compact color well used by the theme creator grids.
 private struct NamedColorWell: View {
     let label: String
+    var help: String?
     @Binding var color: Color
 
     var body: some View {
@@ -667,6 +694,7 @@ private struct NamedColorWell: View {
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity)
+        .help(help ?? label)
     }
 }
 
@@ -696,8 +724,19 @@ private struct ThemeCreatorView: View {
         "#d6acff", "#ff92df", "#a4ffff", "#ffffff",
     ].map { NSColor(hex: $0)! }
 
-    private static let ansiNames = [
-        "Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White",
+    /// Each ANSI slot labeled by what programs actually colour with it, so
+    /// the choice reads as a decision about the terminal rather than a
+    /// number. The ANSI name stays in the tooltip, since it is what themes
+    /// and documentation call it.
+    private static let ansiRoles: [(role: String, ansi: String)] = [
+        ("Dim", "Black"),
+        ("Errors", "Red"),
+        ("Success", "Green"),
+        ("Warnings", "Yellow"),
+        ("Folders", "Blue"),
+        ("Keywords", "Magenta"),
+        ("Paths", "Cyan"),
+        ("Text", "White"),
     ]
 
     private let ansiColumns = Array(
@@ -721,13 +760,11 @@ private struct ThemeCreatorView: View {
                 .font(.caption)
             }
 
-            HStack(spacing: 10) {
-                TextField("", text: $name, prompt: Text("Theme name"))
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 220)
+            TextField("", text: $name, prompt: Text("Theme name"))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 260)
 
-                livePreview
-            }
+            livePreview
 
             colorGroup("Terminal") {
                 HStack(spacing: 14) {
@@ -739,19 +776,24 @@ private struct ThemeCreatorView: View {
                 }
             }
 
-            colorGroup("ANSI Colors") {
+            colorGroup("Output") {
                 LazyVGrid(columns: ansiColumns, spacing: 6) {
                     ForEach(0..<8, id: \.self) { index in
-                        NamedColorWell(label: Self.ansiNames[index], color: $palette[index])
+                        NamedColorWell(
+                            label: Self.ansiRoles[index].role,
+                            help: "ANSI \(index) — \(Self.ansiRoles[index].ansi)",
+                            color: $palette[index]
+                        )
                     }
                 }
             }
 
-            colorGroup("ANSI Bright Colors") {
+            colorGroup("Bold and Bright Output") {
                 LazyVGrid(columns: ansiColumns, spacing: 6) {
                     ForEach(8..<16, id: \.self) { index in
                         NamedColorWell(
-                            label: Self.ansiNames[index - 8],
+                            label: Self.ansiRoles[index - 8].role,
+                            help: "ANSI \(index) — Bright \(Self.ansiRoles[index - 8].ansi)",
                             color: $palette[index]
                         )
                     }
@@ -789,19 +831,33 @@ private struct ThemeCreatorView: View {
         }
     }
 
+    /// Shows each role doing its job, so a swatch can be judged by what it
+    /// does to real output instead of in isolation.
     private var livePreview: some View {
-        HStack(spacing: 4) {
-            Text("❯")
-                .foregroundStyle(palette[2])
-            Text("echo hello")
-                .foregroundStyle(foreground)
-            Rectangle()
-                .fill(cursor)
-                .frame(width: 6, height: 12)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Text("❯").foregroundStyle(palette[2])
+                Text("ls").foregroundStyle(foreground)
+            }
+            HStack(spacing: 8) {
+                Text("src").foregroundStyle(palette[4])
+                Text("readme.md").foregroundStyle(foreground)
+                Text("link → ../lib").foregroundStyle(palette[6])
+            }
+            Text("warning: 2 unused imports").foregroundStyle(palette[3])
+            Text("error: build failed").foregroundStyle(palette[1])
+            HStack(spacing: 4) {
+                Text("❯").foregroundStyle(palette[2])
+                Text("git commit").foregroundStyle(foreground)
+                Rectangle()
+                    .fill(cursor)
+                    .frame(width: 5, height: 11)
+            }
         }
         .font(.system(size: 10, design: .monospaced))
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(background)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(
@@ -1075,7 +1131,7 @@ private struct AllThemesView: View {
         }
 
         return [
-            ("My Themes", user),
+            ("Custom Themes", user),
             ("Dark", dark),
             ("Light", light),
         ].filter { !$0.1.isEmpty }
