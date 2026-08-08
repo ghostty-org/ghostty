@@ -1424,7 +1424,7 @@ private struct SidebarGroupEditor: View {
 
     /// When creating a group from a tab's context menu, the tab to move
     /// into the new group on save.
-    var assignSurfaceId: UUID? = nil
+    var assignSurfaceId: UUID?
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var palette: ThemePalette = .shared

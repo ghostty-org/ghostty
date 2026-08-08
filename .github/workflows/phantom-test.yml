@@ -26,6 +26,10 @@ jobs:
           version: "0.16.0"
       - run: zig fmt --check .
 
+  # zig build test itself invokes `xcodebuild test -scheme Ghostty` as part
+  # of its own dependency graph (see GhosttyXcodebuild.zig) — this already
+  # covers the Swift regression suite, so build-macos below doesn't repeat
+  # it via a second, redundant xcodebuild test invocation.
   zig-test:
     runs-on: macos-latest
     steps:
@@ -50,18 +54,3 @@ jobs:
 
       - name: Build
         run: zig build -Doptimize=ReleaseFast
-
-      - name: Build Debug (test host)
-        run: xcodebuild -project macos/Ghostty.xcodeproj -scheme Ghostty -configuration Debug -destination 'platform=macOS' build
-
-      - name: Run Swift regression suite
-        # TerminalViewContainerTests/configChangeUpdatesGlass is upstream's
-        # own test for their native macOS 26 Liquid Glass material — kept in
-        # the tree on request, but it's flaky specifically under a full-suite
-        # run (reproduced twice locally; passes every time in isolation), so
-        # it's excluded here rather than gating every PR on someone else's
-        # test-isolation bug.
-        run: |
-          xcodebuild test -project macos/Ghostty.xcodeproj -scheme Ghostty \
-            -destination 'platform=macOS' \
-            -skip-testing:GhosttyTests/TerminalViewContainerTests/configChangeUpdatesGlass
