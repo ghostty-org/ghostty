@@ -60,6 +60,11 @@ font_grid_set: font.SharedGridSet,
 last_notification_time: ?std.Io.Timestamp = null,
 last_notification_digest: u64 = 0,
 
+/// The current system color scheme. This is kept separate from conditional
+/// configuration state so mode 2031 remains correct for non-conditional
+/// themes.
+system_color_scheme: std.atomic.Value(apprt.ColorScheme) = .init(.light),
+
 /// The conditional state of the configuration. See the equivalent field
 /// in the Surface struct for more information. In this case, this applies
 /// to the app-level config and as a default for new surfaces.
@@ -392,6 +397,11 @@ pub fn colorSchemeEvent(
     rt_app: *apprt.App,
     scheme: apprt.ColorScheme,
 ) !void {
+    // Cache the system color scheme and notify every surface when it changes.
+    if (self.system_color_scheme.swap(scheme, .monotonic) != scheme) {
+        try self.performAllAction(rt_app, .system_color_scheme_changed);
+    }
+
     const new_scheme: configpkg.ConditionalState.Theme = switch (scheme) {
         .light => .light,
         .dark => .dark,

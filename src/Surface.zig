@@ -678,6 +678,7 @@ pub fn init(
             .size = size,
             .full_config = config,
             .config = try termio.Termio.DerivedConfig.init(alloc, config),
+            .system_color_scheme = &app.system_color_scheme,
             .backend = .{ .exec = io_exec },
             .mailbox = io_mailbox,
             .renderer_state = &self.renderer_state,
@@ -4756,9 +4757,6 @@ pub fn colorSchemeCallback(self: *Surface, scheme: apprt.ColorScheme) !void {
     // Setup our conditional state which has the current color theme.
     self.config_conditional_state.theme = new_scheme;
     self.notifyConfigConditionalState();
-
-    // If mode 2031 is on, then we report the change live.
-    self.queueIo(.{ .color_scheme_report = .{ .force = false } }, .unlocked);
 }
 
 pub fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Coordinate {
@@ -4845,6 +4843,14 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
     }
 
     switch (action.scoped(.surface).?) {
+        .system_color_scheme_changed => {
+            // Termio suppresses this report unless mode 2031 is enabled.
+            self.queueIo(
+                .{ .color_scheme_report = .{ .force = false } },
+                .unlocked,
+            );
+        },
+
         .csi, .esc => |data| {
             // We need to send the CSI/ESC sequence as a single write request.
             // If you split it across two then the shell can interpret it
