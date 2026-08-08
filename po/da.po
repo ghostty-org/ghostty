@@ -1,0 +1,373 @@
+# Danish translations for com.mitchellh.ghostty package.
+# Copyright (C) 2026 "Mitchell Hashimoto, Ghostty contributors"
+# This file is distributed under the same license as the com.mitchellh.ghostty package.
+# Carl Villads Priisholm <carl.priisholm@gmail.com>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: com.mitchellh.ghostty\n"
+"Report-Msgid-Bugs-To: m@mitchellh.com\n"
+"POT-Creation-Date: 2026-07-26 04:59+0200\n"
+"PO-Revision-Date: 2026-08-01 10:03+0200\n"
+"Last-Translator: Carl Villads Priisholm <carl.priisholm@gmail.com>\n"
+"Language-Team: Danish <dansk@dansk-gruppen.dk>\n"
+"Language: da\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: dist/linux/ghostty_nautilus.py:53
+msgid "Open in Ghostty"
+msgstr "Åben i Ghostty"
+
+#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
+msgid "Authorize Clipboard Access"
+msgstr "Autorisér adgang til udklipsholderen"
+
+#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:17
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:17
+msgid "Deny"
+msgstr "Afvis"
+
+#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:18
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:18
+msgid "Allow"
+msgstr "Tillad"
+
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
+msgid "Remember choice for this split"
+msgstr "Husk mit valg for denne deling"
+
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
+msgid "Reload configuration to show this prompt again"
+msgstr "Genindlæs konfigurationen for at se denne dialog igen"
+
+#: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
+#: src/apprt/gtk/ui/1.5/title-dialog.blp:8
+msgid "Cancel"
+msgstr "Annullér"
+
+#: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:8
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:85
+#: src/apprt/gtk/ui/1.3/surface-child-exited.blp:17
+msgid "Close"
+msgstr "Luk"
+
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
+msgid "Configuration Errors"
+msgstr "Konfigurationsfejl"
+
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:7
+msgid ""
+"One or more configuration errors were found. Please review the errors below, "
+"and either reload your configuration or ignore these errors."
+msgstr ""
+"Der blev fundet en eller flere konfigurationsfejl. Venligst gennemse fejlene "
+"nedenfor, og derefter enten genindlæs konfigurationen, eller ignorer disse fejl."
+
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:10
+msgid "Ignore"
+msgstr "Ignorer"
+
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:11
+#: src/apprt/gtk/ui/1.2/surface.blp:373 src/apprt/gtk/ui/1.5/window.blp:300
+msgid "Reload Configuration"
+msgstr "Genindlæs konfiguration"
+
+#: src/apprt/gtk/ui/1.2/debug-warning.blp:7
+#: src/apprt/gtk/ui/1.3/debug-warning.blp:6
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""
+"⚠️ Du kører et debug build af Ghostty! Dette medfører en nedsat ydeevne."
+
+#: src/apprt/gtk/ui/1.5/inspector-window.blp:5
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: Terminal-inspektør"
+
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:29
+msgid "Find…"
+msgstr "Find…"
+
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:64
+msgid "Previous Match"
+msgstr "Forrige match"
+
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:74
+msgid "Next Match"
+msgstr "Næste match"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:6
+msgid "Oh, no."
+msgstr "Åh nej."
+
+#: src/apprt/gtk/ui/1.2/surface.blp:7
+msgid "Unable to acquire an OpenGL context for rendering."
+msgstr "Det var ikke muligt at anskaffe en OpenGL kontekst for rendering."
+
+#: src/apprt/gtk/ui/1.2/surface.blp:99
+msgid ""
+"This terminal is in read-only mode. You can still view, select, and scroll "
+"through the content, but no input events will be sent to the running "
+"application."
+msgstr ""
+"Denne terminal er i skrivebeskyttet tilstand. Du kan stadig se, vælge, "
+"og scrolle gennem indholdet, men ingen anslag vil blive sendt til "
+"det kørende program."
+
+#: src/apprt/gtk/ui/1.2/surface.blp:109
+msgid "Read-only"
+msgstr "Skrivebeskyttet"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:262 src/apprt/gtk/ui/1.5/window.blp:200
+msgid "Copy"
+msgstr "Kopiér"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:267 src/apprt/gtk/ui/1.5/window.blp:205
+msgid "Paste"
+msgstr "Sæt ind"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:272
+msgid "Notify on Next Command Finish"
+msgstr "Giv mig besked når den næste kommando er færdig"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:279 src/apprt/gtk/ui/1.5/window.blp:273
+msgid "Clear"
+msgstr "Ryd"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:284 src/apprt/gtk/ui/1.5/window.blp:278
+msgid "Reset"
+msgstr "Nulstil"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:291 src/apprt/gtk/ui/1.5/window.blp:242
+# I de andre oversættelser af 'split' bruges 'del' i stedet for 'opdel', men tror det er for tvetydigt at have 'del' stående alene.
+msgid "Split"
+msgstr "Opdel"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:294 src/apprt/gtk/ui/1.5/window.blp:245
+msgid "Change Title…"
+msgstr "Skift titel…"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:299 src/apprt/gtk/ui/1.5/window.blp:177
+#: src/apprt/gtk/ui/1.5/window.blp:250
+msgid "Split Up"
+msgstr "Del opad"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:305 src/apprt/gtk/ui/1.5/window.blp:182
+#: src/apprt/gtk/ui/1.5/window.blp:255
+msgid "Split Down"
+msgstr "Del nedad"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:311 src/apprt/gtk/ui/1.5/window.blp:187
+#: src/apprt/gtk/ui/1.5/window.blp:260
+msgid "Split Left"
+msgstr "Del mod venstre"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:317 src/apprt/gtk/ui/1.5/window.blp:192
+#: src/apprt/gtk/ui/1.5/window.blp:265
+msgid "Split Right"
+msgstr "Del mod højre"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:323
+msgid "Close Split"
+msgstr "Luk deling"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:329
+msgid "Tab"
+msgstr "Fane"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:332 src/apprt/gtk/ui/1.5/window.blp:224
+#: src/apprt/gtk/ui/1.5/window.blp:320
+msgid "Change Tab Title…"
+msgstr "Skift fanetitel…"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:337 src/apprt/gtk/ui/1.5/window.blp:57
+#: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
+msgid "New Tab"
+msgstr "Ny fane"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:342 src/apprt/gtk/ui/1.5/window.blp:234
+msgid "Close Tab"
+msgstr "Luk fane"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:349
+msgid "Window"
+msgstr "Vindue"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:352 src/apprt/gtk/ui/1.5/window.blp:212
+msgid "New Window"
+msgstr "Nyt vindue"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:357 src/apprt/gtk/ui/1.5/window.blp:217
+msgid "Close Window"
+msgstr "Luk vindue"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:365
+msgid "Config"
+msgstr "Konfiguration"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:368 src/apprt/gtk/ui/1.5/window.blp:295
+msgid "Open Configuration"
+msgstr "Åben konfigurering"
+
+#: src/apprt/gtk/ui/1.5/title-dialog.blp:5
+msgid "Leave blank to restore the default title."
+msgstr "Lad feltet stå tomt for at gendanne standardtitelen."
+
+#: src/apprt/gtk/ui/1.5/title-dialog.blp:9
+msgid "OK"
+msgstr "OK"
+
+#: src/apprt/gtk/ui/1.5/window.blp:58 src/apprt/gtk/ui/1.5/window.blp:108
+# Her bruges 'opdeling' igen, da jeg tror at 'deling' vil være for tvetydigt
+msgid "New Split"
+msgstr "Ny opdeling"
+
+#: src/apprt/gtk/ui/1.5/window.blp:68 src/apprt/gtk/ui/1.5/window.blp:126
+msgid "View Open Tabs"
+msgstr "Vis åbne faner"
+
+#: src/apprt/gtk/ui/1.5/window.blp:78 src/apprt/gtk/ui/1.5/window.blp:140
+msgid "Main Menu"
+msgstr "Hovedmenu"
+
+#: src/apprt/gtk/ui/1.5/window.blp:285
+msgid "Command Palette"
+msgstr "Kommandopalet"
+
+#: src/apprt/gtk/ui/1.5/window.blp:290
+msgid "Terminal Inspector"
+msgstr "Terminalinspektør"
+
+#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1866
+msgid "About Ghostty"
+msgstr "Om Ghostty"
+
+#: src/apprt/gtk/ui/1.5/window.blp:312
+msgid "Quit"
+msgstr "Luk ned"
+
+#: src/apprt/gtk/ui/1.5/command-palette.blp:17
+msgid "Execute a command…"
+msgstr "Eksekver en kommando…"
+
+#: src/apprt/gtk/class/application.zig:1708
+msgid "The keybind was revoked by the system."
+msgstr "Tastaturgenvejen blev ophævet af systemet."
+
+#: src/apprt/gtk/class/application.zig:1710
+msgid "The keybind was denied by the system."
+msgstr "Tastaturgenvejen blev afvist af systemet."
+
+#: src/apprt/gtk/class/application.zig:1721
+msgid "Global keybind unavailable"
+msgstr "Global tastaturgenvej utilgængelig"
+
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
+msgid ""
+"An application is attempting to write to the clipboard. The current "
+"clipboard contents are shown below."
+msgstr ""
+"Et program prøver at skrive til udklipsholderen. Indholdet af den "
+"nuværende udklipsholder er vist nedenfor."
+
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:202
+msgid ""
+"An application is attempting to read from the clipboard. The current "
+"clipboard contents are shown below."
+msgstr ""
+"Et program prøver at læse fra udklipsholderen. Indholdet af den "
+"nuværende udklipsholder er vist nedenfor."
+
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
+msgid "Warning: Potentially Unsafe Paste"
+msgstr "Advarsel: Potentielt usikker indsætning"
+
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:206
+msgid ""
+"Pasting this text into the terminal may be dangerous as it looks like some "
+"commands may be executed."
+msgstr ""
+"Det kan være farligt at indsætte denne tekst i terminalen, da det ligner "
+"at en eller flere kommandoer vil blive eksekveret."
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:184
+msgid "Quit Ghostty?"
+msgstr "Luk ned for Ghostty?"
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
+msgid "Close Tab?"
+msgstr "Luk fane?"
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
+msgid "Close Window?"
+msgstr "Luk vindue?"
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:187
+# Her bruges opdeling igen da 'deling' kunne være tvetydigt
+msgid "Close Split?"
+msgstr "Luk opdeling?"
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:193
+msgid "All terminal sessions will be terminated."
+msgstr "Alle terminalsessioner vil blive afsluttet."
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:194
+msgid "All terminal sessions in this tab will be terminated."
+msgstr "Alle terminalsessioner i denne fane vil blive afsluttet."
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:195
+msgid "All terminal sessions in this window will be terminated."
+msgstr "Alle terminalsessioner i dette vindue vil blive afsluttet."
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:196
+msgid "The currently running process in this split will be terminated."
+msgstr "Den kørende proces i denne opdeling vil blive afsluttet."
+
+#: src/apprt/gtk/class/surface.zig:1170
+msgid "Command Finished"
+msgstr "Kommandoen er færdig"
+
+#: src/apprt/gtk/class/surface.zig:1171
+msgid "Command Succeeded"
+msgstr "Kommandoen lykkedes"
+
+#: src/apprt/gtk/class/surface.zig:1172
+msgid "Command Failed"
+msgstr "Kommandoen fejlede"
+
+#: src/apprt/gtk/class/surface_child_exited.zig:109
+msgid "Command succeeded"
+msgstr "Kommandoen lykkedes"
+
+#: src/apprt/gtk/class/surface_child_exited.zig:113
+msgid "Command failed"
+msgstr "Kommandoen fejlede"
+
+#: src/apprt/gtk/class/title_dialog.zig:225
+msgid "Change Terminal Title"
+msgstr "Skift titlen på terminalen"
+
+#: src/apprt/gtk/class/title_dialog.zig:226
+msgid "Change Tab Title"
+msgstr "Skift titlen på fanen"
+
+#: src/apprt/gtk/class/window.zig:1102
+msgid "Reloaded the configuration"
+msgstr "Genindlæste konfigurationen"
+
+#: src/apprt/gtk/class/window.zig:1705
+msgid "Copied to clipboard"
+msgstr "Kopieret til udklipsholder"
+
+#: src/apprt/gtk/class/window.zig:1707
+msgid "Cleared clipboard"
+msgstr "Ryddet udklipsholder"
+
+#: src/apprt/gtk/class/window.zig:1847
+msgid "Ghostty Developers"
+msgstr "Ghostty udviklerne"
