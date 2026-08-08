@@ -1191,6 +1191,10 @@ pub fn reset(terminal_: Terminal) callconv(lib.calling_conv) void {
 /// C: GhosttyKittyGraphics
 pub const KittyGraphics = kitty_gfx_c.KittyGraphics;
 
+/// C: GhosttyKittyGraphicsUnicodePlacementIterator
+pub const KittyGraphicsUnicodePlacementIterator =
+    kitty_gfx_c.UnicodePlacementIterator;
+
 /// C: GhosttyTerminalScreen
 pub const TerminalScreen = ScreenSet.Key;
 
@@ -1237,6 +1241,7 @@ pub const TerminalData = enum(c_int) {
     scrollback_max_lines = 35,
     continuation_max_bytes = 36,
     mode = 37,
+    kitty_graphics_unicode_placement_iterator = 38,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: TerminalData) type {
@@ -1275,6 +1280,7 @@ pub const TerminalData = enum(c_int) {
             => bool,
             .kitty_image_medium_temp_file => lib.String,
             .kitty_graphics => KittyGraphics,
+            .kitty_graphics_unicode_placement_iterator => KittyGraphicsUnicodePlacementIterator,
             .selection => selection_c.CSelection,
             .mode => ModeConfig,
         };
@@ -1392,6 +1398,10 @@ fn getTyped(
         .kitty_graphics => {
             if (comptime !build_options.kitty_graphics) return .no_value;
             out.* = &t.screens.active.kitty_images;
+        },
+        .kitty_graphics_unicode_placement_iterator => {
+            if (comptime !build_options.kitty_graphics) return .no_value;
+            return kitty_gfx_c.unicode_placement_iterator_reset(out.*, t);
         },
         .selection => out.* = selection_c.CSelection.fromZig(
             t.screens.active.selection orelse return .no_value,

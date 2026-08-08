@@ -4,6 +4,7 @@ const build_options = @import("terminal_options");
 const lib = @import("../lib.zig");
 const CAllocator = lib.alloc.Allocator;
 const kitty_storage = @import("../kitty/graphics_storage.zig");
+const kitty_unicode = @import("../kitty/graphics_unicode.zig");
 const kitty_cmd = @import("../kitty/graphics_command.zig");
 const Image = @import("../kitty/graphics_image.zig").Image;
 const grid_ref = @import("grid_ref.zig");
@@ -30,6 +31,12 @@ pub const PlacementIterator = if (build_options.kitty_graphics)
 else
     ?*anyopaque;
 
+/// C: GhosttyKittyGraphicsUnicodePlacementIterator
+pub const UnicodePlacementIterator = if (build_options.kitty_graphics)
+    ?*UnicodePlacementIteratorWrapper
+else
+    ?*anyopaque;
+
 const PlacementMap = if (build_options.kitty_graphics)
     std.AutoHashMapUnmanaged(
         kitty_storage.ImageStorage.PlacementKey,
@@ -44,6 +51,17 @@ const PlacementIteratorWrapper = if (build_options.kitty_graphics)
         inner: PlacementMap.Iterator = undefined,
         entry: ?PlacementMap.Entry = null,
         layer_filter: PlacementLayer = .all,
+    }
+else
+    void;
+
+const UnicodePlacementIteratorWrapper = if (build_options.kitty_graphics)
+    struct {
+        alloc: std.mem.Allocator,
+        terminal: ?*Terminal = null,
+        storage: ?*kitty_storage.ImageStorage = null,
+        inner: ?kitty_unicode.PlacementIterator = null,
+        entry: ?kitty_unicode.Placement = null,
     }
 else
     void;
@@ -94,6 +112,32 @@ pub const PlacementData = enum(c_int) {
             .rows,
             => u32,
             .z => i32,
+        };
+    }
+};
+
+/// C: GhosttyKittyGraphicsUnicodePlacementData
+pub const UnicodePlacementData = enum(c_int) {
+    invalid = 0,
+    top_left = 1,
+    image_id = 2,
+    placement_id = 3,
+    column = 4,
+    row = 5,
+    columns = 6,
+    rows = 7,
+
+    pub fn OutType(comptime self: UnicodePlacementData) type {
+        return switch (self) {
+            .invalid => void,
+            .top_left => grid_ref.CGridRef,
+            .image_id,
+            .placement_id,
+            .column,
+            .row,
+            .columns,
+            .rows,
+            => u32,
         };
     }
 };
@@ -291,6 +335,147 @@ pub fn placement_iterator_free(iter_: PlacementIterator) callconv(lib.calling_co
     if (comptime !build_options.kitty_graphics) return;
     const iter = iter_ orelse return;
     iter.alloc.destroy(iter);
+}
+
+pub fn unicode_placement_iterator_new(
+    alloc_: ?*const CAllocator,
+    out: *UnicodePlacementIterator,
+) callconv(lib.calling_conv) Result {
+    if (comptime !build_options.kitty_graphics) {
+        out.* = null;
+        return .no_value;
+    }
+    const alloc = lib.alloc.default(alloc_);
+    const ptr = alloc.create(UnicodePlacementIteratorWrapper) catch {
+        out.* = null;
+        return .out_of_memory;
+    };
+    ptr.* = .{ .alloc = alloc };
+    out.* = ptr;
+    return .success;
+}
+
+pub fn unicode_placement_iterator_free(
+    iter_: UnicodePlacementIterator,
+) callconv(lib.calling_conv) void {
+    if (comptime !build_options.kitty_graphics) return;
+    const iter = iter_ orelse return;
+    iter.alloc.destroy(iter);
+}
+
+pub fn unicode_placement_iterator_reset(
+    iter_: UnicodePlacementIterator,
+    terminal: *Terminal,
+) Result {
+    if (comptime !build_options.kitty_graphics) return .no_value;
+
+    const iter = iter_ orelse return .invalid_value;
+    const pages = &terminal.screens.active.pages;
+    const bottom = pages.getBottomRight(.viewport) orelse {
+        iter.terminal = terminal;
+        iter.storage = &terminal.screens.active.kitty_images;
+        iter.inner = null;
+        iter.entry = null;
+        return .success;
+    };
+
+    iter.terminal = terminal;
+    iter.storage = &terminal.screens.active.kitty_images;
+    iter.inner = kitty_unicode.placementIterator(
+        pages.getTopLeft(.viewport),
+        bottom,
+    );
+    iter.entry = null;
+    return .success;
+}
+
+pub fn unicode_placement_iterator_next(
+    iter_: UnicodePlacementIterator,
+) callconv(lib.calling_conv) bool {
+    if (comptime !build_options.kitty_graphics) return false;
+
+    const iter = iter_ orelse return false;
+    if (iter.inner) |*inner| {
+        iter.entry = inner.next();
+    } else return false;
+    return iter.entry != null;
+}
+
+pub fn unicode_placement_get(
+    iter_: UnicodePlacementIterator,
+    data: UnicodePlacementData,
+    out: ?*anyopaque,
+) callconv(lib.calling_conv) Result {
+    if (comptime !build_options.kitty_graphics) return .no_value;
+
+    if (comptime std.debug.runtime_safety) {
+        _ = std.enums.fromInt(UnicodePlacementData, @intFromEnum(data)) orelse {
+            return .invalid_value;
+        };
+    }
+
+    const out_ptr = out orelse return .invalid_value;
+    return switch (data) {
+        .invalid => .invalid_value,
+        inline else => |comptime_data| unicodePlacementGetTyped(
+            iter_,
+            comptime_data,
+            @ptrCast(@alignCast(out_ptr)),
+        ),
+    };
+}
+
+pub fn unicode_placement_get_multi(
+    iter_: UnicodePlacementIterator,
+    count: usize,
+    keys: ?[*]const UnicodePlacementData,
+    values: ?[*]?*anyopaque,
+    out_written: ?*usize,
+) callconv(lib.calling_conv) Result {
+    if (comptime !build_options.kitty_graphics) return .no_value;
+
+    const k = keys orelse return .invalid_value;
+    const v = values orelse return .invalid_value;
+    for (0..count) |i| {
+        const result = unicode_placement_get(iter_, k[i], v[i]);
+        if (result != .success) {
+            if (out_written) |written| written.* = i;
+            return result;
+        }
+    }
+    if (out_written) |written| written.* = count;
+    return .success;
+}
+
+fn unicodePlacementGetTyped(
+    iter_: UnicodePlacementIterator,
+    comptime data: UnicodePlacementData,
+    out: *data.OutType(),
+) Result {
+    const iter = iter_ orelse return .invalid_value;
+    const entry = iter.entry orelse return .invalid_value;
+
+    switch (data) {
+        .invalid => return .invalid_value,
+        .top_left => {
+            if (out.size < @sizeOf(usize)) return .invalid_value;
+            const value = grid_ref.CGridRef.fromPin(entry.pin);
+            inline for (.{ "node", "x", "y" }) |field| {
+                if (lib.structSizedFieldFits(
+                    grid_ref.CGridRef,
+                    out.size,
+                    field,
+                )) @field(out, field) = @field(value, field);
+            }
+        },
+        .image_id => out.* = entry.image_id,
+        .placement_id => out.* = entry.placement_id,
+        .column => out.* = entry.col,
+        .row => out.* = entry.row,
+        .columns => out.* = entry.width,
+        .rows => out.* = entry.height,
+    }
+    return .success;
 }
 
 pub fn placement_iterator_set(
@@ -545,6 +730,85 @@ pub const PlacementRenderInfo = extern struct {
     source_width: u32 = 0,
     source_height: u32 = 0,
 };
+
+/// C: GhosttyKittyGraphicsUnicodePlacementRenderInfo
+pub const UnicodePlacementRenderInfo = extern struct {
+    size: usize = @sizeOf(UnicodePlacementRenderInfo),
+    viewport_col: i32 = 0,
+    viewport_row: i32 = 0,
+    z: i32 = -1,
+    cell_offset_x: u32 = 0,
+    cell_offset_y: u32 = 0,
+    pixel_width: u32 = 0,
+    pixel_height: u32 = 0,
+    source_x: u32 = 0,
+    source_y: u32 = 0,
+    source_width: u32 = 0,
+    source_height: u32 = 0,
+};
+
+pub fn unicode_placement_render_info(
+    iter_: UnicodePlacementIterator,
+    terminal_: terminal_c.Terminal,
+    out_: ?*UnicodePlacementRenderInfo,
+) callconv(lib.calling_conv) Result {
+    if (comptime !build_options.kitty_graphics) return .no_value;
+
+    const wrapper = terminal_ orelse return .invalid_value;
+    const iter = iter_ orelse return .invalid_value;
+    const entry = iter.entry orelse return .invalid_value;
+    const out = out_ orelse return .invalid_value;
+    if (out.size < @sizeOf(usize)) return .invalid_value;
+
+    const terminal = wrapper.terminal;
+    const storage = &terminal.screens.active.kitty_images;
+    if (iter.terminal != terminal or iter.storage != storage)
+        return .invalid_value;
+
+    const cols: u32 = @intCast(terminal.cols);
+    const rows: u32 = @intCast(terminal.rows);
+    if (cols == 0 or rows == 0) return .invalid_value;
+    const cell_width = terminal.width_px / cols;
+    const cell_height = terminal.height_px / rows;
+    if (cell_width == 0 or cell_height == 0) return .invalid_value;
+
+    var image = storage.imageById(entry.image_id) orelse return .no_value;
+    const placement = entry.renderPlacement(
+        storage,
+        &image,
+        cell_width,
+        cell_height,
+    ) catch return .no_value;
+    if (placement.dest_width == 0 or placement.dest_height == 0)
+        return .no_value;
+
+    const point = terminal.screens.active.pages.pointFromPin(
+        .viewport,
+        placement.top_left,
+    ) orelse return .no_value;
+
+    inline for (.{
+        .{ "viewport_col", @as(i32, @intCast(point.viewport.x)) },
+        .{ "viewport_row", @as(i32, @intCast(point.viewport.y)) },
+        .{ "z", @as(i32, -1) },
+        .{ "cell_offset_x", placement.offset_x },
+        .{ "cell_offset_y", placement.offset_y },
+        .{ "pixel_width", placement.dest_width },
+        .{ "pixel_height", placement.dest_height },
+        .{ "source_x", placement.source_x },
+        .{ "source_y", placement.source_y },
+        .{ "source_width", placement.source_width },
+        .{ "source_height", placement.source_height },
+    }) |field| {
+        if (lib.structSizedFieldFits(
+            UnicodePlacementRenderInfo,
+            out.size,
+            field[0],
+        )) @field(out, field[0]) = field[1];
+    }
+
+    return .success;
+}
 
 pub fn placement_render_info(
     iter_: PlacementIterator,
@@ -2094,4 +2358,563 @@ test "generation never recurs across resets and screen switches" {
     try testing.expectEqual(Result.success, terminal_c.get(t, .kitty_graphics, @ptrCast(&graphics)));
     try testing.expectEqual(Result.success, get(graphics, .generation, @ptrCast(&gen)));
     try testing.expect(gen > gen_alt);
+}
+
+test "unicode placement iterator lifecycle" {
+    var iter: UnicodePlacementIterator = null;
+    const result = unicode_placement_iterator_new(
+        &lib.alloc.test_allocator,
+        &iter,
+    );
+    if (comptime build_options.kitty_graphics) {
+        try testing.expectEqual(Result.success, result);
+        try testing.expect(iter != null);
+    } else {
+        try testing.expectEqual(Result.no_value, result);
+        try testing.expect(iter == null);
+
+        var t: terminal_c.Terminal = null;
+        try testing.expectEqual(Result.success, terminal_c.new(
+            &lib.alloc.test_allocator,
+            &t,
+            2,
+            1,
+        ));
+        defer terminal_c.free(t);
+        try testing.expectEqual(Result.no_value, terminal_c.get(
+            t,
+            .kitty_graphics_unicode_placement_iterator,
+            @ptrCast(&iter),
+        ));
+    }
+    defer unicode_placement_iterator_free(iter);
+
+    try testing.expect(!unicode_placement_iterator_next(null));
+    unicode_placement_iterator_free(null);
+
+    if (comptime build_options.kitty_graphics) {
+        var buffer: [0]u8 = .{};
+        var fixed: std.heap.FixedBufferAllocator = .init(&buffer);
+        const allocator = fixed.allocator();
+        const c_allocator: CAllocator = .fromZig(&allocator);
+        var failed: UnicodePlacementIterator = undefined;
+        try testing.expectEqual(
+            Result.out_of_memory,
+            unicode_placement_iterator_new(&c_allocator, &failed),
+        );
+        try testing.expect(failed == null);
+    }
+}
+
+test "unicode placement iterator empty and access validation" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        2,
+        1,
+    ));
+    defer terminal_c.free(t);
+
+    var iter: UnicodePlacementIterator = null;
+    try testing.expectEqual(Result.success, unicode_placement_iterator_new(
+        &lib.alloc.test_allocator,
+        &iter,
+    ));
+    defer unicode_placement_iterator_free(iter);
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics_unicode_placement_iterator,
+        @ptrCast(&iter),
+    ));
+    try testing.expect(!unicode_placement_iterator_next(iter));
+
+    var image_id: u32 = 0;
+    try testing.expectEqual(Result.invalid_value, unicode_placement_get(
+        iter,
+        .image_id,
+        @ptrCast(&image_id),
+    ));
+    try testing.expectEqual(Result.invalid_value, unicode_placement_get(
+        iter,
+        .invalid,
+        @ptrCast(&image_id),
+    ));
+    try testing.expectEqual(Result.invalid_value, unicode_placement_get(
+        iter,
+        .image_id,
+        null,
+    ));
+
+    var info: UnicodePlacementRenderInfo = .{};
+    try testing.expectEqual(Result.invalid_value, unicode_placement_render_info(
+        null,
+        t,
+        &info,
+    ));
+    try testing.expectEqual(Result.invalid_value, unicode_placement_render_info(
+        iter,
+        t,
+        &info,
+    ));
+
+    var written: usize = 99;
+    try testing.expectEqual(Result.invalid_value, unicode_placement_get_multi(
+        iter,
+        1,
+        null,
+        null,
+        &written,
+    ));
+}
+
+test "unicode placement iterator raw and render info" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        4,
+        2,
+    ));
+    defer terminal_c.free(t);
+    try testing.expectEqual(Result.success, terminal_c.resize(
+        t,
+        4,
+        2,
+        1,
+        1,
+    ));
+
+    const transmit =
+        "\x1b_Ga=T,t=d,f=24,i=1,s=2,v=2,C=1,U=1;" ++
+        "////////////////" ++
+        "\x1b\\";
+    terminal_c.vt_write(t, transmit.ptr, transmit.len);
+    const placeholders =
+        "\x1b[38;2;0;0;1m" ++
+        "\xF4\x8E\xBB\xAE\xCC\x85\xCC\x85" ++
+        "\xF4\x8E\xBB\xAE\xCC\x85\xCC\x8D" ++
+        "\r\n" ++
+        "\xF4\x8E\xBB\xAE\xCC\x8D\xCC\x85" ++
+        "\xF4\x8E\xBB\xAE\xCC\x8D\xCC\x8D" ++
+        "\x1b[39m";
+    terminal_c.vt_write(t, placeholders.ptr, placeholders.len);
+
+    var iter: UnicodePlacementIterator = null;
+    try testing.expectEqual(Result.success, unicode_placement_iterator_new(
+        &lib.alloc.test_allocator,
+        &iter,
+    ));
+    defer unicode_placement_iterator_free(iter);
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics_unicode_placement_iterator,
+        @ptrCast(&iter),
+    ));
+
+    for (0..2) |expected_row| {
+        try testing.expect(unicode_placement_iterator_next(iter));
+
+        var top_left: grid_ref.CGridRef = .{};
+        var image_id: u32 = undefined;
+        var placement_id: u32 = undefined;
+        var column: u32 = undefined;
+        var row: u32 = undefined;
+        var columns: u32 = undefined;
+        var rows: u32 = undefined;
+        const keys = [_]UnicodePlacementData{
+            .top_left,
+            .image_id,
+            .placement_id,
+            .column,
+            .row,
+            .columns,
+            .rows,
+        };
+        var values = [_]?*anyopaque{
+            @ptrCast(&top_left),
+            @ptrCast(&image_id),
+            @ptrCast(&placement_id),
+            @ptrCast(&column),
+            @ptrCast(&row),
+            @ptrCast(&columns),
+            @ptrCast(&rows),
+        };
+        var written: usize = 0;
+        try testing.expectEqual(Result.success, unicode_placement_get_multi(
+            iter,
+            keys.len,
+            &keys,
+            &values,
+            &written,
+        ));
+        try testing.expectEqual(keys.len, written);
+        if (expected_row == 0) {
+            const bad_keys = [_]UnicodePlacementData{
+                .image_id,
+                .invalid,
+                .row,
+            };
+            var bad_values = [_]?*anyopaque{
+                @ptrCast(&image_id),
+                @ptrCast(&placement_id),
+                @ptrCast(&row),
+            };
+            written = 99;
+            try testing.expectEqual(
+                Result.invalid_value,
+                unicode_placement_get_multi(
+                    iter,
+                    bad_keys.len,
+                    &bad_keys,
+                    &bad_values,
+                    &written,
+                ),
+            );
+            try testing.expectEqual(1, written);
+        }
+        try testing.expectEqual(1, image_id);
+        try testing.expectEqual(0, placement_id);
+        try testing.expectEqual(0, column);
+        try testing.expectEqual(@as(u32, @intCast(expected_row)), row);
+        try testing.expectEqual(2, columns);
+        try testing.expectEqual(1, rows);
+        const point = t.?.terminal.screens.active.pages.pointFromPin(
+            .viewport,
+            top_left.toPin().?,
+        ).?;
+        try testing.expectEqual(0, point.viewport.x);
+        try testing.expectEqual(
+            @as(u32, @intCast(expected_row)),
+            point.viewport.y,
+        );
+
+        var info: UnicodePlacementRenderInfo = .{};
+        try testing.expectEqual(Result.success, unicode_placement_render_info(
+            iter,
+            t,
+            &info,
+        ));
+        try testing.expectEqual(0, info.viewport_col);
+        try testing.expectEqual(
+            @as(i32, @intCast(expected_row)),
+            info.viewport_row,
+        );
+        try testing.expectEqual(-1, info.z);
+        try testing.expectEqual(0, info.cell_offset_x);
+        try testing.expectEqual(0, info.cell_offset_y);
+        try testing.expectEqual(2, info.pixel_width);
+        try testing.expectEqual(1, info.pixel_height);
+        try testing.expectEqual(0, info.source_x);
+        try testing.expectEqual(
+            @as(u32, @intCast(expected_row)),
+            info.source_y,
+        );
+        try testing.expectEqual(2, info.source_width);
+        try testing.expectEqual(1, info.source_height);
+    }
+    try testing.expect(!unicode_placement_iterator_next(iter));
+
+    var image_id: u32 = undefined;
+    try testing.expectEqual(Result.invalid_value, unicode_placement_get(
+        iter,
+        .image_id,
+        @ptrCast(&image_id),
+    ));
+
+    const discontinuous =
+        "\x1b[2J\x1b[H" ++
+        "\x1b[38;2;0;0;1m" ++
+        "\xF4\x8E\xBB\xAE\xCC\x85\xCC\x85" ++
+        "x" ++
+        "\xF4\x8E\xBB\xAE\xCC\x85\xCC\x85" ++
+        "\x1b[39m";
+    terminal_c.vt_write(t, discontinuous.ptr, discontinuous.len);
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics_unicode_placement_iterator,
+        @ptrCast(&iter),
+    ));
+    for ([_]u32{ 0, 2 }) |expected_col| {
+        try testing.expect(unicode_placement_iterator_next(iter));
+        var top_left: grid_ref.CGridRef = .{};
+        try testing.expectEqual(Result.success, unicode_placement_get(
+            iter,
+            .top_left,
+            @ptrCast(&top_left),
+        ));
+        const point = t.?.terminal.screens.active.pages.pointFromPin(
+            .viewport,
+            top_left.toPin().?,
+        ).?;
+        try testing.expectEqual(expected_col, point.viewport.x);
+        try testing.expectEqual(0, point.viewport.y);
+    }
+    try testing.expect(!unicode_placement_iterator_next(iter));
+
+    const alt_on = "\x1b[?1049h";
+    terminal_c.vt_write(t, alt_on.ptr, alt_on.len);
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics_unicode_placement_iterator,
+        @ptrCast(&iter),
+    ));
+    try testing.expect(!unicode_placement_iterator_next(iter));
+
+    const alt_off = "\x1b[?1049l";
+    terminal_c.vt_write(t, alt_off.ptr, alt_off.len);
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics_unicode_placement_iterator,
+        @ptrCast(&iter),
+    ));
+    try testing.expect(unicode_placement_iterator_next(iter));
+
+    const scroll =
+        "\x1b[2J\x1b[H" ++
+        "\x1b[38;2;0;0;1m" ++
+        "\xF4\x8E\xBB\xAE\xCC\x85\xCC\x85" ++
+        "\x1b[2;1H" ++
+        "\xF4\x8E\xBB\xAE\xCC\x85\xCC\x85" ++
+        "\x1b[39m\n";
+    terminal_c.vt_write(t, scroll.ptr, scroll.len);
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics_unicode_placement_iterator,
+        @ptrCast(&iter),
+    ));
+    try testing.expect(unicode_placement_iterator_next(iter));
+    var scrolled_top_left: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, unicode_placement_get(
+        iter,
+        .top_left,
+        @ptrCast(&scrolled_top_left),
+    ));
+    const scrolled_point = t.?.terminal.screens.active.pages.pointFromPin(
+        .viewport,
+        scrolled_top_left.toPin().?,
+    ).?;
+    try testing.expectEqual(0, scrolled_point.viewport.y);
+    try testing.expect(!unicode_placement_iterator_next(iter));
+}
+
+test "unicode placement unresolved and ownership validation" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        2,
+        1,
+    ));
+    defer terminal_c.free(t);
+    try testing.expectEqual(Result.success, terminal_c.resize(
+        t,
+        2,
+        1,
+        1,
+        1,
+    ));
+
+    var other: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &other,
+        2,
+        1,
+    ));
+    defer terminal_c.free(other);
+    try testing.expectEqual(Result.success, terminal_c.resize(
+        other,
+        2,
+        1,
+        1,
+        1,
+    ));
+
+    const transmit =
+        "\x1b_Ga=t,t=d,f=24,i=1,s=1,v=1;/wAA\x1b\\";
+    terminal_c.vt_write(t, transmit.ptr, transmit.len);
+    const placeholders =
+        "\x1b[38;2;0;0;2m" ++
+        "\xF4\x8E\xBB\xAE\xCC\x85\xCC\x85" ++
+        "\x1b[38;2;0;0;1m" ++
+        "\xF4\x8E\xBB\xAE\xCC\x85\xCC\x85" ++
+        "\x1b[39m";
+    terminal_c.vt_write(t, placeholders.ptr, placeholders.len);
+
+    var iter: UnicodePlacementIterator = null;
+    try testing.expectEqual(Result.success, unicode_placement_iterator_new(
+        &lib.alloc.test_allocator,
+        &iter,
+    ));
+    defer unicode_placement_iterator_free(iter);
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics_unicode_placement_iterator,
+        @ptrCast(&iter),
+    ));
+    try testing.expect(unicode_placement_iterator_next(iter));
+
+    var image_id: u32 = 0;
+    try testing.expectEqual(Result.success, unicode_placement_get(
+        iter,
+        .image_id,
+        @ptrCast(&image_id),
+    ));
+    try testing.expectEqual(2, image_id);
+
+    var info: UnicodePlacementRenderInfo = .{};
+    try testing.expectEqual(Result.invalid_value, unicode_placement_render_info(
+        iter,
+        other,
+        &info,
+    ));
+    try testing.expectEqual(Result.no_value, unicode_placement_render_info(
+        iter,
+        t,
+        &info,
+    ));
+
+    try testing.expect(unicode_placement_iterator_next(iter));
+    try testing.expectEqual(Result.success, unicode_placement_get(
+        iter,
+        .image_id,
+        @ptrCast(&image_id),
+    ));
+    try testing.expectEqual(1, image_id);
+    try testing.expectEqual(Result.no_value, unicode_placement_render_info(
+        iter,
+        t,
+        &info,
+    ));
+}
+
+test "unicode placement sized outputs honor caller size" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        2,
+        1,
+    ));
+    defer terminal_c.free(t);
+    try testing.expectEqual(Result.success, terminal_c.resize(
+        t,
+        2,
+        1,
+        1,
+        1,
+    ));
+
+    const transmit =
+        "\x1b_Ga=T,t=d,f=24,i=1,s=1,v=1,C=1,U=1;/wAA\x1b\\";
+    terminal_c.vt_write(t, transmit.ptr, transmit.len);
+    const placeholder =
+        "\x1b[38;2;0;0;1m" ++
+        "\xF4\x8E\xBB\xAE\xCC\x85\xCC\x85" ++
+        "\x1b[39m";
+    terminal_c.vt_write(t, placeholder.ptr, placeholder.len);
+
+    var iter: UnicodePlacementIterator = null;
+    try testing.expectEqual(Result.success, unicode_placement_iterator_new(
+        &lib.alloc.test_allocator,
+        &iter,
+    ));
+    defer unicode_placement_iterator_free(iter);
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics_unicode_placement_iterator,
+        @ptrCast(&iter),
+    ));
+    try testing.expect(unicode_placement_iterator_next(iter));
+
+    var undersized_grid: grid_ref.CGridRef = .{
+        .size = @sizeOf(usize) - 1,
+    };
+    try testing.expectEqual(Result.invalid_value, unicode_placement_get(
+        iter,
+        .top_left,
+        @ptrCast(&undersized_grid),
+    ));
+
+    const GridPrefix = extern struct {
+        size: usize,
+        node: ?*anyopaque,
+        canary: u64,
+    };
+    var grid_prefix: GridPrefix = .{
+        .size = @offsetOf(GridPrefix, "canary"),
+        .node = null,
+        .canary = 0xA5A5A5A5A5A5A5A5,
+    };
+    try testing.expectEqual(Result.success, unicode_placement_get(
+        iter,
+        .top_left,
+        @ptrCast(&grid_prefix),
+    ));
+    try testing.expect(grid_prefix.node != null);
+    try testing.expectEqual(0xA5A5A5A5A5A5A5A5, grid_prefix.canary);
+
+    var undersized_render: UnicodePlacementRenderInfo = .{
+        .size = @sizeOf(usize) - 1,
+    };
+    try testing.expectEqual(Result.invalid_value, unicode_placement_render_info(
+        iter,
+        t,
+        &undersized_render,
+    ));
+
+    const RenderPrefix = extern struct {
+        size: usize,
+        viewport_col: i32,
+        canary: u32,
+    };
+    var render_prefix: RenderPrefix = .{
+        .size = @offsetOf(RenderPrefix, "canary"),
+        .viewport_col = -99,
+        .canary = 0x5A5A5A5A,
+    };
+    try testing.expectEqual(Result.success, unicode_placement_render_info(
+        iter,
+        t,
+        @ptrCast(&render_prefix),
+    ));
+    try testing.expectEqual(0, render_prefix.viewport_col);
+    try testing.expectEqual(0x5A5A5A5A, render_prefix.canary);
+
+    try testing.expectEqual(Result.success, terminal_c.resize(
+        t,
+        2,
+        1,
+        0,
+        0,
+    ));
+    var info: UnicodePlacementRenderInfo = .{};
+    try testing.expectEqual(Result.invalid_value, unicode_placement_render_info(
+        iter,
+        t,
+        &info,
+    ));
+
+    try testing.expectEqual(Result.success, terminal_c.resize(
+        t,
+        2,
+        1,
+        1,
+        1,
+    ));
+    if (iter.?.entry) |*entry| entry.width = 0;
+    try testing.expectEqual(Result.no_value, unicode_placement_render_info(
+        iter,
+        t,
+        &info,
+    ));
 }
