@@ -49,6 +49,7 @@ pub const locales = [_][:0]const u8{
     "it",
     "bg",
     "ga",
+    "gl",
     "hu",
     "he",
     "zh_TW",
