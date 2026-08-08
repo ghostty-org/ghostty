@@ -33,6 +33,7 @@ pub const Location = enum {
                 }) catch return error.OutOfMemory;
 
                 break :user internal_os.xdg.config(
+                    global.io(),
                     arena_alloc,
                     &environ_map,
                     .{ .subdir = subdir },

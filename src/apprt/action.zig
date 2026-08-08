@@ -351,6 +351,9 @@ pub const Action = union(Key) {
     /// otherwise the terminal-set title.
     copy_title_to_clipboard,
 
+    /// Move a tab to a new window.
+    move_tab_to_new_window,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -420,6 +423,7 @@ pub const Action = union(Key) {
         search_selected,
         readonly,
         copy_title_to_clipboard,
+        move_tab_to_new_window,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -940,6 +944,11 @@ pub const OpenUrl = struct {
 
         /// The URL is known to contain HTML content.
         html,
+
+        /// The URL came from an OSC 8 hyperlink. Application runtimes should
+        /// treat this as untrusted terminal output and apply a platform-specific
+        /// safe-opening policy.
+        osc8,
 
         test "ghostty.h OpenUrl.Kind" {
             try lib.checkGhosttyHEnum(Kind, "GHOSTTY_ACTION_OPEN_URL_KIND_");

@@ -248,6 +248,17 @@ pub const Protocol = enum {
             .glyph => 1 * 1024 * 1024,
         };
     }
+
+    /// Return the largest default buffer limit across every APC protocol.
+    /// Consumers that must retain any unfinished APC can derive their limit
+    /// here instead of duplicating a particular protocol's current default.
+    pub fn maxDefaultBytes() usize {
+        var result: usize = 0;
+        for (std.enums.values(Protocol)) |protocol| {
+            result = @max(result, protocol.defaultMaxBytes());
+        }
+        return result;
+    }
 };
 
 /// Possible APC commands.

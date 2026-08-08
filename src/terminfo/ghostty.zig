@@ -106,6 +106,10 @@ pub const ghostty: Source = .{
         // Curly, dashed, etc underlines
         .{ .name = "Smulx", .value = .{ .string = "\\E[4:%p1%dm" } },
 
+        // Overline
+        .{ .name = "Smol", .value = .{ .string = "\\E[53m" } },
+        .{ .name = "Rmol", .value = .{ .string = "\\E[55m" } },
+
         // Colored underlines
         .{ .name = "Setulc", .value = .{ .string = "\\E[58:2::%p1%{65536}%/%d:%p1%{256}%/%{255}%&%d:%p1%{255}%&%d%;m" } },
 

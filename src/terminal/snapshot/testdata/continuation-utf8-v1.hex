@@ -1,0 +1,8 @@
+# Ghostty snapshot fixture
+# Kaitai type: continuation_record
+# Kaitai params:
+# Kaitai offset: 0
+# Wire version: 1
+
+# Partial four-byte UTF-8 codepoint.
+07 00 03 00 00 00 b8 07 2a 22 f0 9f 98

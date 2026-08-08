@@ -8,21 +8,21 @@ const MessageData = @import("../datastruct/main.zig").MessageData;
 /// The messages that can be sent to an IO thread.
 ///
 /// This is not a tiny structure (~40 bytes at the time of writing this comment),
-/// but the messages are IO thread sends are also very few. At the current size
-/// we can queue 26,000 messages before consuming a MB of RAM.
+/// but the number of messages we send to the IO thread is also very small.
+/// At the current size we can queue 26,000 messages before consuming a MB of RAM.
 pub const Message = union(enum) {
     /// Represents a write request. Magic number comes from the largest
     /// other union value. It can be upped if we add a larger union member
     /// in the future.
     pub const WriteReq = MessageData(u8, 38);
 
-    /// Request a color scheme report is sent to the pty.
+    /// Request a color scheme report is sent to the PTY.
     color_scheme_report: struct {
         /// Force write the current color scheme
         force: bool,
     },
 
-    /// Request a visibility report is sent to the pty.
+    /// Request a visibility report is sent to the PTY.
     visibility_report: struct {
         /// The visibility state to report.
         visible: bool,
@@ -48,7 +48,7 @@ pub const Message = union(enum) {
     /// Resize the window.
     resize: renderer.Size,
 
-    /// Request a size report is sent to the pty ([in-band
+    /// Request a size report is sent to the PTY ([in-band
     /// size report, mode 2048](https://gist.github.com/rockorager/e695fb2924d36b2bcf1fff4a3704bd83) and
     /// [XTWINOPS](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h4-Functions-using-CSI-_-ordered-by-the-final-character-lparen-s-rparen:CSI-Ps;Ps;Ps-t.1EB0)).
     size_report: SizeReport,
@@ -100,6 +100,19 @@ pub const Message = union(enum) {
             .small => |v| Message{ .write_small = v },
             .alloc => |v| Message{ .write_alloc = v },
         };
+    }
+
+    /// Free resources owned by a message that will not be processed.
+    /// The message is invalid after this call.
+    pub fn deinit(self: *const Message) void {
+        switch (self.*) {
+            .change_config => |v| {
+                v.ptr.deinit();
+                v.alloc.destroy(v.ptr);
+            },
+            .write_alloc => |v| v.alloc.free(v.data),
+            else => {},
+        }
     }
 
     /// The types of size reports that we support.

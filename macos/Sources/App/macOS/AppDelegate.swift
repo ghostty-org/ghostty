@@ -377,18 +377,7 @@ class AppDelegate: NSObject,
 
         // If we've already accepted to install an update, then we don't need to
         // confirm quit. The user is already expecting the update to happen.
-        if updateController.isInstalling {
-            return .terminateNow
-        }
-
-        // This probably isn't fully safe. The isEmpty check above is aspirational, it doesn't
-        // quite work with SwiftUI because windows are retained on close. So instead we check
-        // if there are any that are visible. I'm guessing this breaks under certain scenarios.
-        //
-        // NOTE(mitchellh): I don't think we need this check at all anymore. I'm keeping it
-        // here because I don't want to remove it in a patch release cycle but we should
-        // target removing it soon.
-        if (windows.allSatisfy { !$0.isVisible }) {
+        if updateController.shouldTerminateWithoutWarning {
             return .terminateNow
         }
 

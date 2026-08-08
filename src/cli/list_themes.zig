@@ -464,9 +464,9 @@ const Preview = struct {
                             self.text_input.buf.clearRetainingCapacity();
                             try self.updateFiltered();
                         }
-                        if (key.matchesAny(&.{ vaxis.Key.home, vaxis.Key.kp_home }, .{}))
+                        if (key.matchesAny(&.{ vaxis.Key.home, vaxis.Key.kp_home, 'g' }, .{}))
                             self.current = 0;
-                        if (key.matchesAny(&.{ vaxis.Key.end, vaxis.Key.kp_end }, .{}))
+                        if (key.matchesAny(&.{ vaxis.Key.end, vaxis.Key.kp_end, 'G' }, .{}))
                             self.current = self.filtered.items.len - 1;
                         if (key.matchesAny(&.{ 'j', '+', vaxis.Key.down, vaxis.Key.kp_down, vaxis.Key.kp_add }, .{}))
                             self.down(1);
@@ -779,8 +779,8 @@ const Preview = struct {
                     .{ .keys = "d", .help = "Show palette numbers in decimal." },
                     .{ .keys = "c", .help = "Copy theme name to the clipboard." },
                     .{ .keys = "C", .help = "Copy theme path to the clipboard." },
-                    .{ .keys = "Home", .help = "Go to the start of the list." },
-                    .{ .keys = "End", .help = "Go to the end of the list." },
+                    .{ .keys = "Home, g", .help = "Go to the start of the list." },
+                    .{ .keys = "End, G", .help = "Go to the end of the list." },
                     .{ .keys = "/", .help = "Start search." },
                     .{ .keys = "^X, ^/", .help = "Clear search." },
                     .{ .keys = "⏎", .help = "Save theme or close search window." },

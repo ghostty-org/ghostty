@@ -71,7 +71,10 @@ pub fn create(
     errdefer alloc.destroy(ptr);
     ptr.* = .{
         .opts = opts,
-        .stream = .init(.{ .alloc = alloc }),
+        .stream = .init(.{
+            .allocator = alloc,
+            .handler = .{ .alloc = alloc },
+        }),
     };
     return ptr;
 }

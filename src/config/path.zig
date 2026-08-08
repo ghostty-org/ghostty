@@ -168,6 +168,7 @@ pub const Path = union(enum) {
             defer environ_map.deinit();
 
             const expanded: []const u8 = internal_os.expandHome(
+                global.io(),
                 &environ_map,
                 path,
                 &buf,

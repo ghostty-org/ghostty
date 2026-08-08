@@ -193,6 +193,40 @@ pub const DecodeError = Decoder.InitError ||
         UnexpectedScreenKey,
     };
 
+/// Errors possible while restoring one history PAGE into a native Screen.
+pub const DecodePageError = Allocator.Error ||
+    page.DecodeError ||
+    TerminalPageList.PageAllocation.FinalizeError;
+
+/// Restore the next history PAGE record and prepend it to the native Screen.
+///
+/// Returns the number of rows added above the screen's existing content.
+/// The page is decoded directly into a detached PageList-pooled allocation
+/// and prepended only after its record validates, so a failure leaves the
+/// screen unchanged. A limit failure from `finalize` occurs after the record
+/// bytes were fully consumed, leaving `source` aligned on the next record.
+pub fn decodePage(
+    source: *std.Io.Reader,
+    alloc: Allocator,
+    terminal_screen: *TerminalScreen,
+) DecodePageError!usize {
+    // PAGE exposes its exact capacity before decoding the payload, allowing
+    // the destination PageList to allocate the final backing memory once.
+    var decoder: page.Decoder = undefined;
+    try decoder.init(source);
+    var allocation = try terminal_screen.pages.allocatePage(
+        decoder.capacity(),
+    );
+    defer allocation.deinit();
+    try decoder.decode(allocation.page(), alloc);
+
+    const rows = allocation.page().size.rows;
+    const contains_prompt = hasSemanticPrompt(allocation.page());
+    try allocation.finalize(.prepend);
+    if (contains_prompt) terminal_screen.semantic_prompt.seen = true;
+    return rows;
+}
+
 /// A decoded HISTORY manifest ready to restore its following PAGE records.
 ///
 /// Keeping manifest decoding separate lets the full snapshot wrapper route a
@@ -209,13 +243,10 @@ pub const Decoder = struct {
             UnexpectedRecordTag,
         };
 
-    pub const RestoreError = Allocator.Error ||
-        page.DecodeError ||
-        TerminalPageList.PageAllocation.FinalizeError ||
-        error{
-            /// The Screen already contains complete pages before its active page.
-            ExistingHistory,
-        };
+    pub const RestoreError = DecodePageError || error{
+        /// The Screen already contains complete pages before its active page.
+        ExistingHistory,
+    };
 
     /// Decode and finish the self-contained HISTORY manifest.
     pub fn init(self: *Decoder, source: *std.Io.Reader) InitError!void {
@@ -245,20 +276,7 @@ pub const Decoder = struct {
 
         // Native row totals remain derived from the actual PAGE dimensions.
         for (0..self.header.page_count) |_| {
-            // PAGE exposes its exact capacity before decoding the payload,
-            // allowing the destination PageList to allocate the final backing
-            // memory once.
-            var decoder: page.Decoder = undefined;
-            try decoder.init(self.source);
-            var allocation = try terminal_screen.pages.allocatePage(
-                decoder.capacity(),
-            );
-            defer allocation.deinit();
-            try decoder.decode(allocation.page(), alloc);
-
-            const contains_prompt = hasSemanticPrompt(allocation.page());
-            try allocation.finalize(.prepend);
-            if (contains_prompt) terminal_screen.semantic_prompt.seen = true;
+            _ = try decodePage(self.source, alloc, terminal_screen);
         }
 
         terminal_screen.pages.assertIntegrity();

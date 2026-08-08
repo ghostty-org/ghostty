@@ -32,7 +32,10 @@ pub const Stream = struct {
 
         return .{
             .events = events,
-            .parser_stream = .initAlloc(alloc, handler),
+            .parser_stream = .init(.{
+                .allocator = alloc,
+                .handler = handler,
+            }),
         };
     }
 

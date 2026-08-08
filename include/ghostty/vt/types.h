@@ -82,6 +82,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
     GHOSTTY_OUT_OF_SPACE = -3,
     /** The requested value has no value */
     GHOSTTY_NO_VALUE = -4,
+    /** Operation failed while reading from or writing to external I/O */
+    GHOSTTY_IO_ERROR = -5,
+    /** Operation failed because encoded input exceeded a configured limit */
+    GHOSTTY_LIMIT_EXCEEDED = -6,
     GHOSTTY_RESULT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyResult;
 
@@ -93,6 +97,13 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @ingroup terminal
  */
 typedef struct GhosttyTerminalImpl* GhosttyTerminal;
+
+/**
+ * Opaque handle to an incremental terminal snapshot decoder.
+ *
+ * @ingroup snapshot
+ */
+typedef struct GhosttySnapshotDecoderImpl* GhosttySnapshotDecoder;
 
 /**
  * Opaque handle to a tracked grid reference.

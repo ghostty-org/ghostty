@@ -16,6 +16,7 @@
 #include <ghostty/vt/modes.h>
 #include <ghostty/vt/size_report.h>
 #include <ghostty/vt/grid_ref.h>
+#include <ghostty/vt/io.h>
 #include <ghostty/vt/kitty_graphics.h>
 #include <ghostty/vt/screen.h>
 #include <ghostty/vt/point.h>
@@ -695,6 +696,24 @@ typedef GhosttyString (*GhosttyTerminalXtversionFn)(GhosttyTerminal terminal,
                                                      void* userdata);
 
 /**
+ * A terminal mode and boolean value used for mode configuration and queries.
+ *
+ * For GHOSTTY_TERMINAL_DATA_MODE, initialize `mode` before calling
+ * ghostty_terminal_get(). On success, `value` contains the current mode value.
+ *
+ * This struct has a frozen layout and will not gain fields in future versions.
+ *
+ * @ingroup terminal
+ */
+typedef struct {
+  /** Mode to configure or query. */
+  GhosttyMode mode;
+
+  /** Value to set, or the current value returned by a query. */
+  bool value;
+} GhosttyTerminalModeConfig;
+
+/**
  * Terminal option identifiers.
  *
  * These values are used with ghostty_terminal_set() to configure
@@ -1027,6 +1046,63 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: GhosttyTerminalProgressReportFn
    */
   GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT = 30,
+
+  /**
+   * Set the maximum number of replay-safe VT continuation bytes retained.
+   *
+   * Continuation bytes reconstruct an escape sequence or UTF-8 codepoint
+   * which was unfinished at the end of the most recent
+   * ghostty_terminal_vt_write() call. They are used automatically by terminal
+   * snapshots and may also be exported directly with the continuation APIs.
+   *
+   * Tracking is disabled by default. A nonzero value enables tracking and
+   * sets its byte limit. Passing NULL or a pointer to zero disables tracking.
+   * Lowering the limit below an already-retained
+   * continuation, or enabling tracking while the parser is already
+   * unfinished, makes the current continuation unavailable because earlier
+   * bytes cannot be reconstructed. Tracking recovers automatically after a
+   * later write reaches the ground state or contains a fresh replay start.
+   *
+   * Input type: size_t*
+   */
+  GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES = 31,
+
+  /**
+   * Enable window title reports in response to CSI 21 t.
+   *
+   * This is disabled by default because a running program can set a title and
+   * query it back into the pty input stream, potentially injecting commands
+   * that execute after user interaction. Passing NULL or a pointer to false
+   * disables title reporting.
+   *
+   * Input type: bool*
+   */
+  GHOSTTY_TERMINAL_OPT_TITLE_REPORT = 32,
+
+  /**
+   * Set the reset default for a terminal mode.
+   *
+   * This unconditionally updates both the current value and the value restored
+   * by a full terminal reset (RIS).
+   *
+   * Some recognized modes represent transitions or mirror additional terminal
+   * state and cannot safely be configured as reset defaults. Those modes return
+   * GHOSTTY_INVALID_VALUE. A NULL value pointer also returns
+   * GHOSTTY_INVALID_VALUE.
+   *
+   * Input type: GhosttyTerminalModeConfig*
+   */
+  GHOSTTY_TERMINAL_OPT_MODE_DEFAULT = 33,
+
+  /**
+   * Set the current value of a terminal mode.
+   *
+   * This does not change the value restored by a full terminal reset (RIS).
+   * A NULL value pointer or unknown mode returns GHOSTTY_INVALID_VALUE.
+   *
+   * Input type: GhosttyTerminalModeConfig*
+   */
+  GHOSTTY_TERMINAL_OPT_MODE = 34,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 
@@ -1376,6 +1452,28 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Output type: size_t *
    */
   GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_LINES = 35,
+
+  /**
+   * The configured maximum retained VT continuation size in bytes.
+   *
+   * A value of zero means continuation tracking is disabled. This reports the
+   * configured limit even when a current unfinished continuation is
+   * temporarily unavailable.
+   *
+   * Output type: size_t *
+   */
+  GHOSTTY_TERMINAL_DATA_CONTINUATION_MAX_BYTES = 36,
+
+  /**
+   * Get the current value of a terminal mode.
+   *
+   * The caller must initialize the `mode` field. On success, the `value` field
+   * is updated with the current value. A NULL pointer or unknown mode returns
+   * GHOSTTY_INVALID_VALUE.
+   *
+   * Input/output type: GhosttyTerminalModeConfig *
+   */
+  GHOSTTY_TERMINAL_DATA_MODE = 37,
   GHOSTTY_TERMINAL_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalData;
 
@@ -1502,6 +1600,97 @@ GHOSTTY_API void ghostty_terminal_vt_write(GhosttyTerminal terminal,
                                 size_t len);
 
 /**
+ * Write the terminal's replay-safe VT continuation to a callback writer.
+ *
+ * The continuation is the exact byte suffix needed to reconstruct unfinished
+ * VT parser or UTF-8 decoder state in an equivalent terminal. It is empty
+ * when the stream is at ground. The callback is invoked synchronously and
+ * may be called more than once. It must not call terminal APIs with the same
+ * terminal handle.
+ *
+ * Continuation tracking must have been enabled by setting
+ * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to a nonzero value before the
+ * input that produced the continuation was written.
+ *
+ * The caller must serialize this operation with ghostty_terminal_vt_write()
+ * and all other access to the same terminal.
+ *
+ * @param terminal Terminal to read from (must not be NULL)
+ * @param writer Destination writer whose write callback must not be NULL
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_IO_ERROR if the callback rejects
+ *         a write, GHOSTTY_LIMIT_EXCEEDED if output accounting overflows, or
+ *         GHOSTTY_INVALID_VALUE if an argument is invalid, tracking is
+ *         disabled, or the current continuation is unavailable
+ *
+ * @ingroup terminal
+ */
+GHOSTTY_API GhosttyResult ghostty_terminal_continuation_write(
+    GhosttyTerminal terminal,
+    GhosttyWriter writer);
+
+/**
+ * Copy the terminal's replay-safe VT continuation into a caller buffer.
+ *
+ * Pass NULL for buf with buf_len zero to query the required size. A size query
+ * returns GHOSTTY_OUT_OF_SPACE and stores the required size in out_written,
+ * including zero when the stream is at ground. If a non-NULL buffer is too
+ * small, the function has the same result and reports the full required size.
+ * Continuation tracking must have been enabled by setting
+ * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to a nonzero value before the
+ * input that produced the continuation was written.
+ *
+ * The caller must serialize this operation with all other access to the same
+ * terminal.
+ *
+ * @param terminal Terminal to read from (must not be NULL)
+ * @param buf Destination buffer, or NULL when buf_len is zero
+ * @param buf_len Destination buffer capacity in bytes
+ * @param[out] out_written Bytes written, or required size on
+ *             GHOSTTY_OUT_OF_SPACE (must not be NULL)
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE for a size query or
+ *         insufficient buffer, or GHOSTTY_INVALID_VALUE if an argument is
+ *         invalid, tracking is disabled, or the current continuation is
+ *         unavailable
+ *
+ * @ingroup terminal
+ */
+GHOSTTY_API GhosttyResult ghostty_terminal_continuation_buf(
+    GhosttyTerminal terminal,
+    uint8_t* buf,
+    size_t buf_len,
+    size_t* out_written);
+
+/**
+ * Return an allocated copy of the terminal's replay-safe VT continuation.
+ *
+ * The returned bytes are allocated with allocator, or the default allocator
+ * when allocator is NULL. The caller must release them with ghostty_free(),
+ * passing the same allocator and returned length. An empty continuation is a
+ * successful zero-length allocation.
+ * Continuation tracking must have been enabled by setting
+ * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to a nonzero value before the
+ * input that produced the continuation was written.
+ *
+ * The caller must serialize this operation with all other access to the same
+ * terminal.
+ *
+ * @param terminal Terminal to read from (must not be NULL)
+ * @param allocator Allocator for the output, or NULL for the default allocator
+ * @param[out] out_ptr Allocated continuation bytes (must not be NULL)
+ * @param[out] out_len Number of continuation bytes (must not be NULL)
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
+ *         failure, or GHOSTTY_INVALID_VALUE if an argument is invalid,
+ *         tracking is disabled, or the current continuation is unavailable
+ *
+ * @ingroup terminal
+ */
+GHOSTTY_API GhosttyResult ghostty_terminal_continuation_alloc(
+    GhosttyTerminal terminal,
+    const GhosttyAllocator* allocator,
+    uint8_t** out_ptr,
+    size_t* out_len);
+
+/**
  * Scroll the terminal viewport.
  *
  * Scrolls the terminal's viewport according to the given behavior.
@@ -1573,41 +1762,6 @@ GHOSTTY_API GhosttyResult ghostty_terminal_compress(
     GhosttyTerminal terminal,
     GhosttyTerminalCompressionMode mode,
     GhosttyTerminalCompressionResult* out_result);
-
-/**
- * Get the current value of a terminal mode.
- *
- * Returns the value of the mode identified by the given mode.
- *
- * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
- * @param mode The mode identifying the mode to query
- * @param[out] out_value On success, set to true if the mode is set, false
- *             if it is reset
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal
- *         is NULL or the mode does not correspond to a known mode
- *
- * @ingroup terminal
- */
-GHOSTTY_API GhosttyResult ghostty_terminal_mode_get(GhosttyTerminal terminal,
-                                        GhosttyMode mode,
-                                        bool* out_value);
-
-/**
- * Set the value of a terminal mode.
- *
- * Sets the mode identified by the given mode to the specified value.
- *
- * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
- * @param mode The mode identifying the mode to set
- * @param value true to set the mode, false to reset it
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal
- *         is NULL or the mode does not correspond to a known mode
- *
- * @ingroup terminal
- */
-GHOSTTY_API GhosttyResult ghostty_terminal_mode_set(GhosttyTerminal terminal,
-                                         GhosttyMode mode,
-                                         bool value);
 
 /**
  * Get data from a terminal instance.

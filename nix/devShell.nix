@@ -87,7 +87,6 @@
     inherit pkgs lib stdenv;
   };
   python = python3.withPackages (python-pkgs: [
-    python-pkgs.blake3
     python-pkgs.kaitaistruct
     python-pkgs.ucs-detect
   ]);

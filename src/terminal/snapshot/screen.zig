@@ -205,6 +205,7 @@ const Allocator = std.mem.Allocator;
 const hyperlink = @import("hyperlink.zig");
 const test_fixture = @import("fixture.zig");
 const io = @import("io.zig");
+const grid = @import("grid.zig");
 const page = @import("page.zig");
 const record = @import("record.zig");
 const style = @import("style.zig");
@@ -232,7 +233,7 @@ const PayloadEncodeError = hyperlink.EncodeError || error{
 };
 
 /// Errors possible while encoding a SCREEN and its complete PAGE sequence.
-pub const EncodeError = PayloadEncodeError || page.EncodeError || error{
+pub const EncodeError = Allocator.Error || PayloadEncodeError || page.EncodeError || error{
     /// The active area spans more pages than the SCREEN header can declare.
     PageCountOverflow,
 };
@@ -241,7 +242,7 @@ pub const EncodeError = PayloadEncodeError || page.EncodeError || error{
 ///
 /// The suffix begins with the page containing the active area's first row and
 /// ends with the newest page. Completed records may already be emitted if a
-/// later record fails; the missing READY checkpoint makes that prefix invalid.
+/// later record fails; the missing READY marker makes that prefix invalid.
 pub fn encode(
     screen: *const TerminalScreen,
     key: TerminalScreenKey,
@@ -272,13 +273,14 @@ pub fn encode(
         try destination.finish();
     }
 
-    // PageList never compresses the active-boundary page or any later page.
-    // Encoding this resident suffix therefore does not restore cold history or
-    // otherwise mutate the source screen.
+    // Active pages are resident today, but use the representation-safe access
+    // path so a future PageList compression-policy change cannot turn this
+    // wire encoder's optimization invariant into undefined behavior.
     node = first;
     while (node) |current| : (node = current.next) {
-        std.debug.assert(current.pageIfResident() != null);
-        try page.encode(current.pageAssumeResident(), destination);
+        var preserved = try current.pagePreservingState(screen.alloc);
+        defer preserved.deinit();
+        try page.encode(preserved.page(), destination);
     }
 }
 
@@ -410,7 +412,7 @@ pub fn decode(
                 .y = y,
                 .cursor_style = header.cursor_style,
                 .pending_wrap = header.cursor_flags.pending_wrap and
-                    x == options.cols - 1,
+                    x == row_pin.node.cols() - 1,
                 .protected = header.cursor_flags.protected,
                 .style = header.cursor_pen,
                 .hyperlink_implicit_id = header.hyperlink_implicit_id,
@@ -433,7 +435,7 @@ pub fn decode(
                 options.max_scrollback_bytes == 0,
             .cursor = cursor,
             .saved_cursor = if (saved_cursor) |value|
-                value.terminal()
+                value.terminal(options.cols, options.rows)
             else
                 null,
             .charset = header.charset,
@@ -503,7 +505,7 @@ pub fn decode(
             alloc,
             &result,
             options.kitty_image_storage_limit,
-        ) catch unreachable;
+        );
         result.kitty_images.image_limits = options.kitty_image_loading_limits;
     }
 
@@ -811,13 +813,18 @@ pub const SavedCursor = struct {
         };
     }
 
-    fn terminal(self: SavedCursor) TerminalScreen.SavedCursor {
+    fn terminal(
+        self: SavedCursor,
+        cols: u16,
+        rows: u16,
+    ) TerminalScreen.SavedCursor {
+        const x = @min(self.x, cols - 1);
         return .{
-            .x = self.x,
-            .y = self.y,
+            .x = x,
+            .y = @min(self.y, rows - 1),
             .style = self.pen,
             .protected = self.flags.protected,
-            .pending_wrap = self.flags.pending_wrap,
+            .pending_wrap = self.flags.pending_wrap and x == cols - 1,
             .origin = self.flags.origin,
             .charset = self.charset,
         };
@@ -845,7 +852,7 @@ pub const SavedCursor = struct {
         return .{
             .x = try io.readInt(reader, u16),
             .y = try io.readInt(reader, u16),
-            .pen = style.decodeOrDiscard(reader) catch .{},
+            .pen = (try style.decodeOrNull(reader)) orelse .{},
             .flags = try Flags.decode(reader),
             .charset = decodeCharsetState(
                 try io.readInt(reader, u16),
@@ -1006,7 +1013,8 @@ pub const Header = struct {
             try reader.takeByte(),
         ) orelse .block;
         const cursor_flags = try CursorFlags.decode(reader);
-        const cursor_pen: TerminalStyle = style.decodeOrDiscard(reader) catch .{};
+        const cursor_pen: TerminalStyle =
+            (try style.decodeOrNull(reader)) orelse .{};
         const hyperlink_implicit_id = try io.readInt(reader, u32);
 
         // Charset and selective-erase state.
@@ -1781,8 +1789,8 @@ test "framed native SCREEN and PAGE sequence" {
     }
 
     const restored_saved = restored.saved_cursor.?;
-    try std.testing.expectEqual(@as(u16, 0x0102), restored_saved.x);
-    try std.testing.expectEqual(@as(u16, 0x0304), restored_saved.y);
+    try std.testing.expectEqual(@as(u16, 7), restored_saved.x);
+    try std.testing.expectEqual(@as(u16, 7), restored_saved.y);
     try std.testing.expect(restored_saved.protected);
     try std.testing.expect(restored_saved.pending_wrap);
     try std.testing.expect(restored_saved.origin);
@@ -1962,6 +1970,62 @@ test "SCREEN encodes the minimal complete-page active suffix" {
     try std.testing.expectError(error.EndOfStream, restore_source.takeByte());
 }
 
+test "SCREEN encoding preserves a compressed suffix page" {
+    const testing = std.testing;
+    const compression = @import("../compress.zig");
+
+    var screen = try TerminalScreen.init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 8, .rows = 2, .max_scrollback_bytes = 0 },
+    );
+    defer screen.deinit();
+    screen.pages.getCell(.{ .active = .{} }).?.cell.* = .init('A');
+
+    // Force the active suffix into the representation that current PageList
+    // policy normally reserves for history. This models a future policy change
+    // and makes pageAssumeResident an invalid tagged-union access.
+    const node = screen.pages.getTopLeft(.active).node;
+    const resident = node.pageAssumeResident();
+    const scratch = try testing.allocator.alloc(
+        u8,
+        try compression.Page.requiredScratch(resident.memory.len),
+    );
+    defer testing.allocator.free(scratch);
+    var table: compression.lz4.HashTable = undefined;
+    const compressed = (try compression.Page.init(
+        testing.allocator,
+        resident,
+        scratch,
+        &table,
+    )).?;
+    node.data = .{ .compressed = compressed };
+    try testing.expectEqual(.compressed, node.storage());
+
+    var destination: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer destination.deinit();
+    var stream: record.Writer = .init(testing.allocator, &destination.writer);
+    defer stream.deinit();
+    try encode(&screen, .primary, &stream);
+
+    // Encoding borrows or clones through PreservedPage and never changes the
+    // source node's storage representation.
+    try testing.expectEqual(.compressed, node.storage());
+
+    var source: std.Io.Reader = .fixed(destination.written());
+    var decoded = try decode(
+        &source,
+        testing.io,
+        testing.allocator,
+        .{ .cols = 8, .rows = 2, .max_scrollback_bytes = 0 },
+    );
+    defer decoded.deinit();
+    try testing.expectEqual(
+        @as(u21, 'A'),
+        decoded.screen.pages.getCell(.{ .active = .{} }).?.cell.codepoint(),
+    );
+}
+
 test "SCREEN restoration normalizes invalid cursor positions" {
     var screen = try TerminalScreen.init(
         std.testing.io,
@@ -2045,6 +2109,109 @@ test "SCREEN restoration normalizes invalid cursor positions" {
         );
         decoded.screen.assertIntegrity();
     }
+}
+
+test "SCREEN validates pending wrap against a mixed-width cursor page" {
+    var screen = try TerminalScreen.init(
+        std.testing.io,
+        std.testing.allocator,
+        .{ .cols = 8, .rows = 1, .max_scrollback_bytes = 0 },
+    );
+    defer screen.deinit();
+
+    // Model a lazily reflowed active page that is narrower than the terminal.
+    // Column three is its physical final column even though it is not column
+    // seven of the current terminal dimensions.
+    var narrow_page = try terminal_page.Page.init(.{ .cols = 4, .rows = 1 });
+    defer narrow_page.deinit();
+
+    var destination: std.Io.Writer.Allocating = .init(
+        std.testing.allocator,
+    );
+    defer destination.deinit();
+    var stream: record.Writer = .init(
+        std.testing.allocator,
+        &destination.writer,
+    );
+    defer stream.deinit();
+
+    var header = Header.init(&screen, .primary, 1);
+    header.cursor_x = 3;
+    header.cursor_y = 0;
+    header.cursor_flags.pending_wrap = true;
+    header.saved_cursor_present = false;
+
+    const screen_payload = stream.begin(.screen);
+    errdefer stream.cancel();
+    try header.encode(screen_payload);
+    try screen_payload.writeByte(0);
+    try stream.finish();
+    try page.encode(&narrow_page, &stream);
+
+    var source: std.Io.Reader = .fixed(destination.written());
+    var decoded = try decode(
+        &source,
+        std.testing.io,
+        std.testing.allocator,
+        .{ .cols = 8, .rows = 1, .max_scrollback_bytes = 0 },
+    );
+    defer decoded.deinit();
+
+    try std.testing.expectEqual(@as(u16, 4), decoded.screen.cursor.page_pin.node.cols());
+    try std.testing.expectEqual(@as(u16, 3), decoded.screen.cursor.x);
+    try std.testing.expect(decoded.screen.cursor.pending_wrap);
+    decoded.screen.assertIntegrity();
+}
+
+test "SCREEN clamps a decoded saved cursor to terminal dimensions" {
+    var screen = try TerminalScreen.init(
+        std.testing.io,
+        std.testing.allocator,
+        .{ .cols = 2, .rows = 2, .max_scrollback_bytes = 0 },
+    );
+    defer screen.deinit();
+
+    var destination: std.Io.Writer.Allocating = .init(
+        std.testing.allocator,
+    );
+    defer destination.deinit();
+    var stream: record.Writer = .init(
+        std.testing.allocator,
+        &destination.writer,
+    );
+    defer stream.deinit();
+
+    var header = Header.init(&screen, .primary, 1);
+    header.saved_cursor_present = true;
+    const screen_payload = stream.begin(.screen);
+    try header.encode(screen_payload);
+    try (SavedCursor{
+        .x = std.math.maxInt(u16),
+        .y = std.math.maxInt(u16),
+        .pen = .{},
+        .flags = .{ .pending_wrap = true },
+        .charset = .{},
+    }).encode(screen_payload);
+    try screen_payload.writeByte(0);
+    try stream.finish();
+    try page.encode(
+        screen.pages.getTopLeft(.active).node.pageAssumeResident(),
+        &stream,
+    );
+
+    var source: std.Io.Reader = .fixed(destination.written());
+    var decoded = try decode(
+        &source,
+        std.testing.io,
+        std.testing.allocator,
+        .{ .cols = 2, .rows = 2, .max_scrollback_bytes = 0 },
+    );
+    defer decoded.deinit();
+
+    const saved = decoded.screen.saved_cursor.?;
+    try std.testing.expectEqual(@as(u16, 1), saved.x);
+    try std.testing.expectEqual(@as(u16, 1), saved.y);
+    try std.testing.expect(saved.pending_wrap);
 }
 
 test "SCREEN restoration rejects invalid and incomplete sequences" {
@@ -2261,20 +2428,14 @@ test "SCREEN decode ignores a PAGE with an empty hyperlink URI" {
 
     // One narrow codepoint cell refers to the hyperlink table entry above.
     // Since that entry is ignored, the cell must restore without a hyperlink.
-    try page_payload.writeByte(0);
-    try page_payload.writeAll(&.{ 0, 0, 0, 0 });
-    try io.writeInt(
-        page_payload,
-        terminal_style.Id,
-        0,
-    );
-    try io.writeInt(
-        page_payload,
-        terminal_hyperlink.Id,
-        1,
-    );
-    try io.writeInt(page_payload, u32, 'A');
-    try io.writeInt(page_payload, u32, 0);
+    try page_payload.writeByte(0x30); // row flags, full cell width
+    try io.writeInt(page_payload, u16, 1); // cell count
+    try io.writeInt(page_payload, u64, @bitCast(grid.Cell{
+        .content = 'A',
+        .hyperlink = true,
+        .hyperlink_id = 1,
+    }));
+    try io.writeInt(page_payload, u32, 0); // grapheme section
     try stream.finish();
 
     var source: std.Io.Reader = .fixed(destination.written());

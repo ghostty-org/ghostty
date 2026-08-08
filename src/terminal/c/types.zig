@@ -20,6 +20,7 @@ const render = @import("render.zig");
 const style_c = @import("style.zig");
 const mouse_encode = @import("mouse_encode.zig");
 const grid_ref = @import("grid_ref.zig");
+const io = @import("io.zig");
 
 /// C: GhosttySurfacePosition
 pub const SurfacePosition = extern struct {
@@ -60,6 +61,7 @@ pub const structs: std.StaticStringMap(StructInfo) = structs: {
         .{ "GhosttyMousePosition", StructInfo.init(mouse_event.Position) },
         .{ "GhosttyPoint", StructInfo.init(point.Point.C) },
         .{ "GhosttyPointCoordinate", StructInfo.init(point.Coordinate) },
+        .{ "GhosttyReader", StructInfo.init(io.Reader) },
         .{ "GhosttyRenderStateColors", StructInfo.init(render.Colors) },
         .{ "GhosttySelectionGestureBehaviors", StructInfo.init(selection_gesture.Behaviors) },
         .{ "GhosttySelectionGestureGeometry", StructInfo.init(selection_gesture.Geometry) },
@@ -69,15 +71,17 @@ pub const structs: std.StaticStringMap(StructInfo) = structs: {
         .{ "GhosttyStyle", StructInfo.init(style_c.Style) },
         .{ "GhosttyStyleColor", StructInfo.init(style_c.Color) },
         .{ "GhosttyTerminalDesktopNotification", StructInfo.init(terminal.DesktopNotification) },
+        .{ "GhosttyTerminalModeConfig", StructInfo.init(terminal.ModeConfig) },
         .{ "GhosttyTerminalProgressReport", StructInfo.init(terminal.ProgressReport) },
         .{ "GhosttyTerminalScrollbar", StructInfo.init(terminal.TerminalScrollbar) },
         .{ "GhosttyTerminalScrollViewport", StructInfo.init(terminal.ScrollViewport) },
+        .{ "GhosttyWriter", StructInfo.init(io.Writer) },
     });
 };
 
 /// The comptime-generated JSON string of all structs.
 pub const json: [:0]const u8 = json: {
-    @setEvalBranchQuota(100000);
+    @setEvalBranchQuota(200_000);
     var counter: std.Io.Writer.Discarding = .init(&.{});
     jsonWriteAll(&counter.writer) catch unreachable;
 
@@ -218,6 +222,9 @@ test "json parses" {
     try std.testing.expect(root.contains("GhosttyClipboardContent"));
     try std.testing.expect(root.contains("GhosttyClipboardWrite"));
     try std.testing.expect(root.contains("GhosttyFormatterTerminalOptions"));
+    try std.testing.expect(root.contains("GhosttyTerminalModeConfig"));
+    try std.testing.expect(root.contains("GhosttyReader"));
+    try std.testing.expect(root.contains("GhosttyWriter"));
 
     const clipboard_content = root.get("GhosttyClipboardContent").?.object;
     const clipboard_content_fields = clipboard_content.get("fields").?.object;
@@ -230,6 +237,16 @@ test "json parses" {
     try std.testing.expect(clipboard_write_fields.contains("location"));
     try std.testing.expect(clipboard_write_fields.contains("contents"));
     try std.testing.expect(clipboard_write_fields.contains("contents_len"));
+
+    const reader_fields = root.get("GhosttyReader").?.object
+        .get("fields").?.object;
+    try std.testing.expect(reader_fields.contains("read"));
+    try std.testing.expect(reader_fields.contains("userdata"));
+
+    const writer_fields = root.get("GhosttyWriter").?.object
+        .get("fields").?.object;
+    try std.testing.expect(writer_fields.contains("write"));
+    try std.testing.expect(writer_fields.contains("userdata"));
 
     try std.testing.expect(!root.contains("GhosttyTerminalOptions"));
 }

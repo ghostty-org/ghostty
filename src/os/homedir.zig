@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const passwd = @import("passwd.zig");
-const global = @import("../global.zig");
 const objc = @import("objc");
 
 const Error = error{
@@ -11,9 +10,9 @@ const Error = error{
 
 /// Determine the home directory for the currently executing user. This
 /// is generally an expensive process so the value should be cached.
-pub inline fn home(environ_map: *const std.process.Environ.Map, buf: []u8) !?[]const u8 {
+pub inline fn home(io: std.Io, environ_map: *const std.process.Environ.Map, buf: []u8) !?[]const u8 {
     return switch (builtin.os.tag) {
-        .linux, .freebsd, .macos => try homeUnix(environ_map, buf),
+        .linux, .freebsd, .macos => try homeUnix(io, environ_map, buf),
         .windows => homeWindows(environ_map, buf) catch return error.BufferTooSmall,
 
         // iOS doesn't have a user-writable home directory
@@ -23,7 +22,7 @@ pub inline fn home(environ_map: *const std.process.Environ.Map, buf: []u8) !?[]c
     };
 }
 
-fn homeUnix(environ_map: *const std.process.Environ.Map, buf: []u8) !?[]const u8 {
+fn homeUnix(io: std.Io, environ_map: *const std.process.Environ.Map, buf: []u8) !?[]const u8 {
     // First: if we have a HOME env var, then we use that.
     if (environ_map.get("HOME")) |result| {
         if (buf.len < result.len) return Error.BufferTooSmall;
@@ -60,8 +59,9 @@ fn homeUnix(environ_map: *const std.process.Environ.Map, buf: []u8) !?[]const u8
 
     // If all else fails, have the shell tell us...
     fba.reset();
-    const run = try std.process.run(fba.allocator(), global.io(), .{
+    const run = try std.process.run(fba.allocator(), io, .{
         .argv = &[_][]const u8{ "/bin/sh", "-c", "cd && pwd" },
+        .environ_map = environ_map,
         .stdout_limit = .limited(fba.buffer.len / 2),
         .stderr_limit = .limited(fba.buffer.len / 2),
     });
@@ -97,9 +97,14 @@ pub const ExpandError = error{
 ///
 /// Errors if `home` fails or if the size of the expanded path is larger
 /// than `buf.len`.
-pub fn expandHome(environ_map: *const std.process.Environ.Map, path: []const u8, buf: []u8) ExpandError![]const u8 {
+pub fn expandHome(
+    io: std.Io,
+    environ_map: *const std.process.Environ.Map,
+    path: []const u8,
+    buf: []u8,
+) ExpandError![]const u8 {
     return switch (builtin.os.tag) {
-        .linux, .freebsd, .macos => try expandHomeUnix(environ_map, path, buf),
+        .linux, .freebsd, .macos => try expandHomeUnix(io, environ_map, path, buf),
 
         // `~/` is not an idiom generally used on Windows
         .windows => return path,
@@ -111,9 +116,14 @@ pub fn expandHome(environ_map: *const std.process.Environ.Map, path: []const u8,
     };
 }
 
-fn expandHomeUnix(environ_map: *const std.process.Environ.Map, path: []const u8, buf: []u8) ExpandError![]const u8 {
+fn expandHomeUnix(
+    io: std.Io,
+    environ_map: *const std.process.Environ.Map,
+    path: []const u8,
+    buf: []u8,
+) ExpandError![]const u8 {
     if (!std.mem.startsWith(u8, path, "~/")) return path;
-    const home_dir: []const u8 = if (home(environ_map, buf)) |home_|
+    const home_dir: []const u8 = if (home(io, environ_map, buf)) |home_|
         home_ orelse return error.HomeDetectionFailed
     else |_|
         return error.HomeDetectionFailed;
@@ -130,30 +140,32 @@ test "expandHomeUnix" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 
     const testing = std.testing;
+    const io = testing.io;
     const allocator = testing.allocator;
     var environ_map = try testing.environ.createMap(testing.allocator);
     defer environ_map.deinit();
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const home_dir = try expandHomeUnix(&environ_map, "~/", &buf);
+    const home_dir = try expandHomeUnix(io, &environ_map, "~/", &buf);
     // Joining the home directory `~` with the path `/`
     // the result should end with a separator here. (e.g. `/home/user/`)
     try testing.expect(home_dir[home_dir.len - 1] == std.fs.path.sep);
 
-    const downloads = try expandHomeUnix(&environ_map, "~/Downloads/shader.glsl", &buf);
+    const downloads = try expandHomeUnix(io, &environ_map, "~/Downloads/shader.glsl", &buf);
     const expected_downloads = try std.mem.concat(allocator, u8, &[_][]const u8{ home_dir, "Downloads/shader.glsl" });
     defer allocator.free(expected_downloads);
     try testing.expectEqualStrings(expected_downloads, downloads);
 
-    try testing.expectEqualStrings("~", try expandHomeUnix(&environ_map, "~", &buf));
-    try testing.expectEqualStrings("~abc/", try expandHomeUnix(&environ_map, "~abc/", &buf));
-    try testing.expectEqualStrings("/home/user", try expandHomeUnix(&environ_map, "/home/user", &buf));
-    try testing.expectEqualStrings("", try expandHomeUnix(&environ_map, "", &buf));
+    try testing.expectEqualStrings("~", try expandHomeUnix(io, &environ_map, "~", &buf));
+    try testing.expectEqualStrings("~abc/", try expandHomeUnix(io, &environ_map, "~abc/", &buf));
+    try testing.expectEqualStrings("/home/user", try expandHomeUnix(io, &environ_map, "/home/user", &buf));
+    try testing.expectEqualStrings("", try expandHomeUnix(io, &environ_map, "", &buf));
 
     // Expect an error if the buffer is large enough to hold the home directory,
     // but not the expanded path
     var small_buf = try allocator.alloc(u8, home_dir.len);
     defer allocator.free(small_buf);
     try testing.expectError(error.BufferTooSmall, expandHomeUnix(
+        io,
         &environ_map,
         "~/Downloads",
         small_buf[0..],
@@ -162,11 +174,12 @@ test "expandHomeUnix" {
 
 test {
     const testing = std.testing;
+    const io = testing.io;
     var environ_map = try testing.environ.createMap(testing.allocator);
     defer environ_map.deinit();
 
     var buf: [1024]u8 = undefined;
-    const result = try home(&environ_map, &buf);
+    const result = try home(io, &environ_map, &buf);
     try testing.expect(result != null);
     try testing.expect(result.?.len > 0);
 }

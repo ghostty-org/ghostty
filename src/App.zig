@@ -476,8 +476,8 @@ pub fn performAllAction(
         // are logged but processing continues.
         .surface => for (self.surfaces.items) |surface| {
             _ = surface.core().performBindingAction(action) catch |err| {
-                log.warn("error performing binding action on surface ptr={X} err={}", .{
-                    @intFromPtr(surface),
+                log.warn("error performing binding action on surface id={x} err={}", .{
+                    surface.core().id,
                     err,
                 });
             };

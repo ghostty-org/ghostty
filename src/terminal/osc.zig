@@ -300,10 +300,19 @@ pub const Parser = struct {
     /// Maximum size of a "normal" OSC.
     pub const MAX_BUF = 2048;
 
+    /// Maximum size of an OSC that requires dynamically allocated storage.
+    /// OSC input is untrusted, so these captures must have a finite bound.
+    pub const MAX_ALLOCATING_BUF = 8 * 1024 * 1024;
+
     /// Optional allocator used to accept data longer than MAX_BUF.
     /// This only applies to some commands (e.g. OSC 52) that can
     /// reasonably exceed MAX_BUF.
     alloc: ?Allocator,
+
+    /// Maximum number of bytes retained by an allocating capture.
+    /// This is configurable primarily so callers and tests can choose a
+    /// smaller policy than the default.
+    max_allocating_bytes: usize,
 
     /// Current state of the parser.
     state: State,
@@ -376,6 +385,7 @@ pub const Parser = struct {
     pub fn init(alloc: ?Allocator) Parser {
         var result: Parser = .{
             .alloc = alloc,
+            .max_allocating_bytes = MAX_ALLOCATING_BUF,
             .state = .start,
             .capture = null,
             .command = .invalid,
@@ -461,6 +471,7 @@ pub const Parser = struct {
     const Capture = struct {
         writer: *std.Io.Writer,
         backing: Backing,
+        max_bytes: usize,
 
         const Backing = union(enum) {
             fixed: std.Io.Writer,
@@ -476,20 +487,48 @@ pub const Parser = struct {
             new.* = .{
                 .backing = .{ .fixed = .fixed(buf) },
                 .writer = &new.*.?.backing.fixed,
+                .max_bytes = buf.len,
             };
         }
 
         pub inline fn allocating(
             new: *?Capture,
             alloc: Allocator,
+            max_bytes: usize,
         ) error{OutOfMemory}!void {
             new.* = .{
                 .backing = .{ .allocating = try std.Io.Writer.Allocating.initCapacity(
                     alloc,
-                    2048,
+                    @min(MAX_BUF, max_bytes),
                 ) },
                 .writer = &new.*.?.backing.allocating.writer,
+                .max_bytes = max_bytes,
             };
+        }
+
+        /// Append one byte without permitting the backing allocation to grow
+        /// beyond max_bytes. Allocating.Writer normally grows super-linearly,
+        /// so grow it explicitly to keep the allocation itself bounded too.
+        pub inline fn writeByte(self: *Capture, byte: u8) error{WriteFailed}!void {
+            if (self.writer.buffered().len >= self.max_bytes) return error.WriteFailed;
+
+            switch (self.backing) {
+                .fixed => {},
+                .allocating => |*w| {
+                    if (w.writer.end >= w.writer.buffer.len) {
+                        const new_capacity = @min(
+                            self.max_bytes,
+                            @max(w.writer.buffer.len *| 2, 1),
+                        );
+                        w.writer.buffer = w.allocator.realloc(
+                            w.writer.buffer,
+                            new_capacity,
+                        ) catch return error.WriteFailed;
+                    }
+                },
+            }
+
+            try self.writer.writeByte(byte);
         }
 
         pub fn deinit(self: *Capture) void {
@@ -535,6 +574,7 @@ pub const Parser = struct {
                 Capture.allocating(
                     &self.capture,
                     alloc,
+                    self.max_allocating_bytes,
                 ) catch {
                     // The allocator failed for some reason, fall back to a fixed buffer
                     // and hope that it's big enough.
@@ -554,7 +594,7 @@ pub const Parser = struct {
         // If a writer has been initialized, we just accumulate the rest of the
         // OSC sequence in the writer's buffer and skip the state machine.
         if (self.capture) |*cap| {
-            cap.writer.writeByte(c) catch |err| switch (err) {
+            cap.writeByte(c) catch |err| switch (err) {
                 // We have overflowed our buffer or had some other error, set the
                 // state to invalid so that we discard any further input.
                 error.WriteFailed => self.state = .invalid,
@@ -844,4 +884,43 @@ pub const Parser = struct {
 test {
     _ = parsers;
     _ = encoding;
+}
+
+test "Parser allocating captures have a hard limit" {
+    const testing = std.testing;
+    const prefixes = [_][]const u8{ "52;", "66;", "72;", "5522;" };
+    const limit = Parser.MAX_BUF + 1;
+
+    for (prefixes) |prefix| {
+        var p: Parser = .init(testing.allocator);
+        defer p.deinit();
+        p.max_allocating_bytes = limit;
+
+        for (prefix) |ch| p.next(ch);
+        for (0..limit) |_| p.next('a');
+
+        const cap = &p.capture.?;
+        try testing.expectEqual(@as(usize, limit), cap.trailing().len);
+        try testing.expectEqual(@as(usize, limit), cap.writer.buffer.len);
+
+        p.next('a');
+        try testing.expectEqual(Parser.State.invalid, p.state);
+        try testing.expectEqual(@as(usize, limit), cap.trailing().len);
+        try testing.expectEqual(@as(usize, limit), cap.writer.buffer.len);
+    }
+}
+
+test "Parser allocating capture limit includes parser-added bytes" {
+    const testing = std.testing;
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+    p.max_allocating_bytes = 4;
+
+    for ("52;abcd") |ch| p.next(ch);
+    try testing.expect(p.end(null) == null);
+    try testing.expectEqual(Parser.State.invalid, p.state);
+
+    const cap = &p.capture.?;
+    try testing.expectEqual(@as(usize, 4), cap.trailing().len);
+    try testing.expectEqual(@as(usize, 4), cap.writer.buffer.len);
 }

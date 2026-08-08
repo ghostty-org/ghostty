@@ -261,8 +261,8 @@ fn imageGetTyped(
         .height => out.* = image.height,
         .format => out.* = image.format,
         .compression => out.* = image.compression,
-        .data_ptr => out.* = image.data.ptr,
-        .data_len => out.* = image.data.len,
+        .data_ptr => out.* = (image.data.bytes() orelse return .no_value).ptr,
+        .data_len => out.* = image.data.len(),
         .generation => out.* = image.generation,
     }
 
@@ -595,9 +595,9 @@ pub fn placement_render_info(
 /// the placement's origin has scrolled above the top of the viewport.
 ///
 /// A placement is considered not visible if it is a virtual (unicode
-/// placeholder) placement, or if it is fully off-screen (its bottom
-/// edge is above the viewport or its top edge is at or below the
-/// viewport's last row).
+/// placeholder) placement, its tracked content has been pruned, or it is
+/// fully off-screen (its bottom edge is above the viewport or its top edge is
+/// at or below the viewport's last row).
 fn computeViewportPos(
     p: *const kitty_storage.ImageStorage.Placement,
     image: *const Image,
@@ -609,6 +609,7 @@ fn computeViewportPos(
         .pin => |pin| pin,
         .virtual => return .{ .col = 0, .row = 0, .visible = false },
     };
+    if (pin.garbage) return .{ .col = 0, .row = 0, .visible = false };
 
     // Convert both the placement's pin and the viewport's top-left
     // corner to screen-absolute coordinates so we can subtract them
@@ -631,9 +632,8 @@ fn computeViewportPos(
     // is above the viewport, or its top edge is at or below the
     // viewport's last row.
     const grid_size = p.gridSize(image.*, t);
-    const rows_i32: i32 = @intCast(grid_size.rows);
-    const term_rows: i32 = @intCast(t.rows);
-    const visible = vp_row + rows_i32 > 0 and vp_row < term_rows;
+    const bottom_row = @as(i64, vp_row) + @as(i64, grid_size.rows);
+    const visible = bottom_row > 0 and vp_row < @as(i32, t.rows);
 
     return .{ .col = vp_col, .row = vp_row, .visible = visible };
 }
@@ -988,6 +988,57 @@ test "image_get_handle and image_get with transmitted image" {
     var data_len: usize = undefined;
     try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&data_len)));
     try testing.expect(data_len > 0);
+}
+
+test "image_get exposes pending metadata without a data pointer" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    var graphics: KittyGraphics = undefined;
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics,
+        @ptrCast(&graphics),
+    ));
+
+    const alloc = lib.alloc.default(&lib.alloc.test_allocator);
+    const pending = try graphics.addPendingImage(testing.io, alloc, terminal_c.zigTerminal(t).?.screens.active, .{
+        .id = 42,
+        .number = 7,
+        .width = 1,
+        .height = 4,
+        .format = .rgb,
+        .data = .{ .pending = 12 },
+    });
+
+    const img = image_get_handle(graphics, 42);
+    try testing.expect(img != null);
+
+    var number: u32 = 0;
+    try testing.expectEqual(Result.success, image_get(img, .number, @ptrCast(&number)));
+    try testing.expectEqual(@as(u32, 7), number);
+
+    var data_len: usize = 0;
+    try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&data_len)));
+    try testing.expectEqual(@as(usize, 12), data_len);
+
+    var data_ptr: [*]const u8 = undefined;
+    try testing.expectEqual(Result.no_value, image_get(img, .data_ptr, @ptrCast(&data_ptr)));
+
+    const pixels = try alloc.dupe(u8, "*" ** 12);
+    try testing.expect(pending.complete(graphics, testing.io, pixels));
+    const completed_img = image_get_handle(graphics, 42);
+    try testing.expect(completed_img != null);
+    try testing.expectEqual(Result.success, image_get(completed_img, .data_ptr, @ptrCast(&data_ptr)));
+    try testing.expectEqualSlices(u8, pixels, data_ptr[0..data_len]);
 }
 
 test "placement_rect with transmit and display" {
@@ -1571,6 +1622,53 @@ test "placement_render_info returns all fields" {
     try testing.expectEqual(0, ri.source_y);
     try testing.expectEqual(1, ri.source_width);
     try testing.expectEqual(2, ri.source_height);
+
+    const entry = iter.?.entry.?;
+    const pin = switch (entry.value_ptr.location) {
+        .pin => |pin| pin,
+        .virtual => unreachable,
+    };
+    pin.garbage = true;
+
+    ri = .{};
+    try testing.expectEqual(Result.success, placement_render_info(iter, img, t, &ri));
+    try testing.expect(!ri.viewport_visible);
+
+    var rect: selection_c.CSelection = undefined;
+    try testing.expectEqual(Result.no_value, placement_rect(iter, img, t, &rect));
+}
+
+test "placement_render_info handles maximum grid dimensions" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+    try testing.expectEqual(Result.success, terminal_c.resize(t, 80, 24, 10, 20));
+
+    const cmd = "\x1b_Ga=T,t=d,f=24,i=1,p=1,s=1,v=2,c=1,r=4294967295,C=1;////////\x1b\\";
+    terminal_c.vt_write(t, cmd.ptr, cmd.len);
+
+    var graphics: KittyGraphics = undefined;
+    try testing.expectEqual(Result.success, terminal_c.get(t, .kitty_graphics, @ptrCast(&graphics)));
+    const img = image_get_handle(graphics, 1);
+    try testing.expect(img != null);
+
+    var iter: PlacementIterator = null;
+    try testing.expectEqual(Result.success, placement_iterator_new(&lib.alloc.test_allocator, &iter));
+    defer placement_iterator_free(iter);
+    try testing.expectEqual(Result.success, get(graphics, .placement_iterator, @ptrCast(&iter)));
+    try testing.expect(placement_iterator_next(iter));
+
+    var ri: PlacementRenderInfo = .{};
+    try testing.expectEqual(Result.success, placement_render_info(iter, img, t, &ri));
+    try testing.expect(ri.viewport_visible);
+    try testing.expectEqual(std.math.maxInt(u32), ri.grid_rows);
 }
 
 test "placement_render_info off-screen sets viewport_visible false" {

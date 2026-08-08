@@ -4,7 +4,9 @@ using Adw 1;
 
 template $GhosttyConfigErrorsDialog: $GhosttyDialog {
   heading: _("Configuration Errors");
-  body: _("One or more configuration errors were found. Please review the errors below, and either reload your configuration or ignore these errors.");
+  body: _(
+    "One or more configuration errors were found. Please review the errors below, and either reload your configuration or ignore these errors."
+  );
 
   responses [
     ignore: _("Ignore"),

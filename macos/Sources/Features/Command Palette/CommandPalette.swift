@@ -70,24 +70,13 @@ struct CommandPaletteView: View {
     }
 
     // The options that we should show, taking into account any filtering from
-    // the query. Options with matching leadingColor are ranked higher.
+    // the query. Matched options are ranked in the following order:
+    // leadingColor > title > subtitle > description.
     var filteredOptions: [CommandOption] {
         if query.isEmpty {
             return options
         } else {
-            // Filter by title/subtitle match OR color match
-            let filtered = options.filter {
-                $0.title.matchedIndices(for: query) != nil ||
-                ($0.subtitle?.matchedIndices(for: query) != nil) ||
-                colorMatchScore(for: $0.leadingColor, query: query) > 0
-            }
-
-            // Sort by color match score (higher scores first), then maintain original order
-            return filtered.sorted { a, b in
-                let scoreA = colorMatchScore(for: a.leadingColor, query: query)
-                let scoreB = colorMatchScore(for: b.leadingColor, query: query)
-                return scoreA > scoreB
-            }
+            return options.filteredAndSorted(query: query)
         }
     }
 
@@ -160,7 +149,7 @@ struct CommandPaletteView: View {
                 hoveredOptionID: $hoveredOptionID) { option in
                     isPresented = false
                     option.action()
-            }
+                }
         }
         .frame(maxWidth: 500)
         .background(
@@ -191,31 +180,6 @@ struct CommandPaletteView: View {
         }
     }
 
-    /// Returns a score (0.0 to 1.0) indicating how well a color matches a search query color name.
-    /// Returns 0 if no color name in the query matches, or if the color is nil.
-    private func colorMatchScore(for color: Color?, query: String) -> Double {
-        guard let color = color else { return 0 }
-
-        let queryLower = query.lowercased()
-        let nsColor = NSColor(color)
-
-        var bestScore: Double = 0
-        for name in NSColor.colorNames {
-            guard queryLower.contains(name),
-                  let systemColor = NSColor(named: name) else { continue }
-
-            let distance = nsColor.distance(to: systemColor)
-            // Max distance in weighted RGB space is ~3.0, so normalize and invert
-            // Use a threshold to determine "close enough" matches
-            let maxDistance: Double = 1.5
-            if distance < maxDistance {
-                let score = 1.0 - (distance / maxDistance)
-                bestScore = max(bestScore, score)
-            }
-        }
-
-        return bestScore
-    }
 }
 
 /// The text field for building the query for the command palette.
@@ -401,7 +365,7 @@ private struct CommandRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     highlightedTitle
 
-                    if let subtitle = option.subtitle {
+                    if let subtitle = option.subtitle ?? option.description {
                         highlightedSubtitle(subtitle)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -490,5 +454,76 @@ extension String {
         }
 
         return queryIndex == query.endIndex ? matched : nil
+    }
+}
+
+// MARK: - Match score
+
+extension Collection where Element == CommandOption {
+    /// Filters to the options matching `query` and ranks them best-first while
+    /// maintaining original order: a closer leading color match always wins,
+    /// then a title match beats a subtitle match beats a description match.
+    func filteredAndSorted(query: String) -> [Element] {
+        compactMap { CommandOptionMatch(option: $0, query: query) }
+            .sorted {
+                ($0.colorScore, $0.textScore) > ($1.colorScore, $1.textScore)
+            }
+            .map(\.option)
+    }
+}
+
+/// A scored match of a command option against a palette query.
+struct CommandOptionMatch {
+    let option: CommandOption
+    /// How closely the option's leading color matches a color name in the
+    /// query, from 0 (no match) to 1 (exact).
+    let colorScore: Double
+    /// Which text field matched, ranked: title (3), subtitle (2),
+    /// description (1), none (0).
+    let textScore: Int
+
+    /// Returns nil if the option doesn't match the query at all.
+    init?(option: CommandOption, query: String) {
+        let colorScore = Self.colorMatchScore(for: option.leadingColor, query: query)
+        let textScore: Int = if option.title.matchedIndices(for: query) != nil {
+            3
+        } else if option.subtitle?.matchedIndices(for: query) != nil {
+            2
+        } else if option.description?.matchedIndices(for: query) != nil {
+            1
+        } else {
+            0
+        }
+
+        guard colorScore > 0 || textScore > 0 else { return nil }
+        self.option = option
+        self.colorScore = colorScore
+        self.textScore = textScore
+    }
+
+    /// Returns a score (0.0 to 1.0) indicating how well a color matches a search query color name.
+    /// Returns 0 if no color name in the query matches, or if the color is nil.
+    static func colorMatchScore(for color: Color?, query: String) -> Double {
+        guard let color = color else { return 0 }
+
+        let queryLower = query.lowercased()
+        let nsColor = NSColor(color)
+
+        var bestScore: Double = 0
+        for name in NSColor.colorNames {
+            guard queryLower.contains(name),
+                  let systemColor = NSColor(named: name) else { continue }
+
+            let distance = nsColor.distance(to: systemColor)
+            // Max distance in weighted RGB space is ~3.0, so normalize and invert
+            // Use a threshold to determine "close enough" matches
+            let maxDistance: Double = 1.5
+            if distance < maxDistance {
+                let score = 1.0 - (distance / maxDistance)
+                bestScore = max(bestScore, score)
+            }
+        }
+
+        return bestScore
     }
 }

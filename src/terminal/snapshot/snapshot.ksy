@@ -8,15 +8,16 @@ doc: |
   Ghostty terminal snapshot format version 1.
 
   A complete snapshot contains an envelope, terminal-wide state, one or two
-  renderable screen sequences, a READY checkpoint, matching history sequences,
-  and a FINISH checkpoint. SCREEN pages are oldest-to-newest. HISTORY pages are
-  newest-to-oldest. FINISH terminates the snapshot; bytes that follow belong to
-  the containing transport and are outside this schema. Each SCREEN declares
-  its complete logical history extent before READY.
+  renderable screen sequences, one raw standard-Stream CONTINUATION, a READY
+  marker, matching history sequences, and a FINISH marker. SCREEN pages
+  are oldest-to-newest. HISTORY pages are newest-to-oldest. FINISH terminates the
+  snapshot; bytes that follow belong to the containing transport and are outside
+  this schema. Each SCREEN declares its complete logical history extent before
+  READY.
 
-  Record CRC32C values and checkpoint BLAKE3-256 digests are represented here
-  but cannot be calculated by portable Kaitai Struct expressions. The adjacent
-  verify-kaitai.py script validates those values after parsing.
+  Record CRC32C values are represented here but cannot be calculated by
+  portable Kaitai Struct expressions. The adjacent verify-kaitai.py script
+  validates those values after parsing.
 seq:
   - id: envelope
     type: envelope
@@ -26,6 +27,8 @@ seq:
     type: screen_sequence
     repeat: expr
     repeat-expr: terminal.payload.header.screen_count
+  - id: continuation
+    type: continuation_record
   - id: ready
     type: checkpoint_record(5)
   - id: histories
@@ -42,6 +45,7 @@ enums:
     4: history
     5: ready
     6: finish
+    7: continuation
   screen_key:
     0: primary
     1: alternate
@@ -202,7 +206,18 @@ types:
         type: history_payload
         size: header.payload_length
 
+  continuation_record:
+    doc: |
+      Raw canonical standard TerminalStream continuation bytes. An empty
+      payload explicitly represents ground state.
+    seq:
+      - id: header
+        type: record_header(7)
+      - id: payload
+        size: header.payload_length
+
   checkpoint_record:
+    doc: READY and FINISH are empty marker records.
     params:
       - id: expected_tag
         type: u2
@@ -210,8 +225,9 @@ types:
       - id: header
         type: record_header(expected_tag)
       - id: payload
-        type: checkpoint_payload
         size: header.payload_length
+        valid:
+          expr: _.size == 0
 
   screen_sequence:
     doc: SCREEN followed by its declared PAGE records, oldest-to-newest.
@@ -232,15 +248,6 @@ types:
         type: page_record
         repeat: expr
         repeat-expr: history.payload.page_count
-
-  checkpoint_payload:
-    seq:
-      - id: prefix_digest
-        size: 32
-      - id: trailing_data
-        size-eos: true
-        valid:
-          expr: _.size == 0
 
   terminal_payload:
     seq:
@@ -900,25 +907,41 @@ types:
         type: grid_row(columns)
         repeat: expr
         repeat-expr: num_rows
+      - id: num_grapheme_entries
+        type: u4
+      - id: grapheme_entries
+        type: grapheme_entry(num_rows, columns)
+        repeat: expr
+        repeat-expr: num_grapheme_entries
 
   grid_row:
     params:
-      - id: num_cells
+      - id: columns
         type: u2
     seq:
       - id: flags
         type: grid_row_flags
+      - id: cell_count
+        type: u2
+        valid:
+          expr: _ <= columns
       - id: cells
-        type: grid_cell(_index, num_cells, flags.wrap)
+        type:
+          switch-on: flags.width_log2
+          cases:
+            0: grid_cell_1
+            1: grid_cell_2
+            2: grid_cell_4
+            3: grid_cell(_index, columns, flags.wrap)
         repeat: expr
-        repeat-expr: num_cells
+        repeat-expr: cell_count
 
   grid_row_flags:
     seq:
       - id: raw
         type: u1
         valid:
-          expr: (_ & 0xf0) == 0 and ((_ >> 2) & 0x3) <= 2
+          expr: (_ & 0xc0) == 0 and ((_ >> 2) & 0x3) <= 2
     instances:
       wrap:
         value: (raw & 1) != 0
@@ -926,8 +949,59 @@ types:
         value: (raw & 2) != 0
       semantic_prompt:
         value: (raw >> 2) & 0x3
+      width_log2:
+        value: (raw >> 4) & 0x3
+
+  grid_cell_1:
+    doc: One-byte encoded cell; the value is a codepoint at or below U+00FF.
+    seq:
+      - id: codepoint
+        type: u1
+
+  grid_cell_2:
+    doc: |
+      Two-byte encoded cell; the value is a codepoint at or below U+FFFF.
+      Canonical encoders never emit surrogates.
+    seq:
+      - id: codepoint
+        type: u2
+        valid:
+          expr: not (_ >= 0xd800 and _ <= 0xdfff)
+
+  grid_cell_4:
+    doc: |
+      Four-byte encoded cell holding the low half of the cell word: any
+      content kind and codepoint, style IDs one through sixty-three, and no
+      width, flag, or hyperlink bits.
+    seq:
+      - id: raw
+        type: u4
+        valid:
+          expr: |
+            (content_kind >= 2 or
+              (content <= 0x10ffff and
+                not (content >= 0xd800 and content <= 0xdfff))) and
+            (content_kind != 2 or content <= 0xff)
+    instances:
+      content_kind:
+        value: raw % 4
+      content:
+        value: (raw / 4) % 16777216
+      style_id:
+        value: raw / 67108864
 
   grid_cell:
+    doc: |
+      One 64-bit little-endian cell word. The word is parsed as two 32-bit
+      halves so every derived field stays within JavaScript's safe integer
+      range, following the same approach as mode_set.
+
+      Canonical rules validated here: reserved semantic content is not
+      emitted, the hyperlink flag matches a nonzero hyperlink ID, codepoint
+      content is a Unicode scalar value, palette content uses only its low
+      eight bits, and spacer relationships match the preceding cell. Wide
+      markers cannot be validated forward because their spacer tail may be
+      the next cell or the implicit narrow cell after a short row.
     params:
       - id: index
         type: u2
@@ -936,59 +1010,62 @@ types:
       - id: row_wrap
         type: bool
     seq:
-      - id: content_kind
-        type: u1
-        valid:
-          max: 2
-      - id: width
-        type: u1
-        valid:
-          expr: |
-            _ <= 3 and
-            (_ != 2 or
-              (index > 0 and _parent.cells[index - 1].width == 1)) and
-            (_ != 3 or
-              (index + 1 == columns and row_wrap))
-      - id: flags
-        type: grid_cell_flags
-      - id: reserved
-        type: u1
-        valid: 0
-      - id: style_id
-        type: u2
-      - id: hyperlink_id
-        type: u2
-      - id: value
+      - id: lo
+        type: u4
+      - id: hi
         type: u4
         valid:
           expr: |
-            content_kind == 0 ?
-              (_ <= 0x10ffff and not (_ >= 0xd800 and _ <= 0xdfff) and _ != 0x10eeee) :
-            content_kind == 1 ?
-              _ <= 0xff :
-              _ <= 0xffffff
-      - id: num_graphemes
-        type: u4
+            semantic_content <= 2 and
+            hyperlink == (hyperlink_id != 0) and
+            (content_kind >= 2 or
+              (content <= 0x10ffff and
+                not (content >= 0xd800 and content <= 0xdfff))) and
+            (content_kind != 2 or content <= 0xff) and
+            (width != 2 or
+              (index > 0 and
+                _parent.cells[index - 1].as<grid_cell>.width == 1)) and
+            (width != 3 or (index + 1 == columns and row_wrap))
+    instances:
+      content_kind:
+        value: lo % 4
+      content:
+        value: (lo / 4) % 16777216
+      style_id:
+        value: (lo / 67108864) + (hi % 1024) * 64
+      width:
+        value: (hi / 1024) % 4
+      protected:
+        value: (hi / 4096) % 2 != 0
+      hyperlink:
+        value: (hi / 8192) % 2 != 0
+      semantic_content:
+        value: (hi / 16384) % 4
+      hyperlink_id:
+        value: hi / 65536
+
+  grapheme_entry:
+    seq:
+      - id: row
+        type: u2
         valid:
-          expr: |
-            content_kind == 0 ?
-              (_ == 0 or value != 0) :
-              _ == 0
-      - id: graphemes
+          expr: _ < num_rows
+      - id: col
+        type: u2
+        valid:
+          expr: _ < columns
+      - id: num_codepoints
+        type: u2
+        valid:
+          min: 1
+      - id: codepoints
         type: u4
         repeat: expr
-        repeat-expr: num_graphemes
+        repeat-expr: num_codepoints
         valid:
-          expr: _ <= 0x10ffff and not (_ >= 0xd800 and _ <= 0xdfff) and _ != 0x10eeee
-
-  grid_cell_flags:
-    seq:
-      - id: raw
-        type: u1
-        valid:
-          expr: (_ & 0xf8) == 0 and ((_ >> 1) & 0x3) <= 2
-    instances:
-      protected:
-        value: (raw & (1 << 0)) != 0
-      semantic_content:
-        value: (raw >> 1) & 0x3
+          expr: _ <= 0x10ffff and not (_ >= 0xd800 and _ <= 0xdfff)
+    params:
+      - id: num_rows
+        type: u2
+      - id: columns
+        type: u2

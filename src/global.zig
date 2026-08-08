@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const build_config = @import("build_config.zig");
+const build_options = @import("build_options");
 const cli = @import("cli.zig");
 const internal_os = @import("os/main.zig");
 const fontconfig = @import("fontconfig");
@@ -179,13 +180,17 @@ pub fn init(opts: InitOpts) !void {
     // As early as possible, initialize our resource limits.
     self.rlimits = .init();
 
-    // Initialize our crash reporting.
-    crash.init(self.alloc) catch |err| {
-        std.log.warn(
-            "sentry init failed, no crash capture available err={}",
-            .{err},
-        );
-    };
+    if (build_options.sentry) {
+        // Initialize our crash reporting.
+        var environ_map = try self.environ.createMap(self.alloc);
+        defer environ_map.deinit();
+        crash.init(self.alloc, &environ_map) catch |err| {
+            std.log.warn(
+                "sentry init failed, no crash capture available err={}",
+                .{err},
+            );
+        };
+    }
 
     // const sentrylib = @import("sentry");
     // if (sentrylib.captureEvent(sentrylib.Value.initMessageEvent(

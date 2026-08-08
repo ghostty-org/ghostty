@@ -7,7 +7,6 @@ const build_options = @import("build_options");
 const sentry = if (build_options.sentry) @import("sentry");
 const internal_os = @import("../os/main.zig");
 const crash = @import("main.zig");
-const global = @import("../global.zig");
 const Surface = @import("../Surface.zig");
 
 const log = std.log.scoped(.sentry);
@@ -15,6 +14,16 @@ const log = std.log.scoped(.sentry);
 /// The global state for the Sentry SDK. This is unavoidable since crash
 /// handling is a global process-wide thing.
 var init_thread: ?std.Thread = null;
+
+/// Directory memory, holds the cache and state dirs persistently. This
+/// prevents any sort of crashes due to initialization races.
+var dir_mem: [std.fs.max_path_bytes * 2]u8 = undefined;
+
+/// Holds the XDG cache dir.
+var cache_dir_: ?[]const u8 = null;
+
+/// Holds the XDG state dir.
+var state_dir_: ?[]const u8 = null;
 
 /// Thread-local state that can be set by thread main functions so that
 /// crashes have more context.
@@ -46,8 +55,8 @@ pub threadlocal var thread_state: ?ThreadState = null;
 /// NOT send any data over the network. We use the Sentry native SDK to collect
 /// crash reports and logs, but we only store them locally (see Transport).
 /// It is up to the user to grab the logs and manually send them to us
-/// (or they own Sentry instance) if they want to.
-pub fn init(gpa: Allocator) !void {
+/// (or to their own Sentry instance) if they want to.
+pub fn init(gpa: Allocator, environ_map: *const std.process.Environ.Map) !void {
     if (comptime !build_options.sentry) return;
 
     // Not supported on Windows currently, doesn't build.
@@ -55,6 +64,26 @@ pub fn init(gpa: Allocator) !void {
 
     // Must only start once
     assert(init_thread == null);
+
+    // Get our directories.
+    var single_threaded: std.Io.Threaded = .init_single_threaded;
+    defer single_threaded.deinit();
+    var fba: std.heap.FixedBufferAllocator = .init(&dir_mem);
+
+    state_dir_ = state_dir: {
+        const dir = try crash.defaultDir(single_threaded.io(), gpa, environ_map);
+        defer gpa.free(dir.path);
+        break :state_dir try fba.allocator().dupe(u8, dir.path);
+    };
+    errdefer state_dir_ = null;
+
+    const cache_dir = cache_dir: {
+        const dir = try cacheDir(single_threaded.io(), gpa, environ_map);
+        defer gpa.free(dir);
+        break :cache_dir try fba.allocator().dupe(u8, dir);
+    };
+    cache_dir_ = cache_dir;
+    errdefer cache_dir_ = null;
 
     // We use a thread for initializing Sentry because initialization takes
     // ~2k ns on my M3 Max. That's not a LOT of time but it's enough to be
@@ -64,13 +93,14 @@ pub fn init(gpa: Allocator) !void {
     const thr = try std.Thread.spawn(
         .{},
         initThread,
-        .{gpa},
+        .{cache_dir},
     );
-    thr.setName(global.io(), "sentry-init") catch {};
+
+    thr.setName(single_threaded.io(), "sentry-init") catch {};
     init_thread = thr;
 }
 
-fn initThread(gpa: Allocator) !void {
+fn initThread(cache_dir: []const u8) !void {
     if (comptime !build_options.sentry) return;
 
     // Right now, on Darwin, `std.Thread.setName` can only name the current
@@ -79,10 +109,6 @@ fn initThread(gpa: Allocator) !void {
     if (builtin.os.tag.isDarwin()) {
         internal_os.macos.pthread_setname_np(&"sentry-init".*);
     }
-
-    var arena = std.heap.ArenaAllocator.init(gpa);
-    defer arena.deinit();
-    const alloc = arena.allocator();
 
     const transport = sentry.Transport.init(&Transport.send);
     // This will crash if the transport was never used so we avoid
@@ -104,27 +130,6 @@ fn initThread(gpa: Allocator) !void {
     // do here and why we use this.
     sentry.c.sentry_options_set_before_send(opts, beforeSend, null);
 
-    // Determine the Sentry cache directory.
-    const cache_dir = cache_dir: {
-        // On macOS, we prefer to use the NSCachesDirectory value to be
-        // a more idiomatic macOS application. But if XDG env vars are set
-        // we will respect them.
-        if (comptime builtin.os.tag == .macos) macos: {
-            if (global.environ().containsUnemptyConstant("XDG_CACHE_HOME")) break :macos;
-            break :cache_dir try internal_os.macos.cacheDir(
-                alloc,
-                "sentry",
-            );
-        }
-
-        var environ_map = try global.environMap();
-        defer environ_map.deinit();
-        break :cache_dir try internal_os.xdg.cache(
-            alloc,
-            &environ_map,
-            .{ .subdir = "ghostty/sentry" },
-        );
-    };
     sentry.c.sentry_options_set_database_path_n(
         opts,
         cache_dir.ptr,
@@ -147,6 +152,28 @@ fn initThread(gpa: Allocator) !void {
 
     // Log some information about sentry
     log.debug("sentry initialized database={s}", .{cache_dir});
+}
+
+fn cacheDir(io: std.Io, alloc: Allocator, environ_map: *const std.process.Environ.Map) ![]const u8 {
+    // On macOS, we prefer to use the NSCachesDirectory value to be
+    // a more idiomatic macOS application. But if XDG env vars are set
+    // we will respect them.
+    if (comptime builtin.os.tag == .macos) macos: {
+        const xdg_cache_home = environ_map.get("XDG_CACHE_HOME") orelse break :macos;
+        if (xdg_cache_home.len > 0) {
+            return try internal_os.macos.cacheDir(
+                alloc,
+                "sentry",
+            );
+        }
+    }
+
+    return try internal_os.xdg.cache(
+        io,
+        alloc,
+        environ_map,
+        .{ .subdir = "ghostty/sentry" },
+    );
 }
 
 /// Process-wide deinitialization of our Sentry client. This ensures all
@@ -252,7 +279,13 @@ pub const Transport = struct {
 
     /// Implementation of send but we can use Zig errors.
     fn sendInternal(envelope: *sentry.Envelope) !void {
-        var arena = std.heap.ArenaAllocator.init(global.alloc());
+        const state_dir = state_dir_ orelse return error.StateDirNotInitialized;
+
+        // The I/O and allocator we use here are just meant to get the job
+        // done for saving the crash report.
+        var single_threaded: std.Io.Threaded = .init_single_threaded;
+        defer single_threaded.deinit();
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
 
@@ -281,20 +314,17 @@ pub const Transport = struct {
         // conflict.
         const uuid = sentry.UUID.init();
 
-        // Get our XDG state directory where we'll store the crash reports.
-        // This directory must exist for writing to work.
-        const dir = try crash.defaultDir(alloc);
-        try std.Io.Dir.cwd().createDirPath(global.io(), dir.path);
+        try std.Io.Dir.cwd().createDirPath(single_threaded.io(), state_dir);
 
         // Build our final path and write to it.
         const path = try std.fs.path.join(alloc, &.{
-            dir.path,
+            state_dir,
             try std.fmt.allocPrint(alloc, "{s}.ghosttycrash", .{uuid.string()}),
         });
-        const file = try std.Io.Dir.cwd().createFile(global.io(), path, .{});
-        defer file.close(global.io());
+        const file = try std.Io.Dir.cwd().createFile(single_threaded.io(), path, .{});
+        defer file.close(single_threaded.io());
         var buf: [4096]u8 = undefined;
-        var file_writer = file.writer(global.io(), &buf);
+        var file_writer = file.writer(single_threaded.io(), &buf);
         try file_writer.interface.writeAll(json);
         try file_writer.end();
 

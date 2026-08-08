@@ -73,6 +73,15 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     // Setup our standard Zig target and optimize options, i.e.
     // `-Doptimize` and `-Dtarget`.
     const optimize = b.standardOptimizeOption(.{});
+
+    // Default dependency builds to libghostty-vt-only mode. Consumers can
+    // still explicitly disable this to request the full Ghostty build.
+    const is_dep = b.dep_prefix.len > 0;
+    const emit_lib_vt = b.option(
+        bool,
+        "emit-lib-vt",
+        "Set defaults for a libghostty-vt-only build (disables xcframework, macOS app, and docs).",
+    ) orelse is_dep;
     const target = target: {
         var result = b.standardTargetOptions(.{});
 
@@ -100,15 +109,14 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         // If we have no minimum OS version, we set the default based on
         // our tag. Not all tags have a minimum so this may be null.
         if (result.query.os_version_min == null) {
-            result.query.os_version_min = osVersionMin(result.result.os.tag);
+            result.query.os_version_min = if (emit_lib_vt)
+                osVersionMinLibVt(result.result.os.tag)
+            else
+                osVersionMin(result.result.os.tag);
         }
 
         break :target result;
     };
-
-    // Detect if Ghostty is a dependency of another project.
-    // dep_prefix is non-empty when this build is running as a dependency.
-    const is_dep = b.dep_prefix.len > 0;
 
     // This is set to true when we're building a system package. For now
     // this is trivially detected using the "system_package_mode" bool
@@ -325,22 +333,39 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     // may be fixed in 0.17.0. We may want to revisit this afterwards; although
     // I'm not too sure if that helps to clean up rpath, this may just be the
     // better option. See https://codeberg.org/ziglang/zig/issues/31760.
-    if ((target.result.os.tag == .linux) and target.query.isNativeCpu()) {
-        const in_nix_shell = env.get("IN_NIX_SHELL") != null;
-        if (b.option(
-            bool,
-            "patchelf",
-            "Patch interpreter and rpath in the built binary (default if IN_NIX_SHELL is set)",
-        ) orelse in_nix_shell) {
-            var patchelf: PatchElf = .{};
-            if (b.findProgram(&.{"ld.so"}, &.{})) |ld_so| {
-                patchelf.interp = std.Io.Dir.realPathFileAbsoluteAlloc(b.graph.io, ld_so, b.allocator) catch null;
-            } else |_| {}
-            if (env.get("LD_LIBRARY_PATH")) |ld_library_path| {
-                patchelf.rpath = if (ld_library_path.len > 0) ld_library_path else null;
-            }
-            if (patchelf.interp != null or patchelf.rpath != null) {
-                config.patchelf = patchelf;
+    if (b.option(
+        []const u8,
+        "patch-interp",
+        "Inject the supplied path as the dynamic linker in the built binary. " ++
+            "Under Nix, this defaults to the dynamic linker found in PATH.",
+    )) |interp| {
+        PatchElf.setInterp(&config, interp);
+    } else patch_interp: {
+        if (!(target.result.os.tag == .linux) or !target.query.isNativeCpu()) break :patch_interp;
+        if (env.get("IN_NIX_SHELL") == null) break :patch_interp;
+
+        if (b.findProgram(&.{"ld.so"}, &.{})) |ld_so| {
+            PatchElf.setInterp(
+                &config,
+                std.Io.Dir.realPathFileAbsoluteAlloc(b.graph.io, ld_so, b.allocator) catch break :patch_interp,
+            );
+        } else |_| {}
+    }
+
+    if (b.option(
+        []const u8,
+        "patch-rpath",
+        "Inject the supplied colon-delimited search path as the rpath in the built binary. " ++
+            "This defaults to LD_LIBRARY_PATH if we're in a Nix shell environment.",
+    )) |rpath| {
+        PatchElf.setRpath(&config, rpath);
+    } else patch_rpath: {
+        if (!(target.result.os.tag == .linux) or !target.query.isNativeCpu()) break :patch_rpath;
+        if (env.get("IN_NIX_SHELL") == null) break :patch_rpath;
+
+        if (env.get("LD_LIBRARY_PATH")) |ld_library_path| {
+            if (ld_library_path.len > 0) {
+                PatchElf.setRpath(&config, ld_library_path);
             }
         }
     }
@@ -364,11 +389,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     //---------------------------------------------------------------
     // Artifacts to Emit
 
-    config.emit_lib_vt = b.option(
-        bool,
-        "emit-lib-vt",
-        "Set defaults for a libghostty-vt-only build (disables xcframework, macOS app, and docs).",
-    ) orelse false;
+    config.emit_lib_vt = emit_lib_vt;
 
     config.emit_exe = b.option(
         bool,
@@ -539,6 +560,24 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
 const PatchElf = struct {
     interp: ?[]const u8 = null,
     rpath: ?[]const u8 = null,
+
+    fn setInterp(config: *Config, interp: []const u8) void {
+        if (config.patchelf) |*patchelf| {
+            patchelf.interp = interp;
+            return;
+        }
+
+        config.patchelf = .{ .interp = interp };
+    }
+
+    fn setRpath(config: *Config, rpath: []const u8) void {
+        if (config.patchelf) |*patchelf| {
+            patchelf.rpath = rpath;
+            return;
+        }
+
+        config.patchelf = .{ .rpath = rpath };
+    }
 };
 
 /// Add a patchelf step for the supplied `artifact`, depending on the supplied
@@ -692,9 +731,9 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
             .patch = 0,
         } },
 
-        // iOS 17 picked arbitrarily
+        // The full Ghostty path compiles metal shaders that require iOS 14.
         .ios => .{ .semver = .{
-            .major = 17,
+            .major = 14,
             .minor = 0,
             .patch = 0,
         } },
@@ -703,6 +742,15 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
         // we should add a new case here.
         else => null,
     };
+}
+
+/// Returns the minimum OS version for lib-vt build.
+///
+/// This should only be used for Darwin targets.
+pub fn osVersionMinLibVt(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
+    // lib-vt has no newer deployment target requirement.
+    if (tag == .ios) return .{ .semver = .{ .major = 13, .minor = 0, .patch = 0 } };
+    return osVersionMin(tag);
 }
 
 // Returns a ResolvedTarget for a mac with a `target.result.cpu.model.name` of `generic`.

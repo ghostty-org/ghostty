@@ -581,10 +581,8 @@ const Command = extern struct {
 
         const priv = self.private();
         priv.data = .{
-            .jump = .{
-                // TODO: Replace with surface id whenever Ghostty adds one
-                .sort_key = @intFromPtr(surface),
-            },
+            // Surface should be initialized at this point.
+            .jump = .{ .sort_key = surface.core().?.id },
         };
         priv.data.jump.surface.set(surface);
 

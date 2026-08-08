@@ -22,7 +22,6 @@ const shell_integration = @import("shell_integration.zig");
 const terminal = @import("../terminal/main.zig");
 const termio = @import("../termio.zig");
 const Command = @import("../Command.zig");
-const SegmentedPool = @import("../datastruct/main.zig").SegmentedPool;
 const ptypkg = @import("../pty.zig");
 const Pty = ptypkg.Pty;
 const EnvMap = std.process.Environ.Map;
@@ -418,8 +417,9 @@ pub fn queueWrite(
     // our cached buffers that we can queue to the stream.
     var i: usize = 0;
     while (i < data.len) {
-        const req = try exec.write_req_pool.getGrow(alloc);
-        const buf = try exec.write_buf_pool.getGrow(alloc);
+        const w = try exec.write_pool.create(alloc);
+        w.td = exec;
+        const buf = &w.buf;
         const slice = slice: {
             // The maximum end index is either the end of our data or
             // the end of our buffer, whichever is smaller.
@@ -459,26 +459,25 @@ pub fn queueWrite(
         exec.write_stream.queueWrite(
             td.loop,
             &exec.write_queue,
-            req,
+            &w.req,
             .{ .slice = slice },
-            termio.Exec.ThreadData,
-            exec,
+            ThreadData.Write,
+            w,
             ttyWrite,
         );
     }
 }
 
 fn ttyWrite(
-    td_: ?*ThreadData,
+    w_: ?*ThreadData.Write,
     _: *xev.Loop,
     _: *xev.Completion,
     _: xev.Stream,
     _: xev.WriteBuffer,
     r: xev.WriteError!usize,
 ) xev.CallbackAction {
-    const td = td_.?;
-    td.write_req_pool.put();
-    td.write_buf_pool.put();
+    const w = w_.?;
+    w.td.write_pool.destroy(w);
 
     const d = r catch |err| {
         log.err("write error: {}", .{err});
@@ -492,9 +491,21 @@ fn ttyWrite(
 
 /// The thread local data for the exec implementation.
 pub const ThreadData = struct {
-    // The preallocation size for the write request pool. This should be big
-    // enough to satisfy most write requests. It must be a power of 2.
-    const WRITE_REQ_PREALLOC = std.math.pow(usize, 2, 5);
+    /// The state for a single queued pty write. The write request and
+    /// the buffer it writes from must both remain pointer-stable until
+    /// the write completes, so they're pooled together and checked out
+    /// per write.
+    pub const Write = struct {
+        /// Backpointer to the thread data so the write completion
+        /// callback can put this back into the pool.
+        td: *ThreadData,
+
+        /// The libxev write request.
+        req: xev.WriteRequest,
+
+        /// The buffer for the data being written.
+        buf: [64]u8,
+    };
 
     /// Process start time and boolean of whether its already exited.
     start: std.Io.Timestamp,
@@ -506,12 +517,9 @@ pub const ThreadData = struct {
     /// The process watcher
     process: ?xev.Process,
 
-    /// This is the pool of available (unused) write requests. If you grab
+    /// This is the pool of available (unused) write states. If you grab
     /// one from the pool, you must put it back when you're done!
-    write_req_pool: SegmentedPool(xev.WriteRequest, WRITE_REQ_PREALLOC) = .{},
-
-    /// The pool of available buffers for writing to the pty.
-    write_buf_pool: SegmentedPool([64]u8, WRITE_REQ_PREALLOC) = .{},
+    write_pool: std.heap.MemoryPool(Write) = .empty,
 
     /// The write queue for the data stream.
     write_queue: xev.WriteQueue = .{},
@@ -541,11 +549,10 @@ pub const ThreadData = struct {
     pub fn deinit(self: *ThreadData, alloc: Allocator) void {
         _ = posix.system.close(self.read_thread_pipe);
 
-        // Clear our write pools. We know we aren't ever going to do
+        // Clear our write pool. We know we aren't ever going to do
         // any more IO since we stop our data stream below so we can just
         // drop this.
-        self.write_req_pool.deinit(alloc);
-        self.write_buf_pool.deinit(alloc);
+        self.write_pool.deinit(alloc);
 
         // Stop our process watcher
         if (self.process) |*p| p.deinit();

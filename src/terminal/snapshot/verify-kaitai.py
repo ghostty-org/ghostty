@@ -18,8 +18,8 @@ https://ide.kaitai.io/.
 The generated Python parser exists only in a temporary directory. This keeps
 snapshot.ksy as the source of truth and ensures this check cannot accidentally
 pass against stale generated code. After structural parsing, the script checks
-record CRC32C values, checkpoint BLAKE3 digests, and cross-record invariants
-that portable Kaitai expressions cannot represent.
+record CRC32C values and cross-record invariants that portable Kaitai
+expressions cannot represent.
 """
 
 from __future__ import annotations
@@ -37,7 +37,6 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from blake3 import blake3
     from kaitaistruct import KaitaiStream
 except ImportError as error:
     raise SystemExit(
@@ -159,7 +158,7 @@ def crc32c(data: bytes) -> int:
 
 def validate_record(record: Any, data: bytes, offset: int) -> int:
     """Validate one parsed record's source bytes and CRC32C."""
-    payload = record._raw_payload
+    payload = getattr(record, "_raw_payload", record.payload)
     header = record.header
     if header.payload_length != len(payload):
         raise ValueError(
@@ -189,11 +188,12 @@ def validate_record(record: Any, data: bytes, offset: int) -> int:
 
 
 def all_snapshot_records(snapshot: Any) -> list[Any]:
-    """Return complete-snapshot records in their authenticated wire order."""
+    """Return complete-snapshot records in wire order."""
     records = [snapshot.terminal]
     for sequence in snapshot.screens:
         records.append(sequence.screen)
         records.extend(sequence.pages)
+    records.append(snapshot.continuation)
     records.append(snapshot.ready)
     for sequence in snapshot.histories:
         records.append(sequence.history)
@@ -203,7 +203,7 @@ def all_snapshot_records(snapshot: Any) -> list[Any]:
 
 
 def validate_complete_snapshot(snapshot: Any, data: bytes) -> None:
-    """Validate ordering relationships, record CRCs, and checkpoints."""
+    """Validate ordering relationships, record CRCs, and markers."""
     screen_keys = [
         sequence.screen.payload.header.key for sequence in snapshot.screens
     ]
@@ -281,14 +281,6 @@ def validate_complete_snapshot(snapshot: Any, data: bytes) -> None:
 
     offset = SNAPSHOT_ENVELOPE_SIZE
     for record in all_snapshot_records(snapshot):
-        if record is snapshot.ready:
-            expected = blake3(data[:offset]).digest()
-            if record.payload.prefix_digest != expected:
-                raise ValueError("READY BLAKE3-256 digest does not match")
-        elif record is snapshot.finish:
-            expected = blake3(data[:offset]).digest()
-            if record.payload.prefix_digest != expected:
-                raise ValueError("FINISH BLAKE3-256 digest does not match")
         offset = validate_record(record, data, offset)
 
     if offset != len(data):
@@ -398,15 +390,6 @@ def main() -> int:
                     raise ValueError(
                         f"{fixture_label}: record has trailing data"
                     )
-                if hasattr(parsed.payload, "prefix_digest"):
-                    expected = blake3(
-                        fixture.data[:fixture.offset]
-                    ).digest()
-                    if parsed.payload.prefix_digest != expected:
-                        raise ValueError(
-                            f"{fixture_label}: checkpoint digest does not match"
-                        )
-
             print(f"ok {fixture_label}")
 
     print(f"validated {len(fixture_paths)} snapshot fixtures")

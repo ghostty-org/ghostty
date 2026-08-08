@@ -84,35 +84,39 @@ struct TerminalCommandPaletteView: View {
     private var updateOptions: [CommandOption] {
         var options: [CommandOption] = []
 
-        guard let updateViewModel, updateViewModel.state.isInstallable else {
+        guard let updateViewModel else {
             return options
         }
 
-        // We override the update available one only because we want to properly
-        // convey it'll go all the way through.
-        let title: String
-        if case .updateAvailable = updateViewModel.state {
-            title = "Update Ghostty and Restart"
-        } else {
-            title = updateViewModel.text
+        if updateViewModel.state.isInstallable {
+            // We override the update available one only because we want to properly
+            // convey it'll go all the way through.
+            let title: String
+            if case .updateAvailable = updateViewModel.state {
+                title = "Update Ghostty and Restart"
+            } else {
+                title = updateViewModel.text
+            }
+
+            options.append(CommandOption(
+                title: title,
+                description: updateViewModel.description,
+                leadingIcon: updateViewModel.iconName ?? "shippingbox.fill",
+                badge: updateViewModel.badge,
+                emphasis: true
+            ) {
+                (NSApp.delegate as? AppDelegate)?.updateController.viewModel.state.confirm()
+            })
         }
 
-        options.append(CommandOption(
-            title: title,
-            description: updateViewModel.description,
-            leadingIcon: updateViewModel.iconName ?? "shippingbox.fill",
-            badge: updateViewModel.badge,
-            emphasis: true
-        ) {
-            (NSApp.delegate as? AppDelegate)?.updateController.installUpdate()
-        })
-
-        options.append(CommandOption(
-            title: "Cancel or Skip Update",
-            description: "Dismiss the current update process"
-        ) {
-            updateViewModel.state.cancel()
-        })
+        if updateViewModel.state.isCancellable {
+            options.append(CommandOption(
+                title: "Cancel or Skip Update",
+                description: "Dismiss the current update process"
+            ) {
+                updateViewModel.state.cancel()
+            })
+        }
 
         return options
     }

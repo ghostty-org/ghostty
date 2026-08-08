@@ -32,6 +32,11 @@ class BaseTerminalController: NSWindowController,
                               TerminalViewModel,
                               ClipboardConfirmationViewDelegate,
                               FullscreenDelegate {
+    /// Weak surface-to-controller ownership independent of AppKit's transient
+    /// view and window attachment state.
+    private static let surfaceControllers =
+        NSMapTable<Ghostty.SurfaceView, BaseTerminalController>.weakToWeakObjects()
+
     /// The app instance that this terminal view will represent.
     let ghostty: Ghostty.App
 
@@ -42,7 +47,10 @@ class BaseTerminalController: NSWindowController,
 
     /// The tree of splits within this terminal window.
     @Published var surfaceTree: SplitTree<Ghostty.SurfaceView> = .init() {
-        didSet { surfaceTreeDidChange(from: oldValue, to: surfaceTree) }
+        didSet {
+            Self.updateSurfaceControllers(self, from: oldValue, to: surfaceTree)
+            surfaceTreeDidChange(from: oldValue, to: surfaceTree)
+        }
     }
 
     /// This can be set to show/hide the command palette.
@@ -140,6 +148,7 @@ class BaseTerminalController: NSWindowController,
         // Initialize our initial surface.
         guard let ghostty_app = ghostty.app else { preconditionFailure("app must be loaded") }
         self.surfaceTree = tree ?? .init(view: Ghostty.SurfaceView(ghostty_app, baseConfig: base))
+        Self.updateSurfaceControllers(self, from: .init(), to: surfaceTree)
 
         // Setup our bell state for the window
         setupBellNotificationPublisher()
@@ -230,6 +239,44 @@ class BaseTerminalController: NSWindowController,
     }
 
     // MARK: Methods
+
+    /// Finds the controller whose split tree owns the given surface.
+    ///
+    /// A surface's `window` can briefly be nil or point at its previous window
+    /// while AppKit is attaching or moving a native tab. Callers performing
+    /// lifecycle operations must use tree ownership rather than that transient
+    /// view relationship.
+    static func controller(owning surface: Ghostty.SurfaceView) -> BaseTerminalController? {
+        if let controller = surfaceControllers.object(forKey: surface),
+           controller.surfaceTree.contains(surface) {
+            return controller
+        }
+
+        if let controller = surface.window?.windowController as? BaseTerminalController,
+           controller.surfaceTree.contains(surface) {
+            return controller
+        }
+
+        return NSApp.windows
+            .compactMap { $0.windowController as? BaseTerminalController }
+            .first { $0.surfaceTree.contains(surface) }
+    }
+
+    private static func updateSurfaceControllers(
+        _ controller: BaseTerminalController,
+        from oldTree: SplitTree<Ghostty.SurfaceView>,
+        to newTree: SplitTree<Ghostty.SurfaceView>
+    ) {
+        for surface in oldTree where !newTree.contains(surface) {
+            if surfaceControllers.object(forKey: surface) === controller {
+                surfaceControllers.removeObject(forKey: surface)
+            }
+        }
+
+        for surface in newTree {
+            surfaceControllers.setObject(controller, forKey: surface)
+        }
+    }
 
     /// Create a new split.
     @discardableResult
@@ -1144,10 +1191,14 @@ class BaseTerminalController: NSWindowController,
         guard let state = notification.userInfo?[Ghostty.Notification.ConfirmClipboardStateKey] as? UnsafeMutableRawPointer? else { return }
         guard let request = notification.userInfo?[Ghostty.Notification.ConfirmClipboardRequestKey] as? Ghostty.ClipboardRequest else { return }
 
-        // If we already have a clipboard confirmation view up, we ignore this request.
-        // This shouldn't be possible...
+        // If we already have a clipboard confirmation view up, ignore this
+        // request. Complete it on the next run loop iteration so that we don't
+        // invalidate the state pointer from inside its confirmation callback.
         guard self.clipboardConfirmation == nil else {
-            Ghostty.App.completeClipboardRequest(surface, data: "", state: state, confirmed: true)
+            DispatchQueue.main.async {
+                guard let surface = target.surface else { return }
+                Ghostty.App.completeClipboardRequest(surface, data: "", state: state, confirmed: true)
+            }
             return
         }
 
@@ -1238,7 +1289,7 @@ class BaseTerminalController: NSWindowController,
     /// Check whether window should be closed without showing an alert
     func windowCanBeClosedWithoutConfirmation() -> Bool {
         // We must have a window. Is it even possible not to?
-        guard let window = self.window else { return true }
+        guard window != nil else { return true }
 
         // If we have no surfaces, close.
         if surfaceTree.isEmpty { return true }

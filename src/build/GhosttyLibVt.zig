@@ -183,7 +183,7 @@ pub fn initStaticAppleUniversal(
         const target_query: std.Target.Query = .{
             .cpu_arch = .aarch64,
             .os_tag = p.os_tag,
-            .os_version_min = Config.osVersionMin(p.os_tag),
+            .os_version_min = Config.osVersionMinLibVt(p.os_tag),
         };
         if (detectAppleSDK(
             b.graph.io,
@@ -197,7 +197,7 @@ pub fn initStaticAppleUniversal(
             const sim_zig = try zig.retarget(b, cfg, deps, b.resolveTargetQuery(.{
                 .cpu_arch = .aarch64,
                 .os_tag = p.os_tag,
-                .os_version_min = Config.osVersionMin(p.os_tag),
+                .os_version_min = Config.osVersionMinLibVt(p.os_tag),
                 .abi = .simulator,
                 .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.apple_a17 },
             }));

@@ -30,6 +30,7 @@ pub fn defaultPath(
     var environ_map = try global.environMap();
     defer environ_map.deinit();
     const state_dir: []const u8 = xdg.state(
+        global.io(),
         alloc,
         &environ_map,
         .{ .subdir = program },
