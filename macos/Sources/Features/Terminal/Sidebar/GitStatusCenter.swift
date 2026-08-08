@@ -151,10 +151,9 @@ final class GitStatusCenter: ObservableObject {
     }
 
     nonisolated private static let ghPath: String? = {
-        for candidate in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"] {
-            if FileManager.default.isExecutableFile(atPath: candidate) {
-                return candidate
-            }
+        for candidate in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
+        where FileManager.default.isExecutableFile(atPath: candidate) {
+            return candidate
         }
         return nil
     }()

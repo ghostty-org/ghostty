@@ -967,7 +967,6 @@ private struct ThemeCreatorView: View {
     }
 }
 
-
 /// Picks the theme the editor starts from. The same cards as the browser,
 /// but choosing one fills the fields in instead of applying it.
 private struct ThemeSeedPicker: View {

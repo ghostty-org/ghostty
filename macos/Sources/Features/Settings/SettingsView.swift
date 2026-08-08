@@ -169,7 +169,6 @@ struct SidebarSettingsView: View {
     }
 }
 
-
 /// Behavioral options grouped by area — nothing here changes looks.
 struct BehaviorsSettingsView: View {
     let ghostty: Ghostty.App
@@ -220,7 +219,6 @@ struct BehaviorsSettingsView: View {
         }
     }
 }
-
 
 /// Integration with AI coding agents: installs the terminal-side hooks
 /// that surface agent activity in the sidebar. Claude Code today; more
