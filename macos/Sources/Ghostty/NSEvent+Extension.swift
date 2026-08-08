@@ -2,6 +2,32 @@ import Cocoa
 import GhosttyKit
 
 extension NSEvent {
+    private static func synthesizeKeyDown(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: keyCode,
+        )
+    }
+
+    /// Use a synthesized event to get the underlying `unshifted_codepoint` of a keyCode.
+    static func unshiftedCodepoint(for keyCode: UInt16?) -> UInt32? {
+        guard let keyCode else { return nil }
+        let synthesizedEvent = synthesizeKeyDown(keyCode: keyCode, modifierFlags: [])
+        if let chars = synthesizedEvent?.characters(byApplyingModifiers: []),
+           let codepoint = chars.unicodeScalars.first {
+            return codepoint.value
+        }
+        return nil
+    }
+
     /// Create a Ghostty key event for a given keyboard action.
     ///
     /// This will not set the "text" or "composing" fields since these can't safely be set
@@ -47,16 +73,28 @@ extension NSEvent {
         return key_ev
     }
 
-    /// Returns the text to set for a key event for Ghostty.
+    /// Returns the text to set for a key code for Ghostty.
     ///
     /// This namely contains logic to avoid control characters, since we handle control character
     /// mapping manually within Ghostty.
-    var ghosttyCharacters: String? {
-        // If we have no characters associated with this event we do nothing.
-        guard let characters else { return nil }
+    static func ghosttyCharacters(for keyCode: UInt16?, modifierFlags: NSEvent.ModifierFlags) -> String? {
+        guard let keyCode else { return nil }
+        let synthesizedEvent = synthesizeKeyDown(keyCode: keyCode, modifierFlags: modifierFlags)
+        return synthesizedEvent?.ghosttyCharacters(reDerivedCharacters: true)
+    }
 
-        if characters.count == 1,
-           let scalar = characters.unicodeScalars.first {
+    /// This namely contains logic to avoid control characters, since we handle control character
+    /// mapping manually within Ghostty.
+    ///
+    /// - Parameter reDerivedCharacters: whether to re-derives the characters first from keyCode + modifiers using `characters(byApplyingModifiers:)`
+    /// - Returns: The text to set for a key event for Ghostty.
+    private func ghosttyCharacters(reDerivedCharacters: Bool) -> String? {
+        let chars = reDerivedCharacters ? characters(byApplyingModifiers: modifierFlags) : characters
+        // If we have no characters associated with this event we do nothing.
+        guard let chars else { return nil }
+
+        if chars.count == 1,
+           let scalar = chars.unicodeScalars.first {
             // If we have a single control character, then we return the characters
             // without control pressed. We do this because we handle control character
             // encoding directly within Ghostty's KeyEncoder.
@@ -71,6 +109,14 @@ extension NSEvent {
             }
         }
 
-        return characters
+        return chars
+    }
+
+    /// Returns the text to set for a key event for Ghostty.
+    ///
+    /// This namely contains logic to avoid control characters, since we handle control character
+    /// mapping manually within Ghostty.
+    var ghosttyCharacters: String? {
+        ghosttyCharacters(reDerivedCharacters: false)
     }
 }
