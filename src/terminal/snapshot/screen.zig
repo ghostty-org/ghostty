@@ -242,7 +242,7 @@ pub const EncodeError = Allocator.Error || PayloadEncodeError || page.EncodeErro
 ///
 /// The suffix begins with the page containing the active area's first row and
 /// ends with the newest page. Completed records may already be emitted if a
-/// later record fails; the missing READY checkpoint makes that prefix invalid.
+/// later record fails; the missing READY marker makes that prefix invalid.
 pub fn encode(
     screen: *const TerminalScreen,
     key: TerminalScreenKey,
@@ -505,7 +505,7 @@ pub fn decode(
             alloc,
             &result,
             options.kitty_image_storage_limit,
-        ) catch unreachable;
+        );
         result.kitty_images.image_limits = options.kitty_image_loading_limits;
     }
 

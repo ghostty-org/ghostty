@@ -639,6 +639,16 @@ class QuickTerminalController: BaseTerminalController {
         terminalViewContainer?.ghosttyConfigDidChange(ghostty.config, preferredBackgroundColor: nil)
     }
 
+    override func confirmCloseAsync(messageText: String, informativeText: String, confirmButtonTitle: String = "Close") async -> NSApplication.ModalResponse? {
+
+        let waitTime = visible ? 0 : 0.25
+        animateIn()
+
+        try? await Task.sleep(for: .seconds(waitTime))
+
+        return await super.confirmCloseAsync(messageText: messageText, informativeText: informativeText, confirmButtonTitle: confirmButtonTitle)
+    }
+
     private func showNoNewTabAlert() {
         guard let window else { return }
         let alert = NSAlert()

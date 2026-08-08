@@ -356,7 +356,7 @@ pub fn decoder_ready(
     return .success;
 }
 
-/// Decode and apply exactly one history page, or authenticate FINISH.
+/// Decode and apply exactly one history page, or validate FINISH.
 pub fn decoder_next(
     decoder_: Decoder,
 ) callconv(lib.calling_conv) Result {
@@ -374,14 +374,14 @@ pub fn decoder_next(
     const native = terminal_c.zigTerminal(terminal).?;
     history.progress = null;
 
-    // Consume one authenticated record and preserve READY metadata on failure.
+    // Consume one validated record and preserve READY metadata on failure.
     const progress = decoder.decoder.next(decoder.alloc, native) catch |err| {
         const metadata = history.metadata;
         decoder.state = .{ .failed = metadata };
         return decoderMapError(decoder, err);
     };
 
-    // Publish page progress, or transition permanently to authenticated FINISH.
+    // Publish page progress, or transition permanently to validated FINISH.
     if (progress) |value| {
         history.progress = value;
         return .success;
@@ -392,7 +392,7 @@ pub fn decoder_next(
     return .no_value;
 }
 
-/// Decode and authenticate the complete snapshot transactionally.
+/// Decode and validate the complete snapshot transactionally.
 pub fn decoder_decode(
     decoder_: Decoder,
     out_: ?*terminal_c.Terminal,
@@ -413,7 +413,7 @@ pub fn decoder_decode(
     };
     const native = terminal_c.zigTerminal(ready.terminal).?;
 
-    // Apply every history page and require an authenticated FINISH record.
+    // Apply every history page and require a valid FINISH record.
     while (true) {
         const progress = decoder.decoder.next(decoder.alloc, native) catch |err| {
             terminal_c.free(ready.terminal);
@@ -477,7 +477,7 @@ fn decoderMapError(decoder: *DecoderWrapper, err: anyerror) Result {
     }
 
     // A successful zero-byte read is clean EOF by contract. Reaching it before
-    // the required checkpoint therefore means truncated snapshot data, not an
+    // the required marker therefore means truncated snapshot data, not an
     // external I/O failure, and deliberately maps to invalid_value below.
     return switch (err) {
         error.OutOfMemory => .out_of_memory,

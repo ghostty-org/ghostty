@@ -148,6 +148,19 @@ pub const ProgressReport = extern struct {
     progress: i8,
 };
 
+/// A terminal mode and boolean value used for mode configuration.
+///
+/// C: GhosttyTerminalModeConfig
+pub const ModeConfig = extern struct {
+    mode: modes.ModeTag.Backing,
+    value: bool,
+
+    fn toMode(self: ModeConfig) ?modes.Mode {
+        const tag: modes.ModeTag = @bitCast(self.mode);
+        return modes.modeFromInt(tag.value, tag.ansi);
+    }
+};
+
 /// C callback state for terminal effects. Trampolines are always
 /// installed on the stream handler; they check these fields and
 /// no-op when the corresponding callback is null.
@@ -890,6 +903,8 @@ pub const Option = enum(c_int) {
     progress_report = 30,
     continuation_max_bytes = 31,
     title_report = 32,
+    mode_default = 33,
+    mode = 34,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -926,6 +941,7 @@ pub const Option = enum(c_int) {
             .selection => ?*const selection_c.CSelection,
             .default_cursor_style => ?*const TerminalCursorStyle,
             .default_cursor_blink => ?*const bool,
+            .mode, .mode_default => ?*const ModeConfig,
         };
     }
 };
@@ -1008,7 +1024,7 @@ fn setTyped(
             var it = wrapper.terminal.screens.all.iterator();
             while (it.next()) |entry| {
                 const screen = entry.value.*;
-                screen.kitty_images.setLimit(screen.io, screen.alloc, screen, limit) catch return .out_of_memory;
+                screen.kitty_images.setLimit(screen.io, screen.alloc, screen, limit);
             }
         },
         .kitty_image_medium_file,
@@ -1090,6 +1106,18 @@ fn setTyped(
             wrapper,
             if (value) |ptr| ptr.* else default_continuation_max_bytes,
         ),
+        .mode, .mode_default => {
+            const config = (value orelse return .invalid_value).*;
+            const mode = config.toMode() orelse return .invalid_value;
+            switch (option) {
+                .mode => wrapper.terminal.modes.set(mode, config.value),
+                .mode_default => {
+                    if (!modes.defaultConfigurable(mode)) return .invalid_value;
+                    wrapper.terminal.modes.setDefault(mode, config.value);
+                },
+                else => unreachable,
+            }
+        },
     }
     return .success;
 }
@@ -1160,30 +1188,6 @@ pub fn reset(terminal_: Terminal) callconv(lib.calling_conv) void {
     t.fullReset();
 }
 
-pub fn mode_get(
-    terminal_: Terminal,
-    tag: modes.ModeTag.Backing,
-    out_value: *bool,
-) callconv(lib.calling_conv) Result {
-    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
-    const mode_tag: modes.ModeTag = @bitCast(tag);
-    const mode = modes.modeFromInt(mode_tag.value, mode_tag.ansi) orelse return .invalid_value;
-    out_value.* = t.modes.get(mode);
-    return .success;
-}
-
-pub fn mode_set(
-    terminal_: Terminal,
-    tag: modes.ModeTag.Backing,
-    value: bool,
-) callconv(lib.calling_conv) Result {
-    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
-    const mode_tag: modes.ModeTag = @bitCast(tag);
-    const mode = modes.modeFromInt(mode_tag.value, mode_tag.ansi) orelse return .invalid_value;
-    t.modes.set(mode, value);
-    return .success;
-}
-
 /// C: GhosttyKittyGraphics
 pub const KittyGraphics = kitty_gfx_c.KittyGraphics;
 
@@ -1232,6 +1236,7 @@ pub const TerminalData = enum(c_int) {
     scrollback_max_bytes = 34,
     scrollback_max_lines = 35,
     continuation_max_bytes = 36,
+    mode = 37,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: TerminalData) type {
@@ -1271,6 +1276,7 @@ pub const TerminalData = enum(c_int) {
             .kitty_image_medium_temp_file => lib.String,
             .kitty_graphics => KittyGraphics,
             .selection => selection_c.CSelection,
+            .mode => ModeConfig,
         };
     }
 };
@@ -1287,12 +1293,14 @@ pub fn get(
         };
     }
 
+    const out_ptr = out orelse return .invalid_value;
+
     return switch (data) {
         .invalid => .invalid_value,
         inline else => |comptime_data| getTyped(
             terminal_,
             comptime_data,
-            @ptrCast(@alignCast(out)),
+            @ptrCast(@alignCast(out_ptr)),
         ),
     };
 }
@@ -1401,6 +1409,10 @@ fn getTyped(
             out.* = max;
         },
         .continuation_max_bytes => out.* = continuationMaxBytes(wrapper),
+        .mode => {
+            const mode = out.toMode() orelse return .invalid_value;
+            out.value = t.modes.get(mode);
+        },
     }
 
     return .success;
@@ -2230,7 +2242,7 @@ test "resize shrinks both axes with cursor at bottom" {
     try testing.expectEqual(23, t.?.terminal.rows);
 }
 
-test "mode_get and mode_set" {
+test "set and get mode" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
@@ -2239,41 +2251,32 @@ test "mode_get and mode_set" {
         24,
     ));
     defer free(t);
-
-    var value: bool = undefined;
 
     // DEC mode 25 (cursor_visible) defaults to true
     const cursor_visible: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 25, .ansi = false });
-    try testing.expectEqual(Result.success, mode_get(t, cursor_visible, &value));
-    try testing.expect(value);
+    var config: ModeConfig = .{ .mode = cursor_visible, .value = undefined };
+    try testing.expectEqual(Result.success, get(t, .mode, @ptrCast(&config)));
+    try testing.expect(config.value);
 
     // Set it to false
-    try testing.expectEqual(Result.success, mode_set(t, cursor_visible, false));
-    try testing.expectEqual(Result.success, mode_get(t, cursor_visible, &value));
-    try testing.expect(!value);
+    config.value = false;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
+    try testing.expectEqual(Result.success, get(t, .mode, @ptrCast(&config)));
+    try testing.expect(!config.value);
 
     // ANSI mode 4 (insert) defaults to false
     const insert: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 4, .ansi = true });
-    try testing.expectEqual(Result.success, mode_get(t, insert, &value));
-    try testing.expect(!value);
+    config.mode = insert;
+    try testing.expectEqual(Result.success, get(t, .mode, @ptrCast(&config)));
+    try testing.expect(!config.value);
 
-    try testing.expectEqual(Result.success, mode_set(t, insert, true));
-    try testing.expectEqual(Result.success, mode_get(t, insert, &value));
-    try testing.expect(value);
+    config.value = true;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
+    try testing.expectEqual(Result.success, get(t, .mode, @ptrCast(&config)));
+    try testing.expect(config.value);
 }
 
-test "mode_get null" {
-    var value: bool = undefined;
-    const tag: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 25, .ansi = false });
-    try testing.expectEqual(Result.invalid_value, mode_get(null, tag, &value));
-}
-
-test "mode_set null" {
-    const tag: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 25, .ansi = false });
-    try testing.expectEqual(Result.invalid_value, mode_set(null, tag, true));
-}
-
-test "mode_get unknown mode" {
+test "set mode default updates current and reset value" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
@@ -2283,12 +2286,49 @@ test "mode_get unknown mode" {
     ));
     defer free(t);
 
-    var value: bool = undefined;
-    const unknown: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 9999, .ansi = false });
-    try testing.expectEqual(Result.invalid_value, mode_get(t, unknown, &value));
+    const tag: modes.ModeTag.Backing = @bitCast(modes.ModeTag{
+        .value = 2027,
+        .ansi = false,
+    });
+    var config: ModeConfig = .{ .mode = tag, .value = true };
+    try testing.expectEqual(Result.success, set(
+        t,
+        .mode_default,
+        @ptrCast(&config),
+    ));
+    try testing.expect(t.?.terminal.modes.get(.grapheme_cluster));
+    try testing.expect(t.?.terminal.modes.default.grapheme_cluster);
+
+    config.value = false;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
+    try testing.expect(!t.?.terminal.modes.get(.grapheme_cluster));
+    try testing.expect(t.?.terminal.modes.default.grapheme_cluster);
+
+    // Setting the default also unconditionally replaces the current value.
+    config.value = true;
+    try testing.expectEqual(Result.success, set(
+        t,
+        .mode_default,
+        @ptrCast(&config),
+    ));
+    try testing.expect(t.?.terminal.modes.get(.grapheme_cluster));
+
+    config.value = false;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
+    vt_write(t, "\x1bc", 2);
+    try testing.expect(t.?.terminal.modes.get(.grapheme_cluster));
+
+    config.value = false;
+    try testing.expectEqual(Result.success, set(
+        t,
+        .mode_default,
+        @ptrCast(&config),
+    ));
+    try testing.expect(!t.?.terminal.modes.get(.grapheme_cluster));
+    try testing.expect(!t.?.terminal.modes.default.grapheme_cluster);
 }
 
-test "mode_set unknown mode" {
+test "set mode default validates configuration" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
@@ -2298,8 +2338,56 @@ test "mode_set unknown mode" {
     ));
     defer free(t);
 
-    const unknown: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 9999, .ansi = false });
-    try testing.expectEqual(Result.invalid_value, mode_set(t, unknown, true));
+    try testing.expectEqual(Result.invalid_value, set(
+        t,
+        .mode_default,
+        null,
+    ));
+
+    var config: ModeConfig = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 9999, .ansi = false }),
+        .value = true,
+    };
+    try testing.expectEqual(Result.invalid_value, set(
+        t,
+        .mode_default,
+        @ptrCast(&config),
+    ));
+
+    config.mode = @bitCast(modes.ModeTag{ .value = 1047, .ansi = false });
+    try testing.expectEqual(Result.invalid_value, set(
+        t,
+        .mode_default,
+        @ptrCast(&config),
+    ));
+}
+
+test "set and get mode null" {
+    const tag: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 25, .ansi = false });
+    var config: ModeConfig = .{ .mode = tag, .value = true };
+    try testing.expectEqual(Result.invalid_value, set(null, .mode, @ptrCast(&config)));
+    try testing.expectEqual(Result.invalid_value, get(null, .mode, @ptrCast(&config)));
+}
+
+test "set and get mode validate configuration" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    try testing.expectEqual(Result.invalid_value, set(t, .mode, null));
+    try testing.expectEqual(Result.invalid_value, get(t, .mode, null));
+
+    var config: ModeConfig = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 9999, .ansi = false }),
+        .value = true,
+    };
+    try testing.expectEqual(Result.invalid_value, set(t, .mode, @ptrCast(&config)));
+    try testing.expectEqual(Result.invalid_value, get(t, .mode, @ptrCast(&config)));
 }
 
 test "vt_write" {
@@ -2464,8 +2552,11 @@ test "get cursor_visible" {
     try testing.expect(visible);
 
     // DEC mode 25 controls cursor visibility
-    const cursor_visible_mode: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 25, .ansi = false });
-    try testing.expectEqual(Result.success, mode_set(t, cursor_visible_mode, false));
+    var config: ModeConfig = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 25, .ansi = false }),
+        .value = false,
+    };
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
     try testing.expectEqual(Result.success, get(t, .cursor_visible, @ptrCast(&visible)));
     try testing.expect(!visible);
 }
@@ -2521,34 +2612,50 @@ test "get mouse_tracking" {
     try testing.expect(!tracking);
 
     // Enable X10 mouse (DEC mode 9)
-    const x10_mode: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 9, .ansi = false });
-    try testing.expectEqual(Result.success, mode_set(t, x10_mode, true));
+    var config: ModeConfig = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 9, .ansi = false }),
+        .value = true,
+    };
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
     try testing.expectEqual(Result.success, get(t, .mouse_tracking, @ptrCast(&tracking)));
     try testing.expect(tracking);
 
     // Disable X10, enable normal mouse (DEC mode 1000)
-    try testing.expectEqual(Result.success, mode_set(t, x10_mode, false));
-    const normal_mode: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 1000, .ansi = false });
-    try testing.expectEqual(Result.success, mode_set(t, normal_mode, true));
+    config.value = false;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
+    config = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 1000, .ansi = false }),
+        .value = true,
+    };
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
     try testing.expectEqual(Result.success, get(t, .mouse_tracking, @ptrCast(&tracking)));
     try testing.expect(tracking);
 
     // Disable normal, enable button mouse (DEC mode 1002)
-    try testing.expectEqual(Result.success, mode_set(t, normal_mode, false));
-    const button_mode: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 1002, .ansi = false });
-    try testing.expectEqual(Result.success, mode_set(t, button_mode, true));
+    config.value = false;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
+    config = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 1002, .ansi = false }),
+        .value = true,
+    };
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
     try testing.expectEqual(Result.success, get(t, .mouse_tracking, @ptrCast(&tracking)));
     try testing.expect(tracking);
 
     // Disable button, enable any mouse (DEC mode 1003)
-    try testing.expectEqual(Result.success, mode_set(t, button_mode, false));
-    const any_mode: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 1003, .ansi = false });
-    try testing.expectEqual(Result.success, mode_set(t, any_mode, true));
+    config.value = false;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
+    config = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 1003, .ansi = false }),
+        .value = true,
+    };
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
     try testing.expectEqual(Result.success, get(t, .mouse_tracking, @ptrCast(&tracking)));
     try testing.expect(tracking);
 
     // Disable all - should be false again
-    try testing.expectEqual(Result.success, mode_set(t, any_mode, false));
+    config.value = false;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
     try testing.expectEqual(Result.success, get(t, .mouse_tracking, @ptrCast(&tracking)));
     try testing.expect(!tracking);
 }

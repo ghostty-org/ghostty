@@ -9,15 +9,15 @@ doc: |
 
   A complete snapshot contains an envelope, terminal-wide state, one or two
   renderable screen sequences, one raw standard-Stream CONTINUATION, a READY
-  checkpoint, matching history sequences, and a FINISH checkpoint. SCREEN pages
+  marker, matching history sequences, and a FINISH marker. SCREEN pages
   are oldest-to-newest. HISTORY pages are newest-to-oldest. FINISH terminates the
   snapshot; bytes that follow belong to the containing transport and are outside
   this schema. Each SCREEN declares its complete logical history extent before
   READY.
 
-  Record CRC32C values and checkpoint BLAKE3-256 digests are represented here
-  but cannot be calculated by portable Kaitai Struct expressions. The adjacent
-  verify-kaitai.py script validates those values after parsing.
+  Record CRC32C values are represented here but cannot be calculated by
+  portable Kaitai Struct expressions. The adjacent verify-kaitai.py script
+  validates those values after parsing.
 seq:
   - id: envelope
     type: envelope
@@ -217,6 +217,7 @@ types:
         size: header.payload_length
 
   checkpoint_record:
+    doc: READY and FINISH are empty marker records.
     params:
       - id: expected_tag
         type: u2
@@ -224,8 +225,9 @@ types:
       - id: header
         type: record_header(expected_tag)
       - id: payload
-        type: checkpoint_payload
         size: header.payload_length
+        valid:
+          expr: _.size == 0
 
   screen_sequence:
     doc: SCREEN followed by its declared PAGE records, oldest-to-newest.
@@ -246,15 +248,6 @@ types:
         type: page_record
         repeat: expr
         repeat-expr: history.payload.page_count
-
-  checkpoint_payload:
-    seq:
-      - id: prefix_digest
-        size: 32
-      - id: trailing_data
-        size-eos: true
-        valid:
-          expr: _.size == 0
 
   terminal_payload:
     seq:

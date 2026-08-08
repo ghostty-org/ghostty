@@ -26,7 +26,6 @@ const xev = global.xev;
 const Binding = @import("../../../input.zig").Binding;
 const CoreConfig = configpkg.Config;
 const CoreSurface = @import("../../../Surface.zig");
-const lib = @import("../../../lib/main.zig");
 
 const ext = @import("../ext.zig");
 const key = @import("../key.zig");
@@ -45,6 +44,7 @@ const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseCo
 const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialog;
 const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
 const OpenURI = @import("../portal.zig").OpenURI;
+const media = @import("../media.zig");
 
 const log = std.log.scoped(.gtk_ghostty_application);
 
@@ -222,6 +222,12 @@ pub const Application = extern struct {
         saved_language: ?[:0]const u8 = null,
 
         open_uri: OpenURI = undefined,
+
+        // The audio bell's MediaFile, reused across bells so we don't leak a
+        // GStreamer pipeline (and its GL threads) on every ring. Built lazily
+        // on the first audio bell and rebuilt when `bell-audio-path` changes;
+        // unref'd on dispose. See ringBell and media.zig.
+        bell_media: ?*gtk.MediaFile = null,
 
         pub var offset: c_int = 0;
     };
@@ -717,6 +723,7 @@ pub const Application = extern struct {
             .mouse_visibility => Action.mouseVisibility(target, value),
 
             .move_tab => return Action.moveTab(target, value),
+            .move_tab_to_new_window => return Action.moveTabToNewWindow(target),
 
             .new_split => return Action.newSplit(target, value),
 
@@ -1024,6 +1031,38 @@ pub const Application = extern struct {
             \\    in srgb,
             \\    var(--accent-color),
             \\    transparent 50%
+            \\  );
+            \\}
+            \\
+            \\/*
+            \\ * Drag and Drop Overlay
+            \\ */
+            \\.drop-overlay.drop-left {
+            \\  background: linear-gradient(
+            \\    to left,
+            \\    transparent, 50%,
+            \\    color-mix(in srgb, var(--accent-bg-color), transparent 80%) 50%
+            \\  );
+            \\}
+            \\.drop-overlay.drop-right {
+            \\  background: linear-gradient(
+            \\    to right,
+            \\    transparent, 50%,
+            \\    color-mix(in srgb, var(--accent-bg-color), transparent 80%) 50%
+            \\  );
+            \\}
+            \\.drop-overlay.drop-top {
+            \\  background: linear-gradient(
+            \\    to top,
+            \\    transparent, 50%,
+            \\    color-mix(in srgb, var(--accent-bg-color), transparent 80%) 50%
+            \\  );
+            \\}
+            \\.drop-overlay.drop-bottom {
+            \\  background: linear-gradient(
+            \\    to bottom,
+            \\    transparent, 50%,
+            \\    color-mix(in srgb, var(--accent-bg-color), transparent 80%) 50%
             \\  );
             \\}
             \\
@@ -1446,6 +1485,7 @@ pub const Application = extern struct {
             .init("quit", actionQuit, null),
             .init("reload-config", actionReloadConfig, null),
             .init("toggle-quick-terminal", actionToggleQuickTerminal, null),
+            .init("ring-bell", actionRingBell, null),
         };
 
         ext.actions.add(Self, self, &actions);
@@ -1515,6 +1555,11 @@ pub const Application = extern struct {
                 log.warn("unable to remove signal source", .{});
             }
             priv.signal_source = null;
+        }
+
+        if (priv.bell_media) |v| {
+            v.unref();
+            priv.bell_media = null;
         }
 
         gobject.Object.virtual_methods.dispose.call(
@@ -1833,7 +1878,7 @@ pub const Application = extern struct {
                     continue;
                 }
 
-                if (lib.cutPrefix(u8, str, "--command=")) |v| {
+                if (std.mem.cutPrefix(u8, str, "--command=")) |v| {
                     var cmd: configpkg.Command = undefined;
                     cmd.parseCLI(alloc, v) catch |err| {
                         log.warn("unable to parse command: {t}", .{err});
@@ -1842,14 +1887,14 @@ pub const Application = extern struct {
                     command = cmd;
                     continue;
                 }
-                if (lib.cutPrefix(u8, str, "--working-directory=")) |v| {
+                if (std.mem.cutPrefix(u8, str, "--working-directory=")) |v| {
                     working_directory = alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| wd: {
                         log.warn("unable to duplicate working directory: {t}", .{err});
                         break :wd null;
                     };
                     continue;
                 }
-                if (lib.cutPrefix(u8, str, "--title=")) |v| {
+                if (std.mem.cutPrefix(u8, str, "--title=")) |v| {
                     title = alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| t: {
                         log.warn("unable to duplicate title: {t}", .{err});
                         break :t null;
@@ -1914,6 +1959,40 @@ pub const Application = extern struct {
             },
             .forever,
         );
+    }
+
+    pub fn actionRingBell(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv: *Private = self.private();
+        const config = priv.config.get();
+
+        // Do our sound
+        if (config.@"bell-features".audio) audio: {
+            const config_path = config.@"bell-audio-path" orelse break :audio;
+            const path, const required = switch (config_path) {
+                .optional => |path| .{ path, false },
+                .required => |path| .{ path, true },
+            };
+
+            const volume = std.math.clamp(
+                config.@"bell-audio-volume",
+                0.0,
+                1.0,
+            );
+
+            // Reuse one MediaFile per application (rebuilt only when the path
+            // changes) so each bell replays the same pipeline instead of
+            // leaking a fresh one. Assign unconditionally: bellMediaFile frees
+            // any stale MediaFile and returns the current slot value (possibly
+            // null if the path is now inaccessible), so priv.bell_media never
+            // dangles.
+            priv.bell_media = media.bellMediaFile(priv.bell_media, path, required);
+            const media_file = priv.bell_media orelse break :audio;
+            media.playBell(media_file, volume);
+        }
     }
 
     //----------------------------------------------------------------
@@ -2354,6 +2433,26 @@ const Action = struct {
                     surface,
                     @intCast(value.amount),
                 );
+            },
+        }
+    }
+
+    pub fn moveTabToNewWindow(
+        target: apprt.Target,
+    ) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring new_tab_to_new_window", .{});
+                    return false;
+                };
+
+                return window.moveTabToNewWindow(surface);
             },
         }
     }

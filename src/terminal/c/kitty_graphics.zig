@@ -1010,7 +1010,7 @@ test "image_get exposes pending metadata without a data pointer" {
     ));
 
     const alloc = lib.alloc.default(&lib.alloc.test_allocator);
-    const pending = try graphics.addPendingImage(testing.io, alloc, .{
+    const pending = try graphics.addPendingImage(testing.io, alloc, terminal_c.zigTerminal(t).?.screens.active, .{
         .id = 42,
         .number = 7,
         .width = 1,

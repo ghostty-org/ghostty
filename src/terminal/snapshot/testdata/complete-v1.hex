@@ -97,28 +97,24 @@ ee ee 80 00 00 00 00 00 00 00 00 00 00 00 00 00 # 0x0000037a
 # offset 0x000004aa: continuation record, payload 0 bytes
 07 00 00 00 00 00 27 80 63 d1 # 0x000004aa
 
-# offset 0x000004b4: ready record, payload 32 bytes
-05 00 20 00 00 00 4d 17 72 ed dd 87 26 75 cf 8e # 0x000004b4
-e5 1f 37 e3 05 92 0a e2 f8 ef c1 16 54 be 49 e7 # 0x000004c4
-b2 6c df 40 d2 77 fe 05 82 ea # 0x000004d4
+# offset 0x000004b4: ready record, payload 0 bytes
+05 00 00 00 00 00 e4 20 ef 0a # 0x000004b4
 
-# offset 0x000004de: history record, payload 6 bytes
-04 00 06 00 00 00 20 32 ed e1 00 00 02 00 00 00 # 0x000004de
+# offset 0x000004be: history record, payload 6 bytes
+04 00 06 00 00 00 20 32 ed e1 00 00 02 00 00 00 # 0x000004be
 
-# offset 0x000004ee: page record, payload 31 bytes
-03 00 1f 00 00 00 4a ed 2f c2 02 00 02 00 00 00 # 0x000004ee
-00 00 10 00 c0 00 00 04 00 00 00 08 00 00 00 01 # 0x000004fe
-00 42 00 00 00 00 00 00 00 # 0x0000050e
+# offset 0x000004ce: page record, payload 31 bytes
+03 00 1f 00 00 00 4a ed 2f c2 02 00 02 00 00 00 # 0x000004ce
+00 00 10 00 c0 00 00 04 00 00 00 08 00 00 00 01 # 0x000004de
+00 42 00 00 00 00 00 00 00 # 0x000004ee
 
-# offset 0x00000517: page record, payload 31 bytes
-03 00 1f 00 00 00 23 6a 6b 19 02 00 02 00 00 00 # 0x00000517
-00 00 10 00 c0 00 00 04 00 00 00 08 00 00 00 01 # 0x00000527
-00 41 00 00 00 00 00 00 00 # 0x00000537
+# offset 0x000004f7: page record, payload 31 bytes
+03 00 1f 00 00 00 23 6a 6b 19 02 00 02 00 00 00 # 0x000004f7
+00 00 10 00 c0 00 00 04 00 00 00 08 00 00 00 01 # 0x00000507
+00 41 00 00 00 00 00 00 00 # 0x00000517
 
-# offset 0x00000540: history record, payload 6 bytes
-04 00 06 00 00 00 b8 7a ba b1 01 00 00 00 00 00 # 0x00000540
+# offset 0x00000520: history record, payload 6 bytes
+04 00 06 00 00 00 b8 7a ba b1 01 00 00 00 00 00 # 0x00000520
 
-# offset 0x00000550: finish record, payload 32 bytes
-06 00 20 00 00 00 5a 2d a8 f4 25 b2 49 b4 3e 64 # 0x00000550
-5a 2e d6 7d 7f 3d 60 5b db 9b 4c 3a 29 00 97 ec # 0x00000560
-d6 c7 1d ea da d3 a9 fd 3d 68 # 0x00000570
+# offset 0x00000530: finish record, payload 0 bytes
+06 00 00 00 00 00 3e eb 53 3e # 0x00000530

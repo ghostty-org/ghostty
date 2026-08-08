@@ -122,12 +122,12 @@ extension Ghostty.OSSurfaceView {
         /// The `.find` pasteboard lets us sync our needle across the system and other find bars.
         private let pasteboard: OSPasteboard
 
-        @Published var needle: String = ""
+        @Published private(set) var needle: String = ""
         @Published var selected: UInt?
         @Published var total: UInt?
 
         /// The range of the needle's text selection in the find bar.
-        @Published var needleSelection: Range<String.Index>?
+        @Published private(set) var needleSelection: Range<String.Index>?
 
         init(
             from startSearch: Ghostty.Action.StartSearch,
@@ -135,18 +135,49 @@ extension Ghostty.OSSurfaceView {
         ) {
             self.pasteboard = pasteboard
             if let needle = startSearch.needle, !needle.isEmpty {
-                self.needle = needle
+                setNeedle(needle)
                 writePasteboardNeedle()
             } else {
                 readPasteboardNeedle()
             }
         }
 
+        /// Replaces the search needle while keeping its selection valid.
+        func setNeedle(_ needle: String, selectAll: Bool = false) {
+            if needle != self.needle {
+                // String.Index values are only valid for the string that created
+                // them, so publish a nil selection before changing the string.
+                needleSelection = nil
+                self.needle = needle
+            }
+
+            if selectAll {
+                needleSelection = self.needle.startIndex..<self.needle.endIndex
+            }
+        }
+
+        /// Updates the selection only when both indices are valid for the needle.
+        func setNeedleSelection(_ selection: Range<String.Index>?) {
+            guard let selection else {
+                needleSelection = nil
+                return
+            }
+
+            guard
+                let lowerBound = String.Index(selection.lowerBound, within: needle),
+                let upperBound = String.Index(selection.upperBound, within: needle)
+            else {
+                needleSelection = nil
+                return
+            }
+
+            needleSelection = lowerBound..<upperBound
+        }
+
         func readPasteboardNeedle() {
             let pasteboardNeedle = pasteboard.string
             if let pasteboardNeedle, pasteboardNeedle != needle {
-                needle = pasteboardNeedle
-                needleSelection = needle.startIndex..<needle.endIndex
+                setNeedle(pasteboardNeedle, selectAll: true)
             }
         }
 

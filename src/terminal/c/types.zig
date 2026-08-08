@@ -71,6 +71,7 @@ pub const structs: std.StaticStringMap(StructInfo) = structs: {
         .{ "GhosttyStyle", StructInfo.init(style_c.Style) },
         .{ "GhosttyStyleColor", StructInfo.init(style_c.Color) },
         .{ "GhosttyTerminalDesktopNotification", StructInfo.init(terminal.DesktopNotification) },
+        .{ "GhosttyTerminalModeConfig", StructInfo.init(terminal.ModeConfig) },
         .{ "GhosttyTerminalProgressReport", StructInfo.init(terminal.ProgressReport) },
         .{ "GhosttyTerminalScrollbar", StructInfo.init(terminal.TerminalScrollbar) },
         .{ "GhosttyTerminalScrollViewport", StructInfo.init(terminal.ScrollViewport) },
@@ -221,6 +222,7 @@ test "json parses" {
     try std.testing.expect(root.contains("GhosttyClipboardContent"));
     try std.testing.expect(root.contains("GhosttyClipboardWrite"));
     try std.testing.expect(root.contains("GhosttyFormatterTerminalOptions"));
+    try std.testing.expect(root.contains("GhosttyTerminalModeConfig"));
     try std.testing.expect(root.contains("GhosttyReader"));
     try std.testing.expect(root.contains("GhosttyWriter"));
 

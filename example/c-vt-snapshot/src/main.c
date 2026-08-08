@@ -104,7 +104,7 @@ int main(void) {
       NULL, &incremental_decoder, reader);
   assert(result == GHOSTTY_SUCCESS);
 
-  // READY authenticates and returns a renderable terminal before old history.
+  // READY returns a validated, renderable terminal before old history.
   GhosttyTerminal incremental_terminal = NULL;
   result = ghostty_snapshot_decoder_ready(
       incremental_decoder, &incremental_terminal);
@@ -146,7 +146,7 @@ int main(void) {
     page_count++;
   }
 
-  // NO_VALUE means FINISH authenticated successfully and is idempotent.
+  // NO_VALUE means FINISH validated successfully and is idempotent.
   assert(result == GHOSTTY_NO_VALUE);
   assert(page_count > 0);
   assert(ghostty_snapshot_decoder_next(incremental_decoder) ==

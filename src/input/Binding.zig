@@ -587,6 +587,12 @@ pub const Action = union(enum) {
     /// the last tab.
     move_tab: isize,
 
+    /// Move a tab to a new window.
+    ///
+    /// Only implemented on Linux, but there's a native tab menu provided by
+    /// macOS.
+    move_tab_to_new_window,
+
     /// Toggle the tab overview.
     ///
     /// This is only supported on Linux and when the system's libadwaita
@@ -741,8 +747,8 @@ pub const Action = union(enum) {
 
     /// Maximize or unmaximize the current window.
     ///
-    /// This has no effect on macOS as it does not have the concept of
-    /// maximized windows.
+    /// On macOS, this zooms the window, which is the closest equivalent
+    /// since macOS has no concept of a maximized window.
     toggle_maximize,
 
     /// Fullscreen or unfullscreen the current window.
@@ -1418,6 +1424,7 @@ pub const Action = union(enum) {
             .last_tab,
             .goto_tab,
             .move_tab,
+            .move_tab_to_new_window,
             .toggle_tab_overview,
             .new_split,
             .goto_split,

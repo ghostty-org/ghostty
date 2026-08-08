@@ -604,6 +604,29 @@ pub const Window = extern struct {
         return tab_view.reorderPage(page, desired_pos) != 0;
     }
 
+    pub fn moveTabToNewWindow(self: *Self, surface: *Surface) bool {
+        const tab_view = self.private().tab_view;
+        const tab = ext.getAncestor(
+            Tab,
+            surface.as(gtk.Widget),
+        ) orelse return false;
+        const page = tab_view.getPage(tab.as(gtk.Widget));
+
+        // Skip if this is the only tab in the existing window
+        if (tab_view.getNPages() <= 1) return false;
+
+        const app = Application.default();
+        const window = Window.new(app, .none);
+
+        tab_view.transferPage(
+            page,
+            window.private().tab_view,
+            0,
+        );
+        window.as(gtk.Window).present();
+        return true;
+    }
+
     pub fn toggleTabOverview(self: *Self) void {
         const priv = self.private();
         const tab_overview = priv.tab_overview;

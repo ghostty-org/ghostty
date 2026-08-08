@@ -696,6 +696,24 @@ typedef GhosttyString (*GhosttyTerminalXtversionFn)(GhosttyTerminal terminal,
                                                      void* userdata);
 
 /**
+ * A terminal mode and boolean value used for mode configuration and queries.
+ *
+ * For GHOSTTY_TERMINAL_DATA_MODE, initialize `mode` before calling
+ * ghostty_terminal_get(). On success, `value` contains the current mode value.
+ *
+ * This struct has a frozen layout and will not gain fields in future versions.
+ *
+ * @ingroup terminal
+ */
+typedef struct {
+  /** Mode to configure or query. */
+  GhosttyMode mode;
+
+  /** Value to set, or the current value returned by a query. */
+  bool value;
+} GhosttyTerminalModeConfig;
+
+/**
  * Terminal option identifiers.
  *
  * These values are used with ghostty_terminal_set() to configure
@@ -1060,6 +1078,31 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: bool*
    */
   GHOSTTY_TERMINAL_OPT_TITLE_REPORT = 32,
+
+  /**
+   * Set the reset default for a terminal mode.
+   *
+   * This unconditionally updates both the current value and the value restored
+   * by a full terminal reset (RIS).
+   *
+   * Some recognized modes represent transitions or mirror additional terminal
+   * state and cannot safely be configured as reset defaults. Those modes return
+   * GHOSTTY_INVALID_VALUE. A NULL value pointer also returns
+   * GHOSTTY_INVALID_VALUE.
+   *
+   * Input type: GhosttyTerminalModeConfig*
+   */
+  GHOSTTY_TERMINAL_OPT_MODE_DEFAULT = 33,
+
+  /**
+   * Set the current value of a terminal mode.
+   *
+   * This does not change the value restored by a full terminal reset (RIS).
+   * A NULL value pointer or unknown mode returns GHOSTTY_INVALID_VALUE.
+   *
+   * Input type: GhosttyTerminalModeConfig*
+   */
+  GHOSTTY_TERMINAL_OPT_MODE = 34,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 
@@ -1420,6 +1463,17 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Output type: size_t *
    */
   GHOSTTY_TERMINAL_DATA_CONTINUATION_MAX_BYTES = 36,
+
+  /**
+   * Get the current value of a terminal mode.
+   *
+   * The caller must initialize the `mode` field. On success, the `value` field
+   * is updated with the current value. A NULL pointer or unknown mode returns
+   * GHOSTTY_INVALID_VALUE.
+   *
+   * Input/output type: GhosttyTerminalModeConfig *
+   */
+  GHOSTTY_TERMINAL_DATA_MODE = 37,
   GHOSTTY_TERMINAL_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalData;
 
@@ -1708,41 +1762,6 @@ GHOSTTY_API GhosttyResult ghostty_terminal_compress(
     GhosttyTerminal terminal,
     GhosttyTerminalCompressionMode mode,
     GhosttyTerminalCompressionResult* out_result);
-
-/**
- * Get the current value of a terminal mode.
- *
- * Returns the value of the mode identified by the given mode.
- *
- * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
- * @param mode The mode identifying the mode to query
- * @param[out] out_value On success, set to true if the mode is set, false
- *             if it is reset
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal
- *         is NULL or the mode does not correspond to a known mode
- *
- * @ingroup terminal
- */
-GHOSTTY_API GhosttyResult ghostty_terminal_mode_get(GhosttyTerminal terminal,
-                                        GhosttyMode mode,
-                                        bool* out_value);
-
-/**
- * Set the value of a terminal mode.
- *
- * Sets the mode identified by the given mode to the specified value.
- *
- * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
- * @param mode The mode identifying the mode to set
- * @param value true to set the mode, false to reset it
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal
- *         is NULL or the mode does not correspond to a known mode
- *
- * @ingroup terminal
- */
-GHOSTTY_API GhosttyResult ghostty_terminal_mode_set(GhosttyTerminal terminal,
-                                         GhosttyMode mode,
-                                         bool value);
 
 /**
  * Get data from a terminal instance.

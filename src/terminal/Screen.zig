@@ -334,14 +334,12 @@ pub fn init(
     };
 
     if (comptime build_options.kitty_graphics) {
-        // This can't fail because the storage is always empty at this point
-        // and the only fail-able case is that we have to evict images.
         result.kitty_images.setLimit(
             io,
             alloc,
             &result,
             opts.kitty_image_storage_limit,
-        ) catch unreachable;
+        );
         result.kitty_images.image_limits = opts.kitty_image_loading_limits;
     }
 

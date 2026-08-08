@@ -990,7 +990,7 @@ test "kitty renderer ignores pending payloads and retains native placements" {
     defer state.deinit(alloc);
 
     const storage = &t.screens.active.kitty_images;
-    const pending = try storage.addPendingImage(io, alloc, .{
+    const pending = try storage.addPendingImage(io, alloc, t.screens.active, .{
         .id = 1,
         .width = 1,
         .height = 1,
@@ -1022,7 +1022,7 @@ test "kitty renderer ignores pending payloads and retains native placements" {
 
     // A newer pending replacement clears the renderer placement and marks
     // the copied texture data for unload without deleting the native pin.
-    _ = try storage.addPendingImage(io, alloc, .{
+    _ = try storage.addPendingImage(io, alloc, t.screens.active, .{
         .id = 1,
         .width = 1,
         .height = 1,

@@ -40,7 +40,7 @@ pub const EncodeOptions = struct {
 /// Encoding starts at the destination's current position. Only one record
 /// payload is buffered at a time; completed records stream immediately. On
 /// failure, the destination may contain a snapshot prefix without its required
-/// checkpoints, and an output failure may have written part of a record.
+/// FINISH marker, and an output failure may have written part of a record.
 pub fn encode(
     alloc: Allocator,
     destination: *std.Io.Writer,
@@ -74,7 +74,7 @@ pub fn encode(
     // 4. Standard Stream continuation.
     try continuation.encode(options.continuation, &stream);
 
-    // 5. Ready checkpoint.
+    // 5. Ready marker.
     try checkpoint.encode(.ready, &stream);
 
     // 6. History
@@ -168,8 +168,8 @@ pub const Decoded = struct {
 /// Incrementally restore one snapshot: renderable state first, then history.
 ///
 /// The snapshot record order makes a terminal renderable at the READY
-/// checkpoint, after only a small prefix of the stream. `Decoder` exposes
-/// that boundary: `ready` returns a complete, authenticated `Decoded` while
+/// marker, after only a small prefix of the stream. `Decoder` exposes
+/// that boundary: `ready` returns a complete, integrity-checked `Decoded` while
 /// scrollback is still in flight, and each `next` call then applies one
 /// history PAGE record off the critical path. `snapshot.decode` is the
 /// one-shot form and is implemented over this type.
@@ -189,13 +189,13 @@ pub const Decoded = struct {
 /// while (try decoder.next(alloc, &terminal)) |progress| {
 ///     _ = progress; // Scrollback grew; e.g. refresh the scrollbar.
 /// }
-/// // FINISH validated: the complete snapshot is authenticated.
+/// // FINISH validated: the complete snapshot has been decoded.
 /// ```
 ///
 /// The terminal is live between `next` calls: the caller may render it and
 /// even feed it PTY bytes that arrived after the snapshot cut. `next`
 /// re-validates its destination on every call and degrades to discarding,
-/// consuming and authenticating wire bytes without applying them, when live
+/// consuming and validating wire bytes without applying them, when live
 /// changes have made a page inapplicable. See `next` for the drop rules.
 ///
 /// The decoder owns no allocations and needs no deinit. It retains the
@@ -205,9 +205,7 @@ pub const Decoded = struct {
 /// position are invalid: abandon the decoder, and destroy an already
 /// transferred Terminal or keep it with partial history, but do not resume.
 pub const Decoder = struct {
-    /// Hashes every consumed byte so READY and FINISH can be validated
-    /// without buffering or rehashing the stream.
-    stream: record.StreamReader,
+    source: *std.Io.Reader,
     state: State,
 
     const State = union(enum) {
@@ -259,10 +257,8 @@ pub const Decoder = struct {
 
     /// The decoder begins reading only when `ready` is called.
     pub fn init(source: *std.Io.Reader) Decoder {
-        // StreamReader owns a zero-buffer hashing adapter, making checkpoint
-        // boundaries part of its API rather than a caller-held invariant.
         return .{
-            .stream = .init(source),
+            .source = source,
             .state = .start,
         };
     }
@@ -281,11 +277,11 @@ pub const Decoder = struct {
             DuplicateScreen,
         };
 
-    /// Decode through the READY checkpoint and return the renderable state.
+    /// Decode through the READY marker and return the renderable state.
     ///
     /// The result is transactional and complete for interactive use: the
     /// Terminal, its continuation, and the advisory history extents are all
-    /// authenticated by READY. Scrollback history is not present yet and
+    /// validated through READY. Scrollback history is not present yet and
     /// arrives through `next`. Asserts this is the first call.
     pub fn ready(
         self: *Decoder,
@@ -295,7 +291,7 @@ pub const Decoder = struct {
     ) ReadyError!Decoded {
         assert(self.state == .start);
         errdefer self.state = .failed;
-        const reader = self.stream.reader();
+        const reader = self.source;
 
         // Read the envelope, which is currently just a verification step.
         try envelope.decode(reader);
@@ -363,10 +359,8 @@ pub const Decoder = struct {
             .bytes => |bytes| alloc.free(bytes),
         };
 
-        // READY covers the exact envelope-through-CONTINUATION prefix.
-        // Finalizing does not consume the hasher, so the same stream
-        // continues toward FINISH.
-        try checkpoint.decode(.ready, &self.stream);
+        // READY marks the exact envelope-through-CONTINUATION boundary.
+        try checkpoint.decode(.ready, self.source);
 
         // Record where history may be applied. The declared keys route the
         // HISTORY sequences, and the generations detect declared screens
@@ -399,7 +393,7 @@ pub const Decoder = struct {
         key: TerminalScreenKey,
 
         /// Rows prepended above that screen's existing content, or zero
-        /// when the page was consumed and authenticated but dropped.
+        /// when the page was consumed and validated but dropped.
         rows: usize,
 
         /// PAGE records still pending in the same HISTORY sequence.
@@ -437,11 +431,11 @@ pub const Decoder = struct {
     ///
     /// `t` must be the Terminal restored by this decoder's `ready` call,
     /// wherever the caller now stores it. Returns null once FINISH has
-    /// validated, which authenticates the complete snapshot; the source is
+    /// validated, which completes the snapshot; the source is
     /// left positioned exactly after it. Further calls return null.
     ///
     /// Wire validation stays strict: framing, CRCs, record order, routing,
-    /// and both checkpoint digests are always enforced. Application is
+    /// and both marker records are always enforced. Application is
     /// forgiving, because the terminal is live and may have changed since
     /// READY. A page is consumed but dropped, reported as zero rows, when:
     ///
@@ -482,11 +476,10 @@ pub const Decoder = struct {
                 state.current = null;
             }
 
-            // All sequences are consumed: FINISH authenticates READY plus
-            // all history and ends the snapshot, leaving trailing transport
-            // bytes unread.
+            // All sequences are consumed: FINISH ends the snapshot, leaving
+            // trailing transport bytes unread.
             if (state.pending == 0) {
-                try checkpoint.decode(.finish, &self.stream);
+                try checkpoint.decode(.finish, self.source);
                 if (comptime build_options.slow_runtime_safety) {
                     var it = state.generations.iterator();
                     while (it.next()) |entry| {
@@ -505,7 +498,7 @@ pub const Decoder = struct {
             // may not repeat.
             state.pending -= 1;
             var manifest: history.Decoder = undefined;
-            try manifest.init(self.stream.reader());
+            try manifest.init(self.source);
             const key = manifest.header.key;
             if (state.generations.get(key) == null) {
                 return error.UnexpectedHistoryKey;
@@ -549,10 +542,10 @@ pub const Decoder = struct {
         sequence.remaining -= 1;
         const rows: usize = rows: {
             const restored = destination orelse {
-                // The record must still be consumed and hashed so FINISH
-                // can authenticate the complete snapshot.
+                // The record must still be consumed so decoding remains
+                // aligned with the following records and FINISH marker.
                 sequence.apply = false;
-                try page.discard(self.stream.reader());
+                try page.discard(self.source);
                 break :rows 0;
             };
             // The one-shot history decoder rejects a Screen which already has
@@ -562,7 +555,7 @@ pub const Decoder = struct {
             // the destination compatible, while per-page finalization enforces
             // its current scrollback limits.
             break :rows history.decodePage(
-                self.stream.reader(),
+                self.source,
                 alloc,
                 restored,
             ) catch |err| switch (err) {
@@ -595,7 +588,7 @@ pub const Decoder = struct {
 /// the returned result is either complete and ready or not (error return).
 /// Individual record codecs normalize optional semantic state, and history
 /// beyond the declared scrollback limits is dropped rather than rejected,
-/// while framing, checkpoints, declared sequence counts, and unique
+/// while framing, markers, declared sequence counts, and unique
 /// cross-record screen routing remain strict.
 ///
 /// This is the one-shot form of `Decoder`, which can additionally hand the
@@ -814,24 +807,16 @@ test "complete snapshot round trip with history and alternate screen" {
     // Independently hash that output so both its length and complete byte
     // sequence are checked without retaining a second snapshot copy.
     var discard: std.Io.Writer.Discarding = .init(&.{});
-    var hashing = discard.writer.hashed(
-        std.crypto.hash.Blake3.init(.{}),
-        &.{},
-    );
+    var hashing = discard.writer.hashed(record.Crc32c.init(), &.{});
     try encode(testing.allocator, &hashing.writer, &t, test_encode_options);
     try testing.expectEqual(
         @as(u64, test_complete_fixture.len),
         discard.fullCount(),
     );
-    var expected_digest: checkpoint.Digest = undefined;
-    std.crypto.hash.Blake3.hash(
-        &test_complete_fixture,
-        &expected_digest,
-        .{},
+    try testing.expectEqual(
+        record.Crc32c.hash(&test_complete_fixture),
+        hashing.hasher.final(),
     );
-    var actual_digest: checkpoint.Digest = undefined;
-    hashing.hasher.final(&actual_digest);
-    try testing.expectEqual(expected_digest, actual_digest);
 
     // Restore the checked-in reference rather than the just-generated bytes.
     var encoded_source: std.Io.Reader = .fixed(&test_complete_fixture);
@@ -868,7 +853,7 @@ test "complete snapshot round trip with history and alternate screen" {
     );
 
     // Re-encoding is a compact semantic equality check over all TERMINAL,
-    // SCREEN, PAGE, and HISTORY fields and both checkpoint boundaries.
+    // SCREEN, PAGE, and HISTORY fields and both marker boundaries.
     var reencoded: std.Io.Writer.Allocating = .init(testing.allocator);
     defer reencoded.deinit();
     try encode(
@@ -1226,6 +1211,7 @@ test "complete snapshot preserves Kitty virtual placeholders" {
     try t.screens.active.kitty_images.addImage(
         testing.io,
         testing.allocator,
+        t.screens.active,
         .{ .id = 1 },
     );
     try t.screens.active.kitty_images.addPlacement(
@@ -1293,8 +1279,8 @@ test "complete snapshot encoding streams from the current writer position" {
     });
     defer t.deinit(testing.allocator);
 
-    // Prefix hashing begins with this call's envelope, independent of bytes
-    // that were already present in the destination.
+    // Encoding begins with this call's envelope, independent of bytes that
+    // were already present in the destination.
     var nonempty: std.Io.Writer.Allocating = .init(testing.allocator);
     defer nonempty.deinit();
     try nonempty.writer.writeAll("prefix");
@@ -1339,7 +1325,7 @@ test "complete snapshot encoding streams from the current writer position" {
     );
 }
 
-test "complete snapshot rejects ordering and invalid checkpoints" {
+test "complete snapshot rejects ordering and invalid markers" {
     const testing = std.testing;
 
     var t = try Terminal.init(testing.io, testing.allocator, .{
@@ -1424,8 +1410,8 @@ test "complete snapshot rejects ordering and invalid checkpoints" {
         ),
     );
 
-    // Construct a correctly framed READY with an intentionally unrelated
-    // digest so the full driver, rather than record CRC validation, rejects it.
+    // Construct a correctly framed READY with a nonempty payload so the full
+    // driver rejects a marker that does not match the required empty shape.
     var invalid_ready: std.Io.Writer.Allocating = .init(testing.allocator);
     defer invalid_ready.deinit();
     var invalid_ready_stream: record.Writer = .init(
@@ -1439,16 +1425,13 @@ test "complete snapshot rejects ordering and invalid checkpoints" {
     try continuation.encode(.ground, &invalid_ready_stream);
     const ready_payload = invalid_ready_stream.begin(.ready);
     errdefer invalid_ready_stream.cancel();
-    try ready_payload.splatByteAll(
-        0,
-        @sizeOf(checkpoint.Digest),
-    );
+    try ready_payload.writeByte(0);
     try invalid_ready_stream.finish();
     var invalid_ready_source: std.Io.Reader = .fixed(
         invalid_ready.written(),
     );
     try testing.expectError(
-        error.InvalidDigest,
+        error.PayloadNotExhausted,
         decode(
             testing.allocator,
             testing.io,
@@ -1924,7 +1907,7 @@ test "incremental decode discards history for screens changed since READY" {
     }
 
     // A screen removed since READY discards its history. FINISH still
-    // validates, proving discarded bytes remain digest-covered.
+    // validates, proving discarded records leave the stream aligned.
     {
         var source: std.Io.Reader = .fixed(crafted.written());
         var decoder: Decoder = .init(&source);
@@ -2013,7 +1996,7 @@ test "decode drops history beyond the declared scrollback limits" {
 
     // Declare a byte limit the complete history cannot satisfy. The limit
     // is validated at page granularity on decode, so the snapshot itself
-    // remains well formed and fully authenticated.
+    // remains well formed and fully validated.
     var t = try testHistoryTerminal(3);
     defer t.deinit(testing.allocator);
     t.screens.get(.primary).?.pages.limits.set(.bytes, 1);
@@ -2104,8 +2087,8 @@ test "incremental decode failure leaves applied history usable" {
     );
 
     // The transferred terminal was never owned by the decoder: it remains
-    // valid with the contiguous history prefix that did apply, and only
-    // the FINISH authentication of the whole snapshot is lost.
+    // valid with the contiguous history prefix that did apply; only the
+    // incomplete snapshot stream is lost.
     const primary = restored.screens.get(.primary).?;
     try testing.expectEqual(@as(usize, 3), primary.pages.totalPages());
     try testing.expectEqual(@as(u21, 'A'), testTopLeftCodepoint(primary));

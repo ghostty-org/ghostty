@@ -34,22 +34,18 @@ pub const ModeState = struct {
 
     /// Set a mode to a value.
     pub fn set(self: *ModeState, mode: Mode, value: bool) void {
-        switch (mode) {
-            inline else => |mode_comptime| {
-                const entry = comptime entryForMode(mode_comptime);
-                @field(self.values, entry.name) = value;
-            },
-        }
+        setPacked(&self.values, mode, value);
+    }
+
+    /// Set the reset default and current value for a mode.
+    pub fn setDefault(self: *ModeState, mode: Mode, value: bool) void {
+        setPacked(&self.values, mode, value);
+        setPacked(&self.default, mode, value);
     }
 
     /// Get the value of a mode.
     pub fn get(self: *const ModeState, mode: Mode) bool {
-        switch (mode) {
-            inline else => |mode_comptime| {
-                const entry = comptime entryForMode(mode_comptime);
-                return @field(self.values, entry.name);
-            },
-        }
+        return getPacked(&self.values, mode);
     }
 
     /// Save the state of the given mode. This can then be restored
@@ -109,6 +105,24 @@ pub const ModeState = struct {
         try std.testing.expectEqual(8, @sizeOf(ModePacked));
     }
 };
+
+fn setPacked(values: *ModePacked, mode: Mode, value: bool) void {
+    switch (mode) {
+        inline else => |mode_comptime| {
+            const entry = comptime entryForMode(mode_comptime);
+            @field(values, entry.name) = value;
+        },
+    }
+}
+
+fn getPacked(values: *const ModePacked, mode: Mode) bool {
+    switch (mode) {
+        inline else => |mode_comptime| {
+            const entry = comptime entryForMode(mode_comptime);
+            return @field(values, entry.name);
+        },
+    }
+}
 
 /// A packed struct of all the settable modes. This shouldn't
 /// be used directly but rather through the ModeState struct.
@@ -239,7 +253,23 @@ const ModeEntry = struct {
     /// set or queried. The mode enum still has it, allowing Ghostty developers
     /// to develop a mode without exposing it to real users.
     disabled: bool = false,
+
+    /// Whether an embedder may safely configure this bit as reset policy.
+    /// Modes that perform a transition or mirror additional terminal state
+    /// must use their semantic configuration API instead.
+    default_configurable: bool = true,
 };
+
+/// Return whether a mode can safely be configured as a reset default by an
+/// embedder. This excludes modes whose set/reset operations have side effects
+/// beyond changing the mode bit.
+pub fn defaultConfigurable(mode: Mode) bool {
+    switch (mode) {
+        inline else => |mode_comptime| {
+            return comptime entryForMode(mode_comptime).default_configurable;
+        },
+    }
+}
 
 /// The full list of available entries. For documentation see how
 /// they're used within Ghostty or google their values. It is not
@@ -256,46 +286,46 @@ const entries: []const ModeEntry = &.{
 
     // DEC
     .{ .name = "cursor_keys", .value = 1 }, // DECCKM
-    .{ .name = "132_column", .value = 3 },
+    .{ .name = "132_column", .value = 3, .default_configurable = false },
     .{ .name = "slow_scroll", .value = 4 },
     .{ .name = "reverse_colors", .value = 5 },
-    .{ .name = "origin", .value = 6 },
+    .{ .name = "origin", .value = 6, .default_configurable = false },
     .{ .name = "wraparound", .value = 7, .default = true },
     .{ .name = "autorepeat", .value = 8 },
-    .{ .name = "mouse_event_x10", .value = 9 },
-    .{ .name = "cursor_blinking", .value = 12 },
+    .{ .name = "mouse_event_x10", .value = 9, .default_configurable = false },
+    .{ .name = "cursor_blinking", .value = 12, .default_configurable = false },
     .{ .name = "cursor_visible", .value = 25, .default = true },
     .{ .name = "enable_mode_3", .value = 40 },
     .{ .name = "reverse_wrap", .value = 45 },
-    .{ .name = "alt_screen_legacy", .value = 47 },
+    .{ .name = "alt_screen_legacy", .value = 47, .default_configurable = false },
     .{ .name = "keypad_keys", .value = 66 },
     // DEC Backarrow Key Mode (DECBKM)
     // See https://vt100.net/dec/ek-vt3xx-tp-002.pdf page 170
     // If `false` (the default), `backspace` emits 0x7f
     // If `true`, `backspace` emits 0x08
     .{ .name = "backarrow_key_mode", .value = 67 },
-    .{ .name = "enable_left_and_right_margin", .value = 69 },
-    .{ .name = "mouse_event_normal", .value = 1000 },
-    .{ .name = "mouse_event_button", .value = 1002 },
-    .{ .name = "mouse_event_any", .value = 1003 },
+    .{ .name = "enable_left_and_right_margin", .value = 69, .default_configurable = false },
+    .{ .name = "mouse_event_normal", .value = 1000, .default_configurable = false },
+    .{ .name = "mouse_event_button", .value = 1002, .default_configurable = false },
+    .{ .name = "mouse_event_any", .value = 1003, .default_configurable = false },
     .{ .name = "focus_event", .value = 1004 },
-    .{ .name = "mouse_format_utf8", .value = 1005 },
-    .{ .name = "mouse_format_sgr", .value = 1006 },
+    .{ .name = "mouse_format_utf8", .value = 1005, .default_configurable = false },
+    .{ .name = "mouse_format_sgr", .value = 1006, .default_configurable = false },
     .{ .name = "mouse_alternate_scroll", .value = 1007, .default = true },
-    .{ .name = "mouse_format_urxvt", .value = 1015 },
-    .{ .name = "mouse_format_sgr_pixels", .value = 1016 },
+    .{ .name = "mouse_format_urxvt", .value = 1015, .default_configurable = false },
+    .{ .name = "mouse_format_sgr_pixels", .value = 1016, .default_configurable = false },
     .{ .name = "ignore_keypad_with_numlock", .value = 1035, .default = true },
     .{ .name = "alt_esc_prefix", .value = 1036, .default = true },
     .{ .name = "alt_sends_escape", .value = 1039 },
     .{ .name = "reverse_wrap_extended", .value = 1045 },
-    .{ .name = "alt_screen", .value = 1047 },
-    .{ .name = "save_cursor", .value = 1048 },
-    .{ .name = "alt_screen_save_cursor_clear_enter", .value = 1049 },
+    .{ .name = "alt_screen", .value = 1047, .default_configurable = false },
+    .{ .name = "save_cursor", .value = 1048, .default_configurable = false },
+    .{ .name = "alt_screen_save_cursor_clear_enter", .value = 1049, .default_configurable = false },
     .{ .name = "bracketed_paste", .value = 2004 },
-    .{ .name = "synchronized_output", .value = 2026 },
+    .{ .name = "synchronized_output", .value = 2026, .default_configurable = false },
     .{ .name = "grapheme_cluster", .value = 2027 },
     .{ .name = "report_color_scheme", .value = 2031 },
-    .{ .name = "report_visibility", .value = 2033 },
+    .{ .name = "report_visibility", .value = 2033, .default_configurable = false },
     .{ .name = "in_band_size_reports", .value = 2048 },
 };
 
@@ -325,6 +355,32 @@ test ModeState {
     try testing.expect(!state.get(.cursor_keys));
     try testing.expect(state.restore(.cursor_keys));
     try testing.expect(state.get(.cursor_keys));
+}
+
+test "ModeState set default updates current and reset value" {
+    var state: ModeState = .{};
+
+    state.setDefault(.grapheme_cluster, true);
+    try testing.expect(state.get(.grapheme_cluster));
+    try testing.expect(state.default.grapheme_cluster);
+
+    state.set(.grapheme_cluster, false);
+    try testing.expect(!state.get(.grapheme_cluster));
+    try testing.expect(state.default.grapheme_cluster);
+
+    state.setDefault(.grapheme_cluster, true);
+    try testing.expect(state.get(.grapheme_cluster));
+
+    state.set(.grapheme_cluster, false);
+    state.reset();
+    try testing.expect(state.get(.grapheme_cluster));
+}
+
+test "default configurable modes" {
+    try testing.expect(defaultConfigurable(.grapheme_cluster));
+    try testing.expect(defaultConfigurable(.wraparound));
+    try testing.expect(!defaultConfigurable(.alt_screen));
+    try testing.expect(!defaultConfigurable(.cursor_blinking));
 }
 
 test "getReport known DEC mode" {

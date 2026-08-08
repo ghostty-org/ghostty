@@ -172,7 +172,7 @@ fn transmit(
 
     // If the loaded image was assigned its ID automatically, not based
     // on a number or explicitly specified ID, then we don't respond.
-    if (load.image.implicit_id) return .{};
+    if (load.image.metadata.implicit_id) return .{};
 
     // After the image is added, set the ID in case it changed.
     // The resulting image number and placement ID never change.
@@ -355,8 +355,8 @@ fn loadAndAddImage(
         storage.next_image_id +%= 1;
 
         // If the image also has no number then its auto-ID is "implicit".
-        // See the doc comment on the Image.implicit_id field for more detail.
-        if (loading.image.number == 0) loading.image.implicit_id = true;
+        // See the doc comment on Image.metadata.implicit_id for more detail.
+        if (loading.image.number == 0) loading.image.metadata.implicit_id = true;
     }
 
     // If this is chunked, this is the beginning of a new chunked transmission.
@@ -377,7 +377,7 @@ fn loadAndAddImage(
     // Validate and store our image
     var img = try loading.complete(alloc);
     errdefer img.deinit(alloc);
-    try storage.addImage(io, alloc, img);
+    try storage.addImage(io, alloc, terminal.screens.active, img);
 
     // Get our display settings
     const display_ = loading.display;

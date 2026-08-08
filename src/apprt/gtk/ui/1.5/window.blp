@@ -47,7 +47,10 @@ template $GhosttyWindow: Adw.ApplicationWindow {
           // elements of a property chain are also subscribed to for changes.
           // This one long, ugly line saves us from manually building up this
           // massive notify chain in code.
-          subtitle: bind $computed_subtitle(template.config, tab_view.selected-page.child as <$GhosttyTab>.active-surface as <$GhosttySurface>.pwd) as <string>;
+          subtitle: bind $computed_subtitle(
+            template.config,
+            tab_view.selected-page.child as <$GhosttyTab>.active-surface as <$GhosttySurface>.pwd
+            ) as <string>;
         };
 
         [start]

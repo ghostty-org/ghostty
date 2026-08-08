@@ -86,6 +86,7 @@ jobs:
       - build-bench
       - build-dist
       - build-dist-lib-vt
+      - build-example-zig-vt-macos-no-sdk
       - build-examples-zig
       - build-examples-cmake
       - build-examples-cmake-windows
@@ -238,6 +239,38 @@ jobs:
         run: |
           cd example/${{ matrix.dir }}
           nix develop -c zig build
+
+  build-example-zig-vt-macos-no-sdk:
+    name: Example zig-vt (macOS, no SDK)
+    runs-on: namespace-profile-ghostty-macos-tahoe
+    needs: test
+    env:
+      ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@c5f8dab7560444c4bf8dbc64f1b203431873c547 # v1.6.1
+        with:
+          cache: |
+            xcode
+          path: |
+            /Users/runner/zig
+
+      # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
+      - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Build Example without SDK
+        working-directory: example/zig-vt
+        run: nix develop -c env DEVELOPER_DIR=/nonexistent zig build
 
   build-examples-cmake:
     strategy:
