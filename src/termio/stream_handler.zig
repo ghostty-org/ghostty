@@ -293,6 +293,7 @@ pub const StreamHandler = struct {
             .device_attributes => try self.deviceAttributes(value),
             .device_status => try self.deviceStatusReport(value.request),
             .kitty_keyboard_query => try self.queryKittyKeyboard(),
+            .modify_key_query => try self.queryModifyOtherKeys(),
             .kitty_keyboard_push => {
                 log.debug("pushing kitty keyboard mode: {}", .{value.flags});
                 self.terminal.screens.active.kitty_keyboard.push(value.flags);
@@ -880,6 +881,20 @@ pub const StreamHandler = struct {
             self.terminal.screens.active.kitty_keyboard.current().int(),
         });
 
+        self.messageWriter(.{
+            .write_small = .{
+                .data = data,
+                .len = @intCast(resp.len),
+            },
+        });
+    }
+
+    pub fn queryModifyOtherKeys(self: *StreamHandler) !void {
+        // XTQMODKEYS reply: `CSI > 4 ; Pv m`.
+        var buf: [16]u8 = undefined;
+        const report = try self.terminal.modifyOtherKeysReport(&buf);
+        var data: termio.Message.WriteReq.Small.Array = undefined;
+        const resp = try std.fmt.bufPrint(&data, "\x1b[{s}", .{report});
         self.messageWriter(.{
             .write_small = .{
                 .data = data,
