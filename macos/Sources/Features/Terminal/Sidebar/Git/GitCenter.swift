@@ -31,6 +31,11 @@ final class GitCenter: ObservableObject {
     /// Subject of each repository's tip commit.
     @Published private(set) var lastCommits: [String: String] = [:]
 
+    /// Repositories found under a folder that isn't one itself, keyed by
+    /// that folder. A missing entry means the scan hasn't answered yet,
+    /// which `GitPanelScope` treats differently from an empty one.
+    @Published private(set) var workspaceRepos: [String: [String]] = [:]
+
     /// The operation currently running, for a progress indicator. Only one
     /// at a time per panel — a commit and a push racing each other on the
     /// same repo is never what anyone wanted.
@@ -44,6 +49,7 @@ final class GitCenter: ObservableObject {
     @Published private(set) var loadedRoots: Set<String> = []
 
     private var inflight: Set<String> = []
+    private var inflightScans: Set<String> = []
     private var pendingRefresh: Set<String> = []
     private var checkedAt: [String: Date] = [:]
 
@@ -99,6 +105,48 @@ final class GitCenter: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Finds the repositories sitting under a folder that isn't one.
+    ///
+    /// Scanned once per folder and cached: the panel asks on every tab
+    /// change, and this walks the filesystem. `inflightScans` keeps a slow
+    /// scan from being started again by the next tab switch.
+    func requestWorkspaceRepos(root: String, force: Bool = false) {
+        guard force || workspaceRepos[root] == nil else { return }
+        guard !inflightScans.contains(root) else { return }
+        inflightScans.insert(root)
+
+        Task.detached(priority: .utility) {
+            let repos = Self.discoverRepos(under: root)
+            await MainActor.run { [weak self] in
+                self?.workspaceRepos[root] = repos
+                self?.inflightScans.remove(root)
+            }
+        }
+    }
+
+    /// How many repositories a workspace can contribute before the list
+    /// stops being something anyone would scroll through.
+    private static let maxWorkspaceRepos = 20
+
+    /// Folders too broad to be a workspace. A two-level scan from `~` walks
+    /// every folder in the home directory and one level under each — slow,
+    /// and the result would be a list nobody asked for. Somebody `cd`'d to
+    /// their home directory is not describing a project.
+    nonisolated private static func isTooBroadToScan(_ path: String) -> Bool {
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        if standardized == "/" { return true }
+        return standardized == FileManager.default.homeDirectoryForCurrentUser
+            .standardizedFileURL.path
+    }
+
+    /// `SidebarGroup.discoverRepoRoots` does the walking — it already stops
+    /// descending once it finds a repository and skips hidden folders, and
+    /// it is covered by its own tests.
+    nonisolated static func discoverRepos(under root: String) -> [String] {
+        guard !isTooBroadToScan(root) else { return [] }
+        return Array(SidebarGroup.discoverRepoRoots(under: root).prefix(maxWorkspaceRepos))
     }
 
     func requestBranches(root: String) {

@@ -2,8 +2,19 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// The Git panel: the working state of the repository the selected
-/// terminal is in.
+/// The Git panel.
+///
+/// Takes one of two shapes, decided by `GitPanelScope`. A terminal inside a
+/// repository gets that repository, filling the pane — the panel this
+/// started as. A terminal sitting in a folder that merely *contains*
+/// repositories gets one collapsible section per repository, because a
+/// workspace like `~/Projects/Aurora` is a real place to work from and
+/// answering "this terminal isn't in a git repository" while sitting on top
+/// of five of them was never useful.
+///
+/// The per-repository half lives in `GitRepoView`, which owns its own
+/// commit message and dialogs. That is what lets several of them coexist
+/// without this view juggling a dictionary of half-typed messages.
 struct GitPanelView: View {
     @ObservedObject var tabManager: SidebarTabManager
 
@@ -15,421 +26,125 @@ struct GitPanelView: View {
     @ObservedObject private var palette: ThemePalette = .shared
     @ObservedObject private var refresh: GitPanelRefresh = .shared
 
-    @State private var root: String?
-    @State private var message = ""
-    @State private var isAmending = false
-    @State private var discarding: [GitFileChange] = []
-    @State private var isCreatingBranch = false
-    @State private var isUndoingCommit = false
+    @State private var repoRoot: String?
+    @State private var pwd: String?
+
+    /// Sections the user opened or closed by hand, which always win over
+    /// the automatic rule. See `GitRepoExpansion`.
+    @State private var manualExpansion: [String: Bool] = [:]
 
     private var selectedTab: SidebarTabModel? {
         tabManager.models.first { $0.isSelected }
     }
 
-    private func surface(for tab: SidebarTabModel?) -> Ghostty.SurfaceView? {
-        guard let controller = tab?.window.windowController as? BaseTerminalController
-        else { return nil }
-        return controller.focusedSurface ?? controller.surfaceTree.root?.leftmostLeaf()
+    private var discovered: [String]? {
+        pwd.flatMap { center.workspaceRepos[$0] }
     }
 
-    private var status: GitStatus? {
-        root.flatMap { center.status(forRoot: $0) }
+    private var scope: GitPanelScope {
+        GitPanelScope.resolve(repoRoot: repoRoot, pwd: pwd, discovered: discovered)
     }
 
-    private var busy: String? {
-        root.flatMap { center.isBusy($0) }
+    /// The scan hasn't answered yet. Distinguished from a genuinely empty
+    /// folder so the "isn't in a git repository" message doesn't flash on
+    /// screen for a moment every time you switch to a workspace tab.
+    private var isScanning: Bool {
+        (repoRoot ?? "").isEmpty && !(pwd ?? "").isEmpty && discovered == nil
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if root == nil {
-                empty
+        content
+            .onAppear { syncScope() }
+            // The repository changes from outside this panel constantly —
+            // the terminal right next to it is where most of the committing
+            // still happens. Nothing publishes that, so the panel polls
+            // while it's the one on screen; `requestStatus` is a no-op
+            // until the TTL is up.
+            .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
+                polledRoots.forEach { center.requestStatus(root: $0) }
+            }
+            .onChange(of: tabManager.groupingVersion) { _ in syncScope() }
+            .onChange(of: refresh.token) { _ in forceRefresh() }
+            // Selection lives on the individual model, not on the published
+            // array, so the array alone never announces it. The async hop is
+            // required: objectWillChange fires *before* the value is written.
+            .onReceive(
+                Publishers.MergeMany(tabManager.models.map { $0.objectWillChange })
+            ) { _ in
+                DispatchQueue.main.async { syncScope() }
+            }
+            // A sheet rather than something inline: git's failures are
+            // paragraphs, and rendering one inside a 240pt sidebar column
+            // stretched the pane's intrinsic height until the window itself
+            // was dragged into a tall thin sliver. It stays on the panel
+            // rather than in a section because a failure belongs to the
+            // window, not to one repository's row.
+            .sheet(item: $center.lastError) { error in
+                GitFailureSheet(operation: error.operation, failure: error.failure)
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch scope {
+        case .repository(let root):
+            repoView(root, style: .standalone)
+
+        case .workspace(_, let repos):
+            workspaceList(repos)
+
+        case .none:
+            if isScanning {
+                scanningState
             } else {
-                header
-                commitBox
-                changeList
-            }
-        }
-        .onAppear { syncRoot() }
-        // The repository changes from outside this panel constantly — the
-        // terminal right next to it is where most of the committing still
-        // happens. Nothing publishes that, so the panel polls while it's
-        // the one on screen; `requestStatus` is a no-op until the TTL is up.
-        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
-            guard let root else { return }
-            center.requestStatus(root: root)
-        }
-        .onChange(of: tabManager.groupingVersion) { _ in syncRoot() }
-        .onChange(of: refresh.token) { _ in
-            guard let root else { return }
-            center.requestStatus(root: root, force: true)
-        }
-        // Selection lives on the individual model, not on the published
-        // array, so the array alone never announces it. The async hop is
-        // required: objectWillChange fires *before* the value is written.
-        .onReceive(
-            Publishers.MergeMany(tabManager.models.map { $0.objectWillChange })
-        ) { _ in
-            DispatchQueue.main.async { syncRoot() }
-        }
-        .sheet(isPresented: $isCreatingBranch) {
-            GitBranchCreator { name in
-                guard let root else { return }
-                center.createBranch(named: name, in: root)
-            }
-        }
-        // A sheet rather than something inline: git's failures are
-        // paragraphs, and rendering one inside a 240pt sidebar column
-        // stretched the pane's intrinsic height until the window itself
-        // was dragged into a tall thin sliver.
-        .sheet(item: $center.lastError) { error in
-            GitFailureSheet(operation: error.operation, failure: error.failure)
-        }
-        .alert(
-            "Discard changes?",
-            isPresented: Binding(
-                get: { !discarding.isEmpty },
-                set: { if !$0 { discarding = [] } }
-            )
-        ) {
-            Button("Discard", role: .destructive) {
-                guard let root else { return }
-                center.discard(discarding, in: root)
-                discarding = []
-            }
-            Button("Cancel", role: .cancel) { discarding = [] }
-        } message: {
-            Text(discardWarning)
-        }
-        .alert("Undo the last commit?", isPresented: $isUndoingCommit) {
-            Button("Undo Commit") {
-                guard let root else { return }
-                center.undoLastCommit(in: root)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(undoWarning)
-        }
-    }
-
-    /// Not destructive — the changes come back staged — so this explains
-    /// rather than warns. The one thing worth flagging is a commit that is
-    /// already on the remote, where undoing locally puts the branch behind
-    /// what everyone else has.
-    private var undoWarning: String {
-        let subject = root.flatMap { center.lastCommits[$0] }
-        let named = subject.map { "“\($0)” will be undone" } ?? "The last commit will be undone"
-        let base = "\(named) and its changes put back as staged files."
-
-        guard let status, status.hasUpstream, status.ahead == 0 else { return base }
-        return base + "\n\nThis commit is already on the remote — undoing it here leaves your branch behind it."
-    }
-
-    // MARK: Header
-
-    private var header: some View {
-        HStack(spacing: 6) {
-            GitIcon(size: 12)
-
-            Text(status?.branch ?? "—")
-                .font(palette.font(size: 12, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.middle)
-
-            if let status, status.hasUpstream, status.ahead + status.behind > 0 {
-                syncCounts(status)
-            }
-
-            Spacer(minLength: 0)
-
-            // Operations are silent by design, so this is the only sign
-            // one is running — and some of them (a pre-commit hook, a
-            // push) take long enough that without it the panel looks
-            // stuck rather than busy.
-            if let busy {
-                HStack(spacing: 4) {
-                    ProgressView().controlSize(.mini).scaleEffect(0.7)
-                    Text(busy)
-                        .font(palette.font(size: 10))
-                        .lineLimit(1)
-                }
-                .transition(.opacity)
-            }
-
-            SidebarIconMenu(help: "Git Actions") {
-                menuContents
-            }
-        }
-        .foregroundStyle(.secondary)
-        // The row is sized from the chip metrics like the change rows are,
-        // so the menu's highlight has the same margin above and below it
-        // that theirs do.
-        .frame(height: SidebarIconChipMetrics.rowHeight)
-        .padding(.leading, 10)
-        .padding(.trailing, 6)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
-        .animation(.easeOut(duration: 0.15), value: busy)
-    }
-
-    /// Commits to pull / to push, in the same capsule the group headers
-    /// use for their terminal count — both are "how many of these are
-    /// there", so they read as one idea rather than two conventions.
-    private func syncCounts(_ status: GitStatus) -> some View {
-        HStack(spacing: 4) {
-            if status.behind > 0 {
-                syncBadge(count: status.behind, symbol: "arrow.down", help: "Commits to pull")
-            }
-            if status.ahead > 0 {
-                syncBadge(count: status.ahead, symbol: "arrow.up", help: "Commits to push")
+                empty
             }
         }
     }
 
-    private func syncBadge(count: Int, symbol: String, help: String) -> some View {
-        SidebarCountBadge(count: count, symbol: symbol).help(help)
-    }
-
-    @ViewBuilder
-    private var menuContents: some View {
-        if let root, let status {
-            if status.hasUpstream {
-                Button("Push") { center.push(in: root) }
-                Button("Pull") { center.pull(in: root) }
-            } else if let branch = status.branch, !status.isDetached {
-                Button("Publish Branch") { center.publish(branch: branch, in: root) }
-            }
-            Button("Fetch") { center.fetch(in: root) }
-
-            Divider()
-
-            Menu("Switch Branch") {
-                ForEach(center.branches[root] ?? [], id: \.self) { branch in
-                    Button {
-                        center.checkout(branch: branch, in: root)
-                    } label: {
-                        if branch == status.branch {
-                            Label(branch, systemImage: "checkmark")
-                        } else {
-                            Text(branch)
-                        }
-                    }
-                }
-            }
-            Button("Create Branch…") { isCreatingBranch = true }
-
-            Divider()
-
-            Button("Undo Last Commit…") { isUndoingCommit = true }
-
-            Divider()
-
-            Button("Stash Changes") { center.stashPush(message: nil, in: root) }
-                .disabled(status.isClean)
-            Button("Pop Stash") { center.stashPop(in: root) }
-                .disabled((center.stashes[root] ?? []).isEmpty)
-
-            Divider()
-
-            Toggle("Amend Last Commit", isOn: $isAmending)
-            Button("Refresh") { center.requestStatus(root: root, force: true) }
-        }
-    }
-
-    // MARK: Commit
-
-    private var commitBox: some View {
-        VStack(spacing: 8) {
-            TextField(
-                "",
-                text: $message,
-                prompt: Text(isAmending ? "Amend message" : "Message"),
-                axis: .vertical
-            )
-            .textFieldStyle(.plain)
-            .lineLimit(1...4)
-            .font(palette.font(size: 11))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-            )
-
-            Button {
-                commit()
-            } label: {
-                Text(commitTitle)
-                    .font(palette.font(size: 11, weight: .medium))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 5)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(palette.accent ?? .accentColor)
-            .disabled(!canCommit)
-        }
-        .padding(.horizontal, 8)
-        .padding(.bottom, 8)
-    }
-
-    private var commitTitle: String {
-        guard let status else { return "Commit" }
-        if isAmending { return "Amend" }
-        return status.staged.isEmpty ? "Commit All" : "Commit"
-    }
-
-    private var canCommit: Bool {
-        guard busy == nil, let status else { return false }
-        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        return isAmending || !status.isClean
-    }
-
-    /// With nothing staged, commit everything — the shortcut VS Code
-    /// offers. The staging is handed to the same operation rather than
-    /// fired separately, so it can't race the commit for the busy lock.
-    private func commit() {
-        guard let root, let status else { return }
-        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        center.commit(
-            message: text,
-            amend: isAmending,
-            stageAll: !isAmending && status.staged.isEmpty,
-            in: root
+    private func repoView(_ root: String, style: GitRepoStyle) -> GitRepoView {
+        GitRepoView(
+            root: root,
+            style: style,
+            selectedTab: selectedTab,
+            onSpawnTerminal: onSpawnTerminal
         )
-        message = ""
-        isAmending = false
     }
 
-    // MARK: Changes
-
-    @ViewBuilder
-    private var changeList: some View {
-        switch GitPanelContent.resolve(
-            status: status,
-            hasLoaded: root.map(center.hasLoaded) ?? false
-        ) {
-        case .loading:
-            loadingState
-        case .unreadable:
-            unreadableState
-        case .clean:
-            cleanState
-        case .changes:
-            if let status {
-                ScrollView {
-                    // A gap, so two adjacent rows' hover backgrounds never
-                    // touch and read as one block.
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        section("Merge Changes", status.unmerged, staged: false, merge: true)
-                        section("Staged Changes", status.staged, staged: true, merge: false)
-                        section("Changes", status.unstaged, staged: false, merge: false)
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 8)
+    private func workspaceList(_ repos: [String]) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 4) {
+                ForEach(repos, id: \.self) { repo in
+                    repoView(repo, style: .section(
+                        name: (repo as NSString).lastPathComponent,
+                        isExpanded: isExpanded(repo),
+                        onToggle: { toggle(repo) }
+                    ))
                 }
-                .scrollIndicators(.hidden)
             }
+            .padding(.vertical, 6)
         }
+        .scrollIndicators(.hidden)
     }
 
-    /// Shown until the first status lands. `git status` on a large
-    /// repository takes long enough that drawing nothing reads as broken
-    /// rather than busy — which is exactly how it looked.
-    private var loadingState: some View {
+    // MARK: States
+
+    private var scanningState: some View {
         VStack(spacing: 8) {
             ProgressView()
                 .controlSize(.small)
-            Text("Reading repository…")
+            Text("Looking for repositories…")
                 .font(palette.font(size: 10))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// The load finished and produced nothing. Rare — a repository mid
-    /// `rebase`, or one whose `.git` isn't readable — but without its own
-    /// state it would be an endlessly spinning `loadingState`.
-    private var unreadableState: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 18))
-            Text("Couldn't read this repository")
-                .font(palette.font(size: 11))
-                .multilineTextAlignment(.center)
-        }
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(16)
-    }
-
-    @ViewBuilder
-    private func section(
-        _ title: String,
-        _ changes: [GitFileChange],
-        staged: Bool,
-        merge: Bool
-    ) -> some View {
-        if !changes.isEmpty {
-            HStack(spacing: 4) {
-                Text(title)
-                    .font(palette.font(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
-
-                SidebarCountBadge(count: changes.count)
-
-                Spacer(minLength: 0)
-
-                if !merge, let root {
-                    SidebarIconButton(help: staged ? "Unstage All" : "Stage All") {
-                        if staged {
-                            center.unstageAll(in: root)
-                        } else {
-                            center.stageAll(in: root)
-                        }
-                    } label: {
-                        Image(systemName: staged ? "minus" : "plus")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .padding(.leading, 6)
-            .padding(.trailing, 4)
-            .padding(.top, 6)
-            .padding(.bottom, 0)
-
-            ForEach(changes.map { SectionRow(change: $0, section: title) }) { row in
-                GitChangeRow(
-                    change: row.change,
-                    staged: staged,
-                    onOpen: { open(row.change) },
-                    onPrimary: { toggleStage(row.change, staged: staged) },
-                    onDiscard: merge ? nil : { discarding = [row.change] }
-                )
-            }
-        }
-    }
-
-    private var cleanState: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "checkmark.circle")
-                .font(.system(size: 20))
-                .foregroundStyle(.tertiary)
-            Text("No changes")
-                .font(palette.captionFont)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(16)
-    }
-
     private var empty: some View {
         VStack(spacing: 6) {
             GitIcon(size: 22)
                 .foregroundStyle(.tertiary)
-            Text("This terminal isn't in a git repository")
+            Text("No git repository here or below")
                 .font(palette.captionFont)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -438,59 +153,68 @@ struct GitPanelView: View {
         .padding(16)
     }
 
-    private var discardWarning: String {
-        guard let first = discarding.first else { return "" }
-        if discarding.count == 1 {
-            return first.isUntrackedOnly
-                ? "\(first.name) will be deleted. This can't be undone."
-                : "Changes to \(first.name) will be lost. This can't be undone."
-        }
-        return "Changes to \(discarding.count) files will be lost. This can't be undone."
-    }
+    // MARK: Expansion
 
-    // MARK: Actions
-
-    private func toggleStage(_ change: GitFileChange, staged: Bool) {
-        guard let root else { return }
-        if staged {
-            center.unstage([change.path], in: root)
-        } else {
-            center.stage([change.path], in: root)
-        }
-    }
-
-    /// Same choice the file explorer offers, since it's the same question:
-    /// look at this in the terminal, or hand it to an app. Git reports
-    /// paths relative to the repository, so they have to be rejoined with
-    /// the root before anything can open them.
-    private func open(_ change: GitFileChange) {
-        guard let root else { return }
-        let url = URL(fileURLWithPath: root).appendingPathComponent(change.path)
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-
-        FileOpener.prompt(
-            for: url,
-            in: selectedTab?.window,
-            currentTerminal: surface(for: selectedTab),
-            spawnTerminal: onSpawnTerminal
+    private func isExpanded(_ repo: String) -> Bool {
+        GitRepoExpansion.isExpanded(
+            manual: manualExpansion[repo],
+            status: center.status(forRoot: repo)
         )
     }
 
-    /// The panel follows the terminal's repository, not the workspace root:
-    /// a workspace can hold several repos side by side, and git is always
-    /// about exactly one of them.
-    private func syncRoot() {
-        let next = selectedTab?.repoRoot
-        if next != root {
-            root = next
-            message = ""
-            isAmending = false
+    private func toggle(_ repo: String) {
+        let next = !isExpanded(repo)
+        withAnimation(.easeOut(duration: 0.15)) {
+            manualExpansion[repo] = next
         }
-        guard let next else { return }
-        center.requestStatus(root: next)
-        center.requestBranches(root: next)
-        center.requestStashes(root: next)
-        center.requestLastCommit(root: next)
+    }
+
+    // MARK: Syncing
+
+    /// Only what is open gets polled. A workspace of ten repositories would
+    /// otherwise spawn ten `git status` every couple of seconds, and nine
+    /// of those answers would be for a collapsed section nobody is reading.
+    private var polledRoots: [String] {
+        switch scope {
+        case .repository(let root): return [root]
+        case .workspace(_, let repos): return repos.filter { isExpanded($0) }
+        case .none: return []
+        }
+    }
+
+    /// Follows the selected terminal: its repository if it is in one, else
+    /// the repositories under its folder.
+    private func syncScope() {
+        let tab = selectedTab
+        let nextRepo = tab?.repoRoot
+        let nextPwd = tab?.pwd
+
+        if nextRepo != repoRoot || nextPwd != pwd {
+            repoRoot = nextRepo
+            pwd = nextPwd
+            // A different folder is a different set of sections, so the
+            // choices made about the old ones don't apply.
+            manualExpansion = [:]
+        }
+
+        if let nextRepo, !nextRepo.isEmpty {
+            center.requestStatus(root: nextRepo)
+            return
+        }
+
+        guard let nextPwd, !nextPwd.isEmpty else { return }
+        center.requestWorkspaceRepos(root: nextPwd)
+        // Every repository gets one status even while collapsed: it is what
+        // the section header's counts show, and what decides which sections
+        // open on their own.
+        (center.workspaceRepos[nextPwd] ?? []).forEach { center.requestStatus(root: $0) }
+    }
+
+    private func forceRefresh() {
+        if let pwd, !pwd.isEmpty, (repoRoot ?? "").isEmpty {
+            center.requestWorkspaceRepos(root: pwd, force: true)
+        }
+        scope.repos.forEach { center.requestStatus(root: $0, force: true) }
     }
 }
 
@@ -504,7 +228,7 @@ struct GitPanelView: View {
 /// which it does on every stage: the row kept the props it had before the
 /// move, so a freshly staged file went on showing its untracked badge and
 /// a "stage" button that no longer applied.
-private struct SectionRow: Identifiable {
+struct SectionRow: Identifiable {
     let change: GitFileChange
     let section: String
 
@@ -512,7 +236,7 @@ private struct SectionRow: Identifiable {
 }
 
 /// One changed path.
-private struct GitChangeRow: View {
+struct GitChangeRow: View {
     let change: GitFileChange
     let staged: Bool
     let onOpen: () -> Void
@@ -617,7 +341,7 @@ private struct GitChangeRow: View {
 
 /// Explains a failed git operation: what happened, what to do, and the
 /// transcript underneath for when that isn't enough.
-private struct GitFailureSheet: View {
+struct GitFailureSheet: View {
     let operation: String
     let failure: GitFailure
 
@@ -715,7 +439,7 @@ private struct GitFailureSheet: View {
 }
 
 /// Names a new branch. Same skeleton as the sidebar's other editors.
-private struct GitBranchCreator: View {
+struct GitBranchCreator: View {
     let onCreate: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
