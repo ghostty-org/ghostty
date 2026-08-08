@@ -49,7 +49,11 @@ struct TerminalCommandPaletteView: View {
                 // Has to be on queue because onChange happens on a user-interactive
                 // thread and Xcode is mad about this call on that.
                 DispatchQueue.main.async {
-                    surfaceView.window?.makeFirstResponder(surfaceView)
+                    // Check key window status first, we don't want to be the wrong
+                    // first responder when modal alerts are showing
+                    if surfaceView.window?.isKeyWindow == true {
+                        surfaceView.window?.makeFirstResponder(surfaceView)
+                    }
                 }
             }
         }
