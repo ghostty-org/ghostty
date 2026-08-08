@@ -3,9 +3,6 @@ import SwiftUI
 struct AboutView: View {
     @Environment(\.openURL) var openURL
 
-    private let githubURL = URL(string: "https://github.com/ghostty-org/ghostty")
-    private let docsURL = URL(string: "https://ghostty.org/docs")
-
     /// Read the commit from the bundle.
     private var build: String? { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }
     private var commit: String? { Bundle.main.infoDictionary?["GhosttyCommit"] as? String }
@@ -45,6 +42,16 @@ struct AboutView: View {
 
     private var copyright: String? { Bundle.main.infoDictionary?["NSHumanReadableCopyright"] as? String }
 
+    /// `Ghostty` and `Mitchell Hashimoto` as real links rather than
+    /// unclickable text — parsed once so a malformed constant fails softly
+    /// as plain text instead of crashing the about window.
+    private var upstreamCredit: AttributedString {
+        (try? AttributedString(
+            markdown: Phantom.upstreamCredit,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        )) ?? AttributedString(Phantom.upstreamCredit)
+    }
+
     #if os(macOS)
     // This creates a background style similar to the Apple "About My Mac" Window
     private struct VisualEffectBackground: NSViewRepresentable {
@@ -74,73 +81,79 @@ struct AboutView: View {
     }
     #endif
 
+    /// The window's fixed content width. Height is deliberately not fixed
+    /// here: `AboutController` measures this view's natural height at this
+    /// width (`NSHostingView.fittingSize`) and sets the window's content
+    /// size to exactly that, so the padding below is respected on every
+    /// side instead of being guessed against a hand-picked window height —
+    /// guessing is what left the bottom margin thinner than the sides.
+    static let windowWidth: CGFloat = 480
+
+    /// One consistent margin around the content, on every side — the
+    /// previous extra `.padding(.top, 8)` on top of the general padding
+    /// made the top inconsistent with the rest.
+    private static let margin: CGFloat = 28
+
     var body: some View {
-        VStack(alignment: .center) {
+        VStack(alignment: .center, spacing: 18) {
             CyclingIconView()
+                .frame(height: 90)
 
-            VStack(alignment: .center, spacing: 32) {
-                VStack(alignment: .center, spacing: 8) {
-                    Text("Ghostty")
-                        .bold()
-                        .font(.title)
-                    Text("Fast, native, feature-rich terminal \nemulator pushing modern features.")
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .font(.caption)
-                        .tint(.secondary)
-                        .opacity(0.8)
-                }
-                .textSelection(.enabled)
+            VStack(alignment: .center, spacing: 6) {
+                Text(Phantom.name)
+                    .bold()
+                    .font(.title)
+                Text(Phantom.tagline)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .font(.caption)
+                    .tint(.secondary)
+                    .opacity(0.8)
+            }
+            .textSelection(.enabled)
 
-                VStack(spacing: 2) {
-                    switch versionConfig {
-                    case .stable(let version):
-                        PropertyRow(label: "Version", text: version, url: versionConfig.url)
-                    case .tip:
-                        PropertyRow(label: "Version", text: "Tip Release")
-                    case .other(let v):
-                        PropertyRow(label: "Version", text: v)
-                    case .none:
-                        EmptyView()
-                    }
-                    if let build {
-                        PropertyRow(label: "Build", text: build)
-                    }
-                    if let commit, commit != "",
-                       let url = githubURL?.appendingPathComponent("/commits/\(commit)") {
-                        PropertyRow(label: "Commit", text: commit, url: url)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-
-                HStack(spacing: 8) {
-                    if let url = docsURL {
-                        Button("Docs") {
-                            openURL(url)
-                        }
-                    }
-                    if let url = githubURL {
-                        Button("GitHub") {
-                            openURL(url)
-                        }
-                    }
-                }
-
-                if let copy = self.copyright {
-                    Text(copy)
-                        .font(.caption)
-                        .textSelection(.enabled)
-                        .tint(.secondary)
-                        .opacity(0.8)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
+            VStack(spacing: 2) {
+                PropertyRow(label: "Version", text: Phantom.version)
+                PropertyRow(label: "Ghostty Core", text: Phantom.upstreamCoreVersion)
+                if let build {
+                    PropertyRow(label: "Build", text: build)
                 }
             }
             .frame(maxWidth: .infinity)
+
+            Button("GitHub") {
+                openURL(Phantom.repositoryURL)
+            }
+
+            if let copy = self.copyright {
+                Text(copy)
+                    .font(.caption)
+                    .textSelection(.enabled)
+                    .opacity(0.7)
+                    .multilineTextAlignment(.center)
+            }
+
+            VStack(spacing: 4) {
+                Text("Powered by Ghostty 👻")
+                    .font(.caption)
+                    .fontWeight(.medium)
+
+                Text(upstreamCredit)
+                    .font(.caption2)
+                    .opacity(0.85)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .tint(.secondary)
+            }
+            .padding(Self.margin * 0.6)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(.quaternary.opacity(0.5))
+            )
         }
-        .padding(.top, 8)
-        .padding(32)
-        .frame(minWidth: 256)
+        .padding(Self.margin)
+        .frame(width: Self.windowWidth)
         #if os(macOS)
         .background(VisualEffectBackground(material: .underWindowBackground).ignoresSafeArea())
         #endif

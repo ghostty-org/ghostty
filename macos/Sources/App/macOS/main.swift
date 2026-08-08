@@ -2,6 +2,10 @@ import AppKit
 import Cocoa
 import GhosttyKit
 
+// Before anything reads the environment: ghostty_init snapshots it, and
+// that snapshot is what every terminal is spawned with.
+InheritedEnvironment.scrubAgentSessionMarkers()
+
 // Initialize Ghostty global state. We do this once right away because the
 // CLI APIs require it and it lets us ensure it is done immediately for the
 // rest of the app.

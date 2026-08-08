@@ -5,7 +5,7 @@ import Combine
 import GhosttyKit
 
 /// A classic, tabbed terminal experience.
-class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
+class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller, NSSplitViewDelegate {
     override var windowNibName: NSNib.Name? {
         let defaultValue = "Terminal"
 
@@ -60,6 +60,46 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
+
+    /// The tab read-model backing the sidebar, when the sidebar is enabled.
+    private(set) var sidebarTabManager: SidebarTabManager?
+
+    /// The split view hosting the sidebar, kept to sync divider position
+    /// across all windows in the tab group.
+    private var sidebarSplitView: NSSplitView?
+
+    /// Layout state shared with the sidebar view (collapse, actions).
+    private var sidebarLayout: SidebarLayoutModel?
+    private var sidebarLayoutCancellable: AnyCancellable?
+
+    /// Width constraints swapped when the sidebar collapses.
+    private var sidebarExpandedConstraints: [NSLayoutConstraint] = []
+    private var sidebarCollapsedConstraint: NSLayoutConstraint?
+
+    /// The sidebar hosting view, tinted with the terminal's effective
+    /// background (color + opacity) so both panes always match.
+    private var sidebarBackgroundView: NSView?
+
+    /// Fills the titlebar strip over the terminal pane, which the terminal's
+    /// own content doesn't reach.
+    private var terminalTitlebarFiller: NSView?
+
+    /// The sidebar pane container and its glass layer (glass effect
+    /// modes cover every pane, so the sidebar carries its own).
+    private weak var sidebarPane: NSView?
+
+    /// The sidebar action icons, added straight into the titlebar
+    /// container and centered on the traffic lights; the trailing
+    /// constraint tracks the sidebar so the icons hug the divider.
+    private var sidebarChromeView: NSView?
+    private var sidebarChromeTrailingConstraint: NSLayoutConstraint?
+
+    /// The config fallback width used before any user drag is persisted.
+    private var sidebarDefaultWidth: CGFloat = 240
+
+    /// UserDefaults key holding the app-wide sidebar width. Shared by all
+    /// windows so dragging the divider in one tab applies to every tab.
+    static let sidebarWidthDefaultsKey = "GhosttySidebarWidth"
 
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
@@ -535,6 +575,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             Notification.Name.GhosttyConfigChangeKey
         ] as? Ghostty.Config else { return }
 
+        // Any config reload (settings window, CLI action, file edit)
+        // re-resolves the sidebar treatments once the surface state
+        // settles — never only the settings-window path.
+        if sidebarChromeView != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.syncSidebarBackground()
+                self?.attachSidebarChrome()
+                (self?.window as? TerminalWindow)?.ensureSidebarTitlebarDecorations()
+                self?.sidebarSplitView?.needsDisplay = true
+            }
+        }
+
         // If this is an app-level config update then we update some things.
         if notification.object == nil {
             // Update our derived config
@@ -613,6 +665,70 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // currently focused surface.
         guard let focusedSurface else { return }
         syncAppearance(focusedSurface.derivedConfig)
+
+        // Appearance syncs can rebuild titlebar contents (e.g. after a
+        // theme change); make sure the sidebar's titlebar UI survives
+        // and the sidebar tint tracks the terminal background.
+        if sidebarChromeView != nil {
+            DispatchQueue.main.async { [weak self] in
+                self?.attachSidebarChrome()
+                self?.syncSidebarBackground()
+                (self?.window as? TerminalWindow)?.ensureSidebarTitlebarDecorations()
+            }
+        }
+    }
+
+    /// Posted by settings when the sidebar tint changes.
+    static let sidebarTintDidChange = Notification.Name("PhantomSidebarTintDidChange")
+
+    /// The sidebar's background treatment is resolved centrally by
+    /// AppearanceCoordinator so every blur/opacity/mode combination is
+    /// decided in one place.
+    private func syncSidebarBackground() {
+        let paneColor = AppearanceCoordinator.sidebarLayerColor(
+            window: window as? TerminalWindow
+        )
+
+        terminalTitlebarFiller?.layer?.backgroundColor = paneColor?.cgColor
+
+        guard let sidebarBackgroundView else { return }
+        sidebarBackgroundView.layer?.backgroundColor = paneColor?.cgColor
+    }
+
+    /// The window's private corner radius, safely probed.
+    private func windowCornerRadiusValue() -> CGFloat? {
+        guard let window, window.responds(to: Selector(("_cornerRadius")))
+        else { return nil }
+        return window.value(forKey: "_cornerRadius") as? CGFloat
+    }
+
+    /// Masks the first presentation of this window's terminal pane: the
+    /// Metal surface takes a few frames to draw its first content, and
+    /// until then the near-transparent window shows raw desktop blur — a
+    /// visible flash when clicking a tab that was never displayed.
+    private var didShieldFirstPresentation = false
+
+    private func shieldFirstPresentationFlash() {
+        guard !didShieldFirstPresentation,
+              let terminalWindow = window as? TerminalWindow,
+              let container = sidebarSplitView?.arrangedSubviews.last
+        else { return }
+        didShieldFirstPresentation = true
+
+        let shield = NSView(frame: container.bounds)
+        shield.autoresizingMask = [.width, .height]
+        shield.wantsLayer = true
+        shield.layer?.backgroundColor = terminalWindow.preferredBackgroundColor?.cgColor
+        container.addSubview(shield)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.12
+                shield.animator().alphaValue = 0
+            }, completionHandler: {
+                shield.removeFromSuperview()
+            })
+        }
     }
 
     private func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
@@ -1094,7 +1210,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // SwiftUI focus chain.
         container.initialContentSize = focusedSurface?.initialSize
 
-        window.contentView = container
+        if config.sidebar {
+            window.contentView = makeSidebarSplitView(
+                terminalContainer: container,
+                window: window,
+                config: config
+            )
+        } else {
+            window.contentView = container
+        }
 
         // If we have a default size, we want to apply it.
         if let defaultSize {
@@ -1132,6 +1256,344 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // apply this based on the root config but change it later based on surface
         // config (see focused surface change callback).
         syncAppearance(.init(config))
+    }
+
+    /// Builds the sidebar | terminal split view used as the window content
+    /// view when the sidebar is enabled. Native tabbing stays untouched;
+    /// the sidebar is purely an alternative presentation of the tab group.
+    private func makeSidebarSplitView(
+        terminalContainer: NSView,
+        window: NSWindow,
+        config: Ghostty.Config
+    ) -> NSView {
+        (window as? TerminalWindow)?.sidebarActive = true
+
+        // The sidebar pane runs the full height of the window so its glass
+        // layer reaches the titlebar strip. The strip's own color comes from
+        // the titlebar, not the panes — see the hosting view's top anchor.
+        window.styleMask.insert(.fullSizeContentView)
+
+        let tabManager = SidebarTabManager(window: window)
+        self.sidebarTabManager = tabManager
+
+        let layout = SidebarLayoutModel()
+        layout.onNewTab = { [weak self] in
+            guard let self, let window = self.window else { return }
+            _ = Self.newTab(self.ghostty, from: window)
+        }
+        layout.onNewClaudeTab = { [weak self] in
+            self?.newSidebarTab(in: nil, runningClaude: true)
+        }
+        self.sidebarLayout = layout
+
+        let sidebarHosting = NSHostingView(rootView: SidebarView(
+            tabManager: tabManager,
+            store: .shared,
+            layout: layout,
+            onNewTabInGroup: { [weak self] group in
+                self?.newSidebarTab(in: group)
+            },
+            onNewClaudeTabInGroup: { [weak self] group in
+                self?.newSidebarTab(in: group, runningClaude: true)
+            }
+        ).interfaceFont())
+        sidebarHosting.translatesAutoresizingMaskIntoConstraints = false
+        sidebarHosting.wantsLayer = true
+        self.sidebarBackgroundView = sidebarHosting
+
+        // The pane wraps the hosting view so a glass layer can slot in
+        // underneath when the glass effect is active.
+        let sidebarPane = NSView()
+        sidebarPane.translatesAutoresizingMaskIntoConstraints = false
+        sidebarPane.addSubview(sidebarHosting)
+        NSLayoutConstraint.activate([
+            sidebarHosting.topAnchor.constraint(equalTo: sidebarPane.topAnchor),
+            sidebarHosting.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor),
+            sidebarHosting.bottomAnchor.constraint(equalTo: sidebarPane.bottomAnchor),
+            sidebarHosting.trailingAnchor.constraint(equalTo: sidebarPane.trailingAnchor),
+        ])
+        self.sidebarPane = sidebarPane
+
+        let expanded = [
+            sidebarPane.widthAnchor.constraint(greaterThanOrEqualToConstant: 180),
+            sidebarPane.widthAnchor.constraint(lessThanOrEqualToConstant: 480),
+        ]
+        NSLayoutConstraint.activate(expanded)
+        self.sidebarExpandedConstraints = expanded
+        self.sidebarCollapsedConstraint =
+            sidebarPane.widthAnchor.constraint(equalToConstant: 0)
+
+        // Pin the exact shared width for the first layout pass so new
+        // tabs appear at the right size instead of snapping a frame
+        // later, then release it so the divider stays draggable.
+        if !SidebarCollapseState.shared.isCollapsed {
+            let initialWidth = sidebarPane.widthAnchor.constraint(
+                equalToConstant: sharedSidebarWidth
+            )
+            initialWidth.isActive = true
+            DispatchQueue.main.async { initialWidth.isActive = false }
+        }
+
+        let chromeHosting = NSHostingView(rootView: SidebarTitlebarChrome(
+            store: .shared,
+            layout: layout
+        ).interfaceFont())
+        chromeHosting.translatesAutoresizingMaskIntoConstraints = false
+        self.sidebarChromeView = chromeHosting
+
+        DispatchQueue.main.async { [weak self] in
+            self?.attachSidebarChrome()
+            self?.syncSidebarBackground()
+        }
+
+        sidebarLayoutCancellable = SidebarCollapseState.shared.$isCollapsed
+            .removeDuplicates()
+            .sink { [weak self] collapsed in
+                guard let self else { return }
+                if collapsed {
+                    NSLayoutConstraint.deactivate(self.sidebarExpandedConstraints)
+                    self.sidebarCollapsedConstraint?.isActive = true
+                } else {
+                    self.sidebarCollapsedConstraint?.isActive = false
+                    NSLayoutConstraint.activate(self.sidebarExpandedConstraints)
+                    DispatchQueue.main.async { [weak self] in
+                        self?.applySharedSidebarWidth()
+                    }
+                }
+                DispatchQueue.main.async { [weak self] in
+                    self?.syncSidebarChromeWidth()
+                }
+            }
+
+        // The sidebar's hosting view paints the titlebar strip on its half
+        // because its layer runs the full height of the pane. The terminal's
+        // content stops below the titlebar and paints nothing up there, so
+        // this fills exactly that band — one coat on each half, and nothing
+        // at all under glass, where the material shows through instead.
+        let titlebarFiller = NSView()
+        titlebarFiller.translatesAutoresizingMaskIntoConstraints = false
+        titlebarFiller.wantsLayer = true
+        terminalContainer.addSubview(titlebarFiller, positioned: .below, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            titlebarFiller.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
+            titlebarFiller.leadingAnchor.constraint(equalTo: terminalContainer.leadingAnchor),
+            titlebarFiller.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
+            // Meets the terminal's content exactly. It cannot do better than
+            // that: overlapping paints that row twice and reads as a dark
+            // line, and falling short leaves the window showing through as a
+            // light one. Two translucent surfaces can't tile seamlessly —
+            // fixing this properly means one backdrop for the whole window
+            // with the terminal drawing no background of its own.
+            titlebarFiller.bottomAnchor.constraint(
+                equalTo: terminalContainer.safeAreaLayoutGuide.topAnchor
+            ),
+        ])
+        self.terminalTitlebarFiller = titlebarFiller
+
+        let splitView = SidebarSplitView()
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        splitView.addArrangedSubview(sidebarPane)
+        splitView.addArrangedSubview(terminalContainer)
+        splitView.setHoldingPriority(.defaultLow + 1, forSubviewAt: 0)
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
+        splitView.delegate = self
+
+        self.sidebarSplitView = splitView
+        self.sidebarDefaultWidth = config.sidebarWidth
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sidebarWindowDidBecomeKey(_:)),
+            name: NSWindow.didBecomeKeyNotification,
+            object: window
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sidebarTintDidChangeNotification(_:)),
+            name: Self.sidebarTintDidChange,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(guiConfigDidApplyNotification(_:)),
+            name: GuiConfigStore.didApply,
+            object: nil
+        )
+
+        DispatchQueue.main.async { [weak self] in
+            self?.applySharedSidebarWidth()
+        }
+
+        return splitView
+    }
+
+    /// Creates a terminal tab that starts inside the given group.
+    ///
+    /// Working directory rule: project groups start at the project root;
+    /// manual groups (and the ungrouped section) start at the pwd of the
+    /// currently selected tab. The new surface is pinned to the group so
+    /// later `cd`s never move it out.
+    private func newSidebarTab(in group: SidebarGroup?, runningClaude: Bool = false) {
+        guard let window else { return }
+
+        var baseConfig = Ghostty.SurfaceConfiguration()
+        if case .project(let root) = group?.kind {
+            baseConfig.workingDirectory = (root as NSString).expandingTildeInPath
+        } else if let selected = sidebarTabManager?.models.first(where: { $0.isSelected }),
+                  let pwd = selected.pwd, !pwd.isEmpty {
+            baseConfig.workingDirectory = pwd
+        }
+
+        guard let controller = Self.newTab(ghostty, from: window, withBaseConfig: baseConfig)
+        else { return }
+
+        let surface = controller.focusedSurface
+            ?? controller.surfaceTree.root?.leftmostLeaf()
+
+        if runningClaude, let surface {
+            ClaudeSession.run("claude", in: surface)
+        }
+
+        guard let group, let surface else { return }
+        SidebarGroupStore.shared.assign(surfaceId: surface.id, to: group.id)
+        sidebarTabManager?.scheduleRefresh()
+        controller.sidebarTabManager?.scheduleRefresh()
+    }
+
+    /// The app-wide sidebar width: last width the user dragged to in any
+    /// window, falling back to the config value.
+    private var sharedSidebarWidth: CGFloat {
+        let saved = UserDefaults.standard.double(forKey: Self.sidebarWidthDefaultsKey)
+        return saved > 0 ? CGFloat(saved) : sidebarDefaultWidth
+    }
+
+    /// Applied when this window becomes key so a drag done in another tab
+    /// carries over to this one.
+    @objc private func sidebarWindowDidBecomeKey(_ notification: Notification) {
+        applySharedSidebarWidth()
+        shieldFirstPresentationFlash()
+    }
+
+    @objc private func sidebarTintDidChangeNotification(_ notification: Notification) {
+        syncSidebarBackground()
+        // An immediate, synchronous redraw — not just a dirty flag for
+        // the next display cycle — so divider style/color changes in
+        // Settings reflect right away instead of needing a reopen.
+        sidebarSplitView?.display()
+    }
+
+    /// Settings applies hot-reload the config; the surface state that
+    /// feeds window and sidebar treatments lands a beat later, so the
+    /// full appearance sync runs twice — immediately and after the
+    /// reload settles. The second pass also re-asserts glass, which the
+    /// window server occasionally drops during background churn.
+    @objc private func guiConfigDidApplyNotification(_ notification: Notification) {
+        syncAppearance()
+        syncSidebarBackground()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.syncAppearance()
+            self?.syncSidebarBackground()
+            self?.sidebarSplitView?.needsDisplay = true
+        }
+    }
+
+    private func applySharedSidebarWidth() {
+        guard let splitView = sidebarSplitView,
+              let sidebar = splitView.arrangedSubviews.first
+        else { return }
+        defer { syncSidebarChromeWidth() }
+        let target = sharedSidebarWidth
+        guard abs(sidebar.frame.width - target) > 0.5 else { return }
+        splitView.setPosition(target, ofDividerAt: 0)
+    }
+
+    /// Adds the chrome into the titlebar container, vertically centered
+    /// on the traffic lights. Safe to call repeatedly: re-attaches after
+    /// titlebar rebuilds (theme changes, appearance syncs).
+    private func attachSidebarChrome() {
+        guard let chrome = sidebarChromeView,
+              let closeButton = window?.standardWindowButton(.closeButton),
+              let titlebar = closeButton.superview
+        else { return }
+        guard chrome.superview != titlebar else {
+            syncSidebarChromeWidth()
+            return
+        }
+
+        chrome.removeFromSuperview()
+        titlebar.addSubview(chrome)
+
+        let trailing = chrome.trailingAnchor.constraint(
+            equalTo: titlebar.leadingAnchor,
+            constant: sharedSidebarWidth - 8
+        )
+        NSLayoutConstraint.activate([
+            trailing,
+            chrome.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+        ])
+        sidebarChromeTrailingConstraint = trailing
+
+        syncSidebarChromeWidth()
+    }
+
+    /// Keeps the chrome's trailing edge at the sidebar's right edge
+    /// (or parked next to the traffic lights when collapsed).
+    private func syncSidebarChromeWidth() {
+        guard let chrome = sidebarChromeView else { return }
+
+        if chrome.superview == nil {
+            attachSidebarChrome()
+            return
+        }
+
+        guard let constraint = sidebarChromeTrailingConstraint, let window else { return }
+
+        let trafficLightsInset = window.standardWindowButton(.zoomButton)
+            .map { $0.frame.maxX + 6 } ?? 78
+
+        if SidebarCollapseState.shared.isCollapsed {
+            constraint.constant = trafficLightsInset + 32
+        } else {
+            let sidebarWidth = sidebarSplitView?.arrangedSubviews.first?.frame.width
+                ?? sharedSidebarWidth
+            constraint.constant = max(trafficLightsInset + 32, sidebarWidth - 8)
+        }
+    }
+
+    // MARK: NSSplitViewDelegate
+
+    /// Keeps the sidebar resizable when the divider is hidden.
+    ///
+    /// AppKit derives the drag area from `dividerThickness`, which is zero in
+    /// that mode so the panes can meet with nothing between them to paint.
+    /// This hands back a grabbable band over the seam.
+    func splitView(
+        _ splitView: NSSplitView,
+        additionalEffectiveRectOfDividerAt dividerIndex: Int
+    ) -> NSRect {
+        guard splitView.dividerThickness == 0,
+              let sidebar = splitView.arrangedSubviews.first
+        else { return .zero }
+
+        let grabWidth: CGFloat = 6
+        return NSRect(
+            x: sidebar.frame.maxX - grabWidth / 2,
+            y: splitView.bounds.minY,
+            width: grabWidth,
+            height: splitView.bounds.height
+        )
+    }
+
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        syncSidebarChromeWidth()
+
+        guard let splitView = sidebarSplitView,
+              window?.isKeyWindow == true,
+              let width = splitView.arrangedSubviews.first?.frame.width,
+              width > 0
+        else { return }
+        UserDefaults.standard.set(Double(width), forKey: Self.sidebarWidthDefaultsKey)
     }
 
     /// Setup correct window frame before showing the window

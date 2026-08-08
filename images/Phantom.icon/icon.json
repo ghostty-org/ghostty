@@ -1,0 +1,45 @@
+{
+  "color-space-for-untagged-svg-colors" : "display-p3",
+  "fill" : {
+    "linear-gradient" : [
+      "display-p3:0.20000,0.16000,0.36000,1.00000",
+      "display-p3:0.05000,0.04000,0.11000,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "blend-mode" : "normal",
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "phantom.png",
+          "name" : "Phantom",
+          "opacity" : 1,
+          "position" : {
+            "scale" : 0.78,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.4
+      },
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

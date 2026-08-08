@@ -86,7 +86,17 @@ class TerminalViewContainer: NSView {
 
 extension BaseTerminalController {
     var terminalViewContainer: TerminalViewContainer? {
-        window?.contentView as? TerminalViewContainer
+        if let direct = window?.contentView as? TerminalViewContainer {
+            return direct
+        }
+        // With the sidebar active the content view is a split view and
+        // the container is its terminal pane.
+        if let split = window?.contentView as? NSSplitView {
+            return split.arrangedSubviews
+                .compactMap { $0 as? TerminalViewContainer }
+                .first
+        }
+        return nil
     }
 }
 
@@ -96,7 +106,7 @@ extension BaseTerminalController {
 /// an inactive-window tint overlay.
 #if compiler(>=6.2)
 @available(macOS 26.0, *)
-private class TerminalGlassView: NSView {
+class TerminalGlassView: NSView {
     private let glassEffectView: NSGlassEffectView
     private var topConstraint: NSLayoutConstraint!
     private let tintOverlay: NSView
@@ -214,11 +224,16 @@ extension TerminalViewContainer {
             return
         }
 
+        // As a split pane (sidebar active) the container's inner edge
+        // sits mid-window: a uniform glass corner radius would show as
+        // a notch against the divider, so panes use square glass and
+        // let the window frame round the composite at its own corners.
+        let isPane = window?.contentView !== self
         effectView.configure(
             style: derivedConfig.style.official,
             backgroundColor: derivedConfig.backgroundColor,
             backgroundOpacity: derivedConfig.backgroundOpacity,
-            cornerRadius: derivedConfig.cornerRadius,
+            cornerRadius: isPane ? 0 : derivedConfig.cornerRadius,
             isKeyWindow: window?.isKeyWindow ?? true
         )
 #endif // compiler(>=6.2)

@@ -68,6 +68,12 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // Save our config in case we need to reapply
         lastSurfaceConfig = surfaceConfig
 
+        // Re-asserted on every sync: AppKit restores the hairline whenever
+        // the tab group or the titlebar views are rebuilt.
+        if sidebarActive {
+            titlebarSeparatorStyle = .none
+        }
+
         // Every time we change appearance, set KVO up again in case any of our
         // references changed (e.g. tabGroup is new).
         setupKVO()
@@ -96,7 +102,11 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
             let isTransparentTitlebar = derivedConfig.macosTitlebarStyle == .transparent ||
             derivedConfig.macosTitlebarStyle == .tabs
 
-            titlebarView.layer?.backgroundColor = (isGlassStyle && isTransparentTitlebar)
+            // With the sidebar active the panes own the titlebar strip and
+            // this stays out of the way. Painting it here instead put a flat
+            // theme colour over the strip in every mode, which under blur
+            // and glass read lighter than the material below it.
+            titlebarView.layer?.backgroundColor = (sidebarActive || (isGlassStyle && isTransparentTitlebar))
                 ? NSColor.clear.cgColor
                 : preferredBackgroundColor?.cgColor
         }
@@ -104,13 +114,32 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // In all cases, we have to hide the background view since this has multiple subviews
         // that force a background color.
         titlebarBackgroundView?.isHidden = true
+
+        if sidebarActive {
+            hideTitlebarSeparators()
+        }
+    }
+
+    /// Hides the separators AppKit draws inside the titlebar.
+    ///
+    /// `titlebarSeparatorStyle = .none` covers the line under the titlebar
+    /// but not these: with a split view as the content, AppKit also draws a
+    /// vertical separator at the split boundary. The sidebar is a pane of a
+    /// continuous surface, so both are wrong here.
+    private func hideTitlebarSeparators() {
+        guard let titlebarContainer else { return }
+        for view in titlebarContainer.descendants(withClassName: "NSTitlebarSeparatorView") {
+            view.isHidden = true
+        }
     }
 
     @available(macOS 13.0, *)
     private func syncAppearanceVentura(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
         guard let titlebarContainer else { return }
 
-        // Setup the titlebar background color to match ours
+        // Setup the titlebar background color to match ours. With the
+        // sidebar active the panes paint the titlebar area themselves,
+        // so it stays clear rather than double-painting.
         titlebarContainer.wantsLayer = true
         titlebarContainer.layer?.backgroundColor = preferredBackgroundColor?.cgColor
 

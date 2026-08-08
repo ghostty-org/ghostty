@@ -1,0 +1,82 @@
+name: Phantom Release
+
+# Phantom-only release pipeline — separate from release-tag.yml (Ghostty's
+# own, untouched, using infrastructure this fork has no access to: paid
+# Namespace runners, Nix, a real Developer ID cert, Sparkle/appcast, R2).
+# This builds, ad-hoc signs, packages and publishes a Phantom.dmg to this
+# repo's own Releases page on every push to main.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history: git rev-list --count and git tag -l both need it.
+          fetch-depth: 0
+
+      - name: Compute version
+        id: version
+        run: |
+          LAST_TAG=$(git tag -l 'v*.*.*' --sort=-v:refname | head -1)
+          LAST_TAG=${LAST_TAG:-v0.2.0}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${LAST_TAG#v}"
+          NEW_PATCH=$((PATCH + 1))
+          echo "tag=v${MAJOR}.${MINOR}.${NEW_PATCH}" >> "$GITHUB_OUTPUT"
+          echo "short_version=${MAJOR}.${MINOR}.${NEW_PATCH}" >> "$GITHUB_OUTPUT"
+          echo "build=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: "0.16.0"
+
+      - name: Build
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Set version in Info.plist
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.version.outputs.short_version }}" zig-out/Phantom.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ steps.version.outputs.build }}" zig-out/Phantom.app/Contents/Info.plist
+
+      - name: Codesign (ad-hoc)
+        run: |
+          codesign --force --deep --sign - \
+            --entitlements macos/GhosttyReleaseLocal.entitlements \
+            zig-out/Phantom.app
+
+      - name: Create DMG
+        run: |
+          npm install --global create-dmg
+          # create-dmg's exit code isn't reliable even on success; the real
+          # check is whether the file landed.
+          create-dmg zig-out/Phantom.app . || true
+          mv Phantom*.dmg Phantom.dmg
+          test -f Phantom.dmg
+
+      - name: Tag
+        run: |
+          git tag ${{ steps.version.outputs.tag }}
+          git push origin ${{ steps.version.outputs.tag }}
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create ${{ steps.version.outputs.tag }} \
+            --title ${{ steps.version.outputs.tag }} \
+            --generate-notes \
+            --notes 'Ad-hoc signed, not notarized — on first launch, right-click the app and choose **Open** (or run `xattr -cr Phantom.app` after unzipping) instead of double-clicking, or Gatekeeper will refuse it as from an unidentified developer.' \
+            Phantom.dmg

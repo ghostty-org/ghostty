@@ -50,6 +50,86 @@ class TerminalWindow: NSWindow {
         true
     }
 
+    /// When true, the sidebar replaces the native tab bar as the tab UI:
+    /// any tab bar accessory AppKit attaches is immediately hidden and
+    /// the window title is re-rendered centered in the titlebar (the
+    /// standard leading title reads wrong next to a full-height sidebar).
+    var sidebarActive: Bool = false {
+        didSet {
+            guard sidebarActive != oldValue else { return }
+            for accessory in titlebarAccessoryViewControllers where isTabBar(accessory) {
+                accessory.isHidden = sidebarActive
+            }
+            if sidebarActive {
+                installCenteredTitle()
+                // The panes run the full height of the window and paint the
+                // titlebar strip themselves, so AppKit's hairline under it
+                // is a seam across a surface that is meant to be continuous.
+                titlebarSeparatorStyle = .none
+            } else {
+                removeCenteredTitle()
+                titlebarSeparatorStyle = .automatic
+            }
+        }
+    }
+
+    // MARK: Centered Title
+
+    private var centeredTitleField: NSTextField?
+    private var centeredTitleObservation: NSKeyValueObservation?
+
+    private func installCenteredTitle() {
+        guard centeredTitleField == nil,
+              let titlebar = standardWindowButton(.closeButton)?.superview
+        else { return }
+
+        titleVisibility = .hidden
+
+        let field = NSTextField(labelWithString: title)
+        field.font = .titleBarFont(ofSize: NSFont.systemFontSize)
+        field.textColor = .secondaryLabelColor
+        field.alignment = .center
+        field.lineBreakMode = .byTruncatingMiddle
+        field.translatesAutoresizingMaskIntoConstraints = false
+        titlebar.addSubview(field)
+
+        NSLayoutConstraint.activate([
+            field.centerXAnchor.constraint(equalTo: titlebar.centerXAnchor),
+            field.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor),
+            field.widthAnchor.constraint(
+                lessThanOrEqualTo: titlebar.widthAnchor,
+                multiplier: 0.6
+            ),
+        ])
+
+        centeredTitleField = field
+        centeredTitleObservation = observe(\.title, options: [.new]) { [weak field] _, change in
+            guard let newTitle = change.newValue else { return }
+            DispatchQueue.main.async { field?.stringValue = newTitle }
+        }
+    }
+
+    private func removeCenteredTitle() {
+        centeredTitleObservation?.invalidate()
+        centeredTitleObservation = nil
+        centeredTitleField?.removeFromSuperview()
+        centeredTitleField = nil
+        titleVisibility = .visible
+    }
+
+    /// Re-applies the sidebar's titlebar decorations after appearance
+    /// syncs that rebuild titlebar contents.
+    func ensureSidebarTitlebarDecorations() {
+        guard sidebarActive else { return }
+        titleVisibility = .hidden
+        if let field = centeredTitleField, field.superview == nil {
+            removeCenteredTitle()
+        }
+        if centeredTitleField == nil {
+            installCenteredTitle()
+        }
+    }
+
     /// Glass effect view for liquid glass background when transparency is enabled
     private var glassEffectView: NSView?
 
@@ -259,6 +339,9 @@ class TerminalWindow: NSWindow {
         // it. This has been verified to work on macOS 12 to 26
         if isTabBar(childViewController) {
             childViewController.identifier = Self.tabBarIdentifier
+            if sidebarActive {
+                childViewController.isHidden = true
+            }
             tabBarDidAppear()
         }
     }
@@ -503,6 +586,13 @@ class TerminalWindow: NSWindow {
             let backgroundColor = preferredBackgroundColor ?? NSColor(surfaceConfig.backgroundColor)
             self.backgroundColor = backgroundColor.withAlphaComponent(1)
         }
+
+        // A non-opaque window's shadow is derived from what its content
+        // actually draws, and macOS keeps the one it computed until asked to
+        // redo it. Changing opacity or the effect leaves that stale shadow
+        // in place — sized for the old content, which reads as an oversized
+        // halo around the window.
+        invalidateShadow()
     }
 
     /// The preferred window background color. The current window background color may not be set

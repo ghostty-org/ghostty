@@ -16,10 +16,10 @@
         <window allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" animationBehavior="default" titlebarAppearsTransparent="YES" id="QvC-M9-y7g">
             <windowStyleMask key="styleMask" titled="YES" closable="YES" fullSizeContentView="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
-            <rect key="contentRect" x="196" y="240" width="300" height="172"/>
+            <rect key="contentRect" x="196" y="240" width="480" height="480"/>
             <rect key="screenRect" x="0.0" y="0.0" width="3008" height="1667"/>
             <view key="contentView" wantsLayer="YES" id="EiT-Mj-1SZ">
-                <rect key="frame" x="0.0" y="0.0" width="300" height="172"/>
+                <rect key="frame" x="0.0" y="0.0" width="480" height="480"/>
                 <autoresizingMask key="autoresizingMask"/>
             </view>
             <connections>

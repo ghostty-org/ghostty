@@ -145,9 +145,17 @@ class BaseTerminalController: NSWindowController,
 
         super.init(window: nil)
 
-        // Initialize our initial surface.
+        // Initialize our initial surface, exposing the tab state file so
+        // external tools (e.g. coding agent hooks) can report their state
+        // back to the sidebar.
         guard let ghostty_app = ghostty.app else { preconditionFailure("app must be loaded") }
-        self.surfaceTree = tree ?? .init(view: Ghostty.SurfaceView(ghostty_app, baseConfig: base))
+        var surfaceConfig = base ?? Ghostty.SurfaceConfiguration()
+        let surfaceUUID = UUID()
+        surfaceConfig.environmentVariables["GHOSTTY_TAB_STATE_FILE"] =
+            TabStateCenter.stateFileURL(for: surfaceUUID).path
+        self.surfaceTree = tree ?? .init(
+            view: Ghostty.SurfaceView(ghostty_app, baseConfig: surfaceConfig, uuid: surfaceUUID)
+        )
         Self.updateSurfaceControllers(self, from: .init(), to: surfaceTree)
 
         // Setup our bell state for the window

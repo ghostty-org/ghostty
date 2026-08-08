@@ -164,11 +164,13 @@ class AppDelegate: NSObject,
     @MainActor private lazy var menuShortcutManager = Ghostty.MenuShortcutManager()
 
     override init() {
-#if DEBUG
-        ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"])
-#else
-        ghostty = Ghostty.App()
-#endif
+        // Phantom keeps its own config directory, so the core must be pointed
+        // at it explicitly — its default-file discovery resolves to Ghostty's
+        // directory, which would leave the settings window editing a file the
+        // renderer never reads.
+        let configPath = ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"]
+            ?? GuiConfigStore.bootstrapMainConfigPath()
+        ghostty = Ghostty.App(configPath: configPath)
         super.init()
 
         ghostty.delegate = self
@@ -203,6 +205,11 @@ class AppDelegate: NSObject,
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Materialize the GUI settings file (and its config-file include)
+        // so fork defaults like the sidebar exist even before the
+        // settings window is ever opened.
+        _ = GuiConfigStore.shared
+
         // System settings overrides
         UserDefaults.ghostty.register(defaults: [
             // Disable this so that repeated key events make it through to our terminal views.
@@ -923,7 +930,7 @@ class AppDelegate: NSObject,
     // MARK: - IB Actions
 
     @IBAction func openConfig(_ sender: Any?) {
-        ghostty.openConfig()
+        SettingsWindowController.shared.show(ghostty: ghostty)
     }
 
     @IBAction func reloadConfig(_ sender: Any?) {
