@@ -112,6 +112,19 @@ struct SidebarView: View {
 
     private var expanded: some View {
         VStack(spacing: 0) {
+            SidebarPaneTabBar(selection: $layout.selectedPane)
+
+            switch layout.selectedPane {
+            case .terminals:
+                terminalList
+            case .files:
+                FileExplorerView(tabManager: tabManager, store: store)
+            }
+        }
+    }
+
+    private var terminalList: some View {
+        VStack(spacing: 0) {
             ScrollView {
                 let content = resolved
 
@@ -196,20 +209,7 @@ struct SidebarTitlebarChrome: View {
     var body: some View {
         HStack(spacing: 2) {
             if !collapse.isCollapsed {
-                SidebarChromeButton(icon: "plus", help: "New Terminal") {
-                    layout.onNewTab()
-                }
-                SidebarIconButton(help: "New Claude Session") {
-                    layout.onNewClaudeTab()
-                } label: {
-                    ClaudeIcon(size: 12)
-                }
-                SidebarChromeButton(icon: "folder.badge.plus", help: "New Group") {
-                    isCreatingGroup = true
-                }
-                .sheet(isPresented: $isCreatingGroup) {
-                    SidebarGroupEditor(group: nil, store: store)
-                }
+                paneActions
             }
 
             SidebarChromeButton(
@@ -220,6 +220,35 @@ struct SidebarTitlebarChrome: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: collapse.isCollapsed)
+    }
+
+    /// The buttons here belong to whichever panel is showing — creating a
+    /// terminal makes no sense while browsing files, and refreshing a tree
+    /// makes none while looking at terminals.
+    @ViewBuilder
+    private var paneActions: some View {
+        switch layout.selectedPane {
+        case .terminals:
+            SidebarChromeButton(icon: "plus", help: "New Terminal") {
+                layout.onNewTab()
+            }
+            SidebarIconButton(help: "New Claude Session") {
+                layout.onNewClaudeTab()
+            } label: {
+                ClaudeIcon(size: 12)
+            }
+            SidebarChromeButton(icon: "folder.badge.plus", help: "New Group") {
+                isCreatingGroup = true
+            }
+            .sheet(isPresented: $isCreatingGroup) {
+                SidebarGroupEditor(group: nil, store: store)
+            }
+
+        case .files:
+            SidebarChromeButton(icon: "arrow.clockwise", help: "Refresh") {
+                FileExplorerRefresh.shared.request()
+            }
+        }
     }
 }
 

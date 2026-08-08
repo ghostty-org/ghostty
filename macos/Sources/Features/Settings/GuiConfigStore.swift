@@ -22,6 +22,11 @@ final class GuiConfigStore: ObservableObject {
     var mainConfigURL: URL { configDir.appendingPathComponent("config") }
     var themesDirURL: URL { configDir.appendingPathComponent("themes", isDirectory: true) }
 
+    /// Where user-installed file-icon themes live. Any SVG-based VS Code
+    /// icon theme works: copy the extension's folder in, one directory per
+    /// theme, each containing its own `icon-theme.json`.
+    var iconThemesDirURL: URL { configDir.appendingPathComponent("icon-themes", isDirectory: true) }
+
     init(configDir: URL? = nil) {
         self.configDir = configDir ?? Self.defaultConfigDir()
         load()
