@@ -27,9 +27,19 @@ pub fn openPath(alloc_gpa: Allocator) ![:0]const u8 {
     // Get the path we should open
     const config_path = try configPath(alloc_arena);
 
-    // Create config directory recursively.
+    // Create config directory recursively, unless it is already there.
+    //
+    // The existence check is not just an optimization. When a component
+    // already exists, `createDirPath` verifies that it is a directory without
+    // following symlinks, deliberately, so that a dangling symlink cannot
+    // cause an infinite loop. A config directory symlinked into a dotfiles
+    // repository therefore fails with `error.NotDir` even though it is a
+    // perfectly good directory.
     if (std.fs.path.dirname(config_path)) |config_dir| {
-        try std.Io.Dir.cwd().createDirPath(global.io(), config_dir);
+        const cwd = std.Io.Dir.cwd();
+        cwd.access(global.io(), config_dir, .{}) catch {
+            try cwd.createDirPath(global.io(), config_dir);
+        };
     }
 
     // Try to create file and go on if it already exists
