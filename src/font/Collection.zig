@@ -18,7 +18,7 @@ const Collection = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const config = @import("../config.zig");
-const comparison = @import("../datastruct/comparison.zig");
+const expectApproxEqual = @import("datastruct").expectApproxEqual;
 const font = @import("main.zig");
 const options = font.options;
 const DeferredFace = font.DeferredFace;
@@ -28,7 +28,7 @@ const Library = font.Library;
 const Metrics = font.Metrics;
 const Presentation = font.Presentation;
 const Style = font.Style;
-const SegmentedList = @import("../datastruct/segmented_list.zig").SegmentedList;
+const SegmentedList = @import("datastruct").SegmentedList;
 
 const log = std.log.scoped(.font_collection);
 
@@ -1211,7 +1211,7 @@ test "metrics" {
 
     try c.updateMetrics();
 
-    try comparison.expectApproxEqual(font.Metrics{
+    try expectApproxEqual(font.Metrics{
         .cell_width = 8,
         // The cell height is 17 px because the calculation is
         //
@@ -1247,7 +1247,7 @@ test "metrics" {
 
     // Resize should change metrics
     try c.setSize(.{ .points = 24, .xdpi = 96, .ydpi = 96 });
-    try comparison.expectApproxEqual(font.Metrics{
+    try expectApproxEqual(font.Metrics{
         .cell_width = 16,
         .cell_height = 34,
         .cell_baseline = 6,
@@ -1507,7 +1507,7 @@ test "face metrics" {
         .{ narrowMetricsExpected, wideMetricsExpected },
         .{ narrowMetrics, wideMetrics },
     ) |metricsExpected, metricsActual| {
-        try comparison.expectApproxEqual(metricsExpected, metricsActual);
+        try expectApproxEqual(metricsExpected, metricsActual);
     }
 
     // Verify estimated metrics. icWidth() should equal the smaller of

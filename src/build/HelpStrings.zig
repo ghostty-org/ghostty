@@ -2,6 +2,8 @@ const HelpStrings = @This();
 
 const std = @import("std");
 const Config = @import("Config.zig");
+const SharedDeps = @import("SharedDeps.zig");
+const internal = @import("internal.zig");
 
 /// The "helpgen" exe.
 exe: *std.Build.Step.Compile,
@@ -29,6 +31,8 @@ pub fn init(b: *std.Build, cfg: *const Config) !HelpStrings {
     const options = b.addOptions();
     try help_config.addOptions(options);
     exe.root_module.addOptions("build_options", options);
+
+    internal.add(exe.root_module);
 
     const help_run = b.addRunArtifact(exe);
 

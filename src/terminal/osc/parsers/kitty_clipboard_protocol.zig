@@ -5,7 +5,7 @@
 const std = @import("std");
 const build_options = @import("terminal_options");
 
-const assert = @import("../../../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 
 const Parser = @import("../../osc.zig").Parser;
 const Command = @import("../../osc.zig").Command;

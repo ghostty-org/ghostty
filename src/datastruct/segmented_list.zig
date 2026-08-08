@@ -1,7 +1,7 @@
 //! Code taken from 0.15.2 `std.segmented_list` (MIT license). See
 //! lib/compat/README.md for license and details.
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const testing = std.testing;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;

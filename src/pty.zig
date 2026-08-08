@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const windows = @import("os/main.zig").windows;
 const posix = std.posix;
-const assert = @import("quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 
 const log = std.log.scoped(.pty);
 

@@ -1,12 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const Allocator = std.mem.Allocator;
 const macos = @import("macos");
 const harfbuzz = @import("harfbuzz");
 const font = @import("../main.zig");
 const opentype = @import("../opentype.zig");
-const quirks = @import("../../quirks.zig");
+const quirks = @import("quirks.zig");
 
 const log = std.log.scoped(.font_face);
 

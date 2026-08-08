@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const fastprint = @import("../fastprint.zig");
 const color = @import("color.zig");
 const sgr = @import("sgr.zig");

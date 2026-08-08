@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 
 /// The maximum size of a page in bytes. We use a u16 here because any
 /// smaller bit size by Zig is upgraded anyways to a u16 on mainstream

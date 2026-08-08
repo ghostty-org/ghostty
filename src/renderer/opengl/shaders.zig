@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const math = @import("../../math.zig");
 
 const Pipeline = @import("Pipeline.zig");

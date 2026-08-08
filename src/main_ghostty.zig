@@ -211,10 +211,10 @@ test {
     _ = @import("surface_mouse.zig");
 
     // Libraries
-    _ = @import("tripwire.zig");
+    _ = @import("tripwire");
     _ = @import("benchmark/main.zig");
     _ = @import("crash/main.zig");
-    _ = @import("datastruct/main.zig");
+    _ = @import("datastruct");
     _ = @import("inspector/main.zig");
     _ = @import("lib/main.zig");
     _ = @import("terminal/main.zig");

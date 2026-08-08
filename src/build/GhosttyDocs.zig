@@ -5,6 +5,7 @@ const GhosttyDocs = @This();
 const std = @import("std");
 const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
+const internal = @import("internal.zig");
 
 steps: []*std.Build.Step,
 
@@ -35,6 +36,7 @@ pub fn init(
             }),
         });
         deps.help_strings.addImport(generate_markdown);
+        internal.add(generate_markdown.root_module);
 
         const gen_config = config: {
             var copy = deps.config.*;

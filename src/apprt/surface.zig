@@ -8,7 +8,7 @@ const Surface = @import("../Surface.zig");
 const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
 const Config = @import("../config.zig").Config;
-const MessageData = @import("../datastruct/main.zig").MessageData;
+const MessageData = @import("datastruct").MessageData;
 
 /// The message types that can be sent to a single surface.
 pub const Message = union(enum) {

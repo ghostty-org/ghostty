@@ -11,7 +11,7 @@ const oni = @import("oniguruma");
 const crash = @import("crash/main.zig");
 const renderer = @import("renderer.zig");
 const apprt = @import("apprt.zig");
-const assert = @import("quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const allocTmpDir = @import("os/file.zig").allocTmpDir;
 const freeTmpDir = @import("os/file.zig").freeTmpDir;
 

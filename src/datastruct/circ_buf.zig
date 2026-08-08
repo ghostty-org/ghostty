@@ -1,7 +1,7 @@
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const Allocator = std.mem.Allocator;
-const fastmem = @import("../fastmem.zig");
+const fastmem = @import("fastmem");
 
 /// Returns a circular buffer containing type T.
 pub fn CircBuf(comptime T: type, comptime default: T) type {

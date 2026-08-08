@@ -1,6 +1,6 @@
 const std = @import("std");
 const options = @import("build_options");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const indexOf = @import("index_of.zig").indexOf;
 
 // vt.cpp

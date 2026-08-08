@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = @import("../../../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const Allocator = std.mem.Allocator;
 const adw = @import("adw");
 const gdk = @import("gdk");
@@ -11,7 +11,7 @@ const gtk = @import("gtk");
 const apprt = @import("../../../apprt.zig");
 const build_config = @import("../../../build_config.zig");
 const configpkg = @import("../../../config.zig");
-const datastruct = @import("../../../datastruct/main.zig");
+const datastruct = @import("datastruct");
 const font = @import("../../../font/main.zig");
 const input = @import("../../../input.zig");
 const internal_os = @import("../../../os/main.zig");
@@ -41,6 +41,48 @@ const gtk_version = @import("../gtk_version.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
+fn splitTreeGetGObjectType(comptime Self: type, comptime View: type) fn () callconv(.c) usize {
+    return gobject.ext.defineBoxed(
+        Self,
+        .{
+            // To get the type name we get the non-qualified type name
+            // of the view and append that to `GhosttySplitTree`.
+            .name = name: {
+                const type_name = @typeName(View);
+                const last = if (std.mem.lastIndexOfScalar(
+                    u8,
+                    type_name,
+                    '.',
+                )) |idx|
+                    type_name[idx + 1 ..]
+                else
+                    type_name;
+                assert(last.len > 0);
+                break :name "GhosttySplitTree" ++ last;
+            },
+
+            .funcs = .{
+                .copy = &struct {
+                    fn copy(self: *Self) callconv(.c) *Self {
+                        const ptr = glib.ext.create(Self);
+                        ptr.* = if (self.nodes.len == 0)
+                            .empty
+                        else
+                            self.clone(self.arena.child_allocator) catch @panic("oom");
+                        return ptr;
+                    }
+                }.copy,
+                .free = &struct {
+                    fn free(self: *Self) callconv(.c) void {
+                        self.deinit();
+                        glib.ext.destroy(self);
+                    }
+                }.free,
+            },
+        },
+    );
+}
+
 pub const Surface = extern struct {
     const Self = @This();
     parent_instance: Parent,
@@ -58,7 +100,7 @@ pub const Surface = extern struct {
     });
 
     /// A SplitTree implementation that stores surfaces.
-    pub const Tree = datastruct.SplitTree(Self);
+    pub const Tree = datastruct.SplitTree(Self, splitTreeGetGObjectType);
 
     pub const properties = struct {
         /// This property is set to true when the bell is ringing. Note that

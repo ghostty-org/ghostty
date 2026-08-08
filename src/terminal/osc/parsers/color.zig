@@ -6,7 +6,7 @@ const SpecialColor = @import("../../color.zig").Special;
 const RGB = @import("../../color.zig").RGB;
 const Parser = @import("../../osc.zig").Parser;
 const Command = @import("../../osc.zig").Command;
-const SegmentedList = @import("../../../datastruct/segmented_list.zig").SegmentedList;
+const SegmentedList = @import("datastruct").SegmentedList;
 
 const log = std.log.scoped(.osc_color);
 

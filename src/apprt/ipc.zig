@@ -2,7 +2,7 @@
 //! process.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const lib = @import("../lib/main.zig");
 
 pub const Errors = error{

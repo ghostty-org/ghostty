@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 const Config = @import("Config.zig");
 const RunStep = std.Build.Step.Run;
 const SharedDeps = @import("SharedDeps.zig");
+const internal = @import("internal.zig");
 
 steps: []*std.Build.Step,
 
@@ -26,6 +27,7 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
     });
 
     deps.help_strings.addImport(build_data_exe);
+    internal.add(build_data_exe.root_module);
 
     // Terminfo
     terminfo: {

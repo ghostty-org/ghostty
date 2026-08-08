@@ -8,7 +8,7 @@
 const ScreenSet = @This();
 
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const lib = @import("lib.zig");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;

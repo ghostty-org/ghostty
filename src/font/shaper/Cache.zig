@@ -13,7 +13,7 @@ pub const Cache = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const font = @import("../main.zig");
-const CacheTable = @import("../../datastruct/main.zig").CacheTable;
+const CacheTable = @import("datastruct").CacheTable;
 
 const log = std.log.scoped(.font_shaper_cache);
 

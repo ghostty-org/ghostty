@@ -4,7 +4,7 @@
 const ClipboardCodepointMap = @This();
 
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const Allocator = std.mem.Allocator;
 
 // To ease our usage later, we map it directly to formatter entries.

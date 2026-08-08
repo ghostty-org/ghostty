@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const cimgui = @import("dcimgui");
 const terminal = @import("../../terminal/main.zig");
-const CircBuf = @import("../../datastruct/main.zig").CircBuf;
+const CircBuf = @import("datastruct").CircBuf;
 const Surface = @import("../../Surface.zig");
 const screen = @import("screen.zig");
 

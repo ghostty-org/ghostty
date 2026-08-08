@@ -1,6 +1,6 @@
 const std = @import("std");
 const build_config = @import("../build_config.zig");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
 const input = @import("../input.zig");

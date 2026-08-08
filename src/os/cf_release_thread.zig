@@ -11,7 +11,7 @@ const macos = @import("macos");
 const internal_os = @import("../os/main.zig");
 const global = @import("../global.zig");
 const xev = global.xev;
-const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
+const BlockingQueue = @import("datastruct").BlockingQueue;
 
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.cf_release_thread);

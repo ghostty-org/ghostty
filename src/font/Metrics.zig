@@ -1,7 +1,7 @@
 const Metrics = @This();
 
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 
 /// Recommended cell width and height for a monospace grid using this font.
 cell_width: u32,

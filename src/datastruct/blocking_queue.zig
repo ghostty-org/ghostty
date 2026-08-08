@@ -3,7 +3,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const compat_thread = @import("../lib/compat/thread.zig");
+const compat_thread = @import("thread.zig");
 
 /// Returns a blocking queue implementation for type T.
 ///

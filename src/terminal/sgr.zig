@@ -1,7 +1,7 @@
 //! SGR (Select Graphic Rendition) attrinvbute parsing and types.
 
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const testing = std.testing;
 const lib = @import("lib.zig");
 const color = @import("color.zig");

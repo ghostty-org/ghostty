@@ -5,7 +5,7 @@
 //!   https://codeberg.org/ziglang/zig/pulls/31278
 const builtin = @import("builtin");
 const std = @import("std");
-const assert = @import("../../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 
 pub const WaitTimeoutError = std.Io.Cancelable || std.Io.Timeout.Error;
 

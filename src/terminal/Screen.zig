@@ -3,14 +3,14 @@ const Screen = @This();
 const std = @import("std");
 const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const ansi = @import("ansi.zig");
 const charsets = @import("charsets.zig");
-const fastmem = @import("../fastmem.zig");
+const fastmem = @import("fastmem");
 const kitty = @import("kitty.zig");
 const lib = @import("lib.zig");
 const sgr = @import("sgr.zig");
-const tripwire = @import("../tripwire.zig");
+const tripwire = @import("tripwire");
 const unicode = @import("../unicode/main.zig");
 const Selection = @import("Selection.zig");
 const PageList = @import("PageList.zig");
@@ -8795,7 +8795,7 @@ test "Screen: resize more cols with cursor at prompt" {
     defer s.deinit();
 
     // zig fmt: off
-    try s.testWriteString("ABCDE\n"); 
+    try s.testWriteString("ABCDE\n");
     s.cursorSetSemanticContent(.{ .prompt = .initial });
     try s.testWriteString("> ");
     s.cursorSetSemanticContent(.{ .input = .clear_eol });
@@ -8836,7 +8836,7 @@ test "Screen: resize more cols with cursor not at prompt" {
     defer s.deinit();
 
     // zig fmt: off
-    try s.testWriteString("ABCDE\n"); 
+    try s.testWriteString("ABCDE\n");
     s.cursorSetSemanticContent(.{ .prompt = .initial });
     try s.testWriteString("> ");
     s.cursorSetSemanticContent(.{ .input = .clear_eol });

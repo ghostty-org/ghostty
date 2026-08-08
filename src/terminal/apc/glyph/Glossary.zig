@@ -6,7 +6,7 @@ const Glossary = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const CircBuf = @import("../../../datastruct/circ_buf.zig").CircBuf;
+const CircBuf = @import("datastruct").CircBuf;
 const FontGlyph = @import("../../../font/Glyph.zig");
 const Glyf = @import("../../../font/opentype/glyf.zig").Glyf;
 

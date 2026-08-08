@@ -1,15 +1,15 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const posix = std.posix;
 
-const fastmem = @import("../../fastmem.zig");
+const fastmem = @import("fastmem");
 const command = @import("graphics_command.zig");
 const PageList = @import("../PageList.zig");
 const sys = @import("../sys.zig");
-const LimitedAllocator = @import("../../datastruct/main.zig").LimitedAllocator;
+const LimitedAllocator = @import("datastruct").LimitedAllocator;
 
 const log = std.log.scoped(.kitty_gfx);
 

@@ -19,8 +19,8 @@
 const SharedGrid = @This();
 
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
-const tripwire = @import("../tripwire.zig");
+const assert = @import("quirks").inlineAssert;
+const tripwire = @import("tripwire");
 const Allocator = std.mem.Allocator;
 const renderer = @import("../renderer.zig");
 const font = @import("main.zig");

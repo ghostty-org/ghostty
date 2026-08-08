@@ -40,7 +40,7 @@
 //! by any removal.
 
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 

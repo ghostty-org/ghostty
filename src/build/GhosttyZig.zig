@@ -6,6 +6,7 @@ const std = @import("std");
 const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
 const TerminalBuildOptions = @import("../terminal/build_options.zig").Options;
+const internal = @import("internal.zig");
 
 /// The `_c`-suffixed modules are built with the C ABI enabled.
 vt: *std.Build.Module,
@@ -136,6 +137,8 @@ fn initVt(
 
     // We need uucode for grapheme break support
     vt.addImport("uucode", deps.uucode_mod);
+
+    internal.add(vt);
 
     // If SIMD is enabled, add all our SIMD dependencies.
     if (cfg.simd) {

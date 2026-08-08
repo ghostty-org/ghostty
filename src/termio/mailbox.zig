@@ -4,7 +4,7 @@ const global = @import("../global.zig");
 const xev = global.xev;
 const renderer = @import("../renderer.zig");
 const termio = @import("../termio.zig");
-const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
+const BlockingQueue = @import("datastruct").BlockingQueue;
 
 const log = std.log.scoped(.io_writer);
 

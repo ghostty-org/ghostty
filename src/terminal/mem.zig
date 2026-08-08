@@ -6,7 +6,7 @@
 //! not allocate memory or decide which terminal pages should be discarded.
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 
 const log = std.log.scoped(.terminal_mem);
 

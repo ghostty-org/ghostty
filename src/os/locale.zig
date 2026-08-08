@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const macos = @import("macos");
 const objc = @import("objc");
 const internal_os = @import("main.zig");

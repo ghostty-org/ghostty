@@ -4,11 +4,11 @@ const Binding = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const build_config = @import("../build_config.zig");
 const uucode = @import("uucode");
 const EntryFormatter = @import("../config/formatter.zig").EntryFormatter;
-const deepEqual = @import("../datastruct/comparison.zig").deepEqual;
+const deepEqual = @import("datastruct").deepEqual;
 const key = @import("key.zig");
 const key_mods = @import("key_mods.zig");
 const KeyEvent = key.KeyEvent;

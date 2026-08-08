@@ -9,14 +9,14 @@ const builtin = @import("builtin");
 const freetype = @import("freetype");
 const harfbuzz = @import("harfbuzz");
 const stb = @import("../../stb/main.zig");
-const assert = @import("../../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const font = @import("../main.zig");
 const Glyph = font.Glyph;
 const Library = font.Library;
 const opentype = @import("../opentype.zig");
-const quirks = @import("../../quirks.zig");
+const quirks = @import("quirks.zig");
 const config = @import("../../config.zig");
 const global = @import("../../global.zig");
 

@@ -4,7 +4,7 @@
 //! helpers.
 
 const std = @import("std");
-const assert = @import("../../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const testing = std.testing;
 
 const glib = @import("glib");

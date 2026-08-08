@@ -1,11 +1,11 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const font = @import("../font/main.zig");
 const terminal = @import("../terminal/main.zig");
 const renderer = @import("../renderer.zig");
 const shaderpkg = renderer.Renderer.API.shaders;
-const ArrayListCollection = @import("../datastruct/array_list_collection.zig").ArrayListCollection;
+const ArrayListCollection = @import("datastruct").ArrayListCollection;
 const symbols = @import("../unicode/symbols_table.zig").table;
 
 /// The possible cell content keys that exist.

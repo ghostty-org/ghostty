@@ -2,7 +2,7 @@
 /// transient systemd scopes.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 
 const gio = @import("gio");
 const glib = @import("glib");

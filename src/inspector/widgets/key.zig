@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const input = @import("../../input.zig");
-const CircBuf = @import("../../datastruct/main.zig").CircBuf;
+const CircBuf = @import("datastruct").CircBuf;
 const cimgui = @import("dcimgui");
 
 /// Circular buffer of key events.

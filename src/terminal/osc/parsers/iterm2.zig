@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const assert = @import("../../../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const simd = @import("../../../simd/main.zig");
 
 const Parser = @import("../../osc.zig").Parser;

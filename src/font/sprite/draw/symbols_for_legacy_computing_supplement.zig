@@ -49,7 +49,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../../../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 
 const common = @import("common.zig");
 const Thickness = common.Thickness;

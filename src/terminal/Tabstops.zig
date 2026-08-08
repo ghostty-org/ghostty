@@ -10,11 +10,11 @@
 const Tabstops = @This();
 
 const std = @import("std");
-const tripwire = @import("../tripwire.zig");
+const tripwire = @import("tripwire");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
-const assert = @import("../quirks.zig").inlineAssert;
-const fastmem = @import("../fastmem.zig");
+const assert = @import("quirks").inlineAssert;
+const fastmem = @import("fastmem");
 
 /// Unit is the type we use per tabstop unit (see file docs).
 const Unit = u8;

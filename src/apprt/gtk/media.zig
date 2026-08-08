@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = @import("../../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 
 const log = std.log.scoped(.gtk_media);
 

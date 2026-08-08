@@ -12,7 +12,7 @@ const rendererpkg = @import("../renderer.zig");
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
 const terminalpkg = @import("../terminal/main.zig");
-const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
+const BlockingQueue = @import("datastruct").BlockingQueue;
 const App = @import("../App.zig");
 
 const Allocator = std.mem.Allocator;

@@ -2,7 +2,7 @@
 const Selection = @This();
 
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const Allocator = std.mem.Allocator;
 const lib = @import("lib.zig");
 const page = @import("page.zig");

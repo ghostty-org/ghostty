@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
 const termio = @import("../termio.zig");
-const MessageData = @import("../datastruct/main.zig").MessageData;
+const MessageData = @import("datastruct").MessageData;
 
 /// The messages that can be sent to an IO thread.
 ///

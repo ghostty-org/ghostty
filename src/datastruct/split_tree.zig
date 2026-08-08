@@ -1,6 +1,5 @@
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
-const build_config = @import("../build_config.zig");
+const assert = @import("quirks").inlineAssert;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Allocator = std.mem.Allocator;
 
@@ -41,7 +40,7 @@ const Allocator = std.mem.Allocator;
 /// Note: for both the ref and unref functions, the allocator is optional.
 /// If the functions take less arguments, then the allocator will not be
 /// passed.
-pub fn SplitTree(comptime V: type) type {
+pub fn SplitTree(comptime V: type, comptime GObjectTypeFn: ?fn (type, type) fn () callconv(.c) usize) type {
     return struct {
         const Self = @This();
 
@@ -1324,53 +1323,11 @@ pub fn SplitTree(comptime V: type) type {
         }
 
         /// Make this a valid gobject if we're in a GTK environment.
-        pub const getGObjectType = switch (build_config.app_runtime) {
-            .gtk => @import("gobject").ext.defineBoxed(
-                Self,
-                .{
-                    // To get the type name we get the non-qualified type name
-                    // of the view and append that to `GhosttySplitTree`.
-                    .name = name: {
-                        const type_name = @typeName(View);
-                        const last = if (std.mem.lastIndexOfScalar(
-                            u8,
-                            type_name,
-                            '.',
-                        )) |idx|
-                            type_name[idx + 1 ..]
-                        else
-                            type_name;
-                        assert(last.len > 0);
-                        break :name "GhosttySplitTree" ++ last;
-                    },
-
-                    .funcs = .{
-                        .copy = &struct {
-                            fn copy(self: *Self) callconv(.c) *Self {
-                                const ptr = @import("glib").ext.create(Self);
-                                ptr.* = if (self.nodes.len == 0)
-                                    .empty
-                                else
-                                    self.clone(self.arena.child_allocator) catch @panic("oom");
-                                return ptr;
-                            }
-                        }.copy,
-                        .free = &struct {
-                            fn free(self: *Self) callconv(.c) void {
-                                self.deinit();
-                                @import("glib").ext.destroy(self);
-                            }
-                        }.free,
-                    },
-                },
-            ),
-
-            .none => void,
-        };
+        pub const getGObjectType = if (GObjectTypeFn) |def| def(Self, View) else void;
     };
 }
 
-const TestTree = SplitTree(TestView);
+const TestTree = SplitTree(TestView, null);
 
 const TestView = struct {
     const Self = @This();

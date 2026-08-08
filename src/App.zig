@@ -5,14 +5,14 @@ const App = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const Allocator = std.mem.Allocator;
 const apprt = @import("apprt.zig");
 const Surface = @import("Surface.zig");
 const input = @import("input.zig");
 const configpkg = @import("config.zig");
 const Config = configpkg.Config;
-const BlockingQueue = @import("datastruct/main.zig").BlockingQueue;
+const BlockingQueue = @import("datastruct").BlockingQueue;
 const renderer = @import("renderer.zig");
 const font = @import("font/main.zig");
 const global = @import("global.zig");

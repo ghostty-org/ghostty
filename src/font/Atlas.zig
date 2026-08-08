@@ -16,11 +16,11 @@
 const Atlas = @This();
 
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
-const fastmem = @import("../fastmem.zig");
-const tripwire = @import("../tripwire.zig");
+const fastmem = @import("fastmem");
+const tripwire = @import("tripwire");
 
 const log = std.log.scoped(.atlas);
 

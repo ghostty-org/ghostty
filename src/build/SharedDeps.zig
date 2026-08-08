@@ -10,6 +10,7 @@ const UnicodeTables = @import("UnicodeTables.zig");
 const GhosttyFrameData = @import("GhosttyFrameData.zig");
 const DistResource = @import("GhosttyDist.zig").Resource;
 const gtk_helpers = @import("gtk.zig");
+const internal = @import("internal.zig");
 
 config: *const Config,
 
@@ -183,6 +184,8 @@ pub fn add(
 
     // Every exe needs the uucode module
     step.root_module.addImport("uucode", self.uucode_mod);
+
+    internal.add(step.root_module);
 
     // C imports for locale constants and functions
     {

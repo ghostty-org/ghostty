@@ -31,7 +31,7 @@ const clipboard = @import("../clipboard.zig");
 const c_io = @import("io.zig");
 const snapshot_core = @import("../snapshot/main.zig");
 const Result = @import("result.zig").Result;
-const assert = @import("../../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 
 const Handler = @import("../stream_terminal.zig").Handler;
 

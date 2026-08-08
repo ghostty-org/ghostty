@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
+const assert = @import("quirks").inlineAssert;
 const fastprint = @import("../fastprint.zig");
 const lib = @import("lib.zig");
 const Allocator = std.mem.Allocator;

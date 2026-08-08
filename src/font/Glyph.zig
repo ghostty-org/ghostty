@@ -435,7 +435,7 @@ pub const RenderOptions = struct {
 };
 
 test "Constraints" {
-    const comparison = @import("../datastruct/comparison.zig");
+    const expectApproxEqual = @import("datastruct").expectApproxEqual;
     const getConstraint = @import("nerd_font_attributes.zig").getConstraint;
     const GlyphSize = Size;
 
@@ -476,7 +476,7 @@ test "Constraints" {
 
         // Any constraint width: do nothing.
         inline for (.{ 1, 2 }) |constraint_width| {
-            try comparison.expectApproxEqual(
+            try expectApproxEqual(
                 glyph_x,
                 constraint.constrain(glyph_x, metrics, constraint_width),
             );
@@ -497,7 +497,7 @@ test "Constraints" {
         };
 
         // Constraint width 1: scale down and shift to fit a single cell.
-        try comparison.expectApproxEqual(
+        try expectApproxEqual(
             GlyphSize{
                 .width = metrics.face_width,
                 .height = metrics.face_width,
@@ -508,7 +508,7 @@ test "Constraints" {
         );
 
         // Constraint width 2: do nothing.
-        try comparison.expectApproxEqual(
+        try expectApproxEqual(
             glyph_25A0,
             constraint.constrain(glyph_25A0, metrics, 2),
         );
@@ -533,7 +533,7 @@ test "Constraints" {
         };
 
         // Constraint width 2: scale to cover two cells with padding, center;
-        try comparison.expectApproxEqual(
+        try expectApproxEqual(
             GlyphSize{
                 .width = 18.72,
                 .height = 18.72,
@@ -565,7 +565,7 @@ test "Constraints" {
         };
 
         // Constraint width 1: scale and shift group to fit a single cell.
-        try comparison.expectApproxEqual(
+        try expectApproxEqual(
             GlyphSize{
                 .width = 7.2125,
                 .height = 10.4125,
@@ -576,7 +576,7 @@ test "Constraints" {
         );
 
         // Constraint width 2: no scaling; left-align and vertically center group.
-        try comparison.expectApproxEqual(
+        try expectApproxEqual(
             GlyphSize{
                 .width = glyph_EA61.width,
                 .height = glyph_EA61.height,
@@ -606,7 +606,7 @@ test "Constraints" {
         };
 
         // Constraint width 1: stretch and position to exactly cover one cell.
-        try comparison.expectApproxEqual(
+        try expectApproxEqual(
             GlyphSize{
                 .width = @floatFromInt(metrics.cell_width),
                 .height = @floatFromInt(metrics.cell_height),
@@ -617,7 +617,7 @@ test "Constraints" {
         );
 
         // Constraint width 1: stretch and position to exactly cover two cells.
-        try comparison.expectApproxEqual(
+        try expectApproxEqual(
             GlyphSize{
                 .width = @floatFromInt(2 * metrics.cell_width),
                 .height = @floatFromInt(metrics.cell_height),
