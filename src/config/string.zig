@@ -20,16 +20,28 @@ pub fn parse(out: []u8, bytes: []const u8) ![]u8 {
             continue;
         }
 
+        // Only `\u{...}` escapes produce a codepoint that must be UTF-8
+        // encoded. All other escapes (`\x`, `\n`, ...) produce a single
+        // raw byte that must be copied as-is, otherwise `\x` escapes of
+        // bytes >= 0x80 (e.g. escaped UTF-8 sequences) get double-encoded
+        // into mojibake. This matches std.zig.string_literal.parseWrite.
+        const is_unicode = src_i + 1 < bytes.len and bytes[src_i + 1] == 'u';
+
         // Parse the escape sequence
         switch (std.zig.string_literal.parseEscapeSequence(
             bytes,
             &src_i,
         )) {
             .failure => return error.InvalidString,
-            .success => |cp| dst_i += try std.unicode.utf8Encode(
-                cp,
-                out[dst_i..],
-            ),
+            .success => |cp| if (is_unicode) {
+                dst_i += try std.unicode.utf8Encode(
+                    cp,
+                    out[dst_i..],
+                );
+            } else {
+                out[dst_i] = @intCast(cp);
+                dst_i += 1;
+            },
         }
     }
 
@@ -97,6 +109,27 @@ test "parse: escapes" {
     {
         const result = try parse(&buf, "hello\\u{1F601}world");
         try testing.expectEqualStrings("hello\u{1F601}world", result);
+    }
+}
+
+test "parse: hex escapes are raw bytes" {
+    const testing = std.testing;
+
+    var buf: [128]u8 = undefined;
+
+    // \xNN must produce the raw byte, not a UTF-8 encoded codepoint.
+    // Regression test: escaped UTF-8 multibyte sequences (e.g. from
+    // stringEscape) were double-encoded into mojibake.
+    // 测试 = E6 B5 8B E8 AF 95
+    {
+        const result = try parse(&buf, "\\xe6\\xb5\\x8b\\xe8\\xaf\\x95");
+        try testing.expectEqualStrings("测试", result);
+    }
+
+    // \u{...} must still be UTF-8 encoded.
+    {
+        const result = try parse(&buf, "\\u{e6}");
+        try testing.expectEqualStrings("\u{e6}", result);
     }
 }
 
