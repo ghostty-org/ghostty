@@ -1294,6 +1294,9 @@ pub const Application = extern struct {
         // Sync our accelerators for menu items.
         self.syncActionAccelerators();
 
+        // Sync the application color scheme with the updated configuration.
+        self.updateStyleManager();
+
         // Load our runtime and custom CSS. If this fails then our window is
         // just stuck with the old CSS but we don't want to fail the entire
         // config change operation.
@@ -1421,15 +1424,10 @@ pub const Application = extern struct {
         }
     }
 
-    /// Setup the style manager on startup. The primary task here is to
-    /// setup our initial light/dark mode based on the configuration and
-    /// setup listeners for changes to the style manager.
-    fn startupStyleManager(self: *Self) void {
-        const priv = self.private();
-        const config = priv.config.get();
-
-        // Setup our initial light/dark
+    fn updateStyleManager(self: *Self) void {
+        const config = self.private().config.get();
         const style = self.as(adw.Application).getStyleManager();
+
         style.setColorScheme(switch (config.@"window-theme") {
             .auto, .ghostty => auto: {
                 const lum = config.background.toTerminalRGB().perceivedLuminance();
@@ -1442,6 +1440,15 @@ pub const Application = extern struct {
             .dark => .force_dark,
             .light => .force_light,
         });
+    }
+
+    /// Setup the style manager on startup. The primary task here is to
+    /// setup our initial light/dark mode based on the configuration and
+    /// setup listeners for changes to the style manager.
+    fn startupStyleManager(self: *Self) void {
+        // Setup our initial light/dark
+        const style = self.as(adw.Application).getStyleManager();
+        self.updateStyleManager();
 
         // Setup color change notifications
         _ = gobject.Object.signals.notify.connect(
