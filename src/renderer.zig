@@ -30,6 +30,7 @@ pub const CellSize = size.CellSize;
 pub const ScreenSize = size.ScreenSize;
 pub const GridSize = size.GridSize;
 pub const Padding = size.Padding;
+pub const Bounds = size.Bounds;
 pub const cursorStyle = cursor.style;
 pub const lib = @import("lib/main.zig");
 
@@ -63,4 +64,5 @@ test {
     _ = size;
     _ = Thread;
     _ = State;
+    _ = @import("renderer/search_selected.zig");
 }
