@@ -80,7 +80,7 @@ jobs:
   required:
     name: "Required Checks: Test"
     if: always()
-    runs-on: namespace-profile-ghostty-xsm
+    runs-on: ubuntu-latest
     needs:
       - skip
       - build-bench
