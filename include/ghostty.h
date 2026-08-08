@@ -1065,6 +1065,7 @@ typedef union {
 // apprt.ipc.Action.Key
 typedef enum {
   GHOSTTY_IPC_ACTION_NEW_WINDOW,
+  GHOSTTY_IPC_ACTION_NEW_TAB,
   GHOSTTY_IPC_ACTION_TOGGLE_QUICK_TERMINAL,
 } ghostty_ipc_action_tag_e;
 
