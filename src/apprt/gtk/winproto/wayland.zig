@@ -112,6 +112,11 @@ pub const App = struct {
 
 /// Per-window (wl_surface) state for the Wayland protocol.
 pub const Window = struct {
+    pub const BlurState = union(enum) {
+        ext: *ext.BackgroundEffectSurfaceV1,
+        kde: ?*org.KdeKwinBlur,
+    };
+
     apprt_window: *ApprtWindow,
 
     /// The Wayland surface for this window.
@@ -120,8 +125,8 @@ pub const Window = struct {
     /// The context from the app where we can load our Wayland interfaces.
     globals: *Globals,
 
-    /// Object that controls background effects like background blur.
-    bg_effect: ?*ext.BackgroundEffectSurfaceV1 = null,
+    /// Object that controls background blur.
+    blur_state: ?BlurState = null,
 
     /// Object that controls the decoration mode (client/server/auto)
     /// of the window.
@@ -174,24 +179,27 @@ pub const Window = struct {
             break :deco deco;
         };
 
-        const bg_effect: ?*ext.BackgroundEffectSurfaceV1 = bg: {
-            if (gtk_version.runtimeAtLeast(4, 23, 3)) {
-                // GTK 4.23.3 added an official way to do background blur,
-                // so we don't need to do anything on our own.
-                break :bg null;
+        const blur_state: ?BlurState = blur: {
+            if (app.globals.get(.ext_background_effect)) |mgr| {
+                if (gtk_version.runtimeAtLeast(4, 23, 3)) {
+                    // GTK 4.23.3 added native support for this protocol.
+                    break :blur null;
+                }
+
+                if (app.globals.state.bg_effect_capabilities.blur) ext: {
+                    const bg_effect = mgr.getBackgroundEffect(wl_surface) catch |err| {
+                        log.warn("could not create background effect object={}", .{err});
+                        break :ext;
+                    };
+                    break :blur .{ .ext = bg_effect };
+                }
             }
 
-            const mgr = app.globals.get(.ext_background_effect) orelse
-                break :bg null;
+            if (app.globals.get(.kde_blur_manager) != null) {
+                break :blur .{ .kde = null };
+            }
 
-            const bg_effect: *ext.BackgroundEffectSurfaceV1 = mgr.getBackgroundEffect(
-                wl_surface,
-            ) catch |err| {
-                log.warn("could not create background effect object={}", .{err});
-                break :bg null;
-            };
-
-            break :bg bg_effect;
+            break :blur null;
         };
 
         if (apprt_window.isQuickTerminal()) {
@@ -209,13 +217,16 @@ pub const Window = struct {
             .surface = wl_surface,
             .globals = app.globals,
             .decoration = deco,
-            .bg_effect = bg_effect,
+            .blur_state = blur_state,
         };
     }
 
     pub fn deinit(self: *Window) void {
         self.blur_region.deinit(self.globals.alloc);
-        if (self.bg_effect) |bg| bg.destroy();
+        if (self.blur_state) |state| switch (state) {
+            .ext => |bg| bg.destroy(),
+            .kde => |maybe_tok| if (maybe_tok) |tok| tok.release(),
+        };
         if (self.decoration) |deco| deco.release();
         if (self.slide) |slide| slide.release();
     }
@@ -276,8 +287,7 @@ pub const Window = struct {
     /// Update the blur state of the window.
     fn syncBlur(self: *Window) !void {
         const compositor = self.globals.get(.compositor) orelse return;
-        const bg = self.bg_effect orelse return;
-        if (!self.globals.state.bg_effect_capabilities.blur) return;
+        const blur_state = if (self.blur_state) |*state| state else return;
 
         const config = if (self.apprt_window.getConfig()) |v|
             v.get()
@@ -287,7 +297,15 @@ pub const Window = struct {
 
         if (!blur.enabled()) {
             self.blur_region.deinit(self.globals.alloc);
-            bg.setBlurRegion(null);
+            switch (blur_state.*) {
+                .ext => |bg| bg.setBlurRegion(null),
+                .kde => |*ref_tok| if (ref_tok.*) |tok| {
+                    const mgr = self.globals.get(.kde_blur_manager) orelse return;
+                    mgr.unset(self.surface);
+                    tok.release();
+                    ref_tok.* = null;
+                },
+            }
             return;
         }
 
@@ -306,7 +324,7 @@ pub const Window = struct {
         }
 
         const wl_region = try compositor.createRegion();
-        errdefer if (wl_region) |r| r.destroy();
+        defer wl_region.destroy();
         for (region.slices.items) |s| wl_region.add(
             @intCast(s.x),
             @intCast(s.y),
@@ -314,7 +332,17 @@ pub const Window = struct {
             @intCast(s.height),
         );
 
-        bg.setBlurRegion(wl_region);
+        switch (blur_state.*) {
+            .ext => |bg| bg.setBlurRegion(wl_region),
+            .kde => |*ref_tok| {
+                const mgr = self.globals.get(.kde_blur_manager) orelse return;
+                const tok = ref_tok.* orelse try mgr.create(self.surface);
+                tok.setRegion(wl_region);
+                tok.commit();
+                ref_tok.* = tok;
+            },
+        }
+        self.blur_region.deinit(self.globals.alloc);
         self.blur_region = region;
     }
 

@@ -30,6 +30,7 @@ const Binding = struct {
 pub const Tag = enum {
     compositor,
     ext_background_effect,
+    kde_blur_manager,
     kde_decoration_manager,
     kde_slide_manager,
     kde_output_order,
@@ -40,6 +41,7 @@ pub const Tag = enum {
         return switch (self) {
             .compositor => wl.Compositor,
             .ext_background_effect => ext.BackgroundEffectManagerV1,
+            .kde_blur_manager => org.KdeKwinBlurManager,
             .kde_decoration_manager => org.KdeKwinServerDecorationManager,
             .kde_slide_manager => org.KdeKwinSlideManager,
             .kde_output_order => kde.OutputOrderV1,

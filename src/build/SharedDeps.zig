@@ -815,6 +815,9 @@ fn addGtkNg(
         scanner.addCustomProtocol(
             plasma_wayland_protocols_dep.path("src/protocols/kde-output-order-v1.xml"),
         );
+        scanner.addCustomProtocol(
+            plasma_wayland_protocols_dep.path("src/protocols/blur.xml"),
+        );
         scanner.addSystemProtocol("staging/xdg-activation/xdg-activation-v1.xml");
         scanner.addSystemProtocol("staging/ext-background-effect/ext-background-effect-v1.xml");
         scanner.addCustomProtocol(
@@ -826,6 +829,7 @@ fn addGtkNg(
         scanner.generate("wl_seat", 1);
         scanner.generate("org_kde_kwin_server_decoration_manager", 1);
         scanner.generate("org_kde_kwin_slide_manager", 1);
+        scanner.generate("org_kde_kwin_blur_manager", 1);
         scanner.generate("kde_output_order_v1", 1);
         scanner.generate("xdg_activation_v1", 1);
         scanner.generate("ext_background_effect_manager_v1", 1);
