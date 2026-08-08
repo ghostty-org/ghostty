@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		FE1C0N7HEME50000000001 /* icon-themes in Resources */ = {isa = PBXBuildFile; fileRef = FE1C0N7HEME50000000002 /* icon-themes */; };
 		29C15B1D2CDC3B2900520DD4 /* bat in Resources */ = {isa = PBXBuildFile; fileRef = 29C15B1C2CDC3B2000520DD4 /* bat */; };
 		55154BE02B33911F001622DC /* ghostty in Resources */ = {isa = PBXBuildFile; fileRef = 55154BDF2B33911F001622DC /* ghostty */; };
 		552964E62B34A9B400030505 /* vim in Resources */ = {isa = PBXBuildFile; fileRef = 552964E52B34A9B400030505 /* vim */; };
@@ -69,6 +70,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		FE1C0N7HEME50000000002 /* icon-themes */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "icon-themes"; path = "Resources/icon-themes"; sourceTree = "<group>"; };
 		29C15B1C2CDC3B2000520DD4 /* bat */ = {isa = PBXFileReference; lastKnownFileType = folder; name = bat; path = "../zig-out/share/bat"; sourceTree = "<group>"; };
 		3B39CAA42B33949B00DABEB8 /* GhosttyReleaseLocal.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GhosttyReleaseLocal.entitlements; sourceTree = "<group>"; };
 		55154BDF2B33911F001622DC /* ghostty */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ghostty; path = "../zig-out/share/ghostty"; sourceTree = "<group>"; };
@@ -323,6 +325,7 @@
 			children = (
 				FC9ABA9B2D0F538D0020D4C8 /* bash-completion */,
 				29C15B1C2CDC3B2000520DD4 /* bat */,
+				FE1C0N7HEME50000000002 /* icon-themes */,
 				A586167B2B7703CC009BDB1D /* fish */,
 				55154BDF2B33911F001622DC /* ghostty */,
 				A546F1132D7B68D7003B11A0 /* locale */,
@@ -574,6 +577,7 @@
 				FC9ABA9C2D0F53F80020D4C8 /* bash-completion in Resources */,
 				A553F4142E06EB1600257779 /* Phantom.icon in Resources */,
 				29C15B1D2CDC3B2900520DD4 /* bat in Resources */,
+				FE1C0N7HEME50000000001 /* icon-themes in Resources */,
 				A586167C2B7703CC009BDB1D /* fish in Resources */,
 				8F3A9B4C2FA6B88000A18D13 /* Ghostty.sdef in Resources */,
 				55154BE02B33911F001622DC /* ghostty in Resources */,

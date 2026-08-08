@@ -20,8 +20,8 @@ final class SidebarCollapseState: ObservableObject {
     }
 }
 
-/// Window-level sidebar actions shared between the controller (which
-/// owns the split view) and the SwiftUI sidebar chrome.
+/// Window-level sidebar actions and state shared between the controller
+/// (which owns the split view) and the SwiftUI sidebar chrome.
 @MainActor
 final class SidebarLayoutModel: ObservableObject {
     /// Creates a new terminal tab in this window's tab group.
@@ -29,6 +29,20 @@ final class SidebarLayoutModel: ObservableObject {
 
     /// Creates a new terminal tab that immediately starts a Claude session.
     var onNewClaudeTab: () -> Void = {}
+
+    /// Which panel the sidebar is showing.
+    ///
+    /// Per-window, and deliberately **not** persisted. Every terminal tab is
+    /// its own window with its own sidebar, so a remembered "last used
+    /// panel" meant that switching tabs landed you in the file explorer you
+    /// had opened somewhere else entirely — the panel appeared to follow you
+    /// around. Files is somewhere you go on purpose, so a window always
+    /// starts on terminals and only an actual click on the tab moves it.
+    ///
+    /// This lives here because both `SidebarView` and `SidebarTitlebarChrome`
+    /// already observe this object, so the panel switch reaches the sidebar
+    /// body and the titlebar buttons with no extra wiring.
+    @Published var selectedPane: SidebarPane = .terminals
 }
 
 /// The sidebar | terminal split view, with a user-configurable divider:
