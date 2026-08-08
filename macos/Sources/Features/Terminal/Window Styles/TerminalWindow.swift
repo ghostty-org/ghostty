@@ -77,6 +77,17 @@ class TerminalWindow: NSWindow {
 
     private var centeredTitleField: NSTextField?
     private var centeredTitleObservation: NSKeyValueObservation?
+    private var centeredTitleLeadingConstraint: NSLayoutConstraint?
+
+    /// How much of the titlebar's left edge the centered title must stay
+    /// clear of — the sidebar's icons live there. Set by the controller
+    /// whenever the sidebar's width changes.
+    var titlebarLeadingInset: CGFloat = 0 {
+        didSet {
+            guard titlebarLeadingInset != oldValue else { return }
+            centeredTitleLeadingConstraint?.constant = titlebarLeadingInset
+        }
+    }
 
     private func installCenteredTitle() {
         guard centeredTitleField == nil,
@@ -91,7 +102,25 @@ class TerminalWindow: NSWindow {
         field.alignment = .center
         field.lineBreakMode = .byTruncatingMiddle
         field.translatesAutoresizingMaskIntoConstraints = false
+
+        // Without this the field defends its full intrinsic width and the
+        // leading inequality below can't compress it, so a long title wins
+        // the layout instead of truncating.
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
         titlebar.addSubview(field)
+
+        // The title is centered on the whole titlebar, so a long one grows
+        // in both directions — and the left half runs straight into the
+        // sidebar's own icons. This keeps its leading edge clear of them;
+        // the controller sets the inset from the live sidebar width
+        // (`syncSidebarChromeWidth`), and with centerX pinned the field can
+        // only satisfy it by shrinking, which is what the truncation is
+        // there for.
+        let leading = field.leadingAnchor.constraint(
+            greaterThanOrEqualTo: titlebar.leadingAnchor,
+            constant: titlebarLeadingInset
+        )
 
         NSLayoutConstraint.activate([
             field.centerXAnchor.constraint(equalTo: titlebar.centerXAnchor),
@@ -100,8 +129,10 @@ class TerminalWindow: NSWindow {
                 lessThanOrEqualTo: titlebar.widthAnchor,
                 multiplier: 0.6
             ),
+            leading,
         ])
 
+        centeredTitleLeadingConstraint = leading
         centeredTitleField = field
         centeredTitleObservation = observe(\.title, options: [.new]) { [weak field] _, change in
             guard let newTitle = change.newValue else { return }

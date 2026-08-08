@@ -1559,6 +1559,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 ?? sharedSidebarWidth
             constraint.constant = max(trafficLightsInset + 32, sidebarWidth - 8)
         }
+
+        // Keep the centered title out of the chrome it would otherwise
+        // overlap: the icons end where this constraint puts them.
+        (window as? TerminalWindow)?.titlebarLeadingInset = constraint.constant + 12
     }
 
     // MARK: NSSplitViewDelegate
