@@ -1295,6 +1295,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             },
             onNewClaudeTabInGroup: { [weak self] group in
                 self?.newSidebarTab(in: group, runningClaude: true)
+            },
+            onSpawnTerminalBesideSelection: { [weak self] in
+                self?.newSidebarTabBesideSelection()
             }
         ).interfaceFont())
         sidebarHosting.translatesAutoresizingMaskIntoConstraints = false
@@ -1434,8 +1437,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// manual groups (and the ungrouped section) start at the pwd of the
     /// currently selected tab. The new surface is pinned to the group so
     /// later `cd`s never move it out.
-    private func newSidebarTab(in group: SidebarGroup?, runningClaude: Bool = false) {
-        guard let window else { return }
+    @discardableResult
+    private func newSidebarTab(
+        in group: SidebarGroup?,
+        runningClaude: Bool = false
+    ) -> Ghostty.SurfaceView? {
+        guard let window else { return nil }
 
         var baseConfig = Ghostty.SurfaceConfiguration()
         if case .project(let root) = group?.kind {
@@ -1446,7 +1453,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         guard let controller = Self.newTab(ghostty, from: window, withBaseConfig: baseConfig)
-        else { return }
+        else { return nil }
 
         let surface = controller.focusedSurface
             ?? controller.surfaceTree.root?.leftmostLeaf()
@@ -1455,10 +1462,42 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             ClaudeSession.run("claude", in: surface)
         }
 
-        guard let group, let surface else { return }
+        guard let group, let surface else { return surface }
         SidebarGroupStore.shared.assign(surfaceId: surface.id, to: group.id)
         sidebarTabManager?.scheduleRefresh()
         controller.sidebarTabManager?.scheduleRefresh()
+        return surface
+    }
+
+    /// Opens a terminal directly below the selected one, in whatever group
+    /// that one lives in — including no group at all.
+    ///
+    /// This is what the panels use to open a file. They list the contents
+    /// of the *selected* terminal, so a file they open belongs beside that
+    /// terminal; dropping it at the end of the list would separate it from
+    /// the context it came from.
+    private func newSidebarTabBesideSelection() -> Ghostty.SurfaceView? {
+        let selected = sidebarTabManager?.models.first { $0.isSelected }
+        let group = SidebarGroupStore.shared.resolveGroup(
+            surfaceId: selected?.surfaceId,
+            pwd: selected?.pwd
+        )
+
+        guard let surface = newSidebarTab(in: group) else { return nil }
+
+        // `newSidebarTab` only assigns a group; the position within it is
+        // this method's whole point, so it is set here — and only when
+        // there is a neighbour to anchor to.
+        if let anchor = selected?.surfaceId {
+            SidebarGroupStore.shared.insert(
+                surfaceId: surface.id,
+                near: anchor,
+                after: true,
+                groupId: group?.id
+            )
+            sidebarTabManager?.scheduleRefresh()
+        }
+        return surface
     }
 
     /// The app-wide sidebar width: last width the user dragged to in any

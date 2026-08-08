@@ -21,7 +21,7 @@ enum FileOpener {
     /// it only has to be picked once.
     static let preferredAppKey = "FileExplorerPreferredApp"
 
-    static var editorCommand: String {
+    nonisolated static var editorCommand: String {
         let stored = UserDefaults.standard.string(forKey: editorKey) ?? ""
         return stored.isEmpty ? defaultEditor : stored
     }
@@ -33,8 +33,20 @@ enum FileOpener {
         return URL(fileURLWithPath: path)
     }
 
+    /// How long to give a freshly spawned shell before typing into it.
+    /// Text sent before the prompt is ready is swallowed.
+    private static let shellStartupDelay: TimeInterval = 1.2
+
     /// Asks what to do with `url`, then does it.
-    static func prompt(for url: URL, in window: NSWindow?, surfaceProvider: () -> Ghostty.SurfaceView?) {
+    ///
+    /// `spawnTerminal` must create a *new* terminal and hand back its
+    /// surface — see `openInTerminal` for why nothing here ever reaches
+    /// for the selected one.
+    static func prompt(
+        for url: URL,
+        in window: NSWindow?,
+        spawnTerminal: @escaping () -> Ghostty.SurfaceView?
+    ) {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = url.lastPathComponent
@@ -46,7 +58,7 @@ enum FileOpener {
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            openInTerminal(url, surface: surfaceProvider())
+            openInTerminal(url, spawn: spawnTerminal)
         case .alertSecondButtonReturn:
             openInApp(url, window: window)
         default:
@@ -59,8 +71,16 @@ enum FileOpener {
         return "Open in \(app.deletingPathExtension().lastPathComponent)"
     }
 
-    /// Types the editor command into the terminal this explorer belongs to
-    /// and runs it.
+    /// Opens `url` in a terminal of its own.
+    ///
+    /// Always a brand-new terminal, never the selected one. The panels
+    /// show the files of whichever terminal is selected, so the selected
+    /// terminal is exactly the one already likely to be busy — and typing
+    /// an editor command into a shell that is *already running an editor*
+    /// doesn't reach a shell at all, it reaches the editor. Opening a
+    /// second file used to do precisely that: the command landed inside
+    /// the first `vim`'s buffer. A terminal per file also keeps the
+    /// panels honest, since what they list follows the selected terminal.
     ///
     /// The command text and the Enter go through two different APIs on
     /// purpose. `sendText` is documented upstream as being "treated like a
@@ -70,16 +90,27 @@ enum FileOpener {
     /// at the prompt looking correct and simply never runs, which is
     /// exactly what this did before being tested against a real shell.
     /// A key event isn't paste content, so it submits.
-    ///
-    /// Sent immediately rather than through `ClaudeSession.run`'s startup
-    /// delay: that delay exists for a shell that was just spawned, and this
-    /// one has been sitting at a prompt.
-    static func openInTerminal(_ url: URL, surface: Ghostty.SurfaceView?) {
-        guard let surface, let model = surface.surfaceModel else { return }
+    static func openInTerminal(_ url: URL, spawn: () -> Ghostty.SurfaceView?) {
+        guard let surface = spawn() else { return }
+        let command = terminalCommand(for: url)
 
-        model.sendText("\(editorCommand) \(shellQuoted(url.path))")
-        model.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .press))
-        model.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .release))
+        // The shell here was just spawned, so — unlike the old path, which
+        // typed into a terminal that had been sitting at a prompt — the
+        // prompt isn't up yet and anything sent now is dropped.
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + shellStartupDelay
+        ) { [weak surface] in
+            guard let model = surface?.surfaceModel else { return }
+            model.sendText(command)
+            model.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .press))
+            model.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .release))
+        }
+    }
+
+    /// `nonisolated` so the composition — which is where a quoting bug
+    /// would hide — is testable without a surface.
+    nonisolated static func terminalCommand(for url: URL) -> String {
+        "\(editorCommand) \(shellQuoted(url.path))"
     }
 
     static func openInApp(_ url: URL, window: NSWindow?) {

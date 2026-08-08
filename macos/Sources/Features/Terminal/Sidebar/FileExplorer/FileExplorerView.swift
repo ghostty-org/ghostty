@@ -8,6 +8,10 @@ struct FileExplorerView: View {
     @ObservedObject var tabManager: SidebarTabManager
     @ObservedObject var store: SidebarGroupStore
 
+    /// Opens a terminal beside the selected one; every file opened here
+    /// gets its own. See `FileOpener.openInTerminal`.
+    var onSpawnTerminal: () -> Ghostty.SurfaceView? = { nil }
+
     @StateObject private var model = FileExplorerModel()
     @ObservedObject private var palette: ThemePalette = .shared
     @ObservedObject private var icons: FileIconProvider = .shared
@@ -51,7 +55,7 @@ struct FileExplorerView: View {
 
             Spacer(minLength: 0)
 
-            Menu {
+            SidebarIconMenu(help: model.rootMode.detail) {
                 Picker("Root", selection: $model.rootMode) {
                     ForEach(WorkspaceRootMode.allCases) { mode in
                         Text(mode.title).tag(mode)
@@ -84,18 +88,12 @@ struct FileExplorerView: View {
                 if FileOpener.preferredApp != nil {
                     Button("Forget Editor App") { FileOpener.clearPreferredApp() }
                 }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 11))
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help(model.rootMode.detail)
         }
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
+        .padding(.leading, 10)
+        .padding(.trailing, 6)
+        .padding(.vertical, 4)
     }
 
     private var empty: some View {
@@ -153,14 +151,9 @@ struct FileExplorerView: View {
 
         FileOpener.prompt(
             for: row.node.url,
-            in: selectedTab?.window
-        ) { surface(for: selectedTab) }
-    }
-
-    private func surface(for tab: SidebarTabModel?) -> Ghostty.SurfaceView? {
-        guard let controller = tab?.window.windowController as? BaseTerminalController
-        else { return nil }
-        return controller.focusedSurface ?? controller.surfaceTree.root?.leftmostLeaf()
+            in: selectedTab?.window,
+            spawnTerminal: onSpawnTerminal
+        )
     }
 
     /// Recomputes the root from the selected terminal, then points the

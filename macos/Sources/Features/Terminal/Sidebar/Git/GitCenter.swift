@@ -10,11 +10,10 @@ import Foundation
 /// on completion rather than on dispatch so a slow call doesn't buy itself
 /// a free TTL window.
 ///
-/// Operations run silently and then refresh. When one fails, git's own
-/// stderr is kept verbatim in `lastError` — the panel shows that rather
-/// than a message invented here, because git already explains itself better
-/// than a paraphrase would ("Updates were rejected because the remote
-/// contains work that you do not have locally").
+/// Operations run silently and then refresh. When one fails, everything
+/// git printed goes to `GitFailure`, which pulls out a title and a next
+/// step and keeps the transcript underneath — see there for why the raw
+/// output alone wasn't good enough.
 @MainActor
 final class GitCenter: ObservableObject {
     static let shared = GitCenter()
@@ -22,7 +21,7 @@ final class GitCenter: ObservableObject {
     struct Failure: Identifiable, Equatable {
         let id = UUID()
         let operation: String
-        let message: String
+        let failure: GitFailure
     }
 
     @Published private(set) var statuses: [String: GitStatus] = [:]
@@ -300,10 +299,25 @@ final class GitCenter: ObservableObject {
     private func finish(_ name: String, root: String, failure: ShellCommand.Result?) {
         busy[root] = nil
 
-        // Clear on success as well as set on failure: a banner that
-        // outlives the problem it described is worse than none, because
-        // it makes a working panel look broken.
-        lastError = failure.map { Failure(operation: name, message: $0.message) }
+        // Cleared on success as well as set on failure, so a stale error
+        // can't outlive the problem it described.
+        //
+        // Both streams are handed to the parser: git splits a single
+        // explanation across them routinely — `pull` writes the fetch
+        // transcript to stderr and the refusal to stdout — and reading
+        // only one loses half the story.
+        lastError = failure.map {
+            Failure(
+                operation: name,
+                failure: GitFailure(
+                    operation: name,
+                    output: [$0.stderr, $0.stdout]
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: "\n")
+                )
+            )
+        }
         requestStatus(root: root, force: true)
         requestBranches(root: root)
         requestStashes(root: root)

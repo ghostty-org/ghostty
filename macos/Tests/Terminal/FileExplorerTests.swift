@@ -134,4 +134,21 @@ struct FileExplorerTests {
     @Test func embeddedSingleQuotesAreEscaped() {
         #expect(FileOpener.shellQuoted("/tmp/it's.txt") == "'/tmp/it'\\''s.txt'")
     }
+
+    // MARK: Terminal command
+
+    /// The editor is left as a shell expression rather than resolved here:
+    /// `$EDITOR` comes from the user's shell config, which a GUI app does
+    /// not inherit, so only the shell can honour it.
+    @Test func terminalCommandKeepsTheEditorExpressionUnresolved() {
+        UserDefaults.standard.removeObject(forKey: FileOpener.editorKey)
+        let command = FileOpener.terminalCommand(for: URL(fileURLWithPath: "/tmp/a.txt"))
+        #expect(command == "\(FileOpener.defaultEditor) '/tmp/a.txt'")
+    }
+
+    @Test func terminalCommandQuotesTheArgument() {
+        UserDefaults.standard.removeObject(forKey: FileOpener.editorKey)
+        let command = FileOpener.terminalCommand(for: URL(fileURLWithPath: "/tmp/two words.txt"))
+        #expect(command.hasSuffix(" 'two words.txt'") || command.hasSuffix("'/tmp/two words.txt'"))
+    }
 }

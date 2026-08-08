@@ -103,6 +103,9 @@ struct SidebarSettingsView: View {
 
     @State private var sidebarEnabled: Bool = false
 
+    @AppStorage("SidebarShowFilesPane") private var showFilesPane = true
+    @AppStorage("SidebarShowGitPane") private var showGitPane = true
+
     @AppStorage("SidebarShowDirectory") private var showDirectory = true
     @AppStorage("SidebarShowGitBranch") private var showGitBranch = true
     @AppStorage("SidebarShowGitStatus") private var showGitStatus = true
@@ -126,6 +129,19 @@ struct SidebarSettingsView: View {
 
             } footer: {
                 Text("The sidebar toggle applies to new windows. Sidebar style (background, width, tab item look) lives in Appearance.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("File Explorer", isOn: $showFilesPane)
+                    .toggleStyle(.switch)
+                Toggle("Git", isOn: $showGitPane)
+                    .toggleStyle(.switch)
+            } header: {
+                Text("Panels")
+            } footer: {
+                Text("Terminals is always available. With everything else off there is nothing to switch between, so the tabs disappear and the sidebar is just the terminal list.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

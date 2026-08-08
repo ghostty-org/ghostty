@@ -15,9 +15,13 @@ struct SidebarPaneTabBar: View {
 
     private var accent: Color { palette.accent ?? .accentColor }
 
+    /// Which panels to offer. Owned by `SidebarView`, which also decides
+    /// whether this bar appears at all.
+    let panes: [SidebarPane]
+
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(SidebarPane.allCases) { pane in
+            ForEach(panes) { pane in
                 tab(for: pane)
             }
         }
@@ -34,8 +38,7 @@ struct SidebarPaneTabBar: View {
             withAnimation(.easeOut(duration: 0.12)) { selection = pane }
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: pane.icon)
-                    .font(.system(size: 10, weight: .medium))
+                SidebarPaneIcon(pane: pane)
                 Text(pane.title)
                     .font(palette.font(size: 11, weight: isSelected ? .semibold : .regular))
                     .lineLimit(1)

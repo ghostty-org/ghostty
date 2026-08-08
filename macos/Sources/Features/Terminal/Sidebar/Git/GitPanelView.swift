@@ -7,6 +7,10 @@ import SwiftUI
 struct GitPanelView: View {
     @ObservedObject var tabManager: SidebarTabManager
 
+    /// Opens a terminal beside the selected one; every file opened here
+    /// gets its own. See `FileOpener.openInTerminal`.
+    var onSpawnTerminal: () -> Ghostty.SurfaceView? = { nil }
+
     @ObservedObject private var center: GitCenter = .shared
     @ObservedObject private var palette: ThemePalette = .shared
     @ObservedObject private var refresh: GitPanelRefresh = .shared
@@ -35,7 +39,6 @@ struct GitPanelView: View {
                 empty
             } else {
                 header
-                errorBanner
                 commitBox
                 changeList
             }
@@ -68,6 +71,13 @@ struct GitPanelView: View {
                 center.createBranch(named: name, in: root)
             }
         }
+        // A sheet rather than something inline: git's failures are
+        // paragraphs, and rendering one inside a 240pt sidebar column
+        // stretched the pane's intrinsic height until the window itself
+        // was dragged into a tall thin sliver.
+        .sheet(item: $center.lastError) { error in
+            GitFailureSheet(operation: error.operation, failure: error.failure)
+        }
         .alert(
             "Discard changes?",
             isPresented: Binding(
@@ -90,8 +100,7 @@ struct GitPanelView: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Image(systemName: status?.isDetached == true ? "arrow.triangle.pull" : "arrow.triangle.branch")
-                .font(.system(size: 10))
+            GitIcon(size: 11)
 
             Text(status?.branch ?? "—")
                 .font(palette.font(size: 11, weight: .semibold))
@@ -104,39 +113,47 @@ struct GitPanelView: View {
 
             Spacer(minLength: 0)
 
-            if busy != nil {
-                ProgressView().controlSize(.mini)
+            // Operations are silent by design, so this is the only sign
+            // one is running — and some of them (a pre-commit hook, a
+            // push) take long enough that without it the panel looks
+            // stuck rather than busy.
+            if let busy {
+                HStack(spacing: 4) {
+                    ProgressView().controlSize(.mini).scaleEffect(0.7)
+                    Text(busy)
+                        .font(palette.font(size: 10))
+                        .lineLimit(1)
+                }
+                .transition(.opacity)
             }
 
-            Menu {
+            SidebarIconMenu(help: "Git Actions") {
                 menuContents
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 11))
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
         }
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .help(busy ?? "")
+        .padding(.leading, 10)
+        .padding(.trailing, 6)
+        .padding(.vertical, 4)
+        .animation(.easeOut(duration: 0.15), value: busy)
     }
 
+    /// Commits to pull / to push, in the same capsule the group headers
+    /// use for their terminal count — both are "how many of these are
+    /// there", so they read as one idea rather than two conventions.
     private func syncCounts(_ status: GitStatus) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             if status.behind > 0 {
-                Label("\(status.behind)", systemImage: "arrow.down")
-                    .labelStyle(.titleAndIcon)
+                syncBadge(count: status.behind, symbol: "arrow.down", help: "Commits to pull")
             }
             if status.ahead > 0 {
-                Label("\(status.ahead)", systemImage: "arrow.up")
-                    .labelStyle(.titleAndIcon)
+                syncBadge(count: status.ahead, symbol: "arrow.up", help: "Commits to push")
             }
         }
-        .font(palette.font(size: 10))
-        .imageScale(.small)
+    }
+
+    private func syncBadge(count: Int, symbol: String, help: String) -> some View {
+        SidebarCountBadge(count: count, symbol: symbol).help(help)
     }
 
     @ViewBuilder
@@ -178,44 +195,6 @@ struct GitPanelView: View {
 
             Toggle("Amend Last Commit", isOn: $isAmending)
             Button("Refresh") { center.requestStatus(root: root, force: true) }
-        }
-    }
-
-    // MARK: Error
-
-    @ViewBuilder
-    private var errorBanner: some View {
-        if let error = center.lastError {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 9))
-                    Text("\(error.operation) failed")
-                        .font(palette.font(size: 10, weight: .semibold))
-                    Spacer(minLength: 0)
-                    Button {
-                        center.lastError = nil
-                    } label: {
-                        Image(systemName: "xmark").font(.system(size: 8))
-                    }
-                    .buttonStyle(.plain)
-                }
-                // Git's own words. It explains failures better than any
-                // paraphrase would, and the exact text is what makes the
-                // problem searchable.
-                Text(error.message)
-                    .font(palette.font(size: 10))
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .foregroundStyle(.primary)
-            .padding(8)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.red.opacity(0.18))
-            )
-            .padding(.horizontal, 8)
-            .padding(.bottom, 6)
         }
     }
 
@@ -292,7 +271,9 @@ struct GitPanelView: View {
                 cleanState
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
+                    // A gap, so two adjacent rows' hover backgrounds never
+                    // touch and read as one block.
+                    LazyVStack(alignment: .leading, spacing: 2) {
                         section("Merge Changes", status.unmerged, staged: false, merge: true)
                         section("Staged Changes", status.staged, staged: true, merge: false)
                         section("Changes", status.unstaged, staged: false, merge: false)
@@ -321,14 +302,12 @@ struct GitPanelView: View {
                     .foregroundStyle(.secondary)
                     .textCase(.uppercase)
 
-                Text("\(changes.count)")
-                    .font(palette.font(size: 9))
-                    .foregroundStyle(.tertiary)
+                SidebarCountBadge(count: changes.count)
 
                 Spacer(minLength: 0)
 
                 if !merge, let root {
-                    Button {
+                    SidebarIconButton(help: staged ? "Unstage All" : "Stage All") {
                         if staged {
                             center.unstageAll(in: root)
                         } else {
@@ -336,21 +315,21 @@ struct GitPanelView: View {
                         }
                     } label: {
                         Image(systemName: staged ? "minus" : "plus")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help(staged ? "Unstage All" : "Stage All")
                 }
             }
-            .padding(.horizontal, 4)
-            .padding(.top, 8)
-            .padding(.bottom, 2)
+            .padding(.leading, 6)
+            .padding(.trailing, 4)
+            .padding(.top, 6)
+            .padding(.bottom, 0)
 
             ForEach(changes.map { SectionRow(change: $0, section: title) }) { row in
                 GitChangeRow(
                     change: row.change,
                     staged: staged,
+                    onOpen: { open(row.change) },
                     onPrimary: { toggleStage(row.change, staged: staged) },
                     onDiscard: merge ? nil : { discarding = [row.change] }
                 )
@@ -373,8 +352,7 @@ struct GitPanelView: View {
 
     private var empty: some View {
         VStack(spacing: 6) {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 20))
+            GitIcon(size: 22)
                 .foregroundStyle(.tertiary)
             Text("This terminal isn't in a git repository")
                 .font(palette.captionFont)
@@ -404,6 +382,22 @@ struct GitPanelView: View {
         } else {
             center.stage([change.path], in: root)
         }
+    }
+
+    /// Same choice the file explorer offers, since it's the same question:
+    /// look at this in the terminal, or hand it to an app. Git reports
+    /// paths relative to the repository, so they have to be rejoined with
+    /// the root before anything can open them.
+    private func open(_ change: GitFileChange) {
+        guard let root else { return }
+        let url = URL(fileURLWithPath: root).appendingPathComponent(change.path)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+
+        FileOpener.prompt(
+            for: url,
+            in: selectedTab?.window,
+            spawnTerminal: onSpawnTerminal
+        )
     }
 
     /// The panel follows the terminal's repository, not the workspace root:
@@ -444,6 +438,7 @@ private struct SectionRow: Identifiable {
 private struct GitChangeRow: View {
     let change: GitFileChange
     let staged: Bool
+    let onOpen: () -> Void
     let onPrimary: () -> Void
     let onDiscard: (() -> Void)?
 
@@ -455,22 +450,33 @@ private struct GitChangeRow: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            FileIconView(icon: icons.icon(forFile: change.name), size: 13)
+            // The name is its own hit target rather than the whole row
+            // being one: the row also carries the action buttons, and a
+            // row-wide gesture would swallow their clicks and their
+            // tooltips along with them.
+            Button(action: onOpen) {
+                HStack(spacing: 5) {
+                    FileIconView(icon: icons.icon(forFile: change.name), size: 13)
 
-            Text(change.name)
-                .font(palette.font(size: 11))
-                .lineLimit(1)
-                .truncationMode(.middle)
+                    Text(change.name)
+                        .font(palette.font(size: 11))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
 
-            if !change.directory.isEmpty {
-                Text(change.directory)
-                    .font(palette.font(size: 9))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.head)
+                    if !change.directory.isEmpty {
+                        Text(change.directory)
+                            .font(palette.font(size: 9))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
+
+                    Spacer(minLength: 4)
+                }
+                .contentShape(Rectangle())
             }
-
-            Spacer(minLength: 4)
+            .buttonStyle(.plain)
+            .help(change.path)
 
             if isHovered {
                 if let onDiscard {
@@ -482,21 +488,23 @@ private struct GitChangeRow: View {
                     action: onPrimary
                 )
             } else {
+                // Same box as the buttons that replace it on hover. A
+                // bare label is shorter than a 22pt button, so without
+                // this the row grew the moment the pointer touched it and
+                // the whole list twitched.
                 Text(change.badge(staged: staged))
-                    .font(palette.font(size: 10, weight: .semibold))
+                    .font(palette.font(size: 11, weight: .semibold))
                     .foregroundStyle(badgeColor)
-                    .frame(width: 14)
+                    .frame(width: Self.actionSize, height: Self.actionHeight)
             }
         }
+        .frame(height: Self.actionHeight)
         .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 4)
                 .fill(isHovered ? accent.opacity(0.12) : .clear)
         )
         .onHover { isHovered = $0 }
-        .help(change.path)
         .contextMenu {
             Button("Copy Path") {
                 NSPasteboard.general.clearContents()
@@ -505,15 +513,17 @@ private struct GitChangeRow: View {
         }
     }
 
+    /// Matches `SidebarIconButton`'s hit area exactly, so swapping the
+    /// badge for the buttons on hover changes nothing about the layout.
+    private static let actionSize: CGFloat = 24
+    private static let actionHeight: CGFloat = 22
+
     private func rowButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        SidebarIconButton(help: help, action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 9, weight: .semibold))
-                .frame(width: 14, height: 14)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .help(help)
     }
 
     private var badgeColor: Color {
@@ -525,6 +535,105 @@ private struct GitChangeRow: View {
         case "U": return .purple
         default: return .secondary
         }
+    }
+}
+
+/// Explains a failed git operation: what happened, what to do, and the
+/// transcript underneath for when that isn't enough.
+private struct GitFailureSheet: View {
+    let operation: String
+    let failure: GitFailure
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var showsTranscript = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.orange)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(failure.title)
+                        .font(.headline)
+
+                    if let summary = failure.summary {
+                        Text(summary)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+
+            if !failure.files.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(failure.files, id: \.self) { file in
+                        Label(file, systemImage: "doc")
+                            .font(.system(size: 11, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+                )
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
+            }
+
+            // A git that failed without printing anything is rare but real
+            // (killed, or exited on a signal). Offering to expand and copy
+            // an empty transcript would be a dead end.
+            if !failure.raw.isEmpty {
+                DisclosureGroup(isExpanded: $showsTranscript) {
+                    ScrollView {
+                        Text(failure.raw)
+                            .font(.system(size: 11, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                    }
+                    // Bounded on purpose — this is exactly the content that
+                    // has no natural size limit.
+                    .frame(maxHeight: 220)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(nsColor: .textBackgroundColor).opacity(0.5))
+                    )
+                } label: {
+                    Text("Git output")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
+            }
+
+            Spacer(minLength: 12)
+
+            Divider()
+
+            HStack {
+                if !failure.raw.isEmpty {
+                    Button("Copy Output") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(failure.raw, forType: .string)
+                    }
+                }
+                Spacer()
+                Button("OK") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(12)
+        }
+        .frame(width: 460)
+        .frame(minHeight: 220, maxHeight: 520)
     }
 }
 
