@@ -35,6 +35,11 @@ final class GitCenter: ObservableObject {
 
     @Published var lastError: Failure?
 
+    /// Repositories whose first status load has finished. Only ever gains
+    /// entries, and the insert is guarded so it publishes once per repo
+    /// instead of on every one of the periodic refreshes.
+    @Published private(set) var loadedRoots: Set<String> = []
+
     private var inflight: Set<String> = []
     private var pendingRefresh: Set<String> = []
     private var checkedAt: [String: Date] = [:]
@@ -50,6 +55,12 @@ final class GitCenter: ObservableObject {
     func status(forRoot root: String) -> GitStatus? { statuses[root] }
 
     func isBusy(_ root: String) -> String? { busy[root] }
+
+    /// Whether a first status has come back for this repository — success
+    /// or failure. Distinguishing "hasn't answered yet" from "answered,
+    /// and there's nothing" is what lets the panel show a spinner without
+    /// spinning forever on a repo git can't read.
+    func hasLoaded(_ root: String) -> Bool { loadedRoots.contains(root) }
 
     /// Refreshes if stale. Cheap no-op otherwise, so it's safe to call from
     /// a timer and from every view update.
@@ -78,6 +89,7 @@ final class GitCenter: ObservableObject {
                 if let status { self.statuses[root] = status }
                 self.checkedAt[root] = Date()
                 self.inflight.remove(root)
+                if !self.loadedRoots.contains(root) { self.loadedRoots.insert(root) }
 
                 if self.pendingRefresh.remove(root) != nil {
                     self.requestStatus(root: root, force: true)

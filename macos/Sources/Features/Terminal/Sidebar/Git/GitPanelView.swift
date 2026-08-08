@@ -266,10 +266,18 @@ struct GitPanelView: View {
 
     @ViewBuilder
     private var changeList: some View {
-        if let status {
-            if status.isClean {
-                cleanState
-            } else {
+        switch GitPanelContent.resolve(
+            status: status,
+            hasLoaded: root.map(center.hasLoaded) ?? false
+        ) {
+        case .loading:
+            loadingState
+        case .unreadable:
+            unreadableState
+        case .clean:
+            cleanState
+        case .changes:
+            if let status {
                 ScrollView {
                     // A gap, so two adjacent rows' hover backgrounds never
                     // touch and read as one block.
@@ -283,9 +291,37 @@ struct GitPanelView: View {
                 }
                 .scrollIndicators(.hidden)
             }
-        } else {
-            Spacer()
         }
+    }
+
+    /// Shown until the first status lands. `git status` on a large
+    /// repository takes long enough that drawing nothing reads as broken
+    /// rather than busy — which is exactly how it looked.
+    private var loadingState: some View {
+        VStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Reading repository…")
+                .font(palette.font(size: 10))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The load finished and produced nothing. Rare — a repository mid
+    /// `rebase`, or one whose `.git` isn't readable — but without its own
+    /// state it would be an endlessly spinning `loadingState`.
+    private var unreadableState: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 18))
+            Text("Couldn't read this repository")
+                .font(palette.font(size: 11))
+                .multilineTextAlignment(.center)
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(16)
     }
 
     @ViewBuilder
