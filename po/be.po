@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-08-05 20:27+0800\n"
+"POT-Creation-Date: 2026-08-06 22:18-0500\n"
 "PO-Revision-Date: 2026-04-14 00:00+0000\n"
 "Last-Translator: Illia Krauchanka <illiakrauchanka@gmail.com>\n"
 "Language-Team: Belarusian\n"
@@ -49,12 +49,12 @@ msgstr "Перазагрузіць канфігурацыю, каб паказа
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2032
+#: src/apprt/gtk/class/application.zig:2111
 msgid "Cancel"
 msgstr "Скасаваць"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:8
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:85
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:90
 #: src/apprt/gtk/ui/1.3/surface-child-exited.blp:17
 msgid "Close"
 msgstr "Закрыць"
@@ -63,7 +63,7 @@ msgstr "Закрыць"
 msgid "Configuration Errors"
 msgstr "Канфігурацыйныя памылкі"
 
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:7
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:8
 msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
@@ -71,12 +71,12 @@ msgstr ""
 "Знойдзена адна або некалькі канфігурацыйных памылак. Прагледзьце памылкі "
 "ніжэй і альбо перазагрузіце канфігурацыю, альбо ігнаруйце гэтыя памылкі."
 
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:10
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:12
 msgid "Ignore"
 msgstr "Ігнараваць"
 
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:11
-#: src/apprt/gtk/ui/1.2/surface.blp:373 src/apprt/gtk/ui/1.5/window.blp:300
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:13
+#: src/apprt/gtk/ui/1.2/surface.blp:431 src/apprt/gtk/ui/1.5/window.blp:308
 msgid "Reload Configuration"
 msgstr "Перазагрузіць канфігурацыю"
 
@@ -95,23 +95,23 @@ msgstr "Ghostty: інспектар тэрмінала"
 msgid "Find…"
 msgstr "Знайсці…"
 
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:64
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:69
 msgid "Previous Match"
 msgstr "Папярэдняе супадзенне"
 
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:74
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:79
 msgid "Next Match"
 msgstr "Наступнае супадзенне"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:6
+#: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Oh, no."
 msgstr "Ой."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:7
+#: src/apprt/gtk/ui/1.2/surface.blp:8
 msgid "Unable to acquire an OpenGL context for rendering."
 msgstr "Не ўдалося атрымаць кантэкст OpenGL для адмалёўкі."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:99
+#: src/apprt/gtk/ui/1.2/surface.blp:101
 msgid ""
 "This terminal is in read-only mode. You can still view, select, and scroll "
 "through the content, but no input events will be sent to the running "
@@ -121,101 +121,105 @@ msgstr ""
 "праглядаць, вылучаць і пракручваць змест, але ніякія падзеі ўводу не будуць "
 "адпраўлены ў запушчаную праграму."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:109
+#: src/apprt/gtk/ui/1.2/surface.blp:112
 msgid "Read-only"
 msgstr "Толькі для чытання"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:262 src/apprt/gtk/ui/1.5/window.blp:200
+#: src/apprt/gtk/ui/1.2/surface.blp:315 src/apprt/gtk/ui/1.5/window.blp:203
 msgid "Copy"
 msgstr "Скапіяваць"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:267 src/apprt/gtk/ui/1.5/window.blp:205
+#: src/apprt/gtk/ui/1.2/surface.blp:320 src/apprt/gtk/ui/1.5/window.blp:208
 msgid "Paste"
 msgstr "Уставіць"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:272
+#: src/apprt/gtk/ui/1.2/surface.blp:325
 msgid "Notify on Next Command Finish"
 msgstr "Апавясціць пры завяршэнні наступнай каманды"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:279 src/apprt/gtk/ui/1.5/window.blp:273
+#: src/apprt/gtk/ui/1.2/surface.blp:332 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
 msgstr "Ачысціць"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:284 src/apprt/gtk/ui/1.5/window.blp:278
+#: src/apprt/gtk/ui/1.2/surface.blp:337 src/apprt/gtk/ui/1.5/window.blp:286
 msgid "Reset"
 msgstr "Скінуць"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:291 src/apprt/gtk/ui/1.5/window.blp:242
+#: src/apprt/gtk/ui/1.2/surface.blp:344 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split"
 msgstr "Падзяліць"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:294 src/apprt/gtk/ui/1.5/window.blp:245
+#: src/apprt/gtk/ui/1.2/surface.blp:347 src/apprt/gtk/ui/1.5/window.blp:253
 msgid "Change Title…"
 msgstr "Змяніць назву…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:299 src/apprt/gtk/ui/1.5/window.blp:177
-#: src/apprt/gtk/ui/1.5/window.blp:250 src/input/command.zig:481
+#: src/apprt/gtk/ui/1.2/surface.blp:352 src/apprt/gtk/ui/1.5/window.blp:180
+#: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:487
 msgid "Split Up"
 msgstr "Падзяліць уверх"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:305 src/apprt/gtk/ui/1.5/window.blp:182
-#: src/apprt/gtk/ui/1.5/window.blp:255 src/input/command.zig:486
+#: src/apprt/gtk/ui/1.2/surface.blp:358 src/apprt/gtk/ui/1.5/window.blp:185
+#: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:492
 msgid "Split Down"
 msgstr "Падзяліць уніз"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:311 src/apprt/gtk/ui/1.5/window.blp:187
-#: src/apprt/gtk/ui/1.5/window.blp:260 src/input/command.zig:471
+#: src/apprt/gtk/ui/1.2/surface.blp:364 src/apprt/gtk/ui/1.5/window.blp:190
+#: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
 msgid "Split Left"
 msgstr "Падзяліць улева"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:317 src/apprt/gtk/ui/1.5/window.blp:192
-#: src/apprt/gtk/ui/1.5/window.blp:265 src/input/command.zig:476
+#: src/apprt/gtk/ui/1.2/surface.blp:370 src/apprt/gtk/ui/1.5/window.blp:195
+#: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
 msgid "Split Right"
 msgstr "Падзяліць управа"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:323
+#: src/apprt/gtk/ui/1.2/surface.blp:376
 msgid "Close Split"
 msgstr ""
 
-#: src/apprt/gtk/ui/1.2/surface.blp:329
+#: src/apprt/gtk/ui/1.2/surface.blp:382
 msgid "Tab"
 msgstr "Укладка"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:332 src/apprt/gtk/ui/1.5/window.blp:224
-#: src/apprt/gtk/ui/1.5/window.blp:320 src/input/command.zig:464
+#: src/apprt/gtk/ui/1.2/surface.blp:385 src/apprt/gtk/ui/1.5/window.blp:232
+#: src/apprt/gtk/ui/1.5/window.blp:328 src/input/command.zig:464
 msgid "Change Tab Title…"
 msgstr "Змяніць назву ўкладкі…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:337 src/apprt/gtk/ui/1.5/window.blp:57
-#: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
+#: src/apprt/gtk/ui/1.2/surface.blp:390 src/apprt/gtk/ui/1.5/window.blp:60
+#: src/apprt/gtk/ui/1.5/window.blp:110 src/apprt/gtk/ui/1.5/window.blp:237
 #: src/input/command.zig:427
 msgid "New Tab"
 msgstr "Новая ўкладка"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:342 src/apprt/gtk/ui/1.5/window.blp:234
-#: src/input/command.zig:600
+#: src/apprt/gtk/ui/1.2/surface.blp:395 src/apprt/gtk/ui/1.5/window.blp:242
+#: src/input/command.zig:606
 msgid "Close Tab"
 msgstr "Закрыць укладку"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:349
+#: src/apprt/gtk/ui/1.2/surface.blp:402
 msgid "Window"
 msgstr "Акно"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:352 src/apprt/gtk/ui/1.5/window.blp:212
+#: src/apprt/gtk/ui/1.2/surface.blp:405 src/apprt/gtk/ui/1.5/window.blp:215
+msgid "Change Window Title…"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.2/surface.blp:410 src/apprt/gtk/ui/1.5/window.blp:220
 #: src/input/command.zig:421
 msgid "New Window"
 msgstr "Новае акно"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:357 src/apprt/gtk/ui/1.5/window.blp:217
-#: src/input/command.zig:617
+#: src/apprt/gtk/ui/1.2/surface.blp:415 src/apprt/gtk/ui/1.5/window.blp:225
+#: src/input/command.zig:623
 msgid "Close Window"
 msgstr "Закрыць акно"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:365
+#: src/apprt/gtk/ui/1.2/surface.blp:423
 msgid "Config"
 msgstr "Налады"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:368 src/apprt/gtk/ui/1.5/window.blp:295
+#: src/apprt/gtk/ui/1.2/surface.blp:426 src/apprt/gtk/ui/1.5/window.blp:303
 msgid "Open Configuration"
 msgstr "Адкрыць канфігурацыю"
 
@@ -227,31 +231,31 @@ msgstr "Пакіньце пустым, каб аднавіць назву па �
 msgid "OK"
 msgstr "ОК"
 
-#: src/apprt/gtk/ui/1.5/window.blp:58 src/apprt/gtk/ui/1.5/window.blp:108
+#: src/apprt/gtk/ui/1.5/window.blp:61 src/apprt/gtk/ui/1.5/window.blp:111
 msgid "New Split"
 msgstr "Новы падзел"
 
-#: src/apprt/gtk/ui/1.5/window.blp:68 src/apprt/gtk/ui/1.5/window.blp:126
+#: src/apprt/gtk/ui/1.5/window.blp:71 src/apprt/gtk/ui/1.5/window.blp:129
 msgid "View Open Tabs"
 msgstr "Паглядзець адкрытыя ўкладкі"
 
-#: src/apprt/gtk/ui/1.5/window.blp:78 src/apprt/gtk/ui/1.5/window.blp:140
+#: src/apprt/gtk/ui/1.5/window.blp:81 src/apprt/gtk/ui/1.5/window.blp:143
 msgid "Main Menu"
 msgstr "Галоўнае меню"
 
-#: src/apprt/gtk/ui/1.5/window.blp:285
+#: src/apprt/gtk/ui/1.5/window.blp:293
 msgid "Command Palette"
 msgstr "Палітра каманд"
 
-#: src/apprt/gtk/ui/1.5/window.blp:290
+#: src/apprt/gtk/ui/1.5/window.blp:298
 msgid "Terminal Inspector"
 msgstr "Інспектар тэрмінала"
 
-#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1908
+#: src/apprt/gtk/ui/1.5/window.blp:315 src/apprt/gtk/class/window.zig:1981
 msgid "About Ghostty"
 msgstr "Пра Ghostty"
 
-#: src/apprt/gtk/ui/1.5/window.blp:312 src/input/command.zig:689
+#: src/apprt/gtk/ui/1.5/window.blp:320 src/input/command.zig:695
 msgid "Quit"
 msgstr "Выйсці"
 
@@ -259,23 +263,23 @@ msgstr "Выйсці"
 msgid "Execute a command…"
 msgstr "Выканаць каманду…"
 
-#: src/apprt/gtk/class/application.zig:1714
+#: src/apprt/gtk/class/application.zig:1759
 msgid "The keybind was revoked by the system."
 msgstr ""
 
-#: src/apprt/gtk/class/application.zig:1716
+#: src/apprt/gtk/class/application.zig:1761
 msgid "The keybind was denied by the system."
 msgstr ""
 
-#: src/apprt/gtk/class/application.zig:1727
+#: src/apprt/gtk/class/application.zig:1772
 msgid "Global keybind unavailable"
 msgstr ""
 
-#: src/apprt/gtk/class/application.zig:2028
+#: src/apprt/gtk/class/application.zig:2107
 msgid "Export Terminal IO Events"
 msgstr ""
 
-#: src/apprt/gtk/class/application.zig:2031
+#: src/apprt/gtk/class/application.zig:2110
 msgid "Export"
 msgstr ""
 
@@ -339,41 +343,45 @@ msgstr "Усе сесіі тэрмінала ў гэтым акне будуць
 msgid "The currently running process in this split will be terminated."
 msgstr "Бягучы працэс у гэтым падзеле будзе завершаны."
 
-#: src/apprt/gtk/class/surface.zig:1171
+#: src/apprt/gtk/class/surface.zig:1168
 msgid "Command Finished"
 msgstr "Каманда завершана"
 
-#: src/apprt/gtk/class/surface.zig:1172
+#: src/apprt/gtk/class/surface.zig:1169
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
 msgstr "Каманда выканана паспяхова"
 
-#: src/apprt/gtk/class/surface.zig:1173
+#: src/apprt/gtk/class/surface.zig:1170
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
 msgstr "Каманда завершылася з памылкай"
 
-#: src/apprt/gtk/class/title_dialog.zig:225
+#: src/apprt/gtk/class/title_dialog.zig:227
 msgid "Change Terminal Title"
 msgstr "Змяніць назву тэрмінала"
 
-#: src/apprt/gtk/class/title_dialog.zig:226
+#: src/apprt/gtk/class/title_dialog.zig:228
 msgid "Change Tab Title"
 msgstr "Змяніць назву ўкладкі"
 
-#: src/apprt/gtk/class/window.zig:1122
+#: src/apprt/gtk/class/title_dialog.zig:229
+msgid "Change Window Title"
+msgstr ""
+
+#: src/apprt/gtk/class/window.zig:1143
 msgid "Reloaded the configuration"
 msgstr "Канфігурацыя перазагружана"
 
-#: src/apprt/gtk/class/window.zig:1747
+#: src/apprt/gtk/class/window.zig:1820
 msgid "Copied to clipboard"
 msgstr "Скапіявана ў буфер абмену"
 
-#: src/apprt/gtk/class/window.zig:1749
+#: src/apprt/gtk/class/window.zig:1822
 msgid "Cleared clipboard"
 msgstr "Буфер абмену ачышчаны"
 
-#: src/apprt/gtk/class/window.zig:1889
+#: src/apprt/gtk/class/window.zig:1962
 msgid "Ghostty Developers"
 msgstr "Распрацоўшчыкі Ghostty"
 
@@ -795,286 +803,286 @@ msgstr ""
 msgid "Prompt for a new title for the current tab."
 msgstr ""
 
-#: src/input/command.zig:472
+#: src/input/command.zig:478
 msgid "Split the terminal to the left."
 msgstr ""
 
-#: src/input/command.zig:477
+#: src/input/command.zig:483
 msgid "Split the terminal to the right."
 msgstr ""
 
-#: src/input/command.zig:482
+#: src/input/command.zig:488
 msgid "Split the terminal up."
 msgstr ""
 
-#: src/input/command.zig:487
+#: src/input/command.zig:493
 msgid "Split the terminal down."
 msgstr ""
 
-#: src/input/command.zig:494
+#: src/input/command.zig:500
 msgid "Focus Split: Previous"
 msgstr ""
 
-#: src/input/command.zig:495
+#: src/input/command.zig:501
 msgid "Focus the previous split, if any."
 msgstr ""
 
-#: src/input/command.zig:499
+#: src/input/command.zig:505
 msgid "Focus Split: Next"
 msgstr ""
 
-#: src/input/command.zig:500
+#: src/input/command.zig:506
 msgid "Focus the next split, if any."
 msgstr ""
 
-#: src/input/command.zig:504
+#: src/input/command.zig:510
 msgid "Focus Split: Left"
 msgstr ""
 
-#: src/input/command.zig:505
+#: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
 msgstr ""
 
-#: src/input/command.zig:509
+#: src/input/command.zig:515
 msgid "Focus Split: Right"
 msgstr ""
 
-#: src/input/command.zig:510
+#: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
 msgstr ""
 
-#: src/input/command.zig:514
+#: src/input/command.zig:520
 msgid "Focus Split: Up"
 msgstr ""
 
-#: src/input/command.zig:515
+#: src/input/command.zig:521
 msgid "Focus the split above, if it exists."
 msgstr ""
 
-#: src/input/command.zig:519
+#: src/input/command.zig:525
 msgid "Focus Split: Down"
 msgstr ""
 
-#: src/input/command.zig:520
+#: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
 msgstr ""
 
-#: src/input/command.zig:527
+#: src/input/command.zig:533
 msgid "Focus Window: Previous"
 msgstr ""
 
-#: src/input/command.zig:528
+#: src/input/command.zig:534
 msgid "Focus the previous window, if any."
 msgstr ""
 
-#: src/input/command.zig:532
+#: src/input/command.zig:538
 msgid "Focus Window: Next"
 msgstr ""
 
-#: src/input/command.zig:533
+#: src/input/command.zig:539
 msgid "Focus the next window, if any."
 msgstr ""
 
-#: src/input/command.zig:539
+#: src/input/command.zig:545
 msgid "Toggle Split Zoom"
 msgstr ""
 
-#: src/input/command.zig:540
+#: src/input/command.zig:546
 msgid "Toggle the zoom state of the current split."
 msgstr ""
 
-#: src/input/command.zig:545
+#: src/input/command.zig:551
 msgid "Toggle Read-Only Mode"
 msgstr ""
 
-#: src/input/command.zig:546
+#: src/input/command.zig:552
 msgid "Toggle read-only mode for the current surface."
 msgstr ""
 
-#: src/input/command.zig:551
+#: src/input/command.zig:557
 msgid "Equalize Splits"
 msgstr ""
 
-#: src/input/command.zig:552
+#: src/input/command.zig:558
 msgid "Equalize the size of all splits."
 msgstr ""
 
-#: src/input/command.zig:557
+#: src/input/command.zig:563
 msgid "Reset Window Size"
 msgstr ""
 
-#: src/input/command.zig:558
+#: src/input/command.zig:564
 msgid "Reset the window size to the default."
 msgstr ""
 
-#: src/input/command.zig:563
+#: src/input/command.zig:569
 msgid "Toggle Inspector"
 msgstr ""
 
-#: src/input/command.zig:564
+#: src/input/command.zig:570
 msgid "Toggle the inspector."
 msgstr ""
 
-#: src/input/command.zig:569
+#: src/input/command.zig:575
 msgid "Show the GTK Inspector"
 msgstr ""
 
-#: src/input/command.zig:570
+#: src/input/command.zig:576
 msgid "Show the GTK inspector."
 msgstr ""
 
-#: src/input/command.zig:575
+#: src/input/command.zig:581
 msgid "Show On-Screen Keyboard"
 msgstr ""
 
-#: src/input/command.zig:576
+#: src/input/command.zig:582
 msgid "Show the on-screen keyboard if present."
 msgstr ""
 
-#: src/input/command.zig:581
+#: src/input/command.zig:587
 msgid "Open Config"
 msgstr ""
 
-#: src/input/command.zig:582
+#: src/input/command.zig:588
 msgid "Open the config file."
 msgstr ""
 
-#: src/input/command.zig:587
+#: src/input/command.zig:593
 msgid "Reload Config"
 msgstr ""
 
-#: src/input/command.zig:588
+#: src/input/command.zig:594
 msgid "Reload the config file."
 msgstr ""
 
-#: src/input/command.zig:593
+#: src/input/command.zig:599
 msgid "Close Terminal"
 msgstr ""
 
-#: src/input/command.zig:594
+#: src/input/command.zig:600
 msgid "Close the current terminal."
 msgstr ""
 
-#: src/input/command.zig:601
+#: src/input/command.zig:607
 msgid "Close the current tab."
 msgstr ""
 
-#: src/input/command.zig:605
+#: src/input/command.zig:611
 msgid "Close Other Tabs"
 msgstr ""
 
-#: src/input/command.zig:606
+#: src/input/command.zig:612
 msgid "Close all tabs in this window except the current one."
 msgstr ""
 
-#: src/input/command.zig:610
+#: src/input/command.zig:616
 msgid "Close Tabs to the Right"
 msgstr ""
 
-#: src/input/command.zig:611
+#: src/input/command.zig:617
 msgid "Close all tabs to the right of the current one."
 msgstr ""
 
-#: src/input/command.zig:618
+#: src/input/command.zig:624
 msgid "Close the current window."
 msgstr ""
 
-#: src/input/command.zig:623
+#: src/input/command.zig:629
 msgid "Close All Windows"
 msgstr ""
 
-#: src/input/command.zig:624
+#: src/input/command.zig:630
 msgid "Close all windows."
 msgstr ""
 
-#: src/input/command.zig:629
+#: src/input/command.zig:635
 msgid "Toggle Maximize"
 msgstr ""
 
-#: src/input/command.zig:630
+#: src/input/command.zig:636
 msgid "Toggle the maximized state of the current window."
 msgstr ""
 
-#: src/input/command.zig:635
+#: src/input/command.zig:641
 msgid "Toggle Fullscreen"
 msgstr ""
 
-#: src/input/command.zig:636
+#: src/input/command.zig:642
 msgid "Toggle the fullscreen state of the current window."
 msgstr ""
 
-#: src/input/command.zig:641
+#: src/input/command.zig:647
 msgid "Toggle Window Decorations"
 msgstr ""
 
-#: src/input/command.zig:642
+#: src/input/command.zig:648
 msgid "Toggle the window decorations."
 msgstr ""
 
-#: src/input/command.zig:647
+#: src/input/command.zig:653
 msgid "Toggle Float on Top"
 msgstr ""
 
-#: src/input/command.zig:648
+#: src/input/command.zig:654
 msgid "Toggle the float on top state of the current window."
 msgstr ""
 
-#: src/input/command.zig:653
+#: src/input/command.zig:659
 msgid "Toggle Secure Input"
 msgstr ""
 
-#: src/input/command.zig:654
+#: src/input/command.zig:660
 msgid "Toggle secure input mode."
 msgstr ""
 
-#: src/input/command.zig:659
+#: src/input/command.zig:665
 msgid "Toggle Mouse Reporting"
 msgstr ""
 
-#: src/input/command.zig:660
+#: src/input/command.zig:666
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr ""
 
-#: src/input/command.zig:665
+#: src/input/command.zig:671
 msgid "Toggle Background Opacity"
 msgstr ""
 
-#: src/input/command.zig:666
+#: src/input/command.zig:672
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr ""
 
-#: src/input/command.zig:671
+#: src/input/command.zig:677
 msgid "Check for Updates"
 msgstr ""
 
-#: src/input/command.zig:672
+#: src/input/command.zig:678
 msgid "Check for updates to the application."
 msgstr ""
 
-#: src/input/command.zig:677
+#: src/input/command.zig:683
 msgid "Undo"
 msgstr ""
 
-#: src/input/command.zig:678
+#: src/input/command.zig:684
 msgid "Undo the last action."
 msgstr ""
 
-#: src/input/command.zig:683
+#: src/input/command.zig:689
 msgid "Redo"
 msgstr ""
 
-#: src/input/command.zig:684
+#: src/input/command.zig:690
 msgid "Redo the last undone action."
 msgstr ""
 
-#: src/input/command.zig:690
+#: src/input/command.zig:696
 msgid "Quit the application."
 msgstr ""
 
-#: src/input/command.zig:695
+#: src/input/command.zig:701
 msgid "Ghostty"
 msgstr ""
 
-#: src/input/command.zig:696
+#: src/input/command.zig:702
 msgid "Put a little Ghostty in your terminal."
 msgstr ""
