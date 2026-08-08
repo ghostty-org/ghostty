@@ -24,6 +24,7 @@ const Config = configpkg.Config;
 const String = @import("../main_c.zig").String;
 
 const log = std.log.scoped(.embedded_window);
+const quick_terminal_log = std.log.scoped(.quick_terminal);
 
 pub const resourcesDir = internal_os.resourcesDir;
 
@@ -1392,6 +1393,11 @@ pub const CAPI = struct {
         if (builtin.target.os.tag.isDarwin()) {
             _ = Darwin;
         }
+    }
+
+    /// Log Quick Terminal debug messages from the embedding layer.
+    export fn ghostty_quick_terminal_debug_log(ptr: [*:0]const u8) void {
+        quick_terminal_log.debug("{s}", .{ptr});
     }
 
     /// Create a new app.
