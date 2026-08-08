@@ -8,10 +8,11 @@ import Foundation
 /// one in `SidebarTitlebarChrome`. Nothing in the AppKit hierarchy
 /// (`TerminalController.makeSidebarSplitView`) has to change.
 ///
-/// Git and worktree panels are the planned next two.
+/// A worktree panel is the planned next one.
 enum SidebarPane: String, CaseIterable, Identifiable, Codable {
     case terminals
     case files
+    case git
 
     var id: String { rawValue }
 
@@ -19,6 +20,7 @@ enum SidebarPane: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .terminals: return "Terminals"
         case .files: return "Files"
+        case .git: return "Git"
         }
     }
 
@@ -27,6 +29,7 @@ enum SidebarPane: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .terminals: return "terminal"
         case .files: return "folder"
+        case .git: return "arrow.triangle.branch"
         }
     }
 }

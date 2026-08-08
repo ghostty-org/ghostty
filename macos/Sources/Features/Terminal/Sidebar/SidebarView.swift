@@ -119,6 +119,8 @@ struct SidebarView: View {
                 terminalList
             case .files:
                 FileExplorerView(tabManager: tabManager, store: store)
+            case .git:
+                GitPanelView(tabManager: tabManager)
             }
         }
     }
@@ -247,6 +249,11 @@ struct SidebarTitlebarChrome: View {
         case .files:
             SidebarChromeButton(icon: "arrow.clockwise", help: "Refresh") {
                 FileExplorerRefresh.shared.request()
+            }
+
+        case .git:
+            SidebarChromeButton(icon: "arrow.clockwise", help: "Refresh") {
+                GitPanelRefresh.shared.request()
             }
         }
     }
