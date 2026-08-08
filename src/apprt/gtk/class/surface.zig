@@ -2328,6 +2328,8 @@ pub const Surface = extern struct {
         const priv = self.private();
         const config = if (priv.config) |c| c.get() else return;
 
+        priv.drag_handle.setVisible(if (config.@"gtk-drag-handle") 1 else 0);
+
         // resize-overlay-duration
         {
             const ms = config.@"resize-overlay-duration".asMilliseconds();

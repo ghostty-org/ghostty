@@ -3638,6 +3638,11 @@ else
 /// Available since: 1.1.0
 @"gtk-opengl-debug": bool = builtin.mode == .Debug,
 
+/// If `true` (default), show the top drag handle overlay on terminal surfaces.
+///
+/// Set this to `false` to hide the top drag handle overlay.
+@"gtk-drag-handle": bool = true,
+
 /// If `true`, the Ghostty GTK application will run in single-instance mode:
 /// each new `ghostty` process launched will result in a new window if there is
 /// already a running process.
