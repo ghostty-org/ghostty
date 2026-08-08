@@ -21,6 +21,12 @@ struct FileExplorerView: View {
         tabManager.models.first { $0.isSelected }
     }
 
+    private func surface(for tab: SidebarTabModel?) -> Ghostty.SurfaceView? {
+        guard let controller = tab?.window.windowController as? BaseTerminalController
+        else { return nil }
+        return controller.focusedSurface ?? controller.surfaceTree.root?.leftmostLeaf()
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -49,7 +55,7 @@ struct FileExplorerView: View {
     private var header: some View {
         HStack(spacing: 4) {
             Text(model.root?.lastPathComponent ?? "No Folder")
-                .font(palette.font(size: 11, weight: .semibold))
+                .font(palette.font(size: 12, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.head)
 
@@ -91,9 +97,14 @@ struct FileExplorerView: View {
             }
         }
         .foregroundStyle(.secondary)
+        // Sized from the chip metrics, same as the Git panel's header, so
+        // the two panels' menus sit at the same height and their
+        // highlights keep the same margin.
+        .frame(height: SidebarIconChipMetrics.rowHeight)
         .padding(.leading, 10)
         .padding(.trailing, 6)
-        .padding(.vertical, 4)
+        .padding(.top, 6)
+        .padding(.bottom, 4)
     }
 
     private var empty: some View {
@@ -152,6 +163,7 @@ struct FileExplorerView: View {
         FileOpener.prompt(
             for: row.node.url,
             in: selectedTab?.window,
+            currentTerminal: surface(for: selectedTab),
             spawnTerminal: onSpawnTerminal
         )
     }

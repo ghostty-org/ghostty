@@ -265,6 +265,12 @@ struct SidebarTitlebarChrome: View {
         HStack(spacing: 2) {
             if !collapse.isCollapsed {
                 paneActions
+                    // The tab bar wraps the pane change in `withAnimation`,
+                    // and that animation reached in here too: switching
+                    // panels animated the whole row, sliding every button
+                    // back into place from the left. Which buttons apply is
+                    // a toggle, not a movement.
+                    .transaction { $0.animation = nil }
             }
 
             SidebarChromeButton(
@@ -280,10 +286,15 @@ struct SidebarTitlebarChrome: View {
     /// The buttons here belong to whichever panel is showing — creating a
     /// terminal makes no sense while browsing files, and refreshing a tree
     /// makes none while looking at terminals.
+    ///
+    /// One `if`/`else` rather than a `switch` over the three panes, so that
+    /// what the panels have in common stays put. Refresh is the same button
+    /// in Files and in Git; under a `switch` it lived in a different branch
+    /// in each, which made SwiftUI tear it down and build a new one just
+    /// for moving between two panels that both show it.
     @ViewBuilder
     private var paneActions: some View {
-        switch visiblePane {
-        case .terminals:
+        if visiblePane == .terminals {
             SidebarChromeButton(icon: "plus", help: "New Terminal") {
                 layout.onNewTab()
             }
@@ -298,15 +309,13 @@ struct SidebarTitlebarChrome: View {
             .sheet(isPresented: $isCreatingGroup) {
                 SidebarGroupEditor(group: nil, store: store)
             }
-
-        case .files:
+        } else {
             SidebarChromeButton(icon: "arrow.clockwise", help: "Refresh") {
-                FileExplorerRefresh.shared.request()
-            }
-
-        case .git:
-            SidebarChromeButton(icon: "arrow.clockwise", help: "Refresh") {
-                GitPanelRefresh.shared.request()
+                switch visiblePane {
+                case .files: FileExplorerRefresh.shared.request()
+                case .git: GitPanelRefresh.shared.request()
+                case .terminals: break
+                }
             }
         }
     }
@@ -376,6 +385,15 @@ enum SidebarIconChipMetrics {
     static let width: CGFloat = 24
     static let height: CGFloat = 22
     static let cornerRadius: CGFloat = 5
+
+    /// Breathing room between a chip and the edge of the row it sits in.
+    /// A row exactly as tall as its chip puts the highlight flush against
+    /// the row's own background, which reads as a rendering seam rather
+    /// than a button.
+    static let rowInset: CGFloat = 3
+
+    /// The height a list row needs for its chips to sit inside it.
+    static var rowHeight: CGFloat { height + rowInset * 2 }
 }
 
 private struct SidebarIconChip: ViewModifier {
@@ -426,6 +444,11 @@ struct SidebarIconMenu<Content: View>: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        // Pinned again on the outside: `fixedSize` hands the menu its own
+        // intrinsic height, which is shorter than the label's frame, so
+        // without this the highlight came out squatter than every other
+        // chip in the same row.
+        .frame(width: SidebarIconChipMetrics.width, height: SidebarIconChipMetrics.height)
         .sidebarIconChipHighlight(isHovered)
         .onHover { isHovered = $0 }
         .help(help)
@@ -796,6 +819,25 @@ private struct GroupPRListView: View {
         }
     }
 
+    /// Content taller than this scrolls instead of growing. A workspace
+    /// with a few busy repos produces a list longer than the screen, and a
+    /// popover that tall is both ugly and unusable — it covers the window
+    /// it belongs to and runs off the bottom.
+    ///
+    /// The 60% budget is for the *popover*, so the title, the padding and
+    /// the popover's own arrow come out of it instead of being added on
+    /// top — capping only the list left the whole thing a little over.
+    private var maxListHeight: CGFloat {
+        let screen = NSScreen.main?.visibleFrame.height ?? 800
+        return max(200, screen * 0.6 - 72)
+    }
+
+    /// Measured so the popover is only as tall as it needs to be. A bare
+    /// `maxHeight` won't do: a `ScrollView` takes everything it is offered
+    /// along its scroll axis, so two pull requests would get the same
+    /// full-height popover as fifty.
+    @State private var contentHeight: CGFloat?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Pull Requests")
@@ -807,6 +849,33 @@ private struct GroupPRListView: View {
                     .foregroundStyle(.secondary)
             }
 
+            ScrollView {
+                repoSections
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: PRListHeightKey.self,
+                                value: proxy.size.height
+                            )
+                        }
+                    )
+            }
+            .scrollIndicators(.automatic)
+            .onPreferenceChange(PRListHeightKey.self) { height in
+                contentHeight = height
+            }
+            .frame(height: contentHeight.map { min($0, maxListHeight) })
+        }
+        .padding(14)
+        .frame(width: 340)
+        .onAppear {
+            roots = resolveRoots()
+            roots.forEach { gitCenter.requestPRList(root: $0) }
+        }
+    }
+
+    private var repoSections: some View {
+        VStack(alignment: .leading, spacing: 10) {
             ForEach(roots, id: \.self) { root in
                 VStack(alignment: .leading, spacing: 4) {
                     if roots.count > 1 {
@@ -844,12 +913,14 @@ private struct GroupPRListView: View {
                 }
             }
         }
-        .padding(14)
-        .frame(width: 340)
-        .onAppear {
-            roots = resolveRoots()
-            roots.forEach { gitCenter.requestPRList(root: $0) }
-        }
+    }
+}
+
+private struct PRListHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

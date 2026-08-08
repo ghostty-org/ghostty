@@ -20,9 +20,16 @@ struct GitPanelView: View {
     @State private var isAmending = false
     @State private var discarding: [GitFileChange] = []
     @State private var isCreatingBranch = false
+    @State private var isUndoingCommit = false
 
     private var selectedTab: SidebarTabModel? {
         tabManager.models.first { $0.isSelected }
+    }
+
+    private func surface(for tab: SidebarTabModel?) -> Ghostty.SurfaceView? {
+        guard let controller = tab?.window.windowController as? BaseTerminalController
+        else { return nil }
+        return controller.focusedSurface ?? controller.surfaceTree.root?.leftmostLeaf()
     }
 
     private var status: GitStatus? {
@@ -94,16 +101,38 @@ struct GitPanelView: View {
         } message: {
             Text(discardWarning)
         }
+        .alert("Undo the last commit?", isPresented: $isUndoingCommit) {
+            Button("Undo Commit") {
+                guard let root else { return }
+                center.undoLastCommit(in: root)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(undoWarning)
+        }
+    }
+
+    /// Not destructive — the changes come back staged — so this explains
+    /// rather than warns. The one thing worth flagging is a commit that is
+    /// already on the remote, where undoing locally puts the branch behind
+    /// what everyone else has.
+    private var undoWarning: String {
+        let subject = root.flatMap { center.lastCommits[$0] }
+        let named = subject.map { "“\($0)” will be undone" } ?? "The last commit will be undone"
+        let base = "\(named) and its changes put back as staged files."
+
+        guard let status, status.hasUpstream, status.ahead == 0 else { return base }
+        return base + "\n\nThis commit is already on the remote — undoing it here leaves your branch behind it."
     }
 
     // MARK: Header
 
     private var header: some View {
         HStack(spacing: 6) {
-            GitIcon(size: 11)
+            GitIcon(size: 12)
 
             Text(status?.branch ?? "—")
-                .font(palette.font(size: 11, weight: .semibold))
+                .font(palette.font(size: 12, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
 
@@ -132,9 +161,14 @@ struct GitPanelView: View {
             }
         }
         .foregroundStyle(.secondary)
+        // The row is sized from the chip metrics like the change rows are,
+        // so the menu's highlight has the same margin above and below it
+        // that theirs do.
+        .frame(height: SidebarIconChipMetrics.rowHeight)
         .padding(.leading, 10)
         .padding(.trailing, 6)
-        .padding(.vertical, 4)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
         .animation(.easeOut(duration: 0.15), value: busy)
     }
 
@@ -186,6 +220,10 @@ struct GitPanelView: View {
 
             Divider()
 
+            Button("Undo Last Commit…") { isUndoingCommit = true }
+
+            Divider()
+
             Button("Stash Changes") { center.stashPush(message: nil, in: root) }
                 .disabled(status.isClean)
             Button("Pop Stash") { center.stashPop(in: root) }
@@ -201,7 +239,7 @@ struct GitPanelView: View {
     // MARK: Commit
 
     private var commitBox: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             TextField(
                 "",
                 text: $message,
@@ -211,7 +249,8 @@ struct GitPanelView: View {
             .textFieldStyle(.plain)
             .lineLimit(1...4)
             .font(palette.font(size: 11))
-            .padding(6)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
             .background(
                 RoundedRectangle(cornerRadius: 5)
                     .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
@@ -223,7 +262,7 @@ struct GitPanelView: View {
                 Text(commitTitle)
                     .font(palette.font(size: 11, weight: .medium))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 5)
             }
             .buttonStyle(.borderedProminent)
             .tint(palette.accent ?? .accentColor)
@@ -432,6 +471,7 @@ struct GitPanelView: View {
         FileOpener.prompt(
             for: url,
             in: selectedTab?.window,
+            currentTerminal: surface(for: selectedTab),
             spawnTerminal: onSpawnTerminal
         )
     }
@@ -450,6 +490,7 @@ struct GitPanelView: View {
         center.requestStatus(root: next)
         center.requestBranches(root: next)
         center.requestStashes(root: next)
+        center.requestLastCommit(root: next)
     }
 }
 
@@ -534,7 +575,7 @@ private struct GitChangeRow: View {
                     .frame(width: Self.actionSize, height: Self.actionHeight)
             }
         }
-        .frame(height: Self.actionHeight)
+        .frame(height: SidebarIconChipMetrics.rowHeight)
         .padding(.horizontal, 6)
         .background(
             RoundedRectangle(cornerRadius: 4)
@@ -551,8 +592,8 @@ private struct GitChangeRow: View {
 
     /// Matches `SidebarIconButton`'s hit area exactly, so swapping the
     /// badge for the buttons on hover changes nothing about the layout.
-    private static let actionSize: CGFloat = 24
-    private static let actionHeight: CGFloat = 22
+    private static let actionSize = SidebarIconChipMetrics.width
+    private static let actionHeight = SidebarIconChipMetrics.height
 
     private func rowButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
         SidebarIconButton(help: help, action: action) {

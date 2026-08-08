@@ -28,6 +28,9 @@ final class GitCenter: ObservableObject {
     @Published private(set) var branches: [String: [String]] = [:]
     @Published private(set) var stashes: [String: [String]] = [:]
 
+    /// Subject of each repository's tip commit.
+    @Published private(set) var lastCommits: [String: String] = [:]
+
     /// The operation currently running, for a progress indicator. Only one
     /// at a time per panel — a commit and a push racing each other on the
     /// same repo is never what anyone wanted.
@@ -265,6 +268,40 @@ final class GitCenter: ObservableObject {
         perform("Pop Stash", in: root, arguments: ["stash", "pop"], timeout: GitCommand.mutateTimeout)
     }
 
+    /// Undoes the last commit, keeping its changes staged.
+    ///
+    /// `--soft` rather than `--mixed` or `--hard`: this exists for the
+    /// commit you made a moment too early, so the work should come back
+    /// exactly as it was — staged, ready to be amended into shape and
+    /// committed again. A `--hard` here would throw away the very thing
+    /// the user is trying to rescue.
+    func undoLastCommit(in root: String) {
+        perform(
+            "Undo Last Commit",
+            in: root,
+            arguments: ["reset", "--soft", "HEAD~1"],
+            timeout: GitCommand.mutateTimeout
+        )
+    }
+
+    /// Subject line of the tip commit, so the confirmation can name what
+    /// it is about to undo.
+    func requestLastCommit(root: String) {
+        Task.detached(priority: .userInitiated) {
+            let subject = Self.loadLastCommitSubject(root: root)
+            await MainActor.run { [weak self] in
+                self?.lastCommits[root] = subject
+            }
+        }
+    }
+
+    nonisolated private static func loadLastCommitSubject(root: String) -> String? {
+        let result = GitCommand.run(["log", "-1", "--pretty=%s"], in: root)
+        guard result.succeeded else { return nil }
+        let subject = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return subject.isEmpty ? nil : subject
+    }
+
     // MARK: Plumbing
 
     private func perform(
@@ -333,5 +370,6 @@ final class GitCenter: ObservableObject {
         requestStatus(root: root, force: true)
         requestBranches(root: root)
         requestStashes(root: root)
+        requestLastCommit(root: root)
     }
 }

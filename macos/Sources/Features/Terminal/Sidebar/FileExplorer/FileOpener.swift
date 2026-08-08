@@ -40,11 +40,12 @@ enum FileOpener {
     /// Asks what to do with `url`, then does it.
     ///
     /// `spawnTerminal` must create a *new* terminal and hand back its
-    /// surface — see `openInTerminal` for why nothing here ever reaches
-    /// for the selected one.
+    /// surface. `currentTerminal` is the selected one, offered only so the
+    /// reuse setting has something to reuse — see `openInTerminal`.
     static func prompt(
         for url: URL,
         in window: NSWindow?,
+        currentTerminal: Ghostty.SurfaceView? = nil,
         spawnTerminal: @escaping () -> Ghostty.SurfaceView?
     ) {
         let alert = NSAlert()
@@ -58,7 +59,7 @@ enum FileOpener {
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            openInTerminal(url, spawn: spawnTerminal)
+            openInTerminal(url, current: currentTerminal, spawn: spawnTerminal)
         case .alertSecondButtonReturn:
             openInApp(url, window: window)
         default:
@@ -71,16 +72,19 @@ enum FileOpener {
         return "Open in \(app.deletingPathExtension().lastPathComponent)"
     }
 
-    /// Opens `url` in a terminal of its own.
+    /// Opens `url` in a terminal.
     ///
-    /// Always a brand-new terminal, never the selected one. The panels
-    /// show the files of whichever terminal is selected, so the selected
-    /// terminal is exactly the one already likely to be busy — and typing
-    /// an editor command into a shell that is *already running an editor*
-    /// doesn't reach a shell at all, it reaches the editor. Opening a
-    /// second file used to do precisely that: the command landed inside
-    /// the first `vim`'s buffer. A terminal per file also keeps the
-    /// panels honest, since what they list follows the selected terminal.
+    /// Which terminal is a setting, but the *unsafe* case is never on the
+    /// table either way: the panels show the files of whichever terminal
+    /// is selected, so the selected terminal is exactly the one most
+    /// likely to be busy — and typing an editor command into a shell that
+    /// is already running an editor doesn't reach a shell at all, it
+    /// reaches the editor. Opening a second file used to do precisely
+    /// that, landing the command inside the first `vim`'s buffer.
+    ///
+    /// So reuse applies only to a terminal sitting at a prompt. That test
+    /// doubles as the "is the previous file closed" one: if it isn't, the
+    /// terminal isn't idle, and this opens a new one instead.
     ///
     /// The command text and the Enter go through two different APIs on
     /// purpose. `sendText` is documented upstream as being "treated like a
@@ -90,21 +94,37 @@ enum FileOpener {
     /// at the prompt looking correct and simply never runs, which is
     /// exactly what this did before being tested against a real shell.
     /// A key event isn't paste content, so it submits.
-    static func openInTerminal(_ url: URL, spawn: () -> Ghostty.SurfaceView?) {
-        guard let surface = spawn() else { return }
+    static func openInTerminal(
+        _ url: URL,
+        current: Ghostty.SurfaceView?,
+        spawn: () -> Ghostty.SurfaceView?
+    ) {
+        let reused = reusableTerminal(current)
+        guard let surface = reused ?? spawn() else { return }
         let command = terminalCommand(for: url)
 
-        // The shell here was just spawned, so — unlike the old path, which
-        // typed into a terminal that had been sitting at a prompt — the
-        // prompt isn't up yet and anything sent now is dropped.
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + shellStartupDelay
-        ) { [weak surface] in
+        // A terminal that was already at a prompt takes the command right
+        // away; a just-spawned shell has no prompt up yet and drops
+        // anything sent before it does.
+        let delay = reused == nil ? shellStartupDelay : 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak surface] in
             guard let model = surface?.surfaceModel else { return }
             model.sendText(command)
             model.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .press))
             model.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .release))
         }
+    }
+
+    /// The selected terminal, when the setting asks for reuse *and* it is
+    /// actually free to take a command.
+    private static func reusableTerminal(
+        _ current: Ghostty.SurfaceView?
+    ) -> Ghostty.SurfaceView? {
+        guard FileOpenTarget.current == .reuseIdleTerminal,
+              let current,
+              TerminalIdleCheck.isIdle(foregroundPID: current.surfaceModel?.foregroundPID)
+        else { return nil }
+        return current
     }
 
     /// `nonisolated` so the composition — which is where a quoting bug

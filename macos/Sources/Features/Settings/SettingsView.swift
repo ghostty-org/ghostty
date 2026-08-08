@@ -193,6 +193,8 @@ struct BehaviorsSettingsView: View {
     @AppStorage("SidebarRestoreAgentSessions") private var restoreAgentSessions = true
     @AppStorage("SidebarNewTabPosition") private var newTabPosition = "end"
     @AppStorage("AgentNotificationsEnabled") private var agentNotifications = true
+    @AppStorage(FileOpenTarget.defaultsKey)
+    private var fileOpenTarget = FileOpenTarget.alwaysNewTerminal.rawValue
 
     @State private var restoreWindows = true
 
@@ -226,6 +228,20 @@ struct BehaviorsSettingsView: View {
                     Text("Bottom of List").tag("end")
                     Text("Top of List").tag("start")
                 }
+            }
+
+            Section {
+                Picker("Opening a File", selection: $fileOpenTarget) {
+                    ForEach(FileOpenTarget.allCases) { target in
+                        Text(target.title).tag(target.rawValue)
+                    }
+                }
+            } header: {
+                Text("Panels")
+            } footer: {
+                Text("Reuse only applies to a terminal sitting at a prompt. One that's still running something — an editor from the last file, a dev server — always gets a new terminal instead, so a command can never land inside whatever is already open there.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

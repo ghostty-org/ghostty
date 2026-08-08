@@ -1440,7 +1440,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     @discardableResult
     private func newSidebarTab(
         in group: SidebarGroup?,
-        runningClaude: Bool = false
+        runningClaude: Bool = false,
+        inheritingPane: Bool = false
     ) -> Ghostty.SurfaceView? {
         guard let window else { return nil }
 
@@ -1457,6 +1458,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         let surface = controller.focusedSurface
             ?? controller.surfaceTree.root?.leftmostLeaf()
+
+        // A window normally starts on the terminal list — panels are
+        // somewhere you go on purpose, and a remembered one made the
+        // explorer seem to follow you between tabs. A terminal opened *by*
+        // a panel is the exception: it was created without being asked
+        // for, so throwing the user out of the panel they were working in
+        // is the surprise, not the continuity.
+        if inheritingPane, let pane = sidebarLayout?.selectedPane {
+            controller.sidebarLayout?.selectedPane = pane
+        }
 
         if runningClaude, let surface {
             ClaudeSession.run("claude", in: surface)
@@ -1483,7 +1494,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             pwd: selected?.pwd
         )
 
-        guard let surface = newSidebarTab(in: group) else { return nil }
+        guard let surface = newSidebarTab(in: group, inheritingPane: true)
+        else { return nil }
 
         // `newSidebarTab` only assigns a group; the position within it is
         // this method's whole point, so it is set here — and only when
