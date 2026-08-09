@@ -91,7 +91,7 @@ struct CodeTextView: NSViewRepresentable {
         gutter.translatesAutoresizingMaskIntoConstraints = false
         gutter.isHidden = !configuration.showsLineNumbers
 
-        let minimap = CodeMinimapView(theme: theme)
+        let minimap = CodeMinimapView(theme: theme, scrollView: scrollView)
         minimap.translatesAutoresizingMaskIntoConstraints = false
         minimap.isHidden = !showsMinimap
         minimap.onSelectLine = { [weak textView] line in

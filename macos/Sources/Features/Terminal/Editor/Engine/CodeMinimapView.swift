@@ -19,6 +19,14 @@ final class CodeMinimapView: NSView {
         didSet { needsDisplay = true }
     }
 
+    /// Top-left origin, like the text view it sits beside.
+    ///
+    /// `NSView` is bottom-left by default while `NSTextView` is flipped, so
+    /// without this the two disagree about which way `y` grows — and the
+    /// line numbers came out counting *down* the file, ending at 1 on the
+    /// last visible row.
+    override var isFlipped: Bool { true }
+
     private var rows: [Row] = []
     private var visibleLines: ClosedRange<Int>?
 
@@ -30,12 +38,49 @@ final class CodeMinimapView: NSView {
     /// line would otherwise squash every other line to nothing.
     private static let maxColumns = 120
 
-    /// Clicking jumps the text there.
+    /// Clicking or dragging jumps the text there.
     var onSelectLine: ((Int) -> Void)?
 
-    init(theme: CodeTheme) {
+    private weak var scrollView: NSScrollView?
+
+    init(theme: CodeTheme, scrollView: NSScrollView) {
         self.theme = theme
+        self.scrollView = scrollView
         super.init(frame: .zero)
+
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(scrolled),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    /// Recomputes which lines the viewport covers.
+    ///
+    /// Taken as a *fraction* of the document rather than by asking the
+    /// layout manager which fragments are on screen. The map lays its rows
+    /// out linearly, so a proportional reading is the one that agrees with
+    /// what is drawn — a fragment-accurate answer would put the box
+    /// somewhere the bars say is a different line.
+    @objc private func scrolled() {
+        guard let scrollView, !rows.isEmpty else { return }
+        let documentHeight = scrollView.documentView?.frame.height ?? 0
+        guard documentHeight > 0 else { return }
+
+        let visible = scrollView.contentView.bounds
+        let total = CGFloat(rows.count)
+        let first = Int((visible.minY / documentHeight) * total) + 1
+        let count = max(1, Int((visible.height / documentHeight) * total))
+
+        let lower = max(1, min(first, rows.count))
+        let upper = max(lower, min(lower + count - 1, rows.count))
+        setVisibleLines(lower...upper)
     }
 
     @available(*, unavailable)
@@ -46,6 +91,11 @@ final class CodeMinimapView: NSView {
     func setRows(_ rows: [Row]) {
         guard rows != self.rows else { return }
         self.rows = rows
+        // Recomputed here as well as on scroll: opening a file produces no
+        // scroll event, so the box would only appear once the reader moved
+        // — which is exactly when they no longer need telling where they
+        // are.
+        scrolled()
         needsDisplay = true
     }
 
@@ -99,18 +149,22 @@ final class CodeMinimapView: NSView {
         guard !rows.isEmpty else { return }
 
         let scale = min(1, bounds.width / CGFloat(Self.maxColumns))
-        let totalHeight = CGFloat(rows.count) * Self.rowHeight
-        // Compressed to fit when the file is longer than the map is tall,
-        // so the whole document is always represented.
-        let rowHeight = totalHeight > bounds.height
-            ? bounds.height / CGFloat(rows.count)
-            : Self.rowHeight
+        let rowHeight = self.rowHeight
 
         if let visibleLines {
             let top = CGFloat(visibleLines.lowerBound - 1) * rowHeight
-            let height = CGFloat(visibleLines.count) * rowHeight
-            theme.foreground.withAlphaComponent(0.10).setFill()
-            NSRect(x: 0, y: top, width: bounds.width, height: height).fill()
+            let height = max(CGFloat(visibleLines.count) * rowHeight, 8)
+            let box = NSRect(x: 0, y: top, width: bounds.width, height: height)
+
+            // Strong enough to find at a glance, light enough that the
+            // bars underneath still read — it marks where you are, it is
+            // not a selection.
+            theme.foreground.withAlphaComponent(0.16).setFill()
+            box.fill()
+            theme.foreground.withAlphaComponent(0.38).setStroke()
+            let outline = NSBezierPath(rect: box.insetBy(dx: 0.5, dy: 0.5))
+            outline.lineWidth = 1
+            outline.stroke()
         }
 
         for (index, row) in rows.enumerated() where row.length > 0 {
@@ -124,15 +178,29 @@ final class CodeMinimapView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        jump(to: event)
+    }
+
+    /// Dragging scrubs continuously, which is the interaction people
+    /// actually use a minimap for — clicking once is the degenerate case
+    /// of it, not the point.
+    override func mouseDragged(with event: NSEvent) {
+        jump(to: event)
+    }
+
+    private func jump(to event: NSEvent) {
         guard !rows.isEmpty else { return }
         let point = convert(event.locationInWindow, from: nil)
-
-        let totalHeight = CGFloat(rows.count) * Self.rowHeight
-        let rowHeight = totalHeight > bounds.height
-            ? bounds.height / CGFloat(rows.count)
-            : Self.rowHeight
-
         let line = Int(point.y / rowHeight) + 1
         onSelectLine?(max(1, min(line, rows.count)))
+    }
+
+    /// The height one line occupies, compressed when the document is
+    /// longer than the map is tall so the whole file is always represented.
+    private var rowHeight: CGFloat {
+        let natural = CGFloat(rows.count) * Self.rowHeight
+        return natural > bounds.height && !rows.isEmpty
+            ? bounds.height / CGFloat(rows.count)
+            : Self.rowHeight
     }
 }
