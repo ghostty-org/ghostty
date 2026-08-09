@@ -1387,14 +1387,26 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // content stops below the titlebar and paints nothing up there, so
         // this fills exactly that band — one coat on each half, and nothing
         // at all under glass, where the material shows through instead.
+        // The right side holds the terminal and the editor stacked, and
+        // shows one of them. Hiding rather than replacing is deliberate:
+        // the shell and its scrollback have to survive opening a file and
+        // closing it again, so the terminal view is never torn down.
+        let rightPane = NSView()
+        rightPane.translatesAutoresizingMaskIntoConstraints = false
+
         let titlebarFiller = NSView()
         titlebarFiller.translatesAutoresizingMaskIntoConstraints = false
         titlebarFiller.wantsLayer = true
-        terminalContainer.addSubview(titlebarFiller, positioned: .below, relativeTo: nil)
+        // A sibling of the terminal rather than its child. As a child it
+        // disappeared the moment the terminal was hidden for the editor,
+        // and the titlebar band went back to showing the bare window —
+        // the strip is the *window's*, not the terminal's, and has to be
+        // painted whichever half is on screen.
+        rightPane.addSubview(titlebarFiller, positioned: .below, relativeTo: nil)
         NSLayoutConstraint.activate([
-            titlebarFiller.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
-            titlebarFiller.leadingAnchor.constraint(equalTo: terminalContainer.leadingAnchor),
-            titlebarFiller.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
+            titlebarFiller.topAnchor.constraint(equalTo: rightPane.topAnchor),
+            titlebarFiller.leadingAnchor.constraint(equalTo: rightPane.leadingAnchor),
+            titlebarFiller.trailingAnchor.constraint(equalTo: rightPane.trailingAnchor),
             // Meets the terminal's content exactly. It cannot do better than
             // that: overlapping paints that row twice and reads as a dark
             // line, and falling short leaves the window showing through as a
@@ -1407,12 +1419,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         ])
         self.terminalTitlebarFiller = titlebarFiller
 
-        // The right side holds the terminal and the editor stacked, and
-        // shows one of them. Hiding rather than replacing is deliberate:
-        // the shell and its scrollback have to survive opening a file and
-        // closing it again, so the terminal view is never torn down.
-        let rightPane = NSView()
-        rightPane.translatesAutoresizingMaskIntoConstraints = false
         rightPane.addSubview(terminalContainer)
         self.terminalPaneView = terminalContainer
 

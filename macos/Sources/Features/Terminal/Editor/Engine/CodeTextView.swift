@@ -47,7 +47,7 @@ struct CodeTextView: NSViewRepresentable {
         )
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> NSView {
         let textView = CodeNSTextView()
         textView.delegate = context.coordinator
         textView.allowsUndo = true
@@ -75,14 +75,42 @@ struct CodeTextView: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.documentView = textView
 
-        let gutter = CodeLineNumberView(
+        // Gutter and text sit side by side in a container, rather than the
+        // gutter being a ruler inside the scroll view. Separate areas can't
+        // overlap, so nothing has to police where the numbers land.
+        let gutter = CodeGutterView(
             textView: textView,
+            scrollView: scrollView,
             theme: theme,
             font: configuration.font
         )
-        scrollView.verticalRulerView = gutter
-        scrollView.hasVerticalRuler = true
-        scrollView.rulersVisible = configuration.showsLineNumbers
+        gutter.translatesAutoresizingMaskIntoConstraints = false
+        gutter.isHidden = !configuration.showsLineNumbers
+
+        let container = NSView()
+        container.addSubview(gutter)
+        container.addSubview(scrollView)
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        let gutterWidth = gutter.widthAnchor.constraint(
+            equalToConstant: configuration.showsLineNumbers ? gutter.preferredWidth : 0
+        )
+        gutter.onWidthChange = { width in
+            gutterWidth.constant = gutter.isHidden ? 0 : width
+        }
+
+        NSLayoutConstraint.activate([
+            gutter.topAnchor.constraint(equalTo: container.topAnchor),
+            gutter.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            gutter.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            gutterWidth,
+            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: gutter.trailingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        ])
+
+        context.coordinator.gutterWidth = gutterWidth
 
         textView.onSave = onSave
         textView.onSaveAll = onSaveAll
@@ -93,11 +121,13 @@ struct CodeTextView: NSViewRepresentable {
         context.coordinator.apply(text: text)
         context.coordinator.applyAppearance(theme: theme, configuration: configuration)
 
-        return scrollView
+        return container
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = context.coordinator.textView else { return }
+    func updateNSView(_ container: NSView, context: Context) {
+        guard let textView = context.coordinator.textView,
+              let scrollView = textView.enclosingScrollView
+        else { return }
 
         // Refreshed every update: the closures capture the document that
         // was selected when the view was made, and the selection moves.
@@ -109,7 +139,6 @@ struct CodeTextView: NSViewRepresentable {
 
         context.coordinator.storage.setLanguage(language)
         context.coordinator.applyAppearance(theme: theme, configuration: configuration)
-        scrollView.rulersVisible = configuration.showsLineNumbers
         scrollView.hasHorizontalScroller = !configuration.wrapsLines
 
         // Only when it actually differs — writing the same string back
@@ -125,7 +154,8 @@ struct CodeTextView: NSViewRepresentable {
         let storage: CodeTextStorage
         let onEdit: () -> Void
         weak var textView: NSTextView?
-        weak var gutter: CodeLineNumberView?
+        weak var gutter: CodeGutterView?
+        var gutterWidth: NSLayoutConstraint?
 
         /// Set while the host is writing text in, so the delegate can tell
         /// a programmatic load from something the user typed.
@@ -143,7 +173,7 @@ struct CodeTextView: NSViewRepresentable {
 
             textStorage.setAttributedString(NSAttributedString(string: text))
             storage.highlight(textStorage, in: NSRange(location: 0, length: textStorage.length))
-            gutter?.reloadLineNumbers()
+            gutter?.reload()
 
             // Put the view back at the start of the document.
             //
@@ -154,11 +184,27 @@ struct CodeTextView: NSViewRepresentable {
             // left edge of every one of them cut off. It reads as a
             // rendering fault rather than a scroll position.
             textView.setSelectedRange(NSRange(location: 0, length: 0))
-            textView.scroll(.zero)
-            if let scrollView = textView.enclosingScrollView {
-                scrollView.contentView.scroll(to: .zero)
-                scrollView.reflectScrolledClipView(scrollView.contentView)
+            scrollToOrigin()
+
+            // And again once layout has settled.
+            //
+            // The first call runs while the view still has no real frame —
+            // a scroll view with zero bounds has nowhere to scroll *to*,
+            // so the request is silently a no-op, and the position AppKit
+            // arrives at after laying out is whatever it had before. Doing
+            // it on the next turn is what actually moves it, and doing it
+            // twice costs nothing when the first one already worked.
+            DispatchQueue.main.async { [weak self] in
+                self?.scrollToOrigin()
             }
+        }
+
+        /// Puts the text back at its top-left corner.
+        private func scrollToOrigin() {
+            guard let textView, let scrollView = textView.enclosingScrollView else { return }
+            scrollView.contentView.scroll(to: .zero)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            gutter?.needsDisplay = true
         }
 
         func applyAppearance(theme: CodeTheme, configuration: CodeEditorConfiguration) {
@@ -186,6 +232,10 @@ struct CodeTextView: NSViewRepresentable {
 
             gutter?.theme = theme
             gutter?.font = configuration.font
+            gutter?.isHidden = !configuration.showsLineNumbers
+            gutterWidth?.constant = configuration.showsLineNumbers
+                ? (gutter?.preferredWidth ?? 0)
+                : 0
 
             if let textStorage = textView.textStorage {
                 storage.highlight(
@@ -209,7 +259,7 @@ struct CodeTextView: NSViewRepresentable {
                     in: textStorage.string as NSString
                 )
             )
-            gutter?.reloadLineNumbers()
+            gutter?.reload()
             onEdit()
         }
     }
