@@ -103,6 +103,9 @@ struct SidebarSettingsView: View {
 
     @State private var sidebarEnabled: Bool = false
 
+    @AppStorage("SidebarShowFilesPane") private var showFilesPane = true
+    @AppStorage("SidebarShowGitPane") private var showGitPane = true
+
     @AppStorage("SidebarShowDirectory") private var showDirectory = true
     @AppStorage("SidebarShowGitBranch") private var showGitBranch = true
     @AppStorage("SidebarShowGitStatus") private var showGitStatus = true
@@ -126,6 +129,19 @@ struct SidebarSettingsView: View {
 
             } footer: {
                 Text("The sidebar toggle applies to new windows. Sidebar style (background, width, tab item look) lives in Appearance.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("File Explorer", isOn: $showFilesPane)
+                    .toggleStyle(.switch)
+                Toggle("Git", isOn: $showGitPane)
+                    .toggleStyle(.switch)
+            } header: {
+                Text("Panels")
+            } footer: {
+                Text("Terminals is always available. With everything else off there is nothing to switch between, so the tabs disappear and the sidebar is just the terminal list.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -177,6 +193,8 @@ struct BehaviorsSettingsView: View {
     @AppStorage("SidebarRestoreAgentSessions") private var restoreAgentSessions = true
     @AppStorage("SidebarNewTabPosition") private var newTabPosition = "end"
     @AppStorage("AgentNotificationsEnabled") private var agentNotifications = true
+    @AppStorage(FileOpenTarget.defaultsKey)
+    private var fileOpenTarget = FileOpenTarget.alwaysNewTerminal.rawValue
 
     @State private var restoreWindows = true
 
@@ -210,6 +228,20 @@ struct BehaviorsSettingsView: View {
                     Text("Bottom of List").tag("end")
                     Text("Top of List").tag("start")
                 }
+            }
+
+            Section {
+                Picker("Opening a File", selection: $fileOpenTarget) {
+                    ForEach(FileOpenTarget.allCases) { target in
+                        Text(target.title).tag(target.rawValue)
+                    }
+                }
+            } header: {
+                Text("Panels")
+            } footer: {
+                Text("Reuse only applies to a terminal sitting at a prompt. One that's still running something — an editor from the last file, a dev server — always gets a new terminal instead, so a command can never land inside whatever is already open there.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

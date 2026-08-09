@@ -134,4 +134,53 @@ struct FileExplorerTests {
     @Test func embeddedSingleQuotesAreEscaped() {
         #expect(FileOpener.shellQuoted("/tmp/it's.txt") == "'/tmp/it'\\''s.txt'")
     }
+
+    // MARK: Terminal command
+
+    /// The editor is left as a shell expression rather than resolved here:
+    /// `$EDITOR` comes from the user's shell config, which a GUI app does
+    /// not inherit, so only the shell can honour it.
+    @Test func terminalCommandKeepsTheEditorExpressionUnresolved() {
+        UserDefaults.standard.removeObject(forKey: FileOpener.editorKey)
+        let command = FileOpener.terminalCommand(for: URL(fileURLWithPath: "/tmp/a.txt"))
+        #expect(command == "\(FileOpener.defaultEditor) '/tmp/a.txt'")
+    }
+
+    @Test func terminalCommandQuotesTheArgument() {
+        UserDefaults.standard.removeObject(forKey: FileOpener.editorKey)
+        let command = FileOpener.terminalCommand(for: URL(fileURLWithPath: "/tmp/two words.txt"))
+        #expect(command.hasSuffix(" 'two words.txt'") || command.hasSuffix("'/tmp/two words.txt'"))
+    }
+
+    // MARK: Tab naming
+
+    /// The name and extension, never the path. A path deep enough to be
+    /// worth reading doesn't fit a 240pt sidebar column, so including it
+    /// would truncate away the one part that tells the tabs apart.
+    @Test func aTabIsNamedAfterTheFileAlone() {
+        let url = URL(fileURLWithPath:
+            "/Users/x/Projects/Aurora/aurora-backend/src/main/kotlin/DevAuthz.class")
+        #expect(FileOpener.tabName(for: url) == "DevAuthz.class")
+    }
+
+    @Test func theExtensionIsKept() {
+        #expect(FileOpener.tabName(for: URL(fileURLWithPath: "/a/b/main.vue")) == "main.vue")
+        #expect(FileOpener.tabName(for: URL(fileURLWithPath: "/a/b/.gitignore")) == ".gitignore")
+        #expect(FileOpener.tabName(for: URL(fileURLWithPath: "/a/b/Makefile")) == "Makefile")
+    }
+
+    /// Two files with the same name in different folders produce the same
+    /// tab name. That is the accepted cost of dropping the path — worth
+    /// pinning down so it reads as a decision rather than an oversight.
+    @Test func sameNamedFilesInDifferentFoldersShareATabName() {
+        let a = FileOpener.tabName(for: URL(fileURLWithPath: "/one/index.ts"))
+        let b = FileOpener.tabName(for: URL(fileURLWithPath: "/two/index.ts"))
+        #expect(a == b)
+    }
+
+    /// A trailing slash makes `lastPathComponent` unhelpful; falling back
+    /// to the path keeps the tab from being renamed to nothing at all.
+    @Test func aPathWithNoNameFallsBackRatherThanBlanking() {
+        #expect(!FileOpener.tabName(for: URL(fileURLWithPath: "/")).isEmpty)
+    }
 }

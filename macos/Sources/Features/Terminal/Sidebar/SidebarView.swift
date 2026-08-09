@@ -68,6 +68,12 @@ struct SidebarView: View {
     /// Same as `onNewTabInGroup`, with a Claude session started in it.
     var onNewClaudeTabInGroup: (SidebarGroup?) -> Void = { _ in }
 
+    /// Opens a terminal directly beside the selected one — same group, or
+    /// ungrouped if that's where the selection lives — and hands back its
+    /// surface. The panels open every file in one of these; see
+    /// `FileOpener.openInTerminal`.
+    var onSpawnTerminalBesideSelection: () -> Ghostty.SurfaceView? = { nil }
+
     /// List animations are suspended while the sidebar first populates.
     private var listAnimation: Animation? {
         tabManager.animationsEnabled ? .snappy(duration: 0.22) : nil
@@ -110,15 +116,51 @@ struct SidebarView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// The panels the user has switched on. Read through `@AppStorage` so
+    /// the sidebar follows the setting live — `SidebarPane.isEnabled` goes
+    /// to `UserDefaults` directly, which SwiftUI has no way to observe.
+    @AppStorage("SidebarShowFilesPane") private var showFilesPane = true
+    @AppStorage("SidebarShowGitPane") private var showGitPane = true
+
+    private var enabledPanes: [SidebarPane] {
+        SidebarPane.allCases.filter { pane in
+            switch pane {
+            case .terminals: return true
+            case .files: return showFilesPane
+            case .git: return showGitPane
+            }
+        }
+    }
+
+    /// Falls back to terminals when the selected panel has been switched
+    /// off. Resolved here rather than by writing back to `selectedPane`,
+    /// because turning the last extra panel off also hides the tab bar —
+    /// and a correction that lives in the bar would never run, leaving the
+    /// sidebar stuck on a panel with no way back to the terminals.
+    private var visiblePane: SidebarPane {
+        enabledPanes.contains(layout.selectedPane) ? layout.selectedPane : .terminals
+    }
+
     private var expanded: some View {
         VStack(spacing: 0) {
-            SidebarPaneTabBar(selection: $layout.selectedPane)
+            if enabledPanes.count > 1 {
+                SidebarPaneTabBar(selection: $layout.selectedPane, panes: enabledPanes)
+            }
 
-            switch layout.selectedPane {
+            switch visiblePane {
             case .terminals:
                 terminalList
             case .files:
-                FileExplorerView(tabManager: tabManager, store: store)
+                FileExplorerView(
+                    tabManager: tabManager,
+                    store: store,
+                    onSpawnTerminal: onSpawnTerminalBesideSelection
+                )
+            case .git:
+                GitPanelView(
+                    tabManager: tabManager,
+                    onSpawnTerminal: onSpawnTerminalBesideSelection
+                )
             }
         }
     }
@@ -206,10 +248,29 @@ struct SidebarTitlebarChrome: View {
 
     @State private var isCreatingGroup = false
 
+    /// Mirrors `SidebarView`'s own fallback: a panel switched off in
+    /// settings must not leave its buttons behind in the titlebar.
+    @AppStorage("SidebarShowFilesPane") private var showFilesPane = true
+    @AppStorage("SidebarShowGitPane") private var showGitPane = true
+
+    private var visiblePane: SidebarPane {
+        switch layout.selectedPane {
+        case .files where !showFilesPane: return .terminals
+        case .git where !showGitPane: return .terminals
+        default: return layout.selectedPane
+        }
+    }
+
     var body: some View {
         HStack(spacing: 2) {
             if !collapse.isCollapsed {
                 paneActions
+                    // The tab bar wraps the pane change in `withAnimation`,
+                    // and that animation reached in here too: switching
+                    // panels animated the whole row, sliding every button
+                    // back into place from the left. Which buttons apply is
+                    // a toggle, not a movement.
+                    .transaction { $0.animation = nil }
             }
 
             SidebarChromeButton(
@@ -225,10 +286,15 @@ struct SidebarTitlebarChrome: View {
     /// The buttons here belong to whichever panel is showing — creating a
     /// terminal makes no sense while browsing files, and refreshing a tree
     /// makes none while looking at terminals.
+    ///
+    /// One `if`/`else` rather than a `switch` over the three panes, so that
+    /// what the panels have in common stays put. Refresh is the same button
+    /// in Files and in Git; under a `switch` it lived in a different branch
+    /// in each, which made SwiftUI tear it down and build a new one just
+    /// for moving between two panels that both show it.
     @ViewBuilder
     private var paneActions: some View {
-        switch layout.selectedPane {
-        case .terminals:
+        if visiblePane == .terminals {
             SidebarChromeButton(icon: "plus", help: "New Terminal") {
                 layout.onNewTab()
             }
@@ -243,10 +309,13 @@ struct SidebarTitlebarChrome: View {
             .sheet(isPresented: $isCreatingGroup) {
                 SidebarGroupEditor(group: nil, store: store)
             }
-
-        case .files:
+        } else {
             SidebarChromeButton(icon: "arrow.clockwise", help: "Refresh") {
-                FileExplorerRefresh.shared.request()
+                switch visiblePane {
+                case .files: FileExplorerRefresh.shared.request()
+                case .git: GitPanelRefresh.shared.request()
+                case .terminals: break
+                }
             }
         }
     }
@@ -256,23 +325,131 @@ struct SidebarTitlebarChrome: View {
 /// sidebar. Group headers and tab rows reuse this so their icons are as
 /// easy to hit as the chrome row's — undersized targets there meant a near
 /// miss landed on the row or header gesture behind the button instead.
-private struct SidebarIconButton<Label: View>: View {
+struct SidebarIconButton<Label: View>: View {
     let help: String
     let action: () -> Void
     @ViewBuilder let label: () -> Label
 
+    var body: some View {
+        Button(action: action) {
+            label().sidebarIconChip()
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+}
+
+extension View {
+    /// The hover treatment every icon control in the sidebar shares — one
+    /// hit area, one corner radius, one highlight. Kept as a modifier
+    /// rather than living only inside `SidebarIconButton` so the things
+    /// that can't be a `Button` still look and feel identical to the ones
+    /// that can.
+    ///
+    /// A `Menu` is the exception and must use `SidebarIconMenu` instead —
+    /// see there for why.
+    func sidebarIconChip() -> some View {
+        modifier(SidebarIconChip())
+    }
+}
+
+/// "How many of these are there" — terminals in a group, changed files in
+/// a section, commits waiting to be pushed. One capsule for all of them so
+/// a count always looks like a count, instead of each panel inventing its
+/// own treatment.
+struct SidebarCountBadge: View {
+    let count: Int
+
+    /// Drawn before the number, for counts that need to say *which* kind.
+    var symbol: String?
+
+    @ObservedObject private var palette: ThemePalette = .shared
+
+    var body: some View {
+        HStack(spacing: 2) {
+            if let symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            Text(verbatim: "\(count)")
+                .font(palette.font(size: 10, weight: .medium))
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 1)
+        .background(Capsule().fill(.quaternary))
+    }
+}
+
+enum SidebarIconChipMetrics {
+    static let width: CGFloat = 24
+    static let height: CGFloat = 22
+    static let cornerRadius: CGFloat = 5
+
+    /// Breathing room between a chip and the edge of the row it sits in.
+    /// A row exactly as tall as its chip puts the highlight flush against
+    /// the row's own background, which reads as a rendering seam rather
+    /// than a button.
+    static let rowInset: CGFloat = 3
+
+    /// The height a list row needs for its chips to sit inside it.
+    static var rowHeight: CGFloat { height + rowInset * 2 }
+}
+
+private struct SidebarIconChip: ViewModifier {
+    @State private var isHovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .frame(width: SidebarIconChipMetrics.width, height: SidebarIconChipMetrics.height)
+            .contentShape(Rectangle())
+            .sidebarIconChipHighlight(isHovered)
+            .onHover { isHovered = $0 }
+    }
+}
+
+extension View {
+    fileprivate func sidebarIconChipHighlight(_ isHovered: Bool) -> some View {
+        background(
+            RoundedRectangle(cornerRadius: SidebarIconChipMetrics.cornerRadius)
+                .fill(isHovered ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
+        )
+    }
+}
+
+/// A panel's overflow menu, wearing the same chip as the icon buttons
+/// beside it.
+///
+/// The chip can't ride on the menu's *label* the way it does on a button's:
+/// `Menu` lays its own tracking area over the label to drive highlighting
+/// and menu opening, so an `.onHover` attached in there never fires and the
+/// highlight simply never appears — which is exactly how the panel headers
+/// ended up as the one control in the sidebar with no hover. Observing the
+/// hover on the wrapper and drawing the highlight behind the menu gets the
+/// same look without fighting for the same events.
+struct SidebarIconMenu<Content: View>: View {
+    let help: String
+    var icon: String = "ellipsis"
+    @ViewBuilder let content: () -> Content
+
     @State private var isHovered = false
 
     var body: some View {
-        Button(action: action) {
-            label()
-                .frame(width: 24, height: 22)
-                .background(
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(isHovered ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
-                )
+        Menu(content: content) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: SidebarIconChipMetrics.width, height: SidebarIconChipMetrics.height)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        // Pinned again on the outside: `fixedSize` hands the menu its own
+        // intrinsic height, which is shorter than the label's frame, so
+        // without this the highlight came out squatter than every other
+        // chip in the same row.
+        .frame(width: SidebarIconChipMetrics.width, height: SidebarIconChipMetrics.height)
+        .sidebarIconChipHighlight(isHovered)
         .onHover { isHovered = $0 }
         .help(help)
     }
@@ -408,8 +585,7 @@ private struct SidebarGroupSection: View {
                 SidebarIconButton(help: "Pull Requests in Group") {
                     isShowingPRs = true
                 } label: {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 11, weight: .medium))
+                    GitIcon(size: 11)
                         .foregroundStyle(.secondary)
                 }
                 .opacity(isHeaderHovered ? 1 : 0)
@@ -445,12 +621,7 @@ private struct SidebarGroupSection: View {
             }
 
             if showCount {
-                Text(verbatim: "\(tabs.count)")
-                    .font(palette.font(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(.quaternary))
+                SidebarCountBadge(count: tabs.count)
             }
         }
         .padding(.horizontal, 8)
@@ -648,6 +819,25 @@ private struct GroupPRListView: View {
         }
     }
 
+    /// Content taller than this scrolls instead of growing. A workspace
+    /// with a few busy repos produces a list longer than the screen, and a
+    /// popover that tall is both ugly and unusable — it covers the window
+    /// it belongs to and runs off the bottom.
+    ///
+    /// The 60% budget is for the *popover*, so the title, the padding and
+    /// the popover's own arrow come out of it instead of being added on
+    /// top — capping only the list left the whole thing a little over.
+    private var maxListHeight: CGFloat {
+        let screen = NSScreen.main?.visibleFrame.height ?? 800
+        return max(200, screen * 0.6 - 72)
+    }
+
+    /// Measured so the popover is only as tall as it needs to be. A bare
+    /// `maxHeight` won't do: a `ScrollView` takes everything it is offered
+    /// along its scroll axis, so two pull requests would get the same
+    /// full-height popover as fifty.
+    @State private var contentHeight: CGFloat?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Pull Requests")
@@ -659,6 +849,33 @@ private struct GroupPRListView: View {
                     .foregroundStyle(.secondary)
             }
 
+            ScrollView {
+                repoSections
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: PRListHeightKey.self,
+                                value: proxy.size.height
+                            )
+                        }
+                    )
+            }
+            .scrollIndicators(.automatic)
+            .onPreferenceChange(PRListHeightKey.self) { height in
+                contentHeight = height
+            }
+            .frame(height: contentHeight.map { min($0, maxListHeight) })
+        }
+        .padding(14)
+        .frame(width: 340)
+        .onAppear {
+            roots = resolveRoots()
+            roots.forEach { gitCenter.requestPRList(root: $0) }
+        }
+    }
+
+    private var repoSections: some View {
+        VStack(alignment: .leading, spacing: 10) {
             ForEach(roots, id: \.self) { root in
                 VStack(alignment: .leading, spacing: 4) {
                     if roots.count > 1 {
@@ -696,12 +913,14 @@ private struct GroupPRListView: View {
                 }
             }
         }
-        .padding(14)
-        .frame(width: 340)
-        .onAppear {
-            roots = resolveRoots()
-            roots.forEach { gitCenter.requestPRList(root: $0) }
-        }
+    }
+}
+
+private struct PRListHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
@@ -824,6 +1043,10 @@ private struct SidebarTabRow: View {
     @ObservedObject var dragState: SidebarDragState
     @ObservedObject private var themePalette: ThemePalette = .shared
 
+    /// Observed so a tab's file icon follows a theme change live, the same
+    /// as the explorer's and the Git panel's.
+    @ObservedObject private var icons: FileIconProvider = .shared
+
     @State private var isHovered = false
     @State private var isCreatingGroup = false
     @State private var isCustomizing = false
@@ -851,11 +1074,31 @@ private struct SidebarTabRow: View {
         return tab.title.isEmpty ? "Terminal" : tab.title
     }
 
+    /// The program holding a file open, for the tabs that were opened for
+    /// one.
+    ///
+    /// Read from the terminal's foreground process rather than from the
+    /// editor we asked for. `$EDITOR` is resolved by the user's shell, so
+    /// the command sent was `${EDITOR:-vim}` and only the shell knows what
+    /// that became — and this way the chip is right for a `nano` opened by
+    /// hand, and goes away by itself the moment the editor is quit.
+    private var editorName: String? {
+        guard let file = override?.fileName, !file.isEmpty else { return nil }
+        guard let name = tab.foregroundName, !TerminalIdleCheck.isShell(name) else { return nil }
+        return name
+    }
+
     var body: some View {
         HStack(spacing: 6) {
+            // A tab opened for a file wears that file's icon, from whichever
+            // icon theme is active — the same artwork the explorer and the
+            // Git panel show it with, so the three read as one thing. A hand
+            // -picked icon still wins: it was chosen on purpose.
             if let icon = override?.icon, !icon.isEmpty {
                 SidebarGroupIcon(icon: icon, size: 13)
                     .foregroundStyle(.secondary)
+            } else if let file = override?.fileName, !file.isEmpty {
+                FileIconView(icon: icons.icon(forFile: file), size: 14)
             }
 
             if let accent = override?.accentColor {
@@ -873,13 +1116,17 @@ private struct SidebarTabRow: View {
                     .lineLimit(1)
 
                 HStack(spacing: 4) {
+                    if let editor = editorName {
+                        metaChip(icon: "square.and.pencil", text: editor)
+                    }
+
                     if showDirectory, let dir = tab.directoryName {
                         metaChip(text: dir)
                     }
 
                     if showGitBranch, let branch = tab.gitBranch {
                         metaChip(
-                            icon: "arrow.triangle.branch",
+                            gitIcon: true,
                             text: branch,
                             dirty: showGitStatus && tab.isDirty == true
                         )
@@ -1013,12 +1260,20 @@ private struct SidebarTabRow: View {
     private var chipLineHeight: CGFloat { 11 }
 
     /// A small rounded tag for row metadata (directory, git branch).
-    private func metaChip(icon: String? = nil, text: String, dirty: Bool = false) -> some View {
+    private func metaChip(
+        icon: String? = nil,
+        gitIcon: Bool = false,
+        text: String,
+        dirty: Bool = false
+    ) -> some View {
         // Every element is centered in one fixed-height line box: the symbol's
         // layout box is taller than the text's, so letting each size itself
         // pushes the label and the dirty dot visibly below the icon.
         HStack(alignment: .center, spacing: 3) {
-            if let icon {
+            if gitIcon {
+                GitIcon(size: 8)
+                    .frame(height: chipLineHeight)
+            } else if let icon {
                 Image(systemName: icon)
                     .font(.system(size: 8))
                     .frame(height: chipLineHeight)

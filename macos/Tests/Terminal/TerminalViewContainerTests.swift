@@ -61,12 +61,48 @@ struct TerminalViewContainerTests {
         }
     }
 
+    /// `ghosttyConfigDidChange` records the new config synchronously but
+    /// defers the actual `configure` call to the next main-queue turn, so
+    /// reading the effect view straight after it races that turn. Blocks
+    /// already queued run first, so a round trip through the same queue is
+    /// enough to see the result — and unlike a sleep, it can't be too
+    /// short on a loaded machine.
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
 #if compiler(>=6.2)
     @Test func configChangeUpdatesGlass() async throws {
         guard #available(macOS 26.0, *) else { return }
         let view = await MockTerminalViewContainer {
             EmptyView()
         }
+
+        // Installed as the window's content view, which is what makes the
+        // corner-radius assertions below meaningful: a container that is a
+        // *pane* (anything that isn't the content view) gets square glass
+        // on purpose, because a rounded corner mid-window shows as a notch
+        // against the split divider. Detached, this mock reads as a pane
+        // and its radius is pinned to 0.
+        //
+        // The window is held in a local for the rest of the test on
+        // purpose — a window is not retained by its content view, so
+        // letting it go out of scope deallocates it and quietly puts the
+        // view back to having no window at all.
+        let window = await MainActor.run {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                styleMask: [.titled],
+                backing: .buffered,
+                defer: true
+            )
+            window.contentView = view
+            return window
+        }
+        defer { _ = window }
+
         let config1 = MockConfig(backgroundBlur: .macosGlassRegular, backgroundColor: .clear, backgroundOpacity: 1)
         await view.ghosttyConfigDidChange(config1, preferredBackgroundColor: nil)
         let glassEffectView = await view.descendants(withClassName: "NSGlassEffectView").first as? NSGlassEffectView
@@ -87,6 +123,7 @@ struct TerminalViewContainerTests {
         #expect(effectView.cornerRadius == 0)
 
         await view.ghosttyConfigDidChange(config1, preferredBackgroundColor: .red)
+        await drainMainQueue()
         #expect(effectView.cornerRadius == 10)
 
         // MARK: - Glass Style

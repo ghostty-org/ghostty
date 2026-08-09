@@ -21,7 +21,7 @@ enum FileOpener {
     /// it only has to be picked once.
     static let preferredAppKey = "FileExplorerPreferredApp"
 
-    static var editorCommand: String {
+    nonisolated static var editorCommand: String {
         let stored = UserDefaults.standard.string(forKey: editorKey) ?? ""
         return stored.isEmpty ? defaultEditor : stored
     }
@@ -33,8 +33,21 @@ enum FileOpener {
         return URL(fileURLWithPath: path)
     }
 
+    /// How long to give a freshly spawned shell before typing into it.
+    /// Text sent before the prompt is ready is swallowed.
+    private static let shellStartupDelay: TimeInterval = 1.2
+
     /// Asks what to do with `url`, then does it.
-    static func prompt(for url: URL, in window: NSWindow?, surfaceProvider: () -> Ghostty.SurfaceView?) {
+    ///
+    /// `spawnTerminal` must create a *new* terminal and hand back its
+    /// surface. `currentTerminal` is the selected one, offered only so the
+    /// reuse setting has something to reuse — see `openInTerminal`.
+    static func prompt(
+        for url: URL,
+        in window: NSWindow?,
+        currentTerminal: Ghostty.SurfaceView? = nil,
+        spawnTerminal: @escaping () -> Ghostty.SurfaceView?
+    ) {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = url.lastPathComponent
@@ -46,7 +59,7 @@ enum FileOpener {
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            openInTerminal(url, surface: surfaceProvider())
+            openInTerminal(url, current: currentTerminal, spawn: spawnTerminal)
         case .alertSecondButtonReturn:
             openInApp(url, window: window)
         default:
@@ -59,8 +72,19 @@ enum FileOpener {
         return "Open in \(app.deletingPathExtension().lastPathComponent)"
     }
 
-    /// Types the editor command into the terminal this explorer belongs to
-    /// and runs it.
+    /// Opens `url` in a terminal.
+    ///
+    /// Which terminal is a setting, but the *unsafe* case is never on the
+    /// table either way: the panels show the files of whichever terminal
+    /// is selected, so the selected terminal is exactly the one most
+    /// likely to be busy — and typing an editor command into a shell that
+    /// is already running an editor doesn't reach a shell at all, it
+    /// reaches the editor. Opening a second file used to do precisely
+    /// that, landing the command inside the first `vim`'s buffer.
+    ///
+    /// So reuse applies only to a terminal sitting at a prompt. That test
+    /// doubles as the "is the previous file closed" one: if it isn't, the
+    /// terminal isn't idle, and this opens a new one instead.
     ///
     /// The command text and the Enter go through two different APIs on
     /// purpose. `sendText` is documented upstream as being "treated like a
@@ -70,16 +94,69 @@ enum FileOpener {
     /// at the prompt looking correct and simply never runs, which is
     /// exactly what this did before being tested against a real shell.
     /// A key event isn't paste content, so it submits.
-    ///
-    /// Sent immediately rather than through `ClaudeSession.run`'s startup
-    /// delay: that delay exists for a shell that was just spawned, and this
-    /// one has been sitting at a prompt.
-    static func openInTerminal(_ url: URL, surface: Ghostty.SurfaceView?) {
-        guard let surface, let model = surface.surfaceModel else { return }
+    static func openInTerminal(
+        _ url: URL,
+        current: Ghostty.SurfaceView?,
+        spawn: () -> Ghostty.SurfaceView?
+    ) {
+        let reused = reusableTerminal(current)
+        guard let surface = reused ?? spawn() else { return }
+        let command = terminalCommand(for: url)
+        nameTab(surface, after: url)
 
-        model.sendText("\(editorCommand) \(shellQuoted(url.path))")
-        model.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .press))
-        model.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .release))
+        // A terminal that was already at a prompt takes the command right
+        // away; a just-spawned shell has no prompt up yet and drops
+        // anything sent before it does.
+        let delay = reused == nil ? shellStartupDelay : 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak surface] in
+            guard let model = surface?.surfaceModel else { return }
+            model.sendText(command)
+            model.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .press))
+            model.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .release))
+        }
+    }
+
+    /// Names the tab after the file it was opened for, so the sidebar says
+    /// what the terminal is showing rather than repeating a directory every
+    /// one of its neighbours also shows.
+    ///
+    /// Merged into any override already on the tab instead of replacing it,
+    /// so an icon or color the user set by hand survives being renamed.
+    private static func nameTab(_ surface: Ghostty.SurfaceView, after url: URL) {
+        let store = SidebarGroupStore.shared
+        var override = store.tabOverrides[surface.id] ?? SidebarGroupStore.TabOverride()
+        override.name = tabName(for: url)
+        override.fileName = tabName(for: url)
+        store.setTabOverride(surfaceId: surface.id, override)
+    }
+
+    /// The file's name and extension, and nothing else.
+    ///
+    /// A path long enough to be worth reading is also long enough to push
+    /// the name out of a 240pt sidebar column — which would truncate away
+    /// the one part that identifies the tab and leave a row of near-
+    /// identical prefixes.
+    nonisolated static func tabName(for url: URL) -> String {
+        let name = url.lastPathComponent
+        return name.isEmpty ? url.path : name
+    }
+
+    /// The selected terminal, when the setting asks for reuse *and* it is
+    /// actually free to take a command.
+    private static func reusableTerminal(
+        _ current: Ghostty.SurfaceView?
+    ) -> Ghostty.SurfaceView? {
+        guard FileOpenTarget.current == .reuseIdleTerminal,
+              let current,
+              TerminalIdleCheck.isIdle(foregroundPID: current.surfaceModel?.foregroundPID)
+        else { return nil }
+        return current
+    }
+
+    /// `nonisolated` so the composition — which is where a quoting bug
+    /// would hide — is testable without a surface.
+    nonisolated static func terminalCommand(for url: URL) -> String {
+        "\(editorCommand) \(shellQuoted(url.path))"
     }
 
     static func openInApp(_ url: URL, window: NSWindow?) {
