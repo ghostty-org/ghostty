@@ -233,9 +233,6 @@ fn initLib(
     if (kind == .static) {
         // Allow consumers to discard unused parts of the C API when linking
         // the archive with section garbage collection enabled.
-        // The self-hosted x86 backend does not split the Zig compilation unit
-        // for these flags, so use LLVM to make this effective on all targets.
-        lib.use_llvm = true;
         lib.link_function_sections = true;
         lib.link_data_sections = true;
 
