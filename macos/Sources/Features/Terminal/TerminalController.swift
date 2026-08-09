@@ -75,6 +75,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The files open in this window's pane. One per window, because the
     /// editor takes over *this* terminal's half of the split.
     let editorCenter = EditorCenter()
+
+    /// Search across the folder the explorer is showing, opened with ⇧⌘F.
+    let workspaceSearch = WorkspaceSearchCenter()
     private var editorHostingView: NSView?
 
     /// The terminal half of the right pane, hidden while the editor has
@@ -1427,7 +1430,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         self.terminalTitlebarFiller = titlebarFiller
 
         let editorHosting = NSHostingView(
-            rootView: EditorPaneView(center: editorCenter).interfaceFont()
+            rootView: EditorPaneView(
+                center: editorCenter,
+                search: workspaceSearch
+            ).interfaceFont()
         )
         editorHosting.translatesAutoresizingMaskIntoConstraints = false
         editorHosting.isHidden = true

@@ -15,6 +15,7 @@ struct FilesSettingsView: View {
     @AppStorage(EditorSettings.wrapsLinesKey) private var wrapsLines = false
     @AppStorage(EditorSettings.showsLineNumbersKey) private var showsLineNumbers = true
     @AppStorage(EditorSettings.tabWidthKey) private var tabWidth = EditorSettings.defaultTabWidth
+    @AppStorage(EditorSettings.showsMinimapKey) private var showsMinimap = true
 
     @State private var isChoosingFont = false
 
@@ -62,6 +63,8 @@ struct FilesSettingsView: View {
                 Toggle("Wrap Long Lines", isOn: $wrapsLines)
                     .toggleStyle(.switch)
                 Toggle("Show Line Numbers", isOn: $showsLineNumbers)
+                    .toggleStyle(.switch)
+                Toggle("Show Minimap", isOn: $showsMinimap)
                     .toggleStyle(.switch)
             } header: {
                 Text("Display")

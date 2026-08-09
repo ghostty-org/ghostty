@@ -16,6 +16,9 @@ struct EditorPaneView: View {
     @AppStorage(EditorSettings.wrapsLinesKey) private var wrapsLines = false
     @AppStorage(EditorSettings.showsLineNumbersKey) private var showsLineNumbers = true
     @AppStorage(EditorSettings.tabWidthKey) private var tabWidth = EditorSettings.defaultTabWidth
+    @AppStorage(EditorSettings.showsMinimapKey) private var showsMinimap = true
+
+    @ObservedObject var search: WorkspaceSearchCenter
 
     var body: some View {
         content
@@ -37,6 +40,12 @@ struct EditorPaneView: View {
                     Divider()
                 }
             }
+            .sheet(isPresented: $search.isPresented) {
+                WorkspaceSearchView(center: search) { hit in
+                    search.dismiss()
+                    center.open(URL(fileURLWithPath: hit.path))
+                }
+            }
     }
 
     @ViewBuilder
@@ -46,9 +55,13 @@ struct EditorPaneView: View {
                 document: document,
                 theme: theme,
                 configuration: configuration,
+                showsMinimap: showsMinimap,
                 onSave: { center.saveSelected() },
                 onSaveAll: { center.saveAll() },
-                onCloseTab: { center.closeSelected() }
+                onCloseTab: { center.closeSelected() },
+                onSearchWorkspace: {
+                    search.present(root: (document.url.deletingLastPathComponent()).path)
+                }
             )
             .id(document.id)
         } else {
@@ -79,9 +92,11 @@ private struct DocumentView: View {
     @ObservedObject var document: EditorDocument
     let theme: CodeTheme
     let configuration: CodeEditorConfiguration
+    let showsMinimap: Bool
     let onSave: () -> Void
     let onSaveAll: () -> Void
     let onCloseTab: () -> Void
+    let onSearchWorkspace: () -> Void
 
     @ObservedObject private var palette: ThemePalette = .shared
 
@@ -97,9 +112,11 @@ private struct DocumentView: View {
                 theme: theme,
                 configuration: configuration,
                 onEdit: { document.markEdited() },
+                showsMinimap: showsMinimap,
                 onSave: onSave,
                 onSaveAll: onSaveAll,
-                onCloseTab: onCloseTab
+                onCloseTab: onCloseTab,
+                onSearchWorkspace: onSearchWorkspace
             )
         }
     }
