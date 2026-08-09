@@ -30,11 +30,15 @@ struct CodeTextView: NSViewRepresentable {
     /// that must not look like an edit.
     var onEdit: () -> Void = {}
 
+    /// Whether the minimap is drawn beside the text.
+    var showsMinimap: Bool = true
+
     /// Keyboard commands the host owns. Passed in rather than assumed, so
     /// the engine never decides what saving means.
     var onSave: () -> Void = {}
     var onSaveAll: () -> Void = {}
     var onCloseTab: () -> Void = {}
+    var onSearchWorkspace: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -87,11 +91,31 @@ struct CodeTextView: NSViewRepresentable {
         gutter.translatesAutoresizingMaskIntoConstraints = false
         gutter.isHidden = !configuration.showsLineNumbers
 
+        let minimap = CodeMinimapView(theme: theme)
+        minimap.translatesAutoresizingMaskIntoConstraints = false
+        minimap.isHidden = !showsMinimap
+        minimap.onSelectLine = { [weak textView] line in
+            guard let textView else { return }
+            let ns = textView.string as NSString
+            var location = 0
+            var current = 1
+            while current < line, location < ns.length {
+                location = NSMaxRange(ns.lineRange(for: NSRange(location: location, length: 0)))
+                current += 1
+            }
+            textView.setSelectedRange(NSRange(location: min(location, ns.length), length: 0))
+            textView.scrollRangeToVisible(textView.selectedRange())
+        }
+
         let container = NSView()
         container.addSubview(gutter)
         container.addSubview(scrollView)
+        container.addSubview(minimap)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
+        let minimapWidth = minimap.widthAnchor.constraint(
+            equalToConstant: showsMinimap ? 70 : 0
+        )
         let gutterWidth = gutter.widthAnchor.constraint(
             equalToConstant: configuration.showsLineNumbers ? gutter.preferredWidth : 0
         )
@@ -107,14 +131,21 @@ struct CodeTextView: NSViewRepresentable {
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: gutter.trailingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: minimap.leadingAnchor),
+            minimap.topAnchor.constraint(equalTo: container.topAnchor),
+            minimap.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            minimap.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            minimapWidth,
         ])
 
         context.coordinator.gutterWidth = gutterWidth
+        context.coordinator.minimap = minimap
+        context.coordinator.minimapWidth = minimapWidth
 
         textView.onSave = onSave
         textView.onSaveAll = onSaveAll
         textView.onCloseTab = onCloseTab
+        textView.onSearchWorkspace = onSearchWorkspace
 
         context.coordinator.textView = textView
         context.coordinator.gutter = gutter
@@ -135,6 +166,7 @@ struct CodeTextView: NSViewRepresentable {
             code.onSave = onSave
             code.onSaveAll = onSaveAll
             code.onCloseTab = onCloseTab
+            code.onSearchWorkspace = onSearchWorkspace
         }
 
         context.coordinator.storage.setLanguage(language)
@@ -156,6 +188,8 @@ struct CodeTextView: NSViewRepresentable {
         weak var textView: NSTextView?
         weak var gutter: CodeGutterView?
         var gutterWidth: NSLayoutConstraint?
+        weak var minimap: CodeMinimapView?
+        var minimapWidth: NSLayoutConstraint?
 
         /// Set while the host is writing text in, so the delegate can tell
         /// a programmatic load from something the user typed.
@@ -174,6 +208,7 @@ struct CodeTextView: NSViewRepresentable {
             textStorage.setAttributedString(NSAttributedString(string: text))
             storage.highlight(textStorage, in: NSRange(location: 0, length: textStorage.length))
             gutter?.reload()
+            refreshMinimap()
 
             // Put the view back at the start of the document.
             //
@@ -197,6 +232,18 @@ struct CodeTextView: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 self?.scrollToOrigin()
             }
+        }
+
+        /// Recomputes the minimap's bars from the current text.
+        ///
+        /// Reuses the tokens the highlighter already produces rather than
+        /// scanning again — the map is a second view of the same answer.
+        func refreshMinimap() {
+            guard let minimap, minimap.isHidden == false, let textView else { return }
+            let text = textView.string
+            let tokens = SyntaxHighlighter(language: storage.language)
+                .tokens(in: text, range: NSRange(location: 0, length: (text as NSString).length))
+            minimap.setRows(CodeMinimapView.rows(for: text, tokens: tokens))
         }
 
         /// Puts the text back at its top-left corner.
@@ -232,6 +279,7 @@ struct CodeTextView: NSViewRepresentable {
 
             gutter?.theme = theme
             gutter?.font = configuration.font
+            minimap?.theme = theme
             gutter?.isHidden = !configuration.showsLineNumbers
             gutterWidth?.constant = configuration.showsLineNumbers
                 ? (gutter?.preferredWidth ?? 0)
@@ -260,6 +308,7 @@ struct CodeTextView: NSViewRepresentable {
                 )
             )
             gutter?.reload()
+            refreshMinimap()
             onEdit()
         }
     }
@@ -281,6 +330,11 @@ final class CodeNSTextView: NSTextView {
     var onSaveAll: (() -> Void)?
     var onCloseTab: (() -> Void)?
 
+    /// ⇧⌘F. Plain ⌘F is deliberately left to the find bar this view
+    /// already has — replacing a working in-file search with a worse one
+    /// would be a downgrade dressed as a feature.
+    var onSearchWorkspace: (() -> Void)?
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard modifiers.contains(.command) else {
@@ -290,6 +344,10 @@ final class CodeNSTextView: NSTextView {
         switch event.charactersIgnoringModifiers?.lowercased() {
         case "s":
             if modifiers.contains(.shift) { onSaveAll?() } else { onSave?() }
+            return true
+        case "f" where modifiers.contains(.shift):
+            guard let onSearchWorkspace else { break }
+            onSearchWorkspace()
             return true
         case "w":
             // Only claimed when there is a handler: without one this is
