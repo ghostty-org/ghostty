@@ -39,11 +39,17 @@ final class EditorCenter: ObservableObject {
 
     // MARK: Opening and closing
 
+    /// Opens a file, optionally landing on a particular range.
+    ///
+    /// The range travels with the document rather than being applied here:
+    /// a file opened for the first time has no text view yet, so the jump
+    /// has to be something the view picks up when it appears.
     @discardableResult
-    func open(_ url: URL) -> Bool {
+    func open(_ url: URL, reveal: LSPRange? = nil) -> Bool {
         let path = url.path
 
-        if documents[path] != nil {
+        if let existing = documents[path] {
+            if let reveal { existing.reveal = (id: UUID().uuidString, range: reveal) }
             tabs.select(path)
             return true
         }
@@ -69,6 +75,7 @@ final class EditorCenter: ObservableObject {
                         self.tabs.setDirty(document.isDirty, for: path)
                     }
                 }
+            if let reveal { document.reveal = (id: UUID().uuidString, range: reveal) }
             tabs.open(path)
             return true
         }
@@ -103,13 +110,18 @@ final class EditorCenter: ObservableObject {
     func saveSelected() -> Bool {
         guard let document = selectedDocument else { return false }
         let saved = document.save()
-        if saved { tabs.setDirty(false, for: document.id) }
+        if saved {
+            tabs.setDirty(false, for: document.id)
+            LSPCenter.shared.didSave(path: document.url.path, text: document.text)
+        }
         return saved
     }
 
     func saveAll() {
         for document in documents.values where document.isDirty {
-            if document.save() { tabs.setDirty(false, for: document.id) }
+            guard document.save() else { continue }
+            tabs.setDirty(false, for: document.id)
+            LSPCenter.shared.didSave(path: document.url.path, text: document.text)
         }
     }
 }

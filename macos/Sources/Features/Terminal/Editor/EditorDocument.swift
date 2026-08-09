@@ -22,6 +22,11 @@ final class EditorDocument: ObservableObject, Identifiable {
 
     @Published private(set) var loadError: String?
 
+    /// Where to put the cursor when this document next appears, set by a
+    /// jump to a definition or a click on a search result. Carries an id so
+    /// asking for the same place twice still moves the view.
+    @Published var reveal: (id: String, range: LSPRange)?
+
     var id: String { url.path }
 
     var language: CodeLanguage {

@@ -33,6 +33,28 @@ struct CodeTextView: NSViewRepresentable {
     /// Whether the minimap is drawn beside the text.
     var showsMinimap: Bool = true
 
+    /// Ranges to underline, with the colour to use. Supplied as plain
+    /// values so the engine never learns what a language server is.
+    var underlines: [(range: NSRange, color: NSColor)] = []
+
+    /// Asked for the text to show when the pointer rests on an offset.
+    var hoverProvider: ((Int) async -> String?)?
+
+    /// Asked for the words to offer at an offset, for the completion list.
+    var completionProvider: ((Int) async -> [String])?
+
+    /// A range to select and scroll into view once. Carries an identity so
+    /// the same range asked for twice still moves the view — jumping to a
+    /// definition you are already looking at has to re-centre it, not do
+    /// nothing.
+    var reveal: (id: String, range: NSRange)?
+
+    /// ⌘-click, and the editor commands the host implements.
+    var onJumpToDefinition: ((Int) -> Void)?
+    var onRename: ((Int) -> Void)?
+    var onFindReferences: ((Int) -> Void)?
+    var onFormat: (() -> Void)?
+
     /// Keyboard commands the host owns. Passed in rather than assumed, so
     /// the engine never decides what saving means.
     var onSave: () -> Void = {}
@@ -146,6 +168,12 @@ struct CodeTextView: NSViewRepresentable {
         textView.onSaveAll = onSaveAll
         textView.onCloseTab = onCloseTab
         textView.onSearchWorkspace = onSearchWorkspace
+        textView.onRename = onRename
+        textView.onFindReferences = onFindReferences
+        textView.onFormat = onFormat
+        textView.onJumpToDefinition = onJumpToDefinition
+        textView.hoverProvider = hoverProvider
+        textView.completionProvider = completionProvider
 
         context.coordinator.textView = textView
         context.coordinator.gutter = gutter
@@ -167,7 +195,14 @@ struct CodeTextView: NSViewRepresentable {
             code.onSaveAll = onSaveAll
             code.onCloseTab = onCloseTab
             code.onSearchWorkspace = onSearchWorkspace
+            code.onRename = onRename
+            code.onFindReferences = onFindReferences
+            code.onFormat = onFormat
+            code.onJumpToDefinition = onJumpToDefinition
+            code.hoverProvider = hoverProvider
+            code.completionProvider = completionProvider
         }
+        context.coordinator.applyUnderlines(underlines)
 
         context.coordinator.storage.setLanguage(language)
         context.coordinator.applyAppearance(theme: theme, configuration: configuration)
@@ -179,6 +214,10 @@ struct CodeTextView: NSViewRepresentable {
         if textView.string != text {
             context.coordinator.apply(text: text)
         }
+
+        // After the text, so a jump into a file that is being opened in the
+        // same breath lands on a document that already has its content.
+        if let reveal { context.coordinator.reveal(reveal) }
     }
 
     @MainActor
@@ -194,6 +233,15 @@ struct CodeTextView: NSViewRepresentable {
         /// Set while the host is writing text in, so the delegate can tell
         /// a programmatic load from something the user typed.
         private var isApplyingExternalText = false
+
+        /// The last reveal honoured, so a SwiftUI update that changes
+        /// something unrelated doesn't drag the view back there.
+        private var lastRevealID: String?
+
+        /// The underlines currently drawn, so an update that changed
+        /// something else doesn't walk the whole document to redraw marks
+        /// that haven't moved.
+        private var appliedUnderlines: [NSRange] = []
 
         init(storage: CodeTextStorage, onEdit: @escaping () -> Void) {
             self.storage = storage
@@ -246,12 +294,81 @@ struct CodeTextView: NSViewRepresentable {
             minimap.setRows(CodeMinimapView.rows(for: text, tokens: tokens))
         }
 
+        /// Selects a range and brings it into view, centred.
+        ///
+        /// Centred rather than merely visible: `scrollRangeToVisible` does
+        /// the least it can, so a definition one line below the fold lands
+        /// on the very last row — technically visible, and with none of the
+        /// surrounding code that makes it readable.
+        func reveal(_ reveal: (id: String, range: NSRange)) {
+            guard reveal.id != lastRevealID, let textView else { return }
+            lastRevealID = reveal.id
+
+            let length = (textView.string as NSString).length
+            let clipped = NSRange(
+                location: min(reveal.range.location, length),
+                length: min(reveal.range.length, max(0, length - reveal.range.location))
+            )
+
+            textView.setSelectedRange(clipped)
+            textView.scrollRangeToVisible(clipped)
+
+            // Once layout has settled, for the same reason opening a file
+            // needs a second scroll: the first runs before the view has the
+            // frame it would be scrolling within.
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView, let scrollView = textView.enclosingScrollView else { return }
+                let rect = textView.firstRect(forCharacterRange: clipped, actualRange: nil)
+                guard rect.height > 0 else { return }
+                let local = textView.convert(
+                    textView.window?.convertFromScreen(rect) ?? .zero,
+                    from: nil
+                )
+                let target = max(0, local.midY - scrollView.contentView.bounds.height / 2)
+                scrollView.contentView.scroll(to: NSPoint(x: 0, y: target))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
+        }
+
         /// Puts the text back at its top-left corner.
         private func scrollToOrigin() {
             guard let textView, let scrollView = textView.enclosingScrollView else { return }
             scrollView.contentView.scroll(to: .zero)
             scrollView.reflectScrolledClipView(scrollView.contentView)
             gutter?.needsDisplay = true
+        }
+
+        /// Draws the diagnostic underlines on top of the syntax colours.
+        ///
+        /// Applied as a separate pass rather than folded into highlighting:
+        /// the two change for unrelated reasons — one when you type, the
+        /// other when a server answers — and a single pass would mean
+        /// re-tokenising the document every time a diagnostic arrived.
+        func applyUnderlines(_ underlines: [(range: NSRange, color: NSColor)]) {
+            guard let textView, let storage = textView.textStorage else { return }
+
+            // SwiftUI updates this view for reasons that have nothing to do
+            // with diagnostics — a theme change, a resize, a keystroke —
+            // and each pass here walks the whole document. Skipping the
+            // unchanged case is what keeps that off the typing path.
+            let ranges = underlines.map(\.range)
+            guard ranges != appliedUnderlines else { return }
+            appliedUnderlines = ranges
+
+            let full = NSRange(location: 0, length: storage.length)
+
+            storage.beginEditing()
+            storage.removeAttribute(.underlineStyle, range: full)
+            storage.removeAttribute(.underlineColor, range: full)
+            for underline in underlines {
+                let clipped = NSIntersectionRange(underline.range, full)
+                guard clipped.length > 0 else { continue }
+                storage.addAttributes([
+                    .underlineStyle: NSUnderlineStyle.thick.rawValue,
+                    .underlineColor: underline.color,
+                ], range: clipped)
+            }
+            storage.endEditing()
         }
 
         func applyAppearance(theme: CodeTheme, configuration: CodeEditorConfiguration) {
@@ -335,6 +452,211 @@ final class CodeNSTextView: NSTextView {
     /// would be a downgrade dressed as a feature.
     var onSearchWorkspace: (() -> Void)?
 
+    /// The host's language features, reached by keyboard or ⌘-click.
+    var onRename: ((Int) -> Void)?
+    var onFindReferences: ((Int) -> Void)?
+    var onFormat: (() -> Void)?
+    var onJumpToDefinition: ((Int) -> Void)?
+    var hoverProvider: ((Int) async -> String?)?
+    var completionProvider: ((Int) async -> [String])?
+
+    /// The last answer from `completionProvider`.
+    ///
+    /// AppKit asks for completions **synchronously**, and a language server
+    /// answers over a pipe. The only way to bridge the two is to fetch
+    /// first and open the list afterwards, serving it from here — which is
+    /// what `complete(_:)` below does.
+    private var pendingCompletions: [String] = []
+    private var isFetchingCompletions = false
+
+    /// The offset the pointer last rested on, so the tooltip describes
+    /// what is under it rather than what the cursor happens to be near.
+    private var hoverOffset: Int?
+    private var hoverTask: Task<Void, Never>?
+
+    /// Whether a click means "go to the definition" rather than "put the
+    /// cursor here".
+    ///
+    /// Split out so it can be tested: `mouseDown` itself cannot be, because
+    /// `NSTextView`'s runs an event-tracking loop waiting for the mouse to
+    /// come back up — call it outside a window and it never returns.
+    static func isJumpClick(_ modifiers: NSEvent.ModifierFlags) -> Bool {
+        modifiers.intersection(.deviceIndependentFlagsMask) == .command
+    }
+
+    /// ⌘-click goes to the definition; without the modifier this is an
+    /// ordinary click and must stay one.
+    override func mouseDown(with event: NSEvent) {
+        guard Self.isJumpClick(event.modifierFlags), let onJumpToDefinition else {
+            super.mouseDown(with: event)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        onJumpToDefinition(characterIndexForInsertion(at: point))
+    }
+
+    /// Hovering asks the host what to say, on a delay.
+    ///
+    /// Debounced because the pointer crosses a whole line on its way
+    /// somewhere else, and asking a language server about every character
+    /// it passes over is a request per pixel of travel.
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard let hoverProvider else { return }
+
+        let point = convert(event.locationInWindow, from: nil)
+        let offset = characterIndexForInsertion(at: point)
+        guard offset != hoverOffset else { return }
+        hoverOffset = offset
+
+        hoverTask?.cancel()
+        hoverTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(450))
+            guard !Task.isCancelled else { return }
+            let text = await hoverProvider(offset)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, self.hoverOffset == offset else { return }
+                self.toolTip = text
+            }
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            owner: self
+        ))
+    }
+
+    /// Adds the language commands to the right-click menu.
+    ///
+    /// A shortcut nobody can find is a shortcut nobody uses, and this is
+    /// the one place to put them that doesn't mean touching the
+    /// application's menu bar — which belongs to the terminal.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let menu = super.menu(for: event) else { return nil }
+
+        // Anchored to where the pointer is, not to the selection: the whole
+        // point of right-clicking a symbol is to ask about *that* one.
+        let point = convert(event.locationInWindow, from: nil)
+        let offset = characterIndexForInsertion(at: point)
+
+        var items: [NSMenuItem] = []
+        if let onJumpToDefinition {
+            items.append(item("Go to Definition", key: "") { onJumpToDefinition(offset) })
+        }
+        if let onFindReferences {
+            items.append(item("Find All References", key: "g", [.command, .control]) {
+                onFindReferences(offset)
+            })
+        }
+        if let onRename {
+            items.append(item("Rename Symbol…", key: "r", [.command, .control]) {
+                onRename(offset)
+            })
+        }
+        if let onFormat {
+            items.append(item("Format Document", key: "f", [.command, .option]) { onFormat() })
+        }
+
+        guard !items.isEmpty else { return menu }
+        menu.insertItem(NSMenuItem.separator(), at: 0)
+        for (index, entry) in items.enumerated() {
+            menu.insertItem(entry, at: index)
+        }
+        return menu
+    }
+
+    private func item(
+        _ title: String,
+        key: String,
+        _ modifiers: NSEvent.ModifierFlags = [],
+        action: @escaping () -> Void
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: #selector(runMenuAction(_:)), keyEquivalent: key)
+        item.keyEquivalentModifierMask = modifiers
+        item.target = self
+        item.representedObject = MenuAction(run: action)
+        return item
+    }
+
+    /// Boxes a closure so it can ride on `representedObject`, which only
+    /// takes an object — the alternative is a selector per command and a
+    /// property to remember which one was meant.
+    private final class MenuAction: NSObject {
+        let run: () -> Void
+        init(run: @escaping () -> Void) { self.run = run }
+    }
+
+    @objc private func runMenuAction(_ sender: NSMenuItem) {
+        (sender.representedObject as? MenuAction)?.run()
+    }
+
+    /// ⌃Space asks for completions, the way most editors bind it.
+    ///
+    /// In `keyDown` rather than `performKeyEquivalent` because that one only
+    /// sees ⌘ combinations — a plain modifier+key never reaches it.
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if modifiers == .control, event.charactersIgnoringModifiers == " ",
+           completionProvider != nil {
+            complete(nil)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    /// Fetches, then opens the list.
+    ///
+    /// Re-entrant by design: the first call fetches and returns without a
+    /// popup, then calls itself once the answer is in. The flag is what
+    /// stops that second call from starting another fetch and never
+    /// showing anything.
+    override func complete(_ sender: Any?) {
+        guard let completionProvider, !isFetchingCompletions else {
+            super.complete(sender)
+            return
+        }
+
+        isFetchingCompletions = true
+        let offset = selectedRange().location
+        Task { [weak self] in
+            let words = await completionProvider(offset)
+            await MainActor.run {
+                guard let self else { return }
+                self.pendingCompletions = words
+                self.isFetchingCompletions = false
+                guard !words.isEmpty else { return }
+                self.openCompletionList(sender)
+            }
+        }
+    }
+
+    /// Reaches `super.complete` from inside the fetch's closure, which Swift
+    /// will not let a captured `self` do directly.
+    private func openCompletionList(_ sender: Any?) {
+        super.complete(sender)
+    }
+
+    /// Serves what the last fetch returned, narrowed to what is typed.
+    override func completions(
+        forPartialWordRange charRange: NSRange,
+        indexOfSelectedItem index: UnsafeMutablePointer<Int>
+    ) -> [String]? {
+        guard completionProvider != nil else {
+            return super.completions(forPartialWordRange: charRange, indexOfSelectedItem: index)
+        }
+        let partial = (string as NSString).substring(with: charRange)
+        guard !partial.isEmpty else { return pendingCompletions }
+        return pendingCompletions.filter {
+            $0.range(of: partial, options: [.caseInsensitive, .anchored]) != nil
+        }
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard modifiers.contains(.command) else {
@@ -348,6 +670,18 @@ final class CodeNSTextView: NSTextView {
         case "f" where modifiers.contains(.shift):
             guard let onSearchWorkspace else { break }
             onSearchWorkspace()
+            return true
+        case "r" where modifiers.contains(.control):
+            guard let onRename else { break }
+            onRename(selectedRange().location)
+            return true
+        case "f" where modifiers.contains(.option):
+            guard let onFormat else { break }
+            onFormat()
+            return true
+        case "g" where modifiers.contains(.control):
+            guard let onFindReferences else { break }
+            onFindReferences(selectedRange().location)
             return true
         case "w":
             // Only claimed when there is a handler: without one this is

@@ -599,11 +599,21 @@ extension LSPProcess {
                 "completionItem": ["snippetSupport": false],
                 "contextSupport": true
             ],
-            "definition": ["dynamicRegistration": false]
+            "definition": ["dynamicRegistration": false],
+            "references": ["dynamicRegistration": false],
+            "formatting": ["dynamicRegistration": false],
+            // No `prepareSupport`: this client asks to rename outright
+            // rather than first asking whether it may. Claiming otherwise
+            // makes a server wait for a `prepareRename` that never comes.
+            "rename": ["dynamicRegistration": false, "prepareSupport": false]
         ],
         "workspace": [
             "workspaceFolders": true,
-            "configuration": true
+            "configuration": true,
+            // Both shapes of `WorkspaceEdit` are understood, so declaring
+            // `documentChanges` costs nothing and lets a server send the
+            // richer one — some only ever send `changes` without it.
+            "workspaceEdit": ["documentChanges": true]
         ]
     ]
 }
