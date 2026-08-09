@@ -22,6 +22,9 @@ struct GitPanelView: View {
     /// gets its own. See `FileOpener.openInTerminal`.
     var onSpawnTerminal: () -> Ghostty.SurfaceView? = { nil }
 
+    /// Opens the file in this window's editor pane.
+    var onOpenInEditor: (URL) -> Void = { _ in }
+
     @ObservedObject private var center: GitCenter = .shared
     @ObservedObject private var palette: ThemePalette = .shared
     @ObservedObject private var refresh: GitPanelRefresh = .shared
@@ -107,7 +110,8 @@ struct GitPanelView: View {
             root: root,
             style: style,
             selectedTab: selectedTab,
-            onSpawnTerminal: onSpawnTerminal
+            onSpawnTerminal: onSpawnTerminal,
+            onOpenInEditor: onOpenInEditor
         )
     }
 

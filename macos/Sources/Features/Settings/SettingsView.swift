@@ -12,6 +12,7 @@ struct SettingsRootView: View {
         case general
         case appearance
         case sidebar
+        case files
         case behaviors
         case agents
 
@@ -22,6 +23,7 @@ struct SettingsRootView: View {
             case .general: return "General"
             case .appearance: return "Appearance"
             case .sidebar: return "Sidebar"
+            case .files: return "Files"
             case .behaviors: return "Behaviors"
             case .agents: return "Agents"
             }
@@ -32,6 +34,7 @@ struct SettingsRootView: View {
             case .general: return "gearshape"
             case .appearance: return "paintpalette"
             case .sidebar: return "sidebar.left"
+            case .files: return "doc.text"
             case .behaviors: return "slider.horizontal.3"
             case .agents: return "sparkles"
             }
@@ -56,6 +59,8 @@ struct SettingsRootView: View {
                 AppearanceSettingsView(ghostty: ghostty, store: store)
             case .sidebar:
                 SidebarSettingsView(ghostty: ghostty, store: store)
+            case .files:
+                FilesSettingsView()
             case .behaviors:
                 BehaviorsSettingsView(ghostty: ghostty, store: store)
             case .agents:

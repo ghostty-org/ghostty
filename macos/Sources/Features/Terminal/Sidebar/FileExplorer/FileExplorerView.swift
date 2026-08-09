@@ -12,6 +12,9 @@ struct FileExplorerView: View {
     /// gets its own. See `FileOpener.openInTerminal`.
     var onSpawnTerminal: () -> Ghostty.SurfaceView? = { nil }
 
+    /// Opens the file in this window's editor pane.
+    var onOpenInEditor: (URL) -> Void = { _ in }
+
     @StateObject private var model = FileExplorerModel()
     @ObservedObject private var palette: ThemePalette = .shared
     @ObservedObject private var icons: FileIconProvider = .shared
@@ -164,7 +167,8 @@ struct FileExplorerView: View {
             for: row.node.url,
             in: selectedTab?.window,
             currentTerminal: surface(for: selectedTab),
-            spawnTerminal: onSpawnTerminal
+            spawnTerminal: onSpawnTerminal,
+            openInEditor: onOpenInEditor
         )
     }
 

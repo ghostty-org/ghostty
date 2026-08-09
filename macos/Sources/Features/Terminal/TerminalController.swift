@@ -72,6 +72,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private var sidebarLayout: SidebarLayoutModel?
     private var sidebarLayoutCancellable: AnyCancellable?
 
+    /// The files open in this window's pane. One per window, because the
+    /// editor takes over *this* terminal's half of the split.
+    let editorCenter = EditorCenter()
+    private var editorHostingView: NSView?
+
+    /// The terminal half of the right pane, hidden while the editor has
+    /// the floor.
+    private weak var terminalPaneView: NSView?
+    private var editorCancellable: AnyCancellable?
+
     /// Width constraints swapped when the sidebar collapses.
     private var sidebarExpandedConstraints: [NSLayoutConstraint] = []
     private var sidebarCollapsedConstraint: NSLayoutConstraint?
@@ -690,6 +700,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         )
 
         terminalTitlebarFiller?.layer?.backgroundColor = paneColor?.cgColor
+        editorHostingView?.layer?.backgroundColor = paneColor?.cgColor
 
         guard let sidebarBackgroundView else { return }
         sidebarBackgroundView.layer?.backgroundColor = paneColor?.cgColor
@@ -1298,6 +1309,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             },
             onSpawnTerminalBesideSelection: { [weak self] in
                 self?.newSidebarTabBesideSelection()
+            },
+            onOpenInEditor: { [weak self] url in
+                self?.openInEditor(url)
             }
         ).interfaceFont())
         sidebarHosting.translatesAutoresizingMaskIntoConstraints = false
@@ -1373,14 +1387,33 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // content stops below the titlebar and paints nothing up there, so
         // this fills exactly that band — one coat on each half, and nothing
         // at all under glass, where the material shows through instead.
+        // The right side holds the terminal and the editor stacked, and
+        // shows one of them. Hiding rather than replacing is deliberate:
+        // the shell and its scrollback have to survive opening a file and
+        // closing it again, so the terminal view is never torn down.
+        let rightPane = NSView()
+        rightPane.translatesAutoresizingMaskIntoConstraints = false
+
+        // The terminal joins first, before anything constrains itself to
+        // it. Activating a constraint between two views with no common
+        // ancestor raises, and raising here leaves the app running with no
+        // window at all — it appears in the Dock and never shows itself.
+        rightPane.addSubview(terminalContainer)
+        self.terminalPaneView = terminalContainer
+
         let titlebarFiller = NSView()
         titlebarFiller.translatesAutoresizingMaskIntoConstraints = false
         titlebarFiller.wantsLayer = true
-        terminalContainer.addSubview(titlebarFiller, positioned: .below, relativeTo: nil)
+        // A sibling of the terminal rather than its child. As a child it
+        // disappeared the moment the terminal was hidden for the editor,
+        // and the titlebar band went back to showing the bare window —
+        // the strip is the *window's*, not the terminal's, and has to be
+        // painted whichever half is on screen.
+        rightPane.addSubview(titlebarFiller, positioned: .below, relativeTo: nil)
         NSLayoutConstraint.activate([
-            titlebarFiller.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
-            titlebarFiller.leadingAnchor.constraint(equalTo: terminalContainer.leadingAnchor),
-            titlebarFiller.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
+            titlebarFiller.topAnchor.constraint(equalTo: rightPane.topAnchor),
+            titlebarFiller.leadingAnchor.constraint(equalTo: rightPane.leadingAnchor),
+            titlebarFiller.trailingAnchor.constraint(equalTo: rightPane.trailingAnchor),
             // Meets the terminal's content exactly. It cannot do better than
             // that: overlapping paints that row twice and reads as a dark
             // line, and falling short leaves the window showing through as a
@@ -1393,11 +1426,59 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         ])
         self.terminalTitlebarFiller = titlebarFiller
 
+        let editorHosting = NSHostingView(
+            rootView: EditorPaneView(center: editorCenter).interfaceFont()
+        )
+        editorHosting.translatesAutoresizingMaskIntoConstraints = false
+        editorHosting.isHidden = true
+        // Layer-backed and coloured by `syncSidebarBackground`, exactly like
+        // the sidebar pane: the SwiftUI content above it draws nothing of
+        // its own, so the window's opacity and blur reach the editor the
+        // same way they reach everything else. Painting an opaque colour in
+        // SwiftUI instead — which is what this did first — left a solid
+        // slab in the middle of a translucent window.
+        editorHosting.wantsLayer = true
+        rightPane.addSubview(editorHosting)
+        self.editorHostingView = editorHosting
+
+        terminalContainer.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            terminalContainer.topAnchor.constraint(equalTo: rightPane.topAnchor),
+            terminalContainer.leadingAnchor.constraint(equalTo: rightPane.leadingAnchor),
+            terminalContainer.bottomAnchor.constraint(equalTo: rightPane.bottomAnchor),
+            terminalContainer.trailingAnchor.constraint(equalTo: rightPane.trailingAnchor),
+            // The terminal container's guide, not the pane's: this view was
+            // inserted between the split view and the terminal, and a plain
+            // `NSView` in that position reports no safe area of its own, so
+            // the editor started at the window's very top and its text
+            // scrolled up into the titlebar.
+            editorHosting.topAnchor.constraint(
+                equalTo: terminalContainer.safeAreaLayoutGuide.topAnchor
+            ),
+            editorHosting.leadingAnchor.constraint(equalTo: rightPane.leadingAnchor),
+            editorHosting.bottomAnchor.constraint(equalTo: rightPane.bottomAnchor),
+            editorHosting.trailingAnchor.constraint(equalTo: rightPane.trailingAnchor),
+        ])
+
+        // Both views are toggled, not just the editor. The editor draws no
+        // background of its own — that is what lets the window's blur reach
+        // it — so a terminal left visible underneath shows *through* the
+        // code, and the shell's last output reads as garbage mixed into the
+        // file. Hidden, never removed: the shell and its scrollback have to
+        // survive being covered.
+        editorCancellable = editorCenter.$tabs
+            .map(\.isEmpty)
+            .removeDuplicates()
+            .sink { [weak self] isEmpty in
+                self?.editorHostingView?.isHidden = isEmpty
+                self?.terminalPaneView?.isHidden = !isEmpty
+            }
+
         let splitView = SidebarSplitView()
         splitView.isVertical = true
         splitView.dividerStyle = .thin
         splitView.addArrangedSubview(sidebarPane)
-        splitView.addArrangedSubview(terminalContainer)
+        splitView.addArrangedSubview(rightPane)
         splitView.setHoldingPriority(.defaultLow + 1, forSubviewAt: 0)
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
         splitView.delegate = self
@@ -1478,6 +1559,32 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         sidebarTabManager?.scheduleRefresh()
         controller.sidebarTabManager?.scheduleRefresh()
         return surface
+    }
+
+    /// Opens a file in this window's editor, explaining it when the editor
+    /// can't.
+    ///
+    /// The explanation has to happen here rather than inside the pane: the
+    /// pane is hidden whenever nothing is open, so a refusal shown there
+    /// would be shown *nowhere*. Clicking a `.class` file did exactly that
+    /// — nothing at all happened, which reads as the app being broken
+    /// rather than as an answer.
+    private func openInEditor(_ url: URL) {
+        guard !editorCenter.open(url) else { return }
+        guard let failure = editorCenter.openFailure, let window else { return }
+        editorCenter.openFailure = nil
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = url.lastPathComponent
+        alert.informativeText = failure.verdict.reason ?? "This file can't be opened here."
+        alert.addButton(withTitle: "Open in Another App")
+        alert.addButton(withTitle: "Cancel")
+
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            FileOpener.openInApp(url, window: window)
+        }
     }
 
     /// Opens a terminal directly below the selected one, in whatever group

@@ -31,6 +31,9 @@ struct GitRepoView: View {
     /// gets its own. See `FileOpener.openInTerminal`.
     var onSpawnTerminal: () -> Ghostty.SurfaceView? = { nil }
 
+    /// Opens the file in this window's editor pane.
+    var onOpenInEditor: (URL) -> Void = { _ in }
+
     @ObservedObject private var center: GitCenter = .shared
     @ObservedObject private var palette: ThemePalette = .shared
 
@@ -497,7 +500,8 @@ struct GitRepoView: View {
             for: url,
             in: selectedTab?.window,
             currentTerminal: surface(for: selectedTab),
-            spawnTerminal: onSpawnTerminal
+            spawnTerminal: onSpawnTerminal,
+            openInEditor: onOpenInEditor
         )
     }
 

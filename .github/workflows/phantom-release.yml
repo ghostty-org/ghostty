@@ -27,15 +27,32 @@ jobs:
           # Full history: git rev-list --count and git tag -l both need it.
           fetch-depth: 0
 
+      # The version comes from build.zig.zon, never from arithmetic over
+      # existing tags.
+      #
+      # It used to take the highest `v*.*.*` and add one, which quietly
+      # counted **Ghostty's** tags — this fork inherited v1.3.2 through
+      # v1.3.4 — and so tagged our own merge v1.3.5 while build.zig.zon
+      # still said 1.3.2-dev. The build refuses a tag that disagrees with
+      # that file ("tagged releases must be in vX.Y.Z format matching
+      # build.zig"), so main became unbuildable for anyone whose HEAD
+      # landed on the tag. Reading the one file that declares the version
+      # makes the two unable to drift.
       - name: Compute version
         id: version
         run: |
-          LAST_TAG=$(git tag -l 'v*.*.*' --sort=-v:refname | head -1)
-          LAST_TAG=${LAST_TAG:-v0.2.0}
-          IFS='.' read -r MAJOR MINOR PATCH <<< "${LAST_TAG#v}"
-          NEW_PATCH=$((PATCH + 1))
-          echo "tag=v${MAJOR}.${MINOR}.${NEW_PATCH}" >> "$GITHUB_OUTPUT"
-          echo "short_version=${MAJOR}.${MINOR}.${NEW_PATCH}" >> "$GITHUB_OUTPUT"
+          VERSION=$(grep -m1 '\.version' build.zig.zon | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION=${VERSION%-dev}
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "build.zig.zon version '$VERSION' is not X.Y.Z" >&2
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+            echo "v${VERSION} already exists — bump .version in build.zig.zon" >&2
+            exit 1
+          fi
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "short_version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "build=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Zig
