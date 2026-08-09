@@ -102,6 +102,7 @@ enum FileOpener {
         let reused = reusableTerminal(current)
         guard let surface = reused ?? spawn() else { return }
         let command = terminalCommand(for: url)
+        nameTab(surface, after: url)
 
         // A terminal that was already at a prompt takes the command right
         // away; a just-spawned shell has no prompt up yet and drops
@@ -113,6 +114,30 @@ enum FileOpener {
             model.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .press))
             model.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .release))
         }
+    }
+
+    /// Names the tab after the file it was opened for, so the sidebar says
+    /// what the terminal is showing rather than repeating a directory every
+    /// one of its neighbours also shows.
+    ///
+    /// Merged into any override already on the tab instead of replacing it,
+    /// so an icon or color the user set by hand survives being renamed.
+    private static func nameTab(_ surface: Ghostty.SurfaceView, after url: URL) {
+        let store = SidebarGroupStore.shared
+        var override = store.tabOverrides[surface.id] ?? SidebarGroupStore.TabOverride()
+        override.name = tabName(for: url)
+        store.setTabOverride(surfaceId: surface.id, override)
+    }
+
+    /// The file's name and extension, and nothing else.
+    ///
+    /// A path long enough to be worth reading is also long enough to push
+    /// the name out of a 240pt sidebar column — which would truncate away
+    /// the one part that identifies the tab and leave a row of near-
+    /// identical prefixes.
+    nonisolated static func tabName(for url: URL) -> String {
+        let name = url.lastPathComponent
+        return name.isEmpty ? url.path : name
     }
 
     /// The selected terminal, when the setting asks for reuse *and* it is
