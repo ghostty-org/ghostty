@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The row of open files above the editor.
@@ -81,7 +82,14 @@ private struct EditorTabItem: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
-        .onHover { isHovered = $0 }
+        // The I-beam has to be pushed back explicitly: it belongs to the
+        // text view underneath, and AppKit keeps it while the pointer is
+        // over a SwiftUI view that never says otherwise — so a tab looked
+        // like something to select text in rather than something to click.
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        }
         .help(tab.path)
     }
 

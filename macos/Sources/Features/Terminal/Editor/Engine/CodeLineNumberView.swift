@@ -58,6 +58,14 @@ final class CodeLineNumberView: NSRulerView {
         needsDisplay = true
     }
 
+    /// `NSRulerView` fills itself before drawing its marks, which would put
+    /// an opaque strip down the side of a window the rest of the app keeps
+    /// translucent. Everything this view needs to show is drawn in
+    /// `drawHashMarksAndLabels`, so the fill is simply skipped.
+    override func draw(_ dirtyRect: NSRect) {
+        drawHashMarksAndLabels(in: dirtyRect)
+    }
+
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard let textView,
               let layoutManager = textView.textLayoutManager,

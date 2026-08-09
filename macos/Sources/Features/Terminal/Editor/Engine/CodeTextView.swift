@@ -30,6 +30,12 @@ struct CodeTextView: NSViewRepresentable {
     /// that must not look like an edit.
     var onEdit: () -> Void = {}
 
+    /// Keyboard commands the host owns. Passed in rather than assumed, so
+    /// the engine never decides what saving means.
+    var onSave: () -> Void = {}
+    var onSaveAll: () -> Void = {}
+    var onCloseTab: () -> Void = {}
+
     func makeCoordinator() -> Coordinator {
         Coordinator(
             storage: CodeTextStorage(
@@ -55,12 +61,18 @@ struct CodeTextView: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 4, height: 8)
         textView.autoresizingMask = [.width]
 
+        // Neither the text view nor its scroll view paints a background.
+        // The host puts a layer behind this whole pane, so whatever the
+        // window is doing — a solid theme colour, or blur through to the
+        // desktop — reaches the code the same way it reaches the terminal.
+        textView.drawsBackground = false
+
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = !configuration.wrapsLines
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        scrollView.drawsBackground = true
+        scrollView.drawsBackground = false
         scrollView.documentView = textView
 
         let gutter = CodeLineNumberView(
@@ -72,6 +84,10 @@ struct CodeTextView: NSViewRepresentable {
         scrollView.hasVerticalRuler = true
         scrollView.rulersVisible = configuration.showsLineNumbers
 
+        textView.onSave = onSave
+        textView.onSaveAll = onSaveAll
+        textView.onCloseTab = onCloseTab
+
         context.coordinator.textView = textView
         context.coordinator.gutter = gutter
         context.coordinator.apply(text: text)
@@ -82,6 +98,14 @@ struct CodeTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView else { return }
+
+        // Refreshed every update: the closures capture the document that
+        // was selected when the view was made, and the selection moves.
+        if let code = textView as? CodeNSTextView {
+            code.onSave = onSave
+            code.onSaveAll = onSaveAll
+            code.onCloseTab = onCloseTab
+        }
 
         context.coordinator.storage.setLanguage(language)
         context.coordinator.applyAppearance(theme: theme, configuration: configuration)
@@ -120,6 +144,21 @@ struct CodeTextView: NSViewRepresentable {
             textStorage.setAttributedString(NSAttributedString(string: text))
             storage.highlight(textStorage, in: NSRange(location: 0, length: textStorage.length))
             gutter?.reloadLineNumbers()
+
+            // Put the view back at the start of the document.
+            //
+            // Replacing the storage leaves the scrollers wherever they
+            // were, and with wrapping off the container is effectively
+            // infinitely wide — so a file opened into a view that had been
+            // scrolled arrived showing the middle of its lines, with the
+            // left edge of every one of them cut off. It reads as a
+            // rendering fault rather than a scroll position.
+            textView.setSelectedRange(NSRange(location: 0, length: 0))
+            textView.scroll(.zero)
+            if let scrollView = textView.enclosingScrollView {
+                scrollView.contentView.scroll(to: .zero)
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
         }
 
         func applyAppearance(theme: CodeTheme, configuration: CodeEditorConfiguration) {
@@ -129,10 +168,8 @@ struct CodeTextView: NSViewRepresentable {
             storage.configuration = configuration
 
             textView.font = configuration.font
-            textView.backgroundColor = theme.background
             textView.insertionPointColor = theme.foreground
             textView.textColor = theme.foreground
-            textView.enclosingScrollView?.backgroundColor = theme.background
 
             textView.textContainer?.widthTracksTextView = configuration.wrapsLines
             if configuration.wrapsLines {
@@ -182,6 +219,42 @@ struct CodeTextView: NSViewRepresentable {
 /// key handling in the host has something to attach to — and so a test can
 /// assert it came up in TextKit 2.
 final class CodeNSTextView: NSTextView {
+    /// ⌘S, ⇧⌘S and ⌘W, supplied by the host.
+    ///
+    /// Handled here rather than by a window- or app-level monitor because
+    /// this view is only in the responder chain while it has focus — which
+    /// makes "the editor gets these keys only when the editor is being
+    /// used" a property of where the code lives instead of a condition
+    /// somebody has to remember to check. ⌘W closes a terminal tab
+    /// otherwise, and getting that wrong breaks the app.
+    var onSave: (() -> Void)?
+    var onSaveAll: (() -> Void)?
+    var onCloseTab: (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard modifiers.contains(.command) else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        switch event.charactersIgnoringModifiers?.lowercased() {
+        case "s":
+            if modifiers.contains(.shift) { onSaveAll?() } else { onSave?() }
+            return true
+        case "w":
+            // Only claimed when there is a handler: without one this is
+            // still the terminal's close, and swallowing it would leave a
+            // window nothing can shut.
+            guard let onCloseTab else { break }
+            onCloseTab()
+            return true
+        default:
+            break
+        }
+
+        return super.performKeyEquivalent(with: event)
+    }
+
     /// True when this view is laying out through TextKit 2.
     ///
     /// Exists for the test. The failure it guards against is invisible at

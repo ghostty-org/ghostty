@@ -36,11 +36,7 @@ struct EditorPaneView: View {
                     )
                     Divider()
                 }
-                // Opaque for the same reason: nothing may show through a
-                // strip the text is scrolling past.
-                .background(Color(nsColor: palette.background ?? .textBackgroundColor))
             }
-            .background(Color(nsColor: palette.background ?? .textBackgroundColor))
     }
 
     @ViewBuilder
@@ -49,7 +45,10 @@ struct EditorPaneView: View {
             DocumentView(
                 document: document,
                 theme: theme,
-                configuration: configuration
+                configuration: configuration,
+                onSave: { center.saveSelected() },
+                onSaveAll: { center.saveAll() },
+                onCloseTab: { center.closeSelected() }
             )
             .id(document.id)
         } else {
@@ -80,6 +79,9 @@ private struct DocumentView: View {
     @ObservedObject var document: EditorDocument
     let theme: CodeTheme
     let configuration: CodeEditorConfiguration
+    let onSave: () -> Void
+    let onSaveAll: () -> Void
+    let onCloseTab: () -> Void
 
     @ObservedObject private var palette: ThemePalette = .shared
 
@@ -94,7 +96,10 @@ private struct DocumentView: View {
                 language: document.language,
                 theme: theme,
                 configuration: configuration,
-                onEdit: { document.markEdited() }
+                onEdit: { document.markEdited() },
+                onSave: onSave,
+                onSaveAll: onSaveAll,
+                onCloseTab: onCloseTab
             )
         }
     }

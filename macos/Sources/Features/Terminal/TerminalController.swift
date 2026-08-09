@@ -76,6 +76,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// editor takes over *this* terminal's half of the split.
     let editorCenter = EditorCenter()
     private var editorHostingView: NSView?
+
+    /// The terminal half of the right pane, hidden while the editor has
+    /// the floor.
+    private weak var terminalPaneView: NSView?
     private var editorCancellable: AnyCancellable?
 
     /// Width constraints swapped when the sidebar collapses.
@@ -696,6 +700,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         )
 
         terminalTitlebarFiller?.layer?.backgroundColor = paneColor?.cgColor
+        editorHostingView?.layer?.backgroundColor = paneColor?.cgColor
 
         guard let sidebarBackgroundView else { return }
         sidebarBackgroundView.layer?.backgroundColor = paneColor?.cgColor
@@ -1409,12 +1414,20 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let rightPane = NSView()
         rightPane.translatesAutoresizingMaskIntoConstraints = false
         rightPane.addSubview(terminalContainer)
+        self.terminalPaneView = terminalContainer
 
         let editorHosting = NSHostingView(
             rootView: EditorPaneView(center: editorCenter).interfaceFont()
         )
         editorHosting.translatesAutoresizingMaskIntoConstraints = false
         editorHosting.isHidden = true
+        // Layer-backed and coloured by `syncSidebarBackground`, exactly like
+        // the sidebar pane: the SwiftUI content above it draws nothing of
+        // its own, so the window's opacity and blur reach the editor the
+        // same way they reach everything else. Painting an opaque colour in
+        // SwiftUI instead — which is what this did first — left a solid
+        // slab in the middle of a translucent window.
+        editorHosting.wantsLayer = true
         rightPane.addSubview(editorHosting)
         self.editorHostingView = editorHosting
 
@@ -1424,17 +1437,31 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             terminalContainer.leadingAnchor.constraint(equalTo: rightPane.leadingAnchor),
             terminalContainer.bottomAnchor.constraint(equalTo: rightPane.bottomAnchor),
             terminalContainer.trailingAnchor.constraint(equalTo: rightPane.trailingAnchor),
-            editorHosting.topAnchor.constraint(equalTo: rightPane.safeAreaLayoutGuide.topAnchor),
+            // The terminal container's guide, not the pane's: this view was
+            // inserted between the split view and the terminal, and a plain
+            // `NSView` in that position reports no safe area of its own, so
+            // the editor started at the window's very top and its text
+            // scrolled up into the titlebar.
+            editorHosting.topAnchor.constraint(
+                equalTo: terminalContainer.safeAreaLayoutGuide.topAnchor
+            ),
             editorHosting.leadingAnchor.constraint(equalTo: rightPane.leadingAnchor),
             editorHosting.bottomAnchor.constraint(equalTo: rightPane.bottomAnchor),
             editorHosting.trailingAnchor.constraint(equalTo: rightPane.trailingAnchor),
         ])
 
+        // Both views are toggled, not just the editor. The editor draws no
+        // background of its own — that is what lets the window's blur reach
+        // it — so a terminal left visible underneath shows *through* the
+        // code, and the shell's last output reads as garbage mixed into the
+        // file. Hidden, never removed: the shell and its scrollback have to
+        // survive being covered.
         editorCancellable = editorCenter.$tabs
             .map(\.isEmpty)
             .removeDuplicates()
             .sink { [weak self] isEmpty in
                 self?.editorHostingView?.isHidden = isEmpty
+                self?.terminalPaneView?.isHidden = !isEmpty
             }
 
         let splitView = SidebarSplitView()
