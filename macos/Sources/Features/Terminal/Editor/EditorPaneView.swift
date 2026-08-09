@@ -18,29 +18,43 @@ struct EditorPaneView: View {
     @AppStorage(EditorSettings.tabWidthKey) private var tabWidth = EditorSettings.defaultTabWidth
 
     var body: some View {
-        VStack(spacing: 0) {
-            EditorTabBar(
-                tabs: center.tabs.tabs,
-                selection: center.tabs.selection,
-                needsDirectory: { center.tabs.needsDirectory(for: $0) },
-                onSelect: { center.select($0) },
-                onClose: { center.close($0) }
-            )
-
-            Divider()
-
-            if let document = center.selectedDocument {
-                DocumentView(
-                    document: document,
-                    theme: theme,
-                    configuration: configuration
-                )
-                .id(document.id)
-            } else {
-                Color.clear
+        content
+            // A `safeAreaInset` rather than a `VStack`, so the tab bar's
+            // height is *reserved* instead of merely drawn above the text.
+            // Stacked, the text view kept its full height and scrolled
+            // underneath the bar — the first lines of every file sat behind
+            // it, and the bar's transparency made that read as a rendering
+            // fault rather than a layout one.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(spacing: 0) {
+                    EditorTabBar(
+                        tabs: center.tabs.tabs,
+                        selection: center.tabs.selection,
+                        needsDirectory: { center.tabs.needsDirectory(for: $0) },
+                        onSelect: { center.select($0) },
+                        onClose: { center.close($0) }
+                    )
+                    Divider()
+                }
+                // Opaque for the same reason: nothing may show through a
+                // strip the text is scrolling past.
+                .background(Color(nsColor: palette.background ?? .textBackgroundColor))
             }
+            .background(Color(nsColor: palette.background ?? .textBackgroundColor))
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let document = center.selectedDocument {
+            DocumentView(
+                document: document,
+                theme: theme,
+                configuration: configuration
+            )
+            .id(document.id)
+        } else {
+            Color.clear
         }
-        .background(Color(nsColor: palette.background ?? .textBackgroundColor))
     }
 
     /// The terminal's palette, translated for the editor.

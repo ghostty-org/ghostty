@@ -88,16 +88,12 @@ struct EditorEngineBoundaryTests {
     /// AppKit and Foundation are the floor a text engine stands on; SwiftUI
     /// is allowed for the view wrapper.
     ///
-    /// `SwiftTreeSitter` is on the list because the extracted package would
-    /// declare it too — it is the engine's own dependency, not a thread
-    /// back to Phantom. Anything *not* here is a dependency somebody would
-    /// have to justify at extraction time, which is the moment this test
-    /// exists to make loud.
+    /// Anything *not* here is a dependency somebody would have to justify
+    /// at extraction time, which is the moment this test exists to make
+    /// loud. Tree-sitter will earn its place on this list when it lands;
+    /// until then the engine carries nothing.
     @Test func theEngineImportsOnlyItsOwnDependencies() throws {
-        let allowed: Set<String> = [
-            "Foundation", "AppKit", "SwiftUI", "CoreText", "os",
-            "SwiftTreeSitter", "SwiftTreeSitterLayer",
-        ]
+        let allowed: Set<String> = ["Foundation", "AppKit", "SwiftUI", "CoreText", "os"]
 
         for source in try engineSources() {
             let text = try String(contentsOf: source, encoding: .utf8)

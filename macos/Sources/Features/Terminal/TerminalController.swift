@@ -1306,7 +1306,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 self?.newSidebarTabBesideSelection()
             },
             onOpenInEditor: { [weak self] url in
-                self?.editorCenter.open(url)
+                self?.openInEditor(url)
             }
         ).interfaceFont())
         sidebarHosting.translatesAutoresizingMaskIntoConstraints = false
@@ -1522,6 +1522,32 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         sidebarTabManager?.scheduleRefresh()
         controller.sidebarTabManager?.scheduleRefresh()
         return surface
+    }
+
+    /// Opens a file in this window's editor, explaining it when the editor
+    /// can't.
+    ///
+    /// The explanation has to happen here rather than inside the pane: the
+    /// pane is hidden whenever nothing is open, so a refusal shown there
+    /// would be shown *nowhere*. Clicking a `.class` file did exactly that
+    /// — nothing at all happened, which reads as the app being broken
+    /// rather than as an answer.
+    private func openInEditor(_ url: URL) {
+        guard !editorCenter.open(url) else { return }
+        guard let failure = editorCenter.openFailure, let window else { return }
+        editorCenter.openFailure = nil
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = url.lastPathComponent
+        alert.informativeText = failure.verdict.reason ?? "This file can't be opened here."
+        alert.addButton(withTitle: "Open in Another App")
+        alert.addButton(withTitle: "Cancel")
+
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            FileOpener.openInApp(url, window: window)
+        }
     }
 
     /// Opens a terminal directly below the selected one, in whatever group
