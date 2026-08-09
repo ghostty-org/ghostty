@@ -108,4 +108,38 @@ struct GitPanelScopeTests {
         #expect(GitRepoExpansion.isExpanded(manual: true, status: status(clean: true)))
         #expect(GitRepoExpansion.isExpanded(manual: true, status: nil))
     }
+
+    // MARK: Dividers
+
+    @Test func nothingIsDrawnAboveTheFirstSection() {
+        #expect(!GitRepoExpansion.needsDivider(above: 0, expanded: [true, true]))
+    }
+
+    /// The list of collapsed headers is what the panel looked like before
+    /// sections existed, and it needs no rules through it.
+    @Test func collapsedNeighboursGetNoDivider() {
+        #expect(!GitRepoExpansion.needsDivider(above: 1, expanded: [false, false, false]))
+        #expect(!GitRepoExpansion.needsDivider(above: 2, expanded: [false, false, false]))
+    }
+
+    /// Expanded content runs straight into the next header otherwise.
+    @Test func anExpandedSectionIsClosedOffFromWhatFollows() {
+        #expect(GitRepoExpansion.needsDivider(above: 1, expanded: [true, false]))
+    }
+
+    /// And gets a line above it too, so it isn't fenced on one side only.
+    @Test func anExpandedSectionIsSeparatedFromWhatPrecedesIt() {
+        #expect(GitRepoExpansion.needsDivider(above: 1, expanded: [false, true]))
+    }
+
+    @Test func everySectionExpandedMeansALineBetweenEachPair() {
+        let expanded = [true, true, true]
+        #expect(GitRepoExpansion.needsDivider(above: 1, expanded: expanded))
+        #expect(GitRepoExpansion.needsDivider(above: 2, expanded: expanded))
+    }
+
+    @Test func anIndexPastTheEndIsNotADivider() {
+        #expect(!GitRepoExpansion.needsDivider(above: 5, expanded: [true, true]))
+        #expect(!GitRepoExpansion.needsDivider(above: 1, expanded: []))
+    }
 }

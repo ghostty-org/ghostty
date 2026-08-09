@@ -114,7 +114,13 @@ struct GitPanelView: View {
     private func workspaceList(_ repos: [String]) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 4) {
-                ForEach(repos, id: \.self) { repo in
+                ForEach(Array(repos.enumerated()), id: \.element) { index, repo in
+                    if needsDivider(above: index, in: repos) {
+                        Divider()
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                    }
+
                     repoView(repo, style: .section(
                         name: (repo as NSString).lastPathComponent,
                         isExpanded: isExpanded(repo),
@@ -125,6 +131,10 @@ struct GitPanelView: View {
             .padding(.vertical, 6)
         }
         .scrollIndicators(.hidden)
+    }
+
+    private func needsDivider(above index: Int, in repos: [String]) -> Bool {
+        GitRepoExpansion.needsDivider(above: index, expanded: repos.map(isExpanded))
     }
 
     // MARK: States

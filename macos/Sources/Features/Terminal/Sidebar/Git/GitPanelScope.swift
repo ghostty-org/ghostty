@@ -75,4 +75,18 @@ enum GitRepoExpansion {
         guard let status else { return false }
         return !status.isClean
     }
+
+    /// Whether a rule is drawn above the section at `index`.
+    ///
+    /// Only around a section that is open: expanded content runs straight
+    /// into the next header with nothing to say it ended. Two collapsed
+    /// sections in a row need no line — stacked headers already read as a
+    /// list, which is exactly how they looked before any of this existed.
+    ///
+    /// Taking both neighbours into account is what keeps an expanded
+    /// section from getting a line on one side only.
+    static func needsDivider(above index: Int, expanded: [Bool]) -> Bool {
+        guard index > 0, index < expanded.count else { return false }
+        return expanded[index - 1] || expanded[index]
+    }
 }
