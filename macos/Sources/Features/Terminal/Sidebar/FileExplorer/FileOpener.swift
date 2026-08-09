@@ -126,6 +126,7 @@ enum FileOpener {
         let store = SidebarGroupStore.shared
         var override = store.tabOverrides[surface.id] ?? SidebarGroupStore.TabOverride()
         override.name = tabName(for: url)
+        override.fileName = tabName(for: url)
         store.setTabOverride(surfaceId: surface.id, override)
     }
 

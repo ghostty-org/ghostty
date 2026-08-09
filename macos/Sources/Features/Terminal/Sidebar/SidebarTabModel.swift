@@ -28,6 +28,10 @@ final class SidebarTabModel: ObservableObject, Identifiable {
     /// running anywhere below it.
     @Published private(set) var foregroundPID: Int?
 
+    /// The executable name of that process — `vim`, `node`, or the shell
+    /// itself when the terminal is sitting at a prompt.
+    @Published private(set) var foregroundName: String?
+
     /// The port a dev server in this tab is listening on, if any.
     @Published private(set) var devServerPort: Int?
 
@@ -81,8 +85,15 @@ final class SidebarTabModel: ObservableObject, Identifiable {
         if self.prURL != prURL { self.prURL = prURL }
     }
 
+    /// Resolves the process name alongside the pid, so the sidebar can say
+    /// *what* a terminal is running rather than only that something is.
+    ///
+    /// Only looked up when the pid actually changes: the name comes from a
+    /// syscall, and this is called on every metadata refresh.
     func setForegroundPID(_ value: Int?) {
-        if foregroundPID != value { foregroundPID = value }
+        guard foregroundPID != value else { return }
+        foregroundPID = value
+        foregroundName = value.flatMap(TerminalIdleCheck.processName)
     }
 
     func setDevServerPort(_ value: Int?) {

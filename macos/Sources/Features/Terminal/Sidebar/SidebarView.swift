@@ -1043,6 +1043,10 @@ private struct SidebarTabRow: View {
     @ObservedObject var dragState: SidebarDragState
     @ObservedObject private var themePalette: ThemePalette = .shared
 
+    /// Observed so a tab's file icon follows a theme change live, the same
+    /// as the explorer's and the Git panel's.
+    @ObservedObject private var icons: FileIconProvider = .shared
+
     @State private var isHovered = false
     @State private var isCreatingGroup = false
     @State private var isCustomizing = false
@@ -1070,11 +1074,31 @@ private struct SidebarTabRow: View {
         return tab.title.isEmpty ? "Terminal" : tab.title
     }
 
+    /// The program holding a file open, for the tabs that were opened for
+    /// one.
+    ///
+    /// Read from the terminal's foreground process rather than from the
+    /// editor we asked for. `$EDITOR` is resolved by the user's shell, so
+    /// the command sent was `${EDITOR:-vim}` and only the shell knows what
+    /// that became — and this way the chip is right for a `nano` opened by
+    /// hand, and goes away by itself the moment the editor is quit.
+    private var editorName: String? {
+        guard let file = override?.fileName, !file.isEmpty else { return nil }
+        guard let name = tab.foregroundName, !TerminalIdleCheck.isShell(name) else { return nil }
+        return name
+    }
+
     var body: some View {
         HStack(spacing: 6) {
+            // A tab opened for a file wears that file's icon, from whichever
+            // icon theme is active — the same artwork the explorer and the
+            // Git panel show it with, so the three read as one thing. A hand
+            // -picked icon still wins: it was chosen on purpose.
             if let icon = override?.icon, !icon.isEmpty {
                 SidebarGroupIcon(icon: icon, size: 13)
                     .foregroundStyle(.secondary)
+            } else if let file = override?.fileName, !file.isEmpty {
+                FileIconView(icon: icons.icon(forFile: file), size: 14)
             }
 
             if let accent = override?.accentColor {
@@ -1092,6 +1116,10 @@ private struct SidebarTabRow: View {
                     .lineLimit(1)
 
                 HStack(spacing: 4) {
+                    if let editor = editorName {
+                        metaChip(icon: "square.and.pencil", text: editor)
+                    }
+
                     if showDirectory, let dir = tab.directoryName {
                         metaChip(text: dir)
                     }

@@ -78,4 +78,17 @@ struct TerminalIdleCheckTests {
     @Test func aRealProcessIsInspected() {
         #expect(!TerminalIdleCheck.isIdle(foregroundPID: Int(ProcessInfo.processInfo.processIdentifier)))
     }
+
+    /// The sidebar reads the same lookup to label a tab with whatever is
+    /// holding a file open, so it has to return a real name rather than
+    /// only a yes/no.
+    @Test func theProcessNameIsAvailableToTheSidebar() {
+        let name = TerminalIdleCheck.processName(Int(ProcessInfo.processInfo.processIdentifier))
+        #expect(name != nil)
+        #expect(!(name ?? "").isEmpty)
+    }
+
+    @Test func anImpossiblePIDHasNoName() {
+        #expect(TerminalIdleCheck.processName(0) == nil)
+    }
 }

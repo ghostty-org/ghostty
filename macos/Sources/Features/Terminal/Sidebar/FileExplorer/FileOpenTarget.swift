@@ -61,8 +61,17 @@ enum TerminalIdleCheck {
         shells.contains(name)
     }
 
-    private static func processName(_ pid: Int) -> String? {
-        var buffer = [CChar](repeating: 0, count: Int(MAXCOMLEN) + 1)
+    /// The executable name behind a pid. Shared with the sidebar, which
+    /// uses it to say *what* a terminal is running.
+    ///
+    /// The buffer has to hold `2 * MAXCOMLEN`, not `MAXCOMLEN`: `proc_name`
+    /// copies out of `proc_bsdinfo.pbi_name`, which is that size, and it
+    /// refuses outright — returning 0, not a truncated name — when handed
+    /// anything smaller. Sized at `MAXCOMLEN` this never returned a name at
+    /// all, which made every terminal look busy and quietly disabled the
+    /// reuse setting.
+    static func processName(_ pid: Int) -> String? {
+        var buffer = [CChar](repeating: 0, count: 2 * Int(MAXCOMLEN) + 1)
         let written = proc_name(Int32(pid), &buffer, UInt32(buffer.count))
         guard written > 0 else { return nil }
         return String(cString: buffer)

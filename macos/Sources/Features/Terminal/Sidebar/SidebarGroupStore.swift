@@ -29,10 +29,19 @@ final class SidebarGroupStore: ObservableObject {
         /// A theme-palette (or otherwise custom) color; wins over `color`.
         var colorHex: String?
 
+        /// The file this terminal was opened for, when a panel opened it.
+        ///
+        /// Kept as well as `name` — which is set to the same thing — because
+        /// the two answer different questions: `name` is what the tab is
+        /// called and the user may retype it, while this is what the tab is
+        /// *showing*, and it is what picks the file-type icon.
+        var fileName: String?
+
         var isEmpty: Bool {
             (name?.isEmpty ?? true) && (icon?.isEmpty ?? true)
                 && (color ?? .none) == .none
                 && (colorHex?.isEmpty ?? true)
+                && (fileName?.isEmpty ?? true)
         }
 
         var accentColor: Color? {
