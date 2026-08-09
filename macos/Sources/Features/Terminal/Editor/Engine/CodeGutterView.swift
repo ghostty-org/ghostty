@@ -25,6 +25,14 @@ final class CodeGutterView: NSView {
         }
     }
 
+    /// Top-left origin, like the text view it sits beside.
+    ///
+    /// `NSView` is bottom-left by default while `NSTextView` is flipped, so
+    /// without this the two disagree about which way `y` grows — and the
+    /// line numbers came out counting *down* the file, ending at 1 on the
+    /// last visible row.
+    override var isFlipped: Bool { true }
+
     private weak var textView: NSTextView?
     private weak var scrollView: NSScrollView?
 

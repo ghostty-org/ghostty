@@ -1394,6 +1394,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let rightPane = NSView()
         rightPane.translatesAutoresizingMaskIntoConstraints = false
 
+        // The terminal joins first, before anything constrains itself to
+        // it. Activating a constraint between two views with no common
+        // ancestor raises, and raising here leaves the app running with no
+        // window at all — it appears in the Dock and never shows itself.
+        rightPane.addSubview(terminalContainer)
+        self.terminalPaneView = terminalContainer
+
         let titlebarFiller = NSView()
         titlebarFiller.translatesAutoresizingMaskIntoConstraints = false
         titlebarFiller.wantsLayer = true
@@ -1418,9 +1425,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             ),
         ])
         self.terminalTitlebarFiller = titlebarFiller
-
-        rightPane.addSubview(terminalContainer)
-        self.terminalPaneView = terminalContainer
 
         let editorHosting = NSHostingView(
             rootView: EditorPaneView(center: editorCenter).interfaceFont()
