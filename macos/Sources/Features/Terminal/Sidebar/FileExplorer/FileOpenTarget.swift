@@ -1,6 +1,43 @@
 import Darwin
 import Foundation
 
+/// What a click on a file in a panel does.
+///
+/// The dialog stays reachable from the context menu as "Open With…", so
+/// choosing a default here removes a click from the common path without
+/// taking the other options away.
+enum FileOpenAction: String, CaseIterable, Identifiable {
+    /// Phantom's own editor, in the terminal's pane.
+    case builtInEditor
+
+    /// `$EDITOR` in a terminal — what this did before the editor existed.
+    case terminalEditor
+
+    /// Hand it to a GUI app.
+    case externalApp
+
+    /// Show the three-way dialog every time.
+    case ask
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .builtInEditor: return "Open in Phantom's Editor"
+        case .terminalEditor: return "Open in the Terminal"
+        case .externalApp: return "Open in Another App"
+        case .ask: return "Ask Every Time"
+        }
+    }
+
+    static let defaultsKey = "FileClickAction"
+
+    static var current: FileOpenAction {
+        UserDefaults.standard.string(forKey: defaultsKey)
+            .flatMap(FileOpenAction.init(rawValue:)) ?? .builtInEditor
+    }
+}
+
 /// Where a file picked in a panel gets opened.
 enum FileOpenTarget: String, CaseIterable, Identifiable {
     /// Reuse the selected terminal when it is sitting at a prompt, and

@@ -467,6 +467,8 @@
 			name = Ghostty;
 			packageProductDependencies = (
 				A51BFC262B30F1B800E92F16 /* Sparkle */,
+				PH01TS00000000000000010 /* SwiftTreeSitter */,
+				PH01TS00000000000000011 /* SwiftTreeSitterLayer */,
 			);
 			productName = Ghostty;
 			productReference = A5B30531299BEAAA0047F10C /* Ghostty.app */;
@@ -533,6 +535,7 @@
 			mainGroup = A5B30528299BEAAA0047F10C;
 			packageReferences = (
 				A51BFC252B30F1B700E92F16 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				PH01TS00000000000000001 /* XCRemoteSwiftPackageReference "SwiftTreeSitter" */,
 			);
 			productRefGroup = A5B30532299BEAAA0047F10C /* Products */;
 			projectDirPath = "";
@@ -1444,6 +1447,14 @@
 				minimumVersion = 2.5.1;
 			};
 		};
+		PH01TS00000000000000001 /* XCRemoteSwiftPackageReference "SwiftTreeSitter" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ChimeHQ/SwiftTreeSitter";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.25.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1451,6 +1462,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A51BFC252B30F1B700E92F16 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		PH01TS00000000000000010 /* SwiftTreeSitter */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = PH01TS00000000000000001 /* XCRemoteSwiftPackageReference "SwiftTreeSitter" */;
+			productName = SwiftTreeSitter;
+		};
+		PH01TS00000000000000011 /* SwiftTreeSitterLayer */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = PH01TS00000000000000001 /* XCRemoteSwiftPackageReference "SwiftTreeSitter" */;
+			productName = SwiftTreeSitterLayer;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

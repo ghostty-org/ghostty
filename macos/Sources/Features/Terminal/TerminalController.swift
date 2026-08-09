@@ -72,6 +72,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private var sidebarLayout: SidebarLayoutModel?
     private var sidebarLayoutCancellable: AnyCancellable?
 
+    /// The files open in this window's pane. One per window, because the
+    /// editor takes over *this* terminal's half of the split.
+    let editorCenter = EditorCenter()
+    private var editorHostingView: NSView?
+    private var editorCancellable: AnyCancellable?
+
     /// Width constraints swapped when the sidebar collapses.
     private var sidebarExpandedConstraints: [NSLayoutConstraint] = []
     private var sidebarCollapsedConstraint: NSLayoutConstraint?
@@ -1298,6 +1304,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             },
             onSpawnTerminalBesideSelection: { [weak self] in
                 self?.newSidebarTabBesideSelection()
+            },
+            onOpenInEditor: { [weak self] url in
+                self?.editorCenter.open(url)
             }
         ).interfaceFont())
         sidebarHosting.translatesAutoresizingMaskIntoConstraints = false
@@ -1393,11 +1402,46 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         ])
         self.terminalTitlebarFiller = titlebarFiller
 
+        // The right side holds the terminal and the editor stacked, and
+        // shows one of them. Hiding rather than replacing is deliberate:
+        // the shell and its scrollback have to survive opening a file and
+        // closing it again, so the terminal view is never torn down.
+        let rightPane = NSView()
+        rightPane.translatesAutoresizingMaskIntoConstraints = false
+        rightPane.addSubview(terminalContainer)
+
+        let editorHosting = NSHostingView(
+            rootView: EditorPaneView(center: editorCenter).interfaceFont()
+        )
+        editorHosting.translatesAutoresizingMaskIntoConstraints = false
+        editorHosting.isHidden = true
+        rightPane.addSubview(editorHosting)
+        self.editorHostingView = editorHosting
+
+        terminalContainer.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            terminalContainer.topAnchor.constraint(equalTo: rightPane.topAnchor),
+            terminalContainer.leadingAnchor.constraint(equalTo: rightPane.leadingAnchor),
+            terminalContainer.bottomAnchor.constraint(equalTo: rightPane.bottomAnchor),
+            terminalContainer.trailingAnchor.constraint(equalTo: rightPane.trailingAnchor),
+            editorHosting.topAnchor.constraint(equalTo: rightPane.safeAreaLayoutGuide.topAnchor),
+            editorHosting.leadingAnchor.constraint(equalTo: rightPane.leadingAnchor),
+            editorHosting.bottomAnchor.constraint(equalTo: rightPane.bottomAnchor),
+            editorHosting.trailingAnchor.constraint(equalTo: rightPane.trailingAnchor),
+        ])
+
+        editorCancellable = editorCenter.$tabs
+            .map(\.isEmpty)
+            .removeDuplicates()
+            .sink { [weak self] isEmpty in
+                self?.editorHostingView?.isHidden = isEmpty
+            }
+
         let splitView = SidebarSplitView()
         splitView.isVertical = true
         splitView.dividerStyle = .thin
         splitView.addArrangedSubview(sidebarPane)
-        splitView.addArrangedSubview(terminalContainer)
+        splitView.addArrangedSubview(rightPane)
         splitView.setHoldingPriority(.defaultLow + 1, forSubviewAt: 0)
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
         splitView.delegate = self

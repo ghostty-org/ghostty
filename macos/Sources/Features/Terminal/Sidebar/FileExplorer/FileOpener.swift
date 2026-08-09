@@ -46,8 +46,23 @@ enum FileOpener {
         for url: URL,
         in window: NSWindow?,
         currentTerminal: Ghostty.SurfaceView? = nil,
-        spawnTerminal: @escaping () -> Ghostty.SurfaceView?
+        spawnTerminal: @escaping () -> Ghostty.SurfaceView?,
+        openInEditor: ((URL) -> Void)? = nil
     ) {
+        switch FileOpenAction.current {
+        case .builtInEditor where openInEditor != nil:
+            openInEditor?(url)
+            return
+        case .terminalEditor:
+            openInTerminal(url, current: currentTerminal, spawn: spawnTerminal)
+            return
+        case .externalApp:
+            openInApp(url, window: window)
+            return
+        case .builtInEditor, .ask:
+            break
+        }
+
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = url.lastPathComponent

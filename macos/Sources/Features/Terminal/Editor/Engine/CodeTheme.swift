@@ -1,0 +1,88 @@
+import AppKit
+
+/// What the highlighter recognizes.
+///
+/// Deliberately small. These are the distinctions a terminal palette can
+/// actually express — sixteen colors, of which a handful read as different
+/// at a glance — so a richer set would be invented precision that nothing
+/// downstream could show.
+enum TokenKind: String, CaseIterable, Equatable, Sendable {
+    case plain
+    case keyword
+    case string
+    case comment
+    case number
+    case type
+    case function
+    case attribute
+    case punctuation
+}
+
+/// The colors a code view paints with.
+///
+/// A plain value on purpose: the engine must never reach for the app's
+/// theme singleton. The host builds one of these from whatever it calls a
+/// theme and hands it over, which is what lets this whole directory move
+/// into a package later without dragging Phantom behind it.
+struct CodeTheme: Equatable {
+    var foreground: NSColor
+    var background: NSColor
+    var tokens: [TokenKind: NSColor]
+
+    /// The gutter's digits, and the rule between gutter and text.
+    var lineNumber: NSColor
+    var currentLineNumber: NSColor
+    var currentLineBackground: NSColor?
+
+    func color(for kind: TokenKind) -> NSColor {
+        tokens[kind] ?? foreground
+    }
+
+    /// A neutral theme, used before a host supplies one and by the tests.
+    static var fallback: CodeTheme {
+        CodeTheme(
+            foreground: .textColor,
+            background: .textBackgroundColor,
+            tokens: [
+                .keyword: .systemPurple,
+                .string: .systemGreen,
+                .comment: .secondaryLabelColor,
+                .number: .systemOrange,
+                .type: .systemTeal,
+                .function: .systemBlue,
+                .attribute: .systemPink,
+                .punctuation: .secondaryLabelColor,
+            ],
+            lineNumber: .tertiaryLabelColor,
+            currentLineNumber: .secondaryLabelColor,
+            currentLineBackground: nil
+        )
+    }
+}
+
+/// How the code view behaves: everything a preferences screen would drive.
+///
+/// Also a value, for the same reason as `CodeTheme` — the engine reads no
+/// `UserDefaults` of its own.
+struct CodeEditorConfiguration: Equatable {
+    var font: NSFont
+    var showsLineNumbers: Bool
+    var wrapsLines: Bool
+
+    /// Spaces a tab is drawn as. Only affects display; what gets typed is
+    /// decided by `insertsSpacesForTab`.
+    var tabWidth: Int
+    var insertsSpacesForTab: Bool
+    var highlightsCurrentLine: Bool
+
+    static var `default`: CodeEditorConfiguration {
+        CodeEditorConfiguration(
+            font: .monospacedSystemFont(ofSize: 12, weight: .regular),
+            showsLineNumbers: true,
+            wrapsLines: false,
+            tabWidth: 4,
+            insertsSpacesForTab: true,
+            highlightsCurrentLine: true
+        )
+    }
+}
