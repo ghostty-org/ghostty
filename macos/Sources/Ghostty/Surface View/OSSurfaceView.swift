@@ -127,7 +127,12 @@ extension Ghostty.OSSurfaceView {
         @Published var total: UInt?
 
         /// The range of the needle's text selection in the find bar.
-        @Published private(set) var needleSelection: Range<String.Index>?
+        ///
+        /// This intentionally isn't published. SwiftUI updates this binding
+        /// synchronously while its text field is processing an edit. Publishing
+        /// from that callback re-enters the view update and can apply a stale
+        /// String.Index range to the newly edited needle.
+        private(set) var needleSelection: Range<String.Index>?
 
         init(
             from startSearch: Ghostty.Action.StartSearch,
@@ -144,14 +149,22 @@ extension Ghostty.OSSurfaceView {
 
         /// Replaces the search needle while keeping its selection valid.
         func setNeedle(_ needle: String, selectAll: Bool = false) {
-            if needle != self.needle {
+            let needleChanged = needle != self.needle
+            if needleChanged {
                 // String.Index values are only valid for the string that created
-                // them, so publish a nil selection before changing the string.
+                // them, so clear the selection before changing the string.
                 needleSelection = nil
                 self.needle = needle
             }
 
             if selectAll {
+                // A changed needle already schedules a view update through its
+                // @Published setter. If only the selection changes, schedule the
+                // update explicitly so programmatic select-all still takes effect.
+                if !needleChanged {
+                    objectWillChange.send()
+                }
+
                 needleSelection = self.needle.startIndex..<self.needle.endIndex
             }
         }
