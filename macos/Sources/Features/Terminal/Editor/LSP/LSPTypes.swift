@@ -59,6 +59,10 @@ struct LSPRange: Equatable, Hashable {
 enum LSPTextCoordinates {
     /// Byte-free line starts: each entry is the UTF-16 offset where that
     /// zero-based line begins.
+    ///
+    /// Walking the whole document, so anything converting more than one
+    /// position should build an `LSPLineIndex` once instead of calling the
+    /// helpers below in a loop.
     static func lineStarts(in text: NSString) -> [Int] {
         var starts = [0]
         text.enumerateSubstrings(
@@ -72,26 +76,57 @@ enum LSPTextCoordinates {
     }
 
     static func offset(of position: LSPPosition, in text: NSString) -> Int? {
-        let starts = lineStarts(in: text)
-        guard position.line >= 0, position.line < starts.count else { return nil }
-        let offset = starts[position.line] + position.character
-        return min(offset, text.length)
+        LSPLineIndex(text).offset(of: position)
     }
 
     static func position(at offset: Int, in text: NSString) -> LSPPosition {
-        let starts = lineStarts(in: text)
-        let clamped = max(0, min(offset, text.length))
-
-        var line = 0
-        for (index, start) in starts.enumerated() where start <= clamped {
-            line = index
-        }
-        return LSPPosition(line: line, character: clamped - starts[line])
+        LSPLineIndex(text).position(at: offset)
     }
 
     static func range(of range: LSPRange, in text: NSString) -> NSRange? {
-        guard let start = offset(of: range.start, in: text),
-              let end = offset(of: range.end, in: text),
+        LSPLineIndex(text).range(of: range)
+    }
+}
+
+/// The line starts of one document, computed once.
+///
+/// The helpers above each walk the whole document to answer a single
+/// question, which is fine for one conversion and quadratic for a batch —
+/// and a batch is the normal case: a file with sixty diagnostics was
+/// scanning itself sixty times, on the main thread, every time SwiftUI
+/// re-evaluated the view. Build this once and ask it repeatedly.
+struct LSPLineIndex {
+    private let starts: [Int]
+    private let length: Int
+
+    init(_ text: NSString) {
+        self.starts = LSPTextCoordinates.lineStarts(in: text)
+        self.length = text.length
+    }
+
+    func offset(of position: LSPPosition) -> Int? {
+        guard position.line >= 0, position.line < starts.count else { return nil }
+        return min(starts[position.line] + position.character, length)
+    }
+
+    func position(at offset: Int) -> LSPPosition {
+        let clamped = max(0, min(offset, length))
+
+        // Binary search rather than a scan: this is asked once per hover and
+        // once per click, but on a document with a hundred thousand lines a
+        // linear walk is felt.
+        var low = 0
+        var high = starts.count - 1
+        while low < high {
+            let middle = (low + high + 1) / 2
+            if starts[middle] <= clamped { low = middle } else { high = middle - 1 }
+        }
+        return LSPPosition(line: low, character: clamped - starts[low])
+    }
+
+    func range(of range: LSPRange) -> NSRange? {
+        guard let start = offset(of: range.start),
+              let end = offset(of: range.end),
               end >= start
         else { return nil }
         return NSRange(location: start, length: end - start)
@@ -183,8 +218,11 @@ struct LSPTextEdit: Equatable {
     /// them in any order at all.
     static func apply(_ edits: [LSPTextEdit], to text: String) -> String {
         let ns = NSMutableString(string: text)
+        // One index for the whole batch: the ranges all refer to the
+        // original text, so they can share it.
+        let index = LSPLineIndex(ns)
         let ordered = edits.compactMap { edit -> (NSRange, String)? in
-            guard let range = LSPTextCoordinates.range(of: edit.range, in: ns) else { return nil }
+            guard let range = index.range(of: edit.range) else { return nil }
             return (range, edit.newText)
         }
         .sorted { $0.0.location > $1.0.location }

@@ -33,6 +33,10 @@ enum CodeLanguage: String, CaseIterable, Equatable, Sendable {
         "js": .javascript, "jsx": .javascript, "mjs": .javascript, "cjs": .javascript,
         "vue": .javascript, "svelte": .javascript,
         "swift": .swift,
+        // A module's public interface, which is what go-to-definition lands
+        // in when the symbol lives in a framework rather than in your code.
+        // It is Swift, and without this line it arrived as plain text.
+        "swiftinterface": .swift,
         "kt": .kotlin, "kts": .kotlin, "java": .kotlin,
         "rs": .rust,
         "go": .go,

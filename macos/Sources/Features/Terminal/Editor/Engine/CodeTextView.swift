@@ -116,17 +116,20 @@ struct CodeTextView: NSViewRepresentable {
         let minimap = CodeMinimapView(theme: theme, scrollView: scrollView)
         minimap.translatesAutoresizingMaskIntoConstraints = false
         minimap.isHidden = !showsMinimap
-        minimap.onSelectLine = { [weak textView] line in
-            guard let textView else { return }
-            let ns = textView.string as NSString
-            var location = 0
-            var current = 1
-            while current < line, location < ns.length {
-                location = NSMaxRange(ns.lineRange(for: NSRange(location: location, length: 0)))
-                current += 1
-            }
-            textView.setSelectedRange(NSRange(location: min(location, ns.length), length: 0))
-            textView.scrollRangeToVisible(textView.selectedRange())
+        // Scrolls, and only scrolls. The selection is the reader's, not the
+        // map's — and this also drops a walk over every line of the document
+        // that used to run on each event of a drag.
+        minimap.onScrollToFraction = { [weak scrollView] fraction in
+            guard let scrollView, let document = scrollView.documentView else { return }
+            scrollView.contentView.scroll(to: NSPoint(
+                x: scrollView.contentView.bounds.minX,
+                y: Coordinator.scrollTarget(
+                    fraction: fraction,
+                    documentHeight: document.frame.height,
+                    visibleHeight: scrollView.contentView.bounds.height
+                )
+            ))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
         }
 
         let container = NSView()
@@ -177,6 +180,17 @@ struct CodeTextView: NSViewRepresentable {
 
         context.coordinator.textView = textView
         context.coordinator.gutter = gutter
+
+        // The gutter and the minimap already listen to this; the coordinator
+        // needs it too, to colour a large document as it is scrolled into.
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.scrolled),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
+
         context.coordinator.apply(text: text)
         context.coordinator.applyAppearance(theme: theme, configuration: configuration)
 
@@ -238,6 +252,24 @@ struct CodeTextView: NSViewRepresentable {
         /// something unrelated doesn't drag the view back there.
         private var lastRevealID: String?
 
+        /// The pending minimap rebuild. See `scheduleMinimapRefresh`.
+        private var minimapTask: Task<Void, Never>?
+
+        /// Whether this document is too big to colour in one go.
+        ///
+        /// Highlighting is one regex pass over everything it is given, and
+        /// on a generated module interface — tens of thousands of lines,
+        /// which is precisely where go-to-definition lands — that pass is
+        /// the pause between clicking and seeing the file. Past this size
+        /// only what you are looking at is coloured, and the rest follows as
+        /// you scroll to it.
+        private var highlightsOnDemand = false
+        private var highlightTask: Task<Void, Never>?
+
+        /// Around a quarter of a megabyte: comfortably above any file a
+        /// person wrote by hand, and well below the generated ones.
+        private static let wholeDocumentBudget = 256 * 1024
+
         /// The underlines currently drawn, so an update that changed
         /// something else doesn't walk the whole document to redraw marks
         /// that haven't moved.
@@ -248,15 +280,29 @@ struct CodeTextView: NSViewRepresentable {
             self.onEdit = onEdit
         }
 
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
         func apply(text: String) {
             guard let textView, let textStorage = textView.textStorage else { return }
             isApplyingExternalText = true
             defer { isApplyingExternalText = false }
 
             textStorage.setAttributedString(NSAttributedString(string: text))
-            storage.highlight(textStorage, in: NSRange(location: 0, length: textStorage.length))
+
+            highlightsOnDemand = textStorage.length > Self.wholeDocumentBudget
+            if highlightsOnDemand {
+                highlightVisibleRegion()
+            } else {
+                storage.highlight(
+                    textStorage,
+                    in: NSRange(location: 0, length: textStorage.length)
+                )
+            }
+
             gutter?.reload()
-            refreshMinimap()
+            scheduleMinimapRefresh()
 
             // Put the view back at the start of the document.
             //
@@ -279,6 +325,87 @@ struct CodeTextView: NSViewRepresentable {
             // twice costs nothing when the first one already worked.
             DispatchQueue.main.async { [weak self] in
                 self?.scrollToOrigin()
+            }
+        }
+
+        /// Where to scroll so a fraction of the document sits in the middle
+        /// of the viewport.
+        ///
+        /// Centred, because the pointer is asking to *look* at that part of
+        /// the file, and clamped so dragging to either end of the map stops
+        /// at the ends of the document instead of overscrolling into blank
+        /// space.
+        static func scrollTarget(
+            fraction: CGFloat,
+            documentHeight: CGFloat,
+            visibleHeight: CGFloat
+        ) -> CGFloat {
+            let scrollable = max(0, documentHeight - visibleHeight)
+            let centred = fraction * documentHeight - visibleHeight / 2
+            return min(scrollable, max(0, centred))
+        }
+
+        /// Colours what is on screen, plus a margin either side.
+        ///
+        /// The margin is what makes scrolling look continuous rather than
+        /// like colour arriving behind the text.
+        func highlightVisibleRegion() {
+            guard let textView,
+                  let textStorage = textView.textStorage,
+                  let scrollView = textView.enclosingScrollView
+            else { return }
+
+            let visible = scrollView.contentView.bounds
+            guard visible.height > 0 else { return }
+
+            let top = textView.characterIndexForInsertion(
+                at: NSPoint(x: 0, y: visible.minY)
+            )
+            let bottom = textView.characterIndexForInsertion(
+                at: NSPoint(x: textView.bounds.width, y: visible.maxY)
+            )
+            let lower = max(0, min(top, bottom))
+            let upper = min(textStorage.length, max(top, bottom))
+            guard upper > lower else { return }
+
+            storage.highlight(
+                textStorage,
+                in: CodeTextStorage.invalidationRange(
+                    for: NSRange(location: lower, length: upper - lower),
+                    in: textStorage.string as NSString
+                )
+            )
+        }
+
+        /// Re-colours after a scroll settles, for a document being coloured
+        /// on demand. Debounced: a flick of the wheel is one destination,
+        /// not forty.
+        @objc func scrolled() {
+            guard highlightsOnDemand else { return }
+            highlightTask?.cancel()
+            highlightTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(60))
+                guard !Task.isCancelled else { return }
+                self?.highlightVisibleRegion()
+            }
+        }
+
+        /// Rebuilds the minimap shortly, rather than now.
+        ///
+        /// The rebuild tokenises the **whole** document — a second full pass
+        /// on top of the one that colours the text. Doing it inline meant
+        /// paying it twice to open a file and once per keystroke, which on a
+        /// fifty-thousand-line generated interface is exactly the pause that
+        /// made going to a definition feel broken. The map is an overview:
+        /// arriving a moment after the text is not a compromise, and while
+        /// you type it only needs to settle when you stop.
+        func scheduleMinimapRefresh() {
+            guard let minimap, !minimap.isHidden else { return }
+            minimapTask?.cancel()
+            minimapTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+                self?.refreshMinimap()
             }
         }
 
@@ -312,6 +439,7 @@ struct CodeTextView: NSViewRepresentable {
 
             textView.setSelectedRange(clipped)
             textView.scrollRangeToVisible(clipped)
+            if highlightsOnDemand { highlightVisibleRegion() }
 
             // Once layout has settled, for the same reason opening a file
             // needs a second scroll: the first runs before the view has the
@@ -425,7 +553,7 @@ struct CodeTextView: NSViewRepresentable {
                 )
             )
             gutter?.reload()
-            refreshMinimap()
+            scheduleMinimapRefresh()
             onEdit()
         }
     }

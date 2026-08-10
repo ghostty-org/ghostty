@@ -156,6 +156,15 @@ private struct DocumentView: View {
     /// reads as the feature being broken.
     @State private var notice: String?
 
+    /// The diagnostics as ranges the engine can draw.
+    ///
+    /// Held rather than computed in `body`: converting them walks the
+    /// document, and `body` runs on every keystroke — so the version that
+    /// looked innocent was scanning the whole file once per diagnostic per
+    /// character typed. They are recomputed when the server speaks, which
+    /// is the only time they actually change.
+    @State private var underlines: [(range: NSRange, color: NSColor)] = []
+
     var body: some View {
         VStack(spacing: 0) {
             if document.hasConflict {
@@ -199,8 +208,14 @@ private struct DocumentView: View {
                 onCloseTab: onCloseTab,
                 onSearchWorkspace: onSearchWorkspace
             )
-            .onAppear { lsp.didOpen(path: document.url.path, text: document.text) }
+            .onAppear {
+                lsp.didOpen(path: document.url.path, text: document.text)
+                refreshUnderlines()
+            }
             .onDisappear { lsp.didClose(path: document.url.path) }
+            .onChange(of: lsp.diagnostics[document.url.path] ?? []) { _ in
+                refreshUnderlines()
+            }
         }
         .sheet(isPresented: Binding(
             get: { renamingAt != nil },
@@ -257,16 +272,22 @@ private struct DocumentView: View {
         rename(at: offset, to: name)
     }
 
-    /// The diagnostics for this file, as ranges the engine can underline.
+    /// Turns the server's diagnostics into ranges the engine can underline.
     ///
     /// Converted here rather than in the engine: the engine is meant to
     /// know nothing about language servers, and a range with a colour is
-    /// the smallest thing that carries the meaning across.
-    private var underlines: [(range: NSRange, color: NSColor)] {
-        let text = document.text as NSString
-        return (lsp.diagnostics[document.url.path] ?? []).compactMap { diagnostic in
-            guard let range = LSPTextCoordinates.range(of: diagnostic.range, in: text),
-                  range.length > 0
+    /// the smallest thing that carries the meaning across. One index for
+    /// the whole batch — they all refer to the same document.
+    private func refreshUnderlines() {
+        let reported = lsp.diagnostics[document.url.path] ?? []
+        guard !reported.isEmpty else {
+            if !underlines.isEmpty { underlines = [] }
+            return
+        }
+
+        let index = LSPLineIndex(document.text as NSString)
+        underlines = reported.compactMap { diagnostic in
+            guard let range = index.range(of: diagnostic.range), range.length > 0
             else { return nil }
 
             let color: NSColor
@@ -377,6 +398,7 @@ private struct DocumentView: View {
                 .font(palette.font(size: 11).monospaced())
                 .textSelection(.enabled)
                 .foregroundStyle(.secondary)
+
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
