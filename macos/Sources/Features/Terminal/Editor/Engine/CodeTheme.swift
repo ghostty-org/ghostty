@@ -38,6 +38,21 @@ struct CodeTheme: Equatable {
         tokens[kind] ?? foreground
     }
 
+    /// The colours brackets cycle through, by nesting depth.
+    ///
+    /// Borrowed from the token colours rather than added to the theme: a
+    /// terminal theme has sixteen colours and no notion of a bracket, so
+    /// inventing three more would mean inventing them out of nothing. These
+    /// three are far enough apart to tell at a glance and are already in the
+    /// palette the reader chose.
+    var bracketColors: [NSColor] {
+        [
+            color(for: .number),
+            color(for: .keyword),
+            color(for: .type),
+        ]
+    }
+
     /// A neutral theme, used before a host supplies one and by the tests.
     static var fallback: CodeTheme {
         CodeTheme(
@@ -75,6 +90,9 @@ struct CodeEditorConfiguration: Equatable {
     var insertsSpacesForTab: Bool
     var highlightsCurrentLine: Bool
 
+    /// Whether brackets are coloured by nesting depth.
+    var colorsBracketPairs: Bool = true
+
     static var `default`: CodeEditorConfiguration {
         CodeEditorConfiguration(
             font: .monospacedSystemFont(ofSize: 12, weight: .regular),
@@ -82,7 +100,8 @@ struct CodeEditorConfiguration: Equatable {
             wrapsLines: false,
             tabWidth: 4,
             insertsSpacesForTab: true,
-            highlightsCurrentLine: true
+            highlightsCurrentLine: true,
+            colorsBracketPairs: true
         )
     }
 }

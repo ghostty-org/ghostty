@@ -48,6 +48,34 @@ final class SidebarLayoutModel: ObservableObject {
 /// The sidebar | terminal split view, with a user-configurable divider:
 /// default system color, hidden, or a custom color.
 final class SidebarSplitView: NSSplitView {
+    /// The pane whose tabs the ⌥⌘ shortcuts move between.
+    ///
+    /// Handled here, and not in `CodeNSTextView`, because that view is only
+    /// in the responder chain while the *editor* has focus — and the whole
+    /// point of the shortcut is to reach a file while you are typing in the
+    /// terminal. This split view is the window's content view, so its
+    /// `performKeyEquivalent` is consulted before the terminal surface sees
+    /// the key.
+    weak var editorCenter: EditorCenter?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let center = editorCenter,
+           let characters = event.charactersIgnoringModifiers,
+           let command = EditorCommands.paneCommand(
+               for: characters,
+               modifiers: event.modifierFlags,
+               hasOpenFiles: !center.tabs.isEmpty
+           ) {
+            switch command {
+            case .toggleTerminal: center.toggleTerminal()
+            case .selectFile(let number): center.selectFile(at: number)
+            }
+            return true
+        }
+
+        return super.performKeyEquivalent(with: event)
+    }
+
     override var dividerColor: NSColor {
         switch AppearanceCoordinator.dividerMode {
         case .hidden: return .clear

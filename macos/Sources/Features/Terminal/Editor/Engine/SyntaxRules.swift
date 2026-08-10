@@ -61,6 +61,46 @@ struct SyntaxRules {
     /// An identifier immediately before `(`.
     static let callBeforeParen = #"\b[a-z_][A-Za-z0-9_]*(?=\s*\()"#
 
+    /// A call, including one whose argument is a *type*.
+    ///
+    /// `defineProps<{ … }>()` is a call, and the version that only looked
+    /// for `(` left it plain — which is most of what a `<script setup>`
+    /// block does. The `<` branch demands the bracket be followed
+    /// immediately by something type-shaped and with **no space**, so a
+    /// comparison like `x < y` doesn't become a function. `x<y` still would;
+    /// that is the documented edge, and nobody writes comparisons that way.
+    static let callBeforeParenOrGeneric =
+        #"\b[a-z_][A-Za-z0-9_]*(?=\s*\(|<[A-Za-z_{\[])"#
+
+    /// TypeScript's primitives.
+    ///
+    /// Lowercase and not keywords, so neither `capitalizedType` nor the word
+    /// list reached them — every `: number` and `: string` in an annotation
+    /// came out as plain text.
+    static let typescriptPrimitives = [
+        "any", "bigint", "boolean", "never", "number", "object", "string",
+        "symbol", "unknown",
+    ]
+
+    /// A property name in an object literal or a type: `label:`.
+    ///
+    /// Same shape the CSS rules already call an attribute — a name before a
+    /// colon — so the two stay consistent. `\??` covers `totalPages?:`.
+    ///
+    /// **Anchored to the start of a line**, and that is the whole subtlety.
+    /// A bare "name before a colon" also matches the middle of a ternary —
+    /// `cond ? value : other` would paint `value` as a property — and
+    /// `attribute` outranks `keyword` in the highlighter's precedence, so it
+    /// would win. Object keys and type members sit at the start of their line
+    /// in any formatted code; a one-line `{ a: 1 }` is missed, which is the
+    /// right way round to be wrong.
+    ///
+    /// `default:` and `case x:` are excluded explicitly: they are keywords
+    /// that happen to precede a colon, and the precedence order would
+    /// otherwise take them away from the keyword slot.
+    static let propertyBeforeColon =
+        #"^[ \t]*(?!default\b|case\b)[A-Za-z_$][A-Za-z0-9_$]*\??(?=\s*:)"#
+
     static func rules(for language: CodeLanguage) -> SyntaxRules {
         switch language {
         case .javascript:
@@ -78,9 +118,12 @@ struct SyntaxRules {
                     "this", "throw", "try", "type", "typeof", "var", "void", "while", "yield",
                     "true", "false", "null", "undefined",
                 ]),
-                type: capitalizedType,
-                function: callBeforeParen,
-                attribute: #"@[A-Za-z_][A-Za-z0-9_]*"#
+                type: capitalizedType + "|" + words(typescriptPrimitives),
+                function: callBeforeParenOrGeneric,
+                // Decorators and object/type property names share this slot:
+                // both are "a name that labels something else", and the CSS
+                // rules already spell property names this way.
+                attribute: #"@[A-Za-z_][A-Za-z0-9_]*|"# + propertyBeforeColon
             )
 
         case .swift:

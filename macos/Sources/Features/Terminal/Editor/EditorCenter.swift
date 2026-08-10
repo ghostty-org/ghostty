@@ -17,6 +17,13 @@ final class EditorCenter: ObservableObject {
     /// and selection is testable without a file existing.
     @Published private(set) var documents: [String: EditorDocument] = [:]
 
+    /// What the terminal's own tab is labelled with.
+    ///
+    /// Kept here rather than read from the window at render time because the
+    /// bar is SwiftUI and the title is AppKit state that changes whenever the
+    /// shell says so — this is the seam where the two meet.
+    @Published var terminalTitle: String = "Terminal"
+
     /// Raised when a file can't be opened, for the host to explain and
     /// offer the external editor instead.
     @Published var openFailure: OpenFailure?
@@ -27,13 +34,20 @@ final class EditorCenter: ObservableObject {
         let verdict: FileOpenGuard.Verdict
     }
 
-    /// True while any file is open, which is exactly when the editor owns
-    /// the pane instead of the terminal.
-    var isActive: Bool { !tabs.isEmpty }
+    /// Whether the editor owns the pane right now.
+    ///
+    /// Derived from the *selection*, not from the tab count. Deriving it
+    /// from the count is what made the terminal unreachable while a file was
+    /// open — there was no way to say "a file is open and I am looking at
+    /// the shell".
+    var showsEditor: Bool { !tabs.showsTerminal }
 
     var selectedDocument: EditorDocument? {
-        tabs.selection.flatMap { documents[$0] }
+        tabs.selectedPath.flatMap { documents[$0] }
     }
+
+    /// The file to come back to when alternating away from the terminal.
+    private var lastSelectedFile: String?
 
     private var documentObservers: [String: AnyCancellable] = [:]
 
@@ -51,6 +65,7 @@ final class EditorCenter: ObservableObject {
         if let existing = documents[path] {
             if let reveal { existing.reveal = (id: UUID().uuidString, range: reveal) }
             tabs.select(path)
+            lastSelectedFile = path
             return true
         }
 
@@ -77,6 +92,7 @@ final class EditorCenter: ObservableObject {
                 }
             if let reveal { document.reveal = (id: UUID().uuidString, range: reveal) }
             tabs.open(path)
+            lastSelectedFile = path
             return true
         }
     }
@@ -89,8 +105,22 @@ final class EditorCenter: ObservableObject {
     }
 
     func closeSelected() {
-        guard let selection = tabs.selection else { return }
-        close(selection)
+        guard let path = tabs.selectedPath else { return }
+        close(path)
+    }
+
+    /// Shows the terminal without closing anything.
+    func selectTerminal() {
+        tabs.selectTerminal()
+    }
+
+    /// Alternates terminal ⇄ the file last looked at.
+    func toggleTerminal() {
+        tabs.toggleTerminal(lastFile: lastSelectedFile)
+    }
+
+    func selectFile(at number: Int) {
+        tabs.selectFile(at: number)
     }
 
     func closeAll() {
@@ -102,6 +132,7 @@ final class EditorCenter: ObservableObject {
 
     func select(_ path: String) {
         tabs.select(path)
+        lastSelectedFile = path
     }
 
     // MARK: Saving

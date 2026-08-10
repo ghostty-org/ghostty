@@ -295,6 +295,9 @@ struct CodeTextView: NSViewRepresentable {
         /// that haven't moved.
         private var appliedUnderlines: [NSRange] = []
 
+        /// The bracket spans currently coloured, guarded the same way.
+        private var appliedBrackets: [BracketDepth.Span] = []
+
         init(storage: CodeTextStorage, onEdit: @escaping (String) -> Void) {
             self.storage = storage
             self.onEdit = onEdit
@@ -322,10 +325,9 @@ struct CodeTextView: NSViewRepresentable {
             if highlightsOnDemand {
                 highlightVisibleRegion()
             } else {
-                storage.highlight(
-                    textStorage,
-                    in: NSRange(location: 0, length: textStorage.length)
-                )
+                let full = NSRange(location: 0, length: textStorage.length)
+                storage.highlight(textStorage, in: full)
+                colorBrackets(in: full)
             }
 
             gutter?.reload()
@@ -395,13 +397,58 @@ struct CodeTextView: NSViewRepresentable {
             let upper = min(textStorage.length, max(top, bottom))
             guard upper > lower else { return }
 
-            storage.highlight(
-                textStorage,
-                in: CodeTextStorage.invalidationRange(
-                    for: NSRange(location: lower, length: upper - lower),
-                    in: textStorage.string as NSString
-                )
+            let region = CodeTextStorage.invalidationRange(
+                for: NSRange(location: lower, length: upper - lower),
+                in: textStorage.string as NSString
             )
+            storage.highlight(textStorage, in: region)
+            colorBrackets(in: region)
+        }
+
+        /// Colours the brackets in a region by nesting depth.
+        ///
+        /// A pass of its own, because depth is counted and the highlighter's
+        /// single regex cannot count. Runs after the syntax colours so it
+        /// paints over them — a bracket is punctuation, and whatever rule
+        /// happened to claim it has nothing to say about which pair it is.
+        func colorBrackets(in region: NSRange) {
+            guard let textView, let textStorage = textView.textStorage else { return }
+            guard storage.configuration.colorsBracketPairs else {
+                if !appliedBrackets.isEmpty {
+                    appliedBrackets = []
+                }
+                return
+            }
+
+            let text = textStorage.string as NSString
+            // The tokens the highlighter already produced, so a brace inside
+            // a string or a comment doesn't open a level that never closes.
+            let skipped = SyntaxHighlighter(language: storage.language)
+                .tokens(in: textStorage.string, range: region)
+                .filter { $0.kind == .string || $0.kind == .comment }
+                .map(\.range)
+
+            let spans = BracketDepth.spans(in: text, range: region, skipping: skipped)
+            guard spans != appliedBrackets else { return }
+            appliedBrackets = spans
+
+            let colors = storage.theme.bracketColors
+            guard !colors.isEmpty else { return }
+
+            textStorage.beginEditing()
+            for span in spans {
+                let clipped = NSIntersectionRange(
+                    span.range,
+                    NSRange(location: 0, length: textStorage.length)
+                )
+                guard clipped.length > 0 else { continue }
+                textStorage.addAttribute(
+                    .foregroundColor,
+                    value: colors[BracketDepth.slot(for: span.depth)],
+                    range: clipped
+                )
+            }
+            textStorage.endEditing()
         }
 
         /// Re-colours after a scroll settles, for a document being coloured
@@ -572,13 +619,16 @@ struct CodeTextView: NSViewRepresentable {
             else { return }
 
             let edited = textView.selectedRange()
-            storage.highlight(
-                textStorage,
-                in: CodeTextStorage.invalidationRange(
-                    for: edited,
-                    in: textStorage.string as NSString
-                )
+            let region = CodeTextStorage.invalidationRange(
+                for: edited,
+                in: textStorage.string as NSString
             )
+            storage.highlight(textStorage, in: region)
+            // Typing a brace changes the depth of everything after it, so
+            // the whole document's colours are stale — but recolouring all of
+            // it per keystroke is the cost this editor exists to avoid. The
+            // visible region is what a reader can see being wrong.
+            colorBrackets(in: region)
             gutter?.reload()
             scheduleMinimapRefresh()
             onEdit(textView.string)

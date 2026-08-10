@@ -8,20 +8,33 @@ import SwiftUI
 /// appears.
 struct EditorTabBar: View {
     let tabs: [EditorTab]
-    let selection: String?
+    let selection: EditorSelection
     let needsDirectory: (EditorTab) -> Bool
     let onSelect: (String) -> Void
     let onClose: (String) -> Void
+
+    /// The title of the terminal this pane belongs to, for its own tab.
+    let terminalTitle: String
+    let onSelectTerminal: () -> Void
 
     @ObservedObject private var palette: ThemePalette = .shared
 
     var body: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 0) {
+                // First, always, and not closable: the pane belongs to the
+                // terminal, and the files are guests in it. A close button
+                // here would offer to remove the thing that owns the window.
+                TerminalTabItem(
+                    title: terminalTitle,
+                    isSelected: selection == .terminal,
+                    onSelect: onSelectTerminal
+                )
+
                 ForEach(tabs) { tab in
                     EditorTabItem(
                         tab: tab,
-                        isSelected: tab.id == selection,
+                        isSelected: selection == .file(tab.id),
                         showsDirectory: needsDirectory(tab),
                         onSelect: { onSelect(tab.id) },
                         onClose: { onClose(tab.id) }
@@ -32,6 +45,51 @@ struct EditorTabBar: View {
         }
         .scrollIndicators(.never)
         .frame(height: 30)
+    }
+}
+
+/// The terminal's own tab.
+///
+/// Deliberately not an `EditorTabItem` with a fake path: it has no dirty
+/// dot, no close button and no directory to disambiguate, and modelling it
+/// as a file would mean every rule in there growing a special case.
+private struct TerminalTabItem: View {
+    let title: String
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    @ObservedObject private var palette: ThemePalette = .shared
+    @State private var isHovered = false
+
+    private var accent: Color { palette.accent ?? .accentColor }
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 5) {
+                Image(systemName: "apple.terminal")
+                    .font(.system(size: 11))
+
+                Text(title)
+                    .font(palette.font(size: 11, weight: isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background(isSelected ? accent.opacity(0.18) : (isHovered ? Color.secondary.opacity(0.10) : .clear))
+            .overlay(alignment: .bottom) {
+                if isSelected {
+                    Rectangle().fill(accent).frame(height: 2)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        }
+        .help(title)
     }
 }
 

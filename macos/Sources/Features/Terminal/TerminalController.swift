@@ -84,6 +84,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// the floor.
     private weak var terminalPaneView: NSView?
     private var editorCancellable: AnyCancellable?
+    private var terminalTitleCancellable: AnyCancellable?
 
     /// Width constraints swapped when the sidebar collapses.
     private var sidebarExpandedConstraints: [NSLayoutConstraint] = []
@@ -1216,6 +1217,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Initialize our content view to the SwiftUI root
         let container = TerminalViewContainer {
             TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+                // The pane's tab bar, above the terminal as well as above the
+                // editor. Inserted here, at the fork's own call site, rather
+                // than by restructuring `rightPane`: the terminal's top
+                // constraint is what makes the titlebar strip work, and
+                // moving it is how the window ended up opening blank once.
+                // `safeAreaInset` reserves the height instead of drawing over
+                // the shell, and collapses to nothing with no file open.
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    EditorPaneTabBar(center: self.editorCenter)
+                }
         }
 
         // Set the initial content size on the container so that
@@ -1473,14 +1484,25 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // file. Hidden, never removed: the shell and its scrollback have to
         // survive being covered.
         editorCancellable = editorCenter.$tabs
-            .map(\.isEmpty)
+            .map(\.showsTerminal)
             .removeDuplicates()
-            .sink { [weak self] isEmpty in
-                self?.editorHostingView?.isHidden = isEmpty
-                self?.terminalPaneView?.isHidden = !isEmpty
+            .sink { [weak self] showsTerminal in
+                self?.editorHostingView?.isHidden = showsTerminal
+                self?.terminalPaneView?.isHidden = !showsTerminal
+            }
+
+        // The terminal's own tab is labelled with the window's title, which
+        // the shell rewrites as it goes. KVO rather than a one-time read, so
+        // the tab doesn't sit there naming a directory you left.
+        terminalTitleCancellable = window.publisher(for: \.title)
+            .map { title in title.isEmpty ? "Terminal" : title }
+            .removeDuplicates()
+            .sink { [weak self] title in
+                self?.editorCenter.terminalTitle = title
             }
 
         let splitView = SidebarSplitView()
+        splitView.editorCenter = editorCenter
         splitView.isVertical = true
         splitView.dividerStyle = .thin
         splitView.addArrangedSubview(sidebarPane)

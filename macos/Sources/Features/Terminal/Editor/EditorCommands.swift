@@ -60,4 +60,42 @@ enum EditorCommands {
         case saveAll
         case closeTab
     }
+
+    /// What the pane should do with a key, or nil to let it through.
+    ///
+    /// **⌥⌘ and not ⌘ alone.** `⌘1`–`⌘9` and `⌃⇥` already belong to Ghostty's
+    /// window tabs (`goto_tab`/`next_tab`), and `⌃\`` sends a control
+    /// character to the shell. Taking any of those would break the terminal,
+    /// which is the app — the same mistake that `⌘W` invited. There is no
+    /// `alt+cmd+*` in the upstream defaults, so this claims nothing anybody
+    /// else answers for.
+    ///
+    /// Pure so the one part worth being sure about is testable: that nothing
+    /// here fires when no file is open, because then the pane has a single
+    /// surface and switching is meaningless.
+    nonisolated static func paneCommand(
+        for characters: String,
+        modifiers: NSEvent.ModifierFlags,
+        hasOpenFiles: Bool
+    ) -> PaneCommand? {
+        guard hasOpenFiles else { return nil }
+
+        let required: NSEvent.ModifierFlags = [.command, .option]
+        let relevant = modifiers.intersection([.command, .option, .shift, .control])
+        guard relevant == required else { return nil }
+
+        if characters == "\\" { return .toggleTerminal }
+        if let number = Int(characters), number >= 1, number <= 9 {
+            return .selectFile(number)
+        }
+        return nil
+    }
+
+    enum PaneCommand: Equatable {
+        /// ⌥⌘\ — the terminal, or back to the file you were on.
+        case toggleTerminal
+
+        /// ⌥⌘1–9 — the nth open file.
+        case selectFile(Int)
+    }
 }

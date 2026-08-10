@@ -17,6 +17,7 @@ struct EditorPaneView: View {
     @AppStorage(EditorSettings.showsLineNumbersKey) private var showsLineNumbers = true
     @AppStorage(EditorSettings.tabWidthKey) private var tabWidth = EditorSettings.defaultTabWidth
     @AppStorage(EditorSettings.showsMinimapKey) private var showsMinimap = true
+    @AppStorage(EditorSettings.colorsBracketPairsKey) private var colorsBracketPairs = true
 
     @ObservedObject var search: WorkspaceSearchCenter
     @ObservedObject private var lsp: LSPCenter = .shared
@@ -35,16 +36,7 @@ struct EditorPaneView: View {
             // it, and the bar's transparency made that read as a rendering
             // fault rather than a layout one.
             .safeAreaInset(edge: .top, spacing: 0) {
-                VStack(spacing: 0) {
-                    EditorTabBar(
-                        tabs: center.tabs.tabs,
-                        selection: center.tabs.selection,
-                        needsDirectory: { center.tabs.needsDirectory(for: $0) },
-                        onSelect: { center.select($0) },
-                        onClose: { center.close($0) }
-                    )
-                    Divider()
-                }
+                EditorPaneTabBar(center: center)
             }
             .sheet(isPresented: $search.isPresented) {
                 WorkspaceSearchView(center: search) { hit in
@@ -127,7 +119,8 @@ struct EditorPaneView: View {
             wrapsLines: wrapsLines,
             tabWidth: tabWidth,
             insertsSpacesForTab: true,
-            highlightsCurrentLine: true
+            highlightsCurrentLine: true,
+            colorsBracketPairs: colorsBracketPairs
         )
     }
 }
