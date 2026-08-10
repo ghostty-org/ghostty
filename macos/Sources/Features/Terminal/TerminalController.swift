@@ -86,6 +86,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private var editorCancellable: AnyCancellable?
     private var terminalTitleCancellable: AnyCancellable?
 
+    /// The pane tab bar's height constraint, zero while no file is open.
+    private var paneTabBarHeight: NSLayoutConstraint?
+
+    /// The bar's own height: `EditorTabBar` is 30 plus its divider.
+    private static let paneTabBarHeightWhenShown: CGFloat = 31
+
     /// Width constraints swapped when the sidebar collapses.
     private var sidebarExpandedConstraints: [NSLayoutConstraint] = []
     private var sidebarCollapsedConstraint: NSLayoutConstraint?
@@ -1215,18 +1221,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Initialize our content view to the SwiftUI root
+        // Deliberately *not* wrapped in anything.
+        //
+        // `TerminalViewContainer.intrinsicContentSize` reads the hosting
+        // view's, which SwiftUI derives from the ideal size the terminal
+        // propagates — and it keeps `initialContentSize` around precisely
+        // because that answer is wrong until focus has settled. A wrapper
+        // becomes the view whose ideal size is asked for, so the pane's tab
+        // bar is a sibling in `rightPane` instead and the terminal is pushed
+        // down by an additional safe-area inset. Structural caution, not a
+        // fix for an observed failure: the wrapper version was never proven
+        // to break anything.
         let container = TerminalViewContainer {
             TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
-                // The pane's tab bar, above the terminal as well as above the
-                // editor. Inserted here, at the fork's own call site, rather
-                // than by restructuring `rightPane`: the terminal's top
-                // constraint is what makes the titlebar strip work, and
-                // moving it is how the window ended up opening blank once.
-                // `safeAreaInset` reserves the height instead of drawing over
-                // the shell, and collapses to nothing with no file open.
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    EditorPaneTabBar(center: self.editorCenter)
-                }
         }
 
         // Set the initial content size on the container so that
@@ -1440,6 +1447,26 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         ])
         self.terminalTitlebarFiller = titlebarFiller
 
+        // The pane's tab bar, above whichever surface is showing. Added after
+        // the terminal so that constraining to it is legal: a constraint
+        // between views with no common ancestor raises, and raising here
+        // leaves the app running with no window at all.
+        let tabBarHosting = NSHostingView(
+            rootView: EditorPaneTabBar(center: editorCenter).interfaceFont()
+        )
+        tabBarHosting.translatesAutoresizingMaskIntoConstraints = false
+        rightPane.addSubview(tabBarHosting)
+        let tabBarHeight = tabBarHosting.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            tabBarHosting.topAnchor.constraint(
+                equalTo: terminalContainer.safeAreaLayoutGuide.topAnchor
+            ),
+            tabBarHosting.leadingAnchor.constraint(equalTo: rightPane.leadingAnchor),
+            tabBarHosting.trailingAnchor.constraint(equalTo: rightPane.trailingAnchor),
+            tabBarHeight,
+        ])
+        self.paneTabBarHeight = tabBarHeight
+
         let editorHosting = NSHostingView(
             rootView: EditorPaneView(
                 center: editorCenter,
@@ -1469,9 +1496,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             // `NSView` in that position reports no safe area of its own, so
             // the editor started at the window's very top and its text
             // scrolled up into the titlebar.
-            editorHosting.topAnchor.constraint(
-                equalTo: terminalContainer.safeAreaLayoutGuide.topAnchor
-            ),
+            editorHosting.topAnchor.constraint(equalTo: tabBarHosting.bottomAnchor),
             editorHosting.leadingAnchor.constraint(equalTo: rightPane.leadingAnchor),
             editorHosting.bottomAnchor.constraint(equalTo: rightPane.bottomAnchor),
             editorHosting.trailingAnchor.constraint(equalTo: rightPane.trailingAnchor),
@@ -1484,11 +1509,26 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // file. Hidden, never removed: the shell and its scrollback have to
         // survive being covered.
         editorCancellable = editorCenter.$tabs
-            .map(\.showsTerminal)
             .removeDuplicates()
-            .sink { [weak self] showsTerminal in
-                self?.editorHostingView?.isHidden = showsTerminal
-                self?.terminalPaneView?.isHidden = !showsTerminal
+            .sink { [weak self] tabs in
+                guard let self else { return }
+                self.editorHostingView?.isHidden = tabs.showsTerminal
+                self.terminalPaneView?.isHidden = !tabs.showsTerminal
+
+                // The bar takes its height only when there is something to
+                // switch to, and the terminal is pushed down by exactly that
+                // much. An `additionalSafeAreaInsets` rather than a moved top
+                // constraint: the terminal's top is what makes the titlebar
+                // strip meet its content, and the shell's SwiftUI content
+                // already honours the safe area.
+                let height: CGFloat = tabs.showsTabBar ? Self.paneTabBarHeightWhenShown : 0
+                self.paneTabBarHeight?.constant = height
+                self.terminalPaneView?.additionalSafeAreaInsets = NSEdgeInsets(
+                    top: height,
+                    left: 0,
+                    bottom: 0,
+                    right: 0
+                )
             }
 
         // The terminal's own tab is labelled with the window's title, which

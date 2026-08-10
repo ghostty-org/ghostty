@@ -35,9 +35,7 @@ struct EditorPaneView: View {
             // underneath the bar — the first lines of every file sat behind
             // it, and the bar's transparency made that read as a rendering
             // fault rather than a layout one.
-            .safeAreaInset(edge: .top, spacing: 0) {
-                EditorPaneTabBar(center: center)
-            }
+
             .sheet(isPresented: $search.isPresented) {
                 WorkspaceSearchView(center: search) { hit in
                     search.dismiss()
