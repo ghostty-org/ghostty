@@ -112,7 +112,7 @@ final class EditorCenter: ObservableObject {
         let saved = document.save()
         if saved {
             tabs.setDirty(false, for: document.id)
-            LSPCenter.shared.didSave(path: document.url.path, text: document.text)
+            LSPCenter.shared.didSave(path: document.url.path, text: document.currentText)
         }
         return saved
     }
@@ -121,7 +121,7 @@ final class EditorCenter: ObservableObject {
         for document in documents.values where document.isDirty {
             guard document.save() else { continue }
             tabs.setDirty(false, for: document.id)
-            LSPCenter.shared.didSave(path: document.url.path, text: document.text)
+            LSPCenter.shared.didSave(path: document.url.path, text: document.currentText)
         }
     }
 }

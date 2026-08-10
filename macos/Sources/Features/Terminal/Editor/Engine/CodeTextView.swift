@@ -18,17 +18,28 @@ import SwiftUI
 /// behavior this class exists to avoid. Reach for `textLayoutManager`; a
 /// test asserts the view really is in TextKit 2.
 struct CodeTextView: NSViewRepresentable {
-    @Binding var text: String
+    /// The text as the *host* last set it: loaded from disk, reverted,
+    /// formatted, renamed. Not a binding, and not the live buffer — while
+    /// you type, the buffer is ahead of this and that is correct.
+    let text: String
+
+    /// Bumped by the host whenever it replaces the text. The view applies
+    /// `text` when this changes and at no other time.
+    let textRevision: Int
 
     let language: CodeLanguage
     let theme: CodeTheme
     let configuration: CodeEditorConfiguration
 
-    /// Called after the user changes the text, so the host can mark the
-    /// document dirty. Not the same as the binding: the binding also moves
-    /// when the host replaces the text itself (a reload from disk), and
-    /// that must not look like an edit.
-    var onEdit: () -> Void = {}
+    /// Called after the user changes the text, with what the buffer now
+    /// holds.
+    ///
+    /// The text comes *out* through here rather than through a binding that
+    /// goes both ways. A two-way binding is what `TextEditor` does, and the
+    /// half that writes back into the view is what makes it destroy the
+    /// selection and the undo stack — so this reports, and only the
+    /// revision above can replace.
+    var onEdit: (String) -> Void = { _ in }
 
     /// Whether the minimap is drawn beside the text.
     var showsMinimap: Bool = true
@@ -191,7 +202,7 @@ struct CodeTextView: NSViewRepresentable {
             object: scrollView.contentView
         )
 
-        context.coordinator.apply(text: text)
+        context.coordinator.applyIfNewRevision(text: text, revision: textRevision)
         context.coordinator.applyAppearance(theme: theme, configuration: configuration)
 
         return container
@@ -222,12 +233,17 @@ struct CodeTextView: NSViewRepresentable {
         context.coordinator.applyAppearance(theme: theme, configuration: configuration)
         scrollView.hasHorizontalScroller = !configuration.wrapsLines
 
-        // Only when it actually differs — writing the same string back
-        // would reset the insertion point and wipe the undo stack on every
-        // SwiftUI update, which happens for reasons unrelated to this view.
-        if textView.string != text {
-            context.coordinator.apply(text: text)
-        }
+        // Applied when the *host* replaced the text, never because the two
+        // differ.
+        //
+        // Comparing strings was the bug: as soon as anything was typed the
+        // view held more than the host did, so the next SwiftUI update —
+        // which happens for reasons that have nothing to do with this view —
+        // read that difference as "the host has new content" and overwrote
+        // the edits, insertion point back to zero. A revision the host bumps
+        // when it means it says the one thing a comparison cannot: who
+        // changed it.
+        context.coordinator.applyIfNewRevision(text: text, revision: textRevision)
 
         // After the text, so a jump into a file that is being opened in the
         // same breath lands on a document that already has its content.
@@ -237,7 +253,7 @@ struct CodeTextView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         let storage: CodeTextStorage
-        let onEdit: () -> Void
+        let onEdit: (String) -> Void
         weak var textView: NSTextView?
         weak var gutter: CodeGutterView?
         var gutterWidth: NSLayoutConstraint?
@@ -251,6 +267,10 @@ struct CodeTextView: NSViewRepresentable {
         /// The last reveal honoured, so a SwiftUI update that changes
         /// something unrelated doesn't drag the view back there.
         private var lastRevealID: String?
+
+        /// The host revision currently in the buffer. Starts at a value no
+        /// host will use, so the first update always loads.
+        private var appliedRevision = Int.min
 
         /// The pending minimap rebuild. See `scheduleMinimapRefresh`.
         private var minimapTask: Task<Void, Never>?
@@ -275,13 +295,20 @@ struct CodeTextView: NSViewRepresentable {
         /// that haven't moved.
         private var appliedUnderlines: [NSRange] = []
 
-        init(storage: CodeTextStorage, onEdit: @escaping () -> Void) {
+        init(storage: CodeTextStorage, onEdit: @escaping (String) -> Void) {
             self.storage = storage
             self.onEdit = onEdit
         }
 
         deinit {
             NotificationCenter.default.removeObserver(self)
+        }
+
+        /// Replaces the buffer only when the host says it has new content.
+        func applyIfNewRevision(text: String, revision: Int) {
+            guard revision != appliedRevision else { return }
+            appliedRevision = revision
+            apply(text: text)
         }
 
         func apply(text: String) {
@@ -554,7 +581,7 @@ struct CodeTextView: NSViewRepresentable {
             )
             gutter?.reload()
             scheduleMinimapRefresh()
-            onEdit()
+            onEdit(textView.string)
         }
     }
 }
@@ -608,8 +635,18 @@ final class CodeNSTextView: NSTextView {
     /// Split out so it can be tested: `mouseDown` itself cannot be, because
     /// `NSTextView`'s runs an event-tracking loop waiting for the mouse to
     /// come back up — call it outside a window and it never returns.
+    /// ⌘ held, and none of the modifiers that mean something else.
+    ///
+    /// Tested against the three that change what a click *is* — ⇧ extends a
+    /// selection, ⌥ makes it rectangular, ⌃ opens a menu — rather than
+    /// against the whole flag set. Demanding that the flags equal exactly
+    /// `.command` is what broke this: a real event also carries caps lock,
+    /// the function bit and the numeric-pad bit depending on the keyboard,
+    /// so the comparison was false on hardware where it should have been
+    /// true, and go-to-definition stopped responding at all.
     static func isJumpClick(_ modifiers: NSEvent.ModifierFlags) -> Bool {
-        modifiers.intersection(.deviceIndependentFlagsMask) == .command
+        guard modifiers.contains(.command) else { return false }
+        return modifiers.isDisjoint(with: [.shift, .option, .control])
     }
 
     /// ⌘-click goes to the definition; without the modifier this is an

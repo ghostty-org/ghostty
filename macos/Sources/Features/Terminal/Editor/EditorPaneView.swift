@@ -176,13 +176,14 @@ private struct DocumentView: View {
             }
 
             CodeTextView(
-                text: $document.text,
+                text: document.text,
+                textRevision: document.revision,
                 language: document.language,
                 theme: theme,
                 configuration: configuration,
-                onEdit: {
-                    document.markEdited()
-                    lsp.didChange(path: document.url.path, text: document.text)
+                onEdit: { edited in
+                    document.edited(edited)
+                    lsp.didChange(path: document.url.path, text: edited)
                 },
                 showsMinimap: showsMinimap,
                 underlines: underlines,
@@ -198,7 +199,7 @@ private struct DocumentView: View {
                 reveal: revealRange,
                 onJumpToDefinition: { offset in jump(from: offset) },
                 onRename: { offset in
-                    newName = EditorPaneView.identifier(at: offset, in: document.text)
+                    newName = EditorPaneView.identifier(at: offset, in: document.currentText)
                     renamingAt = offset
                 },
                 onFindReferences: { offset in findReferences(from: offset) },
@@ -209,7 +210,7 @@ private struct DocumentView: View {
                 onSearchWorkspace: onSearchWorkspace
             )
             .onAppear {
-                lsp.didOpen(path: document.url.path, text: document.text)
+                lsp.didOpen(path: document.url.path, text: document.currentText)
                 refreshUnderlines()
             }
             .onDisappear { lsp.didClose(path: document.url.path) }
@@ -235,7 +236,7 @@ private struct DocumentView: View {
     /// protocol's coordinates.
     private var revealRange: (id: String, range: NSRange)? {
         guard let reveal = document.reveal,
-              let range = LSPTextCoordinates.range(of: reveal.range, in: document.text as NSString)
+              let range = LSPTextCoordinates.range(of: reveal.range, in: document.currentText as NSString)
         else { return nil }
         return (id: reveal.id, range: range)
     }
@@ -285,7 +286,7 @@ private struct DocumentView: View {
             return
         }
 
-        let index = LSPLineIndex(document.text as NSString)
+        let index = LSPLineIndex(document.currentText as NSString)
         underlines = reported.compactMap { diagnostic in
             guard let range = index.range(of: diagnostic.range), range.length > 0
             else { return nil }
@@ -301,7 +302,7 @@ private struct DocumentView: View {
     }
 
     private func position(at offset: Int) -> LSPPosition {
-        LSPTextCoordinates.position(at: offset, in: document.text as NSString)
+        LSPTextCoordinates.position(at: offset, in: document.currentText as NSString)
     }
 
     private func jump(from offset: Int) {
@@ -337,8 +338,7 @@ private struct DocumentView: View {
                 notice = "The language server returned no formatting."
                 return
             }
-            document.text = LSPTextEdit.apply(edits, to: document.text)
-            document.markEdited()
+            document.replaceText(LSPTextEdit.apply(edits, to: document.currentText))
         }
     }
 
@@ -362,8 +362,7 @@ private struct DocumentView: View {
             var changed = 0
             for (path, edits) in byFile {
                 if path == document.url.path {
-                    document.text = LSPTextEdit.apply(edits, to: document.text)
-                    document.markEdited()
+                    document.replaceText(LSPTextEdit.apply(edits, to: document.currentText))
                 } else if let existing = try? String(contentsOfFile: path, encoding: .utf8) {
                     let updated = LSPTextEdit.apply(edits, to: existing)
                     try? updated.write(toFile: path, atomically: true, encoding: .utf8)
@@ -418,7 +417,7 @@ private struct DocumentView: View {
 
             Spacer(minLength: 0)
 
-            Button("Keep Mine") { document.markEdited() }
+            Button("Keep Mine") { document.keepLocalVersion() }
                 .font(palette.font(size: 11))
             Button("Reload") { document.revert() }
                 .font(palette.font(size: 11))

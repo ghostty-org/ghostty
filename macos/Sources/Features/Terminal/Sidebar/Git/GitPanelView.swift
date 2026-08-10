@@ -134,7 +134,7 @@ struct GitPanelView: View {
             }
             .padding(.vertical, 6)
         }
-        .scrollIndicators(.hidden)
+        .scrollIndicators(.automatic)
     }
 
     private func needsDivider(above index: Int, in repos: [String]) -> Bool {

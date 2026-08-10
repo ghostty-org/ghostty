@@ -142,8 +142,13 @@ struct FileExplorerView: View {
                 }
                 .padding(.horizontal, 6)
                 .padding(.bottom, 8)
+                .background(alignment: .top) { OverlayScrollers() }
             }
-            .scrollIndicators(.hidden)
+            // Automatic rather than hidden: the bar should appear while
+            // scrolling and go away after, which is what overlay scrollers
+            // do — hiding it outright loses the only clue about how much
+            // tree there is below.
+            .scrollIndicators(.automatic)
             .onChange(of: model.currentDirectory) { path in
                 guard let path else { return }
                 withAnimation(.easeOut(duration: 0.2)) {

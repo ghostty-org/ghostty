@@ -13,7 +13,27 @@ import Foundation
 final class EditorDocument: ObservableObject, Identifiable {
     let url: URL
 
-    @Published var text: String
+    /// The text as this document last set it — loaded, saved, reverted, or
+    /// replaced by a formatter. **Not what you are looking at while you
+    /// type:** the buffer lives in the text view, and asking it for a copy
+    /// on every keystroke is the O(file) cost this editor exists to avoid.
+    @Published private(set) var text: String
+
+    /// Bumped whenever `text` is replaced, so the view knows the change came
+    /// from here and not from the reader.
+    @Published private(set) var revision = 0
+
+    /// What the buffer holds right now, reported by the view as it changes.
+    ///
+    /// Deliberately not `@Published`: it moves on every keystroke, and
+    /// publishing it would re-render the pane once per character for no
+    /// gain. What the UI needs from a keystroke is the dirty dot, which is
+    /// one flag that changes once.
+    private var liveText: String?
+
+    /// The text to save, to hand to a language server, or to search.
+    var currentText: String { liveText ?? text }
+
     @Published private(set) var isDirty = false
 
     /// The file changed underneath an edited buffer, so neither version can
@@ -63,16 +83,36 @@ final class EditorDocument: ObservableObject, Identifiable {
         return .success(EditorDocument(url: url, text: text))
     }
 
-    func markEdited() {
+    /// Records what the reader has typed.
+    ///
+    /// Compared against the copy on disk rather than assumed dirty, so
+    /// undoing back to the saved version clears the dot — the comparison is
+    /// on a string the view already built, so it costs nothing extra.
+    func edited(_ text: String) {
+        liveText = text
         let changed = text != diskText
+        if isDirty != changed { isDirty = changed }
+    }
+
+    /// Replaces the text from this side — a formatter, a rename, a reload.
+    /// Bumping the revision is what tells the view to take it.
+    func replaceText(_ replacement: String) {
+        liveText = replacement
+        text = replacement
+        revision += 1
+        let changed = replacement != diskText
         if isDirty != changed { isDirty = changed }
     }
 
     @discardableResult
     func save() -> Bool {
+        // What the buffer holds, not what was loaded — writing `text` is why
+        // saving used to put the file back the way it was opened.
+        let contents = currentText
         do {
-            try text.write(to: url, atomically: true, encoding: .utf8)
-            diskText = text
+            try contents.write(to: url, atomically: true, encoding: .utf8)
+            text = contents
+            diskText = contents
             isDirty = false
             hasConflict = false
             loadError = nil
@@ -83,6 +123,22 @@ final class EditorDocument: ObservableObject, Identifiable {
         }
     }
 
+    /// Keeps the buffer and stops warning about the version on disk.
+    ///
+    /// Their change is *acknowledged*, not discarded — recording it as the
+    /// version we know about is what stops the same conflict being raised
+    /// again for the same content, while leaving the document dirty because
+    /// what is on screen still isn't what is on disk.
+    func keepLocalVersion() {
+        if let data = try? Data(contentsOf: url),
+           let onDisk = String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .isoLatin1) {
+            diskText = onDisk
+        }
+        hasConflict = false
+        isDirty = currentText != diskText
+    }
+
     /// Takes the version on disk, dropping local edits.
     func revert() {
         guard let data = try? Data(contentsOf: url),
@@ -90,7 +146,7 @@ final class EditorDocument: ObservableObject, Identifiable {
                 ?? String(data: data, encoding: .isoLatin1)
         else { return }
 
-        self.text = text
+        replaceText(text)
         self.diskText = text
         isDirty = false
         hasConflict = false
@@ -133,7 +189,7 @@ final class EditorDocument: ObservableObject, Identifiable {
         if isDirty {
             hasConflict = true
         } else {
-            text = onDisk
+            replaceText(onDisk)
             diskText = onDisk
         }
     }
