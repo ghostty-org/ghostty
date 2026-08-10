@@ -216,6 +216,14 @@ class AppDelegate: NSObject,
             "ApplePressAndHoldEnabled": false,
         ])
 
+        // Put the chosen app icon back on.
+        //
+        // `NSWorkspace.setIcon` writes to the bundle, and a rebuild replaces
+        // the bundle — so a fresh build comes up wearing the icon compiled into
+        // it, whatever was picked in Settings. Re-applying at launch is what
+        // makes the choice survive that.
+        PhantomAppIconStore.restore()
+
         // Store our start time
         applicationLaunchTime = ProcessInfo.processInfo.systemUptime
 
