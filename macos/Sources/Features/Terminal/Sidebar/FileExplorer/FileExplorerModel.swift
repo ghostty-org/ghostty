@@ -42,6 +42,33 @@ final class FileExplorerModel: ObservableObject {
     /// updated as the user `cd`s around.
     @Published private(set) var currentDirectory: String?
 
+    /// What the search field holds.
+    ///
+    /// While it has text the tree shows *matches* instead of the hierarchy:
+    /// a flat list is the right answer to "where is this file", because the
+    /// folders in between are exactly what you didn't know.
+    @Published var filter: String = "" {
+        didSet {
+            guard filter != oldValue else { return }
+            scheduleFilter()
+        }
+    }
+
+    /// The matches for `filter`, or nil while it is empty.
+    @Published private(set) var matches: [FileRow]?
+
+    @Published private(set) var isSearching = false
+
+    private var filterTask: Task<Void, Never>?
+
+    /// Long enough that typing a word is one search, short enough to feel
+    /// immediate. The reader never presses anything to start it.
+    private static let filterDebounce = Duration.milliseconds(180)
+
+    /// A search walks the tree on disk, so it is bounded: enough results to
+    /// find what you meant, few enough that the list stays a list.
+    private static let matchLimit = 300
+
     @Published var showHiddenFiles: Bool = UserDefaults.standard.bool(forKey: showHiddenKey) {
         didSet {
             guard showHiddenFiles != oldValue else { return }
@@ -224,6 +251,78 @@ final class FileExplorerModel: ObservableObject {
     }
 
     // MARK: Rows
+
+    private func scheduleFilter() {
+        filterTask?.cancel()
+
+        let query = filter.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else {
+            matches = nil
+            isSearching = false
+            return
+        }
+        guard let root else { return }
+
+        isSearching = true
+        filterTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.filterDebounce)
+            guard !Task.isCancelled else { return }
+
+            let showHidden = self?.showHiddenFiles ?? false
+            let found = await Task.detached(priority: .userInitiated) {
+                Self.search(query: query, under: root, showHidden: showHidden)
+            }.value
+
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.matches = found
+                self?.isSearching = false
+            }
+        }
+    }
+
+    /// Finds files whose name contains `query`, breadth-first.
+    ///
+    /// Breadth-first on purpose: the file you are looking for is far more
+    /// often near the top of a project than buried twenty levels down, and
+    /// with a result cap that ordering decides *which* results you get.
+    /// `.git`, `node_modules` and the other build directories are skipped —
+    /// searching them finds thousands of matches nobody meant.
+    nonisolated static func search(
+        query: String,
+        under root: URL,
+        showHidden: Bool
+    ) -> [FileRow] {
+        let needle = query.lowercased()
+        var results: [FileRow] = []
+        var queue = [root.path]
+
+        while !queue.isEmpty, results.count < matchLimit {
+            let directory = queue.removeFirst()
+            let children = scan(
+                directory: URL(fileURLWithPath: directory),
+                showHidden: showHidden
+            )
+
+            for child in children where results.count < matchLimit {
+                if child.name.lowercased().contains(needle) {
+                    // Depth zero: matches are a flat list, not a tree, so
+                    // nothing is indented against a parent that isn't shown.
+                    results.append(FileRow(node: child, depth: 0))
+                }
+                guard child.isDirectory, !skippedDirectories.contains(child.name) else { continue }
+                queue.append(child.path)
+            }
+        }
+        return results
+    }
+
+    /// Directories a filename search has no business walking into.
+    nonisolated static let skippedDirectories: Set<String> = [
+        ".git", "node_modules", ".build", "zig-out", ".zig-cache",
+        "DerivedData", ".next", "dist", "build", "Pods", ".venv",
+        "__pycache__", ".gradle", "target",
+    ]
 
     private func rebuildRows() {
         guard let root else {

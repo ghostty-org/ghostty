@@ -92,8 +92,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The pane tab bar's height constraint, zero while no file is open.
     private var paneTabBarHeight: NSLayoutConstraint?
 
-    /// The bar's own height: `EditorTabBar` is 30 plus its divider.
-    private static let paneTabBarHeightWhenShown: CGFloat = 31
+    /// The bar's own height: the tab row, the strip its scroller draws in,
+    /// and the divider under both. Derived rather than written out, so
+    /// changing the row's height cannot leave the terminal overlapping it.
+    private static let paneTabBarHeightWhenShown: CGFloat = EditorTabBar.height + 1
 
     /// Width constraints swapped when the sidebar collapses.
     private var sidebarExpandedConstraints: [NSLayoutConstraint] = []
@@ -1237,7 +1239,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // fix for an observed failure: the wrapper version was never proven
         // to break anything.
         let container = TerminalViewContainer {
-            TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+            // The pane's tab bar sits above this, and *above* has to mean
+            // above — an overlay put the bar on top of the shell's first
+            // lines and stacked its blur over the terminal's, which is the
+            // darker band that showed up. The wrapper *observes* the centre:
+            // reading the inset inline froze the value this closure was built
+            // with (zero), which is why the first version of this fix changed
+            // nothing on screen.
+            PaneTabBarInsetView(center: self.editorCenter) {
+                TerminalView(ghostty: self.ghostty, viewModel: self, delegate: self)
+            }
         }
 
         // Set the initial content size on the container so that
@@ -1326,6 +1337,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             tabManager: tabManager,
             store: .shared,
             layout: layout,
+            editorCenter: editorCenter,
             onNewTabInGroup: { [weak self] group in
                 self?.newSidebarTab(in: group)
             },
@@ -1465,6 +1477,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // under it passed straight through the gap where the terminal's own
         // tab draws nothing.
         tabBarHosting.wantsLayer = true
+        // Belt and braces with the `maxWidth: .infinity` on its content: the
+        // bar follows the pane's width and never argues about it, whatever
+        // SwiftUI decides its ideal size is.
+        tabBarHosting.setContentHuggingPriority(.init(1), for: .horizontal)
+        tabBarHosting.setContentCompressionResistancePriority(.init(1), for: .horizontal)
         rightPane.addSubview(tabBarHosting)
         let tabBarHeight = tabBarHosting.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
@@ -1534,12 +1551,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 // already honours the safe area.
                 let height: CGFloat = tabs.showsTabBar ? Self.paneTabBarHeightWhenShown : 0
                 self.paneTabBarHeight?.constant = height
-                self.terminalPaneView?.additionalSafeAreaInsets = NSEdgeInsets(
-                    top: height,
-                    left: 0,
-                    bottom: 0,
-                    right: 0
-                )
+                // Published, so the terminal's SwiftUI content moves down by
+                // exactly the bar's height. `additionalSafeAreaInsets` was
+                // tried first and did nothing: the terminal fills its bounds
+                // and never consults the safe area.
+                self.editorCenter.paneTabBarInset = height
             }
 
         // The terminal's own tab is labelled with the window's title, which

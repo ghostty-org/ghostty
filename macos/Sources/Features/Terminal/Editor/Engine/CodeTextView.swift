@@ -51,8 +51,8 @@ struct CodeTextView: NSViewRepresentable {
     /// values so the engine never learns what a language server is.
     var underlines: [(range: NSRange, color: NSColor)] = []
 
-    /// Asked for the text to show when the pointer rests on an offset.
-    var hoverProvider: ((Int) async -> String?)?
+    /// Asked what to say when the pointer rests on an offset.
+    var hoverProvider: ((Int) async -> CodeHoverInfo?)?
 
     /// Asked for the words to offer at an offset, for the completion list.
     var completionProvider: ((Int) async -> [String])?
@@ -99,6 +99,17 @@ struct CodeTextView: NSViewRepresentable {
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
         textView.textContainerInset = NSSize(width: 4, height: 8)
+        // The standard sizing recipe, and the half that was missing. A text
+        // view can only grow up to `maxSize`, which defaults to its initial
+        // frame — zero here — so without this it could never become wider
+        // than the viewport and there was nothing for a horizontal scroller
+        // to scroll. Vertical resizing is what lets it grow with the text.
+        textView.isVerticallyResizable = true
+        textView.minSize = .zero
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
         textView.autoresizingMask = [.width]
 
         // Neither the text view nor its scroll view paints a background.
@@ -145,6 +156,15 @@ struct CodeTextView: NSViewRepresentable {
             ))
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
+
+        // The current-line band, under the text inside the clip view. The
+        // clip view scrolls by moving its bounds, so everything in it —
+        // document and band alike — moves together for free.
+        let band = CurrentLineBandView()
+        band.wantsLayer = true
+        band.isHidden = true
+        scrollView.contentView.addSubview(band, positioned: .below, relativeTo: textView)
+        context.coordinator.currentLineBand = band
 
         let container = NSView()
         container.addSubview(gutter)
@@ -262,6 +282,10 @@ struct CodeTextView: NSViewRepresentable {
         var gutterWidth: NSLayoutConstraint?
         weak var minimap: CodeMinimapView?
         var minimapWidth: NSLayoutConstraint?
+        weak var currentLineBand: CurrentLineBandView?
+
+        /// The band's colour, or nil while the highlight is off.
+        private var currentLineColor: NSColor?
 
         /// Set while the host is writing text in, so the delegate can tell
         /// a programmatic load from something the user typed.
@@ -457,24 +481,23 @@ struct CodeTextView: NSViewRepresentable {
                 )
             }
             textStorage.endEditing()
-            invalidateLayout(of: textView)
+            requestRedraw(of: textView)
         }
 
-        /// Tells TextKit 2 that what it laid out is no longer what to draw.
+        /// Asks for a redraw after attributes changed in bulk.
         ///
-        /// Rewriting attributes in bulk leaves fragments the layout manager
-        /// still believes are current, and the result is lines that go blank
-        /// and come back when something else forces a redraw — the "text
-        /// disappears for a moment" that showed up whenever a setting changed.
-        /// Saying so explicitly beats hoping a later event does it.
-        private func invalidateLayout(of textView: NSTextView) {
-            guard let layoutManager = textView.textLayoutManager else {
-                textView.needsDisplay = true
-                return
-            }
-
-            layoutManager.invalidateLayout(for: layoutManager.documentRange)
-            textView.needsLayout = true
+        /// **Display only, deliberately.** The first version of this
+        /// invalidated the *layout* of the whole document, on the theory that
+        /// stale fragments were what made text blink out. It was a guess, it
+        /// was never shown to fix anything, and it broke the gutter outright:
+        /// the gutter draws by walking laid-out fragments, so throwing the
+        /// layout away on every colouring pass left it walking nothing and the
+        /// line numbers vanished.
+        ///
+        /// Changing attributes does not change layout — `beginEditing` and
+        /// `endEditing` already tell the layout manager what happened. All that
+        /// is owed here is a repaint.
+        private func requestRedraw(of textView: NSTextView) {
             textView.needsDisplay = true
             gutter?.needsDisplay = true
         }
@@ -619,13 +642,49 @@ struct CodeTextView: NSViewRepresentable {
 
             storage.theme = theme
             storage.configuration = configuration
+
+            // Applied every time, guard or no guard: these are constants on
+            // constraints and a hidden flag, and they cost nothing.
+            //
+            // They also *have* to be, and that is the subtle part. The gutter's
+            // width comes from its own content, which is unknown the first time
+            // through — a document with no text yet measures zero. Running only
+            // once meant the width stayed at that zero and the line numbers
+            // never appeared. The old code got away with it by re-running on
+            // every update; the repair was accidental, so here it is on purpose.
+            gutter?.isHidden = !configuration.showsLineNumbers
+            gutterWidth?.constant = configuration.showsLineNumbers
+                ? (gutter?.preferredWidth ?? 0)
+                : 0
+
+            minimap?.isHidden = !configuration.showsMinimap
+            minimapWidth?.constant = configuration.showsMinimap
+                ? CodeTextView.minimapColumnWidth
+                : 0
+
+            gutter?.theme = theme
+            minimap?.theme = theme
+
+            // The hover card paints itself with the editor's own colours and
+            // the file's language, so it has to be told both. Outside the
+            // guard for the same reason as the two above: a card built with a
+            // stale theme is a card in the wrong colours.
+            if let code = textView as? CodeNSTextView {
+                code.hoverTheme = theme
+                code.hoverLanguage = storage.language
+            }
+
+            // Everything below rewrites attributes or re-lays out the document,
+            // which is what must not happen on an unrelated update.
             guard !unchanged else { return }
 
             textView.font = configuration.font
             textView.insertionPointColor = theme.foreground
             textView.textColor = theme.foreground
-            (textView as? CodeNSTextView)?.currentLineColor =
-                configuration.highlightsCurrentLine ? theme.currentLineBackground : nil
+            currentLineColor = configuration.highlightsCurrentLine
+                ? theme.currentLineBackground
+                : nil
+            updateCurrentLineBand()
 
             // Horizontal scrolling, when lines are not wrapped.
             //
@@ -635,31 +694,41 @@ struct CodeTextView: NSViewRepresentable {
             // document does not reach. A long line was simply cut off at the
             // right edge with no scroller to bring the rest in.
             textView.textContainer?.widthTracksTextView = configuration.wrapsLines
+            let viewportWidth = textView.enclosingScrollView?.contentSize.width
+                ?? textView.frame.width
             if configuration.wrapsLines {
+                // Wrapping means the view is exactly as wide as the viewport
+                // and the container follows it. The frame reset is the part
+                // that was missing: coming from the unwrapped state the view
+                // is as wide as its longest line, autoresizing only reacts to
+                // the *superview* changing, and a container tracking that
+                // stale width wraps at a point far past the window's edge —
+                // which reads as "wrap on, text still cut off".
+                textView.isHorizontallyResizable = false
                 textView.autoresizingMask = [.width]
+                textView.setFrameSize(NSSize(
+                    width: viewportWidth,
+                    height: textView.frame.height
+                ))
                 textView.textContainer?.size = NSSize(
-                    width: textView.frame.width,
+                    width: viewportWidth,
                     height: .greatestFiniteMagnitude
                 )
             } else {
+                // Unwrapped, the view grows to its longest line — that width
+                // being wider than the viewport is what horizontal scrolling
+                // *is* — and never below the viewport, so short files still
+                // fill the pane.
                 textView.autoresizingMask = []
                 textView.isHorizontallyResizable = true
+                textView.minSize = NSSize(width: viewportWidth, height: 0)
                 textView.textContainer?.size = NSSize(
                     width: CGFloat.greatestFiniteMagnitude,
                     height: CGFloat.greatestFiniteMagnitude
                 )
             }
 
-            gutter?.theme = theme
             gutter?.font = configuration.font
-            minimap?.theme = theme
-            gutter?.isHidden = !configuration.showsLineNumbers
-            gutterWidth?.constant = configuration.showsLineNumbers
-                ? (gutter?.preferredWidth ?? 0)
-                : 0
-
-            minimap?.isHidden = !configuration.showsMinimap
-            minimapWidth?.constant = configuration.showsMinimap ? CodeTextView.minimapColumnWidth : 0
             if configuration.showsMinimap { refreshMinimap() }
 
             guard let textStorage = textView.textStorage else { return }
@@ -681,25 +750,76 @@ struct CodeTextView: NSViewRepresentable {
                 textView.setSelectedRange(selection)
             }
 
-            invalidateLayout(of: textView)
+            requestRedraw(of: textView)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             // The band follows the cursor, and so does the highlighted number
             // in the gutter — both are the same fact drawn in two places.
-            textView.needsDisplay = true
             gutter?.setCurrentLine(currentLineNumber(in: textView))
+            updateCurrentLineBand()
+        }
+
+        /// Moves the band to the line the insertion point is on.
+        ///
+        /// Geometry comes from the **caret's own rect**, not from a layout
+        /// fragment. The fragment version highlighted the line *below* the
+        /// cursor whenever the line had content — asking the layout manager
+        /// for "the fragment at this location" and asking the view "where is
+        /// the insertion point" can disagree, and the insertion point is the
+        /// thing the reader sees. Where the caret is drawn is, by definition,
+        /// where the band belongs.
+        func updateCurrentLineBand() {
+            guard let band = currentLineBand, let textView else { return }
+            let selection = textView.selectedRange()
+            guard let color = currentLineColor,
+                  selection.length == 0,
+                  let window = textView.window,
+                  let clipView = band.superview
+            else {
+                band.isHidden = true
+                return
+            }
+
+            // Screen → window → clip view, the same trip `reveal` makes.
+            let onScreen = textView.firstRect(forCharacterRange: selection, actualRange: nil)
+            guard onScreen.height > 0 else {
+                band.isHidden = true
+                return
+            }
+            let inClip = clipView.convert(window.convertFromScreen(onScreen), from: nil)
+
+            band.layer?.backgroundColor = color.cgColor
+            band.frame = NSRect(
+                x: 0,
+                y: inClip.minY,
+                width: max(textView.bounds.width, clipView.bounds.width),
+                height: inClip.height
+            )
+            band.isHidden = false
         }
 
         /// The one-based line the insertion point is on.
+        ///
+        /// Counted as newlines *before* the caret. The `.byLines` version
+        /// enumerated the partial line the caret sits in as well, so any
+        /// caret past a line's first character reported the line below —
+        /// while an empty line, having no partial content, came out right.
+        /// That asymmetry was exactly the reported bug.
         private func currentLineNumber(in textView: NSTextView) -> Int? {
             guard textView.selectedRange().length == 0 else { return nil }
             let text = textView.string as NSString
-            let upTo = NSRange(location: 0, length: min(textView.selectedRange().location, text.length))
+            let caret = min(textView.selectedRange().location, text.length)
+
             var line = 1
-            text.enumerateSubstrings(in: upTo, options: [.byLines, .substringNotRequired]) { _, _, _, _ in
+            var search = NSRange(location: 0, length: caret)
+            while search.length > 0 {
+                let found = text.range(of: "\n", options: [], range: search)
+                guard found.location != NSNotFound else { break }
                 line += 1
+                let next = found.location + 1
+                search = NSRange(location: next, length: caret - next)
             }
             return line
         }
@@ -723,9 +843,27 @@ struct CodeTextView: NSViewRepresentable {
             colorBrackets(in: region)
             gutter?.reload()
             scheduleMinimapRefresh()
+            updateCurrentLineBand()
             onEdit(textView.string)
         }
     }
+}
+
+/// The band behind the line the cursor is on.
+///
+/// A view *underneath* the text, not drawing inside it. The first version
+/// overrode `NSTextView.draw(_:)` — and overriding `draw` is one of the
+/// things that silently drops an `NSTextView` to TextKit 1 (proved by probe:
+/// a plain subclass with only that override loses `textLayoutManager`). The
+/// gutter walks TextKit 2 fragments, so that override made the line numbers
+/// vanish while the text kept rendering. This view lives in the scroll
+/// view's clip view, below the document, where it can paint anything without
+/// TextKit ever knowing.
+final class CurrentLineBandView: NSView {
+    override var isFlipped: Bool { true }
+
+    /// Clicks belong to the text above; this is paint, not a control.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// The text view itself, kept as a named subclass so the tab and save
@@ -754,7 +892,7 @@ final class CodeNSTextView: NSTextView {
     var onFindReferences: ((Int) -> Void)?
     var onFormat: (() -> Void)?
     var onJumpToDefinition: ((Int) -> Void)?
-    var hoverProvider: ((Int) async -> String?)?
+    var hoverProvider: ((Int) async -> CodeHoverInfo?)?
     var completionProvider: ((Int) async -> [String])?
 
     /// The last answer from `completionProvider`.
@@ -766,10 +904,24 @@ final class CodeNSTextView: NSTextView {
     private var pendingCompletions: [String] = []
     private var isFetchingCompletions = false
 
-    /// The offset the pointer last rested on, so the tooltip describes
-    /// what is under it rather than what the cursor happens to be near.
+    /// The offset the pointer last rested on, so the card describes what is
+    /// under it rather than what the cursor happens to be near.
     private var hoverOffset: Int?
     private var hoverTask: Task<Void, Never>?
+
+    /// The pending close. Separate from `hoverTask` because the two run at
+    /// once: one card is on its way out while the next one is being fetched.
+    private var dismissTask: Task<Void, Never>?
+
+    /// The card itself, made on the first hover and reused after that. Kept
+    /// optional rather than lazy so that a file nobody hovers over never pays
+    /// for a window.
+    private var hoverPanel: CodeHoverPanel?
+
+    /// How the card paints itself. Set by the coordinator, the only thing here
+    /// that knows the file's colours and language.
+    var hoverTheme: CodeTheme = .fallback
+    var hoverLanguage: CodeLanguage = .plain
 
     /// Whether a click means "go to the definition" rather than "put the
     /// cursor here".
@@ -794,6 +946,9 @@ final class CodeNSTextView: NSTextView {
     /// ⌘-click goes to the definition; without the modifier this is an
     /// ordinary click and must stay one.
     override func mouseDown(with event: NSEvent) {
+        hoverOffset = nil
+        hideHover()
+
         guard Self.isJumpClick(event.modifierFlags), let onJumpToDefinition else {
             super.mouseDown(with: event)
             return
@@ -811,30 +966,135 @@ final class CodeNSTextView: NSTextView {
         super.mouseMoved(with: event)
         guard let hoverProvider else { return }
 
+        // While the pointer is on the card, the card is what it is pointing at.
+        guard hoverPanel?.containsPointer != true else { return }
+
         let point = convert(event.locationInWindow, from: nil)
         let offset = characterIndexForInsertion(at: point)
         guard offset != hoverOffset else { return }
         hoverOffset = offset
 
+        // Closed on a delay, not at once. Closing immediately is correct in
+        // the abstract — the card describes the offset it was opened for — and
+        // wrong in the hand: the card sits above the word, so *reaching* for it
+        // means crossing other characters, and every one of them dismissed it
+        // before the pointer arrived. There was no way to scroll a long
+        // description or select a line out of it. Each move restarts the clock,
+        // so a card survives a pointer travelling towards it and closes shortly
+        // after the pointer settles somewhere else.
+        scheduleHoverDismissal()
+
         hoverTask?.cancel()
         hoverTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(450))
             guard !Task.isCancelled else { return }
-            let text = await hoverProvider(offset)
-            guard !Task.isCancelled else { return }
+            let info = await hoverProvider(offset)
+            guard !Task.isCancelled, let info, !info.isEmpty else { return }
             await MainActor.run {
                 guard let self, self.hoverOffset == offset else { return }
-                self.toolTip = text
+                self.showHover(info, at: offset)
             }
         }
+    }
+
+    /// Puts the card beside the hovered word.
+    ///
+    /// Anchored to the **word**, not to the pointer: a card that follows the
+    /// mouse to the pixel jitters while you read it, and what is being
+    /// described is the symbol, which does not move.
+    private func showHover(_ info: CodeHoverInfo, at offset: Int) {
+        let length = (string as NSString).length
+        guard length > 0 else { return }
+        let range = NSRange(location: min(offset, length - 1), length: 1)
+        let anchor = firstRect(forCharacterRange: range, actualRange: nil)
+        guard anchor.height > 0 else { return }
+
+        // A fresh card cancels the close the last one was waiting on, or it
+        // would be shut 400ms after opening.
+        dismissTask?.cancel()
+
+        let panel = hoverPanel ?? CodeHoverPanel()
+        hoverPanel = panel
+        panel.onPointerExit = { [weak self] in
+            // Cleared as well as hidden, so that coming back to the same word
+            // opens the card again instead of the offset guard swallowing it.
+            self?.hoverOffset = nil
+            self?.hideHover()
+        }
+        panel.present(
+            info,
+            theme: hoverTheme,
+            font: font ?? .monospacedSystemFont(ofSize: 12, weight: .regular),
+            language: hoverLanguage,
+            anchor: anchor,
+            over: self
+        )
+    }
+
+    /// Closes the card unless the pointer reached it in the meantime.
+    ///
+    /// Closes the *window* and nothing else — deliberately not `hideHover`,
+    /// which also cancels the pending look-up. The close is scheduled 400ms out
+    /// and the look-up answers at 450ms, so a dismissal that cancelled the task
+    /// killed every fetch 50ms before it ran and no card could ever appear.
+    private func scheduleHoverDismissal() {
+        dismissTask?.cancel()
+        dismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled, let self,
+                  self.hoverPanel?.containsPointer != true
+            else { return }
+            self.hoverPanel?.dismiss()
+        }
+    }
+
+    /// Stops everything: no card, and no card on its way.
+    private func hideHover() {
+        hoverTask?.cancel()
+        dismissTask?.cancel()
+        hoverPanel?.dismiss()
+    }
+
+    /// Leaving the text view puts the card away — unless the pointer went
+    /// *into* the card, which is the one direction that must not dismiss it.
+    /// The card takes mouse events so that a long description can be
+    /// scrolled, and reaching for its scroller means leaving the text.
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard hoverPanel?.containsPointer != true else { return }
+        hoverOffset = nil
+        hideHover()
+    }
+
+    /// A card is a window, and a window outlives the view that opened it. Left
+    /// alone it would stay on screen after its tab was closed, describing a
+    /// symbol in a file that is no longer showing.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            hoverOffset = nil
+            hideHover()
+        }
+    }
+
+    /// Anything that moves the text out from under the card closes it: the
+    /// card is pinned to a screen position and the word it describes is not.
+    override func scrollWheel(with event: NSEvent) {
+        super.scrollWheel(with: event)
+        hoverOffset = nil
+        hideHover()
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
+        // `activeInActiveApp` rather than `activeInKeyWindow`: clicking into
+        // the card to select a line makes the card the key window, and with the
+        // stricter option this view would stop hearing about the pointer
+        // entirely — no more hovers until the editor was clicked again.
         addTrackingArea(NSTrackingArea(
             rect: bounds,
-            options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
             owner: self
         ))
     }
@@ -908,6 +1168,11 @@ final class CodeNSTextView: NSTextView {
     /// In `keyDown` rather than `performKeyEquivalent` because that one only
     /// sees ⌘ combinations — a plain modifier+key never reaches it.
     override func keyDown(with event: NSEvent) {
+        // Typing means the reader has moved on, and the text the card
+        // describes may be the text being replaced.
+        hoverOffset = nil
+        hideHover()
+
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if modifiers == .control, event.charactersIgnoringModifiers == " ",
            completionProvider != nil {
@@ -978,6 +1243,20 @@ final class CodeNSTextView: NSTextView {
             guard let onSearchWorkspace else { break }
             onSearchWorkspace()
             return true
+        case "f" where modifiers == .command:
+            // Plain ⌘F is the in-file find bar. Claimed explicitly because
+            // the terminal owns ⌘F at the window level and answered first —
+            // the find bar this view already has was never reached. Claimed
+            // *here* means only while the editor holds focus, so the
+            // terminal's own search is untouched.
+            //
+            // The sender carries the action in its `tag`, which is the part
+            // that is easy to get wrong: passing `self` sends tag 0, and tag 0
+            // is not a finder action, so nothing happened at all.
+            let sender = NSMenuItem()
+            sender.tag = NSTextFinder.Action.showFindInterface.rawValue
+            performTextFinderAction(sender)
+            return true
         case "r" where modifiers.contains(.control):
             guard let onRename else { break }
             onRename(selectedRange().location)
@@ -1018,60 +1297,6 @@ final class CodeNSTextView: NSTextView {
     private let textUndoManager = UndoManager()
 
     override var undoManager: UndoManager? { textUndoManager }
-
-    /// The band behind the line the cursor is on, or nil for none.
-    ///
-    /// The colour comes from the host's theme — it was already there, and
-    /// already populated, with nothing drawing it.
-    var currentLineColor: NSColor? {
-        didSet { needsDisplay = true }
-    }
-
-    /// Drawn *before* the text, so the band sits under the glyphs.
-    ///
-    /// In `draw` rather than `drawBackground(in:)` because this view draws no
-    /// background at all — that is what lets the window's blur reach the code
-    /// — and AppKit skips the background pass when it is off.
-    override func draw(_ dirtyRect: NSRect) {
-        drawCurrentLine()
-        super.draw(dirtyRect)
-    }
-
-    private func drawCurrentLine() {
-        guard let color = currentLineColor,
-              // Only with a collapsed cursor: over a selection the band would
-              // fight the selection's own highlight and read as a glitch.
-              selectedRange().length == 0,
-              let frame = currentLineFragmentFrame()
-        else { return }
-
-        color.setFill()
-        NSRect(
-            x: 0,
-            y: frame.minY,
-            width: bounds.width,
-            height: frame.height
-        ).intersection(bounds).fill()
-    }
-
-    /// The rect of the line the insertion point is on.
-    ///
-    /// Through `textLayoutManager`, never the legacy one: touching
-    /// `.layoutManager` silently drops this view to TextKit 1 for good.
-    private func currentLineFragmentFrame() -> NSRect? {
-        guard let layoutManager = textLayoutManager,
-              let contentManager = layoutManager.textContentManager,
-              let location = contentManager.location(
-                  contentManager.documentRange.location,
-                  offsetBy: selectedRange().location
-              ),
-              let fragment = layoutManager.textLayoutFragment(for: location)
-        else { return nil }
-
-        var frame = fragment.layoutFragmentFrame
-        frame.origin.y += textContainerOrigin.y
-        return frame
-    }
 
     /// True when this view is laying out through TextKit 2.
     ///

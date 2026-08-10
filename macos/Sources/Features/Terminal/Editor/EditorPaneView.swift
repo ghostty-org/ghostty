@@ -198,9 +198,7 @@ private struct DocumentView: View {
                     lsp.didChange(path: document.url.path, text: edited)
                 },
                 underlines: underlines,
-                hoverProvider: { offset in
-                    await lsp.hover(path: document.url.path, position: position(at: offset))
-                },
+                hoverProvider: { offset in await hoverInfo(at: offset) },
                 completionProvider: { offset in
                     await lsp.completions(
                         path: document.url.path,
@@ -307,19 +305,75 @@ private struct DocumentView: View {
         underlines = reported.compactMap { diagnostic in
             guard let range = index.range(of: diagnostic.range), range.length > 0
             else { return nil }
-
-            let color: NSColor
-            switch diagnostic.severity {
-            case .error: color = .systemRed
-            case .warning: color = .systemOrange
-            case .information, .hint: color = .systemBlue
-            }
-            return (range, color)
+            return (range, Self.color(for: diagnostic.severity))
         }
     }
 
     private func position(at offset: Int) -> LSPPosition {
         LSPTextCoordinates.position(at: offset, in: document.currentText as NSString)
+    }
+
+    /// What the card shows: the problems reported here, then what the symbol
+    /// is.
+    ///
+    /// Both, in that order, and it matters. The diagnostic is the reason you
+    /// looked; the declaration is what you needed to see next. Showing only
+    /// the second is what made the red squiggle a dead end — the message
+    /// existed the whole time and had nowhere to appear.
+    private func hoverInfo(at offset: Int) async -> CodeHoverInfo {
+        var info = CodeHoverInfo(problems: problems(at: offset))
+
+        if let markdown = await lsp.hover(
+            path: document.url.path,
+            position: position(at: offset)
+        ) {
+            let split = CodeHoverInfo.split(markdown: markdown)
+            info.signature = split.signature
+            info.documentation = split.documentation
+        }
+
+        return info
+    }
+
+    /// The diagnostics whose range covers this offset.
+    ///
+    /// Read from the same list the underlines come from, so the squiggle and
+    /// the card can never disagree about what is wrong where.
+    private func problems(at offset: Int) -> [CodeHoverInfo.Problem] {
+        let reported = lsp.diagnostics[document.url.path] ?? []
+        guard !reported.isEmpty else { return [] }
+
+        let index = LSPLineIndex(document.currentText as NSString)
+        return reported.compactMap { diagnostic in
+            guard let range = index.range(of: diagnostic.range),
+                  // Inclusive of the upper bound, and a zero-length range
+                  // counts as covering where it sits. Both because the offset
+                  // is an *insertion* index: resting on the last character of
+                  // a word reports the index after it, so a half-open test
+                  // makes the end of every word a dead spot. Servers that
+                  // point at a position rather than a span — a missing
+                  // semicolon, an unexpected end of file — have nothing but a
+                  // zero-length range to give.
+                  offset >= range.location, offset <= range.upperBound
+            else { return nil }
+
+            return CodeHoverInfo.Problem(
+                message: diagnostic.message,
+                source: diagnostic.source,
+                color: Self.color(for: diagnostic.severity)
+            )
+        }
+    }
+
+    /// One reading of severity for the whole feature: the squiggle under the
+    /// text and the label on the card are the same fact drawn twice, and two
+    /// colour tables would eventually disagree.
+    static func color(for severity: LSPDiagnostic.Severity) -> NSColor {
+        switch severity {
+        case .error: return .systemRed
+        case .warning: return .systemOrange
+        case .information, .hint: return .systemBlue
+        }
     }
 
     private func jump(from offset: Int) {

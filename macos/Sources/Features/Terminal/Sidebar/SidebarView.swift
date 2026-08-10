@@ -59,6 +59,9 @@ struct SidebarView: View {
     @ObservedObject var store: SidebarGroupStore
     @ObservedObject var layout: SidebarLayoutModel
 
+    /// This window's open files, so the file tree can mark the one on screen.
+    @ObservedObject var editorCenter: EditorCenter
+
     @StateObject private var dragState = SidebarDragState()
 
     /// Creates a terminal tab inside the given group (nil for ungrouped),
@@ -159,7 +162,8 @@ struct SidebarView: View {
                     tabManager: tabManager,
                     store: store,
                     onSpawnTerminal: onSpawnTerminalBesideSelection,
-                    onOpenInEditor: onOpenInEditor
+                    onOpenInEditor: onOpenInEditor,
+                    editorCenter: editorCenter
                 )
             case .git:
                 GitPanelView(
@@ -1284,8 +1288,11 @@ private struct SidebarTabRow: View {
             openPlan(plan)
         } label: {
             HStack(spacing: 3) {
-                Image(systemName: "list.clipboard")
-                    .font(.system(size: isCompact ? 8 : 9))
+                Image(systemName: "text.rectangle.page")
+                    // A size, not a text style: the glyph inherited the row's
+                    // font metrics and came out taller than the chip.
+                    .font(.system(size: isCompact ? 7 : 8))
+                    .imageScale(.small)
                 Text("Plan")
                     .font(.system(size: isCompact ? 9 : 10, weight: .medium))
             }

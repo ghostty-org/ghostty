@@ -19,6 +19,15 @@ struct EditorTabBar: View {
 
     @ObservedObject private var palette: ThemePalette = .shared
 
+    /// How tall a tab is, and how much room is left under it for the
+    /// scroller. Named because three places have to agree on them: the row,
+    /// the scroll view around it, and the inset the terminal below is pushed
+    /// down by.
+    static let tabHeight: CGFloat = 30
+    static let scrollerStrip: CGFloat = 8
+
+    static var height: CGFloat { tabHeight + scrollerStrip }
+
     var body: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 0) {
@@ -40,11 +49,37 @@ struct EditorTabBar: View {
                         onClose: { onClose(tab.id) }
                     )
                 }
-                Spacer(minLength: 0)
+
+                // Overlay, not legacy. With "show scroll bars: always" in
+                // System Settings a legacy scroller is permanent and claims a
+                // strip of layout for itself, and there was no such strip —
+                // so it was drawn clipped, over the bottom edge of the bar and
+                // the rule under it. Overlay draws thin, over the content, and
+                // fades when the scrolling stops.
+                OverlayScrollers()
+
+                // Wheel down scrolls the row sideways, because reaching for a
+                // tab off the right edge with a mouse otherwise means a
+                // horizontal gesture nobody has on a wheel.
+                WheelScrollsHorizontally()
             }
+            .frame(height: Self.tabHeight)
+            // No `Spacer` here on purpose: a spacer stretches the row to the
+            // viewport's width, so the content never overflows and a scroll
+            // view with nothing to overflow does not scroll. The row is as
+            // wide as its tabs; the background behind it fills the rest.
         }
-        .scrollIndicators(.never)
-        .frame(height: 30)
+        // Visible while scrolling, not never: with enough tabs to fill the
+        // bar there was no way to reach the rest and nothing to say they were
+        // there. `.never` hid the only affordance the row had.
+        .scrollIndicators(.automatic)
+        // Taller than the tabs by exactly the strip the overlay scroller
+        // needs. Two things come out of that gap: the scroller stops being
+        // drawn over the tab labels and over the rule at the bottom of the
+        // bar, and the row stops being *vertically* scrollable — content
+        // taller than its viewport is what made a wheel event scroll a few
+        // invisible points up and down instead of moving the tabs.
+        .frame(height: Self.tabHeight + Self.scrollerStrip)
     }
 }
 

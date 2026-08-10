@@ -16,6 +16,20 @@ struct EditorPaneTabBar: View {
     @ObservedObject var center: EditorCenter
 
     var body: some View {
+        content
+            // Always full width, never an opinion about it.
+            //
+            // With no file open the body below is *empty*, and an
+            // `NSHostingView` wrapping empty SwiftUI reports an intrinsic
+            // width of nothing. Pinned to both sides of the pane, that made
+            // the hosting view dictate the pane's width instead of following
+            // it: the window opened narrow and refused to grow sideways —
+            // double-clicking the titlebar only made it taller.
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if center.tabs.showsTabBar {
             VStack(spacing: 0) {
                 EditorTabBar(

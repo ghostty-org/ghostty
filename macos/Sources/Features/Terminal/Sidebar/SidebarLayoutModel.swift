@@ -58,7 +58,41 @@ final class SidebarSplitView: NSSplitView {
     /// the key.
     weak var editorCenter: EditorCenter?
 
+    /// The standard editing keys, when a field in the sidebar has focus.
+    ///
+    /// Ghostty binds ⌘V, ⌘C, ⌘X and friends to the *terminal* above the
+    /// responder chain, so a text field in the sidebar never saw them: typing
+    /// in the search box worked and pasting into it did nothing. Handled here
+    /// because this view is consulted before the surface, and only when the
+    /// thing with focus is an editable field — otherwise the terminal keeps
+    /// every one of them.
+    private static let editingCommands: [String: Selector] = [
+        "v": #selector(NSText.paste(_:)),
+        "c": #selector(NSText.copy(_:)),
+        "x": #selector(NSText.cut(_:)),
+        "a": #selector(NSText.selectAll(_:)),
+    ]
+
+    private func routeEditingCommand(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        guard modifiers == .command,
+              let characters = event.charactersIgnoringModifiers?.lowercased(),
+              let selector = Self.editingCommands[characters],
+              let responder = window?.firstResponder
+        else { return false }
+
+        // Editable text only. A terminal surface is a responder too, and it
+        // must keep these keys.
+        guard let textView = responder as? NSTextView, textView.isEditable,
+              textView.isDescendant(of: self)
+        else { return false }
+
+        return NSApp.sendAction(selector, to: responder, from: nil)
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if routeEditingCommand(event) { return true }
+
         if let center = editorCenter,
            let characters = event.charactersIgnoringModifiers,
            let command = EditorCommands.paneCommand(

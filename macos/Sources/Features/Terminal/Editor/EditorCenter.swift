@@ -24,6 +24,10 @@ final class EditorCenter: ObservableObject {
     /// shell says so — this is the seam where the two meet.
     @Published var terminalTitle: String = "Terminal"
 
+    /// How far down the terminal's content starts, so the pane's tab bar has
+    /// space of its own instead of covering it.
+    @Published var paneTabBarInset: CGFloat = 0
+
     /// Raised when a file can't be opened, for the host to explain and
     /// offer the external editor instead.
     @Published var openFailure: OpenFailure?
