@@ -23,7 +23,7 @@ struct EditorPaneTabBar: View {
                     selection: center.tabs.selection,
                     needsDirectory: { center.tabs.needsDirectory(for: $0) },
                     onSelect: { center.select($0) },
-                    onClose: { center.close($0) },
+                    onClose: { center.requestClose($0) },
                     terminalTitle: center.terminalTitle,
                     onSelectTerminal: { center.selectTerminal() }
                 )

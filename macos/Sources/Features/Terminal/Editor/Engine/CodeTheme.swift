@@ -93,6 +93,14 @@ struct CodeEditorConfiguration: Equatable {
     /// Whether brackets are coloured by nesting depth.
     var colorsBracketPairs: Bool = true
 
+    /// Whether the minimap is drawn beside the text.
+    ///
+    /// Part of the configuration rather than a property of its own, so that
+    /// turning it off in Settings is a change the appearance pass *notices*.
+    /// As a separate value it was only read when the view was first made, and
+    /// the switch did nothing until the file was reopened.
+    var showsMinimap: Bool = true
+
     static var `default`: CodeEditorConfiguration {
         CodeEditorConfiguration(
             font: .monospacedSystemFont(ofSize: 12, weight: .regular),
@@ -101,7 +109,8 @@ struct CodeEditorConfiguration: Equatable {
             tabWidth: 4,
             insertsSpacesForTab: true,
             highlightsCurrentLine: true,
-            colorsBracketPairs: true
+            colorsBracketPairs: true,
+            showsMinimap: true
         )
     }
 }

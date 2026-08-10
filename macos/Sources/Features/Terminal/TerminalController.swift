@@ -86,6 +86,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private var editorCancellable: AnyCancellable?
     private var terminalTitleCancellable: AnyCancellable?
 
+    /// The pane tab bar, coloured with the rest of the pane.
+    private weak var paneTabBarView: NSView?
+
     /// The pane tab bar's height constraint, zero while no file is open.
     private var paneTabBarHeight: NSLayoutConstraint?
 
@@ -711,6 +714,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         terminalTitlebarFiller?.layer?.backgroundColor = paneColor?.cgColor
         editorHostingView?.layer?.backgroundColor = paneColor?.cgColor
+        paneTabBarView?.layer?.backgroundColor = paneColor?.cgColor
 
         guard let sidebarBackgroundView else { return }
         sidebarBackgroundView.layer?.backgroundColor = paneColor?.cgColor
@@ -1455,6 +1459,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             rootView: EditorPaneTabBar(center: editorCenter).interfaceFont()
         )
         tabBarHosting.translatesAutoresizingMaskIntoConstraints = false
+        // Layer-backed and coloured by `syncSidebarBackground`, exactly like
+        // the editor beside it. Without this the bar had no background at all:
+        // the tab labels floated over whatever was behind, and text scrolling
+        // under it passed straight through the gap where the terminal's own
+        // tab draws nothing.
+        tabBarHosting.wantsLayer = true
         rightPane.addSubview(tabBarHosting)
         let tabBarHeight = tabBarHosting.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
@@ -1466,6 +1476,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             tabBarHeight,
         ])
         self.paneTabBarHeight = tabBarHeight
+        self.paneTabBarView = tabBarHosting
 
         let editorHosting = NSHostingView(
             rootView: EditorPaneView(

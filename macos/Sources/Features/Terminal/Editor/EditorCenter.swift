@@ -97,6 +97,40 @@ final class EditorCenter: ObservableObject {
         }
     }
 
+    /// A tab the reader tried to close while it still had edits.
+    ///
+    /// Raised instead of acting, so the *view* asks and this stays testable
+    /// without a window. Nothing was being asked before: closing a dirty tab
+    /// threw the edits away without a word, which is the one thing an editor
+    /// must never do quietly.
+    @Published var closeConfirmation: CloseConfirmation?
+
+    struct CloseConfirmation: Identifiable {
+        let id = UUID()
+        let path: String
+
+        var name: String { (path as NSString).lastPathComponent }
+    }
+
+    /// Closes a tab, asking first when it has unsaved edits.
+    func requestClose(_ path: String) {
+        guard documents[path]?.isDirty == true else {
+            close(path)
+            return
+        }
+        closeConfirmation = CloseConfirmation(path: path)
+    }
+
+    func requestCloseSelected() {
+        guard let path = tabs.selectedPath else { return }
+        requestClose(path)
+    }
+
+    /// Saves and then closes, for the "Save" answer.
+    func saveAndClose(_ path: String) {
+        if documents[path]?.save() == true { close(path) }
+    }
+
     func close(_ path: String) {
         documents[path]?.stopWatching()
         documents.removeValue(forKey: path)

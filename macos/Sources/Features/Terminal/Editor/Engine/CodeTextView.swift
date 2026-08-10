@@ -18,6 +18,12 @@ import SwiftUI
 /// behavior this class exists to avoid. Reach for `textLayoutManager`; a
 /// test asserts the view really is in TextKit 2.
 struct CodeTextView: NSViewRepresentable {
+    /// The minimap's width when shown. Named for the measurement rather than
+    /// the view, because the coordinator already has a `minimapWidth`
+    /// constraint and two things called the same thing is how the wrong one
+    /// gets used.
+    static let minimapColumnWidth: CGFloat = 70
+
     /// The text as the *host* last set it: loaded from disk, reverted,
     /// formatted, renamed. Not a binding, and not the live buffer — while
     /// you type, the buffer is ahead of this and that is correct.
@@ -40,9 +46,6 @@ struct CodeTextView: NSViewRepresentable {
     /// selection and the undo stack — so this reports, and only the
     /// revision above can replace.
     var onEdit: (String) -> Void = { _ in }
-
-    /// Whether the minimap is drawn beside the text.
-    var showsMinimap: Bool = true
 
     /// Ranges to underline, with the colour to use. Supplied as plain
     /// values so the engine never learns what a language server is.
@@ -126,7 +129,7 @@ struct CodeTextView: NSViewRepresentable {
 
         let minimap = CodeMinimapView(theme: theme, scrollView: scrollView)
         minimap.translatesAutoresizingMaskIntoConstraints = false
-        minimap.isHidden = !showsMinimap
+        minimap.isHidden = !configuration.showsMinimap
         // Scrolls, and only scrolls. The selection is the reader's, not the
         // map's — and this also drops a walk over every line of the document
         // that used to run on each event of a drag.
@@ -150,7 +153,7 @@ struct CodeTextView: NSViewRepresentable {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         let minimapWidth = minimap.widthAnchor.constraint(
-            equalToConstant: showsMinimap ? 70 : 0
+            equalToConstant: configuration.showsMinimap ? Self.minimapColumnWidth : 0
         )
         let gutterWidth = gutter.widthAnchor.constraint(
             equalToConstant: configuration.showsLineNumbers ? gutter.preferredWidth : 0
@@ -454,6 +457,26 @@ struct CodeTextView: NSViewRepresentable {
                 )
             }
             textStorage.endEditing()
+            invalidateLayout(of: textView)
+        }
+
+        /// Tells TextKit 2 that what it laid out is no longer what to draw.
+        ///
+        /// Rewriting attributes in bulk leaves fragments the layout manager
+        /// still believes are current, and the result is lines that go blank
+        /// and come back when something else forces a redraw — the "text
+        /// disappears for a moment" that showed up whenever a setting changed.
+        /// Saying so explicitly beats hoping a later event does it.
+        private func invalidateLayout(of textView: NSTextView) {
+            guard let layoutManager = textView.textLayoutManager else {
+                textView.needsDisplay = true
+                return
+            }
+
+            layoutManager.invalidateLayout(for: layoutManager.documentRange)
+            textView.needsLayout = true
+            textView.needsDisplay = true
+            gutter?.needsDisplay = true
         }
 
         /// Re-colours after a scroll settles, for a document being coloured
@@ -635,6 +658,10 @@ struct CodeTextView: NSViewRepresentable {
                 ? (gutter?.preferredWidth ?? 0)
                 : 0
 
+            minimap?.isHidden = !configuration.showsMinimap
+            minimapWidth?.constant = configuration.showsMinimap ? CodeTextView.minimapColumnWidth : 0
+            if configuration.showsMinimap { refreshMinimap() }
+
             guard let textStorage = textView.textStorage else { return }
 
             // The selection is the reader's and must survive a recolour. A
@@ -653,6 +680,8 @@ struct CodeTextView: NSViewRepresentable {
             if selection.location <= textStorage.length {
                 textView.setSelectedRange(selection)
             }
+
+            invalidateLayout(of: textView)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -974,6 +1003,21 @@ final class CodeNSTextView: NSTextView {
 
         return super.performKeyEquivalent(with: event)
     }
+
+    /// This view's own undo stack.
+    ///
+    /// `NSTextView` asks the responder chain for an undo manager, and in this
+    /// app the window's delegate answers with the *application's* one — the
+    /// manager Ghostty uses to undo closing a split or a tab. So ⌘Z in the
+    /// editor performed a window operation instead of undoing a keystroke, and
+    /// typing registered nothing anybody could reach.
+    ///
+    /// Owning one here keeps the two apart: text undo belongs to the buffer,
+    /// window undo belongs to the window, and neither can consume the other's
+    /// ⌘Z because only one of them has focus at a time.
+    private let textUndoManager = UndoManager()
+
+    override var undoManager: UndoManager? { textUndoManager }
 
     /// The band behind the line the cursor is on, or nil for none.
     ///

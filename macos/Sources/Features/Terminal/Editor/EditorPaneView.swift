@@ -42,6 +42,28 @@ struct EditorPaneView: View {
                     center.open(URL(fileURLWithPath: hit.path))
                 }
             }
+            // Three answers, and Cancel is the default so a stray Return
+            // cannot be the one that discards work.
+            .alert(
+                "Save changes to \(center.closeConfirmation?.name ?? "this file")?",
+                isPresented: Binding(
+                    get: { center.closeConfirmation != nil },
+                    set: { if !$0 { center.closeConfirmation = nil } }
+                ),
+                presenting: center.closeConfirmation
+            ) { confirmation in
+                Button("Save") {
+                    center.saveAndClose(confirmation.path)
+                    center.closeConfirmation = nil
+                }
+                Button("Don't Save", role: .destructive) {
+                    center.close(confirmation.path)
+                    center.closeConfirmation = nil
+                }
+                Button("Cancel", role: .cancel) { center.closeConfirmation = nil }
+            } message: { _ in
+                Text("Your changes will be lost if you don't save them.")
+            }
             .sheet(isPresented: Binding(
                 get: { !references.isEmpty },
                 set: { if !$0 { references = [] } }
@@ -63,11 +85,10 @@ struct EditorPaneView: View {
                 document: document,
                 theme: theme,
                 configuration: configuration,
-                showsMinimap: showsMinimap,
                 lsp: lsp,
                 onSave: { center.saveSelected() },
                 onSaveAll: { center.saveAll() },
-                onCloseTab: { center.closeSelected() },
+                onCloseTab: { center.requestCloseSelected() },
                 onSearchWorkspace: {
                     search.present(root: (document.url.deletingLastPathComponent()).path)
                 },
@@ -118,7 +139,8 @@ struct EditorPaneView: View {
             tabWidth: tabWidth,
             insertsSpacesForTab: true,
             highlightsCurrentLine: true,
-            colorsBracketPairs: colorsBracketPairs
+            colorsBracketPairs: colorsBracketPairs,
+            showsMinimap: showsMinimap
         )
     }
 }
@@ -129,7 +151,6 @@ private struct DocumentView: View {
     @ObservedObject var document: EditorDocument
     let theme: CodeTheme
     let configuration: CodeEditorConfiguration
-    let showsMinimap: Bool
     @ObservedObject var lsp: LSPCenter
     let onSave: () -> Void
     let onSaveAll: () -> Void
@@ -176,7 +197,6 @@ private struct DocumentView: View {
                     document.edited(edited)
                     lsp.didChange(path: document.url.path, text: edited)
                 },
-                showsMinimap: showsMinimap,
                 underlines: underlines,
                 hoverProvider: { offset in
                     await lsp.hover(path: document.url.path, position: position(at: offset))
