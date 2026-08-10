@@ -36,6 +36,13 @@ enum EditorCommands {
     /// Pure so the mapping is testable — the part worth being sure about
     /// is not that ⌘S saves, but that nothing here fires when the editor
     /// isn't focused.
+    ///
+    /// ⚠️ **Nothing in the app calls this.** The keys it describes are handled
+    /// by `CodeNSTextView.performKeyEquivalent`, which is only in the responder
+    /// chain while the editor has focus — a stronger guarantee than the
+    /// `editorFocused` argument here, and the reason this went unused. It is
+    /// kept because its tests document the intended mapping, but it is not the
+    /// code that runs: change the text view, not this.
     static func command(
         for characters: String,
         modifiers: NSEvent.ModifierFlags,

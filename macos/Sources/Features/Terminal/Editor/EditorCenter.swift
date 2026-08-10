@@ -138,11 +138,6 @@ final class EditorCenter: ObservableObject {
         tabs.close(path)
     }
 
-    func closeSelected() {
-        guard let path = tabs.selectedPath else { return }
-        close(path)
-    }
-
     /// Shows the terminal without closing anything.
     func selectTerminal() {
         tabs.selectTerminal()
