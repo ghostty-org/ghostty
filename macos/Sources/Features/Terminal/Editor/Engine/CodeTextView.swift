@@ -298,6 +298,11 @@ struct CodeTextView: NSViewRepresentable {
         /// The bracket spans currently coloured, guarded the same way.
         private var appliedBrackets: [BracketDepth.Span] = []
 
+        /// The look currently applied, so an update that changed something
+        /// else doesn't rewrite every attribute in the document.
+        private var appliedTheme: CodeTheme?
+        private var appliedConfiguration: CodeEditorConfiguration?
+
         init(storage: CodeTextStorage, onEdit: @escaping (String) -> Void) {
             self.storage = storage
             self.onEdit = onEdit
@@ -576,20 +581,46 @@ struct CodeTextView: NSViewRepresentable {
         func applyAppearance(theme: CodeTheme, configuration: CodeEditorConfiguration) {
             guard let textView else { return }
 
+            // Nothing to do unless the look actually changed.
+            //
+            // This used to re-colour the **whole document** on every SwiftUI
+            // update, and SwiftUI updates for reasons that have nothing to do
+            // with appearance — including saving, which publishes the text.
+            // Rewriting every attribute made TextKit 2 discard the laid-out
+            // viewport and move the insertion point, which is exactly the
+            // "⌘S blanks the top of the file and the cursor jumps a line"
+            // that was reported.
+            let unchanged = appliedTheme == theme && appliedConfiguration == configuration
+            appliedTheme = theme
+            appliedConfiguration = configuration
+
             storage.theme = theme
             storage.configuration = configuration
+            guard !unchanged else { return }
 
             textView.font = configuration.font
             textView.insertionPointColor = theme.foreground
             textView.textColor = theme.foreground
+            (textView as? CodeNSTextView)?.currentLineColor =
+                configuration.highlightsCurrentLine ? theme.currentLineBackground : nil
 
+            // Horizontal scrolling, when lines are not wrapped.
+            //
+            // `autoresizingMask` containing `.width` ties the text view to the
+            // clip view's width, so it can never be wider than what is on
+            // screen — and a scroll view does not scroll to somewhere its
+            // document does not reach. A long line was simply cut off at the
+            // right edge with no scroller to bring the rest in.
             textView.textContainer?.widthTracksTextView = configuration.wrapsLines
             if configuration.wrapsLines {
+                textView.autoresizingMask = [.width]
                 textView.textContainer?.size = NSSize(
                     width: textView.frame.width,
                     height: .greatestFiniteMagnitude
                 )
             } else {
+                textView.autoresizingMask = []
+                textView.isHorizontallyResizable = true
                 textView.textContainer?.size = NSSize(
                     width: CGFloat.greatestFiniteMagnitude,
                     height: CGFloat.greatestFiniteMagnitude
@@ -604,12 +635,44 @@ struct CodeTextView: NSViewRepresentable {
                 ? (gutter?.preferredWidth ?? 0)
                 : 0
 
-            if let textStorage = textView.textStorage {
-                storage.highlight(
-                    textStorage,
-                    in: NSRange(location: 0, length: textStorage.length)
-                )
+            guard let textStorage = textView.textStorage else { return }
+
+            // The selection is the reader's and must survive a recolour. A
+            // full rewrite of the attributes moves it otherwise, which is how
+            // the cursor climbed a line on save.
+            let selection = textView.selectedRange()
+
+            if highlightsOnDemand {
+                highlightVisibleRegion()
+            } else {
+                let full = NSRange(location: 0, length: textStorage.length)
+                storage.highlight(textStorage, in: full)
+                colorBrackets(in: full)
             }
+
+            if selection.location <= textStorage.length {
+                textView.setSelectedRange(selection)
+            }
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            // The band follows the cursor, and so does the highlighted number
+            // in the gutter — both are the same fact drawn in two places.
+            textView.needsDisplay = true
+            gutter?.setCurrentLine(currentLineNumber(in: textView))
+        }
+
+        /// The one-based line the insertion point is on.
+        private func currentLineNumber(in textView: NSTextView) -> Int? {
+            guard textView.selectedRange().length == 0 else { return nil }
+            let text = textView.string as NSString
+            let upTo = NSRange(location: 0, length: min(textView.selectedRange().location, text.length))
+            var line = 1
+            text.enumerateSubstrings(in: upTo, options: [.byLines, .substringNotRequired]) { _, _, _, _ in
+                line += 1
+            }
+            return line
         }
 
         func textDidChange(_ notification: Notification) {
@@ -910,6 +973,60 @@ final class CodeNSTextView: NSTextView {
         }
 
         return super.performKeyEquivalent(with: event)
+    }
+
+    /// The band behind the line the cursor is on, or nil for none.
+    ///
+    /// The colour comes from the host's theme — it was already there, and
+    /// already populated, with nothing drawing it.
+    var currentLineColor: NSColor? {
+        didSet { needsDisplay = true }
+    }
+
+    /// Drawn *before* the text, so the band sits under the glyphs.
+    ///
+    /// In `draw` rather than `drawBackground(in:)` because this view draws no
+    /// background at all — that is what lets the window's blur reach the code
+    /// — and AppKit skips the background pass when it is off.
+    override func draw(_ dirtyRect: NSRect) {
+        drawCurrentLine()
+        super.draw(dirtyRect)
+    }
+
+    private func drawCurrentLine() {
+        guard let color = currentLineColor,
+              // Only with a collapsed cursor: over a selection the band would
+              // fight the selection's own highlight and read as a glitch.
+              selectedRange().length == 0,
+              let frame = currentLineFragmentFrame()
+        else { return }
+
+        color.setFill()
+        NSRect(
+            x: 0,
+            y: frame.minY,
+            width: bounds.width,
+            height: frame.height
+        ).intersection(bounds).fill()
+    }
+
+    /// The rect of the line the insertion point is on.
+    ///
+    /// Through `textLayoutManager`, never the legacy one: touching
+    /// `.layoutManager` silently drops this view to TextKit 1 for good.
+    private func currentLineFragmentFrame() -> NSRect? {
+        guard let layoutManager = textLayoutManager,
+              let contentManager = layoutManager.textContentManager,
+              let location = contentManager.location(
+                  contentManager.documentRange.location,
+                  offsetBy: selectedRange().location
+              ),
+              let fragment = layoutManager.textLayoutFragment(for: location)
+        else { return nil }
+
+        var frame = fragment.layoutFragmentFrame
+        frame.origin.y += textContainerOrigin.y
+        return frame
     }
 
     /// True when this view is laying out through TextKit 2.

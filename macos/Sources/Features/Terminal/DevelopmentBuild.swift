@@ -29,4 +29,27 @@ enum DevelopmentBuild {
 
     /// What the badge says. Short, because it sits in a title bar.
     static let label = "DEV"
+
+    /// Which environment a badge is marking.
+    ///
+    /// The colours are the convention, and the convention is inverted on
+    /// purpose: green means "go ahead and break it", amber means "look before
+    /// you touch", red means "full attention". Only `development` is ever
+    /// produced today; the others exist so the scale is written down rather
+    /// than reinvented when a staging build appears.
+    enum Environment {
+        case development
+        case staging
+        case production
+
+        var label: String {
+            switch self {
+            case .development: return "DEV"
+            case .staging: return "STAGING"
+            case .production: return "PROD"
+            }
+        }
+    }
+
+    static var environment: Environment { .development }
 }

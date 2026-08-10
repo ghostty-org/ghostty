@@ -73,6 +73,19 @@ final class CodeGutterView: NSView {
         needsDisplay = true
     }
 
+    /// The line the cursor is on, drawn in the theme's brighter colour.
+    ///
+    /// The other half of the current-line highlight: the band marks where you
+    /// are in the text, the number marks it in the margin. Both colours were
+    /// already in the theme with nothing reading them.
+    private var currentLine: Int?
+
+    func setCurrentLine(_ line: Int?) {
+        guard line != currentLine else { return }
+        currentLine = line
+        needsDisplay = true
+    }
+
     func reload() {
         invalidateWidth()
         needsDisplay = true
@@ -102,6 +115,10 @@ final class CodeGutterView: NSView {
             .font: font,
             .foregroundColor: theme.lineNumber,
         ]
+        let currentAttributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: theme.currentLineNumber,
+        ]
 
         let visible = scrollView.contentView.bounds
         let inset = textView.textContainerInset.height
@@ -126,6 +143,8 @@ final class CodeGutterView: NSView {
             guard frame.minY + inset <= visible.maxY else { return false }
 
             let label = String(lineNumber) as NSString
+            let isCurrent = lineNumber == currentLine
+            let attributes = isCurrent ? currentAttributes : attributes
             let size = label.size(withAttributes: attributes)
             let y = frame.minY + inset - visible.minY + (frame.height - size.height) / 2
 
