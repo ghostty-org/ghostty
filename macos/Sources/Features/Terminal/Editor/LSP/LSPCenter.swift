@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// The language servers this window is talking to, and what they said.
@@ -34,6 +35,25 @@ final class LSPCenter: ObservableObject {
 
     private var openDocuments: Set<String> = []
 
+    /// Which server each open document has been announced to.
+    ///
+    /// `didOpen` twice for the same document is a protocol violation, and a
+    /// server that starts *after* a file was opened has never heard of it —
+    /// both are true at once, so "is it open" is not a property of the
+    /// document but of the pair.
+    private var announced: [String: Key] = [:]
+
+    /// Bumped whenever a server that was missing becomes available, so the
+    /// open documents can introduce themselves to it.
+    ///
+    /// A counter rather than the text: this object does not keep a copy of
+    /// any buffer, and it should not start now — the documents own their
+    /// text and can hand it over when asked.
+    @Published private(set) var availabilityGeneration = 0
+
+    /// Watches the directories on the login `PATH` for a server appearing.
+    private var pathWatcher: DirectoryWatcher?
+
     /// Pending `didChange` per document.
     ///
     /// Full-document sync is deliberate — see `didChange` — but sending it
@@ -50,7 +70,89 @@ final class LSPCenter: ObservableObject {
 
     private static let changeDebounce = Duration.milliseconds(180)
 
-    private init() {}
+    private init() {
+        watchPathForInstalls()
+
+        // Installing happens in the terminal and is followed by coming back
+        // to the editor. Free to check, and it is the actual gesture.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationBecameActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+    }
+
+    @objc private func applicationBecameActive() {
+        recheckMissingServers()
+    }
+
+    /// Watches the `PATH` directories so an install is noticed as it happens.
+    ///
+    /// Reactive rather than polled: `npm i -g` and `brew install` both end by
+    /// creating an entry in a bin directory, which is a filesystem event. The
+    /// watched set is the login `PATH` — about fifteen directories — and the
+    /// only thing done with an event is re-probing the commands already known
+    /// to be missing. Nothing is scanned.
+    private func watchPathForInstalls() {
+        Task { [weak self] in
+            let directories = await Task.detached(priority: .utility) {
+                Set((LoginEnvironment.loginPath() ?? "").split(separator: ":").map(String.init))
+            }.value
+
+            await MainActor.run {
+                guard let self, !directories.isEmpty else { return }
+                let watcher = DirectoryWatcher()
+                watcher.onChange = { [weak self] _ in
+                    Task { @MainActor in self?.recheckMissingServers() }
+                }
+                watcher.watch(directories)
+                self.pathWatcher = watcher
+            }
+        }
+    }
+
+    /// Looks again for the servers that were not installed.
+    ///
+    /// The bug this fixes: `missing` was append-only. A command that could
+    /// not be found went in the list and nothing ever looked again, so the
+    /// banner outlived the install and only a restart cleared it — the
+    /// signature of a cache with no invalidation.
+    func recheckMissingServers() {
+        guard !missing.isEmpty else { return }
+
+        Task { [weak self] in
+            guard let candidates = await MainActor.run(body: { self?.missing }) else { return }
+
+            let found = await Task.detached(priority: .utility) { () -> [String] in
+                var searchPath = LoginEnvironment.loginPath() ?? ""
+                var located = candidates.filter {
+                    LSPProcess.locate($0.command, searchPath: searchPath) != nil
+                }
+
+                // Nothing found could mean nothing installed — or a `PATH`
+                // captured before the version manager moved the directory.
+                // One retry on a fresh resolve tells the two apart.
+                if located.isEmpty {
+                    LoginEnvironment.invalidate()
+                    searchPath = LoginEnvironment.loginPath() ?? ""
+                    located = candidates.filter {
+                        LSPProcess.locate($0.command, searchPath: searchPath) != nil
+                    }
+                }
+                return located.map(\.command)
+            }.value
+
+            guard !found.isEmpty else { return }
+            await MainActor.run {
+                guard let self else { return }
+                self.missing.removeAll { found.contains($0.command) }
+                // The open documents have to introduce themselves: a server
+                // starting now has never heard of a file opened before it.
+                self.availabilityGeneration += 1
+            }
+        }
+    }
 
     // MARK: Documents
 
@@ -59,11 +161,17 @@ final class LSPCenter: ObservableObject {
         let root = Self.workspaceRoot(for: path)
         let key = Key(languageID: definition.languageID, root: root)
 
+        // Already announced to *this* server: a second `didOpen` for the same
+        // pair is a protocol violation. Announced to a different one — or to
+        // none — means this is the introduction.
+        guard announced[path] != key else { return }
+
         versions[path] = 1
         openDocuments.insert(path)
 
         Task { [weak self] in
             guard let server = await self?.server(for: key, definition: definition) else { return }
+            await MainActor.run { self?.announced[path] = key }
             try? server.notify("textDocument/didOpen", params: [
                 "textDocument": [
                     "uri": .string(Self.uri(path)),
@@ -130,6 +238,7 @@ final class LSPCenter: ObservableObject {
         guard let definition = LSPServerRegistry.server(forPath: path) else { return }
         let key = Key(languageID: definition.languageID, root: Self.workspaceRoot(for: path))
         openDocuments.remove(path)
+        announced.removeValue(forKey: path)
         changeTasks.removeValue(forKey: path)?.cancel()
         pendingChanges.removeValue(forKey: path)
         versions.removeValue(forKey: path)

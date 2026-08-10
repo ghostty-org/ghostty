@@ -24,6 +24,11 @@ class TerminalWindow: NSWindow {
     /// Update notification UI in titlebar
     private let updateAccessory = NSTitlebarAccessoryViewController()
 
+    /// Marks a locally built copy, in the titlebar rather than in the
+    /// sidebar. It belongs to the window: it says something about this
+    /// binary, not about whichever panel happens to be showing.
+    private let developmentAccessory = NSTitlebarAccessoryViewController()
+
     /// Visual indicator that mirrors the selected tab color.
     private lazy var tabColorIndicator: NSHostingView<TabColorIndicatorView> = {
         let view = NSHostingView(rootView: TabColorIndicatorView(tabColor: tabColor))
@@ -253,6 +258,14 @@ class TerminalWindow: NSWindow {
                 }))
             addTitlebarAccessoryViewController(resetZoomAccessory)
             resetZoomAccessory.view.translatesAutoresizingMaskIntoConstraints = false
+
+            // Only on a local build, so a release carries nothing extra.
+            if DevelopmentBuild.isActive {
+                developmentAccessory.layoutAttribute = .right
+                developmentAccessory.view = NSHostingView(rootView: DevelopmentBadgeView())
+                addTitlebarAccessoryViewController(developmentAccessory)
+                developmentAccessory.view.translatesAutoresizingMaskIntoConstraints = false
+            }
 
             // Create update notification accessory
             if supportsUpdateAccessory {

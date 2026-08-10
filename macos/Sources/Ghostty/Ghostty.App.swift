@@ -725,6 +725,20 @@ extension Ghostty {
             // initializer will gladly take invalid URLs (e.g. plain file paths) and turn
             // them into schema-less URLs, but these won't open properly in text editors.
             // See: https://github.com/ghostty-org/ghostty/issues/8763
+            // Phantom: a path clicked in the terminal goes where the reader
+            // chose in Settings, not to whatever Launch Services thinks owns
+            // the extension. Ghostty already detects bare paths — only the
+            // destination was wrong. Anything that isn't a real local file
+            // falls through to the behaviour below, unchanged.
+            // `MainActor.assumeIsolated`, not a hop: this callback already
+            // runs on the main thread — it is a UI action raised from the
+            // surface — and dispatching would let the fall-through below run
+            // first, opening the file twice.
+            if action.kind != .osc8,
+               MainActor.assumeIsolated({ TerminalPathRouter.open(action.url) }) {
+                return true
+            }
+
             let url: URL
             if let candidate = URL(string: action.url), candidate.scheme != nil {
                 url = candidate

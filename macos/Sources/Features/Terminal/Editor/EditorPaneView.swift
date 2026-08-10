@@ -210,6 +210,12 @@ private struct DocumentView: View {
             .onChange(of: lsp.diagnostics[document.url.path] ?? []) { _ in
                 refreshUnderlines()
             }
+            // A server that started after this file was opened has never
+            // heard of it, so the introduction has to be made again. The
+            // document owns its text; the centre only says when.
+            .onChange(of: lsp.availabilityGeneration) { _ in
+                lsp.didOpen(path: document.url.path, text: document.currentText)
+            }
         }
         .sheet(isPresented: Binding(
             get: { renamingAt != nil },
@@ -392,6 +398,15 @@ private struct DocumentView: View {
                 .foregroundStyle(.secondary)
 
             CopyButton(text: server.installHint, label: "Copy install command")
+
+            // The install is noticed on its own — a watcher on the `PATH`
+            // directories and a check when the app comes back to the front.
+            // This is here for the case those miss: a binary that lands
+            // somewhere unwatched, and a reader with no way to say "look
+            // again" other than restarting.
+            Button("Check Again") { lsp.recheckMissingServers() }
+                .font(palette.font(size: 11))
+                .buttonStyle(.link)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)

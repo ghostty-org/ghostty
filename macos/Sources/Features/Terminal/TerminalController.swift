@@ -1597,8 +1597,52 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// would be shown *nowhere*. Clicking a `.class` file did exactly that
     /// — nothing at all happened, which reads as the app being broken
     /// rather than as an answer.
-    private func openInEditor(_ url: URL) {
-        guard !editorCenter.open(url) else { return }
+    /// The directory a relative path from terminal output is relative to.
+    ///
+    /// The focused surface's own working directory, which is the only thing a
+    /// relative path in its output could have meant.
+    var workingDirectoryForPaths: String? {
+        if let pwd = focusedSurface?.pwd, !pwd.isEmpty { return pwd }
+        return sidebarTabManager?.models.first { $0.isSelected }?.pwd
+    }
+
+    /// Opens a path clicked in the terminal, honouring the Settings choice.
+    ///
+    /// Routed through the same opener the panels use, so "where do files
+    /// open" has one answer in the whole app rather than one per entry point.
+    func openClickedPath(_ url: URL, line: Int?, column: Int?) {
+        guard FileOpenAction.current != .builtInEditor else {
+            openInEditor(url, line: line, column: column)
+            return
+        }
+
+        FileOpener.prompt(
+            for: url,
+            in: window,
+            currentTerminal: focusedSurface,
+            spawnTerminal: { [weak self] in self?.newSidebarTabBesideSelection() },
+            openInEditor: { [weak self] target in
+                self?.openInEditor(target, line: line, column: column)
+            }
+        )
+    }
+
+    private func openInEditor(_ url: URL, line: Int? = nil, column: Int? = nil) {
+        // A line from a compiler or a stack trace is one-based; the editor's
+        // reveal is zero-based, like the protocol it came from.
+        let reveal = line.map { line in
+            let position = LSPPosition(
+                line: max(0, line - 1),
+                character: max(0, (column ?? 1) - 1)
+            )
+            return LSPRange(start: position, end: position)
+        }
+
+        guard !editorCenter.open(url, reveal: reveal) else { return }
+        openInEditorFailed(url)
+    }
+
+    private func openInEditorFailed(_ url: URL) {
         guard let failure = editorCenter.openFailure, let window else { return }
         editorCenter.openFailure = nil
 
