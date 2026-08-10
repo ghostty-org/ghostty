@@ -229,6 +229,29 @@ Overlay terminal_page {
   }
 
   [overlay]
+  // Broadcast input group border. Like the bell border, this is an overlay
+  // rather than a border on an existing widget so that toggling it doesn't
+  // resize the terminal. This is placed above the unfocused-split overlay
+  // so the group color stays identifiable on unfocused surfaces.
+  Revealer broadcast_revealer {
+    transition-type: crossfade;
+    transition-duration: 250;
+    // Revealers take up the full size, we need this to not capture events.
+    can-focus: false;
+    can-target: false;
+    focusable: false;
+
+    Box broadcast_overlay {
+      styles [
+        "broadcast-overlay",
+      ]
+
+      halign: fill;
+      valign: fill;
+    }
+  }
+
+  [overlay]
   CenterBox drag_handle {
     halign: fill;
     valign: start;

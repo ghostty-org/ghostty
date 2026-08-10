@@ -29,6 +29,7 @@ const CoreSurface = @import("../../../Surface.zig");
 
 const ext = @import("../ext.zig");
 const key = @import("../key.zig");
+const BroadcastGroups = @import("../BroadcastGroups.zig");
 const adw_version = @import("../adw_version.zig");
 const gtk_version = @import("../gtk_version.zig");
 const winprotopkg = @import("../winproto.zig");
@@ -228,6 +229,10 @@ pub const Application = extern struct {
         // on the first audio bell and rebuilt when `bell-audio-path` changes;
         // unref'd on dispose. See ringBell and media.zig.
         bell_media: ?*gtk.MediaFile = null,
+
+        /// The broadcast input groups: sets of surfaces that all receive
+        /// the keyboard input typed into any one of them.
+        broadcast_groups: BroadcastGroups = .empty,
 
         pub var offset: c_int = 0;
     };
@@ -469,6 +474,7 @@ pub const Application = extern struct {
         priv.css_provider.unref();
         for (priv.custom_css_providers.items) |provider| provider.unref();
         priv.custom_css_providers.deinit(alloc);
+        priv.broadcast_groups.deinit(alloc);
     }
 
     /// The global allocator that all other classes should use by
@@ -836,6 +842,11 @@ pub const Application = extern struct {
     /// Returns the open URI portal implementation.
     pub fn openUri(self: *Self) *OpenURI {
         return &self.private().open_uri;
+    }
+
+    /// Returns the broadcast input groups.
+    pub fn broadcastGroups(self: *Self) *BroadcastGroups {
+        return &self.private().broadcast_groups;
     }
 
     /// This will get called when there are no more open surfaces.

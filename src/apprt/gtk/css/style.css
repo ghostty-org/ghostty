@@ -134,6 +134,41 @@ label.resize-overlay {
   border-style: solid;
 }
 
+/*
+ * Broadcast input groups. Each group is assigned one of these colors,
+ * cycling if there are ever more groups than colors. The number of
+ * broadcast-color-N classes here must match
+ * BroadcastGroups.color_count.
+ */
+.surface .broadcast-overlay {
+  border-width: 2px;
+  border-style: solid;
+}
+
+.surface .broadcast-overlay.broadcast-color-0 {
+  border-color: rgb(255, 120, 0);
+}
+
+.surface .broadcast-overlay.broadcast-color-1 {
+  border-color: rgb(51, 199, 222);
+}
+
+.surface .broadcast-overlay.broadcast-color-2 {
+  border-color: rgb(51, 209, 122);
+}
+
+.surface .broadcast-overlay.broadcast-color-3 {
+  border-color: rgb(145, 65, 172);
+}
+
+.surface .broadcast-overlay.broadcast-color-4 {
+  border-color: rgb(246, 211, 45);
+}
+
+.surface .broadcast-overlay.broadcast-color-5 {
+  border-color: rgb(220, 138, 221);
+}
+
 .surface .readonly_overlay {
   /* Should be the equivalent of the following SwiftUI color: */
   /* Color(hue: 0.08, saturation: 0.5, brightness: 0.8) */

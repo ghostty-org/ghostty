@@ -20,6 +20,7 @@ const terminal = @import("../../../terminal/main.zig");
 const CoreSurface = @import("../../../Surface.zig");
 const gresource = @import("../build/gresource.zig");
 const ext = @import("../ext.zig");
+const BroadcastGroups = @import("../BroadcastGroups.zig");
 const gsettings = @import("../gsettings.zig");
 const gtk_key = @import("../key.zig");
 const ApprtSurface = @import("../Surface.zig");
@@ -707,6 +708,8 @@ pub const Surface = extern struct {
         key_tables: std.ArrayListUnmanaged([:0]const u8) = .empty,
 
         // Template binds
+        broadcast_overlay: *gtk.Widget,
+        broadcast_revealer: *gtk.Revealer,
         child_exited_overlay: *ChildExited,
         context_menu: *gtk.PopoverMenu,
         drop_target: *gtk.DropTarget,
@@ -1437,7 +1440,7 @@ pub const Surface = extern struct {
 
         // Invoke the core Ghostty logic to handle this input.
         const surface = priv.core_surface orelse return false;
-        const effect = surface.keyCallback(.{
+        const core_key_event: input.KeyEvent = .{
             .action = action,
             .key = physical_key,
             .mods = mods,
@@ -1445,10 +1448,19 @@ pub const Surface = extern struct {
             .composing = priv.im_composing,
             .utf8 = priv.im_buf[0..priv.im_len],
             .unshifted_codepoint = keyval_unicode_unshifted,
-        }) catch |err| {
+        };
+        const effect = surface.keyCallback(core_key_event) catch |err| {
             log.err("error in key callback err={}", .{err});
             return false;
         };
+
+        // Replicate the event to the other members of our broadcast
+        // group, if any. We don't replicate while composing so that IME
+        // preedit state stays local to this surface; the committed text
+        // is broadcast from imCommit instead.
+        if (!priv.im_composing and effect != .closed) {
+            self.broadcastKeyEvent(core_key_event);
+        }
 
         switch (effect) {
             .closed => return true,
@@ -1472,6 +1484,81 @@ pub const Surface = extern struct {
         }
 
         return false;
+    }
+
+    /// Toggle this surface's membership in a broadcast input group.
+    /// See BroadcastGroups for the toggle semantics.
+    fn toggleBroadcastGroup(self: *Self) void {
+        const priv = self.private();
+        const core_surface = priv.core_surface orelse return;
+        const app = Application.default();
+
+        // The focused surface determines whether we join an existing
+        // group or start a new one. The core's focused surface is still
+        // the previously focused one here because our focus callback is
+        // dispatched from an idle source.
+        const focused_id: ?u64 = if (app.core().focusedSurface()) |v| v.id else null;
+        app.broadcastGroups().toggle(
+            app.allocator(),
+            core_surface.id,
+            focused_id,
+        ) catch |err| {
+            log.warn("error toggling broadcast group err={}", .{err});
+            return;
+        };
+
+        self.syncBroadcastGroup();
+    }
+
+    /// Update the broadcast group border overlay to match this surface's
+    /// current group membership.
+    fn syncBroadcastGroup(self: *Self) void {
+        const css_classes: [BroadcastGroups.color_count][:0]const u8 = .{
+            "broadcast-color-0",
+            "broadcast-color-1",
+            "broadcast-color-2",
+            "broadcast-color-3",
+            "broadcast-color-4",
+            "broadcast-color-5",
+        };
+
+        const priv = self.private();
+        const color: ?u8 = color: {
+            const core_surface = priv.core_surface orelse break :color null;
+            break :color Application.default().broadcastGroups().colorOf(core_surface.id);
+        };
+
+        for (css_classes) |class| priv.broadcast_overlay.removeCssClass(class);
+        if (color) |v| priv.broadcast_overlay.addCssClass(css_classes[v % css_classes.len]);
+        priv.broadcast_revealer.setRevealChild(@intFromBool(color != null));
+    }
+
+    /// Replicate a key event to all other members of this surface's
+    /// broadcast group, if any. Keys that would trigger a keybinding on
+    /// the receiving surface are skipped so that broadcast only ever
+    /// replicates terminal input (e.g. a split-creating shortcut doesn't
+    /// fire once per group member).
+    fn broadcastKeyEvent(self: *Self, event: input.KeyEvent) void {
+        const priv = self.private();
+        const core_surface = priv.core_surface orelse return;
+        const app = Application.default();
+        const members = app.broadcastGroups().members(core_surface.id) orelse return;
+
+        // Copy the member list because a key callback could mutate the
+        // group (e.g. by closing a surface), invalidating the slice.
+        const alloc = app.allocator();
+        const copy = alloc.dupe(u64, members) catch return;
+        defer alloc.free(copy);
+
+        const core_app = app.core();
+        for (copy) |id| {
+            if (id == core_surface.id) continue;
+            const peer = core_app.findSurfaceByID(id) orelse continue;
+            if (peer.keyEventIsBinding(event) != null) continue;
+            _ = peer.keyCallback(event) catch |err| {
+                log.warn("error in broadcast key callback err={}", .{err});
+            };
+        }
     }
 
     /// Prompt for a manual title change for the surface.
@@ -1944,6 +2031,10 @@ pub const Surface = extern struct {
         const alloc = Application.default().allocator();
         const priv = self.private();
         if (priv.core_surface) |v| {
+            // Remove ourselves from any broadcast group so input is never
+            // replicated to a destroyed surface.
+            Application.default().broadcastGroups().remove(alloc, v.id);
+
             // Remove ourselves from the list of known surfaces in the app.
             // We do this before deinit in case a callback triggers
             // searching for this surface.
@@ -2858,6 +2949,20 @@ pub const Surface = extern struct {
         // Report the event
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
 
+        // Ctrl+shift+click toggles this surface's broadcast group
+        // membership. Consume the event entirely so it is never forwarded
+        // to the terminal. Ctrl+shift is used because the core already
+        // assigns meaning to shift+click (extend selection), ctrl+click
+        // (open link), and ctrl+alt+drag (rectangle selection), so we
+        // require exactly ctrl+shift with alt and super excluded.
+        if (button == .left) broadcast: {
+            const mods = gtk_key.translateMods(event.getModifierState());
+            if (!mods.ctrl or !mods.shift or mods.alt or mods.super) break :broadcast;
+            self.toggleBroadcastGroup();
+            priv.suppress_left_mouse_release = true;
+            return;
+        }
+
         // If this click is only transitioning split focus, suppress it so
         // it doesn't get forwarded to the terminal as a mouse event.
         if (!had_focus and button == .left) {
@@ -3287,16 +3392,21 @@ pub const Surface = extern struct {
 
             // Send the text to the core surface, associated with no key (an
             // invalid key, which should produce no PTY encoding).
-            _ = surface.keyCallback(.{
+            const key_event: input.KeyEvent = .{
                 .action = .press,
                 .key = .unidentified,
                 .mods = .{},
                 .consumed_mods = .{},
                 .composing = false,
                 .utf8 = str,
-            }) catch |err| {
+            };
+            _ = surface.keyCallback(key_event) catch |err| {
                 log.warn("error in key callback err={}", .{err});
             };
+
+            // Replicate the committed text to the other members of our
+            // broadcast group, if any.
+            self.broadcastKeyEvent(key_event);
         }
     }
 
@@ -3862,6 +3972,8 @@ pub const Surface = extern struct {
             );
 
             // Bindings
+            class.bindTemplateChildPrivate("broadcast_overlay", .{});
+            class.bindTemplateChildPrivate("broadcast_revealer", .{});
             class.bindTemplateChildPrivate("gl_area", .{});
             class.bindTemplateChildPrivate("url_left", .{});
             class.bindTemplateChildPrivate("url_right", .{});
