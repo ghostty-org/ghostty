@@ -116,8 +116,12 @@ struct SyntaxHighlighterTests {
         #expect(tokens("anything at all", .plain).isEmpty)
     }
 
+    /// `.vue` is excluded because it has no rules of its own — it is a
+    /// container the highlighter splits into blocks. Excluding it here would
+    /// hide a hole, so `vueGetsRealHighlighting` asserts that a component
+    /// still produces tokens in all three of them.
     @Test func everyLanguageCompiles() {
-        for language in CodeLanguage.allCases where language != .plain {
+        for language in CodeLanguage.allCases where language != .plain && language != .vue {
             let pattern = SyntaxHighlighter.pattern(for: language)
             #expect(pattern != nil, "\(language) has no pattern")
             #expect(
@@ -151,7 +155,7 @@ struct SyntaxHighlighterTests {
 struct CodeLanguageTests {
     @Test func extensionsResolve() {
         #expect(CodeLanguage.resolve(fileName: "App.tsx") == .javascript)
-        #expect(CodeLanguage.resolve(fileName: "main.vue") == .javascript)
+        #expect(CodeLanguage.resolve(fileName: "main.vue") == .vue)
         #expect(CodeLanguage.resolve(fileName: "vite.config.mts") == .javascript)
         #expect(CodeLanguage.resolve(fileName: "GitCenter.swift") == .swift)
         #expect(CodeLanguage.resolve(fileName: "build.zig") == .zig)
@@ -175,9 +179,41 @@ struct CodeLanguageTests {
         #expect(CodeLanguage.resolve(fileName: "archive.tar.gz") == .plain)
     }
 
-    /// `.vue` sharing the JavaScript rules is the reason this project isn't
-    /// using CodeEditSourceEditor, whose grammar set has no Vue at all.
+    /// A component file must not arrive plain.
+    ///
+    /// It used to resolve to JavaScript, which highlighted *something* and
+    /// was the point of this test — but it also left every HTML tag plain
+    /// and the stylesheet untouched. The intent survives the change of
+    /// mechanism, so this now asserts tokens come out of all three blocks,
+    /// which one shared rule set could never have satisfied.
     @Test func vueGetsRealHighlighting() {
-        #expect(CodeLanguage.resolve(fileName: "Card.vue") == .javascript)
+        #expect(CodeLanguage.resolve(fileName: "Card.vue") == .vue)
+
+        let source = [
+            "<script setup lang=\"ts\">",
+            "const a = 1;",
+            "</script>",
+            "",
+            "<template>",
+            "  <div class=\"a\" />",
+            "</template>",
+            "",
+            "<style lang=\"scss\">",
+            ".a { display: flex; }",
+            "</style>",
+        ].joined(separator: "\n")
+
+        let ns = source as NSString
+        let found = SyntaxHighlighter(language: .vue)
+            .tokens(in: source, range: NSRange(location: 0, length: ns.length))
+
+        func kinds(covering needle: String) -> [TokenKind] {
+            let target = ns.range(of: needle)
+            return found.filter { NSIntersectionRange($0.range, target).length > 0 }.map(\.kind)
+        }
+
+        #expect(kinds(covering: "const").contains(.keyword))
+        #expect(kinds(covering: "<div").contains(.keyword))
+        #expect(kinds(covering: "display").contains(.attribute))
     }
 }

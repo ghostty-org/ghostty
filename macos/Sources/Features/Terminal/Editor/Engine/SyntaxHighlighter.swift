@@ -46,6 +46,18 @@ struct SyntaxHighlighter {
     /// viewport — highlighting a whole file on every keystroke is the cost
     /// this design exists to avoid.
     func tokens(in text: String, range: NSRange) -> [Token] {
+        // A single-file component has no rules of its own: it is split into
+        // its blocks and each is lexed by the language it actually holds.
+        // The sub-languages are never `.vue`, so this cannot recurse.
+        if language == .vue {
+            return SFCRegions.regions(in: text).flatMap { region -> [Token] in
+                let clipped = NSIntersectionRange(region.range, range)
+                guard clipped.length > 0 else { return [] }
+                return SyntaxHighlighter(language: region.language)
+                    .tokens(in: text, range: clipped)
+            }
+        }
+
         guard let regex else { return [] }
 
         var tokens: [Token] = []
