@@ -113,7 +113,7 @@ struct AboutView: View {
             .textSelection(.enabled)
 
             VStack(spacing: 2) {
-                PropertyRow(label: "Version", text: Phantom.version)
+                PropertyRow(label: "Version", text: Phantom.versionSummary)
                 PropertyRow(label: "Ghostty Core", text: Phantom.upstreamCoreVersion)
                 if let build {
                     PropertyRow(label: "Build", text: build)

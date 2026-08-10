@@ -15,6 +15,19 @@ enum Phantom {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
     }
 
+    /// Whether this is a pre-1.0 build — which is to say, a beta.
+    ///
+    /// The fork's *releases* were numbered from `build.zig.zon`, which still
+    /// carried Ghostty's 1.3.x, so a download read as a finished product while
+    /// the app itself reported 0.2.0. Both now say the same thing, and SemVer
+    /// already means "nothing here is stable" below 1.0.
+    static var isPrerelease: Bool { version.hasPrefix("0.") }
+
+    /// The version as the about window should say it.
+    static var versionSummary: String {
+        isPrerelease ? "\(version) (beta)" : version
+    }
+
     static let repositoryURL = URL(string: "https://github.com/ipetinate/phantom")!
 
     /// Ghostty is not a dependency of this project — it is the project's
@@ -42,5 +55,5 @@ enum Phantom {
     /// so this has to be updated by hand when rebasing onto a newer
     /// Ghostty tip; it is not going to drift quietly, since a stale value
     /// only shows up here, not as a build failure.
-    static let upstreamCoreVersion = "1.3.2-dev"
+    static let upstreamCoreVersion = "1.3.6-dev"
 }
