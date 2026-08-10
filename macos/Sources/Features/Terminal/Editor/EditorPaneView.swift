@@ -399,6 +399,7 @@ private struct DocumentView: View {
                 .textSelection(.enabled)
                 .foregroundStyle(.secondary)
 
+            CopyButton(text: server.installHint, label: "Copy install command")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
