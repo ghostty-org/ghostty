@@ -109,6 +109,10 @@ extension Ghostty {
         /// True when the bell is active. This is set inactive on focus or event.
         @Published private(set) var bell: Bool = false
 
+        /// The border color for this surface's broadcast input group, or nil if
+        /// the surface is not in a group. Managed by BroadcastGroups.
+        @Published var broadcastGroupColor: Color?
+
         // An initial size to request for a window. This will only affect
         // then the view is moved to a new window.
         var initialSize: NSSize?
@@ -668,6 +672,25 @@ extension Ghostty {
             // We always assume that we're resetting our mouse suppression
             // unless we see the specific scenario below to set it.
             suppressNextLeftMouseUp = false
+
+            // Cmd+Shift+click toggles this surface's broadcast group
+            // membership. Consume the event entirely so it is never forwarded
+            // to the terminal. Both modifiers are required so we don't shadow
+            // shift+click (extend selection) or cmd+click (open link), and
+            // control is excluded because ctrl+click is the context menu.
+            // When the app isn't active the click is an ordinary activation
+            // click, so let it continue as normal.
+            if NSApp.isActive &&
+                event.modifierFlags.contains(.shift) &&
+                event.modifierFlags.contains(.command) &&
+                !event.modifierFlags.contains(.control) {
+                BroadcastGroups.shared.toggle(self)
+                if window.firstResponder !== self {
+                    window.makeFirstResponder(self)
+                }
+                suppressNextLeftMouseUp = true
+                return nil
+            }
 
             // If we're already the first responder then no focus transfer is
             // happening, so the click should continue as normal.
@@ -1455,7 +1478,10 @@ extension Ghostty {
                 }
             }
 
-            _ = keyAction(action, event: event)
+            // Never broadcast modifier-only events: BaseTerminalController
+            // already fans out flagsChanged to every surface in the window,
+            // so broadcasting here would send duplicates.
+            _ = keyAction(action, event: event, broadcast: false)
         }
 
         private func keyAction(
@@ -1463,7 +1489,8 @@ extension Ghostty {
             event: NSEvent,
             translationEvent: NSEvent? = nil,
             text: String? = nil,
-            composing: Bool = false
+            composing: Bool = false,
+            broadcast: Bool = true
         ) -> Bool {
             guard let surface = self.surface else { return false }
 
@@ -1473,14 +1500,41 @@ extension Ghostty {
             // For text, we only encode UTF8 if we don't have a single control
             // character. Control characters are encoded by Ghostty itself.
             // Without this, `ctrl+enter` does the wrong thing.
+            var sendText: String?
             if let text, text.count > 0,
                let codepoint = text.utf8.first, codepoint >= 0x20 {
+                sendText = text
+            }
+
+            let result = Self.sendKey(key_ev, text: sendText, to: surface)
+            if broadcast { broadcastKey(key_ev, text: sendText) }
+            return result
+        }
+
+        private static func sendKey(
+            _ key_ev: ghostty_input_key_s,
+            text: String?,
+            to surface: ghostty_surface_t
+        ) -> Bool {
+            var key_ev = key_ev
+            if let text {
                 return text.withCString { ptr in
                     key_ev.text = ptr
                     return ghostty_surface_key(surface, key_ev)
                 }
-            } else {
-                return ghostty_surface_key(surface, key_ev)
+            }
+
+            return ghostty_surface_key(surface, key_ev)
+        }
+
+        /// Replicate a key event to all other members of this surface's broadcast
+        /// group, if any. Keys that would trigger a keybinding on the receiving
+        /// surface are skipped so broadcast only replicates terminal input.
+        private func broadcastKey(_ key_ev: ghostty_input_key_s, text: String?) {
+            for other in BroadcastGroups.shared.others(for: self) {
+                guard let surface = other.surface else { continue }
+                guard other.surfaceModel?.keyIsBinding(key_ev) == nil else { continue }
+                _ = Self.sendKey(key_ev, text: text, to: surface)
             }
         }
 
@@ -1513,10 +1567,9 @@ extension Ghostty {
             key_ev.consumed_mods = GHOSTTY_MODS_NONE
             key_ev.unshifted_codepoint = 0
 
-            return text.withCString { ptr in
-                key_ev.text = ptr
-                return ghostty_surface_key(surface, key_ev)
-            }
+            let result = Self.sendKey(key_ev, text: text, to: surface)
+            broadcastKey(key_ev, text: text)
+            return result
         }
 
         override func quickLook(with event: NSEvent) {
@@ -2072,6 +2125,9 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         }
 
         surfaceModel.sendText(chars)
+        for other in BroadcastGroups.shared.others(for: self) {
+            other.surfaceModel?.sendText(chars)
+        }
     }
 
     /// This function needs to exist for two reasons:
