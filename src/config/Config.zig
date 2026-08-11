@@ -2541,6 +2541,48 @@ keybind: Keybinds = .{},
 /// OS settings. On every other platform it is 500ms.
 @"click-repeat-interval": u32 = 0,
 
+/// The modifier keys that must be held while left-clicking a terminal to
+/// toggle its broadcast input group membership. See the
+/// `toggle_broadcast_group` keybinding action for details on broadcast
+/// input groups.
+///
+/// The value is a comma-separated list of modifiers: `shift`, `ctrl`,
+/// `alt`, and `super` (the command key on macOS). The full modifier
+/// combination must match exactly: with the default, a click with any
+/// additional modifier held is not treated as a group toggle.
+///
+/// Set this to `false` to disable toggling groups by click entirely;
+/// groups can still be managed with the `toggle_broadcast_group`
+/// keybinding action.
+///
+/// When choosing a custom combination, note that Ghostty already assigns
+/// meaning to some modified clicks, such as `shift` (extend selection),
+/// `ctrl` (open link on Linux, context menu on macOS), and `super`
+/// (open link on macOS). Those behaviors will be shadowed if this
+/// setting overlaps them.
+///
+/// The default is `super,shift` on macOS and `ctrl,shift` on Linux.
+///
+/// Available since: 1.4.0
+@"broadcast-group-click-mods": BroadcastGroupClickMods = if (builtin.target.os.tag.isDarwin())
+    .{ .super = true, .shift = true }
+else
+    .{ .ctrl = true, .shift = true },
+
+/// The border colors used to identify broadcast input groups, as a
+/// comma-separated list of colors. Colors are specified as either
+/// hex (`#RRGGBB` or `RRGGBB`) or named X11 colors.
+///
+/// The group with number N is outlined with the Nth color in this list,
+/// and the number of colors determines the maximum number of groups that
+/// can exist at once (up to 64). The default `toggle_broadcast_group`
+/// keybindings only cover groups 1 through 10; groups beyond the tenth
+/// can be reached by click or by binding the action with a higher group
+/// number.
+///
+/// Available since: 1.4.0
+@"broadcast-group-colors": ColorList = .{},
+
 /// Additional configuration files to read. This configuration can be repeated
 /// to read multiple configuration files. Configuration files themselves can
 /// load more configuration files. Paths are relative to the file containing the
@@ -3978,6 +4020,25 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         .action = .{ .open = {} },
         .highlight = .{ .hover_mods = inputpkg.ctrlOrSuper(.{}) },
     });
+
+    // Default border colors for broadcast input groups. See
+    // broadcast-group-colors.
+    const broadcast_colors: []const Color = &.{
+        .{ .r = 0xff, .g = 0x78, .b = 0x00 }, // orange
+        .{ .r = 0x33, .g = 0xc7, .b = 0xde }, // cyan
+        .{ .r = 0x33, .g = 0xd1, .b = 0x7a }, // green
+        .{ .r = 0x91, .g = 0x41, .b = 0xac }, // purple
+        .{ .r = 0xf6, .g = 0xd3, .b = 0x2d }, // yellow
+        .{ .r = 0xdc, .g = 0x8a, .b = 0xdd }, // pink
+        .{ .r = 0xe0, .g = 0x1b, .b = 0x24 }, // red
+        .{ .r = 0x35, .g = 0x84, .b = 0xe4 }, // blue
+        .{ .r = 0xb5, .g = 0x83, .b = 0x5a }, // brown
+        .{ .r = 0x9a, .g = 0x99, .b = 0x96 }, // gray
+    };
+    for (broadcast_colors) |color| {
+        try result.@"broadcast-group-colors".colors.append(alloc, color);
+        try result.@"broadcast-group-colors".colors_c.append(alloc, color.cval());
+    }
 
     return result;
 }
@@ -6963,8 +7024,8 @@ pub const Keybinds = struct {
         {
             // On macOS we default to cmd+ctrl because cmd+shift+N
             // collides with the system screen capture shortcuts.
-            // Everywhere else is ctrl+shift, matching the
-            // ctrl+shift+click group toggle.
+            // Everywhere else is ctrl+shift, matching the default
+            // broadcast-group-click-mods group toggle.
             const mods: inputpkg.Mods = if (builtin.target.os.tag.isDarwin())
                 .{ .super = true, .ctrl = true }
             else
@@ -6987,13 +7048,13 @@ pub const Keybinds = struct {
                         ) },
                         .mods = mods,
                     },
-                    .{ .join_broadcast_group = (i - start) + 1 },
+                    .{ .toggle_broadcast_group = (i - start) + 1 },
                 );
 
                 try self.set.put(
                     alloc,
                     .{ .key = .{ .unicode = i }, .mods = mods },
-                    .{ .join_broadcast_group = (i - start) + 1 },
+                    .{ .toggle_broadcast_group = (i - start) + 1 },
                 );
             }
 
@@ -7002,12 +7063,12 @@ pub const Keybinds = struct {
             try self.set.put(
                 alloc,
                 .{ .key = .{ .physical = .digit_0 }, .mods = mods },
-                .{ .join_broadcast_group = 10 },
+                .{ .toggle_broadcast_group = 10 },
             );
             try self.set.put(
                 alloc,
                 .{ .key = .{ .unicode = '0' }, .mods = mods },
-                .{ .join_broadcast_group = 10 },
+                .{ .toggle_broadcast_group = 10 },
             );
         }
 
@@ -8778,6 +8839,27 @@ pub const MiddleClickAction = enum {
 
     /// No action is taken on middle click.
     ignore,
+};
+
+/// See broadcast-group-click-mods. The field order must match the
+/// bit order of input.Mods (and GHOSTTY_MODS_* in ghostty.h) so the
+/// C API can expose this value as a modifier bitmask.
+pub const BroadcastGroupClickMods = packed struct(u4) {
+    shift: bool = false,
+    ctrl: bool = false,
+    alt: bool = false,
+    super: bool = false,
+
+    /// Returns true if the given mods exactly match this click
+    /// combination. Always false when no modifiers are configured,
+    /// since a bare left click must never toggle groups.
+    pub fn match(self: BroadcastGroupClickMods, mods: inputpkg.Mods) bool {
+        if (@as(u4, @bitCast(self)) == 0) return false;
+        return self.shift == mods.shift and
+            self.ctrl == mods.ctrl and
+            self.alt == mods.alt and
+            self.super == mods.super;
+    }
 };
 
 /// Shell integration values

@@ -354,10 +354,11 @@ pub const Action = union(Key) {
     /// Move a tab to a new window.
     move_tab_to_new_window,
 
-    /// Join the target surface to the numbered broadcast input group,
-    /// toggling it out if it is already a member. See the
-    /// `join_broadcast_group` keybinding action.
-    join_broadcast_group: JoinBroadcastGroup,
+    /// The target surface's broadcast input group membership changed.
+    /// The apprt should update its visual indicator (e.g. a border in
+    /// the group's color). Group membership itself is managed entirely
+    /// by the core.
+    broadcast_group: BroadcastGroup,
 
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
@@ -429,7 +430,7 @@ pub const Action = union(Key) {
         readonly,
         copy_title_to_clipboard,
         move_tab_to_new_window,
-        join_broadcast_group,
+        broadcast_group,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -565,9 +566,14 @@ pub const MoveTab = extern struct {
     amount: isize,
 };
 
-/// The broadcast input group to join, one-based (1 to 10).
-pub const JoinBroadcastGroup = extern struct {
-    group: u8,
+/// A surface's current broadcast input group membership.
+pub const BroadcastGroup = extern struct {
+    /// True when the surface is a member of a group.
+    member: bool,
+
+    /// The group's color index into `broadcast-group-colors`. Only
+    /// meaningful when member is true.
+    color: u8,
 };
 
 /// The tab to jump to. This is non-exhaustive so that integer values represent

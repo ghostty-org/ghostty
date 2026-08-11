@@ -20,7 +20,6 @@ const terminal = @import("../../../terminal/main.zig");
 const CoreSurface = @import("../../../Surface.zig");
 const gresource = @import("../build/gresource.zig");
 const ext = @import("../ext.zig");
-const BroadcastGroups = @import("../BroadcastGroups.zig");
 const gsettings = @import("../gsettings.zig");
 const gtk_key = @import("../key.zig");
 const ApprtSurface = @import("../Surface.zig");
@@ -729,6 +728,11 @@ pub const Surface = extern struct {
         /// True when a left mouse down was consumed purely for a focus change,
         /// and the matching left mouse release should also be suppressed.
         suppress_left_mouse_release: bool = false,
+
+        /// The broadcast group color index currently shown by the border
+        /// overlay, so updateBroadcastGroup can remove the matching CSS
+        /// class when the group changes. Null when not in a group.
+        broadcast_color: ?u8 = null,
 
         /// How much pending horizontal scroll do we have?
         pending_horizontal_scroll: f64 = 0.0,
@@ -1440,7 +1444,7 @@ pub const Surface = extern struct {
 
         // Invoke the core Ghostty logic to handle this input.
         const surface = priv.core_surface orelse return false;
-        const core_key_event: input.KeyEvent = .{
+        const effect = surface.keyCallback(.{
             .action = action,
             .key = physical_key,
             .mods = mods,
@@ -1448,19 +1452,10 @@ pub const Surface = extern struct {
             .composing = priv.im_composing,
             .utf8 = priv.im_buf[0..priv.im_len],
             .unshifted_codepoint = keyval_unicode_unshifted,
-        };
-        const effect = surface.keyCallback(core_key_event) catch |err| {
+        }) catch |err| {
             log.err("error in key callback err={}", .{err});
             return false;
         };
-
-        // Replicate the event to the other members of our broadcast
-        // group, if any. We don't replicate while composing so that IME
-        // preedit state stays local to this surface; the committed text
-        // is broadcast from imCommit instead.
-        if (!priv.im_composing and effect != .closed) {
-            self.broadcastKeyEvent(core_key_event);
-        }
 
         switch (effect) {
             .closed => return true,
@@ -1486,116 +1481,36 @@ pub const Surface = extern struct {
         return false;
     }
 
-    /// Toggle this surface's membership in a broadcast input group.
-    /// See BroadcastGroups for the toggle semantics.
-    fn toggleBroadcastGroup(self: *Self) void {
+    /// Update the broadcast group border overlay to match the given
+    /// membership reported by the core.
+    pub fn updateBroadcastGroup(
+        self: *Self,
+        value: apprt.action.BroadcastGroup,
+    ) void {
         const priv = self.private();
-        const core_surface = priv.core_surface orelse return;
-        const app = Application.default();
+        const color: ?u8 = if (value.member) value.color else null;
 
-        // The focused surface determines whether we join an existing
-        // group or start a new one. The core's focused surface is still
-        // the previously focused one here because our focus callback is
-        // dispatched from an idle source.
-        const focused_id: ?u64 = if (app.core().focusedSurface()) |v| v.id else null;
-        app.broadcastGroups().toggle(
-            app.allocator(),
-            core_surface.id,
-            focused_id,
-        ) catch |err| {
-            log.warn("error toggling broadcast group err={}", .{err});
-            return;
-        };
-
-        self.syncBroadcastGroup();
-    }
-
-    /// Join this surface to the broadcast input group with the given
-    /// one-based number (1 to max_groups), creating the group if needed.
-    /// Joining the group the surface is already in toggles it out
-    /// instead. See BroadcastGroups.join for the exact semantics.
-    ///
-    /// This is the implementation of the `join_broadcast_group`
-    /// keybinding action. Returns false if the group number is out of
-    /// range or the surface isn't initialized.
-    pub fn joinBroadcastGroup(self: *Self, group: u8) bool {
-        if (group < 1 or group > BroadcastGroups.max_groups) {
-            log.warn(
-                "join_broadcast_group ignoring invalid group number={}",
-                .{group},
-            );
-            return false;
+        // The border color comes from a broadcast-color-N CSS class
+        // that the application generates from broadcast-group-colors,
+        // so we swap the class for our previous group with the class
+        // for the new one.
+        var buf: [32]u8 = undefined;
+        if (priv.broadcast_color) |old| {
+            priv.broadcast_overlay.removeCssClass(broadcastColorClass(&buf, old));
         }
-
-        const priv = self.private();
-        const core_surface = priv.core_surface orelse return false;
-        const app = Application.default();
-        app.broadcastGroups().join(
-            app.allocator(),
-            core_surface.id,
-            group - 1,
-        ) catch |err| {
-            log.warn("error joining broadcast group err={}", .{err});
-            return false;
-        };
-
-        self.syncBroadcastGroup();
-        return true;
-    }
-
-    /// Update the broadcast group border overlay to match this surface's
-    /// current group membership.
-    fn syncBroadcastGroup(self: *Self) void {
-        const css_classes: [BroadcastGroups.color_count][:0]const u8 = .{
-            "broadcast-color-0",
-            "broadcast-color-1",
-            "broadcast-color-2",
-            "broadcast-color-3",
-            "broadcast-color-4",
-            "broadcast-color-5",
-            "broadcast-color-6",
-            "broadcast-color-7",
-            "broadcast-color-8",
-            "broadcast-color-9",
-        };
-
-        const priv = self.private();
-        const color: ?u8 = color: {
-            const core_surface = priv.core_surface orelse break :color null;
-            break :color Application.default().broadcastGroups().colorOf(core_surface.id);
-        };
-
-        for (css_classes) |class| priv.broadcast_overlay.removeCssClass(class);
-        if (color) |v| priv.broadcast_overlay.addCssClass(css_classes[v]);
+        if (color) |v| {
+            priv.broadcast_overlay.addCssClass(broadcastColorClass(&buf, v));
+        }
+        priv.broadcast_color = color;
         priv.broadcast_revealer.setRevealChild(@intFromBool(color != null));
     }
 
-    /// Replicate a key event to all other members of this surface's
-    /// broadcast group, if any. Keys that would trigger a keybinding on
-    /// the receiving surface are skipped so that broadcast only ever
-    /// replicates terminal input (e.g. a split-creating shortcut doesn't
-    /// fire once per group member).
-    fn broadcastKeyEvent(self: *Self, event: input.KeyEvent) void {
-        const priv = self.private();
-        const core_surface = priv.core_surface orelse return;
-        const app = Application.default();
-        const members = app.broadcastGroups().members(core_surface.id) orelse return;
-
-        // Copy the member list because a key callback could mutate the
-        // group (e.g. by closing a surface), invalidating the slice.
-        const alloc = app.allocator();
-        const copy = alloc.dupe(u64, members) catch return;
-        defer alloc.free(copy);
-
-        const core_app = app.core();
-        for (copy) |id| {
-            if (id == core_surface.id) continue;
-            const peer = core_app.findSurfaceByID(id) orelse continue;
-            if (peer.keyEventIsBinding(event) != null) continue;
-            _ = peer.keyCallback(event) catch |err| {
-                log.warn("error in broadcast key callback err={}", .{err});
-            };
-        }
+    /// The CSS class carrying the border color for the given broadcast
+    /// group color index. Must match the class names generated by the
+    /// application's runtime CSS.
+    fn broadcastColorClass(buf: []u8, color: u8) [:0]const u8 {
+        return std.fmt.bufPrintZ(buf, "broadcast-color-{d}", .{color}) catch
+            unreachable;
     }
 
     /// Prompt for a manual title change for the surface.
@@ -2068,10 +1983,6 @@ pub const Surface = extern struct {
         const alloc = Application.default().allocator();
         const priv = self.private();
         if (priv.core_surface) |v| {
-            // Remove ourselves from any broadcast group so input is never
-            // replicated to a destroyed surface.
-            Application.default().broadcastGroups().remove(alloc, v.id);
-
             // Remove ourselves from the list of known surfaces in the app.
             // We do this before deinit in case a callback triggers
             // searching for this surface.
@@ -2986,16 +2897,19 @@ pub const Surface = extern struct {
         // Report the event
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
 
-        // Ctrl+shift+click toggles this surface's broadcast group
-        // membership. Consume the event entirely so it is never forwarded
-        // to the terminal. Ctrl+shift is used because the core already
-        // assigns meaning to shift+click (extend selection), ctrl+click
-        // (open link), and ctrl+alt+drag (rectangle selection), so we
-        // require exactly ctrl+shift with alt and super excluded.
+        // Clicking with the broadcast-group-click-mods modifiers held
+        // toggles this surface's broadcast group membership. Consume the
+        // event entirely so it is never forwarded to the terminal. The
+        // configured modifiers must match exactly so that other modified
+        // clicks the core assigns meaning to (e.g. shift+click extends
+        // selection, ctrl+click opens links) are never shadowed by a
+        // superset combination.
         if (button == .left) broadcast: {
+            const config = priv.config orelse break :broadcast;
+            const click_mods = config.get().@"broadcast-group-click-mods";
             const mods = gtk_key.translateMods(event.getModifierState());
-            if (!mods.ctrl or !mods.shift or mods.alt or mods.super) break :broadcast;
-            self.toggleBroadcastGroup();
+            if (!click_mods.match(mods)) break :broadcast;
+            core_surface.toggleBroadcastGroup();
             priv.suppress_left_mouse_release = true;
             return;
         }
@@ -3429,21 +3343,16 @@ pub const Surface = extern struct {
 
             // Send the text to the core surface, associated with no key (an
             // invalid key, which should produce no PTY encoding).
-            const key_event: input.KeyEvent = .{
+            _ = surface.keyCallback(.{
                 .action = .press,
                 .key = .unidentified,
                 .mods = .{},
                 .consumed_mods = .{},
                 .composing = false,
                 .utf8 = str,
-            };
-            _ = surface.keyCallback(key_event) catch |err| {
+            }) catch |err| {
                 log.warn("error in key callback err={}", .{err});
             };
-
-            // Replicate the committed text to the other members of our
-            // broadcast group, if any.
-            self.broadcastKeyEvent(key_event);
         }
     }
 

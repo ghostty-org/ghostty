@@ -241,6 +241,7 @@ test {
     _ = @import("input.zig");
     _ = @import("cli.zig");
     _ = @import("surface_mouse.zig");
+    _ = @import("BroadcastGroups.zig");
 
     // Libraries
     _ = @import("tripwire.zig");

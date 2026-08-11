@@ -110,7 +110,8 @@ extension Ghostty {
         @Published private(set) var bell: Bool = false
 
         /// The border color for this surface's broadcast input group, or nil if
-        /// the surface is not in a group. Managed by BroadcastGroups.
+        /// the surface is not in a group. Updated by the core through the
+        /// broadcast_group apprt action.
         @Published var broadcastGroupColor: Color?
 
         // An initial size to request for a window. This will only affect
@@ -673,18 +674,19 @@ extension Ghostty {
             // unless we see the specific scenario below to set it.
             suppressNextLeftMouseUp = false
 
-            // Cmd+Shift+click toggles this surface's broadcast group
-            // membership. Consume the event entirely so it is never forwarded
-            // to the terminal. Both modifiers are required so we don't shadow
-            // shift+click (extend selection) or cmd+click (open link), and
-            // control is excluded because ctrl+click is the context menu.
-            // When the app isn't active the click is an ordinary activation
-            // click, so let it continue as normal.
-            if NSApp.isActive &&
-                event.modifierFlags.contains(.shift) &&
-                event.modifierFlags.contains(.command) &&
-                !event.modifierFlags.contains(.control) {
-                BroadcastGroups.shared.toggle(self)
+            // Clicking with the broadcast-group-click-mods modifiers held
+            // toggles this surface's broadcast group membership. Consume the
+            // event entirely so it is never forwarded to the terminal. The
+            // configured modifiers must match exactly so that other modified
+            // clicks (shift+click extends selection, cmd+click opens links,
+            // ctrl+click is the context menu) are never shadowed by a
+            // superset combination. When the app isn't active the click is
+            // an ordinary activation click, so let it continue as normal.
+            if NSApp.isActive,
+               let surface = self.surface,
+               let clickMods = derivedConfig.broadcastGroupClickMods,
+               event.modifierFlags.intersection([.shift, .control, .option, .command]) == clickMods {
+                ghostty_surface_toggle_broadcast_group(surface)
                 if window.firstResponder !== self {
                     window.makeFirstResponder(self)
                 }
@@ -1478,10 +1480,7 @@ extension Ghostty {
                 }
             }
 
-            // Never broadcast modifier-only events: BaseTerminalController
-            // already fans out flagsChanged to every surface in the window,
-            // so broadcasting here would send duplicates.
-            _ = keyAction(action, event: event, broadcast: false)
+            _ = keyAction(action, event: event)
         }
 
         private func keyAction(
@@ -1489,8 +1488,7 @@ extension Ghostty {
             event: NSEvent,
             translationEvent: NSEvent? = nil,
             text: String? = nil,
-            composing: Bool = false,
-            broadcast: Bool = true
+            composing: Bool = false
         ) -> Bool {
             guard let surface = self.surface else { return false }
 
@@ -1500,41 +1498,14 @@ extension Ghostty {
             // For text, we only encode UTF8 if we don't have a single control
             // character. Control characters are encoded by Ghostty itself.
             // Without this, `ctrl+enter` does the wrong thing.
-            var sendText: String?
             if let text, text.count > 0,
                let codepoint = text.utf8.first, codepoint >= 0x20 {
-                sendText = text
-            }
-
-            let result = Self.sendKey(key_ev, text: sendText, to: surface)
-            if broadcast { broadcastKey(key_ev, text: sendText) }
-            return result
-        }
-
-        private static func sendKey(
-            _ key_ev: ghostty_input_key_s,
-            text: String?,
-            to surface: ghostty_surface_t
-        ) -> Bool {
-            var key_ev = key_ev
-            if let text {
                 return text.withCString { ptr in
                     key_ev.text = ptr
                     return ghostty_surface_key(surface, key_ev)
                 }
-            }
-
-            return ghostty_surface_key(surface, key_ev)
-        }
-
-        /// Replicate a key event to all other members of this surface's broadcast
-        /// group, if any. Keys that would trigger a keybinding on the receiving
-        /// surface are skipped so broadcast only replicates terminal input.
-        private func broadcastKey(_ key_ev: ghostty_input_key_s, text: String?) {
-            for other in BroadcastGroups.shared.others(for: self) {
-                guard let surface = other.surface else { continue }
-                guard other.surfaceModel?.keyIsBinding(key_ev) == nil else { continue }
-                _ = Self.sendKey(key_ev, text: text, to: surface)
+            } else {
+                return ghostty_surface_key(surface, key_ev)
             }
         }
 
@@ -1567,9 +1538,10 @@ extension Ghostty {
             key_ev.consumed_mods = GHOSTTY_MODS_NONE
             key_ev.unshifted_codepoint = 0
 
-            let result = Self.sendKey(key_ev, text: text, to: surface)
-            broadcastKey(key_ev, text: text)
-            return result
+            return text.withCString { ptr in
+                key_ev.text = ptr
+                return ghostty_surface_key(surface, key_ev)
+            }
         }
 
         override func quickLook(with event: NSEvent) {
@@ -1868,6 +1840,7 @@ extension Ghostty {
             let windowTitleFontFamily: String?
             let windowAppearance: NSAppearance?
             let scrollbar: Ghostty.Config.Scrollbar
+            let broadcastGroupClickMods: NSEvent.ModifierFlags?
 
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
@@ -1877,6 +1850,7 @@ extension Ghostty {
                 self.windowTitleFontFamily = nil
                 self.windowAppearance = nil
                 self.scrollbar = .system
+                self.broadcastGroupClickMods = nil
             }
 
             init(_ config: Ghostty.Config) {
@@ -1887,6 +1861,7 @@ extension Ghostty {
                 self.windowTitleFontFamily = config.windowTitleFontFamily
                 self.windowAppearance = .init(ghosttyConfig: config)
                 self.scrollbar = config.scrollbar
+                self.broadcastGroupClickMods = config.broadcastGroupClickMods
             }
         }
 
@@ -2125,9 +2100,6 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         }
 
         surfaceModel.sendText(chars)
-        for other in BroadcastGroups.shared.others(for: self) {
-            other.surfaceModel?.sendText(chars)
-        }
     }
 
     /// This function needs to exist for two reasons:

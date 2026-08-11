@@ -659,21 +659,28 @@ pub const Action = union(enum) {
     ///     process is not running
     toggle_readonly,
 
-    /// Join the current terminal to the numbered broadcast input group,
-    /// creating the group if it doesn't exist yet. Keyboard input typed
-    /// into any member of a broadcast group is replicated to every other
-    /// member, similar to iTerm2's broadcast input and tmux's synchronized
-    /// panes.
+    /// Toggle the current terminal's membership in the numbered broadcast
+    /// input group, creating the group if it doesn't exist yet. Keyboard
+    /// input typed into and text pasted into any member of a broadcast
+    /// group is replicated to every other member, similar to iTerm2's
+    /// broadcast input and tmux's synchronized panes.
     ///
-    /// The argument is the group number from 1 to 10. Each group is
-    /// outlined with a distinct border color and at most 10 groups can
-    /// exist at once. A terminal that is already in the given group is
-    /// removed from it instead (toggle), and a terminal in a different
-    /// group is moved to the given group.
+    /// The argument is the one-based group number. Each group is outlined
+    /// with a distinct border color and the number of configured
+    /// `broadcast-group-colors` sets the maximum group number (10 by
+    /// default). A terminal that is already in the given group is removed
+    /// from it instead (toggle), and a terminal in a different group is
+    /// moved to the given group.
     ///
-    /// Terminals can also be toggled in and out of groups with
-    /// cmd+shift+click (macOS) or ctrl+shift+click (Linux).
-    join_broadcast_group: u8,
+    /// Terminals can also be toggled in and out of groups by clicking
+    /// them with the modifiers set by `broadcast-group-click-mods`
+    /// (by default cmd+shift+click on macOS, ctrl+shift+click on Linux).
+    toggle_broadcast_group: u8,
+
+    /// Remove every terminal from its broadcast input group, dissolving
+    /// all groups at once. See `toggle_broadcast_group` for details on
+    /// broadcast input groups.
+    clear_broadcast_groups,
 
     /// Resize the current split in the specified direction and amount in
     /// pixels. The two arguments should be joined with a comma (`,`),
@@ -1350,6 +1357,36 @@ pub const Action = union(enum) {
         return Error.InvalidAction;
     }
 
+    /// Returns true if this action's only effect is to send input to
+    /// the terminal, i.e. write to the pty as if the user had typed it.
+    ///
+    /// Key events that trigger such a binding are replicated to the
+    /// other members of a broadcast input group, since replicating
+    /// terminal input is exactly what broadcast is for. Events that
+    /// trigger any other kind of binding only run on the surface that
+    /// received them.
+    pub fn terminalInput(self: Action) bool {
+        return switch (self) {
+            .csi,
+            .esc,
+            .text,
+            .cursor_key,
+            => true,
+
+            else => false,
+        };
+    }
+
+    test "terminalInput" {
+        const testing = std.testing;
+        try testing.expect((Action{ .text = "\\x01" }).terminalInput());
+        try testing.expect((Action{ .csi = "A" }).terminalInput());
+        try testing.expect((Action{ .esc = "b" }).terminalInput());
+        try testing.expect(!(Action{ .ignore = {} }).terminalInput());
+        try testing.expect(!(Action{ .paste_from_clipboard = {} }).terminalInput());
+        try testing.expect(!(Action{ .new_window = {} }).terminalInput());
+    }
+
     /// The scope of an action. The scope is the context in which an action
     /// must be executed.
     pub const Scope = enum {
@@ -1374,6 +1411,7 @@ pub const Action = union(enum) {
             .toggle_visibility,
             .check_for_updates,
             .show_gtk_inspector,
+            .clear_broadcast_groups,
             => .app,
 
             // These are app but can be special-cased in a surface context.
@@ -1459,7 +1497,7 @@ pub const Action = union(enum) {
             .goto_window,
             .toggle_split_zoom,
             .toggle_readonly,
-            .join_broadcast_group,
+            .toggle_broadcast_group,
             .resize_split,
             .equalize_splits,
             .inspector,

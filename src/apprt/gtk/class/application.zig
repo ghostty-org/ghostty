@@ -29,7 +29,6 @@ const CoreSurface = @import("../../../Surface.zig");
 
 const ext = @import("../ext.zig");
 const key = @import("../key.zig");
-const BroadcastGroups = @import("../BroadcastGroups.zig");
 const adw_version = @import("../adw_version.zig");
 const gtk_version = @import("../gtk_version.zig");
 const winprotopkg = @import("../winproto.zig");
@@ -229,10 +228,6 @@ pub const Application = extern struct {
         // on the first audio bell and rebuilt when `bell-audio-path` changes;
         // unref'd on dispose. See ringBell and media.zig.
         bell_media: ?*gtk.MediaFile = null,
-
-        /// The broadcast input groups: sets of surfaces that all receive
-        /// the keyboard input typed into any one of them.
-        broadcast_groups: BroadcastGroups = .empty,
 
         pub var offset: c_int = 0;
     };
@@ -474,7 +469,6 @@ pub const Application = extern struct {
         priv.css_provider.unref();
         for (priv.custom_css_providers.items) |provider| provider.unref();
         priv.custom_css_providers.deinit(alloc);
-        priv.broadcast_groups.deinit(alloc);
     }
 
     /// The global allocator that all other classes should use by
@@ -721,7 +715,7 @@ pub const Application = extern struct {
                 value,
             ),
 
-            .join_broadcast_group => return Action.joinBroadcastGroup(target, value),
+            .broadcast_group => return Action.broadcastGroup(target, value),
 
             .key_sequence => return Action.keySequence(target, value),
             .key_table => return Action.keyTable(target, value),
@@ -846,11 +840,6 @@ pub const Application = extern struct {
         return &self.private().open_uri;
     }
 
-    /// Returns the broadcast input groups.
-    pub fn broadcastGroups(self: *Self) *BroadcastGroups {
-        return &self.private().broadcast_groups;
-    }
-
     /// This will get called when there are no more open surfaces.
     fn startQuitTimer(self: *Self) void {
         const priv = self.private();
@@ -946,6 +935,17 @@ pub const Application = extern struct {
                 \\}}
                 \\
             , .{ .font_family = font_family });
+        }
+
+        // Border colors for broadcast input groups. The class names must
+        // match Surface.broadcastColorClass.
+        for (config.@"broadcast-group-colors".colors.items, 0..) |color, i| {
+            try writer.print(
+                \\.surface .broadcast-overlay.broadcast-color-{d} {{
+                \\  border-color: rgb({d},{d},{d});
+                \\}}
+                \\
+            , .{ i, color.r, color.g, color.b });
         }
 
         const contents = buf.written();
@@ -2463,15 +2463,16 @@ const Action = struct {
         }
     }
 
-    pub fn joinBroadcastGroup(
+    pub fn broadcastGroup(
         target: apprt.Target,
-        value: apprt.action.JoinBroadcastGroup,
+        value: apprt.action.BroadcastGroup,
     ) bool {
         switch (target) {
             .app => return false,
-            .surface => |core| return core.rt_surface.surface.joinBroadcastGroup(
-                value.group,
-            ),
+            .surface => |core| {
+                core.rt_surface.surface.updateBroadcastGroup(value);
+                return true;
+            },
         }
     }
 

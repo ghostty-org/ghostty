@@ -135,53 +135,13 @@ label.resize-overlay {
 }
 
 /*
- * Broadcast input groups. Each group owns one of these colors and at
- * most one group exists per color. The number of broadcast-color-N
- * classes here must match BroadcastGroups.color_count.
+ * Broadcast input groups. The border color comes from a
+ * broadcast-color-N class generated at runtime from the
+ * broadcast-group-colors configuration.
  */
 .surface .broadcast-overlay {
   border-width: 2px;
   border-style: solid;
-}
-
-.surface .broadcast-overlay.broadcast-color-0 {
-  border-color: rgb(255, 120, 0);
-}
-
-.surface .broadcast-overlay.broadcast-color-1 {
-  border-color: rgb(51, 199, 222);
-}
-
-.surface .broadcast-overlay.broadcast-color-2 {
-  border-color: rgb(51, 209, 122);
-}
-
-.surface .broadcast-overlay.broadcast-color-3 {
-  border-color: rgb(145, 65, 172);
-}
-
-.surface .broadcast-overlay.broadcast-color-4 {
-  border-color: rgb(246, 211, 45);
-}
-
-.surface .broadcast-overlay.broadcast-color-5 {
-  border-color: rgb(220, 138, 221);
-}
-
-.surface .broadcast-overlay.broadcast-color-6 {
-  border-color: rgb(224, 27, 36);
-}
-
-.surface .broadcast-overlay.broadcast-color-7 {
-  border-color: rgb(53, 132, 228);
-}
-
-.surface .broadcast-overlay.broadcast-color-8 {
-  border-color: rgb(181, 131, 90);
-}
-
-.surface .broadcast-overlay.broadcast-color-9 {
-  border-color: rgb(154, 153, 150);
 }
 
 .surface .readonly_overlay {

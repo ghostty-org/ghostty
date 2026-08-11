@@ -223,6 +223,25 @@ test "c_get: background-blur" {
     }
 }
 
+test "c_get: broadcast-group-click-mods" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c = try Config.default(alloc);
+    defer c.deinit();
+
+    // The bits must match the GHOSTTY_MODS_* values: shift is 1 << 0,
+    // ctrl is 1 << 1, alt is 1 << 2, and super is 1 << 3.
+    c.@"broadcast-group-click-mods" = .{ .ctrl = true, .shift = true };
+    var bits: c_uint = undefined;
+    try testing.expect(get(&c, .@"broadcast-group-click-mods", @ptrCast(&bits)));
+    try testing.expectEqual(@as(c_uint, 0b0011), bits);
+
+    c.@"broadcast-group-click-mods" = .{ .super = true, .shift = true };
+    try testing.expect(get(&c, .@"broadcast-group-click-mods", @ptrCast(&bits)));
+    try testing.expectEqual(@as(c_uint, 0b1001), bits);
+}
+
 test "c_get: split-preserve-zoom" {
     const testing = std.testing;
     const alloc = testing.allocator;
