@@ -61,10 +61,25 @@ struct AppearanceGuardTests {
 ///
 /// Both colours were already in the theme and populated by the host — nothing
 /// drew them, which is why the feature appeared missing rather than broken.
+///
+/// Built through `EditorTheme.make(colors:background:)` — the pure half —
+/// rather than `.make(from: ThemePalette.shared)`: the live palette is
+/// whatever the running app happens to have loaded, and on a clean checkout
+/// with no config yet read (a fresh CI runner, notably) that is fewer than
+/// sixteen colours, which falls back to `.fallback` and its `nil` band. That
+/// made these assert something true about an *empty* palette, not about the
+/// mapping this file exists to describe.
 @MainActor
 struct CurrentLineHighlightTests {
+    /// Sixteen distinct colours, indexable the way a real ANSI palette is —
+    /// the shape `make` requires, with no meaning attached to the values
+    /// beyond being different from one another.
+    private var samplePalette: [NSColor] {
+        (0..<16).map { NSColor(white: CGFloat($0) / 16, alpha: 1) }
+    }
+
     @Test func theHostSuppliesBothColours() {
-        let theme = EditorTheme.make(from: ThemePalette.shared)
+        let theme = EditorTheme.make(colors: samplePalette, background: nil)
         #expect(theme.currentLineBackground != nil)
         #expect(theme.currentLineNumber != theme.lineNumber)
     }
@@ -73,7 +88,7 @@ struct CurrentLineHighlightTests {
     /// would hide the window's blur, which the editor deliberately lets reach
     /// the code.
     @Test func theBandIsTranslucent() {
-        let theme = EditorTheme.make(from: ThemePalette.shared)
+        let theme = EditorTheme.make(colors: samplePalette, background: nil)
         guard let band = theme.currentLineBackground else {
             Issue.record("the host stopped supplying a band colour")
             return

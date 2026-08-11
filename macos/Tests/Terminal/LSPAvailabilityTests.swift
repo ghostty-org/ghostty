@@ -73,6 +73,12 @@ struct LSPLocateTests {
 }
 
 /// Invalidating the cached login `PATH`.
+///
+/// Neither test asserts the resolved `PATH` is non-empty: resolving one
+/// shells out to the login shell, and a CI runner with no real profile —
+/// `.zshrc` never sourced, no Homebrew, nothing — can legitimately come back
+/// with nothing to report. That absence is a fact about the host, not about
+/// whether invalidation works, which is the only thing these describe.
 struct LoginPathInvalidationTests {
     /// The second layer of stickiness: the `PATH` is resolved once and kept
     /// for the life of the process, so a version manager moving its bin
@@ -85,12 +91,11 @@ struct LoginPathInvalidationTests {
         // Same answer on a machine that hasn't changed, and the point is that
         // it was *asked* again rather than served from the first call.
         #expect(first == second)
-        #expect(second?.isEmpty == false)
     }
 
     @Test func invalidatingTwiceIsHarmless() {
         LoginEnvironment.invalidate()
         LoginEnvironment.invalidate()
-        #expect(LoginEnvironment.loginPath()?.isEmpty == false)
+        _ = LoginEnvironment.loginPath() // must not crash or hang
     }
 }
