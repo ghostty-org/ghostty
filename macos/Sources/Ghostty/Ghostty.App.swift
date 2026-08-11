@@ -359,21 +359,31 @@ extension Ghostty {
             state: UnsafeMutableRawPointer?,
             request: ghostty_clipboard_request_e
         ) {
-            let surface = self.surfaceUserdata(from: userdata)
-            guard let valueStr = String(cString: string!, encoding: .utf8) else { return }
-            guard let request = Ghostty.ClipboardRequest.from(request: request) else { return }
-            NotificationCenter.default.post(
-                name: Notification.confirmClipboard,
-                object: surface,
-                userInfo: [
-                    Notification.ConfirmClipboardStrKey: valueStr,
-                    Notification.ConfirmClipboardStateKey: state as Any,
-                    Notification.ConfirmClipboardRequestKey: request,
-                ]
-            )
+            let surfaceView = self.surfaceUserdata(from: userdata)
+            guard surfaceView.surface != nil,
+                  let string,
+                  let valueStr = String(cString: string, encoding: .utf8),
+                  let kind = Ghostty.ClipboardRequest.from(request: request) else { return }
+
+            // libghostty reaches this callback only when the request attempted
+            // by readClipboard requires confirmation. Reads allowed by policy
+            // complete immediately and never become pending Swift state.
+            let request = Ghostty.ClipboardConfirmationRequest(
+                surface: surfaceView,
+                contents: valueStr,
+                kind: kind
+            ) { surfaceView, contents in
+                guard let surface = surfaceView.surface else { return }
+                completeClipboardRequest(
+                    surface,
+                    data: contents ?? "",
+                    state: state,
+                    confirmed: true)
+            }
+            surfaceView.pendingClipboardConfirmation = request
         }
 
-        static func completeClipboardRequest(
+        private static func completeClipboardRequest(
             _ surface: ghostty_surface_t,
             data: String,
             state: UnsafeMutableRawPointer?,
@@ -391,7 +401,7 @@ extension Ghostty {
             len: Int,
             confirm: Bool
         ) {
-            let surface = self.surfaceUserdata(from: userdata)
+            let surfaceView = self.surfaceUserdata(from: userdata)
             guard let pasteboard = NSPasteboard.ghostty(location) else { return }
             guard let content = content, len > 0 else { return }
 
@@ -407,7 +417,8 @@ extension Ghostty {
                    "clipboard contents should have at most one text/plain entry")
 
             if !confirm {
-                // Declare all types
+                // Apply writes allowed by policy immediately. Only writes that
+                // require confirmation continue to the pending request below.
                 let types = contentArray.compactMap { item in
                     NSPasteboard.PasteboardType(mimeType: item.mime)
                 }
@@ -426,14 +437,16 @@ extension Ghostty {
                 return
             }
 
-            NotificationCenter.default.post(
-                name: Notification.confirmClipboard,
-                object: surface,
-                userInfo: [
-                    Notification.ConfirmClipboardStrKey: textPlainContent.data,
-                    Notification.ConfirmClipboardRequestKey: Ghostty.ClipboardRequest.osc_52_write(pasteboard),
-                ]
-            )
+            let request = Ghostty.ClipboardConfirmationRequest(
+                surface: surfaceView,
+                contents: textPlainContent.data,
+                kind: .osc_52_write
+            ) { _, contents in
+                guard let contents else { return }
+                pasteboard.declareTypes([.string], owner: nil)
+                pasteboard.setString(contents, forType: .string)
+            }
+            surfaceView.pendingClipboardConfirmation = request
         }
 
         static func wakeup(_ userdata: UnsafeMutableRawPointer?) {

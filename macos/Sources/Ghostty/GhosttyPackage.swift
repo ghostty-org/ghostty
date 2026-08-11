@@ -246,51 +246,6 @@ extension Ghostty.SplitFocusDirection {
 #endif
 
 extension Ghostty {
-    /// The type of a clipboard request
-    enum ClipboardRequest {
-        /// A direct paste of clipboard contents
-        case paste
-
-        /// An application is attempting to read from the clipboard using OSC 52
-        case osc_52_read
-
-        /// An application is attempting to write to the clipboard using OSC 52
-        case osc_52_write(OSPasteboard?)
-
-        /// The text to show in the clipboard confirmation prompt for a given request type
-        func text() -> String {
-            switch self {
-            case .paste:
-                return """
-                Pasting this text to the terminal may be dangerous as it looks like some commands may be executed.
-                """
-            case .osc_52_read:
-                return """
-                An application is attempting to read from the clipboard.
-                The current clipboard contents are shown below.
-                """
-            case .osc_52_write:
-                return """
-                An application is attempting to write to the clipboard.
-                The content to write is shown below.
-                """
-            }
-        }
-
-        static func from(request: ghostty_clipboard_request_e) -> ClipboardRequest? {
-            switch request {
-            case GHOSTTY_CLIPBOARD_REQUEST_PASTE:
-                return .paste
-            case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ:
-                return .osc_52_read
-            case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_WRITE:
-                return .osc_52_write(nil)
-            default:
-                return nil
-            }
-        }
-    }
-
     struct ClipboardContent {
         let mime: String
         let data: String
@@ -425,11 +380,6 @@ extension Ghostty.Notification {
 
     /// Notification to show/hide the inspector
     static let didControlInspector = Notification.Name("com.mitchellh.ghostty.didControlInspector")
-
-    static let confirmClipboard = Notification.Name("com.mitchellh.ghostty.confirmClipboard")
-    static let ConfirmClipboardStrKey = confirmClipboard.rawValue + ".str"
-    static let ConfirmClipboardStateKey = confirmClipboard.rawValue + ".state"
-    static let ConfirmClipboardRequestKey = confirmClipboard.rawValue + ".request"
 
     /// Notification sent to the active split view to resize the split.
     static let didResizeSplit = Notification.Name("com.mitchellh.ghostty.didResizeSplit")

@@ -40,6 +40,7 @@ akimiojr
 alaasdk
 alanmoyano
 alaviss
+alex19ep
 alexbathome
 alexfeijoo44
 alexjuca
@@ -278,6 +279,7 @@ sanjj1
 secrus
 seruman
 seyoungjeong
+shorsher
 silveirapf
 simonbcn
 slsrepo

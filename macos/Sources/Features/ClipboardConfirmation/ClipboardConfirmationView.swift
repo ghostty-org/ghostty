@@ -2,7 +2,7 @@ import SwiftUI
 
 /// This delegate is notified of the completion result of the clipboard confirmation dialog.
 protocol ClipboardConfirmationViewDelegate: AnyObject {
-    func clipboardConfirmationComplete(_ action: ClipboardConfirmationView.Action, _ request: Ghostty.ClipboardRequest)
+    func clipboardConfirmationComplete(_ action: ClipboardConfirmationView.Action)
 }
 
 /// The SwiftUI view for showing a clipboard confirmation dialog.
@@ -87,10 +87,10 @@ struct ClipboardConfirmationView: View {
     }
 
     private func onCancel() {
-        delegate?.clipboardConfirmationComplete(.cancel, request)
+        delegate?.clipboardConfirmationComplete(.cancel)
     }
 
     private func onPaste() {
-        delegate?.clipboardConfirmationComplete(.confirm, request)
+        delegate?.clipboardConfirmationComplete(.confirm)
     }
 }

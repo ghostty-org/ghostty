@@ -118,6 +118,7 @@
 			membershipExceptions = (
 				App/macOS/AppDelegate.swift,
 				"App/macOS/AppDelegate+Ghostty.swift",
+				App/macOS/CommandLineOpenFileFilter.swift,
 				App/macOS/main.swift,
 				App/macOS/MainMenu.xib,
 				Features/About/About.xib,
