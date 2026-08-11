@@ -30,21 +30,6 @@ struct CodeHoverInfo: Equatable {
         problems.isEmpty && signature == nil && documentation == nil
     }
 
-    /// The whole card as plain text, for the copy button.
-    ///
-    /// Assembled here rather than read back off the labels: what a reader
-    /// wants on the clipboard is the message and the declaration, not the
-    /// fonts and colours an attributed string would carry into whatever they
-    /// paste it in.
-    var plainText: String {
-        var parts = problems.map { problem in
-            problem.source.map { "[\($0)] \(problem.message)" } ?? problem.message
-        }
-        if let signature { parts.append(signature) }
-        if let documentation { parts.append(documentation) }
-        return parts.joined(separator: "\n\n")
-    }
-
     /// Splits a language server's hover payload into declaration and prose.
     ///
     /// Servers answer in markdown and lead with the declaration inside a

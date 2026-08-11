@@ -36,20 +36,20 @@ final class CodeHoverPanel: NSPanel {
     /// that only comes if you go back to the code.
     var onPointerExit: (() -> Void)?
 
-    private let inset: CGFloat = 10
+    /// Where the pointer actually is, for `containsPointer` below.
+    ///
+    /// Real hardware in production. Tests substitute a fixed point, because
+    /// `containsPointer` is what decides whether the card survives being
+    /// reached for — and a test that depends on where the developer's actual
+    /// cursor happens to sit is not a test, it's a coin flip.
+    var pointerLocationProvider: () -> NSPoint = { NSEvent.mouseLocation }
 
-    /// Room kept at the right for the copy button, so a long line of prose
-    /// never runs underneath it.
-    private let buttonColumn: CGFloat = 22
+    private let inset: CGFloat = 10
 
     private lazy var card = CardView(owner: self)
     private let scrollView = NSScrollView()
     private let document = FlippedView()
     private let container = NSStackView()
-    private let copyButton = NSButton()
-
-    /// What is on the card, kept so the copy button has something to copy.
-    private var presented = CodeHoverInfo()
 
     init() {
         super.init(
@@ -69,10 +69,9 @@ final class CodeHoverPanel: NSPanel {
         animationBehavior = .utilityWindow
 
         // Key only when something on the card actually needs it — which is
-        // selecting the text to copy part of it. Hovering never takes focus,
-        // and neither does pressing the copy button; a floating panel also
-        // leaves the parent window looking active while it holds focus, so
-        // the editor does not grey out behind it.
+        // selecting its text. Hovering never takes focus; a floating panel
+        // also leaves the parent window looking active while it holds focus,
+        // so the editor does not grey out behind it.
         becomesKeyOnlyIfNeeded = true
 
         card.wantsLayer = true
@@ -99,28 +98,9 @@ final class CodeHoverPanel: NSPanel {
         scrollView.documentView = document
         card.addSubview(scrollView)
 
-        copyButton.bezelStyle = .accessoryBarAction
-        copyButton.isBordered = false
-        copyButton.imagePosition = .imageOnly
-        copyButton.image = NSImage(
-            systemSymbolName: "doc.on.doc",
-            accessibilityDescription: "Copy"
-        )
-        copyButton.target = self
-        copyButton.action = #selector(copyContents)
-        copyButton.toolTip = "Copy"
-        copyButton.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(copyButton)
-
         NSLayoutConstraint.activate([
-            copyButton.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -6),
-            copyButton.topAnchor.constraint(equalTo: card.topAnchor, constant: 4),
-
             scrollView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: inset),
-            scrollView.trailingAnchor.constraint(
-                equalTo: card.trailingAnchor,
-                constant: -(inset + buttonColumn)
-            ),
+            scrollView.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -inset),
             scrollView.topAnchor.constraint(equalTo: card.topAnchor, constant: inset),
             scrollView.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -inset),
 
@@ -145,32 +125,26 @@ final class CodeHoverPanel: NSPanel {
     /// `becomesKeyOnlyIfNeeded` above.
     override var canBecomeMain: Bool { false }
 
-    /// Puts the card's text on the clipboard.
-    ///
-    /// A button rather than only a text selection, because the common want is
-    /// the whole message — an error you are about to paste into a search — and
-    /// dragging across wrapped prose to get it is worse than one click.
-    @objc private func copyContents() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(presented.plainText, forType: .string)
-
-        copyButton.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied")
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(1.2))
-            self?.copyButton.image = NSImage(
-                systemSymbolName: "doc.on.doc",
-                accessibilityDescription: "Copy"
-            )
-        }
-    }
-
     /// Whether the pointer is over the card.
     ///
     /// Asked before hiding on `mouseExited`: the card is placed over the text,
     /// so moving the pointer onto it *is* leaving the text view, and a card
-    /// that vanishes when you reach for its scroller cannot be scrolled.
+    /// that vanishes when you reach for its scroller cannot be scrolled or its
+    /// text selected.
     var containsPointer: Bool {
-        isVisible && frame.contains(NSEvent.mouseLocation)
+        Self.contains(point: pointerLocationProvider(), in: frame, isVisible: isVisible)
+    }
+
+    /// The pure rule behind `containsPointer`, with visibility taken as a
+    /// value rather than read from the window.
+    ///
+    /// Split out so it can be tested: `isVisible` only becomes true by
+    /// actually asking the window server to display the panel, and doing
+    /// that from a test process with no running application event loop is
+    /// how the earlier version of these tests hung the whole suite instead
+    /// of failing it.
+    static func contains(point: NSPoint, in frame: NSRect, isVisible: Bool) -> Bool {
+        isVisible && frame.contains(point)
     }
 
     // MARK: Presenting
@@ -187,7 +161,6 @@ final class CodeHoverPanel: NSPanel {
     ) {
         guard !info.isEmpty, let parentWindow = view.window else { return }
         let screen = parentWindow.screen ?? NSScreen.main
-        presented = info
 
         fill(info, theme: theme, font: font, language: language, on: screen)
         position(near: anchor, on: screen)
@@ -224,11 +197,11 @@ final class CodeHoverPanel: NSPanel {
         card.layer?.backgroundColor = background.cgColor
         card.layer?.borderColor = theme.foreground.withAlphaComponent(0.18).cgColor
 
-        let width = Self.maximumWidth - inset * 2 - buttonColumn
+        let width = Self.maximumWidth - inset * 2
 
         for problem in info.problems {
             container.addView(
-                label(
+                Self.label(
                     Self.problemText(problem, font: font, foreground: theme.foreground),
                     width: width
                 ),
@@ -245,7 +218,7 @@ final class CodeHoverPanel: NSPanel {
 
         if let signature = info.signature {
             container.addView(
-                label(
+                Self.label(
                     Self.signatureText(signature, theme: theme, font: font, language: language),
                     width: width
                 ),
@@ -255,7 +228,7 @@ final class CodeHoverPanel: NSPanel {
 
         if let documentation = info.documentation {
             container.addView(
-                label(
+                Self.label(
                     Self.proseText(
                         documentation,
                         font: .systemFont(ofSize: font.pointSize + 1),
@@ -274,16 +247,25 @@ final class CodeHoverPanel: NSPanel {
             max(120, (screen?.visibleFrame.height ?? Self.maximumHeight) - 80)
         )
         setContentSize(NSSize(
-            width: min(fitting.width, width) + inset * 2 + buttonColumn,
+            width: min(fitting.width, width) + inset * 2,
             height: min(fitting.height, ceiling) + inset * 2
         ))
     }
 
-    private func label(_ text: NSAttributedString, width: CGFloat) -> NSTextField {
+    /// `static` rather than an instance method: it touches no state of its
+    /// own, and being free of `self` is what lets a test build one and
+    /// inspect it without a panel, a window, or the window server any of the
+    /// rest of this class needs.
+    static func label(_ text: NSAttributedString, width: CGFloat) -> NSTextField {
         let field = NSTextField(labelWithAttributedString: text)
-        // Selectable so a fragment can be copied by hand; the button covers
-        // wanting all of it.
         field.isSelectable = true
+        // A selectable-but-not-editable field still routes clicks through
+        // the shared field editor, and that editor draws from `stringValue`
+        // plus the control's own font/colour unless told otherwise — which is
+        // exactly the plain, uncoloured text that appeared the moment a
+        // selection started. This is what tells it to draw the attributed
+        // string instead.
+        field.allowsEditingTextAttributes = true
         field.lineBreakMode = .byWordWrapping
         field.maximumNumberOfLines = 0
         field.preferredMaxLayoutWidth = width

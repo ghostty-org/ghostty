@@ -154,27 +154,6 @@ struct CodeHoverInfoTests {
         #expect(documentation == "Example:\n\nlet a = 1\nlet b = 2")
     }
 
-    /// What the copy button puts on the clipboard: the problem, the
-    /// declaration and the prose, in the order they are read.
-    @Test func copyingTakesEverythingOnTheCard() {
-        let info = CodeHoverInfo(
-            problems: [.init(message: "unresolved", source: "SourceKit", color: .systemRed)],
-            signature: "func f()",
-            documentation: "Does nothing."
-        )
-
-        #expect(info.plainText == "[SourceKit] unresolved\n\nfunc f()\n\nDoes nothing.")
-    }
-
-    /// A server that names no source still has a message worth copying.
-    @Test func copyingOmitsAnAbsentSource() {
-        let info = CodeHoverInfo(
-            problems: [.init(message: "unresolved", source: nil, color: .systemRed)]
-        )
-
-        #expect(info.plainText == "unresolved")
-    }
-
     /// Whitespace-only payloads are the empty case, not a card with a blank
     /// line in it.
     @Test func blankPayloadsProduceNothing() {

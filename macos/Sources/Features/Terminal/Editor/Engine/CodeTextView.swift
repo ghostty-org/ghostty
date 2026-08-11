@@ -916,7 +916,11 @@ final class CodeNSTextView: NSTextView {
     /// The card itself, made on the first hover and reused after that. Kept
     /// optional rather than lazy so that a file nobody hovers over never pays
     /// for a window.
-    private var hoverPanel: CodeHoverPanel?
+    ///
+    /// Read-only outside this type: tests observe whether a hover produced a
+    /// visible card and drive its `pointerLocationProvider`, but only this
+    /// type decides when the card itself is created or torn down.
+    private(set) var hoverPanel: CodeHoverPanel?
 
     /// How the card paints itself. Set by the coordinator, the only thing here
     /// that knows the file's colours and language.
