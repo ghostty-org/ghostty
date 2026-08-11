@@ -491,6 +491,10 @@ pub fn init(
         break :config c;
     } else config_original;
 
+    // The app doesn't retain a config so it caches config-derived
+    // state from every config it sees.
+    app.updateBroadcastMaxGroups(config);
+
     // Get our configuration
     var derived_config = try DerivedConfig.init(alloc, config);
     errdefer derived_config.deinit();
@@ -1753,6 +1757,10 @@ pub fn updateConfig(
     // We want a config pointer for everything so we get that either
     // based on our conditional state or the original config.
     const config: *const configpkg.Config = if (config_) |*c| c else original;
+
+    // The app doesn't retain a config so it caches config-derived
+    // state from every config it sees.
+    self.app.updateBroadcastMaxGroups(config);
 
     // Update our new derived config immediately
     const derived = DerivedConfig.init(self.alloc, config) catch |err| {

@@ -75,6 +75,14 @@ first: bool = true,
 /// keyboard input typed into any one of them.
 broadcast_groups: BroadcastGroups = .empty,
 
+/// The maximum number of broadcast groups. Each group owns one of the
+/// configured broadcast-group-colors, so the color count bounds the
+/// group count. The core doesn't retain a config so this is cached
+/// from every config the core sees: app-level config updates as well
+/// as surface creation and config changes. Broadcast actions always
+/// originate from a surface, so this is seeded before it is ever read.
+broadcast_max_groups: u8 = 0,
+
 pub const CreateError = Allocator.Error || font.SharedGridSet.InitError;
 
 /// Create a new app instance. This returns a stable pointer to the app
@@ -186,6 +194,8 @@ pub fn updateConfig(self: *App, rt_app: *apprt.App, config: *const Config) !void
     };
     defer if (applied_) |*c| c.deinit();
     const applied: *const configpkg.Config = if (applied_) |*c| c else config;
+
+    self.updateBroadcastMaxGroups(applied);
 
     // Notify the apprt that the app has changed configuration.
     _ = try rt_app.performAction(
@@ -582,7 +592,7 @@ pub fn toggleBroadcastGroup(
         self.alloc,
         surface.id,
         focused_id,
-        broadcastMaxGroups(rt_app),
+        self.broadcast_max_groups,
     ) catch |err| {
         log.warn("error toggling broadcast group err={}", .{err});
         return;
@@ -605,7 +615,7 @@ pub fn toggleNumberedBroadcastGroup(
     surface: *Surface,
     group: u8,
 ) bool {
-    const max_groups = broadcastMaxGroups(rt_app);
+    const max_groups = self.broadcast_max_groups;
     if (group < 1 or group > max_groups) {
         log.warn(
             "toggle_broadcast_group ignoring invalid group number={}",
@@ -653,12 +663,14 @@ fn syncBroadcastGroup(self: *App, rt_app: *apprt.App, surface: *Surface) void {
     };
 }
 
-/// The maximum number of broadcast groups. Each group owns one of the
-/// configured broadcast-group-colors, so the color count bounds the
-/// group count.
-fn broadcastMaxGroups(rt_app: *const apprt.App) u8 {
-    const colors = rt_app.config.@"broadcast-group-colors".colors.items;
-    return @intCast(@min(colors.len, std.math.maxInt(u8)));
+/// Update the cached broadcast group maximum from the given config.
+/// See the broadcast_max_groups field for why this exists.
+pub fn updateBroadcastMaxGroups(self: *App, config: *const Config) void {
+    const colors = config.@"broadcast-group-colors".colors.items;
+    self.broadcast_max_groups = @intCast(@min(
+        colors.len,
+        std.math.maxInt(u8),
+    ));
 }
 
 /// Replicate a key event typed into the origin surface to the other
