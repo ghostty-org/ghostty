@@ -2,9 +2,12 @@
 //! receive the keyboard input typed into any one of them, similar to
 //! iTerm2's broadcast input and tmux's synchronized panes.
 //!
-//! Surfaces are toggled in and out of groups with ctrl+shift+click.
-//! Multiple groups can exist at once and each group is assigned a distinct
-//! border color so its members are visually identifiable.
+//! Surfaces are toggled in and out of groups with ctrl+shift+click, or
+//! join a specific numbered group with the `join_broadcast_group`
+//! keybinding action (ctrl+shift+<digit> by default). Multiple groups can
+//! exist at once and each group is assigned a distinct border color so
+//! its members are visually identifiable. At most `max_groups` groups can
+//! exist, one per palette color.
 //!
 //! Surfaces are tracked by their core surface ID so that this structure
 //! never holds a pointer that could dangle; members are removed explicitly
@@ -16,13 +19,18 @@ const Allocator = std.mem.Allocator;
 
 /// The number of distinct border colors available for groups. This must
 /// match the number of `broadcast-color-N` CSS classes defined in
-/// css/style.css. Groups beyond this count cycle through the colors again.
-pub const color_count = 6;
+/// css/style.css.
+pub const color_count = 10;
+
+/// The maximum number of groups that can exist at once. Each group owns
+/// one palette color, so this is bounded by the palette size.
+pub const max_groups = color_count;
 
 const Group = struct {
-    /// The color assigned to this group. This is the lowest value unused
-    /// by any other group at creation time; apply `% color_count` to get
-    /// the CSS palette index.
+    /// The number of this group, which doubles as its palette color
+    /// index. Always less than `max_groups`. Click-created groups take
+    /// the lowest number unused by any other group; the keyboard
+    /// shortcut addresses groups by this number directly.
     color: u8,
 
     /// The core surface IDs of the group members.
@@ -42,6 +50,8 @@ pub fn deinit(self: *BroadcastGroups, alloc: Allocator) void {
 /// group is removed from it (empty groups dissolve); otherwise, if the
 /// focused surface is in a group then the given surface joins that group;
 /// otherwise a new group is created containing only the given surface.
+/// If all `max_groups` groups already exist, no new group is created and
+/// this is a no-op.
 pub fn toggle(
     self: *BroadcastGroups,
     alloc: Allocator,
@@ -62,11 +72,42 @@ pub fn toggle(
         }
     }
 
-    // Start a new group.
-    var group: Group = .{ .color = self.nextColor() };
+    // Start a new group, unless every group number is already taken.
+    const color = self.nextColor() orelse return;
+    var group: Group = .{ .color = color };
     errdefer group.members.deinit(alloc);
     try group.members.append(alloc, id);
     try self.groups.append(alloc, group);
+}
+
+/// Add the given surface to the group with the given number, creating
+/// the group if it doesn't exist yet. A surface already in a different
+/// group is moved; a surface already in that exact group is removed
+/// from it instead (toggle). The number must be less than `max_groups`.
+pub fn join(
+    self: *BroadcastGroups,
+    alloc: Allocator,
+    id: u64,
+    number: u8,
+) Allocator.Error!void {
+    std.debug.assert(number < max_groups);
+
+    // Leave the current group, if any. If it was the requested group
+    // then this is a toggle off and we're done.
+    if (self.groupIndex(id)) |idx| {
+        const current = self.groups.items[idx].color;
+        self.removeFromGroup(alloc, idx, id);
+        if (current == number) return;
+    }
+
+    // Join the requested group, creating it if needed. Note that
+    // removeFromGroup above may have reordered `groups` so we search
+    // by number only now.
+    const idx = self.groupIndexByColor(number) orelse idx: {
+        try self.groups.append(alloc, .{ .color = number });
+        break :idx self.groups.items.len - 1;
+    };
+    try self.groups.items[idx].members.append(alloc, id);
 }
 
 /// Remove the given surface from its group, if any. Called when a
@@ -89,6 +130,14 @@ pub fn colorOf(self: *const BroadcastGroups, id: u64) ?u8 {
 pub fn members(self: *const BroadcastGroups, id: u64) ?[]const u64 {
     const idx = self.groupIndex(id) orelse return null;
     return self.groups.items[idx].members.items;
+}
+
+fn groupIndexByColor(self: *const BroadcastGroups, color: u8) ?usize {
+    for (self.groups.items, 0..) |group, i| {
+        if (group.color == color) return i;
+    }
+
+    return null;
 }
 
 fn groupIndex(self: *const BroadcastGroups, id: u64) ?usize {
@@ -122,16 +171,15 @@ fn removeFromGroup(
     }
 }
 
-/// The lowest color value not used by any existing group.
-fn nextColor(self: *const BroadcastGroups) u8 {
+/// The lowest group number not used by any existing group, or null if
+/// all `max_groups` numbers are taken.
+fn nextColor(self: *const BroadcastGroups) ?u8 {
     var candidate: u8 = 0;
-    while (candidate < std.math.maxInt(u8)) : (candidate += 1) {
-        for (self.groups.items) |group| {
-            if (group.color == candidate) break;
-        } else return candidate;
+    while (candidate < max_groups) : (candidate += 1) {
+        if (self.groupIndexByColor(candidate) == null) return candidate;
     }
 
-    return candidate;
+    return null;
 }
 
 test "toggle creates, joins, and removes" {
@@ -163,6 +211,62 @@ test "toggle creates, joins, and removes" {
     try testing.expectEqual(@as(?u8, null), groups.colorOf(1));
     try groups.toggle(alloc, 4, null);
     try testing.expectEqual(@as(?u8, 0), groups.colorOf(4));
+}
+
+test "toggle refuses to create more than max_groups groups" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var groups: BroadcastGroups = .empty;
+    defer groups.deinit(alloc);
+
+    // Fill every group number with a single-member group.
+    var id: u64 = 1;
+    while (id <= max_groups) : (id += 1) {
+        try groups.toggle(alloc, id, null);
+        try testing.expectEqual(@as(?u8, @intCast(id - 1)), groups.colorOf(id));
+    }
+
+    // The next toggle would need an eleventh group: it must be a no-op.
+    try groups.toggle(alloc, 99, null);
+    try testing.expectEqual(@as(?u8, null), groups.colorOf(99));
+
+    // Joining an existing group is still allowed while full.
+    try groups.toggle(alloc, 99, 1);
+    try testing.expectEqual(@as(?u8, 0), groups.colorOf(99));
+}
+
+test "join creates, moves, and toggles" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var groups: BroadcastGroups = .empty;
+    defer groups.deinit(alloc);
+
+    // Joining a group that doesn't exist creates it with that number.
+    try groups.join(alloc, 1, 4);
+    try testing.expectEqual(@as(?u8, 4), groups.colorOf(1));
+
+    // Another surface joins the same group.
+    try groups.join(alloc, 2, 4);
+    try testing.expectEqual(@as(?u8, 4), groups.colorOf(2));
+    try testing.expectEqual(@as(usize, 2), groups.members(1).?.len);
+
+    // Joining a different group moves the surface.
+    try groups.join(alloc, 2, 7);
+    try testing.expectEqual(@as(?u8, 7), groups.colorOf(2));
+    try testing.expectEqual(@as(usize, 1), groups.members(1).?.len);
+
+    // Joining the surface's current group removes it (toggle off), and
+    // the emptied group dissolves so its number is free again.
+    try groups.join(alloc, 2, 7);
+    try testing.expectEqual(@as(?u8, null), groups.colorOf(2));
+    try groups.toggle(alloc, 3, null);
+    try testing.expectEqual(@as(?u8, 0), groups.colorOf(3));
+
+    // The highest valid group number works.
+    try groups.join(alloc, 5, max_groups - 1);
+    try testing.expectEqual(@as(?u8, max_groups - 1), groups.colorOf(5));
 }
 
 test "remove" {

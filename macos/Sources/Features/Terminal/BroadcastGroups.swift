@@ -5,26 +5,41 @@ import SwiftUI
 /// same keyboard input, similar to iTerm2's broadcast input and tmux's synchronized
 /// panes.
 ///
-/// Surfaces are toggled in and out of groups with shift+click. Multiple groups can
-/// exist at once and each group is assigned a distinct border color so members are
-/// visually identifiable.
+/// Surfaces are toggled in and out of groups with cmd+shift+click, or join a
+/// specific numbered group with the `join_broadcast_group` keybinding action
+/// (cmd+ctrl+<digit> by default). Multiple groups can exist at
+/// once and each group is assigned a distinct border color so members are
+/// visually identifiable. At most `maxGroups` groups can exist, one per palette
+/// color.
 ///
-/// Membership rules for a shift+click on a surface:
+/// Membership rules for a cmd+shift+click on a surface:
 ///   - If the surface is already in a group, it is removed from that group.
 ///   - Otherwise, if the currently focused surface is in a group, the clicked
 ///     surface joins that group.
-///   - Otherwise, a new group is created containing the clicked surface.
+///   - Otherwise, a new group is created containing the clicked surface,
+///     unless all group numbers are already in use.
 ///
 /// Members are held weakly so closed surfaces fall out of their group naturally.
 @MainActor
 class BroadcastGroups {
     static let shared = BroadcastGroups()
 
-    /// Border colors assigned to groups. Groups beyond the palette size cycle.
-    static let palette: [Color] = [.orange, .cyan, .green, .purple, .yellow, .pink]
+    /// Border colors assigned to groups. A group's number is its index into
+    /// this palette.
+    static let palette: [Color] = [
+        .orange, .cyan, .green, .purple, .yellow,
+        .pink, .red, .blue, .brown, .gray,
+    ]
+
+    /// The maximum number of groups that can exist at once. Each group owns
+    /// one palette color, so this is bounded by the palette size.
+    static let maxGroups = palette.count
 
     private struct Group {
-        let colorIndex: Int
+        /// The number of this group, which doubles as its palette index.
+        /// Always less than `maxGroups`.
+        let number: Int
+
         var members: [Weak<Ghostty.SurfaceView>]
 
         var liveMembers: [Ghostty.SurfaceView] {
@@ -57,16 +72,57 @@ class BroadcastGroups {
            let focusedIdx = groupIndex(of: focused) {
             targetIdx = focusedIdx
         } else {
-            var colorIndex = 0
-            let used = Set(groups.map { $0.colorIndex })
-            while used.contains(colorIndex) { colorIndex += 1 }
-            groups.append(Group(colorIndex: colorIndex, members: []))
+            // Take the lowest unused group number. If every number is in
+            // use we refuse: there can be at most maxGroups groups.
+            let used = Set(groups.map { $0.number })
+            guard let number = (0..<Self.maxGroups).first(where: { !used.contains($0) }) else {
+                return
+            }
+            groups.append(Group(number: number, members: []))
             targetIdx = groups.count - 1
         }
 
-        groups[targetIdx].members.append(Weak(surfaceView))
-        surfaceView.broadcastGroupColor =
-            Self.palette[groups[targetIdx].colorIndex % Self.palette.count]
+        add(surfaceView, toGroupAt: targetIdx)
+    }
+
+    /// Add the given surface to the group with the given number (0-based),
+    /// creating the group if it doesn't exist yet. A surface already in a
+    /// different group is moved; a surface already in that exact group is
+    /// removed from it instead (toggle). Returns false if the number is
+    /// outside 0..<maxGroups.
+    @discardableResult
+    func join(_ surfaceView: Ghostty.SurfaceView, group number: Int) -> Bool {
+        guard (0..<Self.maxGroups).contains(number) else { return false }
+        prune()
+
+        // Leave the current group, if any. If it was the requested group
+        // then this is a toggle off and we're done.
+        if let idx = groupIndex(of: surfaceView) {
+            let current = groups[idx].number
+            groups[idx].members.removeAll { $0.value === surfaceView }
+            surfaceView.broadcastGroupColor = nil
+            if groups[idx].members.isEmpty {
+                groups.remove(at: idx)
+            }
+            if current == number { return true }
+        }
+
+        // Join the requested group, creating it if needed.
+        let targetIdx: Int
+        if let idx = groups.firstIndex(where: { $0.number == number }) {
+            targetIdx = idx
+        } else {
+            groups.append(Group(number: number, members: []))
+            targetIdx = groups.count - 1
+        }
+
+        add(surfaceView, toGroupAt: targetIdx)
+        return true
+    }
+
+    private func add(_ surfaceView: Ghostty.SurfaceView, toGroupAt idx: Int) {
+        groups[idx].members.append(Weak(surfaceView))
+        surfaceView.broadcastGroupColor = Self.palette[groups[idx].number]
     }
 
     /// Returns all other live members of the given surface's group. Empty if the

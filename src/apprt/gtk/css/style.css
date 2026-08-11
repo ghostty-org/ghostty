@@ -135,10 +135,9 @@ label.resize-overlay {
 }
 
 /*
- * Broadcast input groups. Each group is assigned one of these colors,
- * cycling if there are ever more groups than colors. The number of
- * broadcast-color-N classes here must match
- * BroadcastGroups.color_count.
+ * Broadcast input groups. Each group owns one of these colors and at
+ * most one group exists per color. The number of broadcast-color-N
+ * classes here must match BroadcastGroups.color_count.
  */
 .surface .broadcast-overlay {
   border-width: 2px;
@@ -167,6 +166,22 @@ label.resize-overlay {
 
 .surface .broadcast-overlay.broadcast-color-5 {
   border-color: rgb(220, 138, 221);
+}
+
+.surface .broadcast-overlay.broadcast-color-6 {
+  border-color: rgb(224, 27, 36);
+}
+
+.surface .broadcast-overlay.broadcast-color-7 {
+  border-color: rgb(53, 132, 228);
+}
+
+.surface .broadcast-overlay.broadcast-color-8 {
+  border-color: rgb(181, 131, 90);
+}
+
+.surface .broadcast-overlay.broadcast-color-9 {
+  border-color: rgb(154, 153, 150);
 }
 
 .surface .readonly_overlay {

@@ -676,6 +676,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
                 return copyTitleToClipboard(app, target: target)
 
+            case GHOSTTY_ACTION_JOIN_BROADCAST_GROUP:
+                return joinBroadcastGroup(app, target: target, v: action.action.join_broadcast_group)
+
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue, privacy: .public)")
                 return false
@@ -1185,6 +1188,31 @@ extension Ghostty {
                 }
 
                 return true
+        }
+
+        private static func joinBroadcastGroup(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_join_broadcast_group_s) -> Bool {
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("join broadcast group does nothing with an app target")
+                    return false
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+
+                    // The action carries a one-based group number; the
+                    // group store is zero-based.
+                    return MainActor.assumeIsolated {
+                        BroadcastGroups.shared.join(surfaceView, group: Int(v.group) - 1)
+                    }
+
+                default:
+                    assertionFailure()
+                    return false
+                }
         }
 
         private static func gotoTab(

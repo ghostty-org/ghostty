@@ -6960,6 +6960,56 @@ pub const Keybinds = struct {
                 },
             );
         }
+        {
+            // On macOS we default to cmd+ctrl because cmd+shift+N
+            // collides with the system screen capture shortcuts.
+            // Everywhere else is ctrl+shift, matching the
+            // ctrl+shift+click group toggle.
+            const mods: inputpkg.Mods = if (builtin.target.os.tag.isDarwin())
+                .{ .super = true, .ctrl = true }
+            else
+                .{ .ctrl = true, .shift = true };
+
+            // Cmd/Ctrl+Shift+N for broadcast group N. Like the numeric
+            // goto_tab above, we register both the physical digit key and
+            // the unicode digit so layouts with shifted digits (e.g.
+            // AZERTY) work.
+            const start: u21 = '1';
+            const end: u21 = '9';
+            comptime var i: u21 = start;
+            inline while (i <= end) : (i += 1) {
+                try self.set.put(
+                    alloc,
+                    .{
+                        .key = .{ .physical = @field(
+                            inputpkg.Key,
+                            std.fmt.comptimePrint("digit_{u}", .{i}),
+                        ) },
+                        .mods = mods,
+                    },
+                    .{ .join_broadcast_group = (i - start) + 1 },
+                );
+
+                try self.set.put(
+                    alloc,
+                    .{ .key = .{ .unicode = i }, .mods = mods },
+                    .{ .join_broadcast_group = (i - start) + 1 },
+                );
+            }
+
+            // 0 joins group 10, matching the number row read left
+            // to right.
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .physical = .digit_0 }, .mods = mods },
+                .{ .join_broadcast_group = 10 },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = '0' }, .mods = mods },
+                .{ .join_broadcast_group = 10 },
+            );
+        }
 
         // Toggle fullscreen
         try self.set.put(

@@ -1510,6 +1510,39 @@ pub const Surface = extern struct {
         self.syncBroadcastGroup();
     }
 
+    /// Join this surface to the broadcast input group with the given
+    /// one-based number (1 to max_groups), creating the group if needed.
+    /// Joining the group the surface is already in toggles it out
+    /// instead. See BroadcastGroups.join for the exact semantics.
+    ///
+    /// This is the implementation of the `join_broadcast_group`
+    /// keybinding action. Returns false if the group number is out of
+    /// range or the surface isn't initialized.
+    pub fn joinBroadcastGroup(self: *Self, group: u8) bool {
+        if (group < 1 or group > BroadcastGroups.max_groups) {
+            log.warn(
+                "join_broadcast_group ignoring invalid group number={}",
+                .{group},
+            );
+            return false;
+        }
+
+        const priv = self.private();
+        const core_surface = priv.core_surface orelse return false;
+        const app = Application.default();
+        app.broadcastGroups().join(
+            app.allocator(),
+            core_surface.id,
+            group - 1,
+        ) catch |err| {
+            log.warn("error joining broadcast group err={}", .{err});
+            return false;
+        };
+
+        self.syncBroadcastGroup();
+        return true;
+    }
+
     /// Update the broadcast group border overlay to match this surface's
     /// current group membership.
     fn syncBroadcastGroup(self: *Self) void {
@@ -1520,6 +1553,10 @@ pub const Surface = extern struct {
             "broadcast-color-3",
             "broadcast-color-4",
             "broadcast-color-5",
+            "broadcast-color-6",
+            "broadcast-color-7",
+            "broadcast-color-8",
+            "broadcast-color-9",
         };
 
         const priv = self.private();
@@ -1529,7 +1566,7 @@ pub const Surface = extern struct {
         };
 
         for (css_classes) |class| priv.broadcast_overlay.removeCssClass(class);
-        if (color) |v| priv.broadcast_overlay.addCssClass(css_classes[v % css_classes.len]);
+        if (color) |v| priv.broadcast_overlay.addCssClass(css_classes[v]);
         priv.broadcast_revealer.setRevealChild(@intFromBool(color != null));
     }
 

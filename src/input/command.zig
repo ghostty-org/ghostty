@@ -721,6 +721,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .jump_to_prompt,
         .write_scrollback_file,
         .goto_tab,
+        .join_broadcast_group,
         .resize_split,
         .activate_key_table,
         .activate_key_table_once,

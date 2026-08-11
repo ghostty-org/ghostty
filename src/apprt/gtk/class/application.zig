@@ -721,6 +721,8 @@ pub const Application = extern struct {
                 value,
             ),
 
+            .join_broadcast_group => return Action.joinBroadcastGroup(target, value),
+
             .key_sequence => return Action.keySequence(target, value),
             .key_table => return Action.keyTable(target, value),
 
@@ -2458,6 +2460,18 @@ const Action = struct {
                     else => .{ .n = @intCast(@intFromEnum(tab)) },
                 });
             },
+        }
+    }
+
+    pub fn joinBroadcastGroup(
+        target: apprt.Target,
+        value: apprt.action.JoinBroadcastGroup,
+    ) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| return core.rt_surface.surface.joinBroadcastGroup(
+                value.group,
+            ),
         }
     }
 

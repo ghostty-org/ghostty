@@ -5340,6 +5340,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .{ .amount = position },
         ),
 
+        .join_broadcast_group => |v| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .join_broadcast_group,
+            .{ .group = v },
+        ),
+
         .move_tab_to_new_window => return try self.rt_app.performAction(
             .{ .surface = self },
             .move_tab_to_new_window,

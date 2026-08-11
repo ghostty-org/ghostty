@@ -659,6 +659,22 @@ pub const Action = union(enum) {
     ///     process is not running
     toggle_readonly,
 
+    /// Join the current terminal to the numbered broadcast input group,
+    /// creating the group if it doesn't exist yet. Keyboard input typed
+    /// into any member of a broadcast group is replicated to every other
+    /// member, similar to iTerm2's broadcast input and tmux's synchronized
+    /// panes.
+    ///
+    /// The argument is the group number from 1 to 10. Each group is
+    /// outlined with a distinct border color and at most 10 groups can
+    /// exist at once. A terminal that is already in the given group is
+    /// removed from it instead (toggle), and a terminal in a different
+    /// group is moved to the given group.
+    ///
+    /// Terminals can also be toggled in and out of groups with
+    /// cmd+shift+click (macOS) or ctrl+shift+click (Linux).
+    join_broadcast_group: u8,
+
     /// Resize the current split in the specified direction and amount in
     /// pixels. The two arguments should be joined with a comma (`,`),
     /// like in `resize_split:up,10`.
@@ -1443,6 +1459,7 @@ pub const Action = union(enum) {
             .goto_window,
             .toggle_split_zoom,
             .toggle_readonly,
+            .join_broadcast_group,
             .resize_split,
             .equalize_splits,
             .inspector,
