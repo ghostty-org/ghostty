@@ -97,6 +97,7 @@ extern "C" {
  * | `GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE`  | `GhosttyTerminalClipboardWriteFn` | Clipboard write via OSC 52 / OSC 1337     |
  * | `GHOSTTY_TERMINAL_OPT_DESKTOP_NOTIFICATION`| `GhosttyTerminalDesktopNotificationFn` | Desktop notification via OSC 9 / OSC 777 |
  * | `GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT`  | `GhosttyTerminalProgressReportFn` | Progress report via OSC 9;4               |
+ * | `GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE` | `GhosttyTerminalUnknownSequenceFn` | Unsupported sequence identifier          |
  *
  * ### Defining a write_pty callback
  * @snippet c-vt-effects/src/main.c effects-write-pty
@@ -109,6 +110,9 @@ extern "C" {
  *
  * ### Defining a clipboard_write callback
  * @snippet c-vt-effects/src/main.c effects-clipboard-write
+ *
+ * ### Defining an unknown_sequence callback
+ * @snippet c-vt-effects/src/main.c effects-unknown-sequence
  *
  * ### Registering effects and processing VT data
  * @snippet c-vt-effects/src/main.c effects-register
@@ -330,6 +334,88 @@ typedef struct {
  */
 typedef void (*GhosttyTerminalBellFn)(GhosttyTerminal terminal,
                                       void* userdata);
+
+/**
+ * Unsupported terminal sequence tags.
+ *
+ * Only APC sequences are currently reported. Additional sequence types may
+ * be added without changing the callback shape.
+ *
+ * @ingroup terminal
+ */
+typedef enum GHOSTTY_ENUM_TYPED {
+  /** Application Program Command (APC). */
+  GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_APC = 0,
+  GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+} GhosttyTerminalUnknownSequenceTag;
+
+/**
+ * An unsupported string terminal sequence.
+ *
+ * The content is borrowed and valid only for the callback duration. It
+ * contains the bytes between the sequence introducer and terminator, may
+ * contain arbitrary binary data, and is not null-terminated.
+ *
+ * @ingroup terminal
+ */
+typedef struct {
+  /** Whether content was shortened by the byte limit or allocation failure. */
+  bool truncated;
+
+  /** Retained sequence content. */
+  GhosttyString content;
+} GhosttyTerminalUnknownStringSequence;
+
+/**
+ * Unsupported terminal sequence value.
+ *
+ * @ingroup terminal
+ */
+typedef union {
+  /** Application Program Command (APC). */
+  GhosttyTerminalUnknownStringSequence apc;
+
+  /**
+   * Padding for ABI compatibility. Do not use.
+   *
+   * 128 bytes leaves room for future structured sequence payloads, such as
+   * CSI with borrowed parameter, separator, and intermediate arrays, without
+   * changing the tagged union's ABI.
+   */
+  uint64_t _padding[16];
+} GhosttyTerminalUnknownSequenceValue;
+
+/**
+ * An unsupported terminal sequence.
+ *
+ * @ingroup terminal
+ */
+typedef struct {
+  GhosttyTerminalUnknownSequenceTag tag;
+  GhosttyTerminalUnknownSequenceValue value;
+} GhosttyTerminalUnknownSequence;
+
+/**
+ * Callback function type for unsupported terminal sequences.
+ *
+ * Called synchronously for normally terminated sequences whose identifier is
+ * not supported by the active terminal handler. Aborted sequences, malformed
+ * recognized commands, and explicitly disabled known protocols are ignored.
+ *
+ * Capture must also be enabled with a nonzero
+ * GHOSTTY_TERMINAL_OPT_UNKNOWN_MAX_BYTES value. Installing this callback alone
+ * does not retain sequence content or allocate memory.
+ *
+ * @param terminal The terminal handle
+ * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
+ * @param sequence Borrowed unsupported sequence
+ *
+ * @ingroup terminal
+ */
+typedef void (*GhosttyTerminalUnknownSequenceFn)(
+    GhosttyTerminal terminal,
+    void* userdata,
+    const GhosttyTerminalUnknownSequence* sequence);
 
 /**
  * Clipboard destination for a clipboard write.
@@ -696,6 +782,24 @@ typedef GhosttyString (*GhosttyTerminalXtversionFn)(GhosttyTerminal terminal,
                                                      void* userdata);
 
 /**
+ * A terminal mode and boolean value used for mode configuration and queries.
+ *
+ * For GHOSTTY_TERMINAL_DATA_MODE, initialize `mode` before calling
+ * ghostty_terminal_get(). On success, `value` contains the current mode value.
+ *
+ * This struct has a frozen layout and will not gain fields in future versions.
+ *
+ * @ingroup terminal
+ */
+typedef struct {
+  /** Mode to configure or query. */
+  GhosttyMode mode;
+
+  /** Value to set, or the current value returned by a query. */
+  bool value;
+} GhosttyTerminalModeConfig;
+
+/**
  * Terminal option identifiers.
  *
  * These values are used with ghostty_terminal_set() to configure
@@ -1060,6 +1164,68 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: bool*
    */
   GHOSTTY_TERMINAL_OPT_TITLE_REPORT = 32,
+
+  /**
+   * Set the reset default for a terminal mode.
+   *
+   * This unconditionally updates both the current value and the value restored
+   * by a full terminal reset (RIS).
+   *
+   * Some recognized modes represent transitions or mirror additional terminal
+   * state and cannot safely be configured as reset defaults. Those modes return
+   * GHOSTTY_INVALID_VALUE. A NULL value pointer also returns
+   * GHOSTTY_INVALID_VALUE.
+   *
+   * Input type: GhosttyTerminalModeConfig*
+   */
+  GHOSTTY_TERMINAL_OPT_MODE_DEFAULT = 33,
+
+  /**
+   * Set the current value of a terminal mode.
+   *
+   * This does not change the value restored by a full terminal reset (RIS).
+   * A NULL value pointer or unknown mode returns GHOSTTY_INVALID_VALUE.
+   *
+   * Input type: GhosttyTerminalModeConfig*
+   */
+  GHOSTTY_TERMINAL_OPT_MODE = 34,
+
+  /**
+   * Callback invoked for unsupported terminal sequence identifiers. Set to
+   * NULL to ignore unsupported sequences. Capture must also be enabled with
+   * GHOSTTY_TERMINAL_OPT_UNKNOWN_MAX_BYTES.
+   *
+   * Input type: GhosttyTerminalUnknownSequenceFn
+   */
+  GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE = 35,
+
+  /**
+   * Set the maximum content bytes retained for each unsupported terminal
+   * sequence. A NULL value pointer or zero disables capture and prevents
+   * unknown-sequence callbacks.
+   *
+   * When this limit is hit, the unknown sequence callback will still
+   * be invoked but `truncated` will be set to true.
+   *
+   * Input type: size_t*
+   */
+  GHOSTTY_TERMINAL_OPT_UNKNOWN_MAX_BYTES = 36,
+
+  /**
+   * Set the name of the terminfo entry this terminal runs as, reported
+   * in response to an XTGETTCAP query for "TN" (e.g. "xterm-256color").
+   *
+   * The string data is copied into the terminal. A NULL value pointer
+   * clears the name (equivalent to setting an empty string). A name
+   * longer than 128 bytes returns GHOSTTY_INVALID_VALUE.
+   *
+   * If this is unset then we don't report anything for an XTGETTCAP
+   * TN query, because we don't know what the embedding terminal around
+   * libghostty is advertising itself as.
+   *
+   * Input type: GhosttyString*
+   */
+  GHOSTTY_TERMINAL_OPT_TERMINFO_NAME = 37,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 
@@ -1420,6 +1586,17 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Output type: size_t *
    */
   GHOSTTY_TERMINAL_DATA_CONTINUATION_MAX_BYTES = 36,
+
+  /**
+   * Get the current value of a terminal mode.
+   *
+   * The caller must initialize the `mode` field. On success, the `value` field
+   * is updated with the current value. A NULL pointer or unknown mode returns
+   * GHOSTTY_INVALID_VALUE.
+   *
+   * Input/output type: GhosttyTerminalModeConfig *
+   */
+  GHOSTTY_TERMINAL_DATA_MODE = 37,
   GHOSTTY_TERMINAL_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalData;
 
@@ -1708,41 +1885,6 @@ GHOSTTY_API GhosttyResult ghostty_terminal_compress(
     GhosttyTerminal terminal,
     GhosttyTerminalCompressionMode mode,
     GhosttyTerminalCompressionResult* out_result);
-
-/**
- * Get the current value of a terminal mode.
- *
- * Returns the value of the mode identified by the given mode.
- *
- * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
- * @param mode The mode identifying the mode to query
- * @param[out] out_value On success, set to true if the mode is set, false
- *             if it is reset
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal
- *         is NULL or the mode does not correspond to a known mode
- *
- * @ingroup terminal
- */
-GHOSTTY_API GhosttyResult ghostty_terminal_mode_get(GhosttyTerminal terminal,
-                                        GhosttyMode mode,
-                                        bool* out_value);
-
-/**
- * Set the value of a terminal mode.
- *
- * Sets the mode identified by the given mode to the specified value.
- *
- * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
- * @param mode The mode identifying the mode to set
- * @param value true to set the mode, false to reset it
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal
- *         is NULL or the mode does not correspond to a known mode
- *
- * @ingroup terminal
- */
-GHOSTTY_API GhosttyResult ghostty_terminal_mode_set(GhosttyTerminal terminal,
-                                         GhosttyMode mode,
-                                         bool value);
 
 /**
  * Get data from a terminal instance.

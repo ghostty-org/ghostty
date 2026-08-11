@@ -636,6 +636,86 @@ test "kittygfx retransmit same id gets fresh image generation" {
     try testing.expectEqual(gen2, storage.generation);
 }
 
+test "kittygfx retransmit same id removes existing placements" {
+    const testing = std.testing;
+    const io = testing.io;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+    const storage = &t.screens.active.kitty_images;
+    const tracked = t.screens.active.pages.countTrackedPins();
+
+    // Transmit and display an image, then add anonymous and named placements.
+    // Multiple anonymous a=p placements for one image are explicitly valid.
+    {
+        const cmd = try command.Parser.parseString(
+            alloc,
+            "a=T,t=d,f=24,i=1,s=1,v=2,C=1;////////",
+        );
+        defer cmd.deinit(alloc);
+        const resp = execute(io, alloc, &t, &cmd).?;
+        try testing.expect(resp.ok());
+    }
+    {
+        const cmd = try command.Parser.parseString(alloc, "a=p,i=1,C=1");
+        defer cmd.deinit(alloc);
+        const resp = execute(io, alloc, &t, &cmd).?;
+        try testing.expect(resp.ok());
+    }
+    {
+        const cmd = try command.Parser.parseString(alloc, "a=p,i=1,p=7,C=1");
+        defer cmd.deinit(alloc);
+        const resp = execute(io, alloc, &t, &cmd).?;
+        try testing.expect(resp.ok());
+    }
+    try testing.expectEqual(@as(usize, 3), storage.placements.count());
+    try testing.expectEqual(
+        tracked + 3,
+        t.screens.active.pages.countTrackedPins(),
+    );
+
+    // Retransmitting replaces the image and must delete every old placement.
+    // Plain a=t creates no replacement placement of its own.
+    {
+        const cmd = try command.Parser.parseString(
+            alloc,
+            "a=t,t=d,f=24,i=1,s=1,v=2;AAAAAAAA",
+        );
+        defer cmd.deinit(alloc);
+        const resp = execute(io, alloc, &t, &cmd).?;
+        try testing.expect(resp.ok());
+    }
+    try testing.expectEqual(@as(usize, 0), storage.placements.count());
+    try testing.expectEqual(tracked, t.screens.active.pages.countTrackedPins());
+
+    // a=T creates one new placement after deleting the previous image and
+    // placements, so repeated redraws remain bounded at one placement.
+    {
+        const cmd = try command.Parser.parseString(
+            alloc,
+            "a=T,t=d,f=24,i=1,s=1,v=2,C=1;////////",
+        );
+        defer cmd.deinit(alloc);
+        const resp = execute(io, alloc, &t, &cmd).?;
+        try testing.expect(resp.ok());
+    }
+    {
+        const cmd = try command.Parser.parseString(
+            alloc,
+            "a=T,t=d,f=24,i=1,s=1,v=2,C=1;AAAAAAAA",
+        );
+        defer cmd.deinit(alloc);
+        const resp = execute(io, alloc, &t, &cmd).?;
+        try testing.expect(resp.ok());
+    }
+    try testing.expectEqual(@as(usize, 1), storage.placements.count());
+    try testing.expectEqual(
+        tracked + 1,
+        t.screens.active.pages.countTrackedPins(),
+    );
+}
+
 test "kittygfx delete then retransmit same id gets fresh generation" {
     const testing = std.testing;
     const io = testing.io;

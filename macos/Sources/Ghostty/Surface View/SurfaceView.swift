@@ -205,7 +205,10 @@ extension Ghostty {
                 // top Z-index os it isn't faded by the unfocused overlay.
                 //
                 // This is disabled except on macOS because it uses AppKit drag/drop APIs.
-                SurfaceGrabHandle(surfaceView: surfaceView)
+                SurfaceGrabHandle(
+                    surfaceView: surfaceView,
+                    dragHandle: ghostty.config.dragHandle,
+                )
                 #endif
             }
         }
@@ -379,14 +382,8 @@ extension Ghostty {
                 HStack(spacing: 4) {
                     BackportSelectionTextField(
                         "Search",
-                        text: Binding(
-                            get: { searchState.needle },
-                            set: { searchState.setNeedle($0) }
-                        ),
-                        selection: Binding(
-                            get: { searchState.needleSelection },
-                            set: { searchState.setNeedleSelection($0) }
-                        )
+                        text: $searchState.needle.text,
+                        selection: $searchState.needle.selection
                     )
                     .textFieldStyle(.plain)
                     .frame(width: 180)
@@ -411,7 +408,7 @@ extension Ghostty {
                                 .padding(.trailing, 8)
                         }
                     }
-                    .onChange(of: searchState.needle) { _ in
+                    .onChange(of: searchState.needle.text) { _ in
                         searchState.writePasteboardNeedle()
                     }
                     .onReceive(
@@ -428,7 +425,7 @@ extension Ghostty {
                     }
 #if canImport(AppKit)
                     .onExitCommand {
-                        if searchState.needle.isEmpty {
+                        if searchState.needle.text.isEmpty {
                             onClose()
                         } else {
                             Ghostty.moveFocus(to: surfaceView)

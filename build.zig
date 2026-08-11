@@ -101,8 +101,10 @@ pub fn build(b: *std.Build) !void {
     if (config.emit_webdata) webdata.install();
 
     // Ghostty bench tools
-    const bench = try buildpkg.GhosttyBench.init(b, &deps);
-    if (config.emit_bench) bench.install();
+    if (config.emit_bench) {
+        const bench = try buildpkg.GhosttyBench.init(b, &deps);
+        bench.install();
+    }
 
     // Ghostty dist tarball
     const dist = try buildpkg.GhosttyDist.init(b, &config);

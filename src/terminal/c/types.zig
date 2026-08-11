@@ -71,9 +71,12 @@ pub const structs: std.StaticStringMap(StructInfo) = structs: {
         .{ "GhosttyStyle", StructInfo.init(style_c.Style) },
         .{ "GhosttyStyleColor", StructInfo.init(style_c.Color) },
         .{ "GhosttyTerminalDesktopNotification", StructInfo.init(terminal.DesktopNotification) },
+        .{ "GhosttyTerminalModeConfig", StructInfo.init(terminal.ModeConfig) },
         .{ "GhosttyTerminalProgressReport", StructInfo.init(terminal.ProgressReport) },
         .{ "GhosttyTerminalScrollbar", StructInfo.init(terminal.TerminalScrollbar) },
         .{ "GhosttyTerminalScrollViewport", StructInfo.init(terminal.ScrollViewport) },
+        .{ "GhosttyTerminalUnknownSequence", StructInfo.init(terminal.UnknownSequence.C) },
+        .{ "GhosttyTerminalUnknownStringSequence", StructInfo.init(terminal.UnknownStringSequence) },
         .{ "GhosttyWriter", StructInfo.init(io.Writer) },
     });
 };
@@ -221,6 +224,9 @@ test "json parses" {
     try std.testing.expect(root.contains("GhosttyClipboardContent"));
     try std.testing.expect(root.contains("GhosttyClipboardWrite"));
     try std.testing.expect(root.contains("GhosttyFormatterTerminalOptions"));
+    try std.testing.expect(root.contains("GhosttyTerminalModeConfig"));
+    try std.testing.expect(root.contains("GhosttyTerminalUnknownSequence"));
+    try std.testing.expect(root.contains("GhosttyTerminalUnknownStringSequence"));
     try std.testing.expect(root.contains("GhosttyReader"));
     try std.testing.expect(root.contains("GhosttyWriter"));
 
@@ -235,6 +241,16 @@ test "json parses" {
     try std.testing.expect(clipboard_write_fields.contains("location"));
     try std.testing.expect(clipboard_write_fields.contains("contents"));
     try std.testing.expect(clipboard_write_fields.contains("contents_len"));
+
+    const unknown_sequence = root.get("GhosttyTerminalUnknownSequence").?.object;
+    const unknown_sequence_fields = unknown_sequence.get("fields").?.object;
+    try std.testing.expect(unknown_sequence_fields.contains("tag"));
+    try std.testing.expect(unknown_sequence_fields.contains("value"));
+
+    const unknown_string = root.get("GhosttyTerminalUnknownStringSequence").?.object;
+    const unknown_string_fields = unknown_string.get("fields").?.object;
+    try std.testing.expect(unknown_string_fields.contains("truncated"));
+    try std.testing.expect(unknown_string_fields.contains("content"));
 
     const reader_fields = root.get("GhosttyReader").?.object
         .get("fields").?.object;

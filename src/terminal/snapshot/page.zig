@@ -234,11 +234,11 @@ pub const Decoder = struct {
         const remaining = self.record_reader.header.payload_len - Header.len;
 
         if (remaining <= max_staged_payload) {
-            // Stage the payload with one bulk read. The whole payload
-            // passes through both hashes as one update and the payload
-            // decoders then parse a flat buffer, which keeps per-row work
-            // free of stream adapters. The CRC and exact-length checks in
-            // `finish` are unaffected.
+            // Stage the payload with one bulk read. The whole payload passes
+            // through the checksum hasher as one update and the payload
+            // decoders then parse a flat buffer, which keeps per-row work free
+            // of stream adapters. The CRC and exact-length checks in `finish`
+            // are unaffected.
             const staged = try alloc.alloc(u8, remaining);
             defer alloc.free(staged);
             try self.record_reader.payloadReader().readSliceAll(staged);
@@ -289,10 +289,8 @@ pub const DiscardError = record.Reader.InitError ||
 /// Consume exactly one complete PAGE record, validating its framing and
 /// CRC32C while discarding the payload without structural validation.
 ///
-/// The payload bytes still stream through `source`, so an enclosing running
-/// digest (such as the FINISH checkpoint) continues to cover them. This lets
-/// a decoder stay aligned with the record sequence, and keep authenticating
-/// it, while dropping page content it can no longer apply.
+/// This lets a decoder stay aligned with the record sequence while dropping
+/// page content it can no longer apply.
 pub fn discard(source: *std.Io.Reader) DiscardError!void {
     var record_reader: record.Reader = undefined;
     try record_reader.init(source);
@@ -1658,7 +1656,7 @@ test "decode reuses duplicate hyperlinks" {
     try std.testing.expectEqual(@as(usize, 0), decoded.hyperlink_set.count());
 }
 
-test "discard consumes exactly one PAGE record and keeps digest coverage" {
+test "discard consumes exactly one PAGE record" {
     const testing = std.testing;
 
     // Discard validates framing only, so an arbitrary payload keeps this test
@@ -1676,19 +1674,8 @@ test "discard consumes exactly one PAGE record and keeps digest coverage" {
     const record_len = encoded.written().len;
     try encoded.writer.writeAll("next");
 
-    // Discarded payload bytes must still update an enclosing running digest,
-    // which is what lets a snapshot FINISH checkpoint authenticate records
-    // whose content was dropped.
     var source: std.Io.Reader = .fixed(encoded.written());
-    var hashed: record.StreamReader = .init(&source);
-    try discard(hashed.reader());
-    var expected_digest: record.PrefixDigest = undefined;
-    std.crypto.hash.Blake3.hash(
-        encoded.written()[0..record_len],
-        &expected_digest,
-        .{},
-    );
-    try testing.expectEqual(expected_digest, hashed.prefixDigest());
+    try discard(&source);
     try testing.expectEqualStrings("next", try source.take(4));
 
     // Only PAGE records may be discarded; the tag remains strict.

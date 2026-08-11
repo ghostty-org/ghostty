@@ -274,6 +274,16 @@ extension Ghostty {
             return v
         }
 
+        var dragHandle: DragHandle {
+            let defaultValue = DragHandle.auto
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>?
+            let key = "drag-handle"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            return DragHandle(rawValue: String(cString: ptr)) ?? defaultValue
+        }
+
         /// Returns the fullscreen mode if fullscreen is enabled, or nil if disabled.
         /// This parses the `fullscreen` enum config which supports both
         /// native and non-native fullscreen modes.
@@ -932,5 +942,9 @@ extension Ghostty.Config {
     enum MacOSTitlebarStyle: String {
         static let `default` = MacOSTitlebarStyle.transparent
         case native, transparent, tabs, hidden
+    }
+
+    enum DragHandle: String {
+        case always, auto, never
     }
 }

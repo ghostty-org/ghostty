@@ -140,11 +140,12 @@ fn logFn(
             .err => .fault,
         };
 
-        // Initialize a logger. This is slow to do on every operation
-        // but we shouldn't be logging too much.
-        const logger = macos.os.Log.create(build_config.bundle_id, @tagName(scope));
-        defer logger.release();
-        logger.log(std.heap.c_allocator, mac_level, prefix ++ format, args);
+        macosLogger(scope).log(
+            std.heap.c_allocator,
+            mac_level,
+            prefix ++ format,
+            args,
+        );
     }
 
     stderr: {
@@ -164,6 +165,37 @@ fn logFn(
         nosuspend stderr.file_writer.interface.print(level_txt ++ prefix ++ format ++ "\n", args) catch break :stderr;
         nosuspend stderr.file_writer.interface.flush() catch break :stderr;
     }
+}
+
+/// Returns the macOS unified logging logger for the given scope. The
+/// logger is created once per scope and cached for the lifetime of the
+/// process, because os_log object creation is slow (it shows up in
+/// startup profiles when done per log call) and Apple's guidance is to
+/// create loggers once and reuse them.
+fn macosLogger(comptime scope: @TypeOf(.EnumLiteral)) *macos.os.Log {
+    const S = struct {
+        var cached: std.atomic.Value(?*macos.os.Log) = .init(null);
+    };
+
+    if (S.cached.load(.acquire)) |v| return v;
+
+    // Create and attempt to store our logger. If we race with another
+    // thread then we use theirs and release ours.
+    const created = macos.os.Log.create(
+        build_config.bundle_id,
+        @tagName(scope),
+    );
+    if (S.cached.cmpxchgStrong(
+        null,
+        created,
+        .acq_rel,
+        .acquire,
+    )) |existing| {
+        created.release();
+        return existing.?;
+    }
+
+    return created;
 }
 
 pub const std_options: std.Options = .{

@@ -181,10 +181,10 @@ pub fn init(opts: InitOpts) !void {
     self.rlimits = .init();
 
     if (build_options.sentry) {
-        // Initialize our crash reporting.
-        var environ_map = try self.environ.createMap(self.alloc);
-        defer environ_map.deinit();
-        crash.init(self.alloc, &environ_map) catch |err| {
+        // Initialize our crash reporting. The environ map snapshot is
+        // owned by crash.init (it is freed by the init thread).
+        const environ_map = try self.environ.createMap(self.alloc);
+        crash.init(self.alloc, environ_map) catch |err| {
             std.log.warn(
                 "sentry init failed, no crash capture available err={}",
                 .{err},

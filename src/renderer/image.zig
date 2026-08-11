@@ -976,7 +976,7 @@ pub const Image = union(enum) {
     }
 };
 
-test "kitty renderer ignores pending payloads and retains native placements" {
+test "kitty renderer ignores pending payloads and removes replaced placements" {
     const testing = std.testing;
     const alloc = testing.allocator;
     const io = testing.io;
@@ -990,6 +990,7 @@ test "kitty renderer ignores pending payloads and retains native placements" {
     defer state.deinit(alloc);
 
     const storage = &t.screens.active.kitty_images;
+    const tracked = t.screens.active.pages.countTrackedPins();
     const pending = try storage.addPendingImage(io, alloc, t.screens.active, .{
         .id = 1,
         .width = 1,
@@ -1020,8 +1021,8 @@ test "kitty renderer ignores pending payloads and retains native placements" {
         state.images.get(.{ .kitty = 1 }).?.generation,
     );
 
-    // A newer pending replacement clears the renderer placement and marks
-    // the copied texture data for unload without deleting the native pin.
+    // A newer pending replacement deletes the native placement and marks the
+    // copied texture data for unload.
     _ = try storage.addPendingImage(io, alloc, t.screens.active, .{
         .id = 1,
         .width = 1,
@@ -1030,7 +1031,8 @@ test "kitty renderer ignores pending payloads and retains native placements" {
         .data = .{ .pending = 4 },
     });
     state.kittyUpdate(alloc, &t, .{ .width = 10, .height = 10 });
-    try testing.expectEqual(@as(usize, 1), storage.placements.count());
+    try testing.expectEqual(@as(usize, 0), storage.placements.count());
+    try testing.expectEqual(tracked, t.screens.active.pages.countTrackedPins());
     try testing.expectEqual(@as(usize, 0), state.kitty_placements.items.len);
     try testing.expect(state.images.get(.{ .kitty = 1 }).?.image.isUnloading());
 }

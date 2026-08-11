@@ -23,12 +23,12 @@ extern "C" {
  *
  * Encode and restore the complete state of a terminal via a binary format.
  *
- * A snapshot is an ordered, authenticated record stream. Its READY checkpoint
- * contains enough state to render and resume the terminal, including any
+ * A snapshot is an ordered, CRC-protected record stream. Its READY marker
+ * follows enough state to render and resume the terminal, including any
  * unfinished VT parser input. Older scrollback pages follow READY and the
- * FINISH checkpoint authenticates the complete snapshot.
+ * FINISH marker terminates the complete snapshot.
  *
- * End-of-file before an operation's required READY or FINISH checkpoint is
+ * End-of-file before an operation's required READY or FINISH marker is
  * malformed, truncated snapshot data and returns GHOSTTY_INVALID_VALUE.
  * GHOSTTY_IO_ERROR is reserved for a reader callback that returns false.
  *
@@ -91,22 +91,22 @@ extern "C" {
  * +------------- CONTINUATION ---------------+
  * | unfinished VT/UTF-8 input, or ground     |
  * +------------------ READY -----------------+
- * | BLAKE3-256 of every preceding byte       |  ready() returns here
+ * | empty renderable-state marker            |  ready() returns here
  * +----------------- HISTORY ----------------+  repeated per screen
  * | scrollback manifest                      |
  * +------------------ PAGE ------------------+  next() consumes one page
  * | older screen rows                        |
  * +------------------ FINISH ----------------+
- * | BLAKE3-256 of every preceding byte       |  next() returns NO_VALUE
+ * | empty end-of-snapshot marker              |  next() returns NO_VALUE
  * +------------------------------------------+
  * | trailing transport bytes (not consumed) |
  * +------------------------------------------+
  * @endcode
  *
- * READY authenticates the renderable prefix through CONTINUATION. FINISH
- * authenticates READY and every history record as well as the earlier prefix.
- * Thus record CRC32C detects local corruption while the BLAKE3 checkpoints
- * also bind the ordering and completeness of the record stream.
+ * READY separates the renderable prefix through CONTINUATION from history.
+ * FINISH terminates the record sequence. Both are empty records protected by
+ * CRC32C, like every other record. Declared record counts, tags, and strict
+ * decoding enforce the stream's ordering and completeness.
  *
  * Snapshot format version 1 is a work in progress and does not yet carry a
  * binary-compatibility guarantee.
@@ -206,7 +206,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Rows prepended by the most recently decoded history page.
    *
-   * Zero means the page was consumed and authenticated but could not be
+   * Zero means the page was consumed and validated but could not be
    * applied to the live terminal.
    *
    * Output type: size_t *
@@ -238,7 +238,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * otherwise this returns GHOSTTY_INVALID_VALUE.
  *
  * Encoding begins at the writer's current position. If an error occurs, the
- * writer may contain a partial snapshot without a valid FINISH checkpoint.
+ * writer may contain a partial snapshot without a valid FINISH marker.
  * Calls to the writer are synchronous; this function does not flush or make
  * the caller's destination durable.
  *
@@ -319,7 +319,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_encode_alloc(
  * wait outside the decoder or block in their callback. The read callback must
  * not call APIs, including ghostty_snapshot_decoder_free(), on the decoder
  * that owns it. Returning false reports GHOSTTY_IO_ERROR; returning true with
- * zero bytes before a required checkpoint reports truncated snapshot data as
+ * zero bytes before a required marker reports truncated snapshot data as
  * GHOSTTY_INVALID_VALUE.
  *
  * @param allocator Allocator for decoder and decoded terminal state, or NULL
@@ -390,7 +390,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_set(
     const void* value);
 
 /**
- * Decode and authenticate the renderable snapshot prefix through READY.
+ * Decode and validate the renderable snapshot prefix through READY.
  *
  * On success, terminal receives a caller-owned terminal with its persistent
  * VT stream already restored from the snapshot continuation. The terminal is
@@ -425,14 +425,14 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_ready(
 /**
  * Decode one history page into the terminal returned by READY.
  *
- * Each GHOSTTY_SUCCESS consumes and authenticates one PAGE record. Query the
+ * Each GHOSTTY_SUCCESS consumes and validates one PAGE record. Query the
  * GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_* values before calling next again.
  * GHOSTTY_NO_VALUE means FINISH was validated; repeated calls after FINISH
  * also return GHOSTTY_NO_VALUE.
  *
  * The terminal may be rendered, resized, and fed live PTY input between calls.
  * If a history page can no longer be applied safely, it is still consumed and
- * authenticated and progress reports zero rows. The decoder applies history
+ * validated and progress reports zero rows. The decoder applies history
  * to the caller-owned terminal produced by its READY operation.
  *
  * A decoding error invalidates the decoder's source position. The terminal
@@ -449,7 +449,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_next(
     GhosttySnapshotDecoder decoder);
 
 /**
- * Decode and authenticate one complete snapshot.
+ * Decode and validate one complete snapshot.
  *
  * This is the one-shot form of READY followed by all history pages through
  * FINISH. It may only be called before decoding starts. Bytes following FINISH

@@ -476,11 +476,12 @@ pub const StreamHandler = struct {
     }
 
     pub fn apcEnd(self: *StreamHandler) !void {
-        var cmd = self.apc.end() orelse return;
-        defer cmd.deinit(self.alloc);
+        var result = self.apc.end() orelse return;
+        defer result.deinit(self.alloc);
 
-        // log.warn("APC command: {}", .{cmd});
-        switch (cmd) {
+        // log.warn("APC command: {}", .{result});
+        switch (result) {
+            .unknown => return,
             .kitty => |*kitty_cmd| {
                 if (self.terminal.kittyGraphics(global.io(), self.alloc, kitty_cmd)) |resp| {
                     var buf: [1024]u8 = undefined;

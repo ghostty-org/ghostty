@@ -80,6 +80,9 @@ rin = "rin"
 ower = "ower"
 # OpenType table names
 loca = "loca"
+# TinyIo
+tio = "tio"
+WRONLY = "WRONLY"
 
 [type.po]
 extend-glob = ["*.po"]

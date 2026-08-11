@@ -609,7 +609,7 @@ const Command = extern struct {
         switch (priv.data) {
             .regular => {},
             .jump => |*j| {
-                j.surface.set(null);
+                j.surface.deinit();
             },
         }
 

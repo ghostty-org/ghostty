@@ -239,12 +239,7 @@ pub const SplitTree = extern struct {
         }
 
         // Bind is-split property for new surface
-        _ = self.as(gobject.Object).bindProperty(
-            "is-split",
-            surface.as(gobject.Object),
-            "is-split",
-            .{ .sync_create = true },
-        );
+        surface.bindIsSplit(self);
 
         // Create our tree
         var single_tree = try Surface.Tree.init(alloc, surface);
@@ -452,6 +447,9 @@ pub const SplitTree = extern struct {
             // Finally, set the final tree structures for both tree widgets
             source_tree_widget.setTree(&new_source_tree);
             self.setTree(&after_split);
+
+            // Re-bind vital properties like `is-split`
+            source.bindIsSplit(self);
         }
     }
 
@@ -647,7 +645,7 @@ pub const SplitTree = extern struct {
 
     fn dispose(self: *Self) callconv(.c) void {
         const priv = self.private();
-        priv.last_focused.set(null);
+        priv.last_focused.deinit();
         if (priv.rebuild_source) |v| {
             if (glib.Source.remove(v) == 0) {
                 log.warn("unable to remove rebuild source", .{});

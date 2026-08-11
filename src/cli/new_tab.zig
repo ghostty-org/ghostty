@@ -6,6 +6,7 @@ const apprt = @import("../apprt.zig");
 const args = @import("args.zig");
 const diagnostics = @import("diagnostics.zig");
 const homedir = @import("../os/homedir.zig");
+const internal_os = @import("../os/main.zig");
 const global = @import("../global.zig");
 
 pub const Options = struct {
@@ -15,13 +16,16 @@ pub const Options = struct {
     /// This is set by the CLI parser for deinit.
     _arena: ?ArenaAllocator = null,
 
-    /// If set, open up a new window in a custom instance of Ghostty.
+    /// If set, open up a new tab in a custom instance of Ghostty.
     class: ?[:0]const u8 = null,
+
+    /// The surface to target.
+    @"surface-id": ?u64 = null,
 
     /// Did the user specify a `--working-directory` argument on the command line?
     _working_directory_seen: bool = false,
 
-    /// All of the arguments after `+new-window`. They will be sent to Ghosttty
+    /// All of the arguments after `+new-tab`. They will be sent to Ghosttty
     /// for processing.
     _arguments: std.ArrayList([:0]const u8) = .empty,
 
@@ -29,18 +33,13 @@ pub const Options = struct {
     /// there is a "normal" config setting on the cli.
     _diagnostics: diagnostics.DiagnosticList = .{},
 
-    pub const ParseManuallyHookError = error{InvalidValue} ||
+    pub const ParseManuallyHookError = error{InvalidValue} || error{InvalidCharacter} || error{Overflow} ||
         homedir.ExpandError ||
         std.Io.Dir.RealPathFileAllocError ||
         Allocator.Error;
 
-    /// Manual parse hook, collect all of the arguments after `+new-window`.
-    pub fn parseManuallyHook(
-        self: *Options,
-        alloc: Allocator,
-        arg: []const u8,
-        iter: anytype,
-    ) ParseManuallyHookError!bool {
+    /// Manual parse hook, collect all of the arguments after `+new-tab`.
+    pub fn parseManuallyHook(self: *Options, alloc: Allocator, arg: []const u8, iter: anytype) ParseManuallyHookError!bool {
         var e_seen: bool = std.mem.eql(u8, arg, "-e");
 
         // Include the argument that triggered the manual parse hook.
@@ -63,12 +62,14 @@ pub const Options = struct {
         return false;
     }
 
-    const CheckArgError = error{InvalidValue} ||
-        homedir.ExpandError ||
-        std.Io.Dir.RealPathFileAllocError ||
-        Allocator.Error;
+    pub const CheckArgError = error{InvalidValue} || error{Unexpected} || std.fmt.ParseIntError || homedir.ExpandError || std.Io.Dir.RealPathFileError || Allocator.Error;
 
     fn checkArg(self: *Options, alloc: Allocator, arg: []const u8) CheckArgError!?[:0]const u8 {
+        if (std.mem.cutPrefix(u8, arg, "--surface-id=")) |rest| {
+            self.@"surface-id" = try std.fmt.parseUnsigned(u64, std.mem.trim(u8, rest, &std.ascii.whitespace), 0);
+            return null;
+        }
+
         if (std.mem.cutPrefix(u8, arg, "--class=")) |rest| {
             self.class = try alloc.dupeZ(u8, std.mem.trim(u8, rest, &std.ascii.whitespace));
             return null;
@@ -81,12 +82,12 @@ pub const Options = struct {
             const cwd: std.Io.Dir = .cwd();
             var expandhome_buf: [std.fs.max_path_bytes]u8 = undefined;
             const expanded = expanded: {
-                var environ_map = try global.environMap();
-                defer environ_map.deinit();
-                break :expanded try homedir.expandHome(global.io(), &environ_map, stripped, &expandhome_buf);
+                var env = try global.environMap();
+                defer env.deinit();
+                break :expanded try homedir.expandHome(global.io(), &env, stripped, &expandhome_buf);
             };
             var realpath_buf: [std.fs.max_path_bytes]u8 = undefined;
-            const realpath = realpath_buf[0..try cwd.realPathFile(self._io, expanded, &realpath_buf)];
+            const realpath = realpath_buf[0..try cwd.realPathFile(global.io(), expanded, &realpath_buf)];
             self._working_directory_seen = true;
             return try std.fmt.allocPrintSentinel(alloc, "--working-directory={s}", .{realpath}, 0);
         }
@@ -106,32 +107,32 @@ pub const Options = struct {
     }
 };
 
-/// The `new-window` will use native platform IPC to open up a new window in a
-/// running instance of Ghostty.
+/// The `new-tab` will use native platform IPC to open up a new tab in a running
+/// instance of Ghostty.
 ///
-/// If the `--class` flag is not set, the `new-window` command will try and
-/// connect to a running instance of Ghostty based on what optimizations the
-/// Ghostty CLI was compiled with. Otherwise the `new-window` command will try
-/// and contact a running Ghostty instance that was configured with the same
-/// `class` as was given on the command line.
+/// If the `--class` flag is not set, the `new-tab` command will try and connect
+/// to a running instance of Ghostty based on what optimizations the Ghostty
+/// CLI was compiled with. Otherwise the `new-tab` command will try and contact
+/// a running Ghostty instance that was configured with the same `class` as was
+/// given on the command line.
 ///
-/// All of the arguments after the `+new-window` argument (except for the
-/// `--class` flag) will be sent to the remote Ghostty instance and will be
-/// parsed as command line flags. These flags will override certain settings
-/// when creating the first surface in the new window. Currently, only
+/// All of the arguments after the `+new-tab` argument (except for the `--class`
+/// and `--surface-id` flag) will be sent to the remote Ghostty instance and
+/// will be parsed as command line flags. These flags will override certain
+/// settings when creating the first surface in the new tab. Currently, only
 /// `--working-directory`, `--command`, and `--title` are supported. `-e` will
 /// also work as an alias for `--command`, except that if `-e` is found on the
 /// command line all following arguments will become part of the command and no
 /// more arguments will be parsed for configuration settings.
 ///
 /// If `--working-directory` is found on the command line and is a relative
-/// path (i.e. doesn't start with `/`) it will be resolved to an absolute path
-/// relative to the current working directory that the `ghostty +new-window`
+/// path (i.e. doesn't start with `/`) it will be resolved to an absolute
+/// path relative to the current working directory that the `ghostty +new-tab`
 /// command is run from. `~/` prefixes will also be expanded to the user's home
 /// directory.
 ///
 /// If `--working-directory` is _not_ found on the command line, the working
-/// directory that `ghostty +new-window` is run from will be passed to Ghostty.
+/// directory that `ghostty +new-tab` is run from will be passed to Ghostty.
 ///
 /// GTK uses an application ID to identify instances of applications. If Ghostty
 /// is compiled with release optimizations, the default application ID will be
@@ -143,7 +144,7 @@ pub const Options = struct {
 /// or it will be ignored and Ghostty will use the default as defined above.
 ///
 /// On GTK, D-Bus activation must be properly configured. Ghostty does not need
-/// to be running for this to open a new window, making it suitable for binding
+/// to be running for this to open a new tab, making it suitable for binding
 /// to keys in your window manager (if other methods for configuring global
 /// shortcuts are unavailable). D-Bus will handle launching a new instance
 /// of Ghostty if it is not already running. See the Ghostty website for
@@ -156,18 +157,23 @@ pub const Options = struct {
 ///   * `--class=<class>`: If set, open up a new window in a custom instance of
 ///     Ghostty. The class must be a valid GTK application ID.
 ///
-///   * `--command`: The command to be executed in the first surface of the new window.
+///   * `--surface-id=<surface id>`: If set, specifies a Ghostty surface ID.
+///     This is used to identify the window that the new tab will be added to.
+///     If the surface ID is not specified or is `0` the currently focused
+///     surface will be used.
+///
+///   * `--command`: The command to be executed in the first surface of the new tab.
 ///
 ///   * `--working-directory=<directory>`: The working directory to pass to Ghostty.
 ///
 ///   * `--title`: A title that will override the title of the first surface in
-///     the new window. The title override may be edited or removed later.
+///     the new tab. The title override may be edited or removed later.
 ///
 ///   * `-e`: Any arguments after this will be interpreted as a command to
-///     execute inside the first surface of the new window instead of the
+///     execute inside the first surface of the new tab instead of the
 ///     default command.
 ///
-/// Available since: 1.2.0
+/// Available since: 1.4.0
 pub fn run(alloc: Allocator) !u8 {
     var iter = try args.argsIterator(alloc, global.args());
     defer iter.deinit();
@@ -233,11 +239,19 @@ fn runArgs(
     defer arena.deinit();
     const alloc = arena.allocator();
 
+    const surface_id = opts.@"surface-id" orelse surface: {
+        var env = global.environMap() catch break :surface 0;
+        defer env.deinit();
+        const e = env.get("GHOSTTY_SURFACE_ID") orelse break :surface 0;
+        break :surface std.fmt.parseUnsigned(u64, e, 0) catch break :surface 0;
+    };
+
     if (apprt.App.performIpc(
         alloc,
         if (opts.class) |class| .{ .class = class } else .detect,
-        .new_window,
+        .new_tab,
         .{
+            .surface_id = surface_id,
             .arguments = if (opts._arguments.items.len == 0) null else opts._arguments.items,
         },
     ) catch |err| switch (err) {
@@ -253,6 +267,6 @@ fn runArgs(
     }) return 0;
 
     // If we get here, the platform is not supported.
-    try stderr.print("+new-window is not supported on this platform.\n", .{});
+    try stderr.print("+new-tab is not supported on this platform.\n", .{});
     return 1;
 }

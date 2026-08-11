@@ -246,7 +246,7 @@ pub const ImageStorage = struct {
         // Credit an existing image's reservation before calculating the
         // replacement size. In particular, a completed live transmission
         // replacing pending snapshot metadata must be able to reuse the
-        // reservation without evicting its own ID and placements.
+        // reservation without evicting its own ID.
         const old_len = if (self.images.get(img.id)) |old|
             old.data.len()
         else
@@ -274,16 +274,16 @@ pub const ImageStorage = struct {
 
         log.debug("addImage image={}", .{img.withoutData()});
 
-        // Write our new image, preserving placements across replacement.
-        const placement_count = if (gop.found_existing) count: {
+        // Retransmitting a specific image ID replaces the old image and all
+        // of its placements, as required by the Kitty graphics protocol.
+        if (gop.found_existing) {
+            self.removePlacementsByImageId(s, img.id);
             self.total_bytes -= gop.value_ptr.data.len();
-            const count = gop.value_ptr.metadata.placement_count;
             gop.value_ptr.deinit(alloc);
-            break :count count;
-        } else 0;
+        }
 
         gop.value_ptr.* = img;
-        gop.value_ptr.metadata.placement_count = placement_count;
+        gop.value_ptr.metadata.placement_count = 0;
         self.total_bytes += new_len;
 
         // Stamp the stored image with a fresh generation. This gives
@@ -402,6 +402,19 @@ pub const ImageStorage = struct {
         var it = self.placements.iterator();
         while (it.next()) |entry| entry.value_ptr.deinit(s);
         self.placements.clearRetainingCapacity();
+    }
+
+    fn removePlacementsByImageId(
+        self: *ImageStorage,
+        s: *terminal.Screen,
+        image_id: u32,
+    ) void {
+        var it = self.placements.iterator();
+        while (it.next()) |entry| {
+            if (entry.key_ptr.image_id != image_id) continue;
+            entry.value_ptr.deinit(s);
+            self.removePlacementByPtr(entry.key_ptr);
+        }
     }
 
     fn removePlacementByPtr(self: *ImageStorage, key: *PlacementKey) void {
@@ -2217,7 +2230,7 @@ test "storage: stale pending completion loses to delete replacement and eviction
     defer alloc.free(evicted_data);
 }
 
-test "storage: replacement reuses pending reservation and preserves placements" {
+test "storage: replacement reuses pending reservation and removes placements" {
     const testing = std.testing;
     const io = testing.io;
     const alloc = testing.allocator;
@@ -2226,6 +2239,7 @@ test "storage: replacement reuses pending reservation and preserves placements" 
 
     var s: ImageStorage = .{ .total_limit = 12 };
     defer s.deinit(alloc, t.screens.active);
+    const tracked = t.screens.active.pages.countTrackedPins();
 
     const pending = try s.addPendingImage(io, alloc, t.screens.active, .{
         .id = 1,
@@ -2251,7 +2265,12 @@ test "storage: replacement reuses pending reservation and preserves placements" 
     });
     try testing.expect(s.images.contains(1));
     try testing.expect(s.images.contains(2));
-    try testing.expectEqual(@as(usize, 1), s.placements.count());
+    try testing.expectEqual(@as(usize, 0), s.placements.count());
+    try testing.expectEqual(tracked, t.screens.active.pages.countTrackedPins());
+    try testing.expectEqual(
+        @as(u30, 0),
+        s.imageById(1).?.metadata.placement_count,
+    );
     try testing.expectEqual(@as(usize, 12), s.total_bytes);
 
     const stale = try alloc.dupe(u8, "snapshot");
@@ -2259,18 +2278,17 @@ test "storage: replacement reuses pending reservation and preserves placements" 
     try testing.expect(!stale_completed);
     defer alloc.free(stale);
 
-    // Growing the replacement requires eviction, but the replacement ID and
-    // its placement are excluded. The other image supplies the needed bytes.
+    // Growing the replacement requires eviction, but the replacement ID is
+    // excluded. The other image supplies the needed bytes.
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 1,
         .data = .{ .complete = try alloc.dupe(u8, "1234567890") },
     });
     try testing.expect(s.images.contains(1));
     try testing.expect(!s.images.contains(2));
-    try testing.expectEqual(@as(usize, 1), s.placements.count());
+    try testing.expectEqual(@as(usize, 0), s.placements.count());
     try testing.expectEqual(@as(usize, 10), s.total_bytes);
 
-    // The placement remains a live reference across both replacements.
     s.delete(io, alloc, &t, .{ .id = .{ .delete = true, .image_id = 1 } });
     try testing.expectEqual(@as(usize, 0), s.images.count());
     try testing.expectEqual(@as(usize, 0), s.placements.count());

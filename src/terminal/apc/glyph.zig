@@ -150,6 +150,9 @@
 
 const std = @import("std");
 
+/// APC identifier for the glyph protocol.
+pub const identifier = "25a1";
+
 pub const request = @import("glyph/request.zig");
 pub const response = @import("glyph/response.zig");
 pub const execute = @import("glyph/execute.zig").execute;

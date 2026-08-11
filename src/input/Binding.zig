@@ -603,6 +603,12 @@ pub const Action = union(enum) {
     /// the last tab.
     move_tab: isize,
 
+    /// Move a tab to a new window.
+    ///
+    /// Only implemented on Linux, but there's a native tab menu provided by
+    /// macOS.
+    move_tab_to_new_window,
+
     /// Toggle the tab overview.
     ///
     /// This is only supported on Linux and when the system's libadwaita
@@ -702,12 +708,14 @@ pub const Action = union(enum) {
     /// untested.
     show_on_screen_keyboard,
 
-    /// Open the configuration file in the default OS editor.
+    /// Open the configuration file in an editor.
     ///
-    /// If your default OS editor isn't configured then this will fail.
-    /// Currently, any failures to open the configuration will show up only in
-    /// the logs.
-    open_config,
+    /// * `os_open`: Use the OS's default editor to edit the configuration file.
+    ///   This is the default action. (Available since 1.4.0)
+    /// * `new_window`: Launch the editor specified in `$EDITOR` or `$VISUAL` in
+    ///   a new Ghostty window to edit the configuration file. GTK only. (Available
+    ///   since 1.4.0.)
+    open_config: OpenConfig,
 
     /// Reload the configuration.
     ///
@@ -757,8 +765,8 @@ pub const Action = union(enum) {
 
     /// Maximize or unmaximize the current window.
     ///
-    /// This has no effect on macOS as it does not have the concept of
-    /// maximized windows.
+    /// On macOS, this zooms the window, which is the closest equivalent
+    /// since macOS has no concept of a maximized window.
     toggle_maximize,
 
     /// Fullscreen or unfullscreen the current window.
@@ -1202,6 +1210,16 @@ pub const Action = union(enum) {
         pub const default: CloseTabMode = .this;
     };
 
+    pub const OpenConfig = enum {
+        /// Open the config in the OS default editor.
+        os_open,
+
+        /// Open the config in a new window using $EDITOR or $VISUAL
+        new_window,
+
+        pub const default: OpenConfig = .os_open;
+    };
+
     fn parseEnum(comptime T: type, value: []const u8) !T {
         return std.meta.stringToEnum(T, value) orelse return Error.InvalidFormat;
     }
@@ -1434,6 +1452,7 @@ pub const Action = union(enum) {
             .last_tab,
             .goto_tab,
             .move_tab,
+            .move_tab_to_new_window,
             .toggle_tab_overview,
             .new_split,
             .goto_split,

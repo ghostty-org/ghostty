@@ -390,8 +390,18 @@ pub const Window = extern struct {
     /// Create a new tab with the given parent. The tab will be inserted
     /// at the position dictated by the `window-new-tab-position` config.
     /// The new tab will be selected.
-    pub fn newTab(self: *Self, parent_: ?*CoreSurface) void {
-        _ = self.newTabPage(parent_, .tab, .none);
+    pub fn newTab(self: *Self, parent_: ?*CoreSurface, overrides: struct {
+        command: ?configpkg.Command = null,
+        working_directory: ?[:0]const u8 = null,
+        title: ?[:0]const u8 = null,
+
+        pub const none: @This() = .{};
+    }) void {
+        _ = self.newTabPage(parent_, .tab, .{
+            .command = overrides.command,
+            .working_directory = overrides.working_directory,
+            .title = overrides.title,
+        });
     }
 
     pub fn newTabForWindow(
@@ -602,6 +612,29 @@ pub const Window = extern struct {
         assert(desired_pos < total);
 
         return tab_view.reorderPage(page, desired_pos) != 0;
+    }
+
+    pub fn moveTabToNewWindow(self: *Self, surface: *Surface) bool {
+        const tab_view = self.private().tab_view;
+        const tab = ext.getAncestor(
+            Tab,
+            surface.as(gtk.Widget),
+        ) orelse return false;
+        const page = tab_view.getPage(tab.as(gtk.Widget));
+
+        // Skip if this is the only tab in the existing window
+        if (tab_view.getNPages() <= 1) return false;
+
+        const app = Application.default();
+        const window = Window.new(app, .none);
+
+        tab_view.transferPage(
+            page,
+            window.private().tab_view,
+            0,
+        );
+        window.as(gtk.Window).present();
+        return true;
     }
 
     pub fn toggleTabOverview(self: *Self) void {
@@ -1296,7 +1329,7 @@ pub const Window = extern struct {
             priv.handle_active_state_source = null;
         }
 
-        priv.command_palette.set(null);
+        priv.command_palette.deinit();
 
         if (priv.config) |v| {
             v.unref();

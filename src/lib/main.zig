@@ -5,6 +5,7 @@ const types = @import("types.zig");
 const unionpkg = @import("union.zig");
 
 pub const allocator = @import("allocator.zig");
+pub const TinyIo = @import("TinyIo.zig");
 pub const Buffer = types.Buffer;
 pub const Enum = enumpkg.Enum;
 pub const checkGhosttyHEnum = enumpkg.checkGhosttyHEnum;
@@ -13,7 +14,6 @@ pub const Struct = structpkg.Struct;
 pub const structSizedFieldFits = structpkg.sizedFieldFits;
 pub const Target = @import("target.zig").Target;
 pub const TaggedUnion = unionpkg.TaggedUnion;
-pub const cutPrefix = @import("string.zig").cutPrefix;
 
 test {
     std.testing.refAllDecls(@This());

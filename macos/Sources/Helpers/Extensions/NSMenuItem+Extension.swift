@@ -7,5 +7,10 @@ extension NSMenuItem {
         if #available(macOS 26, *) {
             image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
         }
+#if compiler(>=6.4)
+        if #available(macOS 27.0, *) {
+            preferredImageVisibility = .automatic
+        }
+#endif
     }
 }

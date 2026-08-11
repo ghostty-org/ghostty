@@ -143,9 +143,8 @@ fn findNDKPath(b: *std.Build) ?[]const u8 {
         &.{
             home,
             switch (builtin.os.tag) {
-                .linux => "Android/sdk",
+                .linux, .windows => "Android/Sdk",
                 .macos => "Library/Android/Sdk",
-                .windows => "Android/Sdk",
                 else => return null,
             },
         },

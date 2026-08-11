@@ -10,11 +10,20 @@ extension Ghostty {
         private static let hoverHeightFactor: CGFloat = 0.2
 
         @ObservedObject var surfaceView: SurfaceView
+        let dragHandle: Ghostty.Config.DragHandle
 
         @State private var isHovering: Bool = false
         @State private var isDragging: Bool = false
 
         private var handleVisible: Bool {
+            switch dragHandle {
+            case .always:
+                return true
+            case .never:
+                return false
+            case .auto:
+                break
+            }
             // Handle should always be visible in non-fullscreen
             guard let window = surfaceView.window else { return true }
             guard window.styleMask.contains(.fullScreen) else { return true }
@@ -25,6 +34,14 @@ extension Ghostty {
         }
 
         private var ellipsisVisible: Bool {
+            switch dragHandle {
+            case .always:
+                return true
+            case .never:
+                return false
+            case .auto:
+                break
+            }
             // If the cursor isn't visible, never show the handle
             guard surfaceView.cursorVisible else { return false }
             // If we're hovering or actively dragging, always visible

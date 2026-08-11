@@ -24,11 +24,6 @@ const Allocator = std.mem.Allocator;
 const test_fixture = @import("fixture.zig");
 const io = @import("io.zig");
 
-const Blake3 = std.crypto.hash.Blake3;
-
-/// The running digest shared by snapshot stream codecs and checkpoints.
-pub const PrefixDigest = [Blake3.digest_length]u8;
-
 /// CRC32C as specified by the snapshot format. This is the parameter set
 /// Zig's standard library names after its iSCSI use, backed by dedicated
 /// CRC32C instructions where the target has them.
@@ -49,10 +44,10 @@ pub const Tag = enum(u16) {
     /// One screen's complete history manifest and page sequence.
     history = 4,
 
-    /// Digest marking the validated terminal-state prefix.
+    /// Marker separating the renderable terminal state from history.
     ready = 5,
 
-    /// Digest validating the complete snapshot blob.
+    /// Marker terminating the complete snapshot blob.
     finish = 6,
 
     /// Canonical unfinished standard TerminalStream input.
@@ -155,11 +150,10 @@ pub const Checksum = struct {
 
 /// Streams complete records while retaining only one payload at a time.
 ///
-/// All emitted bytes pass through one unbuffered BLAKE3 writer. The scratch
-/// allocation is retained between records so a stream's peak memory is the
-/// largest record payload rather than the complete snapshot.
+/// The scratch allocation is retained between records so a stream's peak
+/// memory is the largest record payload rather than the complete snapshot.
 pub const Writer = struct {
-    hashing: std.Io.Writer.Hashed(Blake3),
+    destination: *std.Io.Writer,
     scratch: std.Io.Writer.Allocating,
     active_tag: ?Tag,
 
@@ -168,7 +162,7 @@ pub const Writer = struct {
         destination: *std.Io.Writer,
     ) Writer {
         return .{
-            .hashing = destination.hashed(Blake3.init(.{}), &.{}),
+            .destination = destination,
             .scratch = .init(alloc),
             .active_tag = null,
         };
@@ -181,10 +175,10 @@ pub const Writer = struct {
         self.* = undefined;
     }
 
-    /// Return the digest-updating writer for unframed snapshot bytes.
+    /// Return the destination writer for unframed snapshot bytes.
     pub fn writer(self: *Writer) *std.Io.Writer {
         assert(self.active_tag == null);
-        return &self.hashing.writer;
+        return self.destination;
     }
 
     /// Begin one record and return its reusable payload writer.
@@ -229,8 +223,8 @@ pub const Writer = struct {
         var header_writer: std.Io.Writer = .fixed(&header_bytes);
         header.encode(&header_writer) catch unreachable;
 
-        try self.hashing.writer.writeAll(&header_bytes);
-        try self.hashing.writer.writeAll(payload);
+        try self.destination.writeAll(&header_bytes);
+        try self.destination.writeAll(payload);
     }
 
     /// Discard the active record without emitting any bytes.
@@ -241,53 +235,6 @@ pub const Writer = struct {
         self.scratch.shrinkRetainingCapacity(0);
         self.active_tag = null;
     }
-
-    /// Finalize the prefix written so far without consuming the hasher.
-    pub fn prefixDigest(self: *const Writer) PrefixDigest {
-        // Checkpoints require an exact byte boundary. Writer owns this
-        // adapter and always constructs it without a buffer.
-        assert(self.active_tag == null);
-        assert(self.scratch.writer.end == 0);
-        assert(self.hashing.writer.buffer.len == 0);
-        assert(self.hashing.writer.buffered().len == 0);
-
-        var result: PrefixDigest = undefined;
-        self.hashing.hasher.final(&result);
-        return result;
-    }
-};
-
-/// Hashes snapshot bytes as they are consumed without reading ahead.
-pub const StreamReader = struct {
-    hashing: std.Io.Reader.Hashed(Blake3),
-
-    pub fn init(input: *std.Io.Reader) StreamReader {
-        return .{
-            .hashing = input.hashed(Blake3.init(.{}), &.{}),
-        };
-    }
-
-    /// Return the digest-updating reader used before and through READY.
-    pub fn reader(self: *StreamReader) *std.Io.Reader {
-        return &self.hashing.reader;
-    }
-
-    /// Return the source used to consume FINISH without hashing it.
-    pub fn source(self: *StreamReader) *std.Io.Reader {
-        return self.hashing.in;
-    }
-
-    /// Finalize the prefix consumed so far without consuming the hasher.
-    pub fn prefixDigest(self: *const StreamReader) PrefixDigest {
-        // A nonempty adapter buffer could contain bytes beyond a checkpoint.
-        // Construction is private to this type and fixes its capacity at zero.
-        assert(self.hashing.reader.buffer.len == 0);
-        assert(self.hashing.reader.bufferedLen() == 0);
-
-        var result: PrefixDigest = undefined;
-        self.hashing.hasher.final(&result);
-        return result;
-    }
 };
 
 /// Reads one complete record.
@@ -297,7 +244,7 @@ pub const StreamReader = struct {
 pub const Reader = struct {
     header: Header,
 
-    // The limited reader normally streams directly into the hashing reader's
+    // The limited reader normally streams directly into the checksum reader's
     // buffer. One byte is enough for operations that require it to buffer,
     // such as peek and discard.
     limited_buffer: [1]u8,
