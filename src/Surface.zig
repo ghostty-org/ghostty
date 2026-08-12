@@ -158,6 +158,12 @@ focused: bool = true,
 /// visible so reporting remains conservative.
 visible: bool = true,
 
+/// The broadcast input group this surface is a member of, or null if
+/// it isn't in a group. This is the zero-based group index (the
+/// user-facing group number is one higher), which doubles as the
+/// index into the broadcast-group-colors config. Managed by App.
+broadcast_group: ?u8 = null,
+
 /// Used to determine whether to continuously scroll.
 selection_scroll_active: bool = false,
 
@@ -490,10 +496,6 @@ pub fn init(
         c.@"working-directory" = config_original.@"working-directory";
         break :config c;
     } else config_original;
-
-    // The app doesn't retain a config so it caches config-derived
-    // state from every config it sees.
-    app.updateBroadcastMaxGroups(config);
 
     // Get our configuration
     var derived_config = try DerivedConfig.init(alloc, config);
@@ -1757,10 +1759,6 @@ pub fn updateConfig(
     // We want a config pointer for everything so we get that either
     // based on our conditional state or the original config.
     const config: *const configpkg.Config = if (config_) |*c| c else original;
-
-    // The app doesn't retain a config so it caches config-derived
-    // state from every config it sees.
-    self.app.updateBroadcastMaxGroups(config);
 
     // Update our new derived config immediately
     const derived = DerivedConfig.init(self.alloc, config) catch |err| {

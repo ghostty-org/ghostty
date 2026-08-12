@@ -242,6 +242,21 @@ test "c_get: broadcast-group-click-mods" {
     try testing.expectEqual(@as(c_uint, 0b1001), bits);
 }
 
+test "c_get: broadcast-group-colors" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c = try Config.default(alloc);
+    defer c.deinit();
+    c.@"broadcast-group-colors".colors[2] = .{ .r = 0xAA, .g = 0xBB, .b = 0xCC };
+
+    var cval: Config.BroadcastGroupColors.C = undefined;
+    try testing.expect(get(&c, .@"broadcast-group-colors", @ptrCast(&cval)));
+    try testing.expectEqual(0xAA, cval.colors[2].r);
+    try testing.expectEqual(0xBB, cval.colors[2].g);
+    try testing.expectEqual(0xCC, cval.colors[2].b);
+}
+
 test "c_get: split-preserve-zoom" {
     const testing = std.testing;
     const alloc = testing.allocator;

@@ -524,6 +524,11 @@ typedef struct {
   ghostty_config_color_s colors[256];
 } ghostty_config_palette_s;
 
+// config.BroadcastGroupColors
+typedef struct {
+  ghostty_config_color_s colors[16];
+} ghostty_config_broadcast_group_colors_s;
+
 // config.QuickTerminalSize
 typedef enum {
   GHOSTTY_QUICK_TERMINAL_SIZE_NONE,

@@ -13,7 +13,6 @@ const input = @import("input.zig");
 const configpkg = @import("config.zig");
 const Config = configpkg.Config;
 const BlockingQueue = @import("datastruct/main.zig").BlockingQueue;
-const BroadcastGroups = @import("BroadcastGroups.zig");
 const renderer = @import("renderer.zig");
 const font = @import("font/main.zig");
 const global = @import("global.zig");
@@ -70,18 +69,6 @@ config_conditional_state: configpkg.ConditionalState,
 /// never goes true again. This can be used by surfaces to determine
 /// if they are the first surface.
 first: bool = true,
-
-/// The broadcast input groups: sets of surfaces that all receive the
-/// keyboard input typed into any one of them.
-broadcast_groups: BroadcastGroups = .empty,
-
-/// The maximum number of broadcast groups. Each group owns one of the
-/// configured broadcast-group-colors, so the color count bounds the
-/// group count. The core doesn't retain a config so this is cached
-/// from every config the core sees: app-level config updates as well
-/// as surface creation and config changes. Broadcast actions always
-/// originate from a surface, so this is seeded before it is ever read.
-broadcast_max_groups: u8 = 0,
 
 pub const CreateError = Allocator.Error || font.SharedGridSet.InitError;
 
@@ -153,8 +140,6 @@ pub fn deinit(self: *App) void {
     // should gracefully close all surfaces.
     assert(self.font_grid_set.count() == 0);
     self.font_grid_set.deinit();
-
-    self.broadcast_groups.deinit(self.alloc);
 }
 
 pub fn destroy(self: *App) void {
@@ -195,8 +180,6 @@ pub fn updateConfig(self: *App, rt_app: *apprt.App, config: *const Config) !void
     defer if (applied_) |*c| c.deinit();
     const applied: *const configpkg.Config = if (applied_) |*c| c else config;
 
-    self.updateBroadcastMaxGroups(applied);
-
     // Notify the apprt that the app has changed configuration.
     _ = try rt_app.performAction(
         .app,
@@ -229,10 +212,6 @@ pub fn addSurface(
 /// Delete the surface from the known surface list. This will NOT call the
 /// destructor or free the memory.
 pub fn deleteSurface(self: *App, rt_surface: *apprt.Surface) void {
-    // Remove the surface from any broadcast group so input is never
-    // replicated to a destroyed surface.
-    self.broadcast_groups.remove(self.alloc, rt_surface.core().id);
-
     // If this surface is the focused surface then we need to clear it.
     // There was a bug where we relied on hasSurface to return false and
     // just let focused surface be but the allocator was reusing addresses
@@ -579,44 +558,62 @@ pub fn findSurfaceByID(self: *const App, id: u64) ?*Surface {
     return null;
 }
 
+/// The maximum number of broadcast input groups, one per
+/// broadcast-group-colors color.
+const max_broadcast_groups = Config.BroadcastGroupColors.len;
+
 /// Toggle the given surface's broadcast group membership using the
-/// click semantics: leave the current group, else join the focused
-/// surface's group, else start a new group. See BroadcastGroups.toggle.
+/// click semantics: a member surface leaves its group; otherwise the
+/// surface joins the focused surface's group if it has one, else it
+/// starts a new group with the lowest unused group number. If all
+/// group numbers are in use this is a no-op.
 pub fn toggleBroadcastGroup(
     self: *App,
     rt_app: *apprt.App,
     surface: *Surface,
 ) void {
-    const focused_id: ?u64 = if (self.focusedSurface()) |v| v.id else null;
-    self.broadcast_groups.toggle(
-        self.alloc,
-        surface.id,
-        focused_id,
-        self.broadcast_max_groups,
-    ) catch |err| {
-        log.warn("error toggling broadcast group err={}", .{err});
+    if (surface.broadcast_group != null) {
+        surface.broadcast_group = null;
+        syncBroadcastGroup(rt_app, surface);
         return;
-    };
+    }
 
-    self.syncBroadcastGroup(rt_app, surface);
+    surface.broadcast_group = group: {
+        if (self.focusedSurface()) |focused| {
+            if (focused.broadcast_group) |group| break :group group;
+        }
+
+        break :group self.lowestUnusedBroadcastGroup() orelse return;
+    };
+    syncBroadcastGroup(rt_app, surface);
+}
+
+/// The lowest group number without any member surface, or null if all
+/// group numbers are taken.
+fn lowestUnusedBroadcastGroup(self: *const App) ?u8 {
+    var used = [_]bool{false} ** max_broadcast_groups;
+    for (self.surfaces.items) |rt_surface| {
+        if (rt_surface.core().broadcast_group) |group| used[group] = true;
+    }
+    for (used, 0..) |v, i| if (!v) return @intCast(i);
+    return null;
 }
 
 /// Toggle the given surface's membership in the broadcast group with
-/// the given one-based number, creating the group if needed. See
-/// BroadcastGroups.toggleNumbered for the exact semantics.
+/// the given one-based number: a surface already in that group leaves
+/// it, any other surface joins it (leaving its previous group).
 ///
 /// This is the implementation of the `toggle_broadcast_group`
 /// keybinding action. Returns false if the group number is out of
-/// range; the maximum is the number of configured
-/// broadcast-group-colors.
+/// range.
 pub fn toggleNumberedBroadcastGroup(
     self: *App,
     rt_app: *apprt.App,
     surface: *Surface,
     group: u8,
 ) bool {
-    const max_groups = self.broadcast_max_groups;
-    if (group < 1 or group > max_groups) {
+    _ = self;
+    if (group < 1 or group > max_broadcast_groups) {
         log.warn(
             "toggle_broadcast_group ignoring invalid group number={}",
             .{group},
@@ -624,53 +621,39 @@ pub fn toggleNumberedBroadcastGroup(
         return false;
     }
 
-    self.broadcast_groups.toggleNumbered(
-        self.alloc,
-        surface.id,
-        group - 1,
-        max_groups,
-    ) catch |err| {
-        log.warn("error toggling broadcast group err={}", .{err});
-        return false;
-    };
-
-    self.syncBroadcastGroup(rt_app, surface);
+    const number: u8 = group - 1;
+    surface.broadcast_group = if (surface.broadcast_group == number)
+        null
+    else
+        number;
+    syncBroadcastGroup(rt_app, surface);
     return true;
 }
 
 /// Dissolve all broadcast groups. This is the implementation of the
 /// `clear_broadcast_groups` keybinding action.
 fn clearBroadcastGroups(self: *App, rt_app: *apprt.App) void {
-    self.broadcast_groups.clear(self.alloc);
-
-    // Every surface has to resync so borders of former members are
-    // removed.
     for (self.surfaces.items) |rt_surface| {
-        self.syncBroadcastGroup(rt_app, rt_surface.core());
+        const surface = rt_surface.core();
+        if (surface.broadcast_group == null) continue;
+        surface.broadcast_group = null;
+        syncBroadcastGroup(rt_app, surface);
     }
 }
 
 /// Notify the apprt of the given surface's current broadcast group
 /// membership so it can update its visual indicator.
-fn syncBroadcastGroup(self: *App, rt_app: *apprt.App, surface: *Surface) void {
-    const color = self.broadcast_groups.colorOf(surface.id);
+fn syncBroadcastGroup(rt_app: *apprt.App, surface: *Surface) void {
     _ = rt_app.performAction(
         .{ .surface = surface },
         .broadcast_group,
-        .{ .member = color != null, .color = color orelse 0 },
+        .{
+            .member = surface.broadcast_group != null,
+            .color = surface.broadcast_group orelse 0,
+        },
     ) catch |err| {
         log.warn("error notifying apprt of broadcast group err={}", .{err});
     };
-}
-
-/// Update the cached broadcast group maximum from the given config.
-/// See the broadcast_max_groups field for why this exists.
-pub fn updateBroadcastMaxGroups(self: *App, config: *const Config) void {
-    const colors = config.@"broadcast-group-colors".colors.items;
-    self.broadcast_max_groups = @intCast(@min(
-        colors.len,
-        std.math.maxInt(u8),
-    ));
 }
 
 /// Replicate a key event typed into the origin surface to the other
@@ -680,21 +663,22 @@ pub fn updateBroadcastMaxGroups(self: *App, config: *const Config) void {
 /// doesn't fire once per group member), unless the binding's only
 /// effect is sending terminal input (e.g. the default macOS cmd+left
 /// sends `text:\x01`). See Surface.keyEventBroadcastable.
+///
+/// Iterating the surface list directly is safe in the broadcast
+/// functions below: replication only ever delivers terminal input
+/// (never surface-closing binding actions) and terminal writes are
+/// queued asynchronously, so the callbacks cannot mutate the surface
+/// list mid-iteration.
 pub fn broadcastKeyEvent(
     self: *App,
     origin: *Surface,
     event: input.KeyEvent,
 ) void {
-    const member_ids = self.broadcast_groups.members(origin.id) orelse return;
-
-    // Copy the member list because a key callback could mutate the
-    // group (e.g. by closing a surface), invalidating the slice.
-    const copy = self.alloc.dupe(u64, member_ids) catch return;
-    defer self.alloc.free(copy);
-
-    for (copy) |id| {
-        if (id == origin.id) continue;
-        const peer = self.findSurfaceByID(id) orelse continue;
+    const group = origin.broadcast_group orelse return;
+    for (self.surfaces.items) |rt_surface| {
+        const peer = rt_surface.core();
+        if (peer == origin) continue;
+        if (peer.broadcast_group != group) continue;
         if (!peer.keyEventBroadcastable(event)) continue;
         _ = peer.keyCallbackLocal(event) catch |err| {
             log.warn("error in broadcast key callback err={}", .{err});
@@ -709,14 +693,11 @@ pub fn broadcastTextEvent(
     origin: *Surface,
     text: []const u8,
 ) void {
-    const member_ids = self.broadcast_groups.members(origin.id) orelse return;
-
-    const copy = self.alloc.dupe(u64, member_ids) catch return;
-    defer self.alloc.free(copy);
-
-    for (copy) |id| {
-        if (id == origin.id) continue;
-        const peer = self.findSurfaceByID(id) orelse continue;
+    const group = origin.broadcast_group orelse return;
+    for (self.surfaces.items) |rt_surface| {
+        const peer = rt_surface.core();
+        if (peer == origin) continue;
+        if (peer.broadcast_group != group) continue;
         peer.textCallbackLocal(text) catch |err| {
             log.warn("error in broadcast text callback err={}", .{err});
         };
@@ -732,14 +713,11 @@ pub fn broadcastPasteEvent(
     origin: *Surface,
     data: []const u8,
 ) void {
-    const member_ids = self.broadcast_groups.members(origin.id) orelse return;
-
-    const copy = self.alloc.dupe(u64, member_ids) catch return;
-    defer self.alloc.free(copy);
-
-    for (copy) |id| {
-        if (id == origin.id) continue;
-        const peer = self.findSurfaceByID(id) orelse continue;
+    const group = origin.broadcast_group orelse return;
+    for (self.surfaces.items) |rt_surface| {
+        const peer = rt_surface.core();
+        if (peer == origin) continue;
+        if (peer.broadcast_group != group) continue;
 
         // The origin surface's safety check or user confirmation covers
         // the whole group: the caller only replicates a paste that was

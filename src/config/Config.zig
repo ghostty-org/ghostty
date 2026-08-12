@@ -2569,19 +2569,27 @@ keybind: Keybinds = .{},
 else
     .{ .ctrl = true, .shift = true },
 
-/// The border colors used to identify broadcast input groups, as a
-/// comma-separated list of colors. Colors are specified as either
-/// hex (`#RRGGBB` or `RRGGBB`) or named X11 colors.
+/// The border colors used to identify broadcast input groups.
 ///
-/// The group with number N is outlined with the Nth color in this list,
-/// and the number of colors determines the maximum number of groups that
-/// can exist at once (up to 64). The default `toggle_broadcast_group`
-/// keybindings only cover groups 1 through 10; groups beyond the tenth
-/// can be reached by click or by binding the action with a higher group
-/// number.
+/// The value takes the form `N=COLOR` where `N` is a group number from
+/// 1 to 16 and `COLOR` is a color in hex (`#RRGGBB` or `RRGGBB`) or
+/// named X11 format. Like `palette`, this can be repeated to override
+/// multiple group colors, and only the specified groups change:
+///
+/// ```ini
+/// broadcast-group-colors = 1=#ff0000
+/// broadcast-group-colors = 2=00ff00
+/// ```
+///
+/// At most 16 broadcast groups can exist at once, one per color. The
+/// default `toggle_broadcast_group` keybindings only cover groups 1
+/// through 10; higher groups can be reached by click or by binding the
+/// action with a higher group number. The default colors are ordered
+/// so that consecutive group numbers are visually distinct from each
+/// other.
 ///
 /// Available since: 1.4.0
-@"broadcast-group-colors": ColorList = .{},
+@"broadcast-group-colors": BroadcastGroupColors = .{},
 
 /// Additional configuration files to read. This configuration can be repeated
 /// to read multiple configuration files. Configuration files themselves can
@@ -4020,25 +4028,6 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         .action = .{ .open = {} },
         .highlight = .{ .hover_mods = inputpkg.ctrlOrSuper(.{}) },
     });
-
-    // Default border colors for broadcast input groups. See
-    // broadcast-group-colors.
-    const broadcast_colors: []const Color = &.{
-        .{ .r = 0xff, .g = 0x78, .b = 0x00 }, // orange
-        .{ .r = 0x33, .g = 0xc7, .b = 0xde }, // cyan
-        .{ .r = 0x33, .g = 0xd1, .b = 0x7a }, // green
-        .{ .r = 0x91, .g = 0x41, .b = 0xac }, // purple
-        .{ .r = 0xf6, .g = 0xd3, .b = 0x2d }, // yellow
-        .{ .r = 0xdc, .g = 0x8a, .b = 0xdd }, // pink
-        .{ .r = 0xe0, .g = 0x1b, .b = 0x24 }, // red
-        .{ .r = 0x35, .g = 0x84, .b = 0xe4 }, // blue
-        .{ .r = 0xb5, .g = 0x83, .b = 0x5a }, // brown
-        .{ .r = 0x9a, .g = 0x99, .b = 0x96 }, // gray
-    };
-    for (broadcast_colors) |color| {
-        try result.@"broadcast-group-colors".colors.append(alloc, color);
-        try result.@"broadcast-group-colors".colors_c.append(alloc, color.cval());
-    }
 
     return result;
 }
@@ -8859,6 +8848,114 @@ pub const BroadcastGroupClickMods = packed struct(u4) {
             self.ctrl == mods.ctrl and
             self.alt == mods.alt and
             self.super == mods.super;
+    }
+};
+
+/// See broadcast-group-colors. This works like Palette: a fixed-size
+/// color table where individual entries can be overridden with
+/// `N=color` config values.
+pub const BroadcastGroupColors = struct {
+    const Self = @This();
+
+    /// The number of colors, which is also the maximum number of
+    /// broadcast groups that can exist at once.
+    pub const len = 16;
+
+    /// The color for each group; the one-based group number N uses
+    /// colors[N - 1].
+    ///
+    /// The defaults are ordered so that no two consecutive group
+    /// numbers get easily confused colors, since consecutive numbers
+    /// are what click-created groups receive: hue-adjacent pairs like
+    /// red/pink or blue/cyan are kept apart.
+    colors: [len]Color = .{
+        .{ .r = 0xff, .g = 0x78, .b = 0x00 }, // 1: orange
+        .{ .r = 0x35, .g = 0x84, .b = 0xe4 }, // 2: blue
+        .{ .r = 0xf6, .g = 0xd3, .b = 0x2d }, // 3: yellow
+        .{ .r = 0x91, .g = 0x41, .b = 0xac }, // 4: purple
+        .{ .r = 0x33, .g = 0xd1, .b = 0x7a }, // 5: green
+        .{ .r = 0xe0, .g = 0x1b, .b = 0x24 }, // 6: red
+        .{ .r = 0x33, .g = 0xc7, .b = 0xde }, // 7: cyan
+        .{ .r = 0xdc, .g = 0x8a, .b = 0xdd }, // 8: pink
+        .{ .r = 0xb5, .g = 0x83, .b = 0x5a }, // 9: brown
+        .{ .r = 0x99, .g = 0xc1, .b = 0xf1 }, // 10: light blue
+        .{ .r = 0xa5, .g = 0x1d, .b = 0x2d }, // 11: dark red
+        .{ .r = 0x8f, .g = 0xf0, .b = 0xa4 }, // 12: light green
+        .{ .r = 0x61, .g = 0x35, .b = 0x83 }, // 13: dark purple
+        .{ .r = 0x9a, .g = 0x99, .b = 0x96 }, // 14: gray
+        .{ .r = 0x1a, .g = 0x5f, .b = 0xb4 }, // 15: dark blue
+        .{ .r = 0xff, .g = 0xbe, .b = 0x6f }, // 16: light orange
+    },
+
+    /// ghostty_config_broadcast_group_colors_s
+    pub const C = extern struct {
+        colors: [len]Color.C,
+    };
+
+    pub fn cval(self: Self) C {
+        var result: C = undefined;
+        for (self.colors, 0..) |color, i| result.colors[i] = color.cval();
+        return result;
+    }
+
+    pub fn parseCLI(self: *Self, input: ?[]const u8) !void {
+        const value = input orelse return error.ValueRequired;
+        const eql_idx = std.mem.indexOfScalar(u8, value, '=') orelse
+            return error.InvalidValue;
+
+        const number = std.fmt.parseInt(
+            u8,
+            std.mem.trim(u8, value[0..eql_idx], " "),
+            10,
+        ) catch return error.InvalidValue;
+        if (number < 1 or number > len) return error.InvalidValue;
+
+        self.colors[number - 1] = try Color.parseCLI(
+            std.mem.trim(u8, value[eql_idx + 1 ..], " "),
+        );
+    }
+
+    /// Deep copy of the struct. Required by Config.
+    pub fn clone(self: Self, _: Allocator) error{}!Self {
+        return self;
+    }
+
+    /// Compare if two of our value are requal. Required by Config.
+    pub fn equal(self: Self, other: Self) bool {
+        return std.meta.eql(self, other);
+    }
+
+    /// Used by Formatter
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
+        var buf: [128]u8 = undefined;
+        for (self.colors, 1..) |v, number| {
+            try formatter.formatEntry(
+                []const u8,
+                std.fmt.bufPrint(
+                    &buf,
+                    "{d}=#{x:0>2}{x:0>2}{x:0>2}",
+                    .{ number, v.r, v.g, v.b },
+                ) catch return error.OutOfMemory,
+            );
+        }
+    }
+
+    test "parseCLI" {
+        const testing = std.testing;
+
+        var p: Self = .{};
+        try p.parseCLI("3=#AABBCC");
+        try testing.expectEqual(Color{ .r = 0xAA, .g = 0xBB, .b = 0xCC }, p.colors[2]);
+
+        // Whitespace and named colors are allowed
+        try p.parseCLI("16 = black");
+        try testing.expectEqual(Color{ .r = 0, .g = 0, .b = 0 }, p.colors[15]);
+
+        // Group numbers are one-based and bounded
+        try testing.expectError(error.InvalidValue, p.parseCLI("0=#AABBCC"));
+        try testing.expectError(error.InvalidValue, p.parseCLI("17=#AABBCC"));
+        try testing.expectError(error.InvalidValue, p.parseCLI("#AABBCC"));
+        try testing.expectError(error.ValueRequired, p.parseCLI(null));
     }
 };
 

@@ -939,7 +939,7 @@ pub const Application = extern struct {
 
         // Border colors for broadcast input groups. The class names must
         // match Surface.broadcastColorClass.
-        for (config.@"broadcast-group-colors".colors.items, 0..) |color, i| {
+        for (config.@"broadcast-group-colors".colors, 0..) |color, i| {
             try writer.print(
                 \\.surface .broadcast-overlay.broadcast-color-{d} {{
                 \\  border-color: rgb({d},{d},{d});
