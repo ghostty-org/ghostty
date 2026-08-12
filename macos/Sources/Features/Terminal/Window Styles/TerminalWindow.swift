@@ -24,6 +24,11 @@ class TerminalWindow: NSWindow {
     /// Update notification UI in titlebar
     private let updateAccessory = NSTitlebarAccessoryViewController()
 
+    /// Marks a locally built copy, in the titlebar rather than in the
+    /// sidebar. It belongs to the window: it says something about this
+    /// binary, not about whichever panel happens to be showing.
+    private let developmentAccessory = NSTitlebarAccessoryViewController()
+
     /// Visual indicator that mirrors the selected tab color.
     private lazy var tabColorIndicator: NSHostingView<TabColorIndicatorView> = {
         let view = NSHostingView(rootView: TabColorIndicatorView(tabColor: tabColor))
@@ -253,6 +258,16 @@ class TerminalWindow: NSWindow {
                 }))
             addTitlebarAccessoryViewController(resetZoomAccessory)
             resetZoomAccessory.view.translatesAutoresizingMaskIntoConstraints = false
+
+            // Only on a local build, so a release carries nothing extra.
+            if DevelopmentBuild.isActive {
+                developmentAccessory.layoutAttribute = .right
+                developmentAccessory.view = NSHostingView(
+                    rootView: DevelopmentBadgeAccessoryView(viewModel: viewModel)
+                )
+                addTitlebarAccessoryViewController(developmentAccessory)
+                developmentAccessory.view.translatesAutoresizingMaskIntoConstraints = false
+            }
 
             // Create update notification accessory
             if supportsUpdateAccessory {
@@ -782,6 +797,55 @@ extension TerminalWindow {
                 // We always need space at the end of the titlebar
                 .padding(.trailing, 10)
             }
+        }
+    }
+
+    /// The environment mark at the titlebar's right end.
+    ///
+    /// A sibling of the reset-zoom and update accessories, and here for the
+    /// same reason they are: `accessoryTopPadding` is what aligns a titlebar
+    /// accessory with the window title, and it knows about the toolbar and the
+    /// macOS version. Inventing the offset instead — which the first version of
+    /// this did — left the badge stuck to the top edge.
+    ///
+    /// The colour is the convention, inverted on purpose: green says "go ahead
+    /// and break it", amber "look before you touch", red "full attention". A
+    /// local build is the one you are *meant* to be careless with.
+    struct DevelopmentBadgeAccessoryView: View {
+        @ObservedObject var viewModel: ViewModel
+        var environment: DevelopmentBuild.Environment = DevelopmentBuild.environment
+
+        private var tint: Color {
+            switch environment {
+            case .development: return .green
+            case .staging: return .orange
+            case .production: return .red
+            }
+        }
+
+        var body: some View {
+            VStack(spacing: 0) {
+                Text(environment.label)
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .foregroundStyle(viewModel.isMainWindow ? tint : Color.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(tint.opacity(viewModel.isMainWindow ? 0.16 : 0.08))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(tint.opacity(viewModel.isMainWindow ? 0.42 : 0.2), lineWidth: 1)
+                    )
+                Spacer()
+            }
+            .padding(.top, viewModel.accessoryTopPadding)
+            // Always space at the end of the titlebar, so the badge never
+            // touches the window's rounded corner.
+            .padding(.trailing, 12)
+            .help("This is a local development build, not the installed app.")
+            .accessibilityLabel("\(environment.label) build")
         }
     }
 

@@ -38,8 +38,14 @@ final class CodeMinimapView: NSView {
     /// line would otherwise squash every other line to nothing.
     private static let maxColumns = 120
 
-    /// Clicking or dragging jumps the text there.
-    var onSelectLine: ((Int) -> Void)?
+    /// Clicking or dragging scrolls the text there.
+    ///
+    /// Reported as a fraction of the document rather than a line number, and
+    /// deliberately *not* as a selection: a minimap moves the viewport, and
+    /// nothing else. Moving the insertion point as well meant scrubbing the
+    /// map silently relocated the cursor, so the next thing typed landed
+    /// wherever the reader had last been looking.
+    var onScrollToFraction: ((CGFloat) -> Void)?
 
     private weak var scrollView: NSScrollView?
 
@@ -149,11 +155,13 @@ final class CodeMinimapView: NSView {
         guard !rows.isEmpty else { return }
 
         let scale = min(1, bounds.width / CGFloat(Self.maxColumns))
-        let rowHeight = self.rowHeight
+        let rowHeight = Self.rowHeight
+        let bucket = Self.bucketSize(for: rows.count, into: maxDrawableRows)
+        let drawn = Self.compress(rows, into: maxDrawableRows)
 
         if let visibleLines {
-            let top = CGFloat(visibleLines.lowerBound - 1) * rowHeight
-            let height = max(CGFloat(visibleLines.count) * rowHeight, 8)
+            let top = CGFloat((visibleLines.lowerBound - 1) / bucket) * rowHeight
+            let height = max(CGFloat(visibleLines.count) / CGFloat(bucket) * rowHeight, 8)
             let box = NSRect(x: 0, y: top, width: bounds.width, height: height)
 
             // Strong enough to find at a glance, light enough that the
@@ -167,12 +175,12 @@ final class CodeMinimapView: NSView {
             outline.stroke()
         }
 
-        for (index, row) in rows.enumerated() where row.length > 0 {
+        for (index, row) in drawn.enumerated() where row.length > 0 {
             let x = CGFloat(min(row.indent, Self.maxColumns)) * scale
             let width = CGFloat(min(row.length, Self.maxColumns)) * scale
             let y = CGFloat(index) * rowHeight
 
-            theme.color(for: row.kind).withAlphaComponent(0.55).setFill()
+            theme.color(for: row.kind).withAlphaComponent(Self.alpha(for: row.kind)).setFill()
             NSRect(x: x, y: y, width: max(width, 1), height: max(rowHeight - 0.5, 0.5)).fill()
         }
     }
@@ -191,16 +199,78 @@ final class CodeMinimapView: NSView {
     private func jump(to event: NSEvent) {
         guard !rows.isEmpty else { return }
         let point = convert(event.locationInWindow, from: nil)
-        let line = Int(point.y / rowHeight) + 1
-        onSelectLine?(max(1, min(line, rows.count)))
+        onScrollToFraction?(Self.fraction(at: point.y, drawnHeight: drawnHeight))
     }
 
-    /// The height one line occupies, compressed when the document is
-    /// longer than the map is tall so the whole file is always represented.
-    private var rowHeight: CGFloat {
-        let natural = CGFloat(rows.count) * Self.rowHeight
-        return natural > bounds.height && !rows.isEmpty
-            ? bounds.height / CGFloat(rows.count)
-            : Self.rowHeight
+    /// How far down the document a point on the map is.
+    ///
+    /// Measured against the height the bars actually occupy, not the view's
+    /// — a short file fills only the top of the map, and dividing by the
+    /// full height would send a click near its end past the last line.
+    static func fraction(at y: CGFloat, drawnHeight: CGFloat) -> CGFloat {
+        guard drawnHeight > 0 else { return 0 }
+        return min(1, max(0, y / drawnHeight))
+    }
+
+    /// The height the bars occupy.
+    private var drawnHeight: CGFloat {
+        let count = Self.compress(rows, into: maxDrawableRows).count
+        return CGFloat(count) * Self.rowHeight
+    }
+
+    /// How strongly a row is drawn.
+    ///
+    /// Plain rows are the paper the map is printed on, not its content, and
+    /// they take the foreground colour — so drawing them as boldly as a
+    /// keyword turns a dense file into a solid white column. That is not
+    /// theoretical: opening a `.swiftinterface`, whose extension maps to no
+    /// language and therefore produces no tokens at all, made *every* line
+    /// plain and the whole minimap a white block.
+    static func alpha(for kind: TokenKind) -> CGFloat {
+        kind == .plain ? 0.18 : 0.55
+    }
+
+    /// How many bars actually fit, at a height that can be seen.
+    private var maxDrawableRows: Int {
+        max(1, Int(bounds.height / Self.rowHeight))
+    }
+
+    /// How many lines each bar stands for.
+    ///
+    /// The bug this replaced: a document longer than the map is tall used to
+    /// shrink the row height instead, and a fifty-thousand-line file gave
+    /// each line 0.02 points — while every bar was still *drawn* half a
+    /// point tall, because nothing thinner is visible. Twenty-five
+    /// consecutive lines therefore painted on top of one another and the map
+    /// saturated into a solid block. Standing one bar for many lines is the
+    /// only way to keep the whole file represented and still draw it.
+    static func bucketSize(for lines: Int, into maxRows: Int) -> Int {
+        guard maxRows > 0, lines > maxRows else { return 1 }
+        return Int((Double(lines) / Double(maxRows)).rounded(.up))
+    }
+
+    /// Reduces a document's rows to what can be drawn without overlap.
+    ///
+    /// Each bar takes the widest line in its group and the first kind that
+    /// isn't plain — so a run of comments still reads as comments rather
+    /// than being averaged away by the blank lines around it.
+    static func compress(_ rows: [Row], into maxRows: Int) -> [Row] {
+        let bucket = bucketSize(for: rows.count, into: maxRows)
+        guard bucket > 1 else { return rows }
+
+        var result: [Row] = []
+        result.reserveCapacity((rows.count + bucket - 1) / bucket)
+
+        var index = 0
+        while index < rows.count {
+            let group = rows[index..<min(index + bucket, rows.count)]
+            result.append(Row(
+                indent: group.map(\.indent).min() ?? 0,
+                length: group.map(\.length).max() ?? 0,
+                kind: group.first { $0.kind != .plain }?.kind ?? .plain
+            ))
+            index += bucket
+        }
+        return result
     }
 }

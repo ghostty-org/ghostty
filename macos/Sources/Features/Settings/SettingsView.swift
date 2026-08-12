@@ -11,6 +11,7 @@ struct SettingsRootView: View {
     enum SettingsSection: String, CaseIterable, Identifiable {
         case general
         case appearance
+        case icon
         case sidebar
         case files
         case behaviors
@@ -22,6 +23,7 @@ struct SettingsRootView: View {
             switch self {
             case .general: return "General"
             case .appearance: return "Appearance"
+            case .icon: return "Icon"
             case .sidebar: return "Sidebar"
             case .files: return "Files"
             case .behaviors: return "Behaviors"
@@ -33,6 +35,7 @@ struct SettingsRootView: View {
             switch self {
             case .general: return "gearshape"
             case .appearance: return "paintpalette"
+            case .icon: return "app.badge"
             case .sidebar: return "sidebar.left"
             case .files: return "doc.text"
             case .behaviors: return "slider.horizontal.3"
@@ -57,6 +60,8 @@ struct SettingsRootView: View {
                 GeneralSettingsView(ghostty: ghostty, store: store)
             case .appearance:
                 AppearanceSettingsView(ghostty: ghostty, store: store)
+            case .icon:
+                IconSettingsView()
             case .sidebar:
                 SidebarSettingsView(ghostty: ghostty, store: store)
             case .files:

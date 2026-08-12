@@ -59,6 +59,9 @@ struct SidebarView: View {
     @ObservedObject var store: SidebarGroupStore
     @ObservedObject var layout: SidebarLayoutModel
 
+    /// This window's open files, so the file tree can mark the one on screen.
+    @ObservedObject var editorCenter: EditorCenter
+
     @StateObject private var dragState = SidebarDragState()
 
     /// Creates a terminal tab inside the given group (nil for ungrouped),
@@ -159,7 +162,8 @@ struct SidebarView: View {
                     tabManager: tabManager,
                     store: store,
                     onSpawnTerminal: onSpawnTerminalBesideSelection,
-                    onOpenInEditor: onOpenInEditor
+                    onOpenInEditor: onOpenInEditor,
+                    editorCenter: editorCenter
                 )
             case .git:
                 GitPanelView(
@@ -208,8 +212,9 @@ struct SidebarView: View {
                 .animation(listAnimation, value: content.sections.map(\.id))
                 .animation(listAnimation, value: store.tabOrder)
                 .animation(listAnimation, value: tabManager.models.map(\.id))
+                .background(alignment: .top) { OverlayScrollers() }
             }
-            .scrollIndicators(.hidden)
+            .scrollIndicators(.automatic)
             .onDrop(of: [.plainText], isTargeted: nil) { providers in
                 appendDroppedToUngrouped(providers)
             }
@@ -1048,6 +1053,7 @@ private struct SidebarTabRow: View {
     @ObservedObject var store: SidebarGroupStore
     @ObservedObject var dragState: SidebarDragState
     @ObservedObject private var themePalette: ThemePalette = .shared
+    @ObservedObject private var planCenter: ClaudePlanCenter = .shared
 
     /// Observed so a tab's file icon follows a theme change live, the same
     /// as the explorer's and the Git panel's.
@@ -1144,6 +1150,10 @@ private struct SidebarTabRow: View {
 
                     if showDevServer, let port = tab.devServerPort {
                         devServerChip(port: port)
+                    }
+
+                    if let plan = planCenter.plan(forTerminalAt: tab.pwd) {
+                        planChip(plan: plan)
                     }
 
                     // Reserve the metadata line even while pwd/branch
@@ -1264,6 +1274,49 @@ private struct SidebarTabRow: View {
 
     /// The shared line box every chip element is centered within.
     private var chipLineHeight: CGFloat { 11 }
+
+    /// The clickable Plan tag: opens the plan the agent wrote for this
+    /// project.
+    ///
+    /// Attributed to the *project*, not to this terminal — nothing in a plan
+    /// file says which window wrote it, and the only link that exists runs
+    /// through the session transcript to a working directory. So every
+    /// terminal in the project shows it, which is also true to what a plan
+    /// is: it belongs to the work.
+    private func planChip(plan: ClaudePlanIndex.Plan) -> some View {
+        Button {
+            openPlan(plan)
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "text.rectangle.page")
+                    // A size, not a text style: the glyph inherited the row's
+                    // font metrics and came out taller than the chip.
+                    .font(.system(size: isCompact ? 7 : 8))
+                    .imageScale(.small)
+                Text("Plan")
+                    .font(.system(size: isCompact ? 9 : 10, weight: .medium))
+            }
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.accentColor.opacity(0.18))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        }
+        .help(plan.title)
+    }
+
+    /// Opens a plan through the same opener a file in the panels uses, so the
+    /// Settings choice means the same thing everywhere.
+    private func openPlan(_ plan: ClaudePlanIndex.Plan) {
+        guard let controller = tab.window.windowController as? TerminalController else { return }
+        controller.openClickedPath(URL(fileURLWithPath: plan.path), line: nil as Int?, column: nil)
+    }
 
     /// A small rounded tag for row metadata (directory, git branch).
     private func metaChip(

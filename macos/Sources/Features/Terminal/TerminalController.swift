@@ -84,6 +84,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// the floor.
     private weak var terminalPaneView: NSView?
     private var editorCancellable: AnyCancellable?
+    private var terminalTitleCancellable: AnyCancellable?
+
+    /// The pane tab bar, coloured with the rest of the pane.
+    private weak var paneTabBarView: NSView?
+
+    /// The pane tab bar's height constraint, zero while no file is open.
+    private var paneTabBarHeight: NSLayoutConstraint?
+
+    /// The bar's own height: the tab row, the strip its scroller draws in,
+    /// and the divider under both. Derived rather than written out, so
+    /// changing the row's height cannot leave the terminal overlapping it.
+    private static let paneTabBarHeightWhenShown: CGFloat = EditorTabBar.height + 1
 
     /// Width constraints swapped when the sidebar collapses.
     private var sidebarExpandedConstraints: [NSLayoutConstraint] = []
@@ -704,6 +716,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         terminalTitlebarFiller?.layer?.backgroundColor = paneColor?.cgColor
         editorHostingView?.layer?.backgroundColor = paneColor?.cgColor
+        paneTabBarView?.layer?.backgroundColor = paneColor?.cgColor
 
         guard let sidebarBackgroundView else { return }
         sidebarBackgroundView.layer?.backgroundColor = paneColor?.cgColor
@@ -1214,8 +1227,28 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Initialize our content view to the SwiftUI root
+        // Deliberately *not* wrapped in anything.
+        //
+        // `TerminalViewContainer.intrinsicContentSize` reads the hosting
+        // view's, which SwiftUI derives from the ideal size the terminal
+        // propagates — and it keeps `initialContentSize` around precisely
+        // because that answer is wrong until focus has settled. A wrapper
+        // becomes the view whose ideal size is asked for, so the pane's tab
+        // bar is a sibling in `rightPane` instead and the terminal is pushed
+        // down by an additional safe-area inset. Structural caution, not a
+        // fix for an observed failure: the wrapper version was never proven
+        // to break anything.
         let container = TerminalViewContainer {
-            TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+            // The pane's tab bar sits above this, and *above* has to mean
+            // above — an overlay put the bar on top of the shell's first
+            // lines and stacked its blur over the terminal's, which is the
+            // darker band that showed up. The wrapper *observes* the centre:
+            // reading the inset inline froze the value this closure was built
+            // with (zero), which is why the first version of this fix changed
+            // nothing on screen.
+            PaneTabBarInsetView(center: self.editorCenter) {
+                TerminalView(ghostty: self.ghostty, viewModel: self, delegate: self)
+            }
         }
 
         // Set the initial content size on the container so that
@@ -1304,6 +1337,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             tabManager: tabManager,
             store: .shared,
             layout: layout,
+            editorCenter: editorCenter,
             onNewTabInGroup: { [weak self] group in
                 self?.newSidebarTab(in: group)
             },
@@ -1429,6 +1463,38 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         ])
         self.terminalTitlebarFiller = titlebarFiller
 
+        // The pane's tab bar, above whichever surface is showing. Added after
+        // the terminal so that constraining to it is legal: a constraint
+        // between views with no common ancestor raises, and raising here
+        // leaves the app running with no window at all.
+        let tabBarHosting = NSHostingView(
+            rootView: EditorPaneTabBar(center: editorCenter).interfaceFont()
+        )
+        tabBarHosting.translatesAutoresizingMaskIntoConstraints = false
+        // Layer-backed and coloured by `syncSidebarBackground`, exactly like
+        // the editor beside it. Without this the bar had no background at all:
+        // the tab labels floated over whatever was behind, and text scrolling
+        // under it passed straight through the gap where the terminal's own
+        // tab draws nothing.
+        tabBarHosting.wantsLayer = true
+        // Belt and braces with the `maxWidth: .infinity` on its content: the
+        // bar follows the pane's width and never argues about it, whatever
+        // SwiftUI decides its ideal size is.
+        tabBarHosting.setContentHuggingPriority(.init(1), for: .horizontal)
+        tabBarHosting.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        rightPane.addSubview(tabBarHosting)
+        let tabBarHeight = tabBarHosting.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            tabBarHosting.topAnchor.constraint(
+                equalTo: terminalContainer.safeAreaLayoutGuide.topAnchor
+            ),
+            tabBarHosting.leadingAnchor.constraint(equalTo: rightPane.leadingAnchor),
+            tabBarHosting.trailingAnchor.constraint(equalTo: rightPane.trailingAnchor),
+            tabBarHeight,
+        ])
+        self.paneTabBarHeight = tabBarHeight
+        self.paneTabBarView = tabBarHosting
+
         let editorHosting = NSHostingView(
             rootView: EditorPaneView(
                 center: editorCenter,
@@ -1458,9 +1524,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             // `NSView` in that position reports no safe area of its own, so
             // the editor started at the window's very top and its text
             // scrolled up into the titlebar.
-            editorHosting.topAnchor.constraint(
-                equalTo: terminalContainer.safeAreaLayoutGuide.topAnchor
-            ),
+            editorHosting.topAnchor.constraint(equalTo: tabBarHosting.bottomAnchor),
             editorHosting.leadingAnchor.constraint(equalTo: rightPane.leadingAnchor),
             editorHosting.bottomAnchor.constraint(equalTo: rightPane.bottomAnchor),
             editorHosting.trailingAnchor.constraint(equalTo: rightPane.trailingAnchor),
@@ -1473,14 +1537,39 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // file. Hidden, never removed: the shell and its scrollback have to
         // survive being covered.
         editorCancellable = editorCenter.$tabs
-            .map(\.isEmpty)
             .removeDuplicates()
-            .sink { [weak self] isEmpty in
-                self?.editorHostingView?.isHidden = isEmpty
-                self?.terminalPaneView?.isHidden = !isEmpty
+            .sink { [weak self] tabs in
+                guard let self else { return }
+                self.editorHostingView?.isHidden = tabs.showsTerminal
+                self.terminalPaneView?.isHidden = !tabs.showsTerminal
+
+                // The bar takes its height only when there is something to
+                // switch to, and the terminal is pushed down by exactly that
+                // much. An `additionalSafeAreaInsets` rather than a moved top
+                // constraint: the terminal's top is what makes the titlebar
+                // strip meet its content, and the shell's SwiftUI content
+                // already honours the safe area.
+                let height: CGFloat = tabs.showsTabBar ? Self.paneTabBarHeightWhenShown : 0
+                self.paneTabBarHeight?.constant = height
+                // Published, so the terminal's SwiftUI content moves down by
+                // exactly the bar's height. `additionalSafeAreaInsets` was
+                // tried first and did nothing: the terminal fills its bounds
+                // and never consults the safe area.
+                self.editorCenter.paneTabBarInset = height
+            }
+
+        // The terminal's own tab is labelled with the window's title, which
+        // the shell rewrites as it goes. KVO rather than a one-time read, so
+        // the tab doesn't sit there naming a directory you left.
+        terminalTitleCancellable = window.publisher(for: \.title)
+            .map { title in title.isEmpty ? "Terminal" : title }
+            .removeDuplicates()
+            .sink { [weak self] title in
+                self?.editorCenter.terminalTitle = title
             }
 
         let splitView = SidebarSplitView()
+        splitView.editorCenter = editorCenter
         splitView.isVertical = true
         splitView.dividerStyle = .thin
         splitView.addArrangedSubview(sidebarPane)
@@ -1575,8 +1664,52 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// would be shown *nowhere*. Clicking a `.class` file did exactly that
     /// — nothing at all happened, which reads as the app being broken
     /// rather than as an answer.
-    private func openInEditor(_ url: URL) {
-        guard !editorCenter.open(url) else { return }
+    /// The directory a relative path from terminal output is relative to.
+    ///
+    /// The focused surface's own working directory, which is the only thing a
+    /// relative path in its output could have meant.
+    var workingDirectoryForPaths: String? {
+        if let pwd = focusedSurface?.pwd, !pwd.isEmpty { return pwd }
+        return sidebarTabManager?.models.first { $0.isSelected }?.pwd
+    }
+
+    /// Opens a path clicked in the terminal, honouring the Settings choice.
+    ///
+    /// Routed through the same opener the panels use, so "where do files
+    /// open" has one answer in the whole app rather than one per entry point.
+    func openClickedPath(_ url: URL, line: Int?, column: Int?) {
+        guard FileOpenAction.current != .builtInEditor else {
+            openInEditor(url, line: line, column: column)
+            return
+        }
+
+        FileOpener.prompt(
+            for: url,
+            in: window,
+            currentTerminal: focusedSurface,
+            spawnTerminal: { [weak self] in self?.newSidebarTabBesideSelection() },
+            openInEditor: { [weak self] target in
+                self?.openInEditor(target, line: line, column: column)
+            }
+        )
+    }
+
+    private func openInEditor(_ url: URL, line: Int? = nil, column: Int? = nil) {
+        // A line from a compiler or a stack trace is one-based; the editor's
+        // reveal is zero-based, like the protocol it came from.
+        let reveal = line.map { line in
+            let position = LSPPosition(
+                line: max(0, line - 1),
+                character: max(0, (column ?? 1) - 1)
+            )
+            return LSPRange(start: position, end: position)
+        }
+
+        guard !editorCenter.open(url, reveal: reveal) else { return }
+        openInEditorFailed(url)
+    }
+
+    private func openInEditorFailed(_ url: URL) {
         guard let failure = editorCenter.openFailure, let window else { return }
         editorCenter.openFailure = nil
 

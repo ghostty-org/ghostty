@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// The language servers this window is talking to, and what they said.
@@ -34,7 +35,124 @@ final class LSPCenter: ObservableObject {
 
     private var openDocuments: Set<String> = []
 
-    private init() {}
+    /// Which server each open document has been announced to.
+    ///
+    /// `didOpen` twice for the same document is a protocol violation, and a
+    /// server that starts *after* a file was opened has never heard of it —
+    /// both are true at once, so "is it open" is not a property of the
+    /// document but of the pair.
+    private var announced: [String: Key] = [:]
+
+    /// Bumped whenever a server that was missing becomes available, so the
+    /// open documents can introduce themselves to it.
+    ///
+    /// A counter rather than the text: this object does not keep a copy of
+    /// any buffer, and it should not start now — the documents own their
+    /// text and can hand it over when asked.
+    @Published private(set) var availabilityGeneration = 0
+
+    /// Watches the directories on the login `PATH` for a server appearing.
+    private var pathWatcher: DirectoryWatcher?
+
+    /// Pending `didChange` per document.
+    ///
+    /// Full-document sync is deliberate — see `didChange` — but sending it
+    /// on literally every keystroke means shipping the whole file down a
+    /// pipe per character. Coalescing a burst of typing into one update
+    /// keeps the safety and drops the cost by an order of magnitude.
+    private var changeTasks: [String: Task<Void, Never>] = [:]
+
+    /// The text each pending change would send. Held separately so a flush
+    /// can *send* the waiting edit rather than cancel it — dropping it
+    /// would desynchronise the server's copy permanently, which is the one
+    /// failure full-document sync exists to rule out.
+    private var pendingChanges: [String: String] = [:]
+
+    private static let changeDebounce = Duration.milliseconds(180)
+
+    private init() {
+        watchPathForInstalls()
+
+        // Installing happens in the terminal and is followed by coming back
+        // to the editor. Free to check, and it is the actual gesture.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationBecameActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+    }
+
+    @objc private func applicationBecameActive() {
+        recheckMissingServers()
+    }
+
+    /// Watches the `PATH` directories so an install is noticed as it happens.
+    ///
+    /// Reactive rather than polled: `npm i -g` and `brew install` both end by
+    /// creating an entry in a bin directory, which is a filesystem event. The
+    /// watched set is the login `PATH` — about fifteen directories — and the
+    /// only thing done with an event is re-probing the commands already known
+    /// to be missing. Nothing is scanned.
+    private func watchPathForInstalls() {
+        Task { [weak self] in
+            let directories = await Task.detached(priority: .utility) {
+                Set((LoginEnvironment.loginPath() ?? "").split(separator: ":").map(String.init))
+            }.value
+
+            await MainActor.run {
+                guard let self, !directories.isEmpty else { return }
+                let watcher = DirectoryWatcher()
+                watcher.onChange = { [weak self] _ in
+                    Task { @MainActor in self?.recheckMissingServers() }
+                }
+                watcher.watch(directories)
+                self.pathWatcher = watcher
+            }
+        }
+    }
+
+    /// Looks again for the servers that were not installed.
+    ///
+    /// The bug this fixes: `missing` was append-only. A command that could
+    /// not be found went in the list and nothing ever looked again, so the
+    /// banner outlived the install and only a restart cleared it — the
+    /// signature of a cache with no invalidation.
+    func recheckMissingServers() {
+        guard !missing.isEmpty else { return }
+
+        Task { [weak self] in
+            guard let candidates = await MainActor.run(body: { self?.missing }) else { return }
+
+            let found = await Task.detached(priority: .utility) { () -> [String] in
+                var searchPath = LoginEnvironment.loginPath() ?? ""
+                var located = candidates.filter {
+                    LSPProcess.locate($0.command, searchPath: searchPath) != nil
+                }
+
+                // Nothing found could mean nothing installed — or a `PATH`
+                // captured before the version manager moved the directory.
+                // One retry on a fresh resolve tells the two apart.
+                if located.isEmpty {
+                    LoginEnvironment.invalidate()
+                    searchPath = LoginEnvironment.loginPath() ?? ""
+                    located = candidates.filter {
+                        LSPProcess.locate($0.command, searchPath: searchPath) != nil
+                    }
+                }
+                return located.map(\.command)
+            }.value
+
+            guard !found.isEmpty else { return }
+            await MainActor.run {
+                guard let self else { return }
+                self.missing.removeAll { found.contains($0.command) }
+                // The open documents have to introduce themselves: a server
+                // starting now has never heard of a file opened before it.
+                self.availabilityGeneration += 1
+            }
+        }
+    }
 
     // MARK: Documents
 
@@ -43,11 +161,17 @@ final class LSPCenter: ObservableObject {
         let root = Self.workspaceRoot(for: path)
         let key = Key(languageID: definition.languageID, root: root)
 
+        // Already announced to *this* server: a second `didOpen` for the same
+        // pair is a protocol violation. Announced to a different one — or to
+        // none — means this is the introduction.
+        guard announced[path] != key else { return }
+
         versions[path] = 1
         openDocuments.insert(path)
 
         Task { [weak self] in
             guard let server = await self?.server(for: key, definition: definition) else { return }
+            await MainActor.run { self?.announced[path] = key }
             try? server.notify("textDocument/didOpen", params: [
                 "textDocument": [
                     "uri": .string(Self.uri(path)),
@@ -71,11 +195,26 @@ final class LSPCenter: ObservableObject {
               openDocuments.contains(path)
         else { return }
 
+        let key = Key(languageID: definition.languageID, root: Self.workspaceRoot(for: path))
+
+        changeTasks[path]?.cancel()
+        pendingChanges[path] = text
+        changeTasks[path] = Task { [weak self] in
+            try? await Task.sleep(for: Self.changeDebounce)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { self?.flushChange(path: path, key: key) }
+        }
+    }
+
+    /// Sends the pending change, and does it before anything that needs the
+    /// server's answer to be about the text on screen.
+    private func flushChange(path: String, key: Key) {
+        guard let text = pendingChanges.removeValue(forKey: path) else { return }
+        changeTasks.removeValue(forKey: path)?.cancel()
+
+        guard let server = servers[key] else { return }
         let version = (versions[path] ?? 1) + 1
         versions[path] = version
-
-        let key = Key(languageID: definition.languageID, root: Self.workspaceRoot(for: path))
-        guard let server = servers[key] else { return }
 
         try? server.notify("textDocument/didChange", params: [
             "textDocument": ["uri": .string(Self.uri(path)), "version": .integer(version)],
@@ -86,6 +225,9 @@ final class LSPCenter: ObservableObject {
     func didSave(path: String, text: String) {
         guard let definition = LSPServerRegistry.server(forPath: path) else { return }
         let key = Key(languageID: definition.languageID, root: Self.workspaceRoot(for: path))
+        // Before the save notification, so the server is not told a file was
+        // saved while still holding the text from before the last edits.
+        flushPending(for: key)
         try? servers[key]?.notify("textDocument/didSave", params: [
             "textDocument": ["uri": .string(Self.uri(path))],
             "text": .string(text),
@@ -96,6 +238,9 @@ final class LSPCenter: ObservableObject {
         guard let definition = LSPServerRegistry.server(forPath: path) else { return }
         let key = Key(languageID: definition.languageID, root: Self.workspaceRoot(for: path))
         openDocuments.remove(path)
+        announced.removeValue(forKey: path)
+        changeTasks.removeValue(forKey: path)?.cancel()
+        pendingChanges.removeValue(forKey: path)
         versions.removeValue(forKey: path)
         diagnostics.removeValue(forKey: path)
         try? servers[key]?.notify("textDocument/didClose", params: [
@@ -138,7 +283,7 @@ final class LSPCenter: ObservableObject {
     }
 
     func formatting(path: String, tabSize: Int, insertSpaces: Bool) async -> [LSPTextEdit] {
-        guard let server = server(forPath: path) else { return [] }
+        guard let server = await runningServer(forPath: path) else { return [] }
         let result = try? await server.request("textDocument/formatting", params: [
             "textDocument": ["uri": .string(Self.uri(path))],
             "options": [
@@ -170,7 +315,7 @@ final class LSPCenter: ObservableObject {
         position: LSPPosition,
         extra: [String: LSPValue] = [:]
     ) async -> LSPValue? {
-        guard let server = server(forPath: path) else { return nil }
+        guard let server = await runningServer(forPath: path) else { return nil }
 
         var params: [String: LSPValue] = [
             "textDocument": ["uri": .string(Self.uri(path))],
@@ -184,6 +329,45 @@ final class LSPCenter: ObservableObject {
     private func server(forPath path: String) -> LSPProcess? {
         guard let definition = LSPServerRegistry.server(forPath: path) else { return nil }
         return servers[Key(languageID: definition.languageID, root: Self.workspaceRoot(for: path))]
+    }
+
+    /// The server for a file, waiting for it if it is still starting.
+    ///
+    /// The version that gave up when `servers` was empty made the first
+    /// click after opening a file do nothing at all — the server was on its
+    /// way, and the request arrived before it. Waiting is what makes the
+    /// feature work the first time somebody tries it rather than the
+    /// second.
+    private func runningServer(forPath path: String) async -> LSPProcess? {
+        guard let definition = LSPServerRegistry.server(forPath: path) else { return nil }
+        let key = Key(languageID: definition.languageID, root: Self.workspaceRoot(for: path))
+
+        if let existing = servers[key] {
+            // Anything typed in the last moment is still queued behind the
+            // debounce, and an answer about stale text is worse than a slow
+            // one — it points at the wrong characters.
+            flushPending(for: key)
+            return existing
+        }
+
+        // Bounded: a server that never comes up must not leave a click
+        // hanging forever.
+        for _ in 0..<60 {
+            guard starting.contains(key) else { break }
+            try? await Task.sleep(for: .milliseconds(250))
+            if let started = servers[key] { return started }
+        }
+        return servers[key]
+    }
+
+    /// Sends any debounced change for the documents this server owns.
+    private func flushPending(for key: Key) {
+        for path in pendingChanges.keys {
+            guard let definition = LSPServerRegistry.server(forPath: path),
+                  Key(languageID: definition.languageID, root: Self.workspaceRoot(for: path)) == key
+            else { continue }
+            flushChange(path: path, key: key)
+        }
     }
 
     /// Starts a server, or hands back the running one.

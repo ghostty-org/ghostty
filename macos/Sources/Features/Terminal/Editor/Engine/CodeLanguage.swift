@@ -8,6 +8,13 @@ import Foundation
 /// them would mean three copies of one rule set to keep in step.
 enum CodeLanguage: String, CaseIterable, Equatable, Sendable {
     case javascript
+
+    /// A single-file component: markup, script and stylesheet in one file.
+    ///
+    /// Not a language of its own so much as a container for three, which is
+    /// why it is the one entry here that the highlighter treats specially —
+    /// see `SFCRegions`.
+    case vue
     case swift
     case kotlin
     case rust
@@ -31,8 +38,12 @@ enum CodeLanguage: String, CaseIterable, Equatable, Sendable {
     private static let byExtension: [String: CodeLanguage] = [
         "ts": .javascript, "tsx": .javascript, "mts": .javascript, "cts": .javascript,
         "js": .javascript, "jsx": .javascript, "mjs": .javascript, "cjs": .javascript,
-        "vue": .javascript, "svelte": .javascript,
+        "vue": .vue, "svelte": .vue,
         "swift": .swift,
+        // A module's public interface, which is what go-to-definition lands
+        // in when the symbol lives in a framework rather than in your code.
+        // It is Swift, and without this line it arrived as plain text.
+        "swiftinterface": .swift,
         "kt": .kotlin, "kts": .kotlin, "java": .kotlin,
         "rs": .rust,
         "go": .go,
@@ -75,14 +86,17 @@ enum CodeLanguage: String, CaseIterable, Equatable, Sendable {
         case .javascript, .swift, .kotlin, .rust, .go, .zig, .c, .css: return "//"
         case .python, .ruby, .shell, .yaml: return "#"
         case .sql: return "--"
-        case .json, .markdown, .html, .plain: return nil
+        // An SFC has no single answer — it depends which block you are in —
+        // so it declines to give one rather than give the wrong one.
+        case .json, .markdown, .html, .vue, .plain: return nil
         }
     }
 
     var blockComment: (open: String, close: String)? {
         switch self {
         case .javascript, .swift, .kotlin, .rust, .go, .c, .css: return ("/*", "*/")
-        case .html: return ("<!--", "-->")
+        // The top level of an SFC is markup, whatever the blocks contain.
+        case .html, .vue: return ("<!--", "-->")
         case .python, .ruby, .shell, .yaml, .sql, .json, .markdown, .zig, .plain: return nil
         }
     }

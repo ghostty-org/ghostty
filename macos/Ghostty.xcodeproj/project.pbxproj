@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		FE1C0N7HEME50000000001 /* icon-themes in Resources */ = {isa = PBXBuildFile; fileRef = FE1C0N7HEME50000000002 /* icon-themes */; };
+		6F12C049EEFE4A658EF336CB /* PhantomIconVariants in Resources */ = {isa = PBXBuildFile; fileRef = 1A193CAD60CA403F9852A3A2 /* PhantomIconVariants */; };
 		29C15B1D2CDC3B2900520DD4 /* bat in Resources */ = {isa = PBXBuildFile; fileRef = 29C15B1C2CDC3B2000520DD4 /* bat */; };
 		55154BE02B33911F001622DC /* ghostty in Resources */ = {isa = PBXBuildFile; fileRef = 55154BDF2B33911F001622DC /* ghostty */; };
 		552964E62B34A9B400030505 /* vim in Resources */ = {isa = PBXBuildFile; fileRef = 552964E52B34A9B400030505 /* vim */; };
@@ -21,6 +22,8 @@
 		A546F1142D7B68D7003B11A0 /* locale in Resources */ = {isa = PBXBuildFile; fileRef = A546F1132D7B68D7003B11A0 /* locale */; };
 		A553F4132E06EB1600257779 /* Phantom.icon in Resources */ = {isa = PBXBuildFile; fileRef = A553F4122E06EB1600257779 /* Phantom.icon */; };
 		A553F4142E06EB1600257779 /* Phantom.icon in Resources */ = {isa = PBXBuildFile; fileRef = A553F4122E06EB1600257779 /* Phantom.icon */; };
+		5792C8F20E2F4030879B3198 /* PhantomAppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 183E7C77E9224C12AD349252 /* PhantomAppIcon.icon */; };
+		24DDAAE864AE491BB22E0B4F /* PhantomAppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 183E7C77E9224C12AD349252 /* PhantomAppIcon.icon */; };
 		A56B880B2A840447007A0E29 /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A56B880A2A840447007A0E29 /* Carbon.framework */; };
 		A571AB1D2A206FCF00248498 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5D495A1299BEC7E00DD1313 /* GhosttyKit.xcframework */; };
 		A586167C2B7703CC009BDB1D /* fish in Resources */ = {isa = PBXBuildFile; fileRef = A586167B2B7703CC009BDB1D /* fish */; };
@@ -71,6 +74,7 @@
 
 /* Begin PBXFileReference section */
 		FE1C0N7HEME50000000002 /* icon-themes */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "icon-themes"; path = "Resources/icon-themes"; sourceTree = "<group>"; };
+		1A193CAD60CA403F9852A3A2 /* PhantomIconVariants */ = {isa = PBXFileReference; lastKnownFileType = folder; name = PhantomIconVariants; path = "Resources/PhantomIconVariants"; sourceTree = "<group>"; };
 		29C15B1C2CDC3B2000520DD4 /* bat */ = {isa = PBXFileReference; lastKnownFileType = folder; name = bat; path = "../zig-out/share/bat"; sourceTree = "<group>"; };
 		3B39CAA42B33949B00DABEB8 /* GhosttyReleaseLocal.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GhosttyReleaseLocal.entitlements; sourceTree = "<group>"; };
 		55154BDF2B33911F001622DC /* ghostty */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ghostty; path = "../zig-out/share/ghostty"; sourceTree = "<group>"; };
@@ -83,6 +87,7 @@
 		A546F1132D7B68D7003B11A0 /* locale */ = {isa = PBXFileReference; lastKnownFileType = folder; name = locale; path = "../zig-out/share/locale"; sourceTree = "<group>"; };
 		A54F45F32E1F047A0046BD5C /* GhosttyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GhosttyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A553F4122E06EB1600257779 /* Phantom.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = Phantom.icon; path = ../images/Phantom.icon; sourceTree = SOURCE_ROOT; };
+		183E7C77E9224C12AD349252 /* PhantomAppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = PhantomAppIcon.icon; path = ../images/PhantomAppIcon.icon; sourceTree = SOURCE_ROOT; };
 		A56B880A2A840447007A0E29 /* Carbon.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Carbon.framework; path = System/Library/Frameworks/Carbon.framework; sourceTree = SDKROOT; };
 		A571AB1C2A206FC600248498 /* Ghostty-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Ghostty-Info.plist"; sourceTree = "<group>"; };
 		A586167B2B7703CC009BDB1D /* fish */ = {isa = PBXFileReference; lastKnownFileType = folder; name = fish; path = "../zig-out/share/fish"; sourceTree = "<group>"; };
@@ -326,6 +331,7 @@
 				FC9ABA9B2D0F538D0020D4C8 /* bash-completion */,
 				29C15B1C2CDC3B2000520DD4 /* bat */,
 				FE1C0N7HEME50000000002 /* icon-themes */,
+				1A193CAD60CA403F9852A3A2 /* PhantomIconVariants */,
 				A586167B2B7703CC009BDB1D /* fish */,
 				55154BDF2B33911F001622DC /* ghostty */,
 				A546F1132D7B68D7003B11A0 /* locale */,
@@ -345,6 +351,7 @@
 				8F3A9B4B2FA6B88000A18D13 /* Ghostty.sdef */,
 				A5B30538299BEAAB0047F10C /* Assets.xcassets */,
 				A553F4122E06EB1600257779 /* Phantom.icon */,
+				183E7C77E9224C12AD349252 /* PhantomAppIcon.icon */,
 				A5B3053D299BEAAB0047F10C /* Ghostty.entitlements */,
 				A51BFC282B30F26D00E92F16 /* GhosttyDebug.entitlements */,
 				3B39CAA42B33949B00DABEB8 /* GhosttyReleaseLocal.entitlements */,
@@ -575,9 +582,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				FC9ABA9C2D0F53F80020D4C8 /* bash-completion in Resources */,
-				A553F4142E06EB1600257779 /* Phantom.icon in Resources */,
 				29C15B1D2CDC3B2900520DD4 /* bat in Resources */,
 				FE1C0N7HEME50000000001 /* icon-themes in Resources */,
+				6F12C049EEFE4A658EF336CB /* PhantomIconVariants in Resources */,
 				A586167C2B7703CC009BDB1D /* fish in Resources */,
 				8F3A9B4C2FA6B88000A18D13 /* Ghostty.sdef in Resources */,
 				55154BE02B33911F001622DC /* ghostty in Resources */,
@@ -588,6 +595,7 @@
 				552964E62B34A9B400030505 /* vim in Resources */,
 				FC5218FA2D10FFCE004C93E0 /* zsh in Resources */,
 				A5B30539299BEAAB0047F10C /* Assets.xcassets in Resources */,
+				5792C8F20E2F4030879B3198 /* PhantomAppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -596,7 +604,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A53D0C952B53B4D800305CE6 /* Assets.xcassets in Resources */,
-				A553F4132E06EB1600257779 /* Phantom.icon in Resources */,
+				24DDAAE864AE491BB22E0B4F /* PhantomAppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -740,7 +748,7 @@
 		3B39CAA32B33946300DABEB8 /* ReleaseLocal */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Phantom;
+				ASSETCATALOG_COMPILER_APPICON_NAME = PhantomAppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CLANG_ENABLE_MODULES = YES;
@@ -1140,7 +1148,7 @@
 		A5B30541299BEAAB0047F10C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Phantom;
+				ASSETCATALOG_COMPILER_APPICON_NAME = PhantomAppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CLANG_ENABLE_MODULES = YES;
@@ -1197,7 +1205,7 @@
 		A5B30542299BEAAB0047F10C /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Phantom;
+				ASSETCATALOG_COMPILER_APPICON_NAME = PhantomAppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CLANG_ENABLE_MODULES = YES;
@@ -1253,7 +1261,7 @@
 		A5D449A82B53AE7B000F5B83 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Phantom;
+				ASSETCATALOG_COMPILER_APPICON_NAME = PhantomAppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
@@ -1293,7 +1301,7 @@
 		A5D449A92B53AE7B000F5B83 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Phantom;
+				ASSETCATALOG_COMPILER_APPICON_NAME = PhantomAppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
@@ -1333,7 +1341,7 @@
 		A5D449AA2B53AE7B000F5B83 /* ReleaseLocal */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Phantom;
+				ASSETCATALOG_COMPILER_APPICON_NAME = PhantomAppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;

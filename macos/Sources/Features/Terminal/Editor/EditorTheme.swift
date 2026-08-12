@@ -86,6 +86,7 @@ enum EditorSettings {
     static let showsLineNumbersKey = "EditorShowsLineNumbers"
     static let tabWidthKey = "EditorTabWidth"
     static let showsMinimapKey = "EditorShowsMinimap"
+    static let colorsBracketPairsKey = "EditorColorsBracketPairs"
 
     static let defaultFontSize = 12.0
     static let defaultTabWidth = 4

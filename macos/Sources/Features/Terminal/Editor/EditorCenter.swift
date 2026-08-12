@@ -17,6 +17,17 @@ final class EditorCenter: ObservableObject {
     /// and selection is testable without a file existing.
     @Published private(set) var documents: [String: EditorDocument] = [:]
 
+    /// What the terminal's own tab is labelled with.
+    ///
+    /// Kept here rather than read from the window at render time because the
+    /// bar is SwiftUI and the title is AppKit state that changes whenever the
+    /// shell says so — this is the seam where the two meet.
+    @Published var terminalTitle: String = "Terminal"
+
+    /// How far down the terminal's content starts, so the pane's tab bar has
+    /// space of its own instead of covering it.
+    @Published var paneTabBarInset: CGFloat = 0
+
     /// Raised when a file can't be opened, for the host to explain and
     /// offer the external editor instead.
     @Published var openFailure: OpenFailure?
@@ -27,13 +38,20 @@ final class EditorCenter: ObservableObject {
         let verdict: FileOpenGuard.Verdict
     }
 
-    /// True while any file is open, which is exactly when the editor owns
-    /// the pane instead of the terminal.
-    var isActive: Bool { !tabs.isEmpty }
+    /// Whether the editor owns the pane right now.
+    ///
+    /// Derived from the *selection*, not from the tab count. Deriving it
+    /// from the count is what made the terminal unreachable while a file was
+    /// open — there was no way to say "a file is open and I am looking at
+    /// the shell".
+    var showsEditor: Bool { !tabs.showsTerminal }
 
     var selectedDocument: EditorDocument? {
-        tabs.selection.flatMap { documents[$0] }
+        tabs.selectedPath.flatMap { documents[$0] }
     }
+
+    /// The file to come back to when alternating away from the terminal.
+    private var lastSelectedFile: String?
 
     private var documentObservers: [String: AnyCancellable] = [:]
 
@@ -51,6 +69,7 @@ final class EditorCenter: ObservableObject {
         if let existing = documents[path] {
             if let reveal { existing.reveal = (id: UUID().uuidString, range: reveal) }
             tabs.select(path)
+            lastSelectedFile = path
             return true
         }
 
@@ -77,8 +96,43 @@ final class EditorCenter: ObservableObject {
                 }
             if let reveal { document.reveal = (id: UUID().uuidString, range: reveal) }
             tabs.open(path)
+            lastSelectedFile = path
             return true
         }
+    }
+
+    /// A tab the reader tried to close while it still had edits.
+    ///
+    /// Raised instead of acting, so the *view* asks and this stays testable
+    /// without a window. Nothing was being asked before: closing a dirty tab
+    /// threw the edits away without a word, which is the one thing an editor
+    /// must never do quietly.
+    @Published var closeConfirmation: CloseConfirmation?
+
+    struct CloseConfirmation: Identifiable {
+        let id = UUID()
+        let path: String
+
+        var name: String { (path as NSString).lastPathComponent }
+    }
+
+    /// Closes a tab, asking first when it has unsaved edits.
+    func requestClose(_ path: String) {
+        guard documents[path]?.isDirty == true else {
+            close(path)
+            return
+        }
+        closeConfirmation = CloseConfirmation(path: path)
+    }
+
+    func requestCloseSelected() {
+        guard let path = tabs.selectedPath else { return }
+        requestClose(path)
+    }
+
+    /// Saves and then closes, for the "Save" answer.
+    func saveAndClose(_ path: String) {
+        if documents[path]?.save() == true { close(path) }
     }
 
     func close(_ path: String) {
@@ -88,9 +142,18 @@ final class EditorCenter: ObservableObject {
         tabs.close(path)
     }
 
-    func closeSelected() {
-        guard let selection = tabs.selection else { return }
-        close(selection)
+    /// Shows the terminal without closing anything.
+    func selectTerminal() {
+        tabs.selectTerminal()
+    }
+
+    /// Alternates terminal ⇄ the file last looked at.
+    func toggleTerminal() {
+        tabs.toggleTerminal(lastFile: lastSelectedFile)
+    }
+
+    func selectFile(at number: Int) {
+        tabs.selectFile(at: number)
     }
 
     func closeAll() {
@@ -102,6 +165,7 @@ final class EditorCenter: ObservableObject {
 
     func select(_ path: String) {
         tabs.select(path)
+        lastSelectedFile = path
     }
 
     // MARK: Saving
@@ -112,7 +176,7 @@ final class EditorCenter: ObservableObject {
         let saved = document.save()
         if saved {
             tabs.setDirty(false, for: document.id)
-            LSPCenter.shared.didSave(path: document.url.path, text: document.text)
+            LSPCenter.shared.didSave(path: document.url.path, text: document.currentText)
         }
         return saved
     }
@@ -121,7 +185,7 @@ final class EditorCenter: ObservableObject {
         for document in documents.values where document.isDirty {
             guard document.save() else { continue }
             tabs.setDirty(false, for: document.id)
-            LSPCenter.shared.didSave(path: document.url.path, text: document.text)
+            LSPCenter.shared.didSave(path: document.url.path, text: document.currentText)
         }
     }
 }

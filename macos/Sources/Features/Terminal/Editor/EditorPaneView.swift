@@ -17,6 +17,7 @@ struct EditorPaneView: View {
     @AppStorage(EditorSettings.showsLineNumbersKey) private var showsLineNumbers = true
     @AppStorage(EditorSettings.tabWidthKey) private var tabWidth = EditorSettings.defaultTabWidth
     @AppStorage(EditorSettings.showsMinimapKey) private var showsMinimap = true
+    @AppStorage(EditorSettings.colorsBracketPairsKey) private var colorsBracketPairs = true
 
     @ObservedObject var search: WorkspaceSearchCenter
     @ObservedObject private var lsp: LSPCenter = .shared
@@ -34,23 +35,34 @@ struct EditorPaneView: View {
             // underneath the bar — the first lines of every file sat behind
             // it, and the bar's transparency made that read as a rendering
             // fault rather than a layout one.
-            .safeAreaInset(edge: .top, spacing: 0) {
-                VStack(spacing: 0) {
-                    EditorTabBar(
-                        tabs: center.tabs.tabs,
-                        selection: center.tabs.selection,
-                        needsDirectory: { center.tabs.needsDirectory(for: $0) },
-                        onSelect: { center.select($0) },
-                        onClose: { center.close($0) }
-                    )
-                    Divider()
-                }
-            }
+
             .sheet(isPresented: $search.isPresented) {
                 WorkspaceSearchView(center: search) { hit in
                     search.dismiss()
                     center.open(URL(fileURLWithPath: hit.path))
                 }
+            }
+            // Three answers, and Cancel is the default so a stray Return
+            // cannot be the one that discards work.
+            .alert(
+                "Save changes to \(center.closeConfirmation?.name ?? "this file")?",
+                isPresented: Binding(
+                    get: { center.closeConfirmation != nil },
+                    set: { if !$0 { center.closeConfirmation = nil } }
+                ),
+                presenting: center.closeConfirmation
+            ) { confirmation in
+                Button("Save") {
+                    center.saveAndClose(confirmation.path)
+                    center.closeConfirmation = nil
+                }
+                Button("Don't Save", role: .destructive) {
+                    center.close(confirmation.path)
+                    center.closeConfirmation = nil
+                }
+                Button("Cancel", role: .cancel) { center.closeConfirmation = nil }
+            } message: { _ in
+                Text("Your changes will be lost if you don't save them.")
             }
             .sheet(isPresented: Binding(
                 get: { !references.isEmpty },
@@ -73,11 +85,10 @@ struct EditorPaneView: View {
                 document: document,
                 theme: theme,
                 configuration: configuration,
-                showsMinimap: showsMinimap,
                 lsp: lsp,
                 onSave: { center.saveSelected() },
                 onSaveAll: { center.saveAll() },
-                onCloseTab: { center.closeSelected() },
+                onCloseTab: { center.requestCloseSelected() },
                 onSearchWorkspace: {
                     search.present(root: (document.url.deletingLastPathComponent()).path)
                 },
@@ -127,7 +138,9 @@ struct EditorPaneView: View {
             wrapsLines: wrapsLines,
             tabWidth: tabWidth,
             insertsSpacesForTab: true,
-            highlightsCurrentLine: true
+            highlightsCurrentLine: true,
+            colorsBracketPairs: colorsBracketPairs,
+            showsMinimap: showsMinimap
         )
     }
 }
@@ -138,7 +151,6 @@ private struct DocumentView: View {
     @ObservedObject var document: EditorDocument
     let theme: CodeTheme
     let configuration: CodeEditorConfiguration
-    let showsMinimap: Bool
     @ObservedObject var lsp: LSPCenter
     let onSave: () -> Void
     let onSaveAll: () -> Void
@@ -156,6 +168,15 @@ private struct DocumentView: View {
     /// reads as the feature being broken.
     @State private var notice: String?
 
+    /// The diagnostics as ranges the engine can draw.
+    ///
+    /// Held rather than computed in `body`: converting them walks the
+    /// document, and `body` runs on every keystroke — so the version that
+    /// looked innocent was scanning the whole file once per diagnostic per
+    /// character typed. They are recomputed when the server speaks, which
+    /// is the only time they actually change.
+    @State private var underlines: [(range: NSRange, color: NSColor)] = []
+
     var body: some View {
         VStack(spacing: 0) {
             if document.hasConflict {
@@ -167,19 +188,17 @@ private struct DocumentView: View {
             }
 
             CodeTextView(
-                text: $document.text,
+                text: document.text,
+                textRevision: document.revision,
                 language: document.language,
                 theme: theme,
                 configuration: configuration,
-                onEdit: {
-                    document.markEdited()
-                    lsp.didChange(path: document.url.path, text: document.text)
+                onEdit: { edited in
+                    document.edited(edited)
+                    lsp.didChange(path: document.url.path, text: edited)
                 },
-                showsMinimap: showsMinimap,
                 underlines: underlines,
-                hoverProvider: { offset in
-                    await lsp.hover(path: document.url.path, position: position(at: offset))
-                },
+                hoverProvider: { offset in await hoverInfo(at: offset) },
                 completionProvider: { offset in
                     await lsp.completions(
                         path: document.url.path,
@@ -189,7 +208,7 @@ private struct DocumentView: View {
                 reveal: revealRange,
                 onJumpToDefinition: { offset in jump(from: offset) },
                 onRename: { offset in
-                    newName = EditorPaneView.identifier(at: offset, in: document.text)
+                    newName = EditorPaneView.identifier(at: offset, in: document.currentText)
                     renamingAt = offset
                 },
                 onFindReferences: { offset in findReferences(from: offset) },
@@ -199,8 +218,20 @@ private struct DocumentView: View {
                 onCloseTab: onCloseTab,
                 onSearchWorkspace: onSearchWorkspace
             )
-            .onAppear { lsp.didOpen(path: document.url.path, text: document.text) }
+            .onAppear {
+                lsp.didOpen(path: document.url.path, text: document.currentText)
+                refreshUnderlines()
+            }
             .onDisappear { lsp.didClose(path: document.url.path) }
+            .onChange(of: lsp.diagnostics[document.url.path] ?? []) { _ in
+                refreshUnderlines()
+            }
+            // A server that started after this file was opened has never
+            // heard of it, so the introduction has to be made again. The
+            // document owns its text; the centre only says when.
+            .onChange(of: lsp.availabilityGeneration) { _ in
+                lsp.didOpen(path: document.url.path, text: document.currentText)
+            }
         }
         .sheet(isPresented: Binding(
             get: { renamingAt != nil },
@@ -220,7 +251,7 @@ private struct DocumentView: View {
     /// protocol's coordinates.
     private var revealRange: (id: String, range: NSRange)? {
         guard let reveal = document.reveal,
-              let range = LSPTextCoordinates.range(of: reveal.range, in: document.text as NSString)
+              let range = LSPTextCoordinates.range(of: reveal.range, in: document.currentText as NSString)
         else { return nil }
         return (id: reveal.id, range: range)
     }
@@ -257,30 +288,92 @@ private struct DocumentView: View {
         rename(at: offset, to: name)
     }
 
-    /// The diagnostics for this file, as ranges the engine can underline.
+    /// Turns the server's diagnostics into ranges the engine can underline.
     ///
     /// Converted here rather than in the engine: the engine is meant to
     /// know nothing about language servers, and a range with a colour is
-    /// the smallest thing that carries the meaning across.
-    private var underlines: [(range: NSRange, color: NSColor)] {
-        let text = document.text as NSString
-        return (lsp.diagnostics[document.url.path] ?? []).compactMap { diagnostic in
-            guard let range = LSPTextCoordinates.range(of: diagnostic.range, in: text),
-                  range.length > 0
-            else { return nil }
+    /// the smallest thing that carries the meaning across. One index for
+    /// the whole batch — they all refer to the same document.
+    private func refreshUnderlines() {
+        let reported = lsp.diagnostics[document.url.path] ?? []
+        guard !reported.isEmpty else {
+            if !underlines.isEmpty { underlines = [] }
+            return
+        }
 
-            let color: NSColor
-            switch diagnostic.severity {
-            case .error: color = .systemRed
-            case .warning: color = .systemOrange
-            case .information, .hint: color = .systemBlue
-            }
-            return (range, color)
+        let index = LSPLineIndex(document.currentText as NSString)
+        underlines = reported.compactMap { diagnostic in
+            guard let range = index.range(of: diagnostic.range), range.length > 0
+            else { return nil }
+            return (range, Self.color(for: diagnostic.severity))
         }
     }
 
     private func position(at offset: Int) -> LSPPosition {
-        LSPTextCoordinates.position(at: offset, in: document.text as NSString)
+        LSPTextCoordinates.position(at: offset, in: document.currentText as NSString)
+    }
+
+    /// What the card shows: the problems reported here, then what the symbol
+    /// is.
+    ///
+    /// Both, in that order, and it matters. The diagnostic is the reason you
+    /// looked; the declaration is what you needed to see next. Showing only
+    /// the second is what made the red squiggle a dead end — the message
+    /// existed the whole time and had nowhere to appear.
+    private func hoverInfo(at offset: Int) async -> CodeHoverInfo {
+        var info = CodeHoverInfo(problems: problems(at: offset))
+
+        if let markdown = await lsp.hover(
+            path: document.url.path,
+            position: position(at: offset)
+        ) {
+            let split = CodeHoverInfo.split(markdown: markdown)
+            info.signature = split.signature
+            info.documentation = split.documentation
+        }
+
+        return info
+    }
+
+    /// The diagnostics whose range covers this offset.
+    ///
+    /// Read from the same list the underlines come from, so the squiggle and
+    /// the card can never disagree about what is wrong where.
+    private func problems(at offset: Int) -> [CodeHoverInfo.Problem] {
+        let reported = lsp.diagnostics[document.url.path] ?? []
+        guard !reported.isEmpty else { return [] }
+
+        let index = LSPLineIndex(document.currentText as NSString)
+        return reported.compactMap { diagnostic in
+            guard let range = index.range(of: diagnostic.range),
+                  // Inclusive of the upper bound, and a zero-length range
+                  // counts as covering where it sits. Both because the offset
+                  // is an *insertion* index: resting on the last character of
+                  // a word reports the index after it, so a half-open test
+                  // makes the end of every word a dead spot. Servers that
+                  // point at a position rather than a span — a missing
+                  // semicolon, an unexpected end of file — have nothing but a
+                  // zero-length range to give.
+                  offset >= range.location, offset <= range.upperBound
+            else { return nil }
+
+            return CodeHoverInfo.Problem(
+                message: diagnostic.message,
+                source: diagnostic.source,
+                color: Self.color(for: diagnostic.severity)
+            )
+        }
+    }
+
+    /// One reading of severity for the whole feature: the squiggle under the
+    /// text and the label on the card are the same fact drawn twice, and two
+    /// colour tables would eventually disagree.
+    static func color(for severity: LSPDiagnostic.Severity) -> NSColor {
+        switch severity {
+        case .error: return .systemRed
+        case .warning: return .systemOrange
+        case .information, .hint: return .systemBlue
+        }
     }
 
     private func jump(from offset: Int) {
@@ -316,8 +409,7 @@ private struct DocumentView: View {
                 notice = "The language server returned no formatting."
                 return
             }
-            document.text = LSPTextEdit.apply(edits, to: document.text)
-            document.markEdited()
+            document.replaceText(LSPTextEdit.apply(edits, to: document.currentText))
         }
     }
 
@@ -341,8 +433,7 @@ private struct DocumentView: View {
             var changed = 0
             for (path, edits) in byFile {
                 if path == document.url.path {
-                    document.text = LSPTextEdit.apply(edits, to: document.text)
-                    document.markEdited()
+                    document.replaceText(LSPTextEdit.apply(edits, to: document.currentText))
                 } else if let existing = try? String(contentsOfFile: path, encoding: .utf8) {
                     let updated = LSPTextEdit.apply(edits, to: existing)
                     try? updated.write(toFile: path, atomically: true, encoding: .utf8)
@@ -377,6 +468,17 @@ private struct DocumentView: View {
                 .font(palette.font(size: 11).monospaced())
                 .textSelection(.enabled)
                 .foregroundStyle(.secondary)
+
+            CopyButton(text: server.installHint, label: "Copy install command")
+
+            // The install is noticed on its own — a watcher on the `PATH`
+            // directories and a check when the app comes back to the front.
+            // This is here for the case those miss: a binary that lands
+            // somewhere unwatched, and a reader with no way to say "look
+            // again" other than restarting.
+            Button("Check Again") { lsp.recheckMissingServers() }
+                .font(palette.font(size: 11))
+                .buttonStyle(.link)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
@@ -395,7 +497,7 @@ private struct DocumentView: View {
 
             Spacer(minLength: 0)
 
-            Button("Keep Mine") { document.markEdited() }
+            Button("Keep Mine") { document.keepLocalVersion() }
                 .font(palette.font(size: 11))
             Button("Reload") { document.revert() }
                 .font(palette.font(size: 11))

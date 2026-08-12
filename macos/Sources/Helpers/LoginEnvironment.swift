@@ -38,6 +38,21 @@ enum LoginEnvironment {
         return env
     }
 
+    /// Throws the cached `PATH` away so the next read resolves again.
+    ///
+    /// Resolving costs a login shell, so it is cached for the life of the
+    /// process — and that is a cache nobody was invalidating. A version
+    /// manager rewrites `PATH` from `.zshrc`, so `nvm use` moves the bin
+    /// directory and every lookup afterwards keeps searching the old one
+    /// until the app is restarted. Callers that fail to find something they
+    /// expected should invalidate and try once more.
+    static func invalidate() {
+        lock.lock()
+        didResolve = false
+        cachedPath = nil
+        lock.unlock()
+    }
+
     /// Resolves and caches the login shell's `PATH`. Blocking; call from a
     /// background task.
     static func loginPath() -> String? {

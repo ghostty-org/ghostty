@@ -15,6 +15,13 @@ struct FileExplorerView: View {
     /// Opens the file in this window's editor pane.
     var onOpenInEditor: (URL) -> Void = { _ in }
 
+    /// The pane's open files, so the tree can say which one is on screen.
+    ///
+    /// Without it the only highlighted row was the terminal's working
+    /// directory, and a reader looking at a file had no way to tell which of
+    /// forty names in the tree it was.
+    @ObservedObject var editorCenter: EditorCenter
+
     @StateObject private var model = FileExplorerModel()
     @ObservedObject private var palette: ThemePalette = .shared
     @ObservedObject private var icons: FileIconProvider = .shared
@@ -37,6 +44,7 @@ struct FileExplorerView: View {
             if model.root == nil {
                 empty
             } else {
+                search
                 tree
             }
         }
@@ -126,15 +134,92 @@ struct FileExplorerView: View {
 
     // MARK: Tree
 
+    /// The search field, always there.
+    ///
+    /// No submit button and no disclosure: a field you have to reveal before
+    /// you can use it is a field you forget exists, and one you have to press
+    /// Return in makes you wait to find out you typed the wrong thing. It
+    /// filters as you type, debounced in the model.
+    private var search: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+
+            TextField("Search files", text: $model.filter)
+                .textFieldStyle(.plain)
+                .font(palette.font(size: 11))
+
+            if model.isSearching {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.6)
+                    .frame(width: 12, height: 12)
+            } else if !model.filter.isEmpty {
+                Button {
+                    model.filter = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear")
+            }
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.secondary.opacity(0.12))
+        )
+        .padding(.horizontal, 8)
+        .padding(.bottom, 4)
+    }
+
+    /// The directory to show beside a name, and only when it is needed.
+    ///
+    /// Search results are a flat list, so two files called `index.ts` are two
+    /// identical rows — the one thing the list must not be. The folder is
+    /// shown for those and left off everywhere else, because a path repeated
+    /// on every row is noise that makes the ambiguous case harder to spot,
+    /// not easier.
+    private func ghostPath(for row: FileRow) -> String? {
+        guard let matches = model.matches, let root = model.root else { return nil }
+        guard matches.contains(where: { $0.id != row.id && $0.node.name == row.node.name })
+        else { return nil }
+
+        let directory = (row.node.path as NSString).deletingLastPathComponent
+        guard directory.hasPrefix(root.path) else { return directory }
+        let relative = String(directory.dropFirst(root.path.count))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return relative.isEmpty ? nil : relative
+    }
+
+    /// The rows to show: matches while searching, the tree otherwise.
+    private var visibleRows: [FileRow] {
+        model.matches ?? model.rows
+    }
+
     private var tree: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(model.rows) { row in
+                    if let matches = model.matches, matches.isEmpty, !model.isSearching {
+                        Text("No files match \"\(model.filter)\"")
+                            .font(palette.font(size: 11))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                    }
+
+                    ForEach(visibleRows) { row in
                         FileExplorerRow(
                             row: row,
                             isExpanded: model.isExpanded(row.node),
                             isCurrent: row.node.path == model.currentDirectory,
+                            ghostPath: ghostPath(for: row),
+                            isOpenInEditor: row.node.path == editorCenter.tabs.selectedPath,
                             onTap: { handleTap(row) }
                         )
                         .id(row.id)
@@ -142,8 +227,13 @@ struct FileExplorerView: View {
                 }
                 .padding(.horizontal, 6)
                 .padding(.bottom, 8)
+                .background(alignment: .top) { OverlayScrollers() }
             }
-            .scrollIndicators(.hidden)
+            // Automatic rather than hidden: the bar should appear while
+            // scrolling and go away after, which is what overlay scrollers
+            // do — hiding it outright loses the only clue about how much
+            // tree there is below.
+            .scrollIndicators(.automatic)
             .onChange(of: model.currentDirectory) { path in
                 guard let path else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
@@ -199,6 +289,17 @@ private struct FileExplorerRow: View {
     let row: FileRow
     let isExpanded: Bool
     let isCurrent: Bool
+
+    /// The containing folder, shown only when the name alone is ambiguous.
+    let ghostPath: String?
+
+    /// The file showing in the pane right now.
+    ///
+    /// Only this one is marked. Marking every open file as well turned the
+    /// tree into a wall of highlight that answered a question nobody asked —
+    /// the tab bar already says what is open, and the point of this mark is
+    /// "here is where you are".
+    let isOpenInEditor: Bool
     let onTap: () -> Void
 
     @ObservedObject private var palette: ThemePalette = .shared
@@ -229,9 +330,23 @@ private struct FileExplorerRow: View {
                 disclosure
                 FileIconView(icon: icon)
                 Text(row.node.name)
-                    .font(palette.font(size: 11, weight: isCurrent ? .semibold : .regular))
+                    .font(palette.font(
+                        size: 11,
+                        weight: isCurrent || isOpenInEditor ? .semibold : .regular
+                    ))
                     .lineLimit(1)
                     .truncationMode(.middle)
+
+                if let ghostPath {
+                    Text(ghostPath)
+                        .font(palette.font(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        // Truncated from the front: the folder nearest the
+                        // file is the part that tells two of them apart.
+                        .truncationMode(.head)
+                }
+
                 Spacer(minLength: 0)
             }
             .padding(.leading, indent)
@@ -283,6 +398,9 @@ private struct FileExplorerRow: View {
     }
 
     private var background: Color {
+        // The file on screen reads strongest, then the terminal's directory.
+        // Hover stays the faintest so it never competes with a real state.
+        if isOpenInEditor { return accent.opacity(0.34) }
         if isCurrent { return accent.opacity(0.28) }
         return isHovered ? accent.opacity(0.12) : .clear
     }
