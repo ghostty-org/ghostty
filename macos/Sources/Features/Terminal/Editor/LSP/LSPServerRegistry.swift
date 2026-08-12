@@ -23,6 +23,10 @@ struct LSPServerDefinition: Hashable, Sendable, Identifiable {
     /// table of them in sync.
     let installHint: String
 
+    /// How to resolve `initializationOptions` for this language, absent a
+    /// user override. See `LSPInitializationOptions`.
+    var initializationOptionsKind: LSPInitializationOptionsKind = .none
+
     var id: String { languageID }
 
     /// What a "not installed" message should quote back.
@@ -71,7 +75,11 @@ enum LSPServerRegistry {
             displayName: "Vue Language Server",
             command: "vue-language-server",
             arguments: ["--stdio"],
-            installHint: "npm i -g @vue/language-server"
+            installHint: "npm i -g @vue/language-server",
+            // Volar can't find TypeScript on its own the way an editor
+            // that already indexed the project would; without this it
+            // stays silent on every .vue file's <script> block.
+            initializationOptionsKind: .vueTypeScriptSDK
         ),
         LSPServerDefinition(
             languageID: "swift",

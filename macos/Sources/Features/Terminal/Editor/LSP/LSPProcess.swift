@@ -22,6 +22,29 @@ enum LSPProcessError: Error, Hashable, Sendable {
     case terminated(status: Int32?)
 }
 
+extension LSPProcessError {
+    /// A sentence a person can read in a banner — not a value anything
+    /// parses back apart.
+    var reason: String {
+        switch self {
+        case .serverNotFound(let command, let hint):
+            return "\(command) isn't on PATH. \(hint)"
+        case .launchFailed(let reason):
+            return "the process didn't launch: \(reason)"
+        case .notRunning:
+            return "the server isn't running"
+        case .alreadyStarted:
+            return "the server was already starting"
+        case .timedOut(let method, let seconds):
+            return "\(method) didn't answer within \(Int(seconds))s"
+        case .server(let error):
+            return error.message
+        case .terminated(let status):
+            return "the server exited" + (status.map { " (status \($0))" } ?? "")
+        }
+    }
+}
+
 /// A language server on the other end of a pipe.
 ///
 /// Owns the whole lifecycle — locating the binary, spawning it, pumping

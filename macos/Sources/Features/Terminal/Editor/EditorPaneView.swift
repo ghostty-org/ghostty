@@ -168,6 +168,15 @@ private struct DocumentView: View {
     /// reads as the feature being broken.
     @State private var notice: String?
 
+    /// The server log to offer alongside `notice`, captured at the moment
+    /// the notice was set rather than read fresh when the button is
+    /// tapped — by then a retry may have already replaced it.
+    @State private var noticeLog: [String]?
+
+    @State private var showingServerLog = false
+    @State private var serverLogTitle = ""
+    @State private var serverLogLines: [String] = []
+
     /// The diagnostics as ranges the engine can draw.
     ///
     /// Held rather than computed in `body`: converting them walks the
@@ -183,8 +192,8 @@ private struct DocumentView: View {
                 conflictBanner
             }
 
-            if let missing = missingServer {
-                missingServerBanner(missing)
+            if let status = serverStatus, status.isFailure, let server = lsp.definition(forPath: document.url.path) {
+                serverStatusBanner(server: server, status: status)
             }
 
             CodeTextView(
@@ -241,10 +250,22 @@ private struct DocumentView: View {
         }
         .alert(
             notice ?? "",
-            isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })
+            isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil; noticeLog = nil } })
         ) {
-            Button("OK") { notice = nil }
+            if let noticeLog, !noticeLog.isEmpty {
+                Button("View Log") { showLog(noticeLog, title: "Language Server") }
+            }
+            Button("OK") { notice = nil; noticeLog = nil }
         }
+        .sheet(isPresented: $showingServerLog) {
+            ServerLogView(title: serverLogTitle, lines: serverLogLines)
+        }
+    }
+
+    private func showLog(_ lines: [String], title: String) {
+        serverLogLines = lines
+        serverLogTitle = title
+        showingServerLog = true
     }
 
     /// The range the engine should jump to, translated out of the
@@ -380,7 +401,11 @@ private struct DocumentView: View {
         Task {
             let found = await lsp.definition(path: document.url.path, position: position(at: offset))
             guard let first = found.first else {
-                notice = "No definition found."
+                reportEmpty(
+                    whenHealthyAndEmpty: "No definition found.",
+                    whenUnsupported: "This language server doesn't offer go-to-definition.",
+                    capability: "definitionProvider"
+                )
                 return
             }
             onOpenLocation(first)
@@ -391,7 +416,11 @@ private struct DocumentView: View {
         Task {
             let found = await lsp.references(path: document.url.path, position: position(at: offset))
             guard !found.isEmpty else {
-                notice = "No references found."
+                reportEmpty(
+                    whenHealthyAndEmpty: "No references found.",
+                    whenUnsupported: "This language server doesn't offer find references.",
+                    capability: "referencesProvider"
+                )
                 return
             }
             onShowReferences(found)
@@ -406,7 +435,11 @@ private struct DocumentView: View {
                 insertSpaces: configuration.insertsSpacesForTab
             )
             guard !edits.isEmpty else {
-                notice = "The language server returned no formatting."
+                reportEmpty(
+                    whenHealthyAndEmpty: "The language server returned no formatting.",
+                    whenUnsupported: "This language server doesn't offer formatting.",
+                    capability: "documentFormattingProvider"
+                )
                 return
             }
             document.replaceText(LSPTextEdit.apply(edits, to: document.currentText))
@@ -426,7 +459,11 @@ private struct DocumentView: View {
                 to: name
             )
             guard !byFile.isEmpty else {
-                notice = "This symbol can't be renamed here."
+                reportEmpty(
+                    whenHealthyAndEmpty: "This symbol can't be renamed here.",
+                    whenUnsupported: "This language server doesn't offer rename.",
+                    capability: "renameProvider"
+                )
                 return
             }
 
@@ -441,44 +478,79 @@ private struct DocumentView: View {
                 changed += 1
             }
             notice = "Renamed in \(changed) file\(changed == 1 ? "" : "s")."
+            noticeLog = nil
         }
     }
 
-    /// The server this file's language would use, when it isn't installed.
+    /// Three answers for a feature that came back with nothing, depending
+    /// on what's actually known about the server behind it — the point of
+    /// section 1's status tracking is that this no longer has to guess.
     ///
-    /// Worth saying out loud: without it, every language feature simply
-    /// does nothing, and "nothing happens" is indistinguishable from a
-    /// broken editor.
-    private var missingServer: LSPServerDefinition? {
-        guard let expected = LSPServerRegistry.server(forPath: document.url.path) else { return nil }
-        return lsp.missing.first { $0.command == expected.command }
+    /// - `whenHealthyAndEmpty`: the server is running, claims to support
+    ///   this, and genuinely answered empty. This is today's message,
+    ///   shown only when it is actually true.
+    /// - `whenUnsupported`: the server is running but never claimed to
+    ///   offer this at all.
+    /// - Anything else: the server is in a failure state, named along with
+    ///   its recent log.
+    private func reportEmpty(whenHealthyAndEmpty: String, whenUnsupported: String, capability: String) {
+        let path = document.url.path
+        guard let status = lsp.status(forPath: path) else {
+            notice = "No language server is configured for this file."
+            noticeLog = nil
+            return
+        }
+
+        if status.isFailure {
+            notice = "The language server \(status.summary)."
+        } else if !lsp.hasCapability(capability, forPath: path) {
+            notice = whenUnsupported
+        } else {
+            notice = whenHealthyAndEmpty
+        }
+        noticeLog = lsp.log(forPath: path)
     }
 
-    private func missingServerBanner(_ server: LSPServerDefinition) -> some View {
+    /// What the server for this file's language is doing right now. Nil
+    /// when none is known for this language at all.
+    private var serverStatus: LSPServerStatus? {
+        lsp.status(forPath: document.url.path)
+    }
+
+    private func serverStatusBanner(server: LSPServerDefinition, status: LSPServerStatus) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "info.circle")
                 .foregroundStyle(.secondary)
 
-            Text("\(server.displayName) isn't installed — language features are off.")
+            Text("\(server.displayName) \(status.summary) — language features may not work.")
                 .font(palette.font(size: 11))
 
             Spacer(minLength: 0)
 
-            Text(server.installHint)
-                .font(palette.font(size: 11).monospaced())
-                .textSelection(.enabled)
-                .foregroundStyle(.secondary)
+            if case .notInstalled = status {
+                Text(server.installHint)
+                    .font(palette.font(size: 11).monospaced())
+                    .textSelection(.enabled)
+                    .foregroundStyle(.secondary)
 
-            CopyButton(text: server.installHint, label: "Copy install command")
+                CopyButton(text: server.installHint, label: "Copy install command")
 
-            // The install is noticed on its own — a watcher on the `PATH`
-            // directories and a check when the app comes back to the front.
-            // This is here for the case those miss: a binary that lands
-            // somewhere unwatched, and a reader with no way to say "look
-            // again" other than restarting.
-            Button("Check Again") { lsp.recheckMissingServers() }
-                .font(palette.font(size: 11))
-                .buttonStyle(.link)
+                // The install is noticed on its own — a watcher on the
+                // `PATH` directories and a check when the app comes back to
+                // the front. This is here for the case those miss: a
+                // binary that lands somewhere unwatched, and a reader with
+                // no way to say "look again" other than restarting.
+                Button("Check Again") { lsp.recheckMissingServers() }
+                    .font(palette.font(size: 11))
+                    .buttonStyle(.link)
+            }
+
+            let log = lsp.log(forPath: document.url.path)
+            if !log.isEmpty {
+                Button("View Log") { showLog(log, title: server.displayName) }
+                    .font(palette.font(size: 11))
+                    .buttonStyle(.link)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
@@ -505,5 +577,39 @@ private struct DocumentView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(Color.orange.opacity(0.15))
+    }
+}
+
+/// The server's recent stderr, verbatim. The whole reason this exists:
+/// servers report their own misconfiguration there and nowhere else, and
+/// before this it went straight to `/dev/null` as far as anyone using
+/// Phantom could tell.
+private struct ServerLogView: View {
+    let title: String
+    let lines: [String]
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("\(title) — Log")
+                    .font(.headline)
+                Spacer()
+                Button("Close") { dismiss() }
+            }
+            .padding(12)
+
+            Divider()
+
+            ScrollView {
+                Text(lines.isEmpty ? "No output." : lines.joined(separator: "\n"))
+                    .font(.system(size: 11, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+            }
+        }
+        .frame(width: 560, height: 360)
     }
 }

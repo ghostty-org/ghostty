@@ -15,18 +15,40 @@ final class LSPCenter: ObservableObject {
     /// Problems per file path, which is what the editor draws.
     @Published private(set) var diagnostics: [String: [LSPDiagnostic]] = [:]
 
-    /// Servers named in the registry that aren't installed, so the UI can
-    /// say which one is missing and how to get it instead of appearing to
-    /// do nothing.
-    @Published private(set) var missing: [LSPServerDefinition] = []
+    /// What each server is doing right now, keyed by (language, workspace
+    /// root). See `LSPServerStatus` for why this replaced a plain
+    /// "installed or not" flag.
+    ///
+    /// Fully `private` rather than `private(set)`: `Key` is private to
+    /// this type, so a getter any less restricted than that couldn't
+    /// expose this property's type at all. Nothing outside this class
+    /// reads it directly anyway — `status(forPath:)` below is the surface.
+    @Published private var status: [Key: LSPServerStatus] = [:]
 
-    private struct Key: Hashable {
+    private struct Key: Hashable, Sendable {
         let languageID: String
         let root: String
     }
 
     private var servers: [Key: LSPProcess] = [:]
     private var starting: Set<Key> = []
+
+    /// What `initialize` answered with, so a feature can tell "the server
+    /// answered empty" apart from "the server never claimed to offer this".
+    private var serverCapabilities: [Key: LSPValue] = [:]
+
+    /// The server's recent stderr, kept after the process exits or fails to
+    /// start — that is precisely when it is worth reading. Cleared when a
+    /// fresh attempt starts, so a crash from three runs ago doesn't linger
+    /// under a server that is now healthy.
+    private var serverLogs: [Key: [String]] = [:]
+
+    /// Consecutive timeouts on requests to a running server. Reset on any
+    /// answer; past the threshold the server is reported `unresponsive`
+    /// rather than each caller silently getting nothing back.
+    private var consecutiveTimeouts: [Key: Int] = [:]
+    private static let unresponsiveThreshold = 3
+    private static let logTailLimit = 200
 
     /// Version per open document. The protocol requires it to increase on
     /// every change, and a server that sees it go backwards may discard the
@@ -114,20 +136,22 @@ final class LSPCenter: ObservableObject {
 
     /// Looks again for the servers that were not installed.
     ///
-    /// The bug this fixes: `missing` was append-only. A command that could
-    /// not be found went in the list and nothing ever looked again, so the
+    /// The bug this fixes: a command that could not be found used to go
+    /// into an append-only list and nothing ever looked again, so the
     /// banner outlived the install and only a restart cleared it — the
     /// signature of a cache with no invalidation.
     func recheckMissingServers() {
-        guard !missing.isEmpty else { return }
+        let notInstalledCommands = Set(status.compactMap { key, value -> String? in
+            guard case .notInstalled = value else { return nil }
+            return LSPServerRegistry.server(forLanguage: key.languageID).map(Self.effectiveDefinition)?.command
+        })
+        guard !notInstalledCommands.isEmpty else { return }
 
         Task { [weak self] in
-            guard let candidates = await MainActor.run(body: { self?.missing }) else { return }
-
-            let found = await Task.detached(priority: .utility) { () -> [String] in
+            let found = await Task.detached(priority: .utility) { () -> Set<String> in
                 var searchPath = LoginEnvironment.loginPath() ?? ""
-                var located = candidates.filter {
-                    LSPProcess.locate($0.command, searchPath: searchPath) != nil
+                var located = notInstalledCommands.filter {
+                    LSPProcess.locate($0, searchPath: searchPath) != nil
                 }
 
                 // Nothing found could mean nothing installed — or a `PATH`
@@ -136,17 +160,23 @@ final class LSPCenter: ObservableObject {
                 if located.isEmpty {
                     LoginEnvironment.invalidate()
                     searchPath = LoginEnvironment.loginPath() ?? ""
-                    located = candidates.filter {
-                        LSPProcess.locate($0.command, searchPath: searchPath) != nil
+                    located = notInstalledCommands.filter {
+                        LSPProcess.locate($0, searchPath: searchPath) != nil
                     }
                 }
-                return located.map(\.command)
+                return located
             }.value
 
             guard !found.isEmpty else { return }
             await MainActor.run {
                 guard let self else { return }
-                self.missing.removeAll { found.contains($0.command) }
+                for key in Array(self.status.keys) {
+                    guard case .notInstalled = self.status[key],
+                          let base = LSPServerRegistry.server(forLanguage: key.languageID),
+                          found.contains(Self.effectiveDefinition(base).command)
+                    else { continue }
+                    self.status.removeValue(forKey: key)
+                }
                 // The open documents have to introduce themselves: a server
                 // starting now has never heard of a file opened before it.
                 self.availabilityGeneration += 1
@@ -157,7 +187,8 @@ final class LSPCenter: ObservableObject {
     // MARK: Documents
 
     func didOpen(path: String, text: String) {
-        guard let definition = LSPServerRegistry.server(forPath: path) else { return }
+        guard let base = LSPServerRegistry.server(forPath: path) else { return }
+        let definition = Self.effectiveDefinition(base)
         let root = Self.workspaceRoot(for: path)
         let key = Key(languageID: definition.languageID, root: root)
 
@@ -248,6 +279,73 @@ final class LSPCenter: ObservableObject {
         ])
     }
 
+    // MARK: Server status
+
+    /// What the server for this file's language is doing right now. Nil
+    /// when no server — registry or override — is known for this language
+    /// at all, which is the ordinary case for most files a terminal opens.
+    func status(forPath path: String) -> LSPServerStatus? {
+        guard let key = key(forPath: path) else { return nil }
+        return status[key]
+    }
+
+    /// The registry's definition plus any override, for the language this
+    /// file would use. What a banner names and what "Check Again" or a log
+    /// panel act on.
+    func definition(forPath path: String) -> LSPServerDefinition? {
+        guard let base = LSPServerRegistry.server(forPath: path) else { return nil }
+        return Self.effectiveDefinition(base)
+    }
+
+    /// The server's recent stderr, oldest first. Kept after the process
+    /// exits or fails to start — that is precisely when it is worth
+    /// reading.
+    func log(forPath path: String) -> [String] {
+        guard let key = key(forPath: path) else { return [] }
+        return serverLogs[key] ?? []
+    }
+
+    /// Whether the server running for this file's language advertised a
+    /// given LSP capability (`hoverProvider`, `definitionProvider`, …).
+    /// False for any server not `running`, including one still starting.
+    func hasCapability(_ name: String, forPath path: String) -> Bool {
+        guard let key = key(forPath: path), let value = serverCapabilities[key]?[name] else { return false }
+        if let bool = value.boolValue { return bool }
+        return !value.isNull
+    }
+
+    /// The registry's definition for a language, with any user override
+    /// applied.
+    ///
+    /// Command and arguments are replaced outright when overridden — a
+    /// user pointing at a different binary presumably wants different
+    /// arguments too, or none. `initializationOptionsKind` is untouched;
+    /// an override's own `initializationOptionsJSON`, when present, is
+    /// applied later, where a resolution failure can also be reported —
+    /// see `resolvedInitializationOptions`.
+    static func effectiveDefinition(_ definition: LSPServerDefinition) -> LSPServerDefinition {
+        guard let override = LSPServerOverrideStore.override(for: definition.command) else { return definition }
+
+        var command = definition.command
+        let trimmedCommand = override.command.trimmingCharacters(in: .whitespaces)
+        if !trimmedCommand.isEmpty { command = trimmedCommand }
+
+        var arguments = definition.arguments
+        let trimmedArguments = override.arguments.trimmingCharacters(in: .whitespaces)
+        if !trimmedArguments.isEmpty {
+            arguments = trimmedArguments.split(separator: " ").map(String.init)
+        }
+
+        return LSPServerDefinition(
+            languageID: definition.languageID,
+            displayName: definition.displayName,
+            command: command,
+            arguments: arguments,
+            installHint: definition.installHint,
+            initializationOptionsKind: definition.initializationOptionsKind
+        )
+    }
+
     // MARK: Features
 
     func hover(path: String, position: LSPPosition) async -> String? {
@@ -283,15 +381,21 @@ final class LSPCenter: ObservableObject {
     }
 
     func formatting(path: String, tabSize: Int, insertSpaces: Bool) async -> [LSPTextEdit] {
-        guard let server = await runningServer(forPath: path) else { return [] }
-        let result = try? await server.request("textDocument/formatting", params: [
-            "textDocument": ["uri": .string(Self.uri(path))],
-            "options": [
-                "tabSize": .integer(tabSize),
-                "insertSpaces": .bool(insertSpaces),
-            ],
-        ])
-        return (result?.arrayValue ?? []).compactMap(LSPTextEdit.init)
+        guard let key = key(forPath: path), let server = await runningServer(forPath: path) else { return [] }
+        do {
+            let result = try await server.request("textDocument/formatting", params: [
+                "textDocument": ["uri": .string(Self.uri(path))],
+                "options": [
+                    "tabSize": .integer(tabSize),
+                    "insertSpaces": .bool(insertSpaces),
+                ],
+            ])
+            noteRequestSucceeded(for: key)
+            return (result.arrayValue ?? []).compactMap(LSPTextEdit.init)
+        } catch {
+            noteRequestFailed(error, for: key)
+            return []
+        }
     }
 
     /// Edits per file path, since a rename crosses files by definition.
@@ -315,7 +419,7 @@ final class LSPCenter: ObservableObject {
         position: LSPPosition,
         extra: [String: LSPValue] = [:]
     ) async -> LSPValue? {
-        guard let server = await runningServer(forPath: path) else { return nil }
+        guard let key = key(forPath: path), let server = await runningServer(forPath: path) else { return nil }
 
         var params: [String: LSPValue] = [
             "textDocument": ["uri": .string(Self.uri(path))],
@@ -323,12 +427,45 @@ final class LSPCenter: ObservableObject {
         ]
         params.merge(extra) { _, new in new }
 
-        return try? await server.request(method, params: .object(params))
+        do {
+            let result = try await server.request(method, params: .object(params))
+            noteRequestSucceeded(for: key)
+            return result
+        } catch {
+            noteRequestFailed(error, for: key)
+            return nil
+        }
+    }
+
+    /// Resets the failure count on any answer, and — since a server that
+    /// answers again is no longer the problem `unresponsive` described —
+    /// clears that state too.
+    private func noteRequestSucceeded(for key: Key) {
+        consecutiveTimeouts[key] = 0
+        if case .unresponsive = status[key] {
+            status[key] = .running
+        }
+    }
+
+    /// Only a timeout counts here. A crash is reported through the
+    /// `.exited` event instead, and cancellation is the caller giving up,
+    /// not the server failing anybody.
+    private func noteRequestFailed(_ error: Error, for key: Key) {
+        guard case LSPProcessError.timedOut = error else { return }
+        let count = (consecutiveTimeouts[key] ?? 0) + 1
+        consecutiveTimeouts[key] = count
+        guard count >= Self.unresponsiveThreshold, case .running = status[key] else { return }
+        status[key] = .unresponsive
     }
 
     private func server(forPath path: String) -> LSPProcess? {
+        guard let key = key(forPath: path) else { return nil }
+        return servers[key]
+    }
+
+    private func key(forPath path: String) -> Key? {
         guard let definition = LSPServerRegistry.server(forPath: path) else { return nil }
-        return servers[Key(languageID: definition.languageID, root: Self.workspaceRoot(for: path))]
+        return Key(languageID: definition.languageID, root: Self.workspaceRoot(for: path))
     }
 
     /// The server for a file, waiting for it if it is still starting.
@@ -377,52 +514,141 @@ final class LSPCenter: ObservableObject {
         starting.insert(key)
         defer { starting.remove(key) }
 
-        guard LSPProcess.locate(
-            definition.command,
-            searchPath: LoginEnvironment.loginPath() ?? ""
-        ) != nil else {
-            if !missing.contains(where: { $0.command == definition.command }) {
-                missing.append(definition)
-            }
+        let searchPath = LoginEnvironment.loginPath() ?? ""
+        guard LSPProcess.locate(definition.command, searchPath: searchPath) != nil else {
+            status[key] = .notInstalled
             return nil
+        }
+
+        // A fresh attempt gets a fresh log and a fresh failure count — a
+        // crash from three runs ago must not linger under a server that
+        // has since been fixed.
+        serverLogs[key] = []
+        consecutiveTimeouts[key] = 0
+        status[key] = .starting
+
+        let initializationOptions: LSPValue?
+        switch await resolvedInitializationOptions(for: definition, key: key, searchPath: searchPath) {
+        case .failure(let reason):
+            status[key] = .failedToStart(reason: reason)
+            return nil
+        case .success(let value):
+            initializationOptions = value
         }
 
         let process = LSPProcess(definition: definition)
         do {
             try await process.start()
-            _ = try await process.initialize(rootURI: Self.uri(key.root))
+            let result = try await process.initialize(
+                rootURI: Self.uri(key.root),
+                initializationOptions: initializationOptions
+            )
+            serverCapabilities[key] = result["capabilities"]
         } catch {
+            serverLogs[key] = process.recentLog
+            status[key] = .failedToStart(reason: (error as? LSPProcessError)?.reason ?? String(describing: error))
             process.terminate()
             return nil
         }
 
+        status[key] = .running
         servers[key] = process
         listen(to: process, key: key)
         return process
     }
 
+    /// `initializationOptions` to send: a user override's raw JSON when
+    /// there is one, else the language's own resolution — Vue's `tsdk`
+    /// lookup today, nothing for everyone else.
+    ///
+    /// The override lookup uses the registry's *default* command for this
+    /// language rather than `definition.command` — `definition` here may
+    /// already be the overridden one, and the override's own identity has
+    /// to stay independent of what it changes the command to.
+    private func resolvedInitializationOptions(
+        for definition: LSPServerDefinition,
+        key: Key,
+        searchPath: String
+    ) async -> LSPOutcome<LSPValue?> {
+        let defaultCommand = LSPServerRegistry.server(forLanguage: key.languageID)?.command ?? definition.command
+        if let override = LSPServerOverrideStore.override(for: defaultCommand) {
+            let raw = override.initializationOptionsJSON.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !raw.isEmpty {
+                switch Self.parseInitializationOptions(raw) {
+                case .success(let value): return .success(value)
+                case .failure(let reason): return .failure(reason)
+                }
+            }
+        }
+
+        switch definition.initializationOptionsKind {
+        case .none:
+            return .success(nil)
+        case .vueTypeScriptSDK:
+            let root = key.root
+            let resolved = await Task.detached(priority: .utility) {
+                LSPInitializationOptions.vueTypeScriptSDK(root: root, searchPath: searchPath)
+            }.value
+            switch resolved {
+            case .success(let tsdk): return .success(LSPInitializationOptions.vueValue(tsdk: tsdk))
+            case .failure(let reason): return .failure(reason)
+            }
+        }
+    }
+
+    private static func parseInitializationOptions(_ json: String) -> LSPOutcome<LSPValue> {
+        guard let data = json.data(using: .utf8) else {
+            return .failure("initializationOptions isn't valid text.")
+        }
+        do {
+            return .success(try JSONDecoder().decode(LSPValue.self, from: data))
+        } catch {
+            return .failure("initializationOptions isn't valid JSON: \(error.localizedDescription)")
+        }
+    }
+
     /// Diagnostics arrive unprompted, so the only way to receive them is to
-    /// keep reading the server's notifications for as long as it lives.
+    /// keep reading the server's notifications for as long as it lives —
+    /// and, now, its log lines and its exit.
     private func listen(to process: LSPProcess, key: Key) {
         Task { [weak self] in
             for await event in process.events {
-                guard case .notification(let notification) = event else {
-                    if case .exited = event {
-                        await MainActor.run { self?.servers.removeValue(forKey: key) }
-                    }
-                    continue
+                switch event {
+                case .notification(let notification):
+                    await MainActor.run { self?.handle(notification) }
+                case .log(let line):
+                    await MainActor.run { self?.appendLog(line, for: key) }
+                case .exited(let exitStatus):
+                    await MainActor.run { self?.handleExit(exitStatus: exitStatus, key: key) }
                 }
-                guard notification.method == "textDocument/publishDiagnostics",
-                      let uri = notification.params?["uri"]?.stringValue
-                else { continue }
-
-                let reported = (notification.params?["diagnostics"]?.arrayValue ?? [])
-                    .compactMap(LSPDiagnostic.init)
-                let path = URL(string: uri)?.path ?? uri
-
-                await MainActor.run { self?.diagnostics[path] = reported }
             }
         }
+    }
+
+    private func handle(_ notification: LSPNotification) {
+        guard notification.method == "textDocument/publishDiagnostics",
+              let uri = notification.params?["uri"]?.stringValue
+        else { return }
+
+        let reported = (notification.params?["diagnostics"]?.arrayValue ?? [])
+            .compactMap(LSPDiagnostic.init)
+        let path = URL(string: uri)?.path ?? uri
+        diagnostics[path] = reported
+    }
+
+    private func appendLog(_ line: String, for key: Key) {
+        serverLogs[key, default: []].append(line)
+        if let count = serverLogs[key]?.count, count > Self.logTailLimit {
+            serverLogs[key]?.removeFirst(count - Self.logTailLimit)
+        }
+    }
+
+    /// The process exited after having run — as opposed to `server(for:)`'s
+    /// own `catch`, which is a server that never got this far at all.
+    private func handleExit(exitStatus: Int32?, key: Key) {
+        servers.removeValue(forKey: key)
+        serverCapabilities.removeValue(forKey: key)
+        status[key] = .crashed(status: exitStatus)
     }
 
     /// The enclosing repository, else the file's own folder.

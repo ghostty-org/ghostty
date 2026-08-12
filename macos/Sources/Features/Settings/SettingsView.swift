@@ -15,6 +15,7 @@ struct SettingsRootView: View {
         case sidebar
         case files
         case behaviors
+        case languageServers
         case agents
 
         var id: String { rawValue }
@@ -27,6 +28,7 @@ struct SettingsRootView: View {
             case .sidebar: return "Sidebar"
             case .files: return "Files"
             case .behaviors: return "Behaviors"
+            case .languageServers: return "Language Servers"
             case .agents: return "Agents"
             }
         }
@@ -39,6 +41,7 @@ struct SettingsRootView: View {
             case .sidebar: return "sidebar.left"
             case .files: return "doc.text"
             case .behaviors: return "slider.horizontal.3"
+            case .languageServers: return "chevron.left.forwardslash.chevron.right"
             case .agents: return "sparkles"
             }
         }
@@ -68,6 +71,8 @@ struct SettingsRootView: View {
                 FilesSettingsView()
             case .behaviors:
                 BehaviorsSettingsView(ghostty: ghostty, store: store)
+            case .languageServers:
+                LanguageServersSettingsView()
             case .agents:
                 AgentsSettingsView()
             }
