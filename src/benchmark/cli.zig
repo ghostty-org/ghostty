@@ -7,6 +7,7 @@ const global = @import("../global.zig");
 /// benchmarks. View docs for each individual one in the predictably
 /// named files.
 pub const Action = enum {
+    @"a11y-text",
     @"apc-parser",
     @"codepoint-width",
     @"grapheme-break",
@@ -32,6 +33,7 @@ pub const Action = enum {
     /// See TerminalStream for an example.
     pub fn Struct(comptime action: Action) type {
         return switch (action) {
+            .@"a11y-text" => @import("A11yText.zig"),
             .@"apc-parser" => @import("ApcParser.zig"),
             .@"hyperlink-map" => @import("HyperlinkMap.zig"),
             .@"screen-clone" => @import("ScreenClone.zig"),
