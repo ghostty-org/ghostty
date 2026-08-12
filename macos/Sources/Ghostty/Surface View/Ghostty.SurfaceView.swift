@@ -7,7 +7,52 @@ import GhosttyKit
 
 extension Ghostty {
     /// The NSView implementation for a terminal surface.
-    class SurfaceView: OSSurfaceView, Codable, Identifiable {
+    class SurfaceView: NSView, ObservableObject, Codable, Identifiable {
+        typealias ID = UUID
+
+        /// Unique ID per surface
+        let id: UUID
+
+        // The current pwd of the surface as defined by the pty. This can be
+        // changed with escape codes.
+        @Published var pwd: String?
+
+        // The cell size of this surface. This is set by the core when the
+        // surface is first created and any time the cell size changes (i.e.
+        // when the font size changes). This is used to allow windows to be
+        // resized in discrete steps of a single cell.
+        @Published var cellSize: CGSize = .zero
+
+        // The health state of the surface. This currently only reflects the
+        // renderer health. In the future we may want to make this an enum.
+        @Published var healthy: Bool = true
+
+        // Any error while initializing the surface.
+        @Published var error: Error?
+
+        // The hovered URL string
+        @Published var hoverUrl: String?
+
+        // The currently active key tables. Empty if no tables are active.
+        @Published var keyTables: [String] = []
+
+        // The time this surface last became focused. This is a ContinuousClock.Instant
+        // on supported platforms.
+        @Published var focusInstant: ContinuousClock.Instant?
+
+        // Returns sizing information for the surface. This is the raw C
+        // structure because I'm lazy.
+        @Published var surfaceSize: ghostty_surface_size_s?
+
+        /// True when the surface is in readonly mode.
+        @Published private(set) var readonly: Bool = false
+
+        /// True when the surface should show a highlight effect (e.g., when presented via goto_split).
+        @Published private(set) var highlighted: Bool = false
+
+        /// A message sent from `ghostty_surface_t` when a child process exited
+        @Published private(set) var childExitedMessage: ChildExitedMessage?
+
         // The current title of the surface as defined by the pty. This can be
         // changed with escape codes.
         @Published private(set) var title: String = "" {
@@ -20,7 +65,7 @@ extension Ghostty {
         }
 
         // The progress report (if any)
-        override var progressReport: Action.ProgressReport? {
+        @Published var progressReport: Action.ProgressReport? {
             didSet {
                 // Cancel any existing timer
                 progressReportTimer?.invalidate()
@@ -40,7 +85,7 @@ extension Ghostty {
         @Published var keySequence: [KeyboardShortcut] = []
 
         // The current search state. When non-nil, the search overlay should be shown.
-        override var searchState: SearchState? {
+        @Published var searchState: SearchState? {
             didSet {
                 if let searchState {
                     // I'm not a Combine expert so if there is a better way to do this I'm
@@ -181,7 +226,7 @@ extension Ghostty {
         private(set) var surfaceModel: Ghostty.Surface?
 
         /// Returns the underlying C value for the surface. See "note" on surfaceModel.
-        override var surface: ghostty_surface_t? {
+        var surface: ghostty_surface_t? {
             surfaceModel?.unsafeCValue
         }
         /// Current scrollbar state, cached here for persistence across rebuilds
@@ -230,6 +275,7 @@ extension Ghostty {
         override var acceptsFirstResponder: Bool { return true }
 
         init(_ app: ghostty_app_t, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil) {
+            self.id = uuid ?? UUID()
             self.markedText = NSMutableAttributedString()
 
             // Our initial config always is our application wide config.
@@ -248,7 +294,7 @@ extension Ghostty {
             // Initialize with some default frame size. The important thing is that this
             // is non-zero so that our layer bounds are non-zero so that our renderer
             // can do SOMETHING.
-            super.init(id: uuid, frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+            super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
             // Our cache of screen data
             cachedScreenContents = .init(duration: .milliseconds(500)) { [weak self] in
@@ -358,6 +404,12 @@ extension Ghostty {
                 object: self)
             center.addObserver(
                 self,
+                selector: #selector(ghosttyDidChangeReadonly(_:)),
+                name: .ghosttyDidChangeReadonly,
+                object: self,
+            )
+            center.addObserver(
+                self,
                 selector: #selector(ghosttyBellDidRing(_:)),
                 name: .ghosttyBellDidRing,
                 object: self)
@@ -437,12 +489,25 @@ extension Ghostty {
             progressReportTimer?.invalidate()
         }
 
-        override func endSearch() {
-            Ghostty.moveFocus(to: self)
-            super.endSearch()
+        func setChildExitedMessage(_ message: ChildExitedMessage) {
+            self.childExitedMessage = message
         }
 
-        override func focusDidChange(_ focused: Bool) {
+        /// Triggers a brief highlight animation on this surface.
+        func highlight() {
+            highlighted = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.highlighted = false
+            }
+        }
+
+        @MainActor
+        func endSearch() {
+            Ghostty.moveFocus(to: self)
+            searchState = nil
+        }
+
+        func focusDidChange(_ focused: Bool) {
             guard let surface = self.surface else { return }
             guard self.focused != focused else { return }
             self.focused = focused
@@ -479,7 +544,7 @@ extension Ghostty {
             }
         }
 
-        override func sizeDidChange(_ size: CGSize) {
+        func sizeDidChange(_ size: CGSize) {
             // Ghostty wants to know the actual framebuffer size... It is very important
             // here that we use "size" and NOT the view frame. If we're in the middle of
             // an animation (i.e. a fullscreen animation), the frame will not yet be updated.
@@ -797,6 +862,11 @@ extension Ghostty {
                 // We don't do anything for the other colors yet.
                 break
             }
+        }
+
+        @objc private func ghosttyDidChangeReadonly(_ notification: Foundation.Notification) {
+            guard let value = notification.userInfo?[Foundation.Notification.Name.ReadonlyKey] as? Bool else { return }
+            readonly = value
         }
 
         @objc private func ghosttyBellDidRing(_ notification: SwiftUI.Notification) {
@@ -2409,6 +2479,83 @@ extension Ghostty.SurfaceView {
         return NSAttributedString(string: plainString, attributes: attributes)
     }
 
+}
+
+// MARK: Search State
+
+extension Ghostty.SurfaceView {
+    @MainActor class SearchState: ObservableObject {
+
+        /// We should always change needle's text and its selection together
+        struct Needle: Equatable {
+            var text: String
+            var selection: Range<String.Index>?
+
+            static let empty = Needle(text: "", selection: nil)
+        }
+
+        /// The pasteboard used to persist the search needle.
+        ///
+        /// The `.find` pasteboard lets us sync our needle across the system and other find bars.
+        private let pasteboard: NSPasteboard
+
+        @Published var needle = Needle.empty
+
+        @Published var selected: UInt?
+        @Published var total: UInt?
+
+        init(
+            from startSearch: Ghostty.Action.StartSearch,
+            pasteboard: NSPasteboard? = nil
+        ) {
+            self.pasteboard = pasteboard ?? .find
+            if let needle = startSearch.needle, !needle.isEmpty {
+                setNeedle(needle)
+                writePasteboardNeedle()
+            } else {
+                readPasteboardNeedle()
+            }
+        }
+
+        /// Replaces the search needle while keeping its selection valid.
+        func setNeedle(_ needle: String, selectAll: Bool = false) {
+            self.needle = .init(
+                text: needle,
+                selection: selectAll ? needle.startIndex..<needle.endIndex : nil
+            )
+        }
+
+        func readPasteboardNeedle() {
+            let pasteboardNeedle = pasteboard.string
+            if let pasteboardNeedle, pasteboardNeedle != needle.text {
+                setNeedle(pasteboardNeedle, selectAll: true)
+            }
+        }
+
+        func writePasteboardNeedle() {
+            pasteboard.string = needle.text
+        }
+    }
+
+    func navigateSearchToNext() -> Bool {
+        guard let surface = self.surface else { return false }
+        let action = "navigate_search:next"
+        if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
+            AppDelegate.logger.warning("action failed action=\(action, privacy: .public)")
+            return false
+        }
+        return true
+    }
+
+    func navigateSearchToPrevious() -> Bool {
+        guard let surface = self.surface else { return false }
+        let action = "navigate_search:previous"
+        if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
+            AppDelegate.logger.warning("action failed action=\(action, privacy: .public)")
+            return false
+        }
+        return true
+    }
 }
 
 /// Caches a value for some period of time, evicting it automatically when that time expires.
