@@ -2558,6 +2558,64 @@ extension Ghostty.SurfaceView {
     }
 }
 
+// MARK: - Focus move
+
+extension Ghostty {
+    /// When changing the split state, or going full screen (native or non), the terminal view
+    /// will lose focus. There has to be some nice SwiftUI-native way to fix this but I can't
+    /// figure it out so we're going to do this hacky thing to bring focus back to the terminal
+    /// that should have it.
+    static func moveFocus(
+        to: SurfaceView,
+        from: SurfaceView? = nil,
+        delay: TimeInterval? = nil
+    ) {
+        // The whole delay machinery is a bit of a hack to work around a
+        // situation where the window is destroyed and the surface view
+        // will never be attached to a window. Realistically, we should
+        // handle this upstream but we also don't want this function to be
+        // a source of infinite loops.
+
+        // Our max delay before we give up
+        let maxDelay: TimeInterval = 0.5
+        guard (delay ?? 0) < maxDelay else { return }
+
+        // We start at a 50 millisecond delay and do a doubling backoff
+        let nextDelay: TimeInterval = if let delay {
+            delay * 2
+        } else {
+            // 100 milliseconds
+            0.05
+        }
+
+        let work: DispatchWorkItem = .init {
+            // If the callback runs before the surface is attached to a view
+            // then the window will be nil. We just reschedule in that case.
+            guard let window = to.window else {
+                moveFocus(to: to, from: from, delay: nextDelay)
+                return
+            }
+
+            // If we had a previously focused node and its not where we're sending
+            // focus, make sure that we explicitly tell it to lose focus. In theory
+            // we should NOT have to do this but the focus callback isn't getting
+            // called for some reason.
+            if let from = from {
+                _ = from.resignFirstResponder()
+            }
+
+            window.makeFirstResponder(to)
+        }
+
+        let queue = DispatchQueue.main
+        if let delay {
+            queue.asyncAfter(deadline: .now() + delay, execute: work)
+        } else {
+            queue.async(execute: work)
+        }
+    }
+}
+
 /// Caches a value for some period of time, evicting it automatically when that time expires.
 /// We use this to cache our surface content. This probably should be extracted some day
 /// to a more generic helper.
