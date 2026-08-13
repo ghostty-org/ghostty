@@ -410,6 +410,7 @@ pub const Window = extern struct {
     /// The new tab will be selected.
     pub fn newTab(self: *Self, parent_: ?*CoreSurface, overrides: struct {
         command: ?configpkg.Command = null,
+        shell_integration: ?configpkg.Config.ShellIntegration = null,
         working_directory: ?[:0]const u8 = null,
         title: ?[:0]const u8 = null,
 
@@ -417,6 +418,7 @@ pub const Window = extern struct {
     }) void {
         _ = self.newTabPage(parent_, .tab, .{
             .command = overrides.command,
+            .shell_integration = overrides.shell_integration,
             .working_directory = overrides.working_directory,
             .title = overrides.title,
         });
@@ -427,6 +429,7 @@ pub const Window = extern struct {
         parent_: ?*CoreSurface,
         overrides: struct {
             command: ?configpkg.Command = null,
+            shell_integration: ?configpkg.Config.ShellIntegration = null,
             working_directory: ?[:0]const u8 = null,
             title: ?[:0]const u8 = null,
 
@@ -438,6 +441,7 @@ pub const Window = extern struct {
             .window,
             .{
                 .command = overrides.command,
+                .shell_integration = overrides.shell_integration,
                 .working_directory = overrides.working_directory,
                 .title = overrides.title,
             },
@@ -450,6 +454,7 @@ pub const Window = extern struct {
         context: apprt.surface.NewSurfaceContext,
         overrides: struct {
             command: ?configpkg.Command = null,
+            shell_integration: ?configpkg.Config.ShellIntegration = null,
             working_directory: ?[:0]const u8 = null,
             title: ?[:0]const u8 = null,
 
@@ -464,6 +469,7 @@ pub const Window = extern struct {
             priv.config,
             .{
                 .command = overrides.command,
+                .shell_integration = overrides.shell_integration,
                 .working_directory = overrides.working_directory,
                 .title = overrides.title,
             },

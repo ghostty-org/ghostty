@@ -189,6 +189,7 @@ pub const Tab = extern struct {
 
     pub fn new(config: ?*Config, overrides: struct {
         command: ?configpkg.Command = null,
+        shell_integration: ?configpkg.Config.ShellIntegration = null,
         working_directory: ?[:0]const u8 = null,
         title: ?[:0]const u8 = null,
 
@@ -212,6 +213,7 @@ pub const Tab = extern struct {
         // Create our initial surface in the split tree.
         priv.split_tree.newSplit(.right, null, .{
             .command = overrides.command,
+            .shell_integration = overrides.shell_integration,
             .working_directory = overrides.working_directory,
             .title = overrides.title,
         }) catch |err| switch (err) {
