@@ -26,7 +26,7 @@ msgstr "Mở Ghostty"
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
 msgid "Authorize Clipboard Access"
-msgstr "Cho phép Truy cập Bảng tạm"
+msgstr "Cho phép truy cập Bảng tạm"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:17
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:17
@@ -40,7 +40,7 @@ msgstr "Cho phép"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
 msgid "Remember choice for this split"
-msgstr "Ghi nhớ lựa chọn cho chia màn hình này"
+msgstr "Ghi nhớ lựa chọn cho phần chia màn hình này"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
 msgid "Reload configuration to show this prompt again"
@@ -97,7 +97,7 @@ msgstr "Tìm kiếm…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:69
 msgid "Previous Match"
-msgstr "Kết quả trước"
+msgstr "Kết quả trước đó"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:79
 msgid "Next Match"
@@ -109,7 +109,7 @@ msgstr "Ôi hỏng rồi."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:8
 msgid "Unable to acquire an OpenGL context for rendering."
-msgstr "Không thể lấy ngữ cảnh OpenGL để kết xuất đồ họa."
+msgstr "Không thể lấy ngữ cảnh OpenGL để hiển thị."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:101
 msgid ""
@@ -264,7 +264,7 @@ msgstr "Thoát"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:17
 msgid "Execute a command…"
-msgstr "Chạy một lệnh…"
+msgstr "Thực thi lệnh…"
 
 #: src/apprt/gtk/class/application.zig:1767
 msgid "The keybind was revoked by the system."
@@ -280,7 +280,7 @@ msgstr "Tổ hợp phím toàn cục không khả dụng"
 
 #: src/apprt/gtk/class/application.zig:2259
 msgid "Export Terminal IO Events"
-msgstr "Xuất sự kiện vào/ra (I/O) của Terminal"
+msgstr "Xuất các sự kiện I/O của terminal"
 
 #: src/apprt/gtk/class/application.zig:2262
 msgid "Export"
@@ -357,12 +357,12 @@ msgstr "Lệnh đã kết thúc"
 #: src/apprt/gtk/class/surface.zig:1182
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
-msgstr "Lệnh thành công"
+msgstr "Lệnh đã thực thi thành công"
 
 #: src/apprt/gtk/class/surface.zig:1183
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
-msgstr "Lệnh thất bại"
+msgstr "Lệnh thực thi thất bại"
 
 #: src/apprt/gtk/class/title_dialog.zig:227
 msgid "Change Terminal Title"
@@ -476,7 +476,7 @@ msgstr "Bắt đầu tìm kiếm"
 
 #: src/input/command.zig:198
 msgid "Start a search if one isn't already active."
-msgstr "Bắt đầu tìm kiếm nếu chưa có trình tìm kiếm nào đang hoạt động."
+msgstr "Bắt đầu tìm kiếm nếu chưa có tìm kiếm nào đang hoạt động."
 
 #: src/input/command.zig:203
 msgid "Search Selection"
@@ -929,7 +929,7 @@ msgstr "Bật/Tắt chế độ chỉ đọc"
 
 #: src/input/command.zig:552
 msgid "Toggle read-only mode for the current surface."
-msgstr "Bật hoặc tắt chế độ chỉ đọc cho bề mặt terminal hiện tại."
+msgstr "Bật hoặc tắt chế độ chỉ đọc cho terminal hiện tại."
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
@@ -973,7 +973,7 @@ msgstr "Hiển thị bàn phím ảo trên màn hình nếu hỗ trợ."
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
-msgstr "Mở tệp cấu hình bằng trình chỉnh sửa của OS"
+msgstr "Mở tệp cấu hình bằng trình chỉnh sửa của hệ điều hành"
 
 #: src/input/command.zig:589
 msgid "Open the config file with the OS's default editor."
@@ -1041,7 +1041,7 @@ msgstr "Bật/Tắt phóng to cửa sổ"
 
 #: src/input/command.zig:643
 msgid "Toggle the maximized state of the current window."
-msgstr "Bật hoặc tắt trạng thái phóng to của cửa sổ hiện tại."
+msgstr "Bật hoặc tắt chế độ phóng to của cửa sổ hiện tại."
 
 #: src/input/command.zig:648
 msgid "Toggle Fullscreen"
@@ -1065,7 +1065,7 @@ msgstr "Bật/Tắt ghim trên cùng"
 
 #: src/input/command.zig:661
 msgid "Toggle the float on top state of the current window."
-msgstr "Bật hoặc tắt trạng thái luôn hiển thị trên cùng của cửa sổ."
+msgstr "Bật hoặc tắt chế độ luôn hiển thị trên cùng của cửa sổ."
 
 #: src/input/command.zig:666
 msgid "Toggle Secure Input"
@@ -1125,4 +1125,4 @@ msgstr "Ghostty"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."
-msgstr "Mang chú ma Ghostty vào terminal của bạn."
+msgstr "Mang một chút Ghostty vào terminal của bạn."
