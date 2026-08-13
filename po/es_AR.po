@@ -478,7 +478,7 @@ msgstr "Iniciar búsqueda"
 
 #: src/input/command.zig:198
 msgid "Start a search if one isn't already active."
-msgstr "Inicia una búsqueda si todavía no hay una activa."
+msgstr "Inicia una búsqueda, si no hay otra activa."
 
 #: src/input/command.zig:203
 msgid "Search Selection"
@@ -986,7 +986,7 @@ msgstr "Mostrar teclado en pantalla"
 
 #: src/input/command.zig:582
 msgid "Show the on-screen keyboard if present."
-msgstr "Muestra el teclado en pantalla si está presente."
+msgstr "Muestra el teclado en pantalla, si está presente."
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
