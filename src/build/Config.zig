@@ -106,6 +106,17 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
             result = b.resolveTargetQuery(query);
         }
 
+        // The full Ghostty build no longer supports iOS; Fail early
+        // with a clear message rather than partway through the build.
+        if (result.result.os.tag == .ios and !emit_lib_vt) {
+            std.log.err(
+                "iOS is not a supported target for the full Ghostty build; " ++
+                    "only libghostty-vt supports iOS (-Demit-lib-vt)",
+                .{},
+            );
+            return error.UnsupportedTarget;
+        }
+
         // If we have no minimum OS version, we set the default based on
         // our tag. Not all tags have a minimum so this may be null.
         if (result.query.os_version_min == null) {
@@ -731,13 +742,6 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
             .patch = 0,
         } },
 
-        // The full Ghostty path compiles metal shaders that require iOS 14.
-        .ios => .{ .semver = .{
-            .major = 14,
-            .minor = 0,
-            .patch = 0,
-        } },
-
         // This should never happen currently. If we add a new target then
         // we should add a new case here.
         else => null,
@@ -748,7 +752,8 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
 ///
 /// This should only be used for Darwin targets.
 pub fn osVersionMinLibVt(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
-    // lib-vt has no newer deployment target requirement.
+    // lib-vt is the only thing we still build for iOS, so its deployment
+    // target lives here rather than in osVersionMin.
     if (tag == .ios) return .{ .semver = .{ .major = 13, .minor = 0, .patch = 0 } };
     return osVersionMin(tag);
 }

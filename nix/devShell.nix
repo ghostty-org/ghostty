@@ -222,8 +222,7 @@ in
       '')
       + (lib.optionalString stdenv.hostPlatform.isDarwin ''
         # On macOS, we unset the macOS SDK env vars that Nix sets up because
-        # we rely on a system installation. Nix only provides a macOS SDK
-        # and we need iOS too.
+        # we rely on a system installation. Nix only provides a macOS SDK.
         unset SDKROOT
         unset DEVELOPER_DIR
 

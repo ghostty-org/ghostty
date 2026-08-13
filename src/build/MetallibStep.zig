@@ -24,20 +24,10 @@ output: LazyPath,
 pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
     const sdk = switch (opts.target.result.os.tag) {
         .macos => "macosx",
-        .ios => switch (opts.target.result.abi) {
-            // The iOS simulator uses the same SDK for Metal as the device,
-            // but the minimum version tag causes different behaviors.
-            .simulator => "iphoneos",
-            else => "iphoneos",
-        },
         else => return null,
     };
     const platform_version_arg = switch (opts.target.result.os.tag) {
         .macos => "-mmacos-version-min",
-        .ios => switch (opts.target.result.abi) {
-            .simulator => "-mios-simulator-version-min",
-            else => "-mios-version-min",
-        },
         else => null,
     };
 
@@ -47,7 +37,6 @@ pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
         b.fmt("{f}", .{v.semver})
     else switch (opts.target.result.os.tag) {
         .macos => "10.14",
-        .ios => "11.0",
         else => unreachable,
     };
 

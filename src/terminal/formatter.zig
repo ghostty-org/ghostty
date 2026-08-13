@@ -460,6 +460,9 @@ pub const TerminalFormatter = struct {
                 }
             }
 
+            // Screen contents are formatted relative to the top-left.
+            try writer.writeAll("\x1b[H");
+
             // If we have a pin_map, add the bytes we wrote to map.
             if (self.pin_map) |*m| {
                 var discarding: std.Io.Writer.Discarding = .init(&.{});
@@ -5617,7 +5620,7 @@ test "Terminal vt with tabstops" {
     s.nextSlice("\x1b[5G\x1bH"); // Set tab at column 5
     s.nextSlice("\x1b[15G\x1bH"); // Set tab at column 15
     s.nextSlice("\x1b[30G\x1bH"); // Set tab at column 30
-    s.nextSlice("hello");
+    s.nextSlice("\x1b[Hhello");
 
     var pin_map: PinMap.Map = .empty;
     defer pin_map.deinit(alloc);
@@ -5650,6 +5653,14 @@ test "Terminal vt with tabstops" {
     try testing.expect(t2.tabstops.get(14)); // Column 15 (1-indexed)
     try testing.expect(t2.tabstops.get(29)); // Column 30 (1-indexed)
     try testing.expect(!t2.tabstops.get(8)); // Not a tab
+
+    // Tabstop serialization must not offset the screen contents.
+    for ("hello", 0..) |expected, col| {
+        const cell = t2.screens.active.pages.getCell(.{
+            .screen = .{ .x = @intCast(col), .y = 0 },
+        }).?;
+        try testing.expectEqual(expected, cell.cell.codepoint());
+    }
 
     // Emitting tabstops moves the cursor to each configured column. When
     // cursor state is included, it must be restored afterwards.

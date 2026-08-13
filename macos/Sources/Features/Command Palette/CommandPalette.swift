@@ -90,7 +90,7 @@ struct CommandPaletteView: View {
     }
 
     var body: some View {
-        let scheme: ColorScheme = if OSColor(backgroundColor).isLightColor {
+        let scheme: ColorScheme = if NSColor(backgroundColor).isLightColor {
             .light
         } else {
             .dark

@@ -1164,14 +1164,6 @@ jobs:
             COMPILATION_CACHE_CAS_PATH=/Users/runner/Library/Developer/Xcode/DerivedData/CompilationCache.noindex \
             COMPILATION_CACHE_KEEP_CAS_DIRECTORY=YES
 
-      # Build the iOS target without code signing just to verify it works.
-      - name: Build Ghostty iOS
-        run: |
-          cd macos
-          xcodebuild -target Ghostty-iOS "CODE_SIGNING_ALLOWED=NO" \
-            COMPILATION_CACHE_CAS_PATH=/Users/runner/Library/Developer/Xcode/DerivedData/CompilationCache.noindex \
-            COMPILATION_CACHE_KEEP_CAS_DIRECTORY=YES
-
   build-macos-xcode-27:
     runs-on: namespace-profile-ghostty-macos-tahoe
     needs: test
