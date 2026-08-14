@@ -690,17 +690,27 @@ extension Ghostty {
 
             // A click with the broadcast-group-click-mods modifiers held
             // toggles broadcast group membership, which the core detects
-            // in its mouse handling. It must bypass the focus-transfer
-            // consumption below so the core sees the press even when this
-            // surface wasn't focused. When the app isn't active the click
-            // is an ordinary activation click, so it continues as normal.
+            // in its mouse handling. Send the press to the core directly
+            // and consume the event: if it dispatched normally, AppKit
+            // would make this view first responder before delivering
+            // mouseDown, and that focus reaches the core synchronously,
+            // so the toggle would see the clicked surface as the focused
+            // surface and start a new group instead of joining the
+            // focused surface's group. Focus is transferred explicitly
+            // after the toggle instead. The real mouse-up still arrives
+            // and the core swallows the unpaired release itself. When
+            // the app isn't active the click is an ordinary activation
+            // click, so it continues as normal.
             if NSApp.isActive,
+               let surface = self.surface,
                let clickMods = derivedConfig.broadcastGroupClickMods,
                event.modifierFlags.intersection([.shift, .control, .option, .command]) == clickMods {
+                let mods = Ghostty.ghosttyMods(event.modifierFlags)
+                ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
                 if window.firstResponder !== self {
                     window.makeFirstResponder(self)
                 }
-                return event
+                return nil
             }
 
             // If we're already the first responder then no focus transfer is
