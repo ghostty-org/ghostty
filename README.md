@@ -11,6 +11,8 @@
     <br />
     <a href="#about">About</a>
     ·
+    <a href="#side-tabs-this-fork">Side tabs</a>
+    ·
     <a href="https://ghostty.org/download">Download</a>
     ·
     <a href="https://ghostty.org/docs">Documentation</a>
@@ -37,6 +39,31 @@ example or the [`examples` directory](https://github.com/ghostty-org/ghostty/tre
 for smaller examples of using `libghostty` in C and Zig.
 
 For more details, see [About Ghostty](https://ghostty.org/docs/about).
+
+## Side tabs (this fork)
+
+This fork can put macOS tabs in a sidebar on the left or right instead of
+along the top.
+
+Add this to `~/.config/ghostty/config`:
+
+```
+macos-titlebar-style = tabs
+macos-tabs-location = left
+```
+
+Use `right` for the other side, or `top` for the normal titlebar tabs.
+Changing `macos-tabs-location` in the config only applies to new windows.
+
+To cycle the current window through top / left / right without restarting,
+bind the action (there is no default hotkey):
+
+```
+keybind = ctrl+shift+e=toggle_tabs_location
+```
+
+Pick any chord you like. The same action shows up in the command palette as
+**Cycle Tabs Location**.
 
 ## Download
 
