@@ -571,13 +571,23 @@ pub const MoveTab = extern struct {
 };
 
 /// A surface's current broadcast input group membership.
-pub const BroadcastGroup = extern struct {
-    /// True when the surface is a member of a group.
-    member: bool,
+pub const BroadcastGroup = struct {
+    /// The group's color index into `broadcast-group-colors`, or null
+    /// if the surface is not in a group.
+    color: ?u8,
 
-    /// The group's color index into `broadcast-group-colors`. Only
-    /// meaningful when member is true.
-    color: u8,
+    // Sync with: ghostty_action_broadcast_group_s
+    pub const C = extern struct {
+        member: bool,
+        color: u8,
+    };
+
+    pub fn cval(self: BroadcastGroup) C {
+        return .{
+            .member = self.color != null,
+            .color = self.color orelse 0,
+        };
+    }
 };
 
 /// The tab to jump to. This is non-exhaustive so that integer values represent

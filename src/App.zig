@@ -591,12 +591,12 @@ pub fn toggleBroadcastGroup(
 /// The lowest group number without any member surface, or null if all
 /// group numbers are taken.
 fn lowestUnusedBroadcastGroup(self: *const App) ?u8 {
-    var used = [_]bool{false} ** max_broadcast_groups;
+    var used: std.StaticBitSet(max_broadcast_groups) = .initEmpty();
     for (self.surfaces.items) |rt_surface| {
-        if (rt_surface.core().broadcast_group) |group| used[group] = true;
+        if (rt_surface.core().broadcast_group) |group| used.set(group);
     }
-    for (used, 0..) |v, i| if (!v) return @intCast(i);
-    return null;
+    const unused = used.complement().findFirstSet() orelse return null;
+    return @intCast(unused);
 }
 
 /// Toggle the given surface's membership in the broadcast group with
@@ -647,10 +647,7 @@ fn syncBroadcastGroup(rt_app: *apprt.App, surface: *Surface) void {
     _ = rt_app.performAction(
         .{ .surface = surface },
         .broadcast_group,
-        .{
-            .member = surface.broadcast_group != null,
-            .color = surface.broadcast_group orelse 0,
-        },
+        .{ .color = surface.broadcast_group },
     ) catch |err| {
         log.warn("error notifying apprt of broadcast group err={}", .{err});
     };

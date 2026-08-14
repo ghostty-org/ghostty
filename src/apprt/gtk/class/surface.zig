@@ -1491,7 +1491,7 @@ pub const Surface = extern struct {
         value: apprt.action.BroadcastGroup,
     ) void {
         const priv = self.private();
-        const color: ?u8 = if (value.member) value.color else null;
+        const color = value.color;
 
         // The border color comes from a broadcast-color-N CSS class
         // that the application generates from broadcast-group-colors,
@@ -2900,26 +2900,19 @@ pub const Surface = extern struct {
         // Report the event
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
 
-        // Clicking with the broadcast-group-click-mods modifiers held
-        // toggles this surface's broadcast group membership. Consume the
-        // event entirely so it is never forwarded to the terminal. The
-        // configured modifiers must match exactly so that other modified
-        // clicks the core assigns meaning to (e.g. shift+click extends
-        // selection, ctrl+click opens links) are never shadowed by a
-        // superset combination.
-        if (button == .left) broadcast: {
-            const config = priv.config orelse break :broadcast;
-            const click_mods = config.get().@"broadcast-group-click-mods";
-            const mods = gtk_key.translateMods(event.getModifierState());
-            if (!click_mods.match(mods)) break :broadcast;
-            core_surface.toggleBroadcastGroup();
-            priv.suppress_left_mouse_release = true;
-            return;
-        }
-
         // If this click is only transitioning split focus, suppress it so
-        // it doesn't get forwarded to the terminal as a mouse event.
-        if (!had_focus and button == .left) {
+        // it doesn't get forwarded to the terminal as a mouse event. A
+        // click with the broadcast-group-click-mods modifiers held is
+        // exempt: the core detects those in its mouse handling to toggle
+        // broadcast group membership, so it must see the press even when
+        // the surface wasn't focused.
+        if (!had_focus and button == .left) broadcast: {
+            if (priv.config) |config| {
+                const click_mods = config.get().@"broadcast-group-click-mods";
+                const mods = gtk_key.translateMods(event.getModifierState());
+                if (click_mods.match(mods)) break :broadcast;
+            }
+
             priv.suppress_left_mouse_release = true;
             return;
         }

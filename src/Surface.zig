@@ -251,6 +251,11 @@ const Mouse = struct {
     /// True if the mouse is hidden
     hidden: bool = false,
 
+    /// True if the last left press toggled broadcast group membership,
+    /// so the matching release is swallowed instead of reaching the
+    /// terminal (which never saw the press).
+    broadcast_click: bool = false,
+
     /// True if the mouse position is currently over a link.
     over_link: bool = false,
 
@@ -313,6 +318,7 @@ const DerivedConfig = struct {
     copy_on_select: configpkg.CopyOnSelect,
     right_click_action: configpkg.RightClickAction,
     middle_click_action: configpkg.MiddleClickAction,
+    broadcast_group_click_mods: configpkg.Config.BroadcastGroupClickMods,
     confirm_close_surface: configpkg.ConfirmCloseSurface,
     cursor_click_to_move: bool,
     desktop_notifications: bool,
@@ -393,6 +399,7 @@ const DerivedConfig = struct {
             .copy_on_select = config.@"copy-on-select",
             .right_click_action = config.@"right-click-action",
             .middle_click_action = config.@"middle-click-action",
+            .broadcast_group_click_mods = config.@"broadcast-group-click-mods",
             .confirm_close_surface = config.@"confirm-close-surface",
             .cursor_click_to_move = config.@"cursor-click-to-move",
             .desktop_notifications = config.@"desktop-notifications",
@@ -3403,15 +3410,6 @@ pub fn textCallbackLocal(self: *Surface, text: []const u8) !void {
     try self.completeClipboardPaste(text, true);
 }
 
-/// Toggle this surface's broadcast input group membership using the
-/// click semantics: leave the current group, else join the focused
-/// surface's group, else start a new group. Apprts call this when the
-/// surface is clicked with the `broadcast-group-click-mods` modifiers
-/// held.
-pub fn toggleBroadcastGroup(self: *Surface) void {
-    self.app.toggleBroadcastGroup(self.rt_app, self);
-}
-
 /// Callback for when the surface is fully visible or not, regardless
 /// of focus state. This is used to pause rendering when the surface
 /// is not visible, and also re-render when it becomes visible again.
@@ -3921,6 +3919,28 @@ pub fn mouseButtonCallback(
 
     // Update our modifiers if they changed
     self.modsChanged(mods);
+
+    // Left-clicking with the broadcast-group-click-mods modifiers held
+    // toggles this surface's broadcast group membership. The click is
+    // consumed entirely: the press toggles and the matching release is
+    // swallowed so the terminal never sees an unpaired release. The
+    // configured modifiers must match exactly so that other modified
+    // clicks the terminal or Ghostty assigns meaning to are never
+    // shadowed by a superset combination.
+    if (button == .left) {
+        switch (action) {
+            .press => if (self.config.broadcast_group_click_mods.match(mods)) {
+                self.mouse.broadcast_click = true;
+                self.app.toggleBroadcastGroup(self.rt_app, self);
+                return true;
+            },
+
+            .release => if (self.mouse.broadcast_click) {
+                self.mouse.broadcast_click = false;
+                return true;
+            },
+        }
+    }
 
     // This is set to true if the terminal is allowed to capture the shift
     // modifier. Note we can do this more efficiently probably with less

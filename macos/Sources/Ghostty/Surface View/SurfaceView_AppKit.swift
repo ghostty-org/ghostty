@@ -688,24 +688,19 @@ extension Ghostty {
             // unless we see the specific scenario below to set it.
             suppressNextLeftMouseUp = false
 
-            // Clicking with the broadcast-group-click-mods modifiers held
-            // toggles this surface's broadcast group membership. Consume the
-            // event entirely so it is never forwarded to the terminal. The
-            // configured modifiers must match exactly so that other modified
-            // clicks (shift+click extends selection, cmd+click opens links,
-            // ctrl+click is the context menu) are never shadowed by a
-            // superset combination. When the app isn't active the click is
-            // an ordinary activation click, so let it continue as normal.
+            // A click with the broadcast-group-click-mods modifiers held
+            // toggles broadcast group membership, which the core detects
+            // in its mouse handling. It must bypass the focus-transfer
+            // consumption below so the core sees the press even when this
+            // surface wasn't focused. When the app isn't active the click
+            // is an ordinary activation click, so it continues as normal.
             if NSApp.isActive,
-               let surface = self.surface,
                let clickMods = derivedConfig.broadcastGroupClickMods,
                event.modifierFlags.intersection([.shift, .control, .option, .command]) == clickMods {
-                ghostty_surface_toggle_broadcast_group(surface)
                 if window.firstResponder !== self {
                     window.makeFirstResponder(self)
                 }
-                suppressNextLeftMouseUp = true
-                return nil
+                return event
             }
 
             // If we're already the first responder then no focus transfer is

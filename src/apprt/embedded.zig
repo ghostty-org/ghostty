@@ -1995,15 +1995,6 @@ pub const CAPI = struct {
         };
     }
 
-    /// Toggle the surface's broadcast input group membership using the
-    /// click semantics: leave the current group, else join the focused
-    /// surface's group, else start a new group. Apprts call this when
-    /// the surface is clicked with the broadcast-group-click-mods
-    /// modifiers held.
-    export fn ghostty_surface_toggle_broadcast_group(ptr: *Surface) void {
-        ptr.core_surface.toggleBroadcastGroup();
-    }
-
     /// Complete a clipboard read request started via the read callback.
     /// This can only be called once for a given request. Once it is called
     /// with a request the request pointer will be invalidated.

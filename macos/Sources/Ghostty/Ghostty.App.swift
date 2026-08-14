@@ -1155,10 +1155,10 @@ extension Ghostty {
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
 
-                    return MainActor.assumeIsolated {
+                    Task { @MainActor in
                         surfaceView.broadcastGroupColor = broadcastGroupColor(v)
-                        return true
                     }
+                    return true
 
                 default:
                     assertionFailure()
