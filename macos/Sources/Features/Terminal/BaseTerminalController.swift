@@ -62,6 +62,14 @@ class BaseTerminalController: NSWindowController,
     /// True when any surface in this controller currently has an active bell.
     @Published private(set) var bell: Bool = false
 
+    /// The model for the tab sidebar. Only terminals that can show tabs in a
+    /// sidebar have one; see ``TerminalController``.
+    var sideTabs: SideTabsViewModel? { nil }
+
+    /// Where the tabs of this terminal are shown. Only terminals with a sidebar
+    /// can show them anywhere but the top.
+    var tabsLocation: Ghostty.Config.MacOSTabsLocation { .top }
+
     /// Whether the terminal surface should focus when the mouse is over it.
     var focusFollowsMouse: Bool {
         self.derivedConfig.focusFollowsMouse

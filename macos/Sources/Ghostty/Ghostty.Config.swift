@@ -358,6 +358,16 @@ extension Ghostty {
             return MacOSTitlebarStyle(rawValue: String(cString: ptr)) ?? defaultValue
         }
 
+        var macosTabsLocation: MacOSTabsLocation {
+            let defaultValue = MacOSTabsLocation.top
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>?
+            let key = "macos-tabs-location"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            return MacOSTabsLocation(rawValue: String(cString: ptr)) ?? defaultValue
+        }
+
         var macosTitlebarProxyIcon: MacOSTitlebarProxyIcon {
             let defaultValue = MacOSTitlebarProxyIcon.visible
             guard let config = self.config else { return defaultValue }
@@ -910,6 +920,20 @@ extension Ghostty.Config {
     enum MacOSTitlebarStyle: String {
         static let `default` = MacOSTitlebarStyle.transparent
         case native, transparent, tabs, hidden
+    }
+
+    enum MacOSTabsLocation: String {
+        case top, left, right
+
+        /// The next location when cycling through the locations, used by the
+        /// `toggle_tabs_location` keybind action.
+        var next: MacOSTabsLocation {
+            switch self {
+            case .top: .left
+            case .left: .right
+            case .right: .top
+            }
+        }
     }
 
     enum DragHandle: String {

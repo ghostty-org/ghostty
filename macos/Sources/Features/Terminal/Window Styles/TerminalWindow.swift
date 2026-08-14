@@ -247,7 +247,13 @@ class TerminalWindow: NSWindow {
         // It takes an event loop cycle to merge all the windows so we set a
         // short timer to relabel the tabs (issue #1902)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.terminalController?.relabelTabs()
+            guard let controller = self?.terminalController else { return }
+
+            // The merged windows may show their tabs somewhere else. Unlike a tab
+            // dragged into a window, a merge has an obvious winner: everything was
+            // merged into this window, so it keeps its own tab location.
+            controller.normalizeTabsLocation(preferring: controller.tabsLocation)
+            controller.relabelTabs()
         }
     }
 
@@ -307,24 +313,86 @@ class TerminalWindow: NSWindow {
         return childViewController.identifier == Self.tabBarIdentifier
     }
 
-    private func tabBarDidAppear() {
-        // Remove our reset zoom accessory. For some reason having a SwiftUI
-        // titlebar accessory causes our content view scaling to be wrong.
-        // Removing it fixes it, we just need to remember to add it again later.
-        if let idx = titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory) {
-            removeTitlebarAccessoryViewController(at: idx)
+    /// The accessory that AppKit shows the native tab bar in, if it is currently
+    /// attached to this window.
+    private var tabBarAccessory: NSTitlebarAccessoryViewController? {
+        titlebarAccessoryViewControllers.first { $0.identifier == Self.tabBarIdentifier }
+    }
+
+    /// Show or hide the native tab bar depending on where this window shows its
+    /// tabs: a tab sidebar replaces the tab bar, so the tab bar is hidden while
+    /// one is showing.
+    ///
+    /// `toggleTabBar(_:)` can't be used for this. AppKit refuses to hide the tab
+    /// bar while a window has more than one tab, so the action does nothing (and
+    /// `validateMenuItem(_:)` returns false for it). Hiding the accessory instead
+    /// gives the content the full height of the window and, unlike removing the
+    /// accessory, can be undone.
+    ///
+    /// AppKit re-adds the accessory as tabs come and go, so this is called
+    /// whenever we see the tab bar appear.
+    func syncNativeTabBarVisibility() {
+        if let tabBarAccessory {
+            let hidden = (terminalController?.tabsLocation ?? .top) != .top
+            if tabBarAccessory.isHidden != hidden {
+                tabBarAccessory.isHidden = hidden
+            }
         }
+
+        // Hiding the tab bar takes the reset zoom button it hosts off screen with
+        // it, so we need our own again.
+        syncResetZoomAccessory(tabBarIsShowing: nativeTabBarIsShowing)
+    }
+
+    /// Whether the native tab bar is currently on screen.
+    ///
+    /// The accessory is what we have to ask when we have one: the tab bar views
+    /// stay in the window's view hierarchy while we keep the accessory hidden for
+    /// a tab sidebar, and they don't report themselves as hidden either.
+    private var nativeTabBarIsShowing: Bool {
+        // Searching the view hierarchy covers a tab bar we failed to recognize
+        // when it was added, which is also why `becomeMain()` checks again.
+        guard let tabBarAccessory else { return tabBarView != nil }
+        return !tabBarAccessory.isHidden
+    }
+
+    /// Attach or remove our reset zoom accessory so that exactly one reset zoom
+    /// affordance is on screen: the tab bar hosts its own, so ours is only wanted
+    /// while the tab bar isn't showing.
+    ///
+    /// A hidden tab bar counts as not showing. Side tabs hide the tab bar accessory
+    /// rather than removing it, so `tabBarDidDisappear()` never runs for them and
+    /// this is what keeps our accessory attached.
+    ///
+    /// Whether the tab bar is showing is passed in because this also runs while the
+    /// tab bar is on its way out and still attached.
+    private func syncResetZoomAccessory(tabBarIsShowing: Bool) {
+        // `awakeFromNib` only configures the accessory for titled windows, since
+        // AppKit asserts on titlebar accessories without a title.
+        let index = titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory)
+        if styleMask.contains(.titled) && !tabBarIsShowing {
+            guard index == nil else { return }
+            addTitlebarAccessoryViewController(resetZoomAccessory)
+        } else if let index {
+            // For some reason having a SwiftUI titlebar accessory alongside the
+            // tab bar causes our content view scaling to be wrong. Removing it
+            // fixes it, we just need to remember to add it again later.
+            removeTitlebarAccessoryViewController(at: index)
+        }
+    }
+
+    private func tabBarDidAppear() {
+        // A tab sidebar replaces the tab bar, so it may need to be hidden again:
+        // AppKit re-adds the accessory as tabs come and go. This also updates our
+        // reset zoom accessory.
+        syncNativeTabBarVisibility()
 
         // We don't need to do this with the update accessory. I don't know why but
         // everything works fine.
     }
 
     private func tabBarDidDisappear() {
-        if styleMask.contains(.titled) {
-            if titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory) == nil {
-                addTitlebarAccessoryViewController(resetZoomAccessory)
-            }
-        }
+        syncResetZoomAccessory(tabBarIsShowing: false)
     }
 
     // MARK: Tab Key Equivalents
@@ -608,15 +676,9 @@ class TerminalWindow: NSWindow {
             self.backgroundBlur = config.backgroundBlur
             self.macosTitlebarStyle = config.macosTitlebarStyle
 
-            // Set corner radius based on macos-titlebar-style
-            // Native, transparent, and hidden styles use 16pt radius
-            // Tabs style uses 20pt radius
-            switch config.macosTitlebarStyle {
-            case .tabs:
-                self.windowCornerRadius = 20
-            default:
-                self.windowCornerRadius = 16
-            }
+            // Only titlebar tabs use the wider corner radius.
+            self.windowCornerRadius = config.macosTitlebarStyle == .tabs &&
+                config.macosTabsLocation == .top ? 20 : 16
         }
     }
 }
@@ -804,7 +866,11 @@ extension TerminalWindow: TabTitleEditorDelegate {
         _ editor: TabTitleEditor,
         canRenameTabFor targetWindow: NSWindow
     ) -> Bool {
-        targetWindow.windowController is BaseTerminalController
+        // Inline editing happens in the tab bar, so there is nothing to edit in
+        // while it is hidden because a tab sidebar replaced it. Callers fall back
+        // to a rename prompt.
+        guard nativeTabBarIsShowing else { return false }
+        return targetWindow.windowController is BaseTerminalController
     }
 
     func tabTitleEditor(

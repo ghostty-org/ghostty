@@ -106,6 +106,21 @@ struct ConfigTests {
         #expect(config.macosTitlebarStyle == expected)
     }
 
+    @Test func macosTabsLocationDefaultsToTop() throws {
+        let config = try TemporaryConfig("")
+        #expect(config.macosTabsLocation == .top)
+    }
+
+    @Test(arguments: [
+        ("top", Ghostty.Config.MacOSTabsLocation.top),
+        ("left", Ghostty.Config.MacOSTabsLocation.left),
+        ("right", Ghostty.Config.MacOSTabsLocation.right),
+    ])
+    func macosTabsLocationValues(raw: String, expected: Ghostty.Config.MacOSTabsLocation) throws {
+        let config = try TemporaryConfig("macos-tabs-location = \(raw)")
+        #expect(config.macosTabsLocation == expected)
+    }
+
     @Test func resizeOverlayDefaultsToAfterFirst() throws {
         let config = try TemporaryConfig("")
         #expect(config.resizeOverlay == .after_first)

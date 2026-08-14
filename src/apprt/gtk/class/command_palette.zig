@@ -216,6 +216,7 @@ pub const CommandPalette = extern struct {
             .undo,
             .reset_window_size,
             .toggle_window_float_on_top,
+            .toggle_tabs_location,
             => false,
 
             else => true,

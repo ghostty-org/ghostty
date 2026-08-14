@@ -23,15 +23,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         case .hidden: "TerminalHiddenTitlebar"
         case .transparent: "TerminalTransparentTitlebar"
         case .tabs:
-#if compiler(>=6.2)
-            if #available(macOS 26.0, *) {
-                "TerminalTabsTitlebarTahoe"
+            if config.macosTabsLocation != .top {
+                "TerminalTransparentTitlebar"
             } else {
-                "TerminalTabsTitlebarVentura"
-            }
+#if compiler(>=6.2)
+                if #available(macOS 26.0, *) {
+                    "TerminalTabsTitlebarTahoe"
+                } else {
+                    "TerminalTabsTitlebarVentura"
+                }
 #else
-            "TerminalTabsTitlebarVentura"
+                "TerminalTabsTitlebarVentura"
 #endif
+            }
         }
 
         return nib
@@ -58,6 +62,39 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig
 
+    /// Whether this window can show its tabs in a sidebar. Windows that draw
+    /// their tabs into the titlebar can't, because we'd have to replace the
+    /// titlebar and that is fixed once the window is created.
+    private let supportsSideTabs: Bool
+
+    /// Backing store for ``tabsLocation``. This is stored here rather than on
+    /// the base class because `windowDidLoad` runs while `super.init` is still
+    /// executing and needs the location to size the window.
+    private var tabsLocationValue: Ghostty.Config.MacOSTabsLocation {
+        willSet {
+            guard newValue != tabsLocationValue else { return }
+
+            // The location is read by our SwiftUI view but we can't use
+            // @Published here since this isn't the class that declares our
+            // ObservableObject conformance.
+            objectWillChange.send()
+        }
+    }
+
+    override var tabsLocation: Ghostty.Config.MacOSTabsLocation { tabsLocationValue }
+
+    /// This is lazy because the model needs `self`, but `sideTabs` may be read
+    /// by our SwiftUI content while `super.init` is still running.
+    private lazy var sideTabsModel: SideTabsViewModel? =
+        supportsSideTabs ? SideTabsViewModel(controller: self) : nil
+
+    override var sideTabs: SideTabsViewModel? { sideTabsModel }
+
+    /// The width of the window's content that the tab sidebar takes up.
+    var sideTabsContentWidth: CGFloat {
+        tabsLocation == .top ? 0 : SideTabsView.totalWidth
+    }
+
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
@@ -72,6 +109,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // as the script. We may want to revisit this behavior when we have scrollback
         // restoration.
         self.restorable = (base?.command ?? "") == ""
+
+        // Titlebar tabs draw the tabs into a custom titlebar that we can't
+        // swap out later, so those windows never get a sidebar. This must match
+        // the nib selection in `windowNibName`.
+        let config = ghostty.config
+        let supportsSideTabs = !(config.windowDecorations &&
+            config.macosTitlebarStyle == .tabs &&
+            config.macosTabsLocation == .top)
+        self.supportsSideTabs = supportsSideTabs
+        self.tabsLocationValue = supportsSideTabs ? config.macosTabsLocation : .top
 
         // Setup our initial derived config based on the current app config
         self.derivedConfig = DerivedConfig(ghostty.config)
@@ -358,7 +405,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             if let window = c.window {
                 // If we have a tree size, resize the window's content to match
                 if let treeSize, treeSize.width > 0, treeSize.height > 0 {
-                    window.setContentSize(treeSize)
+                    // The tree size is only the terminal content, so the window
+                    // also has to fit the tab sidebar.
+                    var contentSize = treeSize
+                    contentSize.width += c.sideTabsContentWidth
+                    window.setContentSize(contentSize)
                     window.constrainToScreen()
                 }
 
@@ -433,6 +484,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Create a new window and add it to the parent
         let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig)
         controller.isBackgroundOpaque = parentController.isBackgroundOpaque
+        controller.adoptTabsLocation(from: parentController)
         guard let window = controller.window else { return controller }
 
         // If the parent is miniaturized, then macOS exhibits really strange behaviors
@@ -559,6 +611,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// changes, when a window is closed, and when tabs are reordered
     /// with the mouse.
     func relabelTabs() {
+        // Tabs can arrive from another window, which is also a tab group change,
+        // so this is where we notice that the group no longer agrees on where its
+        // tabs go.
+        normalizeTabsLocation()
+
         // We only listen for frame changes if we have more than 1 window,
         // otherwise the accessory view doesn't matter.
         tabListenForFrame = window?.tabbedWindows?.count ?? 0 > 1
@@ -579,6 +636,161 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             }
         }
+
+        sideTabs?.refresh()
+    }
+
+    /// Move this window's tabs to the next location, cycling through the values
+    /// of `macos-tabs-location`. Returns false if this window can't move its
+    /// tabs, which is the case when they're drawn in the titlebar.
+    func cycleTabsLocation() -> Bool {
+        guard supportsSideTabs else { return false }
+        setTabsLocation(tabsLocation.next)
+        return true
+    }
+
+    /// Bring every tab in this window's group to the same tab location. Tabs can
+    /// be dragged from one window into another, and windows can be merged, either
+    /// of which joins groups that may have shown their tabs in different places.
+    /// A group whose tabs disagree would move the sidebar around and show the
+    /// native tab bar for some tabs but not others as the selection changes.
+    ///
+    /// This is called whenever the tab group changes, so it does as little as
+    /// possible when the group already agrees.
+    ///
+    /// - Parameter preferredLocation: The location to bring the group to, for
+    ///   callers that know which window should win. Merging windows knows, since
+    ///   everything is merged into one window; a dragged tab doesn't.
+    func normalizeTabsLocation(preferring preferredLocation: Ghostty.Config.MacOSTabsLocation? = nil) {
+        guard supportsSideTabs else { return }
+
+        // `tabbedWindows` rather than `tabGroup` because materializing the tab
+        // group has its own edge cases (see `windowDidLoad`).
+        guard let tabbedWindows = window?.tabbedWindows, tabbedWindows.count > 1 else { return }
+
+        // Windows that draw their tabs in the titlebar can't move them, so they
+        // don't get a say and don't count as disagreeing.
+        let controllers = tabbedWindows
+            .compactMap { $0.windowController as? TerminalController }
+            .filter(\.supportsSideTabs)
+        let location = preferredLocation ?? tabsLocation
+        guard controllers.contains(where: { $0.tabsLocation != location }) else { return }
+
+        // A caller that knows the winner leaves us nothing to work out.
+        if preferredLocation != nil {
+            setTabsLocation(location, resizingWindow: false)
+            return
+        }
+
+        // A window that disagrees with a group that otherwise agrees takes on the
+        // group's location, so a tab dragged into a window adopts that window's
+        // layout instead of imposing its own. `setTabsLocation` applies to the
+        // whole group, so the first window we find settles it for everyone.
+        //
+        // We check ourselves first because a tab dragged into a window is the one
+        // that becomes key, and so the one this runs for.
+        for controller in [self] + controllers.filter({ $0 !== self }) {
+            let others = controllers.filter { $0 !== controller }
+            guard let groupLocation = others.first?.tabsLocation,
+                  groupLocation != controller.tabsLocation,
+                  others.allSatisfy({ $0.tabsLocation == groupLocation })
+            else { continue }
+
+            controller.setTabsLocation(groupLocation, resizingWindow: false)
+            return
+        }
+
+        // No window was the odd one out, so the group disagrees more than one way.
+        // Fall back to our own location.
+        setTabsLocation(location, resizingWindow: false)
+    }
+
+    /// Adopt the tab location of the group this window is joining. New windows
+    /// start from `macos-tabs-location`, but the group may have been moved since
+    /// with `toggle_tabs_location`.
+    private func adoptTabsLocation(from parent: TerminalController) {
+        guard supportsSideTabs, parent.tabsLocation != tabsLocation else { return }
+
+        // Our window is already loaded at this point (creating the surface tree
+        // loads it), so the sidebar's contribution to the remembered content size
+        // has to be corrected along with the location.
+        let previousWidth = sideTabsContentWidth
+        tabsLocationValue = parent.tabsLocation
+        adjustInitialContentSize(by: sideTabsContentWidth - previousWidth)
+    }
+
+    /// The tab sidebar is part of the window's content, so the size we remember
+    /// for `intrinsicContentSize` has to follow the sidebar appearing and
+    /// disappearing. Otherwise the sidebar's width is baked into the default size
+    /// forever: "Return to Default Size" would leave the window too wide and never
+    /// consider itself already at the default size.
+    private func adjustInitialContentSize(by delta: CGFloat) {
+        guard delta != 0,
+              let container = terminalViewContainer,
+              let size = container.initialContentSize
+        else { return }
+
+        container.initialContentSize = .init(width: size.width + delta, height: size.height)
+    }
+
+    /// Show the tabs of this window at the given location. This applies to every
+    /// tab in the window since they all share a frame and only differ in their
+    /// content, so leaving them out of sync would move the sidebar around as the
+    /// selected tab changes.
+    ///
+    /// The window is widened or narrowed by the sidebar so that the terminal keeps
+    /// its size, which is only right when the location is being changed on purpose.
+    /// A window adopting the location of a group it just joined already has that
+    /// group's frame and must not resize it.
+    private func setTabsLocation(
+        _ location: Ghostty.Config.MacOSTabsLocation,
+        resizingWindow: Bool = true
+    ) {
+        let previousWidth = sideTabsContentWidth
+
+        // Windows that draw their tabs in the titlebar are skipped: they can't
+        // show a sidebar, so moving their tabs would leave them with no tabs at
+        // all. A group can contain such a window if it was merged in from a
+        // window that was created under a different configuration.
+        var controllers: [TerminalController] = [self]
+        for tabbedWindow in window?.tabGroup?.windows ?? [] {
+            guard let controller = tabbedWindow.windowController as? TerminalController,
+                  controller !== self,
+                  controller.supportsSideTabs
+            else { continue }
+            controllers.append(controller)
+        }
+
+        // Each tab has its own content view that remembers its own size, so they
+        // can be starting from different sidebar widths.
+        let previousWidths = controllers.map(\.sideTabsContentWidth)
+
+        // Every location is updated before anything reacts to the change: the
+        // sidebars hide the native tab bar of the whole group, so they need to
+        // see the group in a consistent state.
+        for controller in controllers {
+            controller.tabsLocationValue = location
+        }
+
+        for (controller, controllerPreviousWidth) in zip(controllers, previousWidths) {
+            // The sidebar mirrors the tab group only while it is visible, so it
+            // has to be told that its visibility changed.
+            controller.sideTabs?.refresh()
+            controller.adjustInitialContentSize(
+                by: controller.sideTabsContentWidth - controllerPreviousWidth)
+        }
+
+        // We can't resize fullscreen windows since their size is fixed.
+        guard resizingWindow,
+              let window,
+              !window.styleMask.contains(.fullScreen),
+              !(fullscreenStyle?.isFullscreen ?? false) else { return }
+        let delta = sideTabsContentWidth - previousWidth
+        guard delta != 0 else { return }
+        var frame = window.frame
+        frame.size.width += delta
+        window.setFrame(frame, display: true)
+        window.constrainToScreen()
     }
 
     private func fixTabBar() {
@@ -1092,7 +1304,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // intrinsicContentSize returns the correct value immediately,
         // without waiting for @FocusedValue to propagate through the
         // SwiftUI focus chain.
-        container.initialContentSize = focusedSurface?.initialSize
+        // The requested size is for the terminal content, so the window also
+        // has to fit the tab sidebar.
+        container.initialContentSize = focusedSurface?.initialSize.map { size in
+            NSSize(width: size.width + sideTabsContentWidth, height: size.height)
+        }
 
         window.contentView = container
 

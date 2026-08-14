@@ -453,6 +453,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Toggle the tab overview."),
         }},
 
+        .toggle_tabs_location => comptime &.{.{
+            .action = .toggle_tabs_location,
+            .title = i18n.N_("Cycle Tabs Location"),
+            .description = i18n.N_("Cycle where the tabs of this window are shown between the top, the left side, and the right side."),
+        }},
+
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
             .title = i18n.N_("Change Terminal Title…"),

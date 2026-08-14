@@ -638,6 +638,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
                 return copyTitleToClipboard(app, target: target)
 
+            case GHOSTTY_ACTION_TOGGLE_TABS_LOCATION:
+                return toggleTabsLocation(app, target: target)
+
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue, privacy: .public)")
                 return false
@@ -1593,6 +1596,29 @@ extension Ghostty {
 
             default:
                 assertionFailure()
+            }
+        }
+
+        private static func toggleTabsLocation(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s
+        ) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("toggle tabs location does nothing with an app target")
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface,
+                    let surfaceView = self.surfaceView(from: surface),
+                    let controller = surfaceView.window?.windowController as? TerminalController
+                else { return false }
+
+                return controller.cycleTabsLocation()
+
+            default:
+                assertionFailure()
+                return false
             }
         }
 

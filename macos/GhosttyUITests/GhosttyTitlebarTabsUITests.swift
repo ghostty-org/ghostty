@@ -108,6 +108,120 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
         checkTabsGeometry(app.windows.firstMatch)
     }
 
+    @MainActor
+    func testTabsOnLeft() throws {
+        try checkSideTabs(location: "left")
+    }
+
+    @MainActor
+    func testTabsOnRight() throws {
+        try checkSideTabs(location: "right")
+    }
+
+    /// `toggle_tabs_location` cycles the tabs of the current window through the
+    /// top, the left side, and the right side.
+    @MainActor
+    func testToggleTabsLocationKeybind() throws {
+        // Not `macos-titlebar-style = tabs`: those windows draw their tabs into a
+        // custom titlebar that can't be replaced after the window is created, so
+        // they can't move their tabs.
+        try updateConfig(
+            """
+            keybind = cmd+ctrl+shift+e=toggle_tabs_location
+            title = "GhosttySideTabsUITests"
+            """
+        )
+
+        let app = try ghosttyApplication()
+        app.launch()
+
+        let terminal = app.groups["Terminal pane"]
+        XCTAssertTrue(terminal.waitForExistence(timeout: 2), "Terminal should exist")
+
+        // A second tab, so the native tab bar is showing to begin with.
+        terminal.typeKey("t", modifierFlags: .command)
+        XCTAssertTrue(app.wait(for: \.tabs.count, toEqual: 2, timeout: 2), "There should be 2 native tabs")
+
+        let window = app.windows.firstMatch
+        let sideTabs = app.descendants(matching: .any)["Side Tabs"]
+        XCTAssertFalse(sideTabs.exists, "Tabs should start at the top")
+
+        // Top to left.
+        terminal.typeKey("e", modifierFlags: [.command, .control, .shift])
+        XCTAssertTrue(sideTabs.waitForExistence(timeout: 2), "Tabs should move into a sidebar")
+        XCTAssertTrue(
+            app.wait(for: \.tabs.count, toEqual: 0, timeout: 2),
+            "The sidebar should replace the native tab bar")
+        XCTAssertTrue(
+            wait(until: { abs(sideTabs.frame.minX - window.frame.minX) <= 1 }),
+            "Tabs should be on the left")
+
+        // Left to right.
+        terminal.typeKey("e", modifierFlags: [.command, .control, .shift])
+        XCTAssertTrue(
+            wait(until: { abs(sideTabs.frame.maxX - window.frame.maxX) <= 1 }),
+            "Tabs should be on the right")
+
+        // Right back to the top.
+        terminal.typeKey("e", modifierFlags: [.command, .control, .shift])
+        XCTAssertTrue(
+            app.wait(for: \.tabs.count, toEqual: 2, timeout: 2),
+            "The native tab bar should come back")
+        XCTAssertFalse(sideTabs.exists, "The sidebar should be gone")
+    }
+
+    @MainActor
+    private func checkSideTabs(location: String) throws {
+        // `macos-titlebar-style = tabs` is intentional: a sidebar can't coexist
+        // with tabs in the titlebar, so this also covers the fallback to the
+        // transparent titlebar style.
+        try updateConfig(
+            """
+            macos-titlebar-style = tabs
+            macos-tabs-location = \(location)
+            title = "GhosttySideTabsUITests"
+            """
+        )
+
+        let app = try ghosttyApplication()
+        app.launch()
+
+        let sideTabs = app.descendants(matching: .any)["Side Tabs"]
+        XCTAssertTrue(sideTabs.waitForExistence(timeout: 2), "Side tabs should exist")
+
+        app.groups["Terminal pane"].typeKey("t", modifierFlags: .command)
+
+        let tabRows = app.buttons.matching(identifier: "Side Tab")
+        XCTAssertTrue(
+            tabRows.element(boundBy: 1).waitForExistence(timeout: 2),
+            "A new tab should show up in the sidebar")
+        XCTAssertEqual(tabRows.count, 2, "There should be 2 tabs in the sidebar")
+
+        // The sidebar replaces the native tab bar rather than doubling up on it.
+        XCTAssertTrue(
+            app.wait(for: \.tabs.count, toEqual: 0, timeout: 2),
+            "There should be no native tabs")
+
+        let window = app.windows.firstMatch
+        if location == "left" {
+            XCTAssertEqual(sideTabs.frame.minX, window.frame.minX, accuracy: 1)
+        } else {
+            XCTAssertEqual(sideTabs.frame.maxX, window.frame.maxX, accuracy: 1)
+        }
+    }
+
+    /// Poll until `condition` holds. Moving the sidebar from one side to the
+    /// other only changes frames, so there is no element to wait on.
+    private func wait(timeout: TimeInterval = 2, until condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+
+        return condition()
+    }
+
     func checkTabsGeometry(_ window: XCUIElement) {
         let closeTabButtons = window.buttons.matching(identifier: "_closeButton")
 

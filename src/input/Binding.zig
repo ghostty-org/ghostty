@@ -600,6 +600,23 @@ pub const Action = union(enum) {
     /// found by running `ghostty +version`.
     toggle_tab_overview,
 
+    /// Cycle where the tabs of the current window are shown between the top,
+    /// the left side, and the right side of the window. See
+    /// `macos-tabs-location`.
+    ///
+    /// This changes the current window only. All of the tabs of that window move
+    /// together, since they share a frame, and tabs created in it afterwards
+    /// follow it. It does not modify the configuration, so new windows still use
+    /// `macos-tabs-location`.
+    ///
+    /// This is not performable for windows that draw their tabs in the
+    /// titlebar (`macos-titlebar-style = tabs` together with
+    /// `macos-tabs-location = top`) because that titlebar can't be replaced
+    /// after the window is created.
+    ///
+    /// Only implemented on macOS.
+    toggle_tabs_location,
+
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -1454,6 +1471,7 @@ pub const Action = union(enum) {
             .move_tab,
             .move_tab_to_new_window,
             .toggle_tab_overview,
+            .toggle_tabs_location,
             .new_split,
             .goto_split,
             .goto_window,

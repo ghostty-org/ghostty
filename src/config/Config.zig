@@ -3334,7 +3334,8 @@ keybind: Keybinds = .{},
 /// color of the terminal. There are some limitations to this style:
 /// On macOS 13 and below, saved window state will not restore tabs correctly.
 /// macOS 14 does not have this issue and any other macOS version has not
-/// been tested.
+/// been tested. This style is also incompatible with a non-`top`
+/// `macos-tabs-location`; see that option for details.
 ///
 /// The "hidden" style hides the titlebar. Unlike `window-decoration = none`,
 /// however, it does not remove the frame from the window or cause it to have
@@ -3352,6 +3353,28 @@ keybind: Keybinds = .{},
 ///
 /// Changing this option at runtime only applies to new windows.
 @"macos-titlebar-style": MacTitlebarStyle = .transparent,
+
+/// Where tabs are shown within a macOS window. Available values are:
+///
+///   * `top` - Tabs are shown at the top of the window. The exact appearance
+///     depends on `macos-titlebar-style`: the `tabs` style draws them in the
+///     titlebar, every other style uses the standard macOS tab bar.
+///
+///   * `left` - Tabs are shown in a sidebar on the left of the window.
+///
+///   * `right` - Tabs are shown in a sidebar on the right of the window.
+///
+/// The default value is `top`.
+///
+/// A sidebar replaces the macOS tab bar, so it is hidden while the sidebar
+/// is shown. Since tabs can't be drawn in the titlebar and a sidebar at the
+/// same time, `macos-titlebar-style = tabs` falls back to the `transparent`
+/// titlebar style when this is `left` or `right`.
+///
+/// Changing this option at runtime only applies to new windows. Use the
+/// `toggle_tabs_location` keybind action to change the tab location of an
+/// existing window.
+@"macos-tabs-location": MacTabsLocation = .top,
 
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
 /// is the icon that represents the folder of the current working directory.
@@ -9082,6 +9105,13 @@ pub const MacTitlebarStyle = enum {
     transparent,
     tabs,
     hidden,
+};
+
+/// See macos-tabs-location
+pub const MacTabsLocation = enum {
+    top,
+    left,
+    right,
 };
 
 /// See macos-titlebar-proxy-icon
