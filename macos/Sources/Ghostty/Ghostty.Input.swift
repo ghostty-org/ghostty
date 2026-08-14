@@ -518,7 +518,6 @@ extension Ghostty.Input.Momentum: AppEnum {
     ]
 }
 
-#if canImport(AppKit)
 import AppKit
 
 extension Ghostty.Input.Momentum {
@@ -535,7 +534,6 @@ extension Ghostty.Input.Momentum {
         }
     }
 }
-#endif
 
 // MARK: Ghostty.Input.Mods
 

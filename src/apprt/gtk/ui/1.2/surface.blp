@@ -232,6 +232,7 @@ Overlay terminal_page {
   CenterBox drag_handle {
     halign: fill;
     valign: start;
+    visible: bind $should_drag_handle_be_shown(template.config, template.is-split) as <bool>;
 
     styles [
       "drag-handle",
@@ -402,6 +403,11 @@ menu context_menu_model {
       label: _("Window");
 
       item {
+        label: _("Change Window Title…");
+        action: "win.prompt-window-title";
+      }
+
+      item {
         label: _("New Window");
         action: "win.new-window";
       }
@@ -418,8 +424,15 @@ menu context_menu_model {
       label: _("Config");
 
       item {
-        label: _("Open Configuration");
+        label: _("Open Configuration in OS Editor");
         action: "app.open-config";
+        target: "os-open";
+      }
+
+      item {
+        label: _("Open Configuration in New Window");
+        action: "app.open-config";
+        target: "new-window";
       }
 
       item {

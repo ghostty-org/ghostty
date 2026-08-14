@@ -350,6 +350,22 @@ pub const CoreText = struct {
         _ = self;
     }
 
+    /// Warm up the system font registry.
+    ///
+    /// The first CoreText query in a process initializes the system font
+    /// database, which takes multiple milliseconds, while subsequent
+    /// queries are microseconds.
+    pub fn warmup() void {
+        const name = macos.foundation.String.createWithBytes(
+            "AppleColorEmoji",
+            .utf8,
+            false,
+        ) catch return;
+        defer name.release();
+        const ct_font = macos.text.Font.createWithName(name, 12) catch return;
+        ct_font.release();
+    }
+
     /// Discover fonts from a descriptor. This returns an iterator that can
     /// be used to build up the deferred fonts.
     pub fn discover(self: *const CoreText, alloc: Allocator, desc: Descriptor) !DiscoverIterator {
@@ -381,6 +397,54 @@ pub const CoreText = struct {
             .variations = desc.variations,
             .i = 0,
         };
+    }
+
+    /// Discover a font by its exact name (family, full, or PostScript
+    /// name). This is significantly faster than `discover` because it
+    /// avoids the system-wide font matching that CTFontCollection does
+    /// (which takes multiple milliseconds). This should be preferred
+    /// when the desired font is known exactly, e.g. system fonts such
+    /// as Apple Color Emoji.
+    ///
+    /// Returns null if no font with this exact family name exists;
+    /// CoreText fallback fonts are never returned.
+    pub fn discoverExactFamily(
+        self: *const CoreText,
+        family: []const u8,
+    ) !?DeferredFace {
+        _ = self;
+
+        const family_str = try macos.foundation.String.createWithBytes(
+            family,
+            .utf8,
+            false,
+        );
+        defer family_str.release();
+
+        // Create our font. We need a size to initialize it so we use size
+        // 12 but we will alter the size later (same as DiscoverIterator).
+        const ct_font = try macos.text.Font.createWithName(family_str, 12);
+
+        // CTFontCreateWithName never returns null: if the requested font
+        // isn't installed it returns a substitute font. Verify we got
+        // the family we asked for, otherwise report not found.
+        const found: bool = found: {
+            const actual = ct_font.copyFamilyName();
+            defer actual.release();
+            var buf: [256]u8 = undefined;
+            const actual_slice = actual.cstring(&buf, .utf8) orelse
+                break :found false;
+            break :found std.mem.eql(u8, actual_slice, family);
+        };
+        if (!found) {
+            ct_font.release();
+            return null;
+        }
+
+        return .{ .ct = .{
+            .font = ct_font,
+            .variations = &.{},
+        } };
     }
 
     pub fn discoverFallback(

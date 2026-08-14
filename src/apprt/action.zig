@@ -208,6 +208,9 @@ pub const Action = union(Key) {
     /// Set the tab title override for the target's tab.
     set_tab_title: SetTitle,
 
+    /// Set the window title override for the target's tab.
+    set_window_title: SetTitle,
+
     /// Set the title of the target to a prompted value. It is up to
     /// the apprt to prompt. The value specifies whether to prompt for the
     /// surface title or the tab title.
@@ -231,7 +234,7 @@ pub const Action = union(Key) {
     /// Open the Ghostty configuration. This is platform-specific about
     /// what it means; it can mean opening a dedicated UI or just opening
     /// a file in a text editor.
-    open_config,
+    open_config: OpenConfig,
 
     /// Called when there are no more surfaces and the app should quit
     /// after the configured delay.
@@ -391,6 +394,7 @@ pub const Action = union(Key) {
         desktop_notification,
         set_title,
         set_tab_title,
+        set_window_title,
         prompt_title,
         pwd,
         mouse_shape,
@@ -465,7 +469,7 @@ pub const Action = union(Key) {
         // At the time of writing, we don't promise ABI compatibility
         // so we can change this but I want to be aware of it.
         assert(@sizeOf(CValue) == switch (@sizeOf(usize)) {
-            4 => 16,
+            4 => 24,
             8 => 24,
             else => unreachable,
         });
@@ -678,10 +682,11 @@ pub const MouseVisibility = enum(c_int) {
     }
 };
 
-/// Whether to prompt for the surface title or tab title.
+/// Whether to prompt for the surface, tab, or window title.
 pub const PromptTitle = enum(c_int) {
     surface,
     tab,
+    window,
 
     test "ghostty.h PromptTitle" {
         try lib.checkGhosttyHEnum(PromptTitle, "GHOSTTY_PROMPT_TITLE_");
@@ -1045,6 +1050,19 @@ pub const SearchSelected = struct {
         return .{
             .selected = if (self.selected) |s| @intCast(s) else -1,
         };
+    }
+};
+
+/// sync with ghostty_action_close_tab_mode_e in ghostty.h
+pub const OpenConfig = enum(c_int) {
+    /// Open the config in the OS default editor.
+    os_open,
+
+    /// Open the config in a new window using $EDITOR or $VISUAL
+    new_window,
+
+    test "ghostty.h OpenConfig" {
+        try lib.checkGhosttyHEnum(OpenConfig, "GHOSTTY_ACTION_OPEN_CONFIG_");
     }
 };
 

@@ -1,25 +1,61 @@
 const std = @import("std");
 const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
 const simd = @import("../../simd/main.zig");
 const lib = @import("../lib.zig");
 
 const log = std.log.scoped(.kitty_gfx);
 
 /// The key-value pairs for the control information for a command. The
-/// keys are always single characters and the values are either single
-/// characters or 32-bit unsigned integers.
+/// recognized keys are always single ASCII letters and the values are either
+/// single characters or 32-bit unsigned integers. Unknown non-letter keys are
+/// ignored, matching how unknown letter keys are ignored when building a
+/// command.
 ///
-/// For the value of this: if the value is a single printable ASCII character
-/// it is the ASCII code. Otherwise, it is parsed as a 32-bit unsigned integer.
-const KV = std.AutoHashMapUnmanaged(u8, u32);
+/// This is deliberately a dense value table plus a presence bitmap. There are
+/// only 52 possible keys(technically KIP has fever than 52 possible .. at the moment of writing), so a lookup is one machine-word bit test followed by
+/// an indexed load. The values are undefined until their presence bit is set.
+///
+/// Other alternatives were considered and should probably be revisited in the
+/// future. Some of them were:
+/// A `[52]?u32` table is 416 bytes versus 216 bytes for this layout, and
+/// its larger copies erased the smaller lookup code.
+/// `std.EnumMap` added optional-return lowering,
+/// `std.StaticBitSet(52)` kept the same size but generated larger code
+/// for the packed mask. Passing the table by pointer removed the copies
+/// but did not improve end-to-end throughput. Keep this representation
+/// unless a new benchmark shows an improvement in the zig compilers codegen.
+///
+/// For the value itself: if it is a single printable ASCII character it is the
+/// ASCII code. Otherwise, it is parsed as a 32-bit unsigned integer.
+const KV = struct {
+    values: [52]u32 = undefined,
+    present: u64 = 0,
+
+    fn index(key: u8) ?u6 {
+        return switch (key) {
+            'a'...'z' => @intCast(key - 'a'),
+            'A'...'Z' => @intCast(26 + key - 'A'),
+            else => null,
+        };
+    }
+
+    fn get(self: *const KV, key: u8) ?u32 {
+        const idx = index(key) orelse return null;
+        if (self.present & (@as(u64, 1) << idx) == 0) return null;
+        return self.values[idx];
+    }
+
+    fn put(self: *KV, key: u8, value: u32) void {
+        const idx = index(key) orelse return;
+        self.values[idx] = value;
+        self.present |= @as(u64, 1) << idx;
+    }
+};
 
 /// Command parser parses the Kitty graphics protocol escape sequence.
 pub const Parser = struct {
-    /// The memory used by the parser is stored in an arena because it is
-    /// all freed at the end of the command.
-    arena: ArenaAllocator,
+    alloc: Allocator,
 
     /// This is the list of KV pairs that we're building up.
     kv: KV,
@@ -60,10 +96,8 @@ pub const Parser = struct {
     /// Initialize the parser. The allocator given will be used for both
     /// temporary data and long-lived values such as the final image blob.
     pub fn init(alloc: Allocator, max_bytes: usize) Parser {
-        var arena = ArenaAllocator.init(alloc);
-        errdefer arena.deinit();
         var result: Parser = .{
-            .arena = arena,
+            .alloc = alloc,
             .data = .empty,
             .kv = .{},
             .kv_temp_len = 0,
@@ -82,9 +116,7 @@ pub const Parser = struct {
     }
 
     pub fn deinit(self: *Parser) void {
-        // We don't free the hash map because its in the arena
-        self.data.deinit(self.arena.child_allocator);
-        self.arena.deinit();
+        self.data.deinit(self.alloc);
     }
 
     /// Parse a complete command string.
@@ -144,7 +176,7 @@ pub const Parser = struct {
 
             .data => {
                 if (self.data.items.len >= self.max_bytes) return error.OutOfMemory;
-                try self.data.append(self.arena.child_allocator, c);
+                try self.data.append(self.alloc, c);
             },
         }
     }
@@ -160,7 +192,7 @@ pub const Parser = struct {
                 if (self.data.items.len + rem.len > self.max_bytes) {
                     return error.OutOfMemory;
                 }
-                try self.data.appendSlice(self.arena.child_allocator, rem);
+                try self.data.appendSlice(self.alloc, rem);
                 return;
             }
 
@@ -269,8 +301,6 @@ pub const Parser = struct {
     }
 
     fn finishValue(self: *Parser, next_state: State) !void {
-        const alloc = self.arena.allocator();
-
         // We can move states right away, we don't use it.
         self.state = next_state;
 
@@ -278,7 +308,7 @@ pub const Parser = struct {
         if (self.kv_temp_len == 1) {
             const c = self.kv_temp[0];
             if (c < '0' or c > '9') {
-                try self.kv.put(alloc, self.kv_current, @intCast(c));
+                self.kv.put(self.kv_current, @intCast(c));
                 self.kv_temp_len = 0;
                 return;
             }
@@ -291,7 +321,7 @@ pub const Parser = struct {
             'z', 'H', 'V' => @bitCast(try std.fmt.parseInt(i32, self.kv_temp[0..self.kv_temp_len], 10)),
             else => try std.fmt.parseInt(u32, self.kv_temp[0..self.kv_temp_len], 10),
         };
-        try self.kv.put(alloc, self.kv_current, v);
+        self.kv.put(self.kv_current, v);
 
         // Clear our temp buffer
         self.kv_temp_len = 0;
@@ -1210,6 +1240,24 @@ test "ignore unknown keys (long)" {
     defer p.deinit();
 
     const input = "f=24,s=10,v=20,hello=world";
+    for (input) |c| try p.feed(c);
+    const command = try p.complete(alloc);
+    defer command.deinit(alloc);
+
+    try testing.expect(command.control == .transmit);
+    const v = command.control.transmit;
+    try testing.expectEqual(Transmission.Format.rgb, v.format);
+    try testing.expectEqual(@as(u32, 10), v.width);
+    try testing.expectEqual(@as(u32, 20), v.height);
+}
+
+test "ignore unknown keys (non-letter)" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var p = Parser.init(alloc, 1024 * 1024);
+    defer p.deinit();
+
+    const input = "f=24,s=10,v=20,!=1";
     for (input) |c| try p.feed(c);
     const command = try p.complete(alloc);
     defer command.deinit(alloc);

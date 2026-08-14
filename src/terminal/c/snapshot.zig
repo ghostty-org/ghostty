@@ -719,33 +719,6 @@ test "decoder option and empty source" {
     try testing.expectEqual(null, terminal);
 }
 
-test "snapshot decoder defers terminal I/O allocation until READY" {
-    var failing = testing.FailingAllocator.init(testing.allocator, .{
-        // The decoder wrapper is the only allocation performed by new_buf.
-        // Fail the following allocation, which creates terminal-owned I/O.
-        .fail_index = 1,
-    });
-    const failing_zig = failing.allocator();
-    const failing_c: CAllocator = .fromZig(&failing_zig);
-
-    var decoder: Decoder = null;
-    try testing.expectEqual(Result.success, decoder_new_buf(
-        &failing_c,
-        &decoder,
-        null,
-        0,
-    ));
-    defer decoder_free(decoder);
-
-    var terminal: terminal_c.Terminal = null;
-    try testing.expectEqual(Result.out_of_memory, decoder_ready(
-        decoder,
-        &terminal,
-    ));
-    try testing.expectEqual(null, terminal);
-    try testing.expectEqual(@as(usize, 0), decoder.?.source.offset());
-}
-
 test "snapshot C API full round trip restores continuation" {
     var source: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(

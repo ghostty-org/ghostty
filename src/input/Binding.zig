@@ -608,6 +608,13 @@ pub const Action = union(enum) {
     /// and persists across focus changes within the tab.
     prompt_tab_title,
 
+    /// Change the title of the current window via a pop-up prompt. The
+    /// title set via this prompt overrides any title set by the terminal
+    /// and persists across focus changes within the tab.
+    ///
+    /// Only implemented on Linux.
+    prompt_window_title,
+
     /// Set the title for the current focused surface.
     ///
     /// If the title is empty, the surface title is reset to an empty title.
@@ -617,6 +624,13 @@ pub const Action = union(enum) {
     ///
     /// If the title is empty, the tab title override is cleared.
     set_tab_title: []const u8,
+
+    /// Set the title for the current focused window.
+    ///
+    /// If the title is empty, the tab title override is cleared.
+    ///
+    /// Only implement on Linux.
+    set_window_title: []const u8,
 
     /// Create a new split in the specified direction.
     ///
@@ -692,12 +706,14 @@ pub const Action = union(enum) {
     /// untested.
     show_on_screen_keyboard,
 
-    /// Open the configuration file in the default OS editor.
+    /// Open the configuration file in an editor.
     ///
-    /// If your default OS editor isn't configured then this will fail.
-    /// Currently, any failures to open the configuration will show up only in
-    /// the logs.
-    open_config,
+    /// * `os_open`: Use the OS's default editor to edit the configuration file.
+    ///   This is the default action. (Available since 1.4.0)
+    /// * `new_window`: Launch the editor specified in `$EDITOR` or `$VISUAL` in
+    ///   a new Ghostty window to edit the configuration file. GTK only. (Available
+    ///   since 1.4.0.)
+    open_config: OpenConfig,
 
     /// Reload the configuration.
     ///
@@ -1192,6 +1208,16 @@ pub const Action = union(enum) {
         pub const default: CloseTabMode = .this;
     };
 
+    pub const OpenConfig = enum {
+        /// Open the config in the OS default editor.
+        os_open,
+
+        /// Open the config in a new window using $EDITOR or $VISUAL
+        new_window,
+
+        pub const default: OpenConfig = .os_open;
+    };
+
     fn parseEnum(comptime T: type, value: []const u8) !T {
         return std.meta.stringToEnum(T, value) orelse return Error.InvalidFormat;
     }
@@ -1376,8 +1402,10 @@ pub const Action = union(enum) {
             .set_font_size,
             .prompt_surface_title,
             .prompt_tab_title,
+            .prompt_window_title,
             .set_surface_title,
             .set_tab_title,
+            .set_window_title,
             .clear_screen,
             .select_all,
             .scroll_to_top,

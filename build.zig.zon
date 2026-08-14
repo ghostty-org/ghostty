@@ -125,8 +125,8 @@
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
         .android_ndk = .{ .path = "./pkg/android-ndk" },
         .iterm2_themes = .{
-            .url = "https://deps.files.ghostty.org/ghostty-themes-release-20260720-153658-97e244c.tgz",
-            .hash = "N-V-__8AAGxKBAAjYkT1jYUiOZDXQuj0u34ndIjAWxiR1KX9",
+            .url = "https://deps.files.ghostty.org/ghostty-themes-release-20260803-155300-875a82f.tgz",
+            .hash = "N-V-__8AAPpcBAD4_75xLBbLiYqdojOwQP74eoWmpL3jPrBl",
             .lazy = true,
         },
     },

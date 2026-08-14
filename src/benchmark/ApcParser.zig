@@ -52,10 +52,10 @@ const Handler = struct {
             .apc_start => self.apc.start(),
             .apc_put => self.apc.feed(self.alloc, value),
             .apc_put_slice => self.apc.feedSlice(self.alloc, value.bytes),
-            .apc_end => if (self.apc.end()) |cmd| {
-                var c = cmd;
-                std.mem.doNotOptimizeAway(&c);
-                c.deinit(self.alloc);
+            .apc_end => if (self.apc.end()) |result| {
+                var r = result;
+                std.mem.doNotOptimizeAway(&r);
+                r.deinit(self.alloc);
             },
             else => {},
         }

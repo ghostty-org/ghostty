@@ -186,7 +186,7 @@ class SurfaceScrollView: NSView {
     private func synchronizeAppearance() {
         let scrollbarConfig = surfaceView.derivedConfig.scrollbar
         scrollView.hasVerticalScroller = scrollbarConfig != .never
-        let hasLightBackground = OSColor(surfaceView.derivedConfig.backgroundColor).isLightColor
+        let hasLightBackground = NSColor(surfaceView.derivedConfig.backgroundColor).isLightColor
         // Make sure the scroller’s appearance matches the surface's background color.
         scrollView.appearance = NSAppearance(named: hasLightBackground ? .aqua : .darkAqua)
         updateTrackingAreas()

@@ -82,7 +82,8 @@ pub fn init(alloc: Allocator, app_id: [:0]const u8) Allocator.Error!Hotkeys {
 /// Must leave the entries in a valid empty state: clear may still be
 /// called after deinit during application teardown.
 pub fn deinit(self: *Hotkeys) void {
-    self.clear();
+    for (self.entries.items) |*entry| entry.deinit();
+    self.entries.clearAndFree(self.alloc);
     self.alloc.free(self.app_id);
 }
 

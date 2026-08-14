@@ -7,6 +7,7 @@
 const std = @import("std");
 const lib = @import("../lib.zig");
 const color = @import("../color.zig");
+const sgr = @import("../sgr.zig");
 const color_c = @import("color.zig");
 const mouse_event = @import("mouse_event.zig");
 const point = @import("../point.zig");
@@ -18,9 +19,11 @@ const selection = @import("selection.zig");
 const selection_gesture = @import("selection_gesture.zig");
 const render = @import("render.zig");
 const style_c = @import("style.zig");
+const kitty_graphics = @import("kitty_graphics.zig");
 const mouse_encode = @import("mouse_encode.zig");
 const grid_ref = @import("grid_ref.zig");
 const io = @import("io.zig");
+const sys = @import("sys.zig");
 
 /// C: GhosttySurfacePosition
 pub const SurfacePosition = extern struct {
@@ -38,6 +41,8 @@ pub const Codepoints = extern struct {
 pub const structs: std.StaticStringMap(StructInfo) = structs: {
     @setEvalBranchQuota(10_000);
     break :structs .initComptime(.{
+        .{ "GhosttyAllocator", StructInfo.init(lib.alloc.Allocator) },
+        .{ "GhosttyAllocatorVtable", StructInfo.init(lib.alloc.VTable) },
         .{ "GhosttyBuffer", StructInfo.init(lib.Buffer) },
         .{ "GhosttyClipboardContent", StructInfo.init(terminal.ClipboardContent) },
         .{ "GhosttyClipboardWrite", StructInfo.init(terminal.ClipboardWrite) },
@@ -54,27 +59,35 @@ pub const structs: std.StaticStringMap(StructInfo) = structs: {
         .{ "GhosttyTerminalSelectWordOptions", StructInfo.init(selection.SelectWordOptions) },
         .{ "GhosttyTerminalSelectWordBetweenOptions", StructInfo.init(selection.SelectWordBetweenOptions) },
         .{ "GhosttyTerminalSelectLineOptions", StructInfo.init(selection.SelectLineOptions) },
+        .{ "GhosttyTerminalSelectionFormatOptions", StructInfo.init(selection.FormatOptions) },
         .{ "GhosttyFormatterTerminalExtra", StructInfo.init(formatter.TerminalOptions.Extra) },
         .{ "GhosttyFormatterScreenExtra", StructInfo.init(formatter.ScreenOptions.Extra) },
         .{ "GhosttyGridRef", StructInfo.init(grid_ref.CGridRef) },
+        .{ "GhosttyKittyGraphicsPlacementRenderInfo", StructInfo.init(kitty_graphics.PlacementRenderInfo) },
         .{ "GhosttyMouseEncoderSize", StructInfo.init(mouse_encode.Size) },
         .{ "GhosttyMousePosition", StructInfo.init(mouse_event.Position) },
         .{ "GhosttyPoint", StructInfo.init(point.Point.C) },
         .{ "GhosttyPointCoordinate", StructInfo.init(point.Coordinate) },
         .{ "GhosttyReader", StructInfo.init(io.Reader) },
         .{ "GhosttyRenderStateColors", StructInfo.init(render.Colors) },
+        .{ "GhosttyRenderStateRowSelection", StructInfo.init(render.RowSelection) },
         .{ "GhosttySelectionGestureBehaviors", StructInfo.init(selection_gesture.Behaviors) },
         .{ "GhosttySelectionGestureGeometry", StructInfo.init(selection_gesture.Geometry) },
+        .{ "GhosttySgrAttribute", StructInfo.init(sgr.Attribute.C) },
+        .{ "GhosttySgrUnknown", StructInfo.init(sgr.Attribute.Unknown.C) },
         .{ "GhosttySizeReportSize", StructInfo.init(size_report.Size) },
         .{ "GhosttyString", StructInfo.init(lib.String) },
         .{ "GhosttySurfacePosition", StructInfo.init(SurfacePosition) },
         .{ "GhosttyStyle", StructInfo.init(style_c.Style) },
         .{ "GhosttyStyleColor", StructInfo.init(style_c.Color) },
+        .{ "GhosttySysImage", StructInfo.init(sys.Image) },
         .{ "GhosttyTerminalDesktopNotification", StructInfo.init(terminal.DesktopNotification) },
         .{ "GhosttyTerminalModeConfig", StructInfo.init(terminal.ModeConfig) },
         .{ "GhosttyTerminalProgressReport", StructInfo.init(terminal.ProgressReport) },
         .{ "GhosttyTerminalScrollbar", StructInfo.init(terminal.TerminalScrollbar) },
         .{ "GhosttyTerminalScrollViewport", StructInfo.init(terminal.ScrollViewport) },
+        .{ "GhosttyTerminalUnknownSequence", StructInfo.init(terminal.UnknownSequence.C) },
+        .{ "GhosttyTerminalUnknownStringSequence", StructInfo.init(terminal.UnknownStringSequence) },
         .{ "GhosttyWriter", StructInfo.init(io.Writer) },
     });
 };
@@ -218,13 +231,61 @@ test "json parses" {
 
     const root = parsed.value.object;
 
-    // Verify we have all expected structs
-    try std.testing.expect(root.contains("GhosttyClipboardContent"));
-    try std.testing.expect(root.contains("GhosttyClipboardWrite"));
-    try std.testing.expect(root.contains("GhosttyFormatterTerminalOptions"));
-    try std.testing.expect(root.contains("GhosttyTerminalModeConfig"));
-    try std.testing.expect(root.contains("GhosttyReader"));
-    try std.testing.expect(root.contains("GhosttyWriter"));
+    // Verify we have every public struct declared by the C API headers.
+    const expected_structs = [_][]const u8{
+        "GhosttyAllocator",
+        "GhosttyAllocatorVtable",
+        "GhosttyBuffer",
+        "GhosttyClipboardContent",
+        "GhosttyClipboardWrite",
+        "GhosttyCodepoints",
+        "GhosttyColorPaletteMask",
+        "GhosttyColorRgb",
+        "GhosttyColorX11Entry",
+        "GhosttyDeviceAttributes",
+        "GhosttyDeviceAttributesPrimary",
+        "GhosttyDeviceAttributesSecondary",
+        "GhosttyDeviceAttributesTertiary",
+        "GhosttyFormatterScreenExtra",
+        "GhosttyFormatterTerminalExtra",
+        "GhosttyFormatterTerminalOptions",
+        "GhosttyGridRef",
+        "GhosttyKittyGraphicsPlacementRenderInfo",
+        "GhosttyMouseEncoderSize",
+        "GhosttyMousePosition",
+        "GhosttyPoint",
+        "GhosttyPointCoordinate",
+        "GhosttyReader",
+        "GhosttyRenderStateColors",
+        "GhosttyRenderStateRowSelection",
+        "GhosttySelection",
+        "GhosttySelectionGestureBehaviors",
+        "GhosttySelectionGestureGeometry",
+        "GhosttySgrAttribute",
+        "GhosttySgrUnknown",
+        "GhosttySizeReportSize",
+        "GhosttyString",
+        "GhosttyStyle",
+        "GhosttyStyleColor",
+        "GhosttySurfacePosition",
+        "GhosttySysImage",
+        "GhosttyTerminalDesktopNotification",
+        "GhosttyTerminalModeConfig",
+        "GhosttyTerminalProgressReport",
+        "GhosttyTerminalScrollbar",
+        "GhosttyTerminalScrollViewport",
+        "GhosttyTerminalSelectLineOptions",
+        "GhosttyTerminalSelectWordBetweenOptions",
+        "GhosttyTerminalSelectWordOptions",
+        "GhosttyTerminalSelectionFormatOptions",
+        "GhosttyTerminalUnknownSequence",
+        "GhosttyTerminalUnknownStringSequence",
+        "GhosttyWriter",
+    };
+    try std.testing.expectEqual(expected_structs.len, root.count());
+    for (expected_structs) |name| {
+        try std.testing.expect(root.contains(name));
+    }
 
     const clipboard_content = root.get("GhosttyClipboardContent").?.object;
     const clipboard_content_fields = clipboard_content.get("fields").?.object;
@@ -237,6 +298,16 @@ test "json parses" {
     try std.testing.expect(clipboard_write_fields.contains("location"));
     try std.testing.expect(clipboard_write_fields.contains("contents"));
     try std.testing.expect(clipboard_write_fields.contains("contents_len"));
+
+    const unknown_sequence = root.get("GhosttyTerminalUnknownSequence").?.object;
+    const unknown_sequence_fields = unknown_sequence.get("fields").?.object;
+    try std.testing.expect(unknown_sequence_fields.contains("tag"));
+    try std.testing.expect(unknown_sequence_fields.contains("value"));
+
+    const unknown_string = root.get("GhosttyTerminalUnknownStringSequence").?.object;
+    const unknown_string_fields = unknown_string.get("fields").?.object;
+    try std.testing.expect(unknown_string_fields.contains("truncated"));
+    try std.testing.expect(unknown_string_fields.contains("content"));
 
     const reader_fields = root.get("GhosttyReader").?.object
         .get("fields").?.object;

@@ -2345,6 +2345,33 @@ keybind: Keybinds = .{},
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 @"window-titlebar-foreground": ?Color = null,
 
+/// Controls when drag handles are shown over splits,
+/// allowing splits to be rearranged with mouse controls.
+///
+/// Valid values:
+///
+///  - `always`
+///
+///    Always display the drag handle, even when there's only one split.
+///
+///  - `auto` *(default)*
+///
+///    Automatically show and hide the drag handle.
+///
+///    On Linux, the handle is only shown when there are two or
+///    more splits present.
+///
+///    On macOS, the handle is only hidden when there's one split
+///    in **fullscreen** mode, otherwise it's shown when hovered.
+///
+///  - `never`
+///
+///    Never show the drag handle. Splits then cannot be rearranged with
+///    mouse controls.
+///
+/// Available since: 1.4.0.
+@"drag-handle": DragHandle = .auto,
+
 /// This controls when resize overlays are shown. Resize overlays are a
 /// transient popup that shows the size of the terminal while the surfaces are
 /// being resized. The possible options are:
@@ -4094,6 +4121,7 @@ fn writeConfigTemplate(path: []const u8) !void {
         @embedFile("./config-template"),
         .{ .path = path },
     );
+    try writer.flush();
 }
 
 /// Load configurations from the default configuration files. The default
@@ -6492,7 +6520,7 @@ pub const Keybinds = struct {
         try self.set.put(
             alloc,
             .{ .key = .{ .unicode = ',' }, .mods = inputpkg.ctrlOrSuper(.{}) },
-            .{ .open_config = {} },
+            .{ .open_config = .default },
         );
 
         {
@@ -9292,6 +9320,13 @@ pub const MacOSDockDropBehavior = enum {
 
 /// See window-show-tab-bar
 pub const WindowShowTabBar = enum {
+    always,
+    auto,
+    never,
+};
+
+/// See drag-handle
+pub const DragHandle = enum {
     always,
     auto,
     never,

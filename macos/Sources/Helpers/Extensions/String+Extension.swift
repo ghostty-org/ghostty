@@ -7,7 +7,6 @@ extension String {
         return self.prefix(maxLength) + trailing
     }
 
-#if canImport(AppKit)
     func temporaryFile(_ filename: String = "temp") -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(filename)
@@ -25,7 +24,6 @@ extension String {
         }
         return self
     }
-#endif
 
     /// Converts a four-character ASCII string to its `FourCharCode` (`UInt32`) value.
     var fourCharCode: UInt32 {

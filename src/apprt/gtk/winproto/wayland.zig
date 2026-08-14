@@ -306,7 +306,7 @@ pub const Window = struct {
         }
 
         const wl_region = try compositor.createRegion();
-        errdefer if (wl_region) |r| r.destroy();
+        defer wl_region.destroy();
         for (region.slices.items) |s| wl_region.add(
             @intCast(s.x),
             @intCast(s.y),
@@ -315,6 +315,7 @@ pub const Window = struct {
         );
 
         bg.setBlurRegion(wl_region);
+        self.blur_region.deinit(self.globals.alloc);
         self.blur_region = region;
     }
 

@@ -1,4 +1,4 @@
-import Cocoa
+import AppKit
 
 extension NSAppearance {
     /// Returns true if the appearance is some kind of dark.
@@ -17,7 +17,7 @@ extension NSAppearance {
             self.init(named: .aqua)
 
         case "auto":
-            let color = OSColor(config.backgroundColor)
+            let color = NSColor(config.backgroundColor)
             if color.isLightColor {
                 self.init(named: .aqua)
             } else {

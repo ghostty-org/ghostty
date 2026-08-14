@@ -39,18 +39,21 @@
  * The Zig side backs all C enums with c_int, so the C declarations
  * must use int as their underlying type to maintain ABI compatibility.
  *
- * C23 (detected via __STDC_VERSION__ >= 202311L) supports explicit
- * enum underlying types with `enum : int { ... }`. For pre-C23
- * compilers, which are free to choose any type that can represent
- * all values (C11 §6.7.2.2), we add an INT_MAX sentinel as the last
- * entry to force the compiler to use int.
+ * C++11 and C23 support explicit enum underlying types with
+ * `enum : int { ... }`. Clang and GCC 13+ also support this syntax as
+ * an extension in older C language modes, so use it when available.
+ *
+ * Other pre-C23 C compilers are free to choose any type that can
+ * represent all values (C11 §6.7.2.2). For those compilers, we add an
+ * INT_MAX sentinel as the last entry so the compatible type must be
+ * able to represent INT_MAX. The exact compatible type and its
+ * signedness remain implementation-defined in this fallback.
  *
  * INT_MAX is used rather than a fixed constant like 0xFFFFFFFF
- * because enum constants must have type int (which is signed).
- * Values above INT_MAX overflow signed int and are a constraint
- * violation in standard C; compilers that accept them interpret them
- * as negative values via two's complement, which can collide with
- * legitimate negative enum values.
+ * because enum constants must have type int in pre-C23 C. Values above
+ * INT_MAX are a constraint violation there; compilers that accept them
+ * may interpret them as negative values via two's complement, which can
+ * collide with legitimate negative enum values.
  *
  * Usage:
  * @code
@@ -61,7 +64,18 @@
  * } Foo;
  * @endcode
  */
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
+#if defined(__cplusplus) && \
+    (__cplusplus >= 201103L || (defined(_MSC_VER) && _MSC_VER >= 1700))
+#define GHOSTTY_ENUM_TYPED : int
+#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
+#define GHOSTTY_ENUM_TYPED : int
+#elif defined(__clang__)
+  #if __has_extension(c_fixed_enum)
+    #define GHOSTTY_ENUM_TYPED : int
+  #else
+    #define GHOSTTY_ENUM_TYPED
+  #endif
+#elif defined(__GNUC__) && __GNUC__ >= 13
 #define GHOSTTY_ENUM_TYPED : int
 #else
 #define GHOSTTY_ENUM_TYPED
@@ -305,8 +319,17 @@ typedef struct {
  * opts.trim = true;
  * @endcode
  */
+#ifdef __cplusplus
+#define GHOSTTY_INIT_SIZED(type)                                      \
+  ([]() noexcept {                                                    \
+    type value{};                                                     \
+    value.size = sizeof(value);                                       \
+    return value;                                                     \
+  }())
+#else
 #define GHOSTTY_INIT_SIZED(type) \
   ((type){ .size = sizeof(type) })
+#endif
 
 /**
  * Return a pointer to a null-terminated JSON string describing the

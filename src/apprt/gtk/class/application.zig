@@ -12,6 +12,7 @@ const gtk = @import("gtk");
 
 const build_config = @import("../../../build_config.zig");
 const build_info = @import("../build/info.zig");
+const cli = @import("../../../cli.zig");
 const global = @import("../../../global.zig");
 const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
@@ -727,7 +728,7 @@ pub const Application = extern struct {
 
             .new_split => return Action.newSplit(target, value),
 
-            .new_tab => return Action.newTab(target),
+            .new_tab => return Action.newTab(target, .none),
 
             .new_window => try Action.newWindow(
                 self,
@@ -738,7 +739,7 @@ pub const Application = extern struct {
                 .none,
             ),
 
-            .open_config => return Action.openConfig(self),
+            .open_config => return Action.openConfig(self, value),
 
             .open_url => Action.openUrl(self, value),
 
@@ -769,6 +770,7 @@ pub const Application = extern struct {
 
             .set_title => Action.setTitle(target, value),
             .set_tab_title => return Action.setTabTitle(target, value),
+            .set_window_title => return Action.setWindowTitle(target, value),
 
             .show_child_exited => return Action.showChildExited(target, value),
 
@@ -1203,7 +1205,8 @@ pub const Application = extern struct {
 
     fn syncActionAccelerators(self: *Self) void {
         self.syncActionAccelerator("app.quit", .{ .quit = {} });
-        self.syncActionAccelerator("app.open-config", .{ .open_config = {} });
+        self.syncActionAccelerator("app.open-config::os-open", .{ .open_config = .os_open });
+        self.syncActionAccelerator("app.open-config::new-window", .{ .open_config = .new_window });
         self.syncActionAccelerator("app.reload-config", .{ .reload_config = {} });
         self.syncActionAccelerator("win.toggle-inspector", .{ .inspector = .toggle });
         self.syncActionAccelerator("app.show-gtk-inspector", .show_gtk_inspector);
@@ -1477,10 +1480,17 @@ pub const Application = extern struct {
         const as_variant_type = glib.VariantType.new("as");
         defer as_variant_type.free();
 
+        const tas_variant_type = glib.VariantType.new("(tas)");
+        defer tas_variant_type.free();
+
+        const s_variant_type = glib.ext.VariantType.newFor([:0]const u8);
+        defer s_variant_type.free();
+
         const actions = [_]ext.actions.Action(Self){
             .init("new-window", actionNewWindow, null),
             .init("new-window-command", actionNewWindow, as_variant_type),
-            .init("open-config", actionOpenConfig, null),
+            .init("new-tab", actionNewTab, tas_variant_type),
+            .init("open-config", actionOpenConfig, s_variant_type),
             .init("present-surface", actionPresentSurface, t_variant_type),
             .init("quit", actionQuit, null),
             .init("reload-config", actionReloadConfig, null),
@@ -1549,7 +1559,7 @@ pub const Application = extern struct {
             diag.close();
             diag.unref(); // strong ref from get()
         }
-        priv.config_errors_dialog.set(null);
+        priv.config_errors_dialog.deinit();
         if (priv.signal_source) |v| {
             if (glib.Source.remove(v) == 0) {
                 log.warn("unable to remove signal source", .{});
@@ -1814,93 +1824,227 @@ pub const Application = extern struct {
     ) callconv(.c) void {
         log.debug("received new window action", .{});
 
-        var arena: std.heap.ArenaAllocator = .init(Application.default().allocator());
+        var arena: std.heap.ArenaAllocator = .init(self.core().alloc);
         defer arena.deinit();
 
         const alloc = arena.allocator();
 
-        var working_directory: ?[:0]const u8 = null;
-        var title: ?[:0]const u8 = null;
-        var command: ?configpkg.Command = null;
-        var args: std.ArrayList([:0]const u8) = .empty;
-
-        overrides: {
+        const overrides = overrides: {
             // were we given a parameter?
-            const parameter = parameter_ orelse break :overrides;
+            const arguments = parameter_ orelse break :overrides null;
 
             const as_variant_type = glib.VariantType.new("as");
             defer as_variant_type.free();
 
             // ensure that the supplied parameter is an array of strings
-            if (glib.Variant.isOfType(parameter, as_variant_type) == 0) {
+            if (glib.Variant.isOfType(arguments, as_variant_type) == 0) {
                 log.warn("parameter is of type '{s}', not '{s}'", .{
-                    parameter.getTypeString(),
+                    arguments.getTypeString(),
                     as_variant_type.peekString()[0..as_variant_type.getStringLength()],
                 });
-                break :overrides;
+                break :overrides null;
             }
 
-            const s_variant_type = glib.VariantType.new("s");
-            defer s_variant_type.free();
+            var arguments_it: glib.VariantIter = undefined;
+            _ = arguments_it.init(arguments);
 
-            var it: glib.VariantIter = undefined;
-            _ = it.init(parameter);
+            break :overrides parseOverrides(alloc, &arguments_it) catch null;
+        };
 
-            var e_seen: bool = false;
-            var i: usize = 0;
+        Action.newWindow(
+            self,
+            null,
+            if (overrides) |o| .{
+                .command = o.command,
+                .shell_integration = o.shell_integration,
+                .working_directory = o.working_directory,
+                .title = o.title,
+            } else .none,
+        ) catch |err| {
+            log.warn("unable to create new window: {t}", .{err});
+        };
+    }
 
-            while (it.nextValue()) |value| : (i += 1) {
-                defer value.unref();
+    /// Handle `app.new-tab` GTK action
+    pub fn actionNewTab(
+        _: *gio.SimpleAction,
+        parameter_: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        log.debug("received new tab action", .{});
 
-                // just to be sure
-                if (value.isOfType(s_variant_type) == 0) continue;
+        const core_app = self.core();
 
-                var len: usize = undefined;
-                const buf = value.getString(&len);
-                const str = buf[0..len];
+        var arena: std.heap.ArenaAllocator = .init(core_app.alloc);
+        defer arena.deinit();
 
-                log.debug("new-window argument: {d} {s}", .{ i, str });
+        const alloc = arena.allocator();
 
-                if (e_seen) {
-                    const duplicated = alloc.dupeZ(u8, str) catch |err| {
-                        log.warn("unable to duplicate argument {d} {s}: {t}", .{ i, str, err });
-                        break :overrides;
-                    };
-                    args.append(alloc, duplicated) catch |err| {
-                        log.warn("unable to append argument {d} {s}: {t}", .{ i, str, err });
-                        break :overrides;
-                    };
+        const surface_id_, const overrides = result: {
+            // were we given a parameter?
+            const parameter = parameter_ orelse {
+                log.warn("app.new-tab did not receive a parameter", .{});
+                return;
+            };
+
+            log.warn("got parameter: {s}", .{parameter.getTypeString()});
+
+            const tas_variant_type = glib.VariantType.new("(tas)");
+            defer tas_variant_type.free();
+
+            // ensure that the supplied parameter is an array of strings
+            if (glib.Variant.isOfType(parameter, tas_variant_type) == 0) {
+                log.warn("parameter is of type '{s}', not '{s}'", .{
+                    parameter.getTypeString(),
+                    tas_variant_type.peekString()[0..tas_variant_type.getStringLength()],
+                });
+                return;
+            }
+
+            var surface_id: u64 = 0;
+            var arguments_it_: ?*glib.VariantIter = null;
+            defer if (arguments_it_) |arguments_it| arguments_it.free();
+
+            parameter.get("(tas)", &surface_id, &arguments_it_);
+
+            const arguments_it = arguments_it_ orelse return;
+
+            const overrides = parseOverrides(alloc, arguments_it) catch return;
+
+            break :result .{ if (surface_id == 0) null else surface_id, overrides };
+        };
+
+        const surface_ = surface: {
+            if (surface_id_) |surface_id| find_by_id: {
+                break :surface core_app.findSurfaceByID(surface_id) orelse {
+                    log.warn("new-tab: unable to find surface 0x{x:0>16}", .{surface_id});
+                    break :find_by_id;
+                };
+            }
+            find_focused: {
+                break :surface core_app.focusedSurface() orelse {
+                    log.warn("new-tab: unable to find surface", .{});
+                    break :find_focused;
+                };
+            }
+            break :surface null;
+        };
+
+        if (surface_) |surface| {
+            if (!Action.newTab(
+                .{
+                    .surface = surface,
+                },
+                .{
+                    .command = overrides.command,
+                    .shell_integration = overrides.shell_integration,
+                    .working_directory = overrides.working_directory,
+                    .title = overrides.title,
+                },
+            )) {
+                log.warn("new-tab: unable to create tab", .{});
+            }
+        } else {
+            Action.newWindow(
+                self,
+                null,
+                .{
+                    .command = overrides.command,
+                    .shell_integration = overrides.shell_integration,
+                    .working_directory = overrides.working_directory,
+                    .title = overrides.title,
+                },
+            ) catch |err| {
+                log.warn("new-tab: unable to create new window: {t}", .{err});
+            };
+        }
+    }
+
+    fn parseOverrides(arena_alloc: Allocator, arguments_it: *glib.VariantIter) (Allocator.Error || error{ValueRequired})!struct {
+        command: ?configpkg.Command = null,
+        shell_integration: ?configpkg.Config.ShellIntegration = null,
+        working_directory: ?[:0]const u8 = null,
+        title: ?[:0]const u8 = null,
+    } {
+        var args: std.ArrayList([:0]const u8) = .empty;
+
+        var working_directory: ?[:0]const u8 = null;
+        var title: ?[:0]const u8 = null;
+        var command: ?configpkg.Command = null;
+        var parsed_shell_integration: struct {
+            @"shell-integration": ?configpkg.Config.ShellIntegration = null,
+        } = .{};
+
+        const s_variant_type = glib.VariantType.new("s");
+        defer s_variant_type.free();
+
+        var e_seen: bool = false;
+        var i: usize = 0;
+
+        while (arguments_it.nextValue()) |value| : (i += 1) {
+            defer value.unref();
+
+            // just to be sure
+            if (value.isOfType(s_variant_type) == 0) continue;
+
+            var len: usize = undefined;
+            const buf = value.getString(&len);
+            const str = buf[0..len];
+
+            log.debug("argument: {d} {s}", .{ i, str });
+
+            if (e_seen) {
+                const copy = arena_alloc.dupeZ(u8, str) catch |err| {
+                    log.warn("unable to duplicate argument {d} {s}: {t}", .{ i, str, err });
+                    return err;
+                };
+                args.append(arena_alloc, copy) catch |err| {
+                    log.warn("unable to append argument {d} {s}: {t}", .{ i, str, err });
+                    return err;
+                };
+                continue;
+            }
+
+            if (std.mem.eql(u8, str, "-e")) {
+                e_seen = true;
+                continue;
+            }
+
+            if (std.mem.cutPrefix(u8, str, "--command=")) |v| {
+                var cmd: configpkg.Command = undefined;
+                cmd.parseCLI(arena_alloc, v) catch |err| {
+                    log.warn("unable to parse command: {t}", .{err});
+                    return err;
+                };
+                command = cmd;
+                continue;
+            }
+            if (std.mem.cutPrefix(u8, str, "--shell-integration=")) |v| {
+                cli.args.parseIntoField(
+                    @TypeOf(parsed_shell_integration),
+                    arena_alloc,
+                    &parsed_shell_integration,
+                    "shell-integration",
+                    std.mem.trim(u8, v, &std.ascii.whitespace),
+                ) catch |err| {
+                    log.warn("unable to parse shell integration {s}: {t}", .{ v, err });
                     continue;
-                }
-
-                if (std.mem.eql(u8, str, "-e")) {
-                    e_seen = true;
-                    continue;
-                }
-
-                if (std.mem.cutPrefix(u8, str, "--command=")) |v| {
-                    var cmd: configpkg.Command = undefined;
-                    cmd.parseCLI(alloc, v) catch |err| {
-                        log.warn("unable to parse command: {t}", .{err});
-                        continue;
-                    };
-                    command = cmd;
-                    continue;
-                }
-                if (std.mem.cutPrefix(u8, str, "--working-directory=")) |v| {
-                    working_directory = alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| wd: {
-                        log.warn("unable to duplicate working directory: {t}", .{err});
-                        break :wd null;
-                    };
-                    continue;
-                }
-                if (std.mem.cutPrefix(u8, str, "--title=")) |v| {
-                    title = alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| t: {
-                        log.warn("unable to duplicate title: {t}", .{err});
-                        break :t null;
-                    };
-                    continue;
-                }
+                };
+                continue;
+            }
+            if (std.mem.cutPrefix(u8, str, "--working-directory=")) |v| {
+                working_directory = arena_alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| {
+                    log.warn("unable to duplicate working directory: {t}", .{err});
+                    return err;
+                };
+                continue;
+            }
+            if (std.mem.cutPrefix(u8, str, "--title=")) |v| {
+                title = arena_alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| {
+                    log.warn("unable to duplicate title: {t}", .{err});
+                    return err;
+                };
+                continue;
             }
         }
 
@@ -1910,21 +2054,52 @@ pub const Application = extern struct {
             };
         }
 
-        Action.newWindow(self, null, .{
+        return .{
             .command = command,
+            .shell_integration = parsed_shell_integration.@"shell-integration",
             .working_directory = working_directory,
             .title = title,
-        }) catch |err| {
-            log.warn("unable to create new window: {t}", .{err});
         };
     }
 
     pub fn actionOpenConfig(
         _: *gio.SimpleAction,
-        _: ?*glib.Variant,
+        parameter_: ?*glib.Variant,
         self: *Self,
     ) callconv(.c) void {
-        _ = self.core().mailbox.push(global.io(), .open_config, .forever);
+        const target: CoreApp.Message.OpenConfig = target: {
+            const target_map: std.StaticStringMap(CoreApp.Message.OpenConfig) = .initComptime(&.{
+                .{ "os-open", .os_open },
+                .{ "new-window", .new_window },
+            });
+
+            const parameter = parameter_ orelse {
+                log.warn("no parameter provided to app.open-config action", .{});
+                break :target .os_open;
+            };
+
+            const s_variant_type = glib.ext.VariantType.newFor([:0]const u8);
+            defer s_variant_type.free();
+
+            if (parameter.isOfType(s_variant_type) == 0) {
+                log.warn("parameter to app.open-config action is of type '{s}' not '{s}'", .{
+                    parameter.getTypeString(),
+                    s_variant_type.peekString()[0..s_variant_type.getStringLength()],
+                });
+                break :target .os_open;
+            }
+
+            var len: usize = undefined;
+            const buf = parameter.getString(&len);
+            const str = buf[0..len];
+
+            break :target target_map.get(str) orelse {
+                log.warn("'{s}' is not configured as a target for the app.open-config action", .{str});
+                break :target .os_open;
+            };
+        };
+
+        _ = self.core().mailbox.push(global.io(), .{ .open_config = target }, .forever);
     }
 
     fn actionPresentSurface(
@@ -2479,7 +2654,17 @@ const Action = struct {
         }
     }
 
-    pub fn newTab(target: apprt.Target) bool {
+    pub fn newTab(
+        target: apprt.Target,
+        overrides: struct {
+            command: ?configpkg.Command = null,
+            shell_integration: ?configpkg.Config.ShellIntegration = null,
+            working_directory: ?[:0]const u8 = null,
+            title: ?[:0]const u8 = null,
+
+            pub const none: @This() = .{};
+        },
+    ) bool {
         switch (target) {
             .app => {
                 log.warn("new tab to app is unexpected", .{});
@@ -2498,7 +2683,12 @@ const Action = struct {
                     log.warn("surface is not in a window, ignoring new_tab", .{});
                     return false;
                 };
-                window.newTab(core);
+                window.newTab(core, .{
+                    .command = overrides.command,
+                    .shell_integration = overrides.shell_integration,
+                    .working_directory = overrides.working_directory,
+                    .title = overrides.title,
+                });
                 return true;
             },
         }
@@ -2509,6 +2699,7 @@ const Action = struct {
         parent: ?*CoreSurface,
         overrides: struct {
             command: ?configpkg.Command = null,
+            shell_integration: ?configpkg.Config.ShellIntegration = null,
             working_directory: ?[:0]const u8 = null,
             title: ?[:0]const u8 = null,
 
@@ -2531,6 +2722,7 @@ const Action = struct {
             parent,
             .{
                 .command = overrides.command,
+                .shell_integration = overrides.shell_integration,
                 .working_directory = overrides.working_directory,
                 .title = overrides.title,
             },
@@ -2543,6 +2735,7 @@ const Action = struct {
         parent: ?*CoreSurface,
         overrides: struct {
             command: ?configpkg.Command = null,
+            shell_integration: ?configpkg.Config.ShellIntegration = null,
             working_directory: ?[:0]const u8 = null,
             title: ?[:0]const u8 = null,
 
@@ -2563,6 +2756,7 @@ const Action = struct {
         // Create a new tab with window context (first tab in new window)
         win.newTabForWindow(parent, .{
             .command = overrides.command,
+            .shell_integration = overrides.shell_integration,
             .working_directory = overrides.working_directory,
             .title = overrides.title,
         });
@@ -2583,18 +2777,55 @@ const Action = struct {
         gtk.Window.present(win.as(gtk.Window));
     }
 
-    pub fn openConfig(self: *Application) bool {
-        // Get the config file path
+    pub fn openConfig(self: *Application, value: apprt.action.OpenConfig) bool {
         const alloc = self.allocator();
+
+        // Get the config file path
         const path = configpkg.edit.openPath(alloc) catch |err| {
-            log.warn("error getting config file path: {}", .{err});
+            log.warn("error getting config file path: {t}", .{err});
             return false;
         };
         defer alloc.free(path);
 
-        // Open it using openURL. "path" isn't actually a URL but
-        // at the time of writing that works just fine for GTK.
-        openUrl(self, .{ .kind = .text, .url = path });
+        switch (value) {
+            .os_open => {
+                // Open it using openUrl. "path" isn't actually a URL but
+                // at the time of writing that works just fine for GTK.
+                openUrl(self, .{ .kind = .text, .url = path });
+            },
+
+            .new_window => {
+                const cmd = internal_os.getConfigEditCommand(alloc, path, .default) catch |err| {
+                    log.warn("unable to get command to edit the config: {t}", .{err});
+                    return false;
+                };
+                defer alloc.free(cmd);
+
+                const command: configpkg.Command = .{
+                    .direct = &.{ "/bin/sh", "-c", cmd },
+                };
+
+                const title = std.fmt.allocPrintSentinel(
+                    alloc,
+                    "{s} {s}",
+                    .{ i18n._("Editing configuration file"), path },
+                    0,
+                ) catch |err| t: {
+                    log.warn("unable to format title: {t}", .{err});
+                    break :t null;
+                };
+                defer if (title) |t| alloc.free(t);
+
+                Action.newWindow(self, null, .{
+                    .command = command,
+                    .title = title,
+                }) catch |err| {
+                    log.warn("unable to create new window: {t}", .{err});
+                    return false;
+                };
+            },
+        }
+
         return true;
     }
 
@@ -2685,6 +2916,23 @@ const Action = struct {
                             return false;
                         };
                         tab.promptTabTitle();
+                        return true;
+                    },
+                }
+            },
+            .window => {
+                switch (target) {
+                    .app => return false,
+                    .surface => |v| {
+                        const surface = v.rt_surface.surface;
+                        const win = ext.getAncestor(
+                            Window,
+                            surface.as(gtk.Widget),
+                        ) orelse {
+                            log.warn("surface is not in a window, ignoring prompt_window_title", .{});
+                            return false;
+                        };
+                        win.promptWindowTitle();
                         return true;
                     },
                 }
@@ -2855,6 +3103,30 @@ const Action = struct {
                     return false;
                 };
                 tab.setTitleOverride(if (value.title.len == 0) null else value.title);
+                return true;
+            },
+        }
+    }
+
+    pub fn setWindowTitle(
+        target: apprt.Target,
+        value: apprt.action.SetTitle,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("set_tab_title to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring set_window_title", .{});
+                    return false;
+                };
+                window.setTitleOverride(if (value.title.len == 0) null else value.title);
                 return true;
             },
         }

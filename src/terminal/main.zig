@@ -59,6 +59,7 @@ pub const Terminal = @import("Terminal.zig");
 pub const TerminalStream = stream_terminal.Stream;
 pub const Stream = stream.Stream;
 pub const StreamAction = stream.Action;
+pub const UnknownSequence = stream_terminal.Handler.UnknownSequence;
 pub const Cursor = Screen.Cursor;
 pub const CursorStyle = Screen.CursorStyle;
 pub const CursorStyleReq = ansi.CursorStyle;

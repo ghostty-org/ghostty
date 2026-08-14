@@ -120,7 +120,13 @@ pub const App = struct {
 
     core_app: *CoreApp,
     opts: Options,
-    keymap: input.Keymap,
+
+    /// The keyboard layout keymap. This is lazily initialized on first
+    /// use because creating it requires talking to the text input
+    /// system (TIS on macOS), and the first such call in a process is
+    /// slow (multiple milliseconds). It is only needed once keyboard
+    /// events start flowing, at which point the system is warm.
+    keymap: ?input.Keymap,
 
     /// The configuration for the app. This is owned by this structure.
     config: Config,
@@ -136,19 +142,16 @@ pub const App = struct {
         var config_clone = try config.clone(alloc);
         errdefer config_clone.deinit();
 
-        var keymap = try input.Keymap.init();
-        errdefer keymap.deinit();
-
         self.* = .{
             .core_app = core_app,
             .config = config_clone,
             .opts = opts,
-            .keymap = keymap,
+            .keymap = null,
         };
     }
 
     pub fn terminate(self: *App) void {
-        self.keymap.deinit();
+        if (self.keymap) |*v| v.deinit();
         self.config.deinit();
     }
 
@@ -208,8 +211,10 @@ pub const App = struct {
 
     /// This should be called whenever the keyboard layout was changed.
     pub fn reloadKeymap(self: *App) !void {
-        // Reload the keymap
-        try self.keymap.reload();
+        // Reload the keymap. If it was never initialized we don't need
+        // to do anything since lazy initialization will pick up the
+        // current layout.
+        if (self.keymap) |*v| try v.reload();
     }
 
     /// Loads the keyboard layout.
@@ -217,13 +222,25 @@ pub const App = struct {
     /// Kind of expensive so this should be avoided if possible. When I say
     /// "kind of expensive" I mean that its not something you probably want
     /// to run on every keypress.
-    pub fn keyboardLayout(self: *const App) input.KeyboardLayout {
+    pub fn keyboardLayout(self: *App) input.KeyboardLayout {
         // We only support keyboard layout detection on macOS.
         if (comptime builtin.os.tag != .macos) return .unknown;
 
+        // Lazily initialize the keymap.
+        const keymap: *input.Keymap = keymap: {
+            if (self.keymap == null) {
+                self.keymap = input.Keymap.init() catch |err| {
+                    log.warn("error initializing keymap err={}", .{err});
+                    return .unknown;
+                };
+            }
+
+            break :keymap &self.keymap.?;
+        };
+
         // Any layout larger than this is not something we can handle.
         var buf: [256]u8 = undefined;
-        const id = self.keymap.sourceId(&buf) catch |err| {
+        const id = keymap.sourceId(&buf) catch |err| {
             comptime assert(@TypeOf(err) == error{OutOfMemory});
             return .unknown;
         };
@@ -337,6 +354,7 @@ pub const App = struct {
     ) (Allocator.Error || apprt.ipc.Errors)!bool {
         switch (action) {
             .new_window => return false,
+            .new_tab => return false,
             .toggle_quick_terminal => return false,
         }
     }
@@ -1489,7 +1507,7 @@ pub const CAPI = struct {
 
     /// Open the configuration.
     export fn ghostty_app_open_config(v: *App) void {
-        _ = v.performAction(.app, .open_config, {}) catch |err| {
+        _ = v.performAction(.app, .open_config, .new_window) catch |err| {
             log.err("error reloading config err={}", .{err});
             return;
         };

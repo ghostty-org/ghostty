@@ -2,22 +2,15 @@ import SwiftUI
 import UniformTypeIdentifiers
 import UserNotifications
 import GhosttyKit
-
-#if os(macOS)
 import AppKit
-#endif
 
 protocol GhosttyAppDelegate: AnyObject {
-    #if os(macOS)
     /// Called when a callback needs access to a specific surface. This should return nil
     /// when the surface is no longer valid.
     func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView?
-    #endif
 }
 
 extension Ghostty {
-    // IMPORTANT: THIS IS NOT DONE.
-    // This is a refactor/redo of Ghostty.AppState so that it supports both macOS and iOS
     class App: ObservableObject {
         enum Readiness: String {
             case loading, error, ready
@@ -81,8 +74,6 @@ extension Ghostty {
                 return
             }
             self.app = app
-
-#if os(macOS)
             // Set our initial focus state
             ghostty_app_set_focus(app, NSApp.isActive)
 
@@ -102,18 +93,13 @@ extension Ghostty {
                 selector: #selector(applicationDidResignActive(notification:)),
                 name: NSApplication.didResignActiveNotification,
                 object: nil)
-#endif
-
             self.readiness = .ready
         }
 
         deinit {
             // This will force the didSet callbacks to run which free.
             self.app = nil
-
-#if os(macOS)
             NotificationCenter.default.removeObserver(self)
-#endif
         }
 
         // MARK: App Operations
@@ -132,7 +118,6 @@ extension Ghostty {
         func openConfig() {
             let str = configPath ?? Ghostty.AllocatedString(ghostty_config_open_path()).string
             guard !str.isEmpty else { return }
-            #if os(macOS)
             let fileURL = URL(fileURLWithPath: str).absoluteString
             var action = ghostty_action_open_url_s()
             action.kind = GHOSTTY_ACTION_OPEN_URL_KIND_TEXT
@@ -141,9 +126,6 @@ extension Ghostty {
                 action.len = UInt(fileURL.count)
                 _ = App.openURL(action)
             }
-            #else
-            fatalError("Unsupported platform for opening config file")
-            #endif
         }
 
         /// Reload the configuration.
@@ -271,39 +253,6 @@ extension Ghostty {
             }
         }
 
-        #if os(iOS)
-        // MARK: Ghostty Callbacks (iOS)
-
-        static func wakeup(_ userdata: UnsafeMutableRawPointer?) {}
-        static func action(_ app: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool { return false }
-        static func readClipboard(
-            _ userdata: UnsafeMutableRawPointer?,
-            location: ghostty_clipboard_e,
-            state: UnsafeMutableRawPointer?
-        ) -> Bool {
-            return false
-        }
-
-        static func confirmReadClipboard(
-            _ userdata: UnsafeMutableRawPointer?,
-            string: UnsafePointer<CChar>?,
-            state: UnsafeMutableRawPointer?,
-            request: ghostty_clipboard_request_e
-        ) {}
-
-        static func writeClipboard(
-            _ userdata: UnsafeMutableRawPointer?,
-            location: ghostty_clipboard_e,
-            content: UnsafePointer<ghostty_clipboard_content_s>?,
-            len: Int,
-            confirm: Bool
-        ) {}
-
-        static func closeSurface(_ userdata: UnsafeMutableRawPointer?, processAlive: Bool) {}
-        #endif
-
-        #if os(macOS)
-
         // MARK: Notifications
 
         // Called when the selected keyboard changes. We have to notify Ghostty so that
@@ -359,21 +308,31 @@ extension Ghostty {
             state: UnsafeMutableRawPointer?,
             request: ghostty_clipboard_request_e
         ) {
-            let surface = self.surfaceUserdata(from: userdata)
-            guard let valueStr = String(cString: string!, encoding: .utf8) else { return }
-            guard let request = Ghostty.ClipboardRequest.from(request: request) else { return }
-            NotificationCenter.default.post(
-                name: Notification.confirmClipboard,
-                object: surface,
-                userInfo: [
-                    Notification.ConfirmClipboardStrKey: valueStr,
-                    Notification.ConfirmClipboardStateKey: state as Any,
-                    Notification.ConfirmClipboardRequestKey: request,
-                ]
-            )
+            let surfaceView = self.surfaceUserdata(from: userdata)
+            guard surfaceView.surface != nil,
+                  let string,
+                  let valueStr = String(cString: string, encoding: .utf8),
+                  let kind = Ghostty.ClipboardRequest.from(request: request) else { return }
+
+            // libghostty reaches this callback only when the request attempted
+            // by readClipboard requires confirmation. Reads allowed by policy
+            // complete immediately and never become pending Swift state.
+            let request = Ghostty.ClipboardConfirmationRequest(
+                surface: surfaceView,
+                contents: valueStr,
+                kind: kind
+            ) { surfaceView, contents in
+                guard let surface = surfaceView.surface else { return }
+                completeClipboardRequest(
+                    surface,
+                    data: contents ?? "",
+                    state: state,
+                    confirmed: true)
+            }
+            surfaceView.pendingClipboardConfirmation = request
         }
 
-        static func completeClipboardRequest(
+        private static func completeClipboardRequest(
             _ surface: ghostty_surface_t,
             data: String,
             state: UnsafeMutableRawPointer?,
@@ -391,7 +350,7 @@ extension Ghostty {
             len: Int,
             confirm: Bool
         ) {
-            let surface = self.surfaceUserdata(from: userdata)
+            let surfaceView = self.surfaceUserdata(from: userdata)
             guard let pasteboard = NSPasteboard.ghostty(location) else { return }
             guard let content = content, len > 0 else { return }
 
@@ -407,7 +366,8 @@ extension Ghostty {
                    "clipboard contents should have at most one text/plain entry")
 
             if !confirm {
-                // Declare all types
+                // Apply writes allowed by policy immediately. Only writes that
+                // require confirmation continue to the pending request below.
                 let types = contentArray.compactMap { item in
                     NSPasteboard.PasteboardType(mimeType: item.mime)
                 }
@@ -426,14 +386,16 @@ extension Ghostty {
                 return
             }
 
-            NotificationCenter.default.post(
-                name: Notification.confirmClipboard,
-                object: surface,
-                userInfo: [
-                    Notification.ConfirmClipboardStrKey: textPlainContent.data,
-                    Notification.ConfirmClipboardRequestKey: Ghostty.ClipboardRequest.osc_52_write(pasteboard),
-                ]
-            )
+            let request = Ghostty.ClipboardConfirmationRequest(
+                surface: surfaceView,
+                contents: textPlainContent.data,
+                kind: .osc_52_write
+            ) { _, contents in
+                guard let contents else { return }
+                pasteboard.declareTypes([.string], owner: nil)
+                pasteboard.setString(contents, forType: .string)
+            }
+            surfaceView.pendingClipboardConfirmation = request
         }
 
         static func wakeup(_ userdata: UnsafeMutableRawPointer?) {
@@ -687,18 +649,8 @@ extension Ghostty {
         }
 
         private static func quit(_ app: ghostty_app_t) {
-            // On iOS, applications do not terminate programmatically like they do
-            // on macOS. On iOS, applications are only terminated when a user physically
-            // closes the application (i.e. going to the home screen). If we request
-            // exit on iOS we ignore it.
-            #if os(iOS)
-            logger.info("quit request received, ignoring on iOS")
-            #endif
-
-            #if os(macOS)
             // We want to quit, start that process
             NSApplication.shared.terminate(nil)
-            #endif
         }
 
         private static func checkForUpdates(
@@ -2363,7 +2315,5 @@ extension Ghostty {
                 break
             }
         }
-
-        #endif
     }
 }

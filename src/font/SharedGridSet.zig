@@ -340,6 +340,24 @@ fn collection(
     // specifying a font-family for emoji.
     if (comptime builtin.target.os.tag.isDarwin() and Discover != void) apple_emoji: {
         const disco = try self.discover() orelse break :apple_emoji;
+
+        // Fast path: we know the exact name of the font we want so we
+        // can look it up directly, which is sometimes significantly faster than
+        // full discovery (e.g. CoreText).
+        if (@hasDecl(Discover, "discoverExactFamily")) {
+            if (try disco.discoverExactFamily(
+                "Apple Color Emoji",
+            )) |face| {
+                _ = try c.addDeferred(self.alloc, face, .{
+                    .style = .regular,
+                    .fallback = true,
+                    // No size adjustment for emojis.
+                    .size_adjustment = .none,
+                });
+                break :apple_emoji;
+            }
+        }
+
         var disco_it = try disco.discover(self.alloc, .{
             .family = "Apple Color Emoji",
         });

@@ -1,4 +1,3 @@
-#if os(macOS)
 import AppKit
 
 /// Presents decisions for untrusted URLs at the AppKit boundary.
@@ -103,4 +102,3 @@ enum UntrustedURLAlert {
         return scrollView
     }
 }
-#endif

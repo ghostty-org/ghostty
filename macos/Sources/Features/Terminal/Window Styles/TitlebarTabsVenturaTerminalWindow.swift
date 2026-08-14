@@ -147,8 +147,8 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
         }
 
         // Update our window light/darkness based on our updated background color
-        let themeChanged = isLightTheme != OSColor(surfaceConfig.backgroundColor).isLightColor
-        isLightTheme = OSColor(surfaceConfig.backgroundColor).isLightColor
+        let themeChanged = isLightTheme != NSColor(surfaceConfig.backgroundColor).isLightColor
+        isLightTheme = NSColor(surfaceConfig.backgroundColor).isLightColor
 
         // Update our titlebar color
         if let preferredBackgroundColor {

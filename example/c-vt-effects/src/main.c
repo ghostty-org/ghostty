@@ -70,6 +70,32 @@ GhosttyClipboardWriteResult on_clipboard_write(
 }
 //! [effects-clipboard-write]
 
+//! [effects-unknown-sequence]
+void on_unknown_sequence(
+    GhosttyTerminal terminal,
+    void* userdata,
+    const GhosttyTerminalUnknownSequence* sequence) {
+  (void)terminal;
+  (void)userdata;
+
+  switch (sequence->tag) {
+  case GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_APC: {
+    const GhosttyTerminalUnknownStringSequence* apc = &sequence->value.apc;
+    printf("  unknown APC (truncated=%s, content=%zu bytes): ",
+           apc->truncated ? "yes" : "no",
+           apc->content.len);
+    if (apc->content.len > 0) {
+      fwrite(apc->content.ptr, 1, apc->content.len, stdout);
+    }
+    printf("\n");
+    break;
+  }
+  default:
+    break;
+  }
+}
+//! [effects-unknown-sequence]
+
 //! [effects-register]
 int main() {
   // Create a terminal
@@ -92,6 +118,14 @@ int main() {
       (const void *)on_title_changed);
   ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE,
       (const void *)on_clipboard_write);
+  ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE,
+      (const void *)on_unknown_sequence);
+
+  // Unknown sequence capture is independently bounded and disabled by
+  // default. This limit will apply to every supported unknown sequence type.
+  size_t unknown_max_bytes = 256;
+  ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_UNKNOWN_MAX_BYTES,
+      &unknown_max_bytes);
 
   // Feed VT data that triggers effects:
 
@@ -120,7 +154,13 @@ int main() {
   ghostty_terminal_vt_write(terminal, (const uint8_t*)clipboard_seq,
                             strlen(clipboard_seq));
 
-  // 5. Another bell to show the counter increments
+  // 5. Unsupported APC sequence
+  printf("Sending unknown APC:\n");
+  const char* unknown_apc = "\x1B_private-command;payload\x1B\\";
+  ghostty_terminal_vt_write(terminal, (const uint8_t*)unknown_apc,
+                            strlen(unknown_apc));
+
+  // 6. Another bell to show the counter increments
   printf("Sending another BEL:\n");
   ghostty_terminal_vt_write(terminal, &bel, 1);
 

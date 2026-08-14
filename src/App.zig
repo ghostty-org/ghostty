@@ -78,6 +78,32 @@ pub fn create(alloc: Allocator) CreateError!*App {
     var app = try alloc.create(App);
     errdefer alloc.destroy(app);
     try app.init(alloc);
+
+    // If font discovery supports warmup, then we call it. Some font
+    // mechanisms (e.g. CoreText) have a multi-millisecond one-time cost
+    // on startup.
+    if (comptime @hasDecl(font.Discover, "warmup")) {
+        if (std.Thread.spawn(
+            .{},
+            font.Discover.warmup,
+            .{},
+        )) |thr| thr.detach() else |err| {
+            log.warn("font warmup thread spawn failed err={}", .{err});
+        }
+    }
+
+    // Same for the renderer's graphics API (e.g. Metal), which pays
+    // one-time framework initialization costs on first use.
+    if (comptime @hasDecl(renderer.Renderer.API, "warmup")) {
+        if (std.Thread.spawn(
+            .{},
+            renderer.Renderer.API.warmup,
+            .{},
+        )) |thr| thr.detach() else |err| {
+            log.warn("renderer warmup thread spawn failed err={}", .{err});
+        }
+    }
+
     return app;
 }
 
@@ -246,7 +272,15 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
             }
         }
         switch (message) {
-            .open_config => try self.performAction(rt_app, .open_config),
+            .open_config => |v| try self.performAction(
+                rt_app,
+                .{
+                    .open_config = switch (v) {
+                        .os_open => .os_open,
+                        .new_window => .new_window,
+                    },
+                },
+            ),
             .new_window => |msg| try self.newWindow(rt_app, msg),
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
@@ -425,7 +459,14 @@ pub fn performAction(
         .ignore => {},
         .quit => _ = try rt_app.performAction(.app, .quit, {}),
         .new_window => _ = try self.newWindow(rt_app, .{ .parent = null }),
-        .open_config => _ = try rt_app.performAction(.app, .open_config, {}),
+        .open_config => |v| _ = try rt_app.performAction(
+            .app,
+            .open_config,
+            switch (v) {
+                .os_open => .os_open,
+                .new_window => .new_window,
+            },
+        ),
         .reload_config => _ = try rt_app.performAction(.app, .reload_config, .{}),
         .close_all_windows => _ = try rt_app.performAction(.app, .close_all_windows, {}),
         .toggle_quick_terminal => _ = try rt_app.performAction(.app, .toggle_quick_terminal, {}),
@@ -527,7 +568,7 @@ fn hasRtSurface(self: *const App, surface: *apprt.Surface) bool {
 /// The message types that can be sent to the app thread.
 pub const Message = union(enum) {
     // Open the configuration file
-    open_config: void,
+    open_config: OpenConfig,
 
     /// Create a new terminal window.
     new_window: NewWindow,
@@ -554,6 +595,13 @@ pub const Message = union(enum) {
     const NewWindow = struct {
         /// The parent surface
         parent: ?*Surface = null,
+    };
+
+    pub const OpenConfig = enum {
+        /// Open the config in the OS default editor.
+        os_open,
+        /// Open the config in a new window using $EDITOR or $VISUAL
+        new_window,
     };
 };
 

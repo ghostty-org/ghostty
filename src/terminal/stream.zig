@@ -110,7 +110,7 @@ pub const Action = union(Key) {
     dcs_put: u8,
     dcs_unhook,
     apc_start,
-    apc_end,
+    apc_end: ApcEnd,
     apc_put: u8,
     apc_put_slice: ApcPutSlice,
     end_hyperlink,
@@ -289,6 +289,11 @@ pub const Action = union(Key) {
         pub fn cval(self: ApcPutSlice) ApcPutSlice.C {
             return .{ .bytes = self.bytes.ptr, .len = self.bytes.len };
         }
+    };
+
+    pub const ApcEnd = extern struct {
+        /// False when CAN, SUB, or another aborting transition ended the APC.
+        terminated: bool,
     };
 
     pub const InvokeCharset = lib.Struct(lib.target, struct {
@@ -590,6 +595,56 @@ pub fn Stream(comptime H: type) type {
             if (self.continuation != null) self.trackContinuation(input);
         }
 
+        /// Process a string of characters, but only the shortest prefix
+        /// needed to reach the ground state.
+        ///
+        /// The ground state is when the stream isn't in the middle of any
+        /// type of sequence: UTF-8, ESC, CSI, OSC, etc. It is the stateless
+        /// point of the stream.
+        ///
+        /// If the stream is already at ground then this consumes nothing
+        /// and returns zero. A non-null return is the number of bytes consumed
+        /// before reaching ground, including the byte that reaches it. A null
+        /// return means the full slice was consumed without reaching ground.
+        ///
+        /// This is anywhere from 1% to 5% slower than nextSlice, depending
+        /// on the types of inputs provided (e.g. OSC vs APC, whether it
+        /// ever reaches ground, etc.).
+        pub inline fn nextSliceUntilGround(
+            self: *Self,
+            input: []const u8,
+        ) ?usize {
+            const consumed = self.nextSliceUntilGroundUntracked(input);
+            const consumed_len = consumed orelse input.len;
+            if (self.continuation != null and consumed_len > 0) {
+                self.trackContinuation(input[0..consumed_len]);
+            }
+
+            return consumed;
+        }
+
+        inline fn nextSliceUntilGroundUntracked(
+            self: *Self,
+            input: []const u8,
+        ) ?usize {
+            if (self.ground()) return 0;
+
+            // Process UTF-8 if we're within that state.
+            var offset: usize = 0;
+            while (self.utf8decoder.state != 0) {
+                if (offset >= input.len) return null;
+                self.nextUtf8(input[offset]);
+                offset += 1;
+            }
+
+            // Process non-UTF-8
+            if (self.parser.state != .ground) {
+                offset += self.consumeUntilGround(input[offset..]);
+            }
+
+            return if (self.ground()) offset else null;
+        }
+
         inline fn nextSliceUntracked(self: *Self, input: []const u8) void {
             // Disable SIMD optimizations if build requests it or if our
             // manual debug mode is on.
@@ -766,8 +821,29 @@ pub fn Stream(comptime H: type) type {
                     if (self.parser.state == .sos_pm_apc_string) {
                         offset += self.consumeApcString(input[offset..]);
                         if (offset >= input.len) return input.len;
-                        // The next byte exits the string state; let
-                        // nextNonUtf8 below handle it.
+
+                        // Fast-path normal string termination. This matches
+                        // Parser.next's exit and entry actions while avoiding
+                        // the generic action loop for every completed APC.
+                        switch (input[offset]) {
+                            std.ascii.control_code.esc => {
+                                self.parser.clear();
+                                self.parser.state = .escape;
+                                self.handler.vt(.apc_end, .{ .terminated = true });
+                                offset += 1;
+                                continue;
+                            },
+                            0x9C => {
+                                self.parser.state = .ground;
+                                self.handler.vt(.apc_end, .{ .terminated = true });
+                                offset += 1;
+                                continue;
+                            },
+                            else => {},
+                        }
+
+                        // Aborting transitions need the scalar path so the
+                        // handler can distinguish them from terminators.
                     }
                 }
 
@@ -1109,7 +1185,9 @@ pub fn Stream(comptime H: type) type {
                     .dcs_unhook => self.handler.vt(.dcs_unhook, {}),
                     .apc_start => self.handler.vt(.apc_start, {}),
                     .apc_put => |code| self.handler.vt(.apc_put, code),
-                    .apc_end => self.handler.vt(.apc_end, {}),
+                    .apc_end => self.handler.vt(.apc_end, .{
+                        .terminated = c == std.ascii.control_code.esc or c == 0x9C,
+                    }),
                 }
             }
         }
@@ -3989,6 +4067,18 @@ test "stream: apc bulk slice" {
     }
 }
 
+test "stream: apc bulk slice C1 ST" {
+    var s: Stream(ApcTestHandler) = .init(.{ .handler = .{} });
+    s.nextSlice("\x1b_Gpayload\x9c");
+
+    try testing.expectEqual(@as(usize, 1), s.handler.started);
+    try testing.expectEqual(@as(usize, 1), s.handler.ended);
+    try testing.expectEqualStrings(
+        "Gpayload",
+        s.handler.buf[0..s.handler.len],
+    );
+}
+
 test "stream: apc bulk slice split across inputs" {
     var s: Stream(ApcTestHandler) = .init(.{ .handler = .{} });
     s.nextSlice("\x1b_Gf=24,s=10");
@@ -4120,6 +4210,152 @@ const ContinuationNullHandler = struct {
         _: anytype,
     ) void {}
 };
+
+test "stream: nextSliceUntilGround stops at the earliest boundary" {
+    const S = Stream(ContinuationTestHandler);
+    var stream: S = .init(.{ .handler = .{} });
+    defer stream.deinit();
+
+    stream.nextSlice("\x1b[31");
+    try testing.expect(!stream.ground());
+    stream.handler.committed = 0;
+
+    const input = "mABC\x1b[";
+    const consumed = stream.nextSliceUntilGround(input).?;
+    try testing.expectEqual(@as(usize, 1), consumed);
+    try testing.expect(stream.ground());
+    try testing.expectEqual(@as(usize, 1), stream.handler.committed);
+
+    // The suffix was not inspected by the handler and can be processed after
+    // the caller performs work at the boundary.
+    stream.nextSlice(input[consumed..]);
+    try testing.expect(!stream.ground());
+    try testing.expectEqual(Parser.State.csi_entry, stream.parser.state);
+    try testing.expectEqual(@as(usize, 4), stream.handler.committed);
+}
+
+test "stream: nextSliceUntilGround consumes all input without a boundary" {
+    const S = Stream(ContinuationNullHandler);
+    var stream: S = .init(.{ .handler = .{} });
+    defer stream.deinit();
+
+    try testing.expectEqual(
+        @as(?usize, 0),
+        stream.nextSliceUntilGround("unprocessed"),
+    );
+    try testing.expect(stream.ground());
+
+    stream.nextSlice("\x1b[");
+    try testing.expectEqual(
+        @as(?usize, null),
+        stream.nextSliceUntilGround("123"),
+    );
+    try testing.expect(!stream.ground());
+
+    // A boundary on the final byte is distinguishable from exhausting the
+    // input while still pending.
+    try testing.expectEqual(
+        @as(?usize, 1),
+        stream.nextSliceUntilGround("m"),
+    );
+    try testing.expect(stream.ground());
+}
+
+test "stream: nextSliceUntilGround handles UTF-8 boundaries" {
+    const S = Stream(ContinuationTestHandler);
+
+    // A completed codepoint is committed synchronously, and the printable
+    // suffix remains untouched.
+    var valid: S = .init(.{ .handler = .{} });
+    defer valid.deinit();
+    valid.nextSlice(&.{0xF0});
+    const valid_input = [_]u8{ 0x9F, 0x98, 0x84, 'X' };
+    try testing.expectEqual(
+        @as(?usize, 3),
+        valid.nextSliceUntilGround(&valid_input),
+    );
+    try testing.expect(valid.ground());
+    try testing.expectEqual(@as(usize, 1), valid.handler.committed);
+
+    // A malformed continuation emits the replacement codepoint and retries
+    // the same byte. Ground is observed after that complete byte operation.
+    var malformed: S = .init(.{ .handler = .{} });
+    defer malformed.deinit();
+    malformed.nextSlice(&.{ 0xE0, 0xA0 });
+    try testing.expectEqual(
+        @as(?usize, 1),
+        malformed.nextSliceUntilGround("A!"),
+    );
+    try testing.expect(malformed.ground());
+    try testing.expectEqual(@as(usize, 2), malformed.handler.committed);
+
+    // If the retried byte is ESC, the stream has begun VT state at the end of
+    // that byte and must continue to the following ground boundary.
+    var retry_escape: S = .init(.{ .handler = .{} });
+    defer retry_escape.deinit();
+    retry_escape.nextSlice(&.{ 0xE0, 0xA0 });
+    try testing.expectEqual(
+        @as(?usize, 3),
+        retry_escape.nextSliceUntilGround("\x1b[mX"),
+    );
+    try testing.expect(retry_escape.ground());
+}
+
+test "stream: nextSliceUntilGround handles aborts and bulk strings" {
+    const S = Stream(ContinuationTestHandler);
+
+    var aborted: S = .init(.{ .handler = .{} });
+    defer aborted.deinit();
+    aborted.nextSlice("\x1b[123");
+    try testing.expectEqual(
+        @as(?usize, 1),
+        aborted.nextSliceUntilGround(&.{ 0x18, 'X' }),
+    );
+    try testing.expect(aborted.ground());
+
+    var apc: S = .init(.{ .handler = .{} });
+    defer apc.deinit();
+    apc.nextSlice("\x1b_Gseed");
+    var input: [131]u8 = undefined;
+    @memset(input[0..128], 'a');
+    input[128..130].* = "\x1b\\".*;
+    input[130] = 'X';
+    try testing.expectEqual(
+        @as(?usize, 130),
+        apc.nextSliceUntilGround(&input),
+    );
+    try testing.expect(apc.ground());
+}
+
+test "stream: nextSliceUntilGround tracks only the consumed prefix" {
+    const S = Stream(ContinuationNullHandler);
+    var stream: S = .init(.{
+        .allocator = testing.allocator,
+        .handler = .{},
+        .continuation_max_bytes = 64,
+    });
+    defer stream.deinit();
+
+    stream.nextSlice("\x1b[31");
+    try testing.expectEqual(
+        @as(?usize, 1),
+        stream.nextSliceUntilGround("mX\x1b["),
+    );
+
+    var buf: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try stream.writeContinuation(&writer);
+    try testing.expectEqual(@as(usize, 0), writer.buffered().len);
+
+    stream.nextSlice("\x1b[");
+    try testing.expectEqual(
+        @as(?usize, null),
+        stream.nextSliceUntilGround("123"),
+    );
+    var pending_writer: std.Io.Writer = .fixed(&buf);
+    try stream.writeContinuation(&pending_writer);
+    try testing.expectEqualStrings("\x1b[123", pending_writer.buffered());
+}
 
 test "stream: continuation lifecycle" {
     const S = Stream(ContinuationTestHandler);

@@ -31,7 +31,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter_every
         with:
           token: ""
@@ -40,7 +40,7 @@ jobs:
             code:
               - '**'
               - '!.github/VOUCHED.td'
-      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter_any
         with:
           token: ""
@@ -1161,14 +1161,6 @@ jobs:
         run: |
           cd macos
           xcodebuild -target Ghostty \
-            COMPILATION_CACHE_CAS_PATH=/Users/runner/Library/Developer/Xcode/DerivedData/CompilationCache.noindex \
-            COMPILATION_CACHE_KEEP_CAS_DIRECTORY=YES
-
-      # Build the iOS target without code signing just to verify it works.
-      - name: Build Ghostty iOS
-        run: |
-          cd macos
-          xcodebuild -target Ghostty-iOS "CODE_SIGNING_ALLOWED=NO" \
             COMPILATION_CACHE_CAS_PATH=/Users/runner/Library/Developer/Xcode/DerivedData/CompilationCache.noindex \
             COMPILATION_CACHE_KEEP_CAS_DIRECTORY=YES
 

@@ -11,6 +11,7 @@ const lib = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
+const stderr = @import("os/stderr.zig");
 
 // The public API below reproduces a lot of terminal/main.zig but
 // is separate because (1) we need our root file to be in `src/`
@@ -36,6 +37,17 @@ const terminal = @import("terminal/main.zig");
 ///
 /// Additional functionality will be added here over time as needed.
 pub const sys = terminal.sys;
+
+/// A tiny, blocking `std.Io` implementation optimized for binary size.
+///
+/// Constructing a `Terminal` requires a `std.Io` for features that touch
+/// the filesystem (e.g. Kitty graphics file transmission). Embedders that
+/// don't have their own `Io` can use `TinyIo` (e.g.
+/// `(TinyIo.init).io()`) instead of `std.Io.Threaded` to avoid linking
+/// Threaded's full vtable (networking, process spawning, async
+/// machinery, etc.), which is worth roughly 110KB of binary size. See
+/// the TinyIo docs for the exact tradeoffs.
+pub const TinyIo = @import("lib/TinyIo.zig");
 
 pub const apc = terminal.apc;
 pub const dcs = terminal.dcs;
@@ -80,6 +92,7 @@ pub const Terminal = terminal.Terminal;
 pub const TerminalStream = terminal.TerminalStream;
 pub const Stream = terminal.Stream;
 pub const StreamAction = terminal.StreamAction;
+pub const UnknownSequence = terminal.UnknownSequence;
 pub const Cursor = Screen.Cursor;
 pub const CursorStyle = Screen.CursorStyle;
 pub const CursorStyleReq = terminal.CursorStyle;
@@ -281,6 +294,7 @@ comptime {
         @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
         @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
         @export(&c.terminal_vt_write, .{ .name = "ghostty_terminal_vt_write" });
+        @export(&c.terminal_vt_write_until_ground, .{ .name = "ghostty_terminal_vt_write_until_ground" });
         @export(&c.terminal_scroll_viewport, .{ .name = "ghostty_terminal_scroll_viewport" });
         @export(&c.terminal_compression_activity, .{ .name = "ghostty_terminal_compression_activity" });
         @export(&c.terminal_compress, .{ .name = "ghostty_terminal_compress" });
@@ -412,6 +426,79 @@ pub const std_options: std.Options = opts: {
 
     break :opts options;
 };
+
+/// True for builds where we keep the full std debug machinery (stack
+/// traces on panic, std.debug.print, etc.). These builds are for
+/// development, where the roughly 160KB of binary size it costs is
+/// worth it.
+const debug_machinery: bool = builtin.is_test or switch (builtin.mode) {
+    .Debug, .ReleaseSafe => true,
+    .ReleaseFast, .ReleaseSmall => false,
+};
+
+/// The panic handler for when this file is the root module.
+///
+/// In ReleaseFast and ReleaseSmall builds we print the panic message to
+/// stderr and trap, but do not attempt to unwind the stack to print a
+/// stack trace.
+pub const panic: type = if (debug_machinery)
+    std.debug.FullPanic(std.debug.defaultPanic)
+else
+    std.debug.FullPanic(tinyPanicImpl);
+
+/// Guards release builds against accidentally reintroducing the std
+/// debug Io machinery.
+///
+/// `std.Options.debug_io` defaults to `std.Io.Threaded`, and anything
+/// that reaches it (std.debug.print, std.debug.lockStderr, the default
+/// std.log handler, etc.) pins Threaded's entire vtable into the binary:
+/// roughly 110KB of unreachable code.
+///
+/// This verifies nothing ever touches it.
+pub const std_options_debug_io: std.Io = if (debug_machinery)
+    std.Io.Threaded.global_single_threaded.io()
+else
+    @compileError(
+        \\The std debug Io machinery (std.debug.print, std.debug.lockStderr,
+        \\std.log's default handler, ...) is disabled in libghostty-vt release
+        \\builds because it costs ~110KB of binary size. Use std.log (routed
+        \\through our logFn), os/stderr.zig for raw diagnostic writes, or
+        \\gate the code on debug builds.
+    );
+
+/// Prints the panic message to stderr (best-effort) and traps.
+///
+/// This intentionally avoids `std.debug.lockStderr`, which routes through
+/// `std.Options.debug_io` and would keep the entire `std.Io.Threaded`
+/// vtable alive in the binary which takes up hundreds of KB.
+///
+/// This is safe to call from any thread (and even from signal handlers):
+/// it takes no locks, performs no allocation, and touches no shared
+/// mutable state. The message is emitted with a single raw write so that
+/// concurrent stderr output doesn't interleave with it.
+fn tinyPanicImpl(msg: []const u8, ra: ?usize) noreturn {
+    @branchHint(.cold);
+    _ = ra;
+
+    // 256 bytes is enough for most messages, so try that first
+    // so that we can try to write in a single syscall.
+    var buf: [256]u8 = undefined;
+    if (std.fmt.bufPrint(
+        &buf,
+        "panic: {s}\n",
+        .{msg},
+    )) |line| {
+        stderr.write(line);
+    } else |_| {
+        stderr.write("panic: ");
+        stderr.write(msg);
+        stderr.write("\n");
+    }
+
+    // Trap forces a standard crash that embedder-provided debuggers
+    // or environments can catch.
+    @trap();
+}
 
 test {
     // Zig 0.16.0 has made test logging more strict. Now, *anything* that gets
