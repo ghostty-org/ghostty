@@ -1,0 +1,12 @@
+.git
+.github
+.zig-cache
+zig-out
+zig-pkg
+macos/build
+macos/GhosttyKit.xcframework
+graphify-out
+**/graphify-out
+**/.DS_Store
+*.zip
+glad.zip
