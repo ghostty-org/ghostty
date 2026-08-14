@@ -1,6 +1,7 @@
 const colorpkg = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const x11_color = @import("x11_color.zig");
 
@@ -128,8 +129,57 @@ pub const PaletteC = [256]RGB.C;
 /// Convert a Palette to a PaletteC.
 pub fn paletteCval(palette: *const Palette) PaletteC {
     var result: PaletteC = undefined;
-    for (&result, palette) |*dst, src| dst.* = src.cval();
+    paletteCvalSlice(palette[0..], result[0..]);
     return result;
+}
+
+/// Convert a slice of palette entries to their C representation.
+/// Asserts that both slices are the same length.
+pub fn paletteCvalSlice(src: []const RGB, dst: []RGB.C) void {
+    assert(src.len == dst.len);
+
+    var i: usize = 0;
+
+    // For CPUs that are LE, we can do some clever byte shuffling
+    // with vectorization to do a 4-to-3 conversion.
+    if (comptime builtin.cpu.arch.endian() == .little) {
+        // Process 4 entries at a time: one 16-byte load, one byte
+        // shuffle dropping the padding byte of each entry, and one
+        // 16-byte store. The store intentionally overlaps the next
+        // group by 4 (garbage) bytes so that it stays a single
+        // vector store; the loop bound guarantees the overlap stays
+        // in bounds and every overlapped byte is rewritten by the
+        // next iteration or the scalar tail.
+        //
+        // Note the input load is a memory-level reinterpretation
+        // (pointer cast) because a value-level @bitCast of packed
+        // structs operates on the 24-bit value bits, not the 4-byte
+        // in-memory representation.
+        const V = @Vector(16, u8);
+        const dst_bytes: [*]u8 = @ptrCast(dst.ptr);
+        while (i + 6 <= src.len) : (i += 4) {
+            // All intermediaries have to also go through a Vector type
+            // to ensure LLVM lowers as vectorized ops. In Zig 0.16 the
+            // LLVM auto-vectorizer is disabled so this is required.
+            const in: V = @as(*align(4) const V, @ptrCast(src[i..][0..4])).*;
+            const out: V = @shuffle(u8, in, undefined, [16]i32{
+                0,  1,  2,
+                4,  5,  6,
+                8,  9,  10,
+                12, 13, 14,
+
+                // Overflow we don't care about
+                3,  7,  11,
+                15,
+            });
+
+            // Scary looking but safe, mapping a byte pointer to the full
+            // vector type (hence align 1).
+            @as(*align(1) V, @ptrCast(dst_bytes[i * 3 ..][0..16])).* = out;
+        }
+    }
+
+    for (src[i..], dst[i..]) |entry, *out| out.* = entry.cval();
 }
 
 /// Convert a PaletteC to a Palette.
@@ -1274,5 +1324,37 @@ test "LAB.toRgb" {
         try testing.expectEqual(expected.r, actual.r);
         try testing.expectEqual(expected.g, actual.g);
         try testing.expectEqual(expected.b, actual.b);
+    }
+}
+
+test paletteCvalSlice {
+    const testing = std.testing;
+
+    // Every length from empty through a full palette, so that the
+    // vectorized groups, the overlapping store bound, and the scalar
+    // tail are all exercised at their edges.
+    var src: Palette = undefined;
+    for (&src, 0..) |*rgb, i| rgb.* = .{
+        .r = @intCast(i % 256),
+        .g = @intCast((i * 7 + 1) % 256),
+        .b = @intCast((i * 13 + 2) % 256),
+    };
+
+    var dst: PaletteC = undefined;
+    for (0..src.len + 1) |len| {
+        // Poison the destination so unwritten bytes are detected.
+        @memset(std.mem.asBytes(&dst), 0xAA);
+
+        paletteCvalSlice(src[0..len], dst[0..len]);
+        for (src[0..len], dst[0..len]) |rgb, c| {
+            try testing.expectEqual(rgb.r, c.r);
+            try testing.expectEqual(rgb.g, c.g);
+            try testing.expectEqual(rgb.b, c.b);
+        }
+
+        // Nothing beyond the requested length may be written.
+        for (std.mem.asBytes(&dst)[len * 3 ..]) |b| {
+            try testing.expectEqual(@as(u8, 0xAA), b);
+        }
     }
 }

@@ -24,10 +24,10 @@ struct UpdatePill: View {
                 .onChange(of: model.state) { newState in
                     resetTask?.cancel()
                     if case .notFound(let notFound) = newState {
-                        resetTask = Task { [weak model] in
+                        resetTask = Task {
                             try? await Task.sleep(for: .seconds(5))
-                            guard !Task.isCancelled, case .notFound? = model?.state else { return }
-                            model?.state = .idle
+                            guard !Task.isCancelled, case .notFound = model.state else { return }
+                            model.state = .idle
                             notFound.acknowledgement()
                         }
                     } else {

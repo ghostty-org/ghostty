@@ -743,6 +743,7 @@ pub const Surface = extern struct {
 
         overrides: struct {
             command: ?configpkg.Command = null,
+            shell_integration: ?configpkg.Config.ShellIntegration = null,
             working_directory: ?[:0]const u8 = null,
 
             pub const none: @This() = .{};
@@ -753,6 +754,7 @@ pub const Surface = extern struct {
 
     pub fn new(overrides: struct {
         command: ?configpkg.Command = null,
+        shell_integration: ?configpkg.Config.ShellIntegration = null,
         working_directory: ?[:0]const u8 = null,
         title: ?[:0]const u8 = null,
 
@@ -765,6 +767,7 @@ pub const Surface = extern struct {
         const priv: *Private = self.private();
         priv.overrides = .{
             .command = if (overrides.command) |c| c.clone(alloc) catch null else null,
+            .shell_integration = overrides.shell_integration,
             .working_directory = if (overrides.working_directory) |wd| alloc.dupeZ(u8, wd) catch null else null,
         };
         return self;
@@ -3583,9 +3586,11 @@ pub const Surface = extern struct {
         );
         defer config.deinit();
 
-        if (priv.overrides.command) |c| {
-            config.command = try c.clone(config._arena.?.allocator());
-        }
+        try applyCommandOverrides(
+            &config,
+            priv.overrides.command,
+            priv.overrides.shell_integration,
+        );
         if (priv.overrides.working_directory) |wd| {
             const config_alloc = config.arenaAlloc();
             var wd_val: configpkg.WorkingDirectory = .{ .path = try config_alloc.dupe(u8, wd) };
@@ -4450,4 +4455,58 @@ test "computeFraction" {
     try std.testing.expectEqual(1.0, computeFraction(255));
     try std.testing.expectEqual(0.0, computeFraction(0));
     try std.testing.expectEqual(0.5, computeFraction(50));
+}
+
+/// Apply command and shell integration overrides received from the CLI.
+/// Explicit commands should only receive shell integration when their
+/// executable can be detected as a supported shell. An explicit shell
+/// integration override is also valid without a command.
+fn applyCommandOverrides(
+    config: *configpkg.Config,
+    command: ?configpkg.Command,
+    shell_integration: ?configpkg.Config.ShellIntegration,
+) Allocator.Error!void {
+    if (command) |value| {
+        config.command = try value.clone(config.arenaAlloc());
+
+        if (shell_integration) |integration| {
+            config.@"shell-integration" = integration;
+        } else if (config.@"shell-integration" != .none) {
+            config.@"shell-integration" = .detect;
+        }
+    } else if (shell_integration) |value| {
+        config.@"shell-integration" = value;
+    }
+}
+
+test "command and shell integration overrides" {
+    const testing = std.testing;
+
+    var config = try configpkg.Config.default(testing.allocator);
+    defer config.deinit();
+
+    config.@"shell-integration" = .nushell;
+    try applyCommandOverrides(&config, .{ .shell = "vim" }, null);
+    try testing.expectEqual(.detect, config.@"shell-integration");
+
+    config.@"shell-integration" = .none;
+    try applyCommandOverrides(&config, .{ .shell = "vim" }, null);
+    try testing.expectEqual(.none, config.@"shell-integration");
+
+    try applyCommandOverrides(&config, .{ .shell = "nu" }, .nushell);
+    try testing.expectEqual(.nushell, config.@"shell-integration");
+
+    try applyCommandOverrides(&config, .{ .shell = "vim" }, .none);
+    try testing.expectEqual(.none, config.@"shell-integration");
+
+    config.@"shell-integration" = .nushell;
+    try applyCommandOverrides(&config, null, null);
+    try testing.expectEqual(.nushell, config.@"shell-integration");
+
+    config.@"shell-integration" = .none;
+    try applyCommandOverrides(&config, null, .nushell);
+    try testing.expectEqual(.nushell, config.@"shell-integration");
+
+    try applyCommandOverrides(&config, null, .none);
+    try testing.expectEqual(.none, config.@"shell-integration");
 }

@@ -697,6 +697,32 @@ pub fn vt_write(
     wrapper.stream.nextSlice(ptr[0..len]);
 }
 
+pub fn vt_write_until_ground(
+    terminal_: Terminal,
+    ptr_: ?[*]const u8,
+    len: usize,
+    out_consumed_: ?*usize,
+) callconv(lib.calling_conv) Result {
+    const out_consumed = out_consumed_ orelse return .invalid_value;
+    out_consumed.* = 0;
+
+    const wrapper = terminal_ orelse return .invalid_value;
+    const input: []const u8 = if (ptr_) |ptr|
+        ptr[0..len]
+    else if (len == 0)
+        ""
+    else
+        return .invalid_value;
+
+    if (wrapper.stream.nextSliceUntilGround(input)) |consumed| {
+        out_consumed.* = consumed;
+        return .success;
+    }
+
+    out_consumed.* = len;
+    return .no_value;
+}
+
 pub const ContinuationWriteError = error{
     InvalidValue,
     WriteFailed,
@@ -1328,6 +1354,8 @@ pub const TerminalData = enum(c_int) {
     scrollback_max_lines = 35,
     continuation_max_bytes = 36,
     mode = 37,
+    vt_ground = 38,
+    cursor_at_prompt = 39,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: TerminalData) type {
@@ -1339,6 +1367,8 @@ pub const TerminalData = enum(c_int) {
             .mouse_tracking,
             .viewport_active,
             .vt_processing_error,
+            .vt_ground,
+            .cursor_at_prompt,
             => bool,
             .active_screen => TerminalScreen,
             .kitty_keyboard_flags => u8,
@@ -1489,6 +1519,7 @@ fn getTyped(
         ),
         .viewport_active => out.* = t.screens.active.pages.viewport == .active,
         .vt_processing_error => out.* = wrapper.stream.handler.semantic_failure,
+        .vt_ground => out.* = wrapper.stream.ground(),
         .scrollback_max_bytes => {
             const max = t.screens.get(.primary).?.pages.limits.bytes.explicit;
             if (max == std.math.maxInt(usize)) return .no_value;
@@ -1504,6 +1535,7 @@ fn getTyped(
             const mode = out.toMode() orelse return .invalid_value;
             out.value = t.modes.get(mode);
         },
+        .cursor_at_prompt => out.* = t.cursorIsAtPrompt(),
     }
 
     return .success;
@@ -2498,6 +2530,189 @@ test "vt_write" {
     try testing.expectEqualStrings("Hello", str);
 }
 
+test "vt_write_until_ground result contract" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    // Input remains untouched when the stream is already at ground.
+    var consumed: usize = 99;
+    const untouched = "unprocessed";
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until_ground(t, untouched, untouched.len, &consumed),
+    );
+    try testing.expectEqual(@as(usize, 0), consumed);
+
+    // Complete a split CSI and stop before inspecting the printable suffix.
+    vt_write(t, "\x1b[31", 4);
+    const input = "mABC\x1b[";
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until_ground(t, input, input.len, &consumed),
+    );
+    try testing.expectEqual(@as(usize, 1), consumed);
+    try testing.expect(t.?.stream.ground());
+
+    var str = try t.?.terminal.plainString(testing.allocator);
+    try testing.expectEqualStrings("", str);
+    testing.allocator.free(str);
+
+    // The untouched suffix can be processed after work at the boundary.
+    vt_write(t, input.ptr + consumed, input.len - consumed);
+    str = try t.?.terminal.plainString(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("ABC", str);
+    try testing.expect(!t.?.stream.ground());
+
+    // Exhausting input while unfinished is distinct from reaching ground on
+    // the final byte, even though both consume the entire input.
+    try testing.expectEqual(
+        Result.no_value,
+        vt_write_until_ground(t, "123", 3, &consumed),
+    );
+    try testing.expectEqual(@as(usize, 3), consumed);
+    try testing.expect(!t.?.stream.ground());
+
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until_ground(t, "m", 1, &consumed),
+    );
+    try testing.expectEqual(@as(usize, 1), consumed);
+    try testing.expect(t.?.stream.ground());
+}
+
+test "vt_write_until_ground handles UTF-8 and abort boundaries" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    var ground: bool = false;
+    try testing.expectEqual(
+        Result.success,
+        get(t, .vt_ground, @ptrCast(&ground)),
+    );
+    try testing.expect(ground);
+
+    vt_write(t, &.{0xF0}, 1);
+    try testing.expectEqual(
+        Result.success,
+        get(t, .vt_ground, @ptrCast(&ground)),
+    );
+    try testing.expect(!ground);
+
+    const utf8_suffix = [_]u8{ 0x9F, 0x98, 0x84 };
+    var consumed: usize = 99;
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until_ground(t, &utf8_suffix, utf8_suffix.len, &consumed),
+    );
+    try testing.expectEqual(utf8_suffix.len, consumed);
+    try testing.expect(t.?.stream.ground());
+
+    // A malformed continuation resets the decoder and reaches ground after
+    // processing the retry byte.
+    vt_write(t, &.{ 0xE0, 0xA0 }, 2);
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until_ground(t, "A", 1, &consumed),
+    );
+    try testing.expectEqual(@as(usize, 1), consumed);
+    try testing.expect(t.?.stream.ground());
+
+    vt_write(t, "\x1b[123", 5);
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until_ground(t, &.{0x18}, 1, &consumed),
+    );
+    try testing.expectEqual(@as(usize, 1), consumed);
+    try testing.expect(t.?.stream.ground());
+}
+
+test "vt_write_until_ground invokes effects only for consumed input" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var bell_count: usize = 0;
+
+        fn bell(_: Terminal, _: ?*anyopaque) callconv(lib.calling_conv) void {
+            bell_count += 1;
+        }
+    };
+    S.bell_count = 0;
+    try testing.expectEqual(Result.success, set(t, .bell, @ptrCast(&S.bell)));
+
+    vt_write(t, "\x1b[31", 4);
+    const input = "m\x07";
+    var consumed: usize = 99;
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until_ground(t, input, input.len, &consumed),
+    );
+    try testing.expectEqual(@as(usize, 1), consumed);
+    try testing.expectEqual(@as(usize, 0), S.bell_count);
+
+    vt_write(t, input.ptr + consumed, input.len - consumed);
+    try testing.expectEqual(@as(usize, 1), S.bell_count);
+}
+
+test "vt_write_until_ground validates arguments" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    var consumed: usize = 99;
+    try testing.expectEqual(
+        Result.invalid_value,
+        vt_write_until_ground(null, "x", 1, &consumed),
+    );
+    try testing.expectEqual(@as(usize, 0), consumed);
+
+    consumed = 99;
+    try testing.expectEqual(
+        Result.invalid_value,
+        vt_write_until_ground(t, null, 1, &consumed),
+    );
+    try testing.expectEqual(@as(usize, 0), consumed);
+
+    try testing.expectEqual(
+        Result.invalid_value,
+        vt_write_until_ground(t, "", 0, null),
+    );
+
+    // NULL represents a valid empty slice. While unfinished it consumes zero
+    // bytes and reports that no ground boundary was found.
+    vt_write(t, "\x1b[", 2);
+    consumed = 99;
+    try testing.expectEqual(
+        Result.no_value,
+        vt_write_until_ground(t, null, 0, &consumed),
+    );
+    try testing.expectEqual(@as(usize, 0), consumed);
+}
+
 test "vt_write split escape sequence" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
@@ -2650,6 +2865,31 @@ test "get cursor_visible" {
     try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
     try testing.expectEqual(Result.success, get(t, .cursor_visible, @ptrCast(&visible)));
     try testing.expect(!visible);
+}
+
+test "get cursor_at_prompt" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    var at_prompt: bool = undefined;
+    try testing.expectEqual(Result.success, get(t, .cursor_at_prompt, @ptrCast(&at_prompt)));
+    try testing.expect(!at_prompt);
+
+    const prompt_start = "\x1b]133;A\x07";
+    vt_write(t, prompt_start, prompt_start.len);
+    try testing.expectEqual(Result.success, get(t, .cursor_at_prompt, @ptrCast(&at_prompt)));
+    try testing.expect(at_prompt);
+
+    const alternate_screen = "\x1b[?1049h";
+    vt_write(t, alternate_screen, alternate_screen.len);
+    try testing.expectEqual(Result.success, get(t, .cursor_at_prompt, @ptrCast(&at_prompt)));
+    try testing.expect(!at_prompt);
 }
 
 test "get active_screen" {

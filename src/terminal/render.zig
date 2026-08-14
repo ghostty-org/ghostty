@@ -235,6 +235,21 @@ pub const RenderState = struct {
 
         /// The highlights within this row.
         highlights: std.ArrayList(Highlight),
+
+        /// The style runs applied to this row's per-cell style data
+        /// by the last `endUpdate` that touched it. This is what lets
+        /// `endUpdate` skip the (comparatively large) per-cell style
+        /// fill when a rebuilt row produced identical runs, which is
+        /// the common case: text changes far more often than styling.
+        ///
+        /// The invariant is that this always describes the current
+        /// contents of the cell style data for the covered ranges. It
+        /// is cleared whenever the cell storage is reallocated.
+        ///
+        /// This uses the general allocator (NOT the row arena)
+        /// because it must survive row rebuilds. `endUpdate` cannot
+        /// allocate, so `beginUpdate` reserves the capacity.
+        applied_styles: std.ArrayList(StyleRun),
     };
 
     pub const Highlight = struct {
@@ -304,10 +319,12 @@ pub const RenderState = struct {
         for (
             self.row_data.items(.arena),
             self.row_data.items(.cells),
-        ) |state, *cells| {
+            self.row_data.items(.applied_styles),
+        ) |state, *cells, *applied| {
             var arena: ArenaAllocator = state.promote(alloc);
             arena.deinit();
             cells.deinit(alloc);
+            applied.deinit(alloc);
         }
         self.row_data.deinit(alloc);
         self.pending_styles.deinit(alloc);
@@ -464,6 +481,7 @@ pub const RenderState = struct {
                         .dirty = true,
                         .selection = null,
                         .highlights = .empty,
+                        .applied_styles = .empty,
                     });
                 }
             } else {
@@ -471,10 +489,12 @@ pub const RenderState = struct {
                 for (
                     row_data.items(.arena)[self.rows..],
                     row_data.items(.cells)[self.rows..],
-                ) |state, *cell| {
+                    row_data.items(.applied_styles)[self.rows..],
+                ) |state, *cell, *applied| {
                     var arena: ArenaAllocator = state.promote(alloc);
                     arena.deinit();
                     cell.deinit(alloc);
+                    applied.deinit(alloc);
                 }
                 self.row_data.shrinkRetainingCapacity(self.rows);
             }
@@ -490,6 +510,7 @@ pub const RenderState = struct {
         const row_sels = row_data.items(.selection);
         const row_highlights = row_data.items(.highlights);
         const row_dirties = row_data.items(.dirty);
+        const row_applied = row_data.items(.applied_styles);
 
         // If we're redrawing then every row will be rebuilt, superseding
         // any pending style runs from prior updates. Clearing also
@@ -512,6 +533,7 @@ pub const RenderState = struct {
             .highlights = row_highlights,
             .dirties = row_dirties,
             .pending_styles = &self.pending_styles,
+            .applied_styles = row_applied,
         };
         var y: usize = 0;
         var any_dirty: bool = false;
@@ -735,20 +757,101 @@ pub const RenderState = struct {
 
         const row_data = self.row_data.slice();
         const row_cells = row_data.items(.cells);
-        for (self.pending_styles.items) |run| {
+        const row_applied = row_data.items(.applied_styles);
+
+        // Process the pending runs one row segment at a time. All the
+        // runs for a row are appended contiguously by a single
+        // beginUpdate, so a segment boundary is simply a change in y.
+        const runs = self.pending_styles.items;
+        var i: usize = 0;
+        while (i < runs.len) {
+            const y = runs[i].y;
+            var j = i + 1;
+            while (j < runs.len and runs[j].y == y) j += 1;
+            const segment = runs[i..j];
+            i = j;
+
             // Defensive: the row data may have changed shape if the
             // caller violated ordering (e.g. an error path skipped an
             // endUpdate between updates). Any update that changes
             // dimensions clears the pending list (redraw), so this
             // should never actually trigger, but the cost is trivial.
-            if (run.y >= row_cells.len) continue;
-            const styles = row_cells[run.y].slice().items(.style);
-            const end = @min(run.end, styles.len);
-            const start = @min(run.start, end);
+            if (y >= row_cells.len) continue;
 
-            @memset(styles[start..end], run.style);
+            // If the segment matches the runs already denormalized
+            // into this row's cell data then the per-cell styles are
+            // already correct and the (comparatively large) fill can
+            // be skipped entirely. This is the common case: rebuilt
+            // rows usually keep their styling (only the text
+            // changed), and full redraws of an unchanged screen keep
+            // both.
+            const applied = &row_applied[y];
+            if (runsEql(applied.items, segment)) continue;
+
+            for (segment) |run| {
+                const styles = row_cells[run.y].slice().items(.style);
+                const end = @min(run.end, styles.len);
+                const start = @min(run.start, end);
+
+                fillStyles(styles[start..end], run.style);
+            }
+
+            // Record what we applied so the next rebuild of this row
+            // can skip the fill. beginUpdate reserved the capacity
+            // (we cannot allocate here); if it doesn't fit (e.g.
+            // segments merged across multiple begins without an end)
+            // leave the cache empty, which never matches and simply
+            // means the next rebuild applies its runs.
+            applied.clearRetainingCapacity();
+            if (applied.capacity >= segment.len) {
+                applied.appendSliceAssumeCapacity(segment);
+            }
         }
         self.pending_styles.clearRetainingCapacity();
+    }
+
+    /// Fill a slice of styles with one value.
+    ///
+    /// This is equivalent to `@memset(dst, value)` but manually vectorized:
+    /// `@memset` with a struct value lowers to a per-element field copy
+    /// that reloads the source at every iteration because LLVM cannot
+    /// prove the destination doesn't alias it. And, Zig 0.16 disables
+    /// auto-vectorization due to an LLVM bug.
+    ///
+    /// This complexity is justified by accounting for ~10% of the endUpdate
+    /// times under heavily styled cases.
+    fn fillStyles(dst: []Style, value: Style) void {
+        // Each element is written as two overlapping 16-byte vector
+        // stores held in registers, which requires 16 <= size <= 32.
+        const elem_size = @sizeOf(Style);
+        comptime assert(elem_size >= 16 and elem_size <= 32);
+
+        const V = @Vector(16, u8);
+        const src: *align(@alignOf(Style)) const [elem_size]u8 = @ptrCast(&value);
+        const lo = @as(*align(4) const V, @ptrCast(src[0..16])).*;
+        const hi = @as(*align(1) const V, @ptrCast(src[elem_size - 16 ..][0..16])).*;
+
+        const dst_bytes = std.mem.sliceAsBytes(dst);
+        var off: usize = 0;
+        for (0..dst.len) |_| {
+            @as(*align(1) V, @ptrCast(dst_bytes[off..][0..16])).* = lo;
+            @as(*align(1) V, @ptrCast(dst_bytes[off + elem_size - 16 ..][0..16])).* = hi;
+            off += elem_size;
+        }
+    }
+
+    /// Returns true if the two style run lists denormalize to
+    /// identical per-cell style data. This is a semantic comparison
+    /// (styles are compared field-wise, never by bytes, since padding
+    /// is undefined).
+    fn runsEql(a: []const StyleRun, b: []const StyleRun) bool {
+        if (a.len != b.len) return false;
+        for (a, b) |ar, br| {
+            if (ar.start != br.start or
+                ar.end != br.end or
+                !ar.style.eql(br.style)) return false;
+        }
+        return true;
     }
 
     /// Update the highlights in the render state from the given flattened
@@ -1022,6 +1125,7 @@ const RowBuilder = struct {
     highlights: []std.ArrayList(RenderState.Highlight),
     dirties: []bool,
     pending_styles: *std.ArrayList(RenderState.StyleRun),
+    applied_styles: []std.ArrayList(RenderState.StyleRun),
 
     fn row(
         b: *const RowBuilder,
@@ -1058,7 +1162,14 @@ const RowBuilder = struct {
         // Our per-row arena is only used for temporary allocations
         // pertaining to cells directly (e.g. graphemes, hyperlinks).
         const cells: *std.MultiArrayList(RenderState.Cell) = &b.cells[vy];
-        if (cells.len != b.cols) try cells.resize(b.alloc, b.cols);
+        if (cells.len != b.cols) {
+            // The cell storage (including the per-cell style data) is
+            // being reallocated, so the applied style cache no longer
+            // describes it. Clear it before the resize so an error
+            // can't leave it stale.
+            b.applied_styles[vy].clearRetainingCapacity();
+            try cells.resize(b.alloc, b.cols);
+        }
 
         // We always copy our raw cell data. In the case we have no
         // managed memory, we can skip setting any other fields.
@@ -1077,6 +1188,7 @@ const RowBuilder = struct {
         const arena_alloc = arena.allocator();
         const cells_grapheme = cells_slice.items(.grapheme);
         const n = page_cells.len;
+        const runs_start = b.pending_styles.items.len;
         var x: usize = 0;
         scan: while (x < n) {
             // Skip runs of plain cells a group at a time. Cells that
@@ -1210,6 +1322,15 @@ const RowBuilder = struct {
                 },
             }
         }
+
+        // Reserve the applied style cache capacity for the runs we
+        // appended so that endUpdate (which cannot allocate) is able
+        // to record what it applies. See Row.applied_styles.
+        const runs_added = b.pending_styles.items.len - runs_start;
+        if (runs_added > 0) try b.applied_styles[vy].ensureTotalCapacity(
+            b.alloc,
+            runs_added,
+        );
     }
 };
 
@@ -1598,6 +1719,62 @@ test "begin and end update" {
         try testing.expect(cells[0].get(0).style.flags.bold);
         try testing.expect(cells[0].get(1).style.flags.bold);
         try testing.expect(cells[0].get(2).style.flags.italic);
+    }
+}
+
+test "endUpdate skips unchanged style runs" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("\x1b[1mAB"); // Bold
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // The applied cache should record the bold run for row 0.
+    {
+        const row_data = state.row_data.slice();
+        const applied = row_data.items(.applied_styles);
+        try testing.expectEqual(1, applied[0].items.len);
+        try testing.expect(applied[0].items[0].style.flags.bold);
+        try testing.expect(state.row_data.items(.cells)[0].get(0).style.flags.bold);
+    }
+
+    // Rewrite the text without changing the styling: the row is
+    // rebuilt, the run matches the cache, and the styles must remain
+    // correct (the fill is skipped internally).
+    s.nextSlice("\x1b[1;1H\x1b[1mXY");
+    try state.update(alloc, &t);
+    {
+        const cells = &state.row_data.items(.cells)[0];
+        try testing.expectEqual('X', cells.get(0).raw.codepoint());
+        try testing.expect(cells.get(0).style.flags.bold);
+        try testing.expect(cells.get(1).style.flags.bold);
+    }
+
+    // Change the styling: the cache mismatches and the new styles
+    // must be applied and recorded.
+    s.nextSlice("\x1b[1;1H\x1b[0;3mZW"); // Italic
+    try state.update(alloc, &t);
+    {
+        const cells = &state.row_data.items(.cells)[0];
+        try testing.expectEqual('Z', cells.get(0).raw.codepoint());
+        try testing.expect(!cells.get(0).style.flags.bold);
+        try testing.expect(cells.get(0).style.flags.italic);
+
+        const applied = state.row_data.items(.applied_styles);
+        try testing.expectEqual(1, applied[0].items.len);
+        try testing.expect(applied[0].items[0].style.flags.italic);
     }
 }
 

@@ -51,6 +51,23 @@ typedef uint64_t GhosttyCell;
 typedef uint64_t GhosttyRow;
 
 /**
+ * A borrowed view of contiguous raw cell values.
+ *
+ * The memory is not owned by this struct. The pointer is only valid
+ * for the lifetime documented by the API that produces it. Each value
+ * is queried via ghostty_cell_get() like any other GhosttyCell.
+ *
+ * @ingroup screen
+ */
+typedef struct {
+  /** Pointer to len contiguous cell values. */
+  const GhosttyCell* ptr;
+
+  /** Number of cells. */
+  size_t len;
+} GhosttyCellsView;
+
+/**
  * Cell content tag.
  *
  * Describes what kind of content a cell holds.

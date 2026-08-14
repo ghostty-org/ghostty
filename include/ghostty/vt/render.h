@@ -236,6 +236,19 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   /** Row-local selected cell range (GhosttyRenderStateRowSelection). */
   GHOSTTY_RENDER_STATE_ROW_DATA_SELECTION = 4,
+
+  /** A borrowed view of the raw cell values for the current row
+   *  (GhosttyCellsView). One value per column, identical to querying
+   *  GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_RAW for each cell. The view
+   *  is only valid as long as the underlying render state is not
+   *  updated; it is unsafe to use after updating the render state.
+   *
+   *  This is the bulk alternative to iterating cells one at a time.
+   *  It lets callers with expensive call boundaries (e.g. WebAssembly
+   *  embedders) read an entire row with a single call, then drill
+   *  into the cells iterator only for cells that need managed data
+   *  (styles, graphemes). */
+  GHOSTTY_RENDER_STATE_ROW_DATA_CELLS_RAW = 5,
   GHOSTTY_RENDER_STATE_ROW_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyRenderStateRowData;
 

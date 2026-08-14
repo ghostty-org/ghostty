@@ -409,6 +409,135 @@ jobs:
           echo "Release URLs:"
           echo "  XCFramework: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-vt.xcframework.zip"
 
+  build-lib-vt-wasm:
+    needs: [setup]
+    if: |
+      needs.setup.outputs.should_skip != 'true' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.repository_owner == 'ghostty-org' &&
+          github.ref_name == 'main'
+        )
+      )
+    runs-on: namespace-profile-ghostty-sm
+    env:
+      GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@c5f8dab7560444c4bf8dbc64f1b203431873c547 # v1.6.1
+        with:
+          path: |
+            /nix
+            /zig
+
+      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Build ReleaseFast WASM
+        run: |
+          nix develop -c zig build \
+            -Demit-lib-vt \
+            -Dtarget=wasm32-freestanding \
+            -Doptimize=ReleaseFast
+
+      - name: Optimize ReleaseFast WASM
+        run: |
+          nix develop -c wasm-opt -O3 --strip-dwarf \
+            --enable-simd \
+            --enable-bulk-memory \
+            --enable-sign-ext \
+            --enable-nontrapping-float-to-int \
+            --enable-multivalue \
+            --enable-reference-types \
+            zig-out/bin/ghostty-vt.wasm \
+            -o ghostty-vt.wasm
+
+      - name: Build ReleaseSmall WASM
+        run: |
+          nix develop -c zig build \
+            -Demit-lib-vt \
+            -Dtarget=wasm32-freestanding \
+            -Doptimize=ReleaseSmall
+
+      - name: Optimize ReleaseSmall WASM
+        run: |
+          nix develop -c wasm-opt -O3 \
+            --enable-simd \
+            --enable-bulk-memory \
+            --enable-sign-ext \
+            --enable-nontrapping-float-to-int \
+            --enable-multivalue \
+            --enable-reference-types \
+            zig-out/bin/ghostty-vt.wasm \
+            -o ghostty-vt-small.wasm
+
+      - name: Verify WASM simd128
+        run: |
+          # wasm-tools names the simd128 proposal "simd". The artifact must
+          # fail validation when that feature is disabled.
+          for artifact in ghostty-vt.wasm ghostty-vt-small.wasm; do
+            nix develop -c wasm-tools validate "${artifact}"
+            if nix develop -c wasm-tools validate \
+              --features=-simd "${artifact}"; then
+              echo "${artifact} unexpectedly validates with simd128 disabled" >&2
+              exit 1
+            fi
+            echo "Verified ${artifact} requires simd128"
+          done
+
+      - name: Sign WASM
+        run: |
+          echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
+          echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
+          nix develop -c minisign -S -m ghostty-vt.wasm -s minisign.key < minisign.password
+          nix develop -c minisign -S -m ghostty-vt-small.wasm -s minisign.key < minisign.password
+
+      - name: Update Release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          name: 'Ghostty Tip ("Nightly")'
+          prerelease: true
+          tag_name: tip
+          target_commitish: ${{ github.sha }}
+          files: |
+            ghostty-vt.wasm
+            ghostty-vt.wasm.minisig
+            ghostty-vt-small.wasm
+            ghostty-vt-small.wasm.minisig
+          token: ${{ secrets.GH_RELEASE_TOKEN }}
+
+      - name: Prep R2 Storage
+        run: |
+          mkdir -p blob/${GHOSTTY_COMMIT_LONG}
+          cp ghostty-vt.wasm blob/${GHOSTTY_COMMIT_LONG}/ghostty-vt.wasm
+          cp ghostty-vt-small.wasm blob/${GHOSTTY_COMMIT_LONG}/ghostty-vt-small.wasm
+      - name: Upload to R2
+        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        with:
+          r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
+          r2-secret-access-key: ${{ secrets.CF_R2_TIP_SECRET_KEY }}
+          r2-bucket: ghostty-tip
+          source-dir: blob
+          destination-dir: ./
+
+      - name: Echo Release URLs
+        run: |
+          echo "Release URLs:"
+          echo "  WASM (ReleaseFast): https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-vt.wasm"
+          echo "  WASM (ReleaseSmall): https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-vt-small.wasm"
+
   build-macos:
     needs: [setup]
     if: |

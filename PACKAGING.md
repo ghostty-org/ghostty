@@ -122,3 +122,35 @@ relevant to package maintainers:
   often necessary for system packages to specify a specific minimum Linux
   version, glibc, etc. Run `zig targets` to a get a full list of available
   targets.
+
+## WebAssembly (libghostty-vt)
+
+libghostty-vt can be built for WebAssembly for use in browsers and other
+wasm runtimes:
+
+```sh
+zig build -Demit-lib-vt -Dtarget=wasm32-freestanding -Doptimize=ReleaseSmall
+```
+
+This produces `zig-out/bin/ghostty-vt.wasm`.
+
+Some notes for packaging the wasm module:
+
+- The build enables the `simd128` feature by default. Every browser engine
+  has supported it for years (Chrome 91, Firefox 89, Safari 16.4) and it is
+  a large performance win for VT parsing. If you target an unusual runtime
+  without SIMD support, opt out with `-Dcpu=generic`.
+
+- `ReleaseSmall` is the recommended optimization mode for the web. Running
+  the result through [Binaryen's](https://github.com/WebAssembly/binaryen)
+  `wasm-opt -O3` shrinks it by roughly a further 10% without hurting
+  performance.
+
+- `ReleaseFast` measures 10-20% faster than `ReleaseSmall` on escape-heavy
+  terminal workloads, but the artifact is dominated by DWARF debug info.
+  If you want the speed, strip it: `wasm-opt -O3 --strip-dwarf` reduces a
+  ReleaseFast build from over 5MB to roughly 1.1MB (versus roughly 0.8MB
+  for ReleaseSmall). When invoking `wasm-opt`, pass the feature flags for
+  what the module uses, e.g. `--enable-simd --enable-bulk-memory
+--enable-sign-ext --enable-nontrapping-float-to-int --enable-multivalue
+--enable-reference-types`.

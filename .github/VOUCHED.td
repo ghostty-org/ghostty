@@ -99,7 +99,9 @@ devsunb
 diaaeddin
 dkinzler
 dmehala
+dmunozv04
 dobbylee
+dolzenko
 doprz
 douglance
 douglas
@@ -108,6 +110,7 @@ drepper
 dzhlobo
 ekaterinepapava
 elias8
+elitex45
 -enkr1
 enzowilliam
 ephemera
@@ -120,6 +123,7 @@ exlee
 -f1813483-netizen
 fallintoplace
 faukah
+figelwump
 filip7
 flou
 fornwall
@@ -252,6 +256,7 @@ poweruser64
 prakhar54-byte
 prihlop
 priyans-hu
+pssalman
 puzza007
 qappell
 quinnypig
@@ -279,10 +284,12 @@ sanjj1
 secrus
 seruman
 seyoungjeong
+sghng
 shorsher
 silveirapf
 simonbcn
 slsrepo
+steven-tk
 sunshine-syz
 svmhdvn
 tasselx
@@ -318,4 +325,5 @@ ydah
 zenangst
 zenyr
 zeshi09
+zlitus
 zubb

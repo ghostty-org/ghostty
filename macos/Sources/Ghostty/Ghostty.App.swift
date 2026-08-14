@@ -2,22 +2,15 @@ import SwiftUI
 import UniformTypeIdentifiers
 import UserNotifications
 import GhosttyKit
-
-#if os(macOS)
 import AppKit
-#endif
 
 protocol GhosttyAppDelegate: AnyObject {
-    #if os(macOS)
     /// Called when a callback needs access to a specific surface. This should return nil
     /// when the surface is no longer valid.
     func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView?
-    #endif
 }
 
 extension Ghostty {
-    // IMPORTANT: THIS IS NOT DONE.
-    // This is a refactor/redo of Ghostty.AppState so that it supports both macOS and iOS
     class App: ObservableObject {
         enum Readiness: String {
             case loading, error, ready
@@ -81,8 +74,6 @@ extension Ghostty {
                 return
             }
             self.app = app
-
-#if os(macOS)
             // Set our initial focus state
             ghostty_app_set_focus(app, NSApp.isActive)
 
@@ -102,18 +93,13 @@ extension Ghostty {
                 selector: #selector(applicationDidResignActive(notification:)),
                 name: NSApplication.didResignActiveNotification,
                 object: nil)
-#endif
-
             self.readiness = .ready
         }
 
         deinit {
             // This will force the didSet callbacks to run which free.
             self.app = nil
-
-#if os(macOS)
             NotificationCenter.default.removeObserver(self)
-#endif
         }
 
         // MARK: App Operations
@@ -132,7 +118,6 @@ extension Ghostty {
         func openConfig() {
             let str = configPath ?? Ghostty.AllocatedString(ghostty_config_open_path()).string
             guard !str.isEmpty else { return }
-            #if os(macOS)
             let fileURL = URL(fileURLWithPath: str).absoluteString
             var action = ghostty_action_open_url_s()
             action.kind = GHOSTTY_ACTION_OPEN_URL_KIND_TEXT
@@ -141,9 +126,6 @@ extension Ghostty {
                 action.len = UInt(fileURL.count)
                 _ = App.openURL(action)
             }
-            #else
-            fatalError("Unsupported platform for opening config file")
-            #endif
         }
 
         /// Reload the configuration.
@@ -270,39 +252,6 @@ extension Ghostty {
                 logger.warning("action failed action=\(action, privacy: .public)")
             }
         }
-
-        #if os(iOS)
-        // MARK: Ghostty Callbacks (iOS)
-
-        static func wakeup(_ userdata: UnsafeMutableRawPointer?) {}
-        static func action(_ app: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool { return false }
-        static func readClipboard(
-            _ userdata: UnsafeMutableRawPointer?,
-            location: ghostty_clipboard_e,
-            state: UnsafeMutableRawPointer?
-        ) -> Bool {
-            return false
-        }
-
-        static func confirmReadClipboard(
-            _ userdata: UnsafeMutableRawPointer?,
-            string: UnsafePointer<CChar>?,
-            state: UnsafeMutableRawPointer?,
-            request: ghostty_clipboard_request_e
-        ) {}
-
-        static func writeClipboard(
-            _ userdata: UnsafeMutableRawPointer?,
-            location: ghostty_clipboard_e,
-            content: UnsafePointer<ghostty_clipboard_content_s>?,
-            len: Int,
-            confirm: Bool
-        ) {}
-
-        static func closeSurface(_ userdata: UnsafeMutableRawPointer?, processAlive: Bool) {}
-        #endif
-
-        #if os(macOS)
 
         // MARK: Notifications
 
@@ -703,18 +652,8 @@ extension Ghostty {
         }
 
         private static func quit(_ app: ghostty_app_t) {
-            // On iOS, applications do not terminate programmatically like they do
-            // on macOS. On iOS, applications are only terminated when a user physically
-            // closes the application (i.e. going to the home screen). If we request
-            // exit on iOS we ignore it.
-            #if os(iOS)
-            logger.info("quit request received, ignoring on iOS")
-            #endif
-
-            #if os(macOS)
             // We want to quit, start that process
             NSApplication.shared.terminate(nil)
-            #endif
         }
 
         private static func checkForUpdates(
@@ -2408,7 +2347,5 @@ extension Ghostty {
                 break
             }
         }
-
-        #endif
     }
 }

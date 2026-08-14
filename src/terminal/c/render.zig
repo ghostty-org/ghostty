@@ -12,6 +12,7 @@ const terminal_c = @import("terminal.zig");
 const ZigTerminal = @import("../Terminal.zig");
 const renderpkg = @import("../render.zig");
 const Result = @import("result.zig").Result;
+const cell_c = @import("cell.zig");
 const row = @import("row.zig");
 const style_c = @import("style.zig");
 
@@ -22,11 +23,18 @@ const RenderStateWrapper = struct {
     state: renderpkg.RenderState = .empty,
 };
 
+/// The "before the first element" position for the iterator wrappers
+/// below. Represented as a sentinel index rather than an optional because
+/// optional codegens into something that is less efficient than this.
+const position_none = std.math.maxInt(usize);
+
 const RowIteratorWrapper = struct {
     alloc: std.mem.Allocator,
 
-    /// The current index (also y value) into the row list.
-    y: ?size.CellCountInt,
+    /// The current index (also y value) into the row list, or
+    /// `position_none` if iteration hasn't started. Always validate
+    /// against `raws.len` before use.
+    y: usize,
 
     /// These are the raw pointers into the render state data.
     raws: []const page.Row,
@@ -41,7 +49,12 @@ const RowIteratorWrapper = struct {
 
 const RowCellsWrapper = struct {
     alloc: std.mem.Allocator,
-    x: ?size.CellCountInt,
+
+    /// The current index (also x value) into the cell list, or
+    /// `position_none` if iteration hasn't started. Always validate
+    /// against `raws.len` before use.
+    x: usize,
+
     raws: []const page.Cell,
     graphemes: []const []const u21,
     styles: []const Style,
@@ -212,21 +225,8 @@ pub fn get(
     data: Data,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Data, @intFromEnum(data)) orelse {
-            log.warn("render_state_get invalid data value={d}", .{@intFromEnum(data)});
-            return .invalid_value;
-        };
-    }
-
-    return switch (data) {
-        .invalid => .invalid_value,
-        inline else => |comptime_data| getTyped(
-            state_,
-            comptime_data,
-            @ptrCast(@alignCast(out)),
-        ),
-    };
+    const state = state_ orelse return .invalid_value;
+    return getDispatch(state, data, out);
 }
 
 pub fn get_multi(
@@ -239,8 +239,16 @@ pub fn get_multi(
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 
+    // Unwrap the handle once for the whole batch rather than per key.
+    // A null handle fails on the first key, matching the per-call
+    // behavior.
+    const state: ?*RenderStateWrapper = state_;
+
     for (0..count) |i| {
-        const result = get(state_, k[i], v[i]);
+        const result = if (state) |s|
+            getDispatch(s, k[i], v[i])
+        else
+            Result.invalid_value;
         if (result != .success) {
             if (out_written) |w| w.* = i;
             return result;
@@ -250,12 +258,33 @@ pub fn get_multi(
     return .success;
 }
 
+inline fn getDispatch(
+    state: *RenderStateWrapper,
+    data: Data,
+    out: ?*anyopaque,
+) Result {
+    if (comptime std.debug.runtime_safety) {
+        _ = std.enums.fromInt(Data, @intFromEnum(data)) orelse {
+            log.warn("render_state_get invalid data value={d}", .{@intFromEnum(data)});
+            return .invalid_value;
+        };
+    }
+
+    return switch (data) {
+        .invalid => .invalid_value,
+        inline else => |comptime_data| getTyped(
+            state,
+            comptime_data,
+            @ptrCast(@alignCast(out)),
+        ),
+    };
+}
+
 fn getTyped(
-    state_: RenderState,
+    state: *RenderStateWrapper,
     comptime data: Data,
     out: *data.OutType(),
 ) Result {
-    const state = state_ orelse return .invalid_value;
     switch (data) {
         .invalid => return .invalid_value,
         .cols => out.* = state.state.cols,
@@ -266,7 +295,7 @@ fn getTyped(
             const row_data = state.state.row_data.slice();
             it.* = .{
                 .alloc = it.alloc,
-                .y = null,
+                .y = position_none,
                 .raws = row_data.items(.raw),
                 .cells = row_data.items(.cells),
                 .selection = row_data.items(.selection),
@@ -347,7 +376,7 @@ pub fn colors_get(
     const out_size = out_colors.size;
     if (out_size < @sizeOf(usize)) return .invalid_value;
 
-    const colors = state.state.colors;
+    const colors = &state.state.colors;
     if (lib.structSizedFieldFits(
         Colors,
         out_size,
@@ -387,9 +416,10 @@ pub fn colors_get(
         if (out_size > palette_offset) {
             const available = out_size - palette_offset;
             const max_entries = @min(colors.palette.len, available / @sizeOf(colorpkg.RGB.C));
-            for (0..max_entries) |i| {
-                out_colors.palette[i] = colors.palette[i].cval();
-            }
+            colorpkg.paletteCvalSlice(
+                colors.palette[0..max_entries],
+                out_colors.palette[0..max_entries],
+            );
         }
     }
 
@@ -426,7 +456,8 @@ pub fn row_iterator_free(iterator_: RowIterator) callconv(lib.calling_conv) void
 
 pub fn row_iterator_next(iterator_: RowIterator) callconv(lib.calling_conv) bool {
     const it = iterator_ orelse return false;
-    const next_y: size.CellCountInt = if (it.y) |y| y + 1 else 0;
+    // The none sentinel wraps to zero.
+    const next_y = it.y +% 1;
     if (next_y >= it.raws.len) return false;
     it.y = next_y;
     return true;
@@ -456,7 +487,8 @@ pub fn row_cells_new(
 
 pub fn row_cells_next(cells_: RowCells) callconv(lib.calling_conv) bool {
     const cells = cells_ orelse return false;
-    const next_x: size.CellCountInt = if (cells.x) |x| x + 1 else 0;
+    // The none sentinel wraps to zero.
+    const next_x = cells.x +% 1;
     if (next_x >= cells.raws.len) return false;
     cells.x = next_x;
     return true;
@@ -508,22 +540,10 @@ pub fn row_cells_get(
     data: RowCellsData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowCellsData, @intFromEnum(data)) orelse {
-            log.warn("render_state_row_cells_get invalid data value={d}", .{@intFromEnum(data)});
-            return .invalid_value;
-        };
-    }
-    if (out == null) return .invalid_value;
-
-    return switch (data) {
-        .invalid => .invalid_value,
-        inline else => |comptime_data| rowCellsGetTyped(
-            cells_,
-            comptime_data,
-            @ptrCast(@alignCast(out)),
-        ),
-    };
+    const cells = cells_ orelse return .invalid_value;
+    const x = cells.x;
+    if (x >= cells.raws.len) return .invalid_value;
+    return rowCellsGetDispatch(cells, x, data, out);
 }
 
 pub fn row_cells_get_multi(
@@ -536,8 +556,21 @@ pub fn row_cells_get_multi(
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 
+    // Unwrap the handle and position once for the whole batch rather
+    // than per key. An invalid handle/position fails on the first
+    // key, matching the per-call behavior.
+    const unwrapped: ?struct { *RowCellsWrapper, usize } = valid: {
+        const cells = cells_ orelse break :valid null;
+        const x = cells.x;
+        if (x >= cells.raws.len) break :valid null;
+        break :valid .{ cells, x };
+    };
+
     for (0..count) |i| {
-        const result = row_cells_get(cells_, k[i], v[i]);
+        const result = if (unwrapped) |u|
+            rowCellsGetDispatch(u[0], u[1], k[i], v[i])
+        else
+            Result.invalid_value;
         if (result != .success) {
             if (out_written) |w| w.* = i;
             return result;
@@ -547,21 +580,46 @@ pub fn row_cells_get_multi(
     return .success;
 }
 
-fn rowCellsGetTyped(
-    cells_: RowCells,
+inline fn rowCellsGetDispatch(
+    cells: *const RowCellsWrapper,
+    x: usize,
+    data: RowCellsData,
+    out: ?*anyopaque,
+) Result {
+    if (comptime std.debug.runtime_safety) {
+        _ = std.enums.fromInt(RowCellsData, @intFromEnum(data)) orelse {
+            log.warn("render_state_row_cells_get invalid data value={d}", .{@intFromEnum(data)});
+            return .invalid_value;
+        };
+    }
+    if (out == null) return .invalid_value;
+
+    return switch (data) {
+        .invalid => .invalid_value,
+        inline else => |comptime_data| rowCellsGetTypedInner(
+            cells,
+            x,
+            comptime_data,
+            @ptrCast(@alignCast(out)),
+        ),
+    };
+}
+
+fn rowCellsGetTypedInner(
+    cells: *const RowCellsWrapper,
+    x: usize,
     comptime data: RowCellsData,
     out: *data.OutType(),
 ) Result {
-    const cells = cells_ orelse return .invalid_value;
-    const x = cells.x orelse return .invalid_value;
     const cell = cells.raws[x];
     switch (data) {
         .invalid => return .invalid_value,
         .raw => out.* = cell.cval(),
-        .style => out.* = if (cell.hasStyling())
-            style_c.Style.fromStyle(cells.styles[x])
-        else
-            style_c.Style.fromStyle(.{}),
+        .style => if (cell.hasStyling()) {
+            style_c.Style.write(cells.styles[x], out);
+        } else {
+            out.* = style_c.Style.default;
+        },
         .graphemes_len => {
             if (!cell.hasText()) {
                 out.* = 0;
@@ -580,15 +638,37 @@ fn rowCellsGetTyped(
             }
         },
         .bg_color => {
-            const s: Style = if (cell.hasStyling()) cells.styles[x] else .{};
-            const bg = s.bg(&cell, cells.palette) orelse return .invalid_value;
-            out.* = bg.cval();
+            // Avoid copying the full struct when only partial changes happen.
+            switch (cell.content_tag) {
+                .bg_color_palette => {
+                    out.* = cells.palette[cell.content.color_palette.data].cval();
+                },
+
+                .bg_color_rgb => {
+                    const rgb = cell.content.color_rgb;
+                    out.* = .{ .r = rgb.r, .g = rgb.g, .b = rgb.b };
+                },
+
+                .codepoint,
+                .codepoint_grapheme,
+                => {
+                    // The default style has no background.
+                    if (!cell.hasStyling()) return .invalid_value;
+                    switch (cells.styles[x].bg_color) {
+                        .none => return .invalid_value,
+                        .palette => |idx| out.* = cells.palette[idx].cval(),
+                        .rgb => |rgb| out.* = rgb.cval(),
+                    }
+                },
+            }
         },
         .fg_color => {
-            const s: Style = if (cell.hasStyling()) cells.styles[x] else .{};
-            if (s.fg_color == .none) return .invalid_value;
-            const fg = s.fg(.{ .default = .{}, .palette = cells.palette });
-            out.* = fg.cval();
+            if (!cell.hasStyling()) return .invalid_value;
+            switch (cells.styles[x].fg_color) {
+                .none => return .invalid_value,
+                .palette => |idx| out.* = cells.palette[idx].cval(),
+                .rgb => |rgb| out.* = rgb.cval(),
+            }
         },
         .selected => out.* = if (cells.selection) |sel|
             x >= sel[0] and x <= sel[1]
@@ -606,11 +686,32 @@ fn rowCellsGetGraphemesUtf8(
     extra: []const u21,
     out: *lib.Buffer,
 ) Result {
+    if (!cell.hasText()) {
+        out.len = 0;
+        return .success;
+    }
+
+    const first = cell.codepoint();
+
+    // Fast path: a single ASCII codepoint written to an adequately
+    // sized buffer. This is the overwhelmingly common case for
+    // terminal content.
+    if (first < 0x80 and extra.len == 0) {
+        @branchHint(.likely);
+        if (out.ptr) |ptr| {
+            if (out.cap >= 1) {
+                ptr[0] = @intCast(first);
+                out.len = 1;
+                return .success;
+            }
+        }
+        out.len = 1;
+        return .out_of_space;
+    }
+
     out.len = 0;
 
-    if (!cell.hasText()) return .success;
-
-    var needed: usize = std.unicode.utf8CodepointSequenceLength(cell.codepoint()) catch
+    var needed: usize = std.unicode.utf8CodepointSequenceLength(first) catch
         return .invalid_value;
     for (extra) |cp| {
         needed += std.unicode.utf8CodepointSequenceLength(cp) catch
@@ -622,7 +723,7 @@ fn rowCellsGetGraphemesUtf8(
 
     const buf = out.ptr.?[0..out.cap];
     var i: usize = 0;
-    i += std.unicode.utf8Encode(cell.codepoint(), buf[i..]) catch
+    i += std.unicode.utf8Encode(first, buf[i..]) catch
         return .invalid_value;
     for (extra) |cp| {
         i += std.unicode.utf8Encode(cp, buf[i..]) catch
@@ -640,6 +741,7 @@ pub const RowData = enum(c_int) {
     raw = 2,
     cells = 3,
     selection = 4,
+    cells_raw = 5,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: RowData) type {
@@ -649,6 +751,7 @@ pub const RowData = enum(c_int) {
             .raw => row.CRow,
             .cells => RowCells,
             .selection => RowSelection,
+            .cells_raw => cell_c.CellsView,
         };
     }
 };
@@ -670,21 +773,10 @@ pub fn row_get(
     data: RowData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowData, @intFromEnum(data)) orelse {
-            log.warn("render_state_row_get invalid data value={d}", .{@intFromEnum(data)});
-            return .invalid_value;
-        };
-    }
-
-    return switch (data) {
-        .invalid => .invalid_value,
-        inline else => |comptime_data| rowGetTyped(
-            iterator_,
-            comptime_data,
-            @ptrCast(@alignCast(out)),
-        ),
-    };
+    const it = iterator_ orelse return .invalid_value;
+    const y = it.y;
+    if (y >= it.raws.len) return .invalid_value;
+    return rowGetDispatch(it, y, data, out);
 }
 
 pub fn row_get_multi(
@@ -697,8 +789,21 @@ pub fn row_get_multi(
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 
+    // Unwrap the handle and position once for the whole batch rather
+    // than per key. An invalid handle/position fails on the first
+    // key, matching the per-call behavior.
+    const unwrapped: ?struct { *RowIteratorWrapper, usize } = valid: {
+        const it = iterator_ orelse break :valid null;
+        const y = it.y;
+        if (y >= it.raws.len) break :valid null;
+        break :valid .{ it, y };
+    };
+
     for (0..count) |i| {
-        const result = row_get(iterator_, k[i], v[i]);
+        const result = if (unwrapped) |u|
+            rowGetDispatch(u[0], u[1], k[i], v[i])
+        else
+            Result.invalid_value;
         if (result != .success) {
             if (out_written) |w| w.* = i;
             return result;
@@ -708,13 +813,36 @@ pub fn row_get_multi(
     return .success;
 }
 
+inline fn rowGetDispatch(
+    it: *RowIteratorWrapper,
+    y: usize,
+    data: RowData,
+    out: ?*anyopaque,
+) Result {
+    if (comptime std.debug.runtime_safety) {
+        _ = std.enums.fromInt(RowData, @intFromEnum(data)) orelse {
+            log.warn("render_state_row_get invalid data value={d}", .{@intFromEnum(data)});
+            return .invalid_value;
+        };
+    }
+
+    return switch (data) {
+        .invalid => .invalid_value,
+        inline else => |comptime_data| rowGetTyped(
+            it,
+            y,
+            comptime_data,
+            @ptrCast(@alignCast(out)),
+        ),
+    };
+}
+
 fn rowGetTyped(
-    iterator_: RowIterator,
+    it: *RowIteratorWrapper,
+    y: usize,
     comptime data: RowData,
     out: *data.OutType(),
 ) Result {
-    const it = iterator_ orelse return .invalid_value;
-    const y = it.y orelse return .invalid_value;
     switch (data) {
         .invalid => return .invalid_value,
         .dirty => out.* = it.dirty[y],
@@ -724,7 +852,7 @@ fn rowGetTyped(
             const cell_data = it.cells[y].slice();
             cells.* = .{
                 .alloc = cells.alloc,
-                .x = null,
+                .x = position_none,
                 .raws = cell_data.items(.raw),
                 .graphemes = cell_data.items(.grapheme),
                 .styles = cell_data.items(.style),
@@ -739,6 +867,13 @@ fn rowGetTyped(
             const sel = it.selection[y] orelse return .no_value;
             out.start_x = sel[0];
             out.end_x = sel[1];
+        },
+        .cells_raw => {
+            const raws: []const page.Cell = it.cells[y].items(.raw);
+            out.* = .{
+                .ptr = @ptrCast(raws.ptr),
+                .len = raws.len,
+            };
         },
     }
 
@@ -772,7 +907,8 @@ fn rowSetTyped(
     value: *const option.InType(),
 ) Result {
     const it = iterator_ orelse return .invalid_value;
-    const y = it.y orelse return .invalid_value;
+    const y = it.y;
+    if (y >= it.raws.len) return .invalid_value;
     switch (option) {
         .dirty => it.dirty[y] = value.*,
     }
@@ -977,7 +1113,7 @@ test "render: row iterator new/free" {
     const iterator_ptr = iterator.?;
     const row_data = state.?.state.row_data.slice();
 
-    try testing.expectEqual(@as(?size.CellCountInt, null), iterator_ptr.y);
+    try testing.expectEqual(position_none, iterator_ptr.y);
     try testing.expectEqual(row_data.items(.raw).len, iterator_ptr.raws.len);
     try testing.expectEqual(row_data.items(.cells).len, iterator_ptr.cells.len);
     try testing.expectEqual(row_data.items(.selection).len, iterator_ptr.selection.len);
@@ -1199,6 +1335,68 @@ test "render: row get selection" {
     try testing.expect(row_iterator_next(it));
     sel = .{};
     try testing.expectEqual(Result.no_value, row_get(it, .selection, @ptrCast(&sel)));
+}
+
+test "render: row get cells_raw" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        10,
+        3,
+    ));
+    defer terminal_c.free(terminal);
+
+    terminal_c.vt_write(terminal, "AB", 2);
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var it: RowIterator = null;
+    try testing.expectEqual(Result.success, row_iterator_new(
+        &lib.alloc.test_allocator,
+        &it,
+    ));
+    defer row_iterator_free(it);
+
+    try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&it)));
+
+    // Not positioned on a row yet.
+    var view: cell_c.CellsView = undefined;
+    try testing.expectEqual(Result.invalid_value, row_get(it, .cells_raw, @ptrCast(&view)));
+
+    try testing.expect(row_iterator_next(it));
+    try testing.expectEqual(Result.success, row_get(it, .cells_raw, @ptrCast(&view)));
+    try testing.expectEqual(@as(usize, 10), view.len);
+
+    // The view must match the per-cell raw reads.
+    var cells: RowCells = null;
+    try testing.expectEqual(Result.success, row_cells_new(
+        &lib.alloc.test_allocator,
+        &cells,
+    ));
+    defer row_cells_free(cells);
+    try testing.expectEqual(Result.success, row_get(it, .cells, @ptrCast(&cells)));
+    const ptr = view.ptr.?;
+    var x: u16 = 0;
+    while (x < view.len) : (x += 1) {
+        var raw: page.Cell.C = undefined;
+        try testing.expectEqual(Result.success, row_cells_select(cells, x));
+        try testing.expectEqual(Result.success, row_cells_get(cells, .raw, @ptrCast(&raw)));
+        try testing.expectEqual(raw, ptr[x]);
+    }
+
+    // Contents sanity: first two cells hold our text.
+    const first: page.Cell = @bitCast(ptr[0]);
+    const second: page.Cell = @bitCast(ptr[1]);
+    try testing.expectEqual(@as(u21, 'A'), first.codepoint());
+    try testing.expectEqual(@as(u21, 'B'), second.codepoint());
 }
 
 test "render: row cells get selected" {
@@ -1498,16 +1696,16 @@ test "render: row iterator next" {
     }
 
     try testing.expect(row_iterator_next(iterator));
-    try testing.expectEqual(@as(?size.CellCountInt, 0), iterator.?.y);
+    try testing.expectEqual(@as(usize, 0), iterator.?.y);
 
     var i: size.CellCountInt = 1;
     while (i < rows) : (i += 1) {
         try testing.expect(row_iterator_next(iterator));
-        try testing.expectEqual(@as(?size.CellCountInt, i), iterator.?.y);
+        try testing.expectEqual(i, iterator.?.y);
     }
 
     try testing.expect(!row_iterator_next(iterator));
-    try testing.expectEqual(@as(?size.CellCountInt, rows - 1), iterator.?.y);
+    try testing.expectEqual(@as(usize, rows - 1), iterator.?.y);
 }
 
 test "render: update" {
