@@ -225,6 +225,9 @@ final class SideTabsViewModel: ObservableObject {
 
         guard isSelected else {
             clearTitleObservations()
+            // Still seed the list once so non-selected tab views (e.g. overview
+            // thumbnails) aren't left with an empty sidebar forever.
+            refreshTabs(hostWindow)
             return
         }
 
