@@ -336,136 +336,151 @@ extension Ghostty {
 
         var body: some View {
             GeometryReader { geo in
-                HStack(spacing: 4) {
-                    BackportSelectionTextField(
-                        "Search",
-                        text: $searchState.needle.text,
-                        selection: $searchState.needle.selection
-                    )
-                    .textFieldStyle(.plain)
-                    .frame(width: 180)
-                    .padding(.leading, 8)
-                    .padding(.trailing, 50)
-                    .padding(.vertical, 6)
-                    .background(Color.primary.opacity(0.1))
-                    .cornerRadius(6)
-                    .focused($isSearchFieldFocused)
-                    .overlay(alignment: .trailing) {
-                        if let selected = searchState.selected {
-                            Text("\(selected + 1)/\(searchState.total, default: "?")")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .monospacedDigit()
-                                .padding(.trailing, 8)
-                        } else if let total = searchState.total {
-                            Text("-/\(total)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .monospacedDigit()
-                                .padding(.trailing, 8)
-                        }
-                    }
-                    .onChange(of: searchState.needle.text) { _ in
-                        searchState.writePasteboardNeedle()
-                    }
-                    .onReceive(
-                        NotificationCenter.default.publisher(
-                            for: NSApplication.didBecomeActiveNotification
-                        )
-                    ) { _ in
-                        // When the app becomes active, we want to check for external changes
-                        // to our synced needle.
-                        searchState.readPasteboardNeedle()
-                    }
-                    .onSubmit {
-                        _ = surfaceView.navigateSearchToNext()
-                    }
-                    .onExitCommand {
-                        if searchState.needle.text.isEmpty {
-                            onClose()
-                        } else {
-                            Ghostty.moveFocus(to: surfaceView)
-                        }
-                    }
-                    .backport.onKeyPress(.return) { modifiers in
-                        if modifiers.contains(.shift) {
-                            _ = surfaceView.navigateSearchToPrevious()
-                            return .handled
-                        }
-                        return .ignored
-                    }
-
-                    Button(action: {
-                        _ = surfaceView.navigateSearchToNext()
-                    }, label: {
-                        Image(systemName: "chevron.up")
-                    })
-                    .buttonStyle(SearchButtonStyle())
-
-                    Button(action: {
-                        guard let surface = surfaceView.surface else { return }
-                        let action = "navigate_search:previous"
-                        ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
-                    }, label: {
-                        Image(systemName: "chevron.down")
-                    })
-                    .buttonStyle(SearchButtonStyle())
-
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
-                    }
-                    .buttonStyle(SearchButtonStyle())
-                }
-                .padding(8)
-                .background(.background)
-                .clipShape(clipShape)
-                .shadow(radius: 4)
-                .onAppear {
-                    isSearchFieldFocused = true
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .ghosttySearchFocus)) { notification in
-                    guard notification.object as? SurfaceView === surfaceView else { return }
-                    DispatchQueue.main.async {
+                searchBar
+                    .onAppear {
                         isSearchFieldFocused = true
                     }
-                }
-                .background(
-                    GeometryReader { barGeo in
-                        Color.clear.onAppear {
-                            barSize = barGeo.size
+                    .onReceive(NotificationCenter.default.publisher(for: .ghosttySearchFocus)) { notification in
+                        guard notification.object as? SurfaceView === surfaceView else { return }
+                        DispatchQueue.main.async {
+                            isSearchFieldFocused = true
                         }
                     }
-                )
-                .padding(padding)
-                .offset(dragOffset)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: corner.alignment)
-                .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            dragOffset = value.translation
-                        }
-                        .onEnded { value in
-                            let centerPos = centerPosition(for: corner, in: geo.size, barSize: barSize)
-                            let newCenter = CGPoint(
-                                x: centerPos.x + value.translation.width,
-                                y: centerPos.y + value.translation.height
-                            )
-                            let newCorner = closestCorner(to: newCenter, in: geo.size)
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                corner = newCorner
-                                dragOffset = .zero
+                    .background(
+                        GeometryReader { barGeo in
+                            Color.clear.onAppear {
+                                barSize = barGeo.size
                             }
                         }
+                    )
+                    .padding(padding)
+                    .offset(dragOffset)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: corner.alignment)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                dragOffset = value.translation
+                            }
+                            .onEnded { value in
+                                let centerPos = centerPosition(for: corner, in: geo.size, barSize: barSize)
+                                let newCenter = CGPoint(
+                                    x: centerPos.x + value.translation.width,
+                                    y: centerPos.y + value.translation.height
+                                )
+                                let newCorner = closestCorner(to: newCenter, in: geo.size)
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    corner = newCorner
+                                    dragOffset = .zero
+                                }
+                            }
+                    )
+            }
+        }
+
+        /// The search bar content: text field plus navigation buttons.
+        private var searchBar: some View {
+            HStack(spacing: 4) {
+                searchField
+
+                Button(action: {
+                    _ = surfaceView.navigateSearchToNext()
+                }, label: {
+                    Image(systemName: "chevron.up")
+                })
+                .buttonStyle(SearchButtonStyle())
+
+                Button(action: {
+                    guard let surface = surfaceView.surface else { return }
+                    let action = "navigate_search:previous"
+                    ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
+                }, label: {
+                    Image(systemName: "chevron.down")
+                })
+                .buttonStyle(SearchButtonStyle())
+
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(SearchButtonStyle())
+            }
+            .padding(8)
+            .background(.background)
+            .clipShape(clipShape)
+            .shadow(radius: 4)
+        }
+
+        /// The search text field with its syncing and keyboard handling.
+        private var searchField: some View {
+            BackportSelectionTextField(
+                "Search",
+                text: $searchState.needle.text,
+                selection: $searchState.needle.selection
+            )
+            .textFieldStyle(.plain)
+            .frame(width: 180)
+            .padding(.leading, 8)
+            .padding(.trailing, 50)
+            .padding(.vertical, 6)
+            .background(Color.primary.opacity(0.1))
+            .cornerRadius(6)
+            .focused($isSearchFieldFocused)
+            .overlay(alignment: .trailing) {
+                if let selected = searchState.selected {
+                    let totalText = searchState.total.map { String($0) } ?? "?"
+                    Text("\(selected + 1)/\(totalText)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                        .padding(.trailing, 8)
+                } else if let total = searchState.total {
+                    Text("-/\(total)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                        .padding(.trailing, 8)
+                }
+            }
+            .onChange(of: searchState.needle.text) { _ in
+                searchState.writePasteboardNeedle()
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: NSApplication.didBecomeActiveNotification
                 )
+            ) { _ in
+                // When the app becomes active, we want to check for external changes
+                // to our synced needle.
+                searchState.readPasteboardNeedle()
+            }
+            .onSubmit {
+                _ = surfaceView.navigateSearchToNext()
+            }
+            .onExitCommand {
+                if searchState.needle.text.isEmpty {
+                    onClose()
+                } else {
+                    Ghostty.moveFocus(to: surfaceView)
+                }
+            }
+            .backport.onKeyPress(.return) { modifiers in
+                if modifiers.contains(.shift) {
+                    _ = surfaceView.navigateSearchToPrevious()
+                    return .handled
+                }
+                return .ignored
             }
         }
 
         private var clipShape: some Shape {
+#if compiler(>=6.2)
             if #available(macOS 26.0, *) {
                 return ConcentricRectangle(corners: .concentric(minimum: 8), isUniform: true)
             } else {
                 return RoundedRectangle(cornerRadius: 8)
             }
+#else
+            return RoundedRectangle(cornerRadius: 8)
+#endif // compiler(>=6.2)
         }
 
         enum Corner {

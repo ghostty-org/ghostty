@@ -8,7 +8,9 @@ class TerminalViewContainer: NSView {
 
     /// Combined glass effect and inactive tint overlay view
     private(set) var glassEffectView: NSView?
+#if compiler(>=6.2)
     private var derivedConfig: DerivedConfig?
+#endif
 
     var windowThemeFrameView: NSView? {
         window?.contentView?.superview
@@ -75,10 +77,12 @@ class TerminalViewContainer: NSView {
     }
 
     func ghosttyConfigDidChange(_ config: Ghostty.Config, preferredBackgroundColor: NSColor?) {
+#if compiler(>=6.2)
         let newValue = DerivedConfig(config: config, preferredBackgroundColor: preferredBackgroundColor, cornerRadius: windowCornerRadius)
         guard newValue != derivedConfig else { return }
         derivedConfig = newValue
         DispatchQueue.main.async(execute: updateGlassEffectIfNeeded)
+#endif // compiler(>=6.2)
     }
 }
 
@@ -250,6 +254,7 @@ extension TerminalViewContainer {
 #endif // compiler(>=6.2)
     }
 
+#if compiler(>=6.2)
     struct DerivedConfig: Equatable {
         let style: BackportNSGlassStyle
         let backgroundColor: NSColor
@@ -270,4 +275,5 @@ extension TerminalViewContainer {
             self.cornerRadius = cornerRadius
         }
     }
+#endif // compiler(>=6.2)
 }

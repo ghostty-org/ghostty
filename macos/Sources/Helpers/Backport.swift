@@ -104,6 +104,7 @@ enum BackportPointerStyle {
     }
 }
 
+#if compiler(>=6.2)
 enum BackportNSGlassStyle {
     case regular, clear
 
@@ -115,6 +116,7 @@ enum BackportNSGlassStyle {
         }
     }
 }
+#endif // compiler(>=6.2)
 
 /// Backported `TextField` that supports text selection on macOS 26 and up. The `selection`
 /// has no effect on versions below macOS 26.

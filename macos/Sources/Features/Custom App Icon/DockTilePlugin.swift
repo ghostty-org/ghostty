@@ -68,6 +68,10 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
 
 private extension NSDockTile {
     func setIcon(_ newIcon: NSImage?) {
+        // The icon value crosses an isolation boundary into the main
+        // actor. NSImage isn't Sendable but is only used on the main
+        // thread after this point, so transfer it unsafely.
+        nonisolated(unsafe) let newIcon = newIcon
         // Update the Dock tile on the main thread.
         DispatchQueue.main.async {
             guard let newIcon else {
