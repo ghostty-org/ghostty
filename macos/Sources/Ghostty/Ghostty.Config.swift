@@ -454,7 +454,7 @@ extension Ghostty {
 
         /// The border colors identifying broadcast input groups, one
         /// per group number.
-        var broadcastGroupColors: [OSColor] {
+        var broadcastGroupColors: [NSColor] {
             guard let config = self.config else { return [] }
             var v: ghostty_config_broadcast_group_colors_s = .init()
             let key = "broadcast-group-colors"
