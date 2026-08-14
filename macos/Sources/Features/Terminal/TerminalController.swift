@@ -484,7 +484,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Create a new window and add it to the parent
         let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig)
         controller.isBackgroundOpaque = parentController.isBackgroundOpaque
-        controller.adoptTabsLocation(from: parentController)
         guard let window = controller.window else { return controller }
 
         // If the parent is miniaturized, then macOS exhibits really strange behaviors
@@ -505,6 +504,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // If we don't allow tabs then we create a new window instead.
         if window.tabbingMode != .disallowed {
+            // Inherit the group's hotkey-moved location only when we will actually
+            // join the tab group. Adopting earlier would bump `initialContentSize`
+            // by the sidebar width for a standalone window that never shows one.
+            controller.adoptTabsLocation(from: parentController)
+
             // Add the window to the tab group and show it.
             switch ghostty.config.windowNewTabPosition {
             case "end":
@@ -649,6 +653,24 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return true
     }
 
+    /// While `Merge All Windows` is settling, unpreferred normalizations (from
+    /// `relabelTabs` on frame/key changes) must not overturn the merge target.
+    private static var mergeTabsLocationPreference: (
+        host: ObjectIdentifier,
+        location: Ghostty.Config.MacOSTabsLocation
+    )?
+
+    static func beginMergeTabsLocationPreference(
+        _ location: Ghostty.Config.MacOSTabsLocation,
+        for host: TerminalController
+    ) {
+        mergeTabsLocationPreference = (ObjectIdentifier(host), location)
+    }
+
+    static func endMergeTabsLocationPreference() {
+        mergeTabsLocationPreference = nil
+    }
+
     /// Bring every tab in this window's group to the same tab location. Tabs can
     /// be dragged from one window into another, and windows can be merged, either
     /// of which joins groups that may have shown their tabs in different places.
@@ -673,11 +695,24 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let controllers = tabbedWindows
             .compactMap { $0.windowController as? TerminalController }
             .filter(\.supportsSideTabs)
-        let location = preferredLocation ?? tabsLocation
+
+        // A live Merge All Windows pins the merge target's location so early
+        // unpreferred passes (odd-one-out against an incoming multi-tab group)
+        // cannot flip the host before the deferred preferred normalize runs.
+        let mergePreference: Ghostty.Config.MacOSTabsLocation? = {
+            guard let preference = Self.mergeTabsLocationPreference else { return nil }
+            guard controllers.contains(where: { ObjectIdentifier($0) == preference.host }) else {
+                return nil
+            }
+            return preference.location
+        }()
+
+        let location = preferredLocation ?? mergePreference ?? tabsLocation
         guard controllers.contains(where: { $0.tabsLocation != location }) else { return }
 
-        // A caller that knows the winner leaves us nothing to work out.
-        if preferredLocation != nil {
+        // A caller that knows the winner — or a merge that already picked one —
+        // leaves us nothing to work out.
+        if preferredLocation != nil || mergePreference != nil {
             setTabsLocation(location, resizingWindow: false)
             return
         }

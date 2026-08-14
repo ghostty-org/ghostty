@@ -213,7 +213,21 @@ final class SideTabsViewModel: ObservableObject {
         guard let hostWindow = controller.window else { return }
 
         mirroring = true
-        observe(hostWindow)
+
+        // Every tab owns a model, but only the selected tab's sidebar is on
+        // screen. Background models still watch selection/membership so they
+        // can pick up when they become visible; they skip title observation and
+        // the expensive list/accessory rebuilds that shells would otherwise fan
+        // out across N² refreshes.
+        let selectedWindow = hostWindow.tabGroup?.selectedWindow ?? hostWindow
+        let isSelected = hostWindow === selectedWindow
+        observe(hostWindow, observeTitles: isSelected)
+
+        guard isSelected else {
+            clearTitleObservations()
+            return
+        }
+
         syncNativeTabBar(hostWindow)
         refreshTabs(hostWindow)
     }
@@ -222,6 +236,7 @@ final class SideTabsViewModel: ObservableObject {
     /// sidebar.
     private func stopMirroring() {
         mirroring = false
+        refreshPending = false
 
         if let hostWindow = controller?.window {
             syncNativeTabBar(hostWindow)
@@ -230,13 +245,17 @@ final class SideTabsViewModel: ObservableObject {
         tabGroupObservations.forEach { $0.invalidate() }
         tabGroupObservations = []
         observedTabGroup = nil
-        titleObservations.forEach { $0.invalidate() }
-        titleObservations = []
-        observedWindows = []
+        clearTitleObservations()
         tabs = []
     }
 
-    private func observe(_ hostWindow: NSWindow) {
+    private func clearTitleObservations() {
+        titleObservations.forEach { $0.invalidate() }
+        titleObservations = []
+        observedWindows = []
+    }
+
+    private func observe(_ hostWindow: NSWindow, observeTitles: Bool) {
         let tabGroup = hostWindow.tabGroup
 
         if observedTabGroup !== tabGroup {
@@ -251,15 +270,19 @@ final class SideTabsViewModel: ObservableObject {
 
                 // Which tab is selected, which is the row we highlight. We can't
                 // rely on our controller becoming key for this since a tab can
-                // be selected without that happening.
+                // be selected without that happening. Background models also use
+                // this to start doing real work when they become selected.
                 tabGroup?.observe(\.selectedWindow, options: [.new]) { [weak self] _, _ in
                     self?.refreshLater()
                 },
             ].compactMap { $0 }
         }
 
+        guard observeTitles else { return }
+
         // The tab titles are what we render, and AppKit gives us no single
         // notification for "some tab's title changed", so observe each window.
+        // Only the selected (visible) sidebar needs this.
         let windows = tabGroup?.windows ?? [hostWindow]
         let windowIDs = windows.map(ObjectIdentifier.init)
         guard observedWindows != windowIDs else { return }
@@ -275,8 +298,16 @@ final class SideTabsViewModel: ObservableObject {
     /// Refresh on the next main queue turn. Our observations rebind themselves,
     /// and replacing an observation from inside its own callback leaves the
     /// observed object retained, so we never refresh directly from one.
+    /// Coalesce bursts (shell retitles, multi-window KVO) into a single pass.
+    private var refreshPending = false
     private func refreshLater() {
-        DispatchQueue.main.async { [weak self] in self?.refresh() }
+        guard !refreshPending else { return }
+        refreshPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.refreshPending = false
+            self.refresh()
+        }
     }
 
     /// The sidebar replaces the macOS tab bar, so the tab bar is hidden while the

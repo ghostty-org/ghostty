@@ -242,17 +242,33 @@ class TerminalWindow: NSWindow {
     }
 
     override func mergeAllWindows(_ sender: Any?) {
+        // Capture the merge target's location *before* the merge. During the
+        // following event-loop turns, `relabelTabs` (from frame / key changes)
+        // can run an unpreferred normalize that would treat this single-tab
+        // host as the odd one out against an incoming multi-tab group and flip
+        // it. Pin the preferred location for that window so those early passes
+        // keep the target's layout.
+        let preferredLocation = terminalController?.tabsLocation
+        if let controller = terminalController, let preferredLocation {
+            TerminalController.beginMergeTabsLocationPreference(
+                preferredLocation,
+                for: controller)
+        }
+
         super.mergeAllWindows(sender)
 
         // It takes an event loop cycle to merge all the windows so we set a
         // short timer to relabel the tabs (issue #1902)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            defer { TerminalController.endMergeTabsLocationPreference() }
             guard let controller = self?.terminalController else { return }
 
             // The merged windows may show their tabs somewhere else. Unlike a tab
             // dragged into a window, a merge has an obvious winner: everything was
             // merged into this window, so it keeps its own tab location.
-            controller.normalizeTabsLocation(preferring: controller.tabsLocation)
+            if let preferredLocation {
+                controller.normalizeTabsLocation(preferring: preferredLocation)
+            }
             controller.relabelTabs()
         }
     }
