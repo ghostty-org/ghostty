@@ -98,6 +98,7 @@ dervedro
 devsunb
 diaaeddin
 diego-moment
+diegoarmstrong
 dkinzler
 dmehala
 dmunozv04
