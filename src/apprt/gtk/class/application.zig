@@ -959,6 +959,17 @@ pub const Application = extern struct {
         const headerbar_background = config.@"window-titlebar-background" orelse config.background;
         const headerbar_foreground = config.@"window-titlebar-foreground" orelse config.foreground;
 
+        // Keep the headerbar opaque and driven purely by the system theme.
+        // The `ghostty` window theme overrides `windowhandle` below.
+        if (config.@"gtk-toolbar-style" != .flat) {
+            try writer.writeAll(
+                \\windowhandle {
+                \\  background-color: @headerbar_bg_color;
+                \\}
+                \\
+            );
+        }
+
         switch (window_theme) {
             .ghostty => try writer.print(
                 \\windowhandle {{
@@ -1081,6 +1092,19 @@ pub const Application = extern struct {
             \\}
             \\
         );
+
+        // Keep the headerbar opaque and driven purely by the system theme.
+        // The `flat` toolbar style is excluded because a transparent headerbar
+        // is intentional there. The `ghostty` window theme overrides
+        // `--headerbar-bg-color` below.
+        if (config.@"gtk-toolbar-style" != .flat) {
+            try writer.writeAll(
+                \\windowhandle {
+                \\  background-color: var(--headerbar-bg-color);
+                \\}
+                \\
+            );
+        }
 
         switch (window_theme) {
             .ghostty => try writer.print(
