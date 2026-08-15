@@ -97,6 +97,7 @@ deblasis
 dervedro
 devsunb
 diaaeddin
+diego-moment
 dkinzler
 dmehala
 dmunozv04
