@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-enum TerminalTabColor: Int, CaseIterable, Codable {
+enum TerminalTabColorPreset: Int, CaseIterable, Codable {
     case none
     case blue
     case purple
@@ -67,6 +67,8 @@ enum TerminalTabColor: Int, CaseIterable, Codable {
         }
     }
 
+    var tabColor: TerminalTabColor { TerminalTabColor(color: displayColor) }
+
     func swatchImage(selected: Bool) -> NSImage {
         let size = NSSize(width: 18, height: 18)
         return NSImage(size: size, flipped: false) { rect in
@@ -105,15 +107,57 @@ enum TerminalTabColor: Int, CaseIterable, Codable {
     }
 }
 
+struct TerminalTabColor: Equatable, Codable {
+    let color: NSColor?
+
+    static let none = TerminalTabColor(color: nil)
+
+    init(color: NSColor?) {
+        self.color = color
+    }
+
+    init(color: Color) {
+        self.color = NSColor(color)
+    }
+
+    // MARK: Codable
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        // Backward compatibility: attempt to decode the previously stored preset index.
+        if let preset = try? container.decode(TerminalTabColorPreset.self) {
+            self.color = preset.displayColor
+            return
+        }
+        let hex = try container.decode(String.self)
+        self.color = NSColor(hex: hex)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(color?.hexString ?? "")
+    }
+
+    // MARK: Equatable
+
+    static func == (lhs: TerminalTabColor, rhs: TerminalTabColor) -> Bool {
+        lhs.color == rhs.color
+    }
+
+    var matchingPreset: TerminalTabColorPreset {
+        TerminalTabColorPreset.allCases.first { $0.displayColor == color } ?? .none
+    }
+}
+
 // MARK: - Menu View
 
 /// A SwiftUI view displaying a color palette for tab color selection.
 /// Used as a custom view inside an NSMenuItem in the tab context menu.
 struct TabColorMenuView: View {
-    @State private var currentSelection: TerminalTabColor
-    let onSelect: (TerminalTabColor) -> Void
+    @State private var currentSelection: TerminalTabColorPreset
+    let onSelect: (TerminalTabColorPreset) -> Void
 
-    init(selectedColor: TerminalTabColor, onSelect: @escaping (TerminalTabColor) -> Void) {
+    init(selectedColor: TerminalTabColorPreset, onSelect: @escaping (TerminalTabColorPreset) -> Void) {
         self._currentSelection = State(initialValue: selectedColor)
         self.onSelect = onSelect
     }
@@ -143,7 +187,7 @@ struct TabColorMenuView: View {
         .padding(.bottom, 4)
     }
 
-    static let paletteRows: [[TerminalTabColor]] = [
+    static let paletteRows: [[TerminalTabColorPreset]] = [
         [.none, .blue, .purple, .pink, .red],
         [.orange, .yellow, .green, .teal, .graphite],
     ]
@@ -161,7 +205,7 @@ struct TabColorMenuView: View {
 
 /// A single color swatch button in the tab color palette.
 private struct TabColorSwatch: View {
-    let color: TerminalTabColor
+    let color: TerminalTabColorPreset
     let isSelected: Bool
     let action: () -> Void
 

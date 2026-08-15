@@ -14,6 +14,7 @@ extension Ghostty.Action {
             case foreground
             case background
             case cursor
+            case tab
             case palette(index: UInt8)
         }
 
@@ -25,6 +26,8 @@ extension Ghostty.Action {
                 self.kind = .background
             case GHOSTTY_ACTION_COLOR_KIND_CURSOR:
                 self.kind = .cursor
+            case GHOSTTY_ACTION_COLOR_KIND_TAB:
+                self.kind = .tab
             default:
                 self.kind = .palette(index: UInt8(c.kind.rawValue))
             }
