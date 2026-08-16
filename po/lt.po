@@ -428,7 +428,7 @@ msgstr "Kopijuoti pažymėtą tekstą į iškarpinę kaip ANSI valdymo sekas."
 
 #: src/input/command.zig:167
 msgid "Copy Selection as HTML to Clipboard"
-msgstr "Kopijuoti pažymėtą tekstą į iškarpinę kaip HTML"
+msgstr "Kopijuoti pasirinkimą į iškarpinę kaip HTML"
 
 #: src/input/command.zig:168
 msgid "Copy the selected text as HTML to the clipboard."
