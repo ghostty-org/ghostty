@@ -740,7 +740,7 @@ msgid ""
 "Copy the selection contents as HTML to a temporary file and paste the path "
 "to the file."
 msgstr ""
-"Įrašyti pažymėtą turinį kaip HTML į laikinąjį failą ir įklijuoti jo kelią."
+"Įrašyti pasirinkimo turinį kaip HTML į laikinąjį failą ir įklijuoti jo kelią."
 
 #: src/input/command.zig:389
 msgid "Copy Selection as HTML to Temporary File and Open"
