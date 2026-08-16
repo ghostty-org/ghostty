@@ -480,7 +480,7 @@ msgstr "Pradėti paiešką, jei ji dar nevykdoma."
 
 #: src/input/command.zig:203
 msgid "Search Selection"
-msgstr "Ieškoti pažymėto teksto"
+msgstr "Ieškoti pasirinkimo"
 
 #: src/input/command.zig:204
 msgid "Start a search for the current text selection."
