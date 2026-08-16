@@ -610,7 +610,7 @@ msgstr "Įrašyti ekrano turinį į laikinąjį failą ir įklijuoti kelią"
 #: src/input/command.zig:292
 msgid ""
 "Copy the screen contents to a temporary file and paste the path to the file."
-msgstr "Įrašyti ekrano turinį į laikinąjį failą ir įklijuoti jo kelią."
+msgstr "Įrašyti ekrano turinį į laikinąjį failą ir įklijuoti jo kelią į failą."
 
 #: src/input/command.zig:296
 msgid "Copy Screen to Temporary File and Open"
