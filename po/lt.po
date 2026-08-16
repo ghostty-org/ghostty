@@ -675,7 +675,7 @@ msgid ""
 "paste the path to the file."
 msgstr ""
 "Įrašyti ekrano turinį kaip ANSI valdymo sekas į laikinąjį failą ir įklijuoti "
-"jo kelią."
+"jo kelią į failą."
 
 #: src/input/command.zig:346
 msgid "Copy Screen as ANSI Sequences to Temporary File and Open"
