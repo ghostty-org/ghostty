@@ -709,7 +709,7 @@ msgstr "Įrašyti pasirinkimą į laikinąjį failą ir įklijuoti kelią"
 msgid ""
 "Copy the selection contents to a temporary file and paste the path to the "
 "file."
-msgstr "Įrašyti pažymėtą turinį į laikinąjį failą ir įklijuoti jo kelią."
+msgstr "Įrašyti pasirinkimo turinį į laikinąjį failą ir įklijuoti jo kelią į failą."
 
 #: src/input/command.zig:364
 msgid "Copy Selection to Temporary File and Open"
