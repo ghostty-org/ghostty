@@ -753,7 +753,7 @@ msgstr "Įrašyti pasirinkimo turinį kaip HTML į laikinąjį failą ir jį ati
 #: src/input/command.zig:398
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
 msgstr ""
-"Įrašyti pažymėtą turinį kaip ANSI sekas į laikinąjį failą ir kopijuoti kelią"
+"Įrašyti pasirinkimą kaip ANSI sekas į laikinąjį failą ir kopijuoti kelią"
 
 #: src/input/command.zig:399
 msgid ""
