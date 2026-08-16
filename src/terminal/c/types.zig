@@ -70,6 +70,7 @@ pub const structs: std.StaticStringMap(StructInfo) = structs: {
         .{ "GhosttyPointCoordinate", StructInfo.init(point.Coordinate) },
         .{ "GhosttyReader", StructInfo.init(io.Reader) },
         .{ "GhosttyRenderStateColors", StructInfo.init(render.Colors) },
+        .{ "GhosttyRenderStateCursor", StructInfo.init(render.Cursor) },
         .{ "GhosttyRenderStateRowSelection", StructInfo.init(render.RowSelection) },
         .{ "GhosttySelectionGestureBehaviors", StructInfo.init(selection_gesture.Behaviors) },
         .{ "GhosttySelectionGestureGeometry", StructInfo.init(selection_gesture.Geometry) },
@@ -257,6 +258,7 @@ test "json parses" {
         "GhosttyPointCoordinate",
         "GhosttyReader",
         "GhosttyRenderStateColors",
+        "GhosttyRenderStateCursor",
         "GhosttyRenderStateRowSelection",
         "GhosttySelection",
         "GhosttySelectionGestureBehaviors",
@@ -308,6 +310,18 @@ test "json parses" {
     const unknown_string_fields = unknown_string.get("fields").?.object;
     try std.testing.expect(unknown_string_fields.contains("truncated"));
     try std.testing.expect(unknown_string_fields.contains("content"));
+
+    const render_cursor_fields = root.get("GhosttyRenderStateCursor").?.object
+        .get("fields").?.object;
+    try std.testing.expect(render_cursor_fields.contains("size"));
+    try std.testing.expect(render_cursor_fields.contains("viewport_has_value"));
+    try std.testing.expect(render_cursor_fields.contains("viewport_x"));
+    try std.testing.expect(render_cursor_fields.contains("viewport_y"));
+    try std.testing.expect(render_cursor_fields.contains("wide_tail"));
+    try std.testing.expect(render_cursor_fields.contains("visible"));
+    try std.testing.expect(render_cursor_fields.contains("blinking"));
+    try std.testing.expect(render_cursor_fields.contains("password_input"));
+    try std.testing.expect(render_cursor_fields.contains("visual_style"));
 
     const reader_fields = root.get("GhosttyReader").?.object
         .get("fields").?.object;

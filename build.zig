@@ -69,6 +69,10 @@ pub fn build(b: *std.Build) !void {
         "test-lib-vt",
         "Run libghostty-vt tests",
     );
+    const test_lib_vt_build_step = b.step(
+        "test-lib-vt-build",
+        "Build libghostty-vt tests without running them (compile check)",
+    );
     const test_valgrind_step = b.step(
         "test-valgrind",
         "Run tests under valgrind",
@@ -329,6 +333,7 @@ pub fn build(b: *std.Build) !void {
         });
         const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
         test_lib_vt_step.dependOn(&mod_vt_test_run.step);
+        test_lib_vt_build_step.dependOn(&mod_vt_test.step);
 
         const mod_vt_c_test = b.addTest(.{
             .root_module = mod.vt_c,
@@ -336,6 +341,7 @@ pub fn build(b: *std.Build) !void {
         });
         const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
         test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);
+        test_lib_vt_build_step.dependOn(&mod_vt_c_test.step);
     }
 
     // Tests (skip when building libghostty-vt)

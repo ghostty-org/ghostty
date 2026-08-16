@@ -639,6 +639,8 @@ fn computeViewportPos(
 }
 
 test "placement_iterator new/free" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     var iter: PlacementIterator = null;
     try testing.expectEqual(Result.success, placement_iterator_new(
         &lib.alloc.test_allocator,

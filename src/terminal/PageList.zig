@@ -1711,18 +1711,20 @@ const ReflowCursor = struct {
 
             // Fast path: bulk-copy a run of simple cells directly
             // into the destination row. The vast majority of cells
-            // are narrow, have no managed memory (graphemes,
-            // hyperlinks), and share a single style in long runs, so
-            // this avoids the per-cell state machine below for most
-            // of the work. Rows with tracked pins take the slow path
-            // so pin remapping behaves identically.
+            // are narrow cells or complete wide pairs, have no
+            // managed memory (graphemes, hyperlinks), and share a
+            // single style in long runs, so this avoids the
+            // per-cell state machine below for most of the work.
+            // Rows with tracked pins take the slow path so pin
+            // remapping behaves identically.
             if (!row_has_pins) {
                 const max_run = @min(
                     cols_len - x,
                     @as(usize, self.page.size.cols) - self.x,
                 );
-                const run = bulkRunLength(cells[x..][0..max_run]);
-                if (run > 0 and self.copyRun(cells[x..][0..run], src_page)) {
+                const window = cells[x..][0..max_run];
+                const run = bulkRunLength(window);
+                if (run > 0 and self.copyRun(window[0..run], src_page)) {
                     x += run;
                     continue;
                 }
@@ -1898,9 +1900,21 @@ const ReflowCursor = struct {
     fn bulkRunLength(cells: []const pagepkg.Cell) usize {
         if (cells.len == 0) return 0;
         const first = cells[0];
-        if (!bulkCopyable(first)) return 0;
 
-        const run_pattern = BulkRunMask.pattern(first);
+        // A run may start on a bulk-copyable narrow cell or on a wide pair.
+        const pair_start = first.content_tag == .codepoint and
+            first.wide == .wide and
+            !first.hyperlink;
+        if (!pair_start and !bulkCopyable(first)) return 0;
+
+        // Patterns for each cell shape admitted to the run.
+        var proto = first;
+        proto.wide = .narrow;
+        const narrow_pattern = BulkRunMask.pattern(proto);
+        proto.wide = .wide;
+        const wide_pattern = BulkRunMask.pattern(proto);
+        proto.wide = .spacer_tail;
+        const tail_pattern = BulkRunMask.pattern(proto);
 
         // Only text cells can contain a placeholder; for bg color
         // tags the content bits are a color, so we skip the check for
@@ -1919,28 +1933,50 @@ const ReflowCursor = struct {
             ));
         };
 
-        var len: usize = 1;
+        var len: usize = 0;
+        outer: while (true) {
+            // Vectorized scan: check whole groups of narrow cells at
+            // once. If a group fully matches, the run extends by the
+            // whole group; otherwise fall through to the scalar loop
+            // below, which finds the exact end of the run within it
+            // or continues through a wide pair.
+            while (cells.len - len >= bulk_group_len) {
+                if (!BulkRunMask.eql(cells, len, narrow_pattern)) break;
+                if (check_placeholder and PlaceholderMask.eqlAny(
+                    cells,
+                    len,
+                    placeholder_pattern,
+                )) break;
+                len += bulk_group_len;
+            }
 
-        // Vectorized scan: check whole groups of cells at once. If a
-        // group fully matches, the run extends by the whole group;
-        // otherwise fall through to the scalar loop below, which
-        // finds the exact end of the run within it.
-        while (cells.len - len >= bulk_group_len) {
-            if (!BulkRunMask.eql(cells, len, run_pattern)) break;
-            if (check_placeholder and PlaceholderMask.eqlAny(
-                cells,
-                len,
-                placeholder_pattern,
-            )) break;
-            len += bulk_group_len;
-        }
+            while (len < cells.len) {
+                const cell = cells[len];
+                if (BulkRunMask.eqlScalar(cell, narrow_pattern)) {
+                    if (check_placeholder and PlaceholderMask.eqlScalar(
+                        cell,
+                        placeholder_pattern,
+                    )) break :outer;
+                    len += 1;
+                    continue;
+                }
 
-        while (len < cells.len) : (len += 1) {
-            if (!BulkRunMask.eqlScalar(cells[len], run_pattern)) break;
-            if (check_placeholder and PlaceholderMask.eqlScalar(
-                cells[len],
-                placeholder_pattern,
-            )) break;
+                // Wide pairs are consumed atomically so the run
+                // (or window) end can never split a pair.
+                if (len + 1 < cells.len and
+                    BulkRunMask.eqlScalar(cell, wide_pattern) and
+                    BulkRunMask.eqlScalar(cells[len + 1], tail_pattern))
+                {
+                    len += 2;
+                    // Re-enter the vectorized loop: narrow groups
+                    // commonly follow a stretch of pairs.
+                    continue :outer;
+                }
+
+                break :outer;
+            }
+
+            break;
         }
 
         return len;
@@ -4167,6 +4203,64 @@ pub fn increaseCapacity(
             const layout = Page.layout(cap);
             if (layout.total_size > size.max_page_size) {
                 return error.OutOfSpace;
+            }
+
+            // Doubling alone has a really bad behavior in that if you're
+            // in a pathological scenario with only one dimension of cap
+            // increase, you have to pay repeat double costs. Each time you
+            // double we have to reclone the entire page. As the page gets
+            // bigger this gets more expensive.
+            //
+            // Instead, for some dimensions, we do something else: we look
+            // at the current utilization, and project that to every row
+            // in the page capacity (if it fits). We just assume that your
+            // future workload will look the one you're currently filling.
+            // If we're wrong, its some wasted capacity but future growth
+            // still works in other dimensions.
+            //
+            // This only applies to the current page being grown. I previously
+            // tried a high-water-mark style solution to preallocate pages,
+            // which does work really well, but its not clear when you reset
+            // the mark.
+            project: {
+                // The dimensions we project must measure their current
+                // usage in the same units as the capacity field.
+                const used: u64 = switch (comptime tag) {
+                    .grapheme_bytes => page.grapheme_alloc.usedBytes(page.memory),
+
+                    // Living item count. Note the capacity field is a
+                    // requested item count that Layout.init rounds in
+                    // both directions (table to the next power of two,
+                    // items to the load factor of that), so this is an
+                    // approximation in capacity units; the headroom
+                    // below absorbs the error and an undershoot only
+                    // costs one more (non-ladder) growth event.
+                    .styles => page.styles.count(),
+
+                    else => break :project,
+                };
+                if (used == 0 or page.size.rows == 0) break :project;
+
+                // Full-page need at current density, plus 25% headroom
+                // for chunk rounding and fragmentation.
+                const density = used * @as(u64, cap.rows) / page.size.rows;
+                const projected_raw = density + density / 4;
+
+                // Bound the jump to 32× the pre-growth capacity. Arbitrary
+                // choice until we can show otherwise.
+                const projected = @min(
+                    projected_raw,
+                    @as(u64, old) * 32,
+                    std.math.maxInt(Int),
+                );
+                if (projected <= @field(cap, field_name)) break :project;
+
+                // Only take the projection if the resulting page still fits.
+                var proj_cap = cap;
+                @field(proj_cap, field_name) = @intCast(projected);
+                if (Page.layout(proj_cap).total_size > size.max_page_size)
+                    break :project;
+                cap = proj_cap;
             }
         },
     };
@@ -11734,6 +11828,68 @@ test "PageList increaseCapacity to increase styles" {
     }
 }
 
+test "PageList increaseCapacity styles projects capacity from page density" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 2, .rows = 2, .max_size = 0 });
+    defer s.deinit();
+
+    const original_cap = s.pages.first.?.capacity().styles;
+
+    // Write styled cells so the page has a measurable per-row style
+    // density (unlike the plain doubling test above, which grows a
+    // page with no styles in use).
+    const bold: stylepkg.Style = .{ .flags = .{ .bold = true } };
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                const style_id = try page.styles.add(page.memory, bold);
+                rac.row.styled = true;
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
+                    .style_id = style_id,
+                };
+            }
+        }
+    }
+
+    _ = try s.increaseCapacity(s.pages.first.?, .styles);
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+
+        // The page uses only two active rows out of thousands of rows
+        // of capacity, so the projected full-page need saturates the
+        // 32x-per-event growth bound instead of merely doubling.
+        try testing.expectEqual(
+            original_cap * 32,
+            page.capacity.styles,
+        );
+
+        // All cell content and styles are preserved by the growth.
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                try testing.expectEqual(
+                    @as(u21, @intCast(x + 1)),
+                    rac.cell.content.codepoint.data,
+                );
+                try testing.expect(rac.cell.style_id != stylepkg.default_id);
+                try testing.expect(bold.eql(
+                    page.styles.get(page.memory, rac.cell.style_id).*,
+                ));
+            }
+        }
+    }
+}
+
 test "PageList increaseCapacity to increase graphemes" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -11773,6 +11929,70 @@ test "PageList increaseCapacity to increase graphemes" {
                     @as(u21, @intCast(x)),
                     rac.cell.content.codepoint.data,
                 );
+            }
+        }
+    }
+}
+
+test "PageList increaseCapacity graphemes projects capacity from page density" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 2, .rows = 2, .max_size = 0 });
+    defer s.deinit();
+
+    const original_cap = s.pages.first.?.capacity().grapheme_bytes;
+
+    // Write cells with grapheme data so the page has a measurable
+    // per-row grapheme density (unlike the plain doubling test above,
+    // which grows a page with no grapheme usage).
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
+                };
+                try page.appendGrapheme(rac.row, rac.cell, 0x0301);
+                try page.appendGrapheme(rac.row, rac.cell, 0x0302);
+            }
+        }
+    }
+
+    _ = try s.increaseCapacity(s.pages.first.?, .grapheme_bytes);
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+
+        // The page uses only two active rows out of thousands of rows
+        // of capacity, so the projected full-page need saturates the
+        // 32x-per-event growth bound instead of merely doubling.
+        try testing.expectEqual(
+            original_cap * 32,
+            page.capacity.grapheme_bytes,
+        );
+
+        // All cell and grapheme content is preserved by the growth.
+        try testing.expectEqual(
+            @as(usize, s.rows * s.cols),
+            page.graphemeCount(),
+        );
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                try testing.expectEqual(
+                    @as(u21, @intCast(x + 1)),
+                    rac.cell.content.codepoint.data,
+                );
+                const cps = page.lookupGrapheme(rac.cell).?;
+                try testing.expectEqual(@as(usize, 2), cps.len);
+                try testing.expectEqual(@as(u21, 0x0301), cps[0]);
+                try testing.expectEqual(@as(u21, 0x0302), cps[1]);
             }
         }
     }
@@ -18019,6 +18239,370 @@ test "PageList resize reflow less cols to wrap a wide char" {
             const rac = page.getRowAndCell(1, 1);
             try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint.data);
             try testing.expectEqual(pagepkg.Cell.Wide.spacer_tail, rac.cell.wide);
+        }
+    }
+}
+
+test "PageList resize reflow less cols wide char bulk run" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 8, .rows = 1, .max_size = 0 });
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+
+        // A full row of wide character pairs so the reflow takes
+        // the bulk run path.
+        for (0..4) |i| {
+            {
+                const rac = page.getRowAndCell(i * 2, 0);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = .{ .data = @intCast(0x4E00 + i) } },
+                    .wide = .wide,
+                };
+            }
+            {
+                const rac = page.getRowAndCell(i * 2 + 1, 0);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = .{ .data = 0 } },
+                    .wide = .spacer_tail,
+                };
+            }
+        }
+    }
+
+    // Resize to exactly two pairs per row: runs end on the row
+    // boundary with no spacer heads needed.
+    try s.resize(.{ .cols = 4, .reflow = true });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 2), s.totalRows());
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+
+        for (0..4) |i| {
+            const y = i / 2;
+            const x = (i % 2) * 2;
+            {
+                const rac = page.getRowAndCell(x, y);
+                try testing.expectEqual(
+                    @as(u21, @intCast(0x4E00 + i)),
+                    rac.cell.content.codepoint.data,
+                );
+                try testing.expectEqual(pagepkg.Cell.Wide.wide, rac.cell.wide);
+            }
+            {
+                const rac = page.getRowAndCell(x + 1, y);
+                try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint.data);
+                try testing.expectEqual(pagepkg.Cell.Wide.spacer_tail, rac.cell.wide);
+            }
+        }
+
+        {
+            const rac = page.getRowAndCell(0, 0);
+            try testing.expect(rac.row.wrap);
+            try testing.expect(!rac.row.wrap_continuation);
+        }
+        {
+            const rac = page.getRowAndCell(0, 1);
+            try testing.expect(!rac.row.wrap);
+            try testing.expect(rac.row.wrap_continuation);
+        }
+    }
+}
+
+test "PageList resize reflow less cols wide char bulk run odd cols spacer head" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 8, .rows = 1, .max_size = 0 });
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+
+        for (0..4) |i| {
+            {
+                const rac = page.getRowAndCell(i * 2, 0);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = .{ .data = @intCast(0x4E00 + i) } },
+                    .wide = .wide,
+                };
+            }
+            {
+                const rac = page.getRowAndCell(i * 2 + 1, 0);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = .{ .data = 0 } },
+                    .wide = .spacer_tail,
+                };
+            }
+        }
+    }
+
+    // Resize to an odd number of columns: the bulk run must stop a
+    // pair short of the row boundary and the slow path inserts a
+    // spacer head in the final column.
+    try s.resize(.{ .cols = 5, .reflow = true });
+    try testing.expectEqual(@as(usize, 5), s.cols);
+    try testing.expectEqual(@as(usize, 2), s.totalRows());
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+
+        for (0..4) |i| {
+            const y = i / 2;
+            const x = (i % 2) * 2;
+            {
+                const rac = page.getRowAndCell(x, y);
+                try testing.expectEqual(
+                    @as(u21, @intCast(0x4E00 + i)),
+                    rac.cell.content.codepoint.data,
+                );
+                try testing.expectEqual(pagepkg.Cell.Wide.wide, rac.cell.wide);
+            }
+            {
+                const rac = page.getRowAndCell(x + 1, y);
+                try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint.data);
+                try testing.expectEqual(pagepkg.Cell.Wide.spacer_tail, rac.cell.wide);
+            }
+        }
+
+        {
+            const rac = page.getRowAndCell(4, 0);
+            try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint.data);
+            try testing.expectEqual(pagepkg.Cell.Wide.spacer_head, rac.cell.wide);
+            try testing.expect(rac.row.wrap);
+        }
+        {
+            const rac = page.getRowAndCell(4, 1);
+            try testing.expectEqual(pagepkg.Cell.Wide.narrow, rac.cell.wide);
+            try testing.expect(rac.row.wrap_continuation);
+        }
+    }
+}
+
+test "PageList resize reflow less cols wide char bulk run mixed narrow round trip" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // The emoji-in-prose shape: single wide pairs separated by
+    // narrow cells, which must all share a single bulk run.
+    const Shape = struct { cp: u21, wide: pagepkg.Cell.Wide };
+    const shape: []const Shape = &.{
+        .{ .cp = 0x4E00, .wide = .wide },
+        .{ .cp = 0, .wide = .spacer_tail },
+        .{ .cp = 'x', .wide = .narrow },
+        .{ .cp = 0x4E01, .wide = .wide },
+        .{ .cp = 0, .wide = .spacer_tail },
+        .{ .cp = 'y', .wide = .narrow },
+        .{ .cp = 0x4E02, .wide = .wide },
+        .{ .cp = 0, .wide = .spacer_tail },
+        .{ .cp = 'z', .wide = .narrow },
+    };
+
+    var s = try init(alloc, .{ .cols = 9, .rows = 1, .max_size = 0 });
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+        for (shape, 0..) |c, x| {
+            const rac = page.getRowAndCell(x, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = .{ .data = c.cp } },
+                .wide = c.wide,
+            };
+        }
+    }
+
+    // Shrink: the run ends exactly on the row boundary after the
+    // second narrow cell.
+    try s.resize(.{ .cols = 6, .reflow = true });
+    try testing.expectEqual(@as(usize, 6), s.cols);
+    try testing.expectEqual(@as(usize, 2), s.totalRows());
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+        for (shape[0..6], 0..) |c, x| {
+            const rac = page.getRowAndCell(x, 0);
+            try testing.expectEqual(c.cp, rac.cell.content.codepoint.data);
+            try testing.expectEqual(c.wide, rac.cell.wide);
+        }
+        for (shape[6..], 0..) |c, x| {
+            const rac = page.getRowAndCell(x, 1);
+            try testing.expectEqual(c.cp, rac.cell.content.codepoint.data);
+            try testing.expectEqual(c.wide, rac.cell.wide);
+        }
+        try testing.expect(page.getRowAndCell(0, 0).row.wrap);
+        try testing.expect(page.getRowAndCell(0, 1).row.wrap_continuation);
+    }
+
+    // Grow back: the wrapped rows must rejoin into the original
+    // single-row layout.
+    try s.resize(.{ .cols = 9, .reflow = true });
+    try testing.expectEqual(@as(usize, 9), s.cols);
+    try testing.expectEqual(@as(usize, 1), s.totalRows());
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+        for (shape, 0..) |c, x| {
+            const rac = page.getRowAndCell(x, 0);
+            try testing.expectEqual(c.cp, rac.cell.content.codepoint.data);
+            try testing.expectEqual(c.wide, rac.cell.wide);
+        }
+        try testing.expect(!page.getRowAndCell(0, 0).row.wrap);
+    }
+}
+
+test "PageList resize reflow less cols wide char bulk run styled" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 8, .rows = 1, .max_size = 0 });
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+
+        // Create a style
+        const style: stylepkg.Style = .{ .flags = .{ .bold = true } };
+        const style_id = try page.styles.add(page.memory, style);
+
+        // Styled pairs: the tail shares the wide cell's style, as
+        // the print path writes them.
+        for (0..4) |i| {
+            {
+                const rac = page.getRowAndCell(i * 2, 0);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = .{ .data = @intCast(0x4E00 + i) } },
+                    .wide = .wide,
+                    .style_id = style_id,
+                };
+                page.styles.use(page.memory, style_id);
+            }
+            {
+                const rac = page.getRowAndCell(i * 2 + 1, 0);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = .{ .data = 0 } },
+                    .wide = .spacer_tail,
+                    .style_id = style_id,
+                };
+                page.styles.use(page.memory, style_id);
+            }
+        }
+
+        // We're over-counted by 1 because `add` implies `use`.
+        page.styles.release(page.memory, style_id);
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 4, .reflow = true });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 2), s.totalRows());
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+
+        for (0..2) |y| {
+            for (0..4) |x| {
+                const rac = page.getRowAndCell(x, y);
+                const style_id = rac.cell.style_id;
+                try testing.expect(style_id != 0);
+
+                const style = page.styles.get(page.memory, style_id);
+                try testing.expect(style.flags.bold);
+                try testing.expect(rac.row.styled);
+                try testing.expectEqual(
+                    if (x % 2 == 0) pagepkg.Cell.Wide.wide else pagepkg.Cell.Wide.spacer_tail,
+                    rac.cell.wide,
+                );
+            }
+        }
+    }
+}
+
+test "PageList resize reflow less cols wide char bulk run degenerate spacer tail style" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 4, .rows = 1, .max_size = 0 });
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+
+        // A styled wide cell whose tail does NOT share its style.
+        // This can't come from the print path, but the run scan must
+        // reject the pair (slow path) rather than rewrite the tail
+        // to the wide cell's style.
+        const style: stylepkg.Style = .{ .flags = .{ .bold = true } };
+        const style_id = try page.styles.add(page.memory, style);
+
+        {
+            const rac = page.getRowAndCell(0, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = .{ .data = 0x4E00 } },
+                .wide = .wide,
+                .style_id = style_id,
+            };
+        }
+        {
+            const rac = page.getRowAndCell(1, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = .{ .data = 0 } },
+                .wide = .spacer_tail,
+            };
+        }
+        {
+            const rac = page.getRowAndCell(2, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = .{ .data = 'x' } },
+            };
+        }
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 3, .reflow = true });
+    try testing.expectEqual(@as(usize, 3), s.cols);
+    try testing.expectEqual(@as(usize, 1), s.totalRows());
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = s.pages.first.?.page();
+
+        {
+            const rac = page.getRowAndCell(0, 0);
+            try testing.expectEqual(@as(u21, 0x4E00), rac.cell.content.codepoint.data);
+            try testing.expectEqual(pagepkg.Cell.Wide.wide, rac.cell.wide);
+            try testing.expect(rac.cell.style_id != 0);
+            const style = page.styles.get(page.memory, rac.cell.style_id);
+            try testing.expect(style.flags.bold);
+        }
+        {
+            const rac = page.getRowAndCell(1, 0);
+            try testing.expectEqual(pagepkg.Cell.Wide.spacer_tail, rac.cell.wide);
+            try testing.expectEqual(stylepkg.default_id, rac.cell.style_id);
+        }
+        {
+            const rac = page.getRowAndCell(2, 0);
+            try testing.expectEqual(@as(u21, 'x'), rac.cell.content.codepoint.data);
+            try testing.expectEqual(pagepkg.Cell.Wide.narrow, rac.cell.wide);
         }
     }
 }

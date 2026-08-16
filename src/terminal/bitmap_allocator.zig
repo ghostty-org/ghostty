@@ -44,6 +44,11 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
         bitmap: Offset(u64),
         bitmap_count: usize,
 
+        /// Lowest bitmap word index that may contain a free bit; words
+        /// below it are fully allocated, so alloc scans can start here
+        /// instead of at zero.
+        search_start: usize = 0,
+
         /// The contiguous buffer of chunks.
         chunks: Offset(u8),
 
@@ -95,9 +100,21 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
                 return error.OutOfMemory;
 
             // Find the index of the free chunk. This also marks it as used.
+            // Words below search_start have no free bits, so no free span
+            // can start in or cross them and it is safe to skip them.
             const bitmaps = self.bitmap.ptr(base);
-            const idx = findFreeChunks(bitmaps[0..self.bitmap_count], chunk_count) orelse
+            const start = @min(self.search_start, self.bitmap_count);
+            const rel = findFreeChunks(bitmaps[start..self.bitmap_count], chunk_count) orelse
                 return error.OutOfMemory;
+            const idx = start * bitmap_bit_size + rel;
+
+            // Advance past any words the allocation just filled so the
+            // next scan starts at the first word with a free bit.
+            self.search_start = start: {
+                var new_start = start;
+                while (new_start < self.bitmap_count and bitmaps[new_start] == 0) new_start += 1;
+                break :start new_start;
+            };
 
             const chunks = self.chunks.ptr(base);
             const ptr: [*]T = @ptrCast(@alignCast(&chunks[idx * chunk_size]));
@@ -115,6 +132,12 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
             // From the pointer, we can calculate the exact index.
             const chunks = self.chunks.ptr(base);
             const chunk_idx = @divExact(@intFromPtr(slice.ptr) - @intFromPtr(chunks), chunk_size);
+
+            // The freed word gains free bits, so scans must not skip it.
+            self.search_start = @min(
+                self.search_start,
+                @divFloor(chunk_idx, bitmap_bit_size),
+            );
 
             const bitmaps = self.bitmap.ptr(base);
 
@@ -657,6 +680,90 @@ test "BitmapAllocator alloc and free one bitmap" {
         &@as([3]u64, @splat(~@as(u64, 0))),
         bm.bitmap.ptr(buf)[0..3],
     );
+}
+
+test "BitmapAllocator search hint skips full words" {
+    const Alloc = BitmapAllocator(1);
+    // Capacity such that we'll have 3 bitmaps.
+    const cap = Alloc.bitmap_bit_size * 3;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const layout = Alloc.layout(cap);
+    const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
+    defer alloc.free(buf);
+
+    var bm = Alloc.init(.init(buf), layout);
+    try testing.expectEqual(@as(usize, 0), bm.search_start);
+
+    // Fill the first bitmap word exactly with single-chunk allocations.
+    var first: []u8 = undefined;
+    for (0..Alloc.bitmap_bit_size) |i| {
+        const slice = try bm.alloc(u8, buf, 1);
+        if (i == 0) first = slice;
+    }
+
+    // The first word is exhausted so scans start at the second word.
+    try testing.expectEqual(@as(usize, 1), bm.search_start);
+
+    // The next allocation is the first chunk of the second word, so
+    // the skipped-word index arithmetic must still yield the right
+    // chunk address.
+    const next = try bm.alloc(u8, buf, 1);
+    try testing.expectEqual(
+        @intFromPtr(first.ptr) + Alloc.bitmap_bit_size,
+        @intFromPtr(next.ptr),
+    );
+
+    // Freeing a chunk in the first word lowers the hint so the freed
+    // space is found again.
+    bm.free(buf, first);
+    try testing.expectEqual(@as(usize, 0), bm.search_start);
+    const again = try bm.alloc(u8, buf, 1);
+    try testing.expectEqual(@intFromPtr(first.ptr), @intFromPtr(again.ptr));
+}
+
+test "BitmapAllocator search hint does not skip partial words" {
+    const Alloc = BitmapAllocator(1);
+    // Capacity such that we'll have 2 bitmaps.
+    const cap = Alloc.bitmap_bit_size * 2;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const layout = Alloc.layout(cap);
+    const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
+    defer alloc.free(buf);
+
+    var bm = Alloc.init(.init(buf), layout);
+
+    // Allocate all but 4 chunks of the first word.
+    var first: []u8 = undefined;
+    for (0..Alloc.bitmap_bit_size - 4) |i| {
+        const slice = try bm.alloc(u8, buf, 1);
+        if (i == 0) first = slice;
+    }
+
+    // An 8-chunk run can't fit the 4 remaining bits (small runs never
+    // span words), so it comes from the second word — but the hint
+    // must stay at the first word, which still has free bits.
+    const big = try bm.alloc(u8, buf, 8);
+    try testing.expectEqual(
+        @intFromPtr(first.ptr) + Alloc.bitmap_bit_size,
+        @intFromPtr(big.ptr),
+    );
+    try testing.expectEqual(@as(usize, 0), bm.search_start);
+
+    // A 4-chunk run fits the first word's remaining bits exactly; a
+    // hint that skipped the partial word would wrongly place this in
+    // the second word (or report OutOfMemory once that filled).
+    const small = try bm.alloc(u8, buf, 4);
+    try testing.expectEqual(
+        @intFromPtr(first.ptr) + Alloc.bitmap_bit_size - 4,
+        @intFromPtr(small.ptr),
+    );
+
+    // Now the first word is full and the hint advances past it.
+    try testing.expectEqual(@as(usize, 1), bm.search_start);
 }
 
 test "BitmapAllocator alloc and free half bitmap" {

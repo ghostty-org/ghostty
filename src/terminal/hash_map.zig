@@ -40,6 +40,7 @@
 //! by any removal.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const mem = std.mem;
 const Allocator = mem.Allocator;
@@ -74,6 +75,29 @@ fn AutoContext(comptime K: type) type {
 
         pub fn hash(_: @This(), key: K) u64 {
             if (comptime std.meta.hasUniqueRepresentation(K)) {
+                // On wasm32, Wyhash's 64x64 -> 128 multiplies lower to
+                // __multi3 libcalls (wasm has no widening multiply
+                // instruction), which makes the hash itself the
+                // dominant cost of small-key map operations.
+                //
+                // Keys here fit in a u64, so use a splitmix64-style finalizer
+                // instead: two native i64.mul with full avalanche in
+                // both the low bits (slot index) and high bits
+                // (metadata fingerprint).
+                if (comptime builtin.cpu.arch.isWasm() and @sizeOf(K) <= 8) {
+                    var x: u64 = 0;
+                    @memcpy(
+                        std.mem.asBytes(&x)[0..@sizeOf(K)],
+                        std.mem.asBytes(&key),
+                    );
+                    x ^= x >> 33;
+                    x *%= 0xff51afd7ed558ccd;
+                    x ^= x >> 33;
+                    x *%= 0xc4ceb9fe1a85ec53;
+                    x ^= x >> 33;
+                    return x;
+                }
+
                 // LLVM 21 (Zig 0.16) failed to inline this which resulted
                 // in a measurable almost 2x slowdown on our hyperlink map
                 // benchmark. So, force it.

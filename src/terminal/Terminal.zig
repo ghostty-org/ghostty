@@ -498,7 +498,14 @@ pub fn printRepeat(self: *Terminal, count_req: usize) !void {
     // identical to calling print per codepoint: ineligible characters
     // or terminal states (insert mode, grapheme clustering, hyperlinks,
     // etc.) fall back to the per-codepoint print() path internally.
-    var buf: [4096]u32 = @splat(c);
+    //
+    // The buffer is filled with a runtime-bounded loop rather than
+    // `= @splat(c)`: a comptime-known 4096-element splat gets fully
+    // unrolled into ~33KB of consecutive stores (LLVM won't re-roll
+    // or vectorize it, see quirks_memset.zig), and it would fill the
+    // whole buffer even for the typical small repeat counts.
+    var buf: [4096]u32 = undefined;
+    for (buf[0..@min(remaining, buf.len)]) |*cp| cp.* = c;
     while (remaining > 0) {
         const n = @min(remaining, buf.len);
         try self.printSlice(buf[0..n]);
@@ -522,11 +529,55 @@ pub fn printRepeat(self: *Terminal, count_req: usize) !void {
 /// slower per-codepoint path. They're less common and this is optimized
 /// for the aforementioned cases.
 pub fn printSlice(self: *Terminal, cps: []const u32) !void {
+    // Check if we can do the fast path up front. If we can't
+    // we need to go back to scalar `print`.
+    const fast = fast: {
+        // Only the main display is supported.
+        if (self.status_display != .main) break :fast false;
+
+        // Modes that require per-codepoint handling in print().
+        // Wraparound is required (its the default) so that our
+        // row-fill logic below can assume soft-wrap semantics. Insert
+        // mode shifts cells per print.
+        if (self.modes.get(.insert)) break :fast false;
+        if (!self.modes.get(.wraparound)) break :fast false;
+
+        // Charset must map ASCII as-is (true unless a DEC special
+        // charset is actively invoked, which is rare).
+        const screen: *Screen = self.screens.active;
+        if (screen.charset.single_shift != null) break :fast false;
+        switch (screen.charset.charsets.get(screen.charset.gl)) {
+            .utf8, .ascii => {},
+            else => break :fast false,
+        }
+
+        // Hyperlinks require per-cell map bookkeeping.
+        if (screen.cursor.hyperlink_id != 0) break :fast false;
+
+        break :fast true;
+    };
+    if (!fast) {
+        for (cps) |cp| try self.print(@intCast(cp));
+        return;
+    }
+
+    const grapheme_cluster = self.modes.get(.grapheme_cluster);
+
+    // When grapheme clustering is enabled and a left margin is set,
+    // print() consults the cell left of the margin after wrapping,
+    // which we can't reason about here. Restrict the fast path to
+    // the [0x10, 0xFF] range in that case (those never cluster).
+    const allow_unicode = !grapheme_cluster or self.scrolling_region.left == 0;
+
     var i: usize = 0;
     while (i < cps.len) {
         // Try the fast-path print first. This will return the number of
         // codepoints it consumed.
-        const consumed = try self.printSliceFast(cps[i..]);
+        const consumed = try self.printSliceFast(
+            cps[i..],
+            grapheme_cluster,
+            allow_unicode,
+        );
         if (consumed > 0) {
             i += consumed;
             continue;
@@ -548,31 +599,15 @@ pub fn printSlice(self: *Terminal, cps: []const u32) !void {
 ///
 /// The fast path handles runs of narrow (width 1) and wide (width 2)
 /// codepoints being written to simple cells. Everything else (zero
-/// width codepoints, grapheme cluster continuations, insert mode,
-/// charset mapping, hyperlinks, complex cells, etc.) is rejected so
-/// `print` can handle it with full generality.
-fn printSliceFast(self: *Terminal, cps: []const u32) !usize {
-    // Only the main display is supported.
-    if (self.status_display != .main) return 0;
-
-    // Modes that require per-codepoint handling in print(). Wraparound
-    // is required (its the default) so that our row-fill logic below can
-    // assume soft-wrap semantics. Insert mode shifts cells per print.
-    if (self.modes.get(.insert)) return 0;
-    if (!self.modes.get(.wraparound)) return 0;
-
+/// width codepoints, grapheme cluster continuations, complex cells,
+/// etc.) is rejected so `print` can handle it with full generality.
+fn printSliceFast(
+    self: *Terminal,
+    cps: []const u32,
+    grapheme_cluster: bool,
+    allow_unicode: bool,
+) !usize {
     const screen: *Screen = self.screens.active;
-
-    // Charset must map ASCII as-is (true unless a DEC special charset
-    // is actively invoked, which is rare).
-    if (screen.charset.single_shift != null) return 0;
-    switch (screen.charset.charsets.get(screen.charset.gl)) {
-        .utf8, .ascii => {},
-        else => return 0,
-    }
-
-    // Hyperlinks require per-cell map bookkeeping.
-    if (screen.cursor.hyperlink_id != 0) return 0;
 
     // Codepoints in [0x10, 0xFF] are always narrow (width 1, matching
     // the c <= 0xFF fast path in print) and can never interact with
@@ -584,13 +619,6 @@ fn printSliceFast(self: *Terminal, cps: []const u32) !usize {
     // 2027) is enabled, if they are a grapheme break from the
     // previously printed codepoint (so print would never attach them
     // to the previous cell).
-    const grapheme_cluster = self.modes.get(.grapheme_cluster);
-
-    // When grapheme clustering is enabled and a left margin is set,
-    // print() consults the cell left of the margin after wrapping,
-    // which we can't reason about here. Restrict the fast path to
-    // the [0x10, 0xFF] range in that case (those never cluster).
-    const allow_unicode = !grapheme_cluster or self.scrolling_region.left == 0;
 
     // Codepoints in [0x10, 0xFF] are always narrow: print()
     // hardcodes width 1 for c <= 0xFF (no width table lookup).
@@ -619,14 +647,46 @@ fn printSliceFast(self: *Terminal, cps: []const u32) !usize {
     }
 
     // The first codepoint requires care when grapheme clustering is
-    // enabled: print() examines the previous *cell* which can hold
-    // state (grapheme data) that we can't cheaply reason about here.
-    // Note this includes the pending-wrap state: print() may attach
-    // to the pending cell *instead of wrapping*. We only take the
-    // first codepoint if the cursor is at column zero with no pending
-    // wrap, where print() skips clustering entirely.
-    if (grapheme_cluster) {
-        if (screen.cursor.pending_wrap or screen.cursor.x != 0) return 0;
+    // enabled: print() may attach it to the previous *cell* instead
+    // of writing a new one. Take the first codepoint only when we can
+    // determine — computing exactly what print() would — that it
+    // starts a new cluster. At column zero with no pending wrap,
+    // print() skips clustering entirely. Otherwise resolve the
+    // previous cell the way print() does and check for a break.
+    //
+    // Note the pending-wrap rejection: print() may attach to the
+    // pending cell *instead of wrapping*, which we can't model here.
+    if (grapheme_cluster and screen.cursor.x != 0) gate: {
+        if (screen.cursor.pending_wrap) return 0;
+
+        // Resolve the content cell to our left exactly like print():
+        // if the immediate left cell is a wide spacer tail, the
+        // content lives one further left. (A spacer tail can never
+        // be at column zero — its wide half would have to be in the
+        // previous row — so the second cursorCellLeft is in bounds.)
+        const immediate = screen.cursorCellLeft(1);
+        const prev: *Cell = switch (immediate.wide) {
+            .spacer_tail => screen.cursorCellLeft(2),
+            else => immediate,
+        };
+
+        // An empty previous cell is necessarily a grapheme break.
+        if (prev.codepoint() == 0) break :gate;
+
+        // Grapheme data on the previous cell requires the full
+        // cluster state machine replay; only print() can do that.
+        if (prev.hasGrapheme()) return 0;
+
+        // A simple single-codepoint previous cell: print() would run
+        // exactly this break check from the default state.
+        var state: uucode.grapheme.BreakState = .default;
+        if (!unicode.graphemeBreak(
+            prev.content.codepoint.data,
+            @intCast(cp0),
+            &state,
+        )) return 0;
+    } else if (grapheme_cluster) {
+        if (screen.cursor.pending_wrap) return 0;
     }
 
     // The width lookup is a runtime value while printSliceFill is
@@ -15813,6 +15873,8 @@ test "Terminal: deleteLines wide char at right margin with full clear" {
 }
 
 test "Terminal: glyph APC stores session glossary entries" {
+    if (comptime !build_options.glyph_protocol) return error.SkipZigTest;
+
     const alloc = testing.allocator;
     const io_impl = testing.io;
     var t = try init(io_impl, alloc, .{ .cols = 80, .rows = 24 });

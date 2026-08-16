@@ -5405,6 +5405,8 @@ test "set color sets dirty flag" {
 }
 
 test "set glyph protocol disables APC handling and clears glossary" {
+    if (comptime !build_options.glyph_protocol) return error.SkipZigTest;
+
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,

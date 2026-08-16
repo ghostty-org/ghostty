@@ -97,6 +97,8 @@ deblasis
 dervedro
 devsunb
 diaaeddin
+diego-moment
+diegoarmstrong
 dkinzler
 dmehala
 dmunozv04
@@ -254,6 +256,7 @@ pluiedev
 pouwerkerk
 poweruser64
 prakhar54-byte
+preiter93
 prihlop
 priyans-hu
 pssalman

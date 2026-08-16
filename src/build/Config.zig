@@ -62,6 +62,10 @@ emit_xcframework: bool = false,
 emit_webdata: bool = false,
 emit_unicode_table_gen: bool = false,
 
+/// Feature gates for libghostty-vt artifacts (-Dvt-features). The full
+/// Ghostty application ignores this and always enables everything.
+vt_features: TerminalBuildOptions.Features = .{},
+
 /// True when Ghostty is being built as a dependency of another project
 /// rather than as the root project.
 is_dep: bool = false,
@@ -103,6 +107,25 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         {
             var query = result.query;
             query.abi = .msvc;
+            result = b.resolveTargetQuery(query);
+        }
+
+        // On wasm, default to enabling the simd128 feature. Every
+        // browser engine has supported it since 2023 or earlier
+        // (Chrome 91, Firefox 89, Safari 16.4) and it is a large
+        // performance win for the terminal hot paths (50%+ on
+        // print-heavy VT streams). Only apply when no explicit CPU
+        // was requested; targets for exotic non-browser runtimes
+        // can opt out with `-Dcpu=generic`.
+        if (result.result.cpu.arch.isWasm() and
+            result.query.cpu_model == .determined_by_arch_os and
+            result.query.cpu_features_add.isEmpty() and
+            result.query.cpu_features_sub.isEmpty())
+        {
+            var query = result.query;
+            query.cpu_features_add.addFeature(
+                @intFromEnum(std.Target.wasm.Feature.simd128),
+            );
             result = b.resolveTargetQuery(query);
         }
 
@@ -402,6 +425,30 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
 
     config.emit_lib_vt = emit_lib_vt;
 
+    config.vt_features = features: {
+        const list = b.option(
+            []const u8,
+            "vt-features",
+            "Comma-separated libghostty-vt feature modifications applied " ++
+                "to the default all-enabled set, -Dcpu style: `+feature` " ++
+                "or `feature` enables, `-feature` disables, and `all` " ++
+                "means every feature (e.g. `-all,+render-state` for a " ++
+                "render-only build). Only applies to lib artifacts.",
+        ) orelse break :features .{};
+        break :features TerminalBuildOptions.Features.parse(list) catch {
+            var valid: std.ArrayList(u8) = .empty;
+            inline for (@typeInfo(TerminalBuildOptions.Features).@"struct".fields) |field| {
+                if (valid.items.len > 0) try valid.appendSlice(b.allocator, ", ");
+                try valid.appendSlice(b.allocator, field.name);
+            }
+            std.log.err(
+                "-Dvt-features={s} contains an unknown feature. Valid features: all, {s}",
+                .{ list, valid.items },
+            );
+            return error.UnknownVtFeature;
+        };
+    };
+
     config.emit_exe = b.option(
         bool,
         "emit-exe",
@@ -665,6 +712,12 @@ pub fn terminalOptions(
         .simd = self.simd,
         .oniguruma = true,
         .c_abi = false,
+        // The application requires every feature; only lib artifacts
+        // may trim them.
+        .features = switch (artifact) {
+            .ghostty => .{},
+            .lib => self.vt_features,
+        },
         .version = switch (artifact) {
             .ghostty => self.version,
             .lib => self.lib_version,

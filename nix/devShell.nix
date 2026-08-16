@@ -24,7 +24,11 @@
   #, vulkan-loader # unused
   vttest,
   wabt,
+  wasm-tools,
   wasmtime,
+  binaryen,
+  twiggy,
+  wizer,
   wraptest,
   zig,
   zip,
@@ -127,8 +131,12 @@ in
         kaitai-struct-compiler
 
         # wasm
+        binaryen
+        twiggy
         wabt
+        wasm-tools
         wasmtime
+        wizer
 
         # Localization
         gettext

@@ -209,8 +209,8 @@ in
       name = "N-V-__8AAPpcBAD4_75xLBbLiYqdojOwQP74eoWmpL3jPrBl";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://deps.files.ghostty.org/ghostty-themes-release-20260803-155300-875a82f.tgz";
-        hash = "sha256-/qxLa9S8bSg2NAbJzwEtZhGvOxaPTAVFNWnBCs/MFBs=";
+        url = "https://deps.files.ghostty.org/ghostty-themes-release-20260810-152212-0173c3c.tgz";
+        hash = "sha256-6ph4RxQg7lsS5/L/SACZyVTqUOVzob34P0PhBcm+Y/A=";
         unpack = false;
       };
     }
