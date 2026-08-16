@@ -748,7 +748,7 @@ msgstr "Įrašyti pasirinkimą kaip HTML į laikinąjį failą ir atidaryti"
 
 #: src/input/command.zig:390
 msgid "Copy the selection contents as HTML to a temporary file and open it."
-msgstr "Įrašyti pažymėtą turinį kaip HTML į laikinąjį failą ir jį atidaryti."
+msgstr "Įrašyti pasirinkimo turinį kaip HTML į laikinąjį failą ir jį atidaryti."
 
 #: src/input/command.zig:398
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
