@@ -733,7 +733,7 @@ msgstr ""
 
 #: src/input/command.zig:381
 msgid "Copy Selection as HTML to Temporary File and Paste Path"
-msgstr "Įrašyti pažymėtą turinį kaip HTML į laikinąjį failą ir įklijuoti kelią"
+msgstr "Įrašyti pasirinkimą kaip HTML į laikinąjį failą ir įklijuoti kelią"
 
 #: src/input/command.zig:382
 msgid ""
