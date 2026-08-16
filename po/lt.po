@@ -703,7 +703,7 @@ msgstr ""
 
 #: src/input/command.zig:359
 msgid "Copy Selection to Temporary File and Paste Path"
-msgstr "Įrašyti pažymėtą turinį į laikinąjį failą ir įklijuoti kelią"
+msgstr "Įrašyti pasirinkimą į laikinąjį failą ir įklijuoti kelią"
 
 #: src/input/command.zig:360
 msgid ""
