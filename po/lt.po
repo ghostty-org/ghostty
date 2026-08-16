@@ -468,7 +468,7 @@ msgstr "Įklijuoti iš pasirinkimo"
 
 #: src/input/command.zig:192
 msgid "Paste the contents of the selection clipboard."
-msgstr "Įklijuoti pažymėjimo iškarpinės turinį."
+msgstr "Įklijuoti pasirinkimo iškarpinės turinį."
 
 #: src/input/command.zig:197
 msgid "Start Search"
