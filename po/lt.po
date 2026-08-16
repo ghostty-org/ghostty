@@ -1064,7 +1064,7 @@ msgstr "Rodyti arba slėpti lango dekoracijas"
 
 #: src/input/command.zig:655
 msgid "Toggle the window decorations."
-msgstr "Rodyti arba slėpti lango dekoracijas."
+msgstr "Rodyti arba slėpti konkretaus lango dekoracijas."
 
 #: src/input/command.zig:660
 msgid "Toggle Float on Top"
