@@ -728,7 +728,7 @@ msgid ""
 "Copy the selection contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
-"Įrašyti pažymėtą turinį kaip HTML į laikinąjį failą ir nukopijuoti jo kelią "
+"Įrašyti pasirinkimo turinį kaip HTML į laikinąjį failą ir nukopijuoti jo kelią "
 "į iškarpinę."
 
 #: src/input/command.zig:381
