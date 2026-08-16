@@ -420,7 +420,7 @@ msgstr "Kopijuoti pažymėtą tekstą į iškarpinę kaip paprastąjį tekstą."
 
 #: src/input/command.zig:163
 msgid "Copy Selection as ANSI Sequences to Clipboard"
-msgstr "Kopijuoti pažymėtą tekstą į iškarpinę kaip ANSI sekas"
+msgstr "Kopijuoti pasirinkimą į iškarpinę kaip ANSI sekas"
 
 #: src/input/command.zig:164
 msgid "Copy the selected text as ANSI escape sequences to the clipboard."
