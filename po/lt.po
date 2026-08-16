@@ -412,7 +412,7 @@ msgstr "Kopijuoti pažymėtą tekstą į iškarpinę paprastu ir formatuotu pavi
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
-msgstr "Kopijuoti pažymėtą tekstą į iškarpinę kaip paprastąjį tekstą"
+msgstr "Kopijuoti pasirinkimą į iškarpinę kaip paprastąjį tekstą"
 
 #: src/input/command.zig:160
 msgid "Copy the selected text as plain text to the clipboard."
