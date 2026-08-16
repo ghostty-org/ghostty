@@ -953,11 +953,11 @@ msgstr "Schakel de alleen-lezenmodus voor de huidige terminal in of uit."
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
-msgstr "Maak splitsingen gelijk"
+msgstr "Verdeel splitsingen gelijkmatig"
 
 #: src/input/command.zig:558
 msgid "Equalize the size of all splits."
-msgstr "Maak de grootte van alle splitsingen gelijk."
+msgstr "Verdeel de ruimte gelijkmatig over alle splitsingen."
 
 #: src/input/command.zig:563
 msgid "Reset Window Size"
@@ -1108,13 +1108,13 @@ msgstr ""
 
 #: src/input/command.zig:678
 msgid "Toggle Background Opacity"
-msgstr "Achtergronddekking aan/uit"
+msgstr "Achtergrondtransparantie aan/uit"
 
 #: src/input/command.zig:679
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr ""
-"Schakel de achtergronddekking in of uit van een venster dat transparant is "
-"gestart."
+"Schakel de achtergrondtransparantie in of uit voor een venster dat "
+"transparant is gestart."
 
 #: src/input/command.zig:684
 msgid "Check for Updates"
