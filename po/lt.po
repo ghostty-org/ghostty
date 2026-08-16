@@ -641,7 +641,7 @@ msgid ""
 "Copy the screen contents as HTML to a temporary file and paste the path to "
 "the file."
 msgstr ""
-"Įrašyti ekrano turinį kaip HTML į laikinąjį failą ir įklijuoti jo kelią."
+"Įrašyti ekrano turinį kaip HTML į laikinąjį failą ir įklijuoti jo kelią į failą."
 
 #: src/input/command.zig:321
 msgid "Copy Screen as HTML to Temporary File and Open"
