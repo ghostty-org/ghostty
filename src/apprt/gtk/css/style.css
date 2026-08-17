@@ -142,6 +142,7 @@ label.resize-overlay {
 .surface .broadcast-overlay {
   border-width: 2px;
   border-style: solid;
+  border-color: rgba(0, 0, 0, 0);
 }
 
 .surface .readonly_overlay {
