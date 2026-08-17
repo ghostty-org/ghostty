@@ -47,19 +47,14 @@
 
 const std = @import("std");
 const test_fixture = @import("fixture.zig");
-const io = @import("io.zig");
 const sgr = @import("../sgr.zig");
 const terminal_style = @import("../style.zig");
 
-/// Number of bytes written by `encode`, calculated using the encoder itself
-/// so this remains synchronized with the field-by-field wire format.
-pub const len = computeLen();
-
-comptime {
-    // This size is part of the wire format. If it changes, the snapshot
-    // version and golden fixtures must also change.
-    std.debug.assert(len == 16);
-}
+/// Number of bytes in one encoded style entry. This size is part of the
+/// wire format: the codec reads and writes fixed offsets within an entry
+/// of exactly this size, so if the layout changes, the snapshot version
+/// and golden fixtures must also change.
+pub const len = 16;
 
 const Flags = packed struct(u16) {
     bold: bool = false,
@@ -80,8 +75,8 @@ const ColorKind = enum(u8) {
     rgb = 2,
 };
 
-/// Errors possible while decoding one style entry.
-pub const DecodeError = std.Io.Reader.Error || error{
+/// Semantic validation errors for one complete style entry buffer.
+const ParseError = error{
     /// A color kind is not defined by snapshot version 1.
     InvalidColorKind,
 
@@ -98,14 +93,21 @@ pub const DecodeError = std.Io.Reader.Error || error{
     InvalidReserved,
 };
 
+/// Errors possible while decoding one style entry.
+pub const DecodeError = std.Io.Reader.Error || ParseError;
+
 /// Encode one terminal style as a fixed-size snapshot style entry.
+///
+/// The entry is assembled in a fixed buffer and written once, so hot
+/// encoders perform a single writer call per style.
 pub fn encode(
     value: terminal_style.Style,
     writer: *std.Io.Writer,
 ) std.Io.Writer.Error!void {
-    try encodeColor(value.fg_color, writer);
-    try encodeColor(value.bg_color, writer);
-    try encodeColor(value.underline_color, writer);
+    var encoded: [len]u8 = @splat(0);
+    encodeColorBuf(encoded[0..4], value.fg_color);
+    encodeColorBuf(encoded[4..8], value.bg_color);
+    encodeColorBuf(encoded[8..12], value.underline_color);
 
     const flags: Flags = .{
         .bold = value.flags.bold,
@@ -118,17 +120,26 @@ pub fn encode(
         .overline = value.flags.overline,
         .underline = @intFromEnum(value.flags.underline),
     };
-    try io.writeInt(writer, u16, @bitCast(flags));
-    try io.writeInt(writer, u16, 0);
+    std.mem.writeInt(u16, encoded[12..14], @bitCast(flags), .little);
+    try writer.writeAll(&encoded);
 }
 
 /// Decode and validate one fixed-size snapshot style entry.
 pub fn decode(reader: *std.Io.Reader) DecodeError!terminal_style.Style {
-    const fg_color = try decodeColor(reader);
-    const bg_color = try decodeColor(reader);
-    const underline_color = try decodeColor(reader);
+    var encoded: [len]u8 = undefined;
+    try reader.readSliceAll(&encoded);
+    return parse(&encoded);
+}
 
-    const flags: Flags = @bitCast(try io.readInt(reader, u16));
+/// Decode and validate one complete fixed-size style entry buffer.
+fn parse(encoded: *const [len]u8) ParseError!terminal_style.Style {
+    const fg_color = try parseColor(encoded[0..4]);
+    const bg_color = try parseColor(encoded[4..8]);
+    const underline_color = try parseColor(encoded[8..12]);
+
+    const flags: Flags = @bitCast(
+        std.mem.readInt(u16, encoded[12..14], .little),
+    );
     if (flags.reserved != 0) return error.InvalidFlags;
 
     const underline = std.enums.fromInt(
@@ -136,7 +147,7 @@ pub fn decode(reader: *std.Io.Reader) DecodeError!terminal_style.Style {
         flags.underline,
     ) orelse return error.InvalidUnderline;
 
-    const reserved = try io.readInt(reader, u16);
+    const reserved = std.mem.readInt(u16, encoded[14..16], .little);
     if (reserved != 0) return error.InvalidReserved;
 
     return .{
@@ -167,9 +178,7 @@ pub fn decodeOrDiscard(
 ) DecodeError!terminal_style.Style {
     var encoded: [len]u8 = undefined;
     try reader.readSliceAll(&encoded);
-
-    var source: std.Io.Reader = .fixed(&encoded);
-    return decode(&source);
+    return parse(&encoded);
 }
 
 /// Decode one complete entry, returning null for invalid semantic contents.
@@ -193,11 +202,16 @@ pub fn decodeOrNull(
     };
 }
 
-fn encodeColor(
+/// `decodeOrNull` over one already-buffered entry, for enclosing codecs
+/// that parse many entries from a flat payload without reader calls.
+pub fn parseOrNull(encoded: *const [len]u8) ?terminal_style.Style {
+    return parse(encoded) catch null;
+}
+
+fn encodeColorBuf(
+    encoded: *[4]u8,
     value: terminal_style.Style.Color,
-    writer: *std.Io.Writer,
-) std.Io.Writer.Error!void {
-    var encoded: [4]u8 = @splat(0);
+) void {
     switch (value) {
         .none => encoded[0] = @intFromEnum(ColorKind.none),
         .palette => |index| {
@@ -211,23 +225,18 @@ fn encodeColor(
             encoded[3] = rgb.b;
         },
     }
-    try writer.writeAll(&encoded);
 }
 
-fn decodeColor(
-    reader: *std.Io.Reader,
-) DecodeError!terminal_style.Style.Color {
-    // Colors are always 4 bytes
-    var encoded: [4]u8 = undefined;
-    try reader.readSliceAll(&encoded);
-
+fn parseColor(
+    encoded: *const [4]u8,
+) ParseError!terminal_style.Style.Color {
     // Kind must be something we know about.
     const kind = std.enums.fromInt(ColorKind, encoded[0]) orelse {
         return error.InvalidColorKind;
     };
 
     return switch (kind) {
-        .none => if (std.mem.eql(u8, encoded[1..], &.{ 0, 0, 0 }))
+        .none => if (encoded[1] == 0 and encoded[2] == 0 and encoded[3] == 0)
             .none
         else
             error.InvalidColor,
@@ -241,15 +250,6 @@ fn decodeColor(
             .b = encoded[3],
         } },
     };
-}
-
-fn computeLen() usize {
-    comptime {
-        var buf: [128]u8 = undefined;
-        var writer: std.Io.Writer = .fixed(&buf);
-        encode(.{}, &writer) catch unreachable;
-        return writer.end;
-    }
 }
 
 const test_golden_fixture = test_fixture.parse(@embedFile("testdata/style-v1.hex"));

@@ -42,7 +42,7 @@ jobs:
         with:
           path: |
             /nix
-      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
@@ -219,7 +219,7 @@ jobs:
           path: |
             /nix
             /zig
-      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
@@ -274,7 +274,7 @@ jobs:
           path: |
             /nix
             /zig
-      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
@@ -436,7 +436,7 @@ jobs:
             /nix
             /zig
 
-      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17

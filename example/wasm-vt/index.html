@@ -156,7 +156,7 @@
 
         // Look up a field's offset and DataView setter from the type layout JSON.
         function fieldInfo(structName, fieldName) {
-            const field = typeLayout[structName].fields[fieldName];
+            const field = typeLayout.types[structName].fields[fieldName];
             return field;
         }
 
@@ -166,14 +166,30 @@
             switch (field.type) {
                 case 'u8':  case 'bool': view.setUint8(field.offset, value); break;
                 case 'u16': view.setUint16(field.offset, value, true); break;
-                case 'u32': case 'enum': view.setUint32(field.offset, value, true); break;
+                case 'u32': view.setUint32(field.offset, value, true); break;
                 case 'u64': view.setBigUint64(field.offset, BigInt(value), true); break;
-                default: throw new Error(`Unsupported field type: ${field.type}`);
+                default: {
+                    const type = typeLayout.types[field.type];
+                    if (type?.kind === 'enum' && type.underlying === 'i32') {
+                        view.setInt32(field.offset, value, true);
+                        break;
+                    }
+                    throw new Error(`Unsupported field type: ${field.type}`);
+                }
             }
         }
 
         function getBuffer() {
             return wasmMemory.buffer;
+        }
+
+        function readUsize(ptr) {
+            const view = new DataView(getBuffer());
+            switch (typeLayout.abi.usize_size) {
+                case 4: return view.getUint32(ptr, true);
+                case 8: return Number(view.getBigUint64(ptr, true));
+                default: throw new Error('unsupported size_t width');
+            }
         }
 
         // Parse escape sequences in the input string (e.g. \x1b, \r, \n)
@@ -186,18 +202,18 @@
                 .replace(/\\\\/g, '\\');
         }
 
-        // GHOSTTY_FORMATTER_FORMAT_PLAIN = 0
-        const GHOSTTY_FORMATTER_FORMAT_PLAIN = 0;
-        // GHOSTTY_SUCCESS = 0
-        const GHOSTTY_SUCCESS = 0;
-
         function run() {
             const outputDiv = document.getElementById('output');
 
             try {
+                const GHOSTTY_FORMATTER_FORMAT_PLAIN =
+                    typeLayout.types.GhosttyFormatterFormat.values.PLAIN;
+                const GHOSTTY_SUCCESS =
+                    typeLayout.types.GhosttyResult.values.SUCCESS;
                 const cols = parseInt(document.getElementById('cols').value, 10);
                 const rows = parseInt(document.getElementById('rows').value, 10);
                 const vtText = parseEscapes(document.getElementById('vtInput').value);
+                const usizeSize = typeLayout.abi.usize_size;
 
                 // Allocate pointer to receive the terminal handle
                 const termPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();
@@ -213,19 +229,19 @@
                     throw new Error(`ghostty_terminal_new failed with result ${newResult}`);
                 }
 
-                const termPtr = new DataView(getBuffer()).getUint32(termPtrPtr, true);
+                const termPtr = wasmInstance.exports.ghostty_wasm_take_opaque(termPtrPtr);
                 wasmInstance.exports.ghostty_wasm_free_opaque(termPtrPtr);
 
                 // Write VT data to the terminal
                 const vtBytes = new TextEncoder().encode(vtText);
-                const dataPtr = wasmInstance.exports.ghostty_wasm_alloc_u8_array(vtBytes.length);
+                const dataPtr = wasmInstance.exports.ghostty_wasm_alloc(vtBytes.length);
                 new Uint8Array(getBuffer()).set(vtBytes, dataPtr);
                 wasmInstance.exports.ghostty_terminal_vt_write(termPtr, dataPtr, vtBytes.length);
-                wasmInstance.exports.ghostty_wasm_free_u8_array(dataPtr, vtBytes.length);
+                wasmInstance.exports.ghostty_wasm_free(dataPtr, vtBytes.length);
 
                 // Create a plain-text formatter
-                const FMT_OPTS_SIZE = typeLayout['GhosttyFormatterTerminalOptions'].size;
-                const fmtOptsPtr = wasmInstance.exports.ghostty_wasm_alloc_u8_array(FMT_OPTS_SIZE);
+                const FMT_OPTS_SIZE = typeLayout.types.GhosttyFormatterTerminalOptions.size;
+                const fmtOptsPtr = wasmInstance.exports.ghostty_wasm_alloc(FMT_OPTS_SIZE);
                 new Uint8Array(getBuffer(), fmtOptsPtr, FMT_OPTS_SIZE).fill(0);
                 const fmtOptsView = new DataView(getBuffer(), fmtOptsPtr, FMT_OPTS_SIZE);
                 setField(fmtOptsView, 'GhosttyFormatterTerminalOptions', 'size', FMT_OPTS_SIZE);
@@ -235,12 +251,12 @@
 
                 // Set the nested sized-struct `size` fields for extra and extra.screen
                 const extraOffset = fieldInfo('GhosttyFormatterTerminalOptions', 'extra').offset;
-                const extraSize = typeLayout['GhosttyFormatterTerminalExtra'].size;
+                const extraSize = typeLayout.types.GhosttyFormatterTerminalExtra.size;
                 const extraSizeField = fieldInfo('GhosttyFormatterTerminalExtra', 'size');
                 fmtOptsView.setUint32(extraOffset + extraSizeField.offset, extraSize, true);
 
                 const screenOffset = fieldInfo('GhosttyFormatterTerminalExtra', 'screen').offset;
-                const screenSize = typeLayout['GhosttyFormatterScreenExtra'].size;
+                const screenSize = typeLayout.types.GhosttyFormatterScreenExtra.size;
                 const screenSizeField = fieldInfo('GhosttyFormatterScreenExtra', 'size');
                 fmtOptsView.setUint32(extraOffset + screenOffset + screenSizeField.offset, screenSize, true);
 
@@ -248,19 +264,19 @@
                 const fmtResult = wasmInstance.exports.ghostty_formatter_terminal_new(
                     0, fmtPtrPtr, termPtr, fmtOptsPtr
                 );
-                wasmInstance.exports.ghostty_wasm_free_u8_array(fmtOptsPtr, FMT_OPTS_SIZE);
+                wasmInstance.exports.ghostty_wasm_free(fmtOptsPtr, FMT_OPTS_SIZE);
 
                 if (fmtResult !== GHOSTTY_SUCCESS) {
                     wasmInstance.exports.ghostty_terminal_free(termPtr);
                     throw new Error(`ghostty_formatter_terminal_new failed with result ${fmtResult}`);
                 }
 
-                const fmtPtr = new DataView(getBuffer()).getUint32(fmtPtrPtr, true);
+                const fmtPtr = wasmInstance.exports.ghostty_wasm_take_opaque(fmtPtrPtr);
                 wasmInstance.exports.ghostty_wasm_free_opaque(fmtPtrPtr);
 
                 // Format with alloc
                 const outPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();
-                const outLenPtr = wasmInstance.exports.ghostty_wasm_alloc_usize();
+                const outLenPtr = wasmInstance.exports.ghostty_wasm_alloc(usizeSize);
                 const formatResult = wasmInstance.exports.ghostty_formatter_format_alloc(
                     fmtPtr, 0, outPtrPtr, outLenPtr
                 );
@@ -271,8 +287,8 @@
                     throw new Error(`ghostty_formatter_format_alloc failed with result ${formatResult}`);
                 }
 
-                const outPtr = new DataView(getBuffer()).getUint32(outPtrPtr, true);
-                const outLen = new DataView(getBuffer()).getUint32(outLenPtr, true);
+                const outPtr = wasmInstance.exports.ghostty_wasm_take_opaque(outPtrPtr);
+                const outLen = readUsize(outLenPtr);
 
                 const outBytes = new Uint8Array(getBuffer(), outPtr, outLen);
                 const outText = new TextDecoder().decode(outBytes);
@@ -288,7 +304,7 @@
                 // Clean up
                 wasmInstance.exports.ghostty_free(0, outPtr, outLen);
                 wasmInstance.exports.ghostty_wasm_free_opaque(outPtrPtr);
-                wasmInstance.exports.ghostty_wasm_free_usize(outLenPtr);
+                wasmInstance.exports.ghostty_wasm_free(outLenPtr, usizeSize);
                 wasmInstance.exports.ghostty_formatter_free(fmtPtr);
                 wasmInstance.exports.ghostty_terminal_free(termPtr);
 

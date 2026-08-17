@@ -224,9 +224,11 @@ fn kitty(
     const entry = entry_ orelse {
         // No entry found. If we have UTF-8 text this is a pure text event
         // (e.g. composed/IME text), so send it as-is so programs can
-        // still receive it.
-        if (event.utf8.len > 0) return try writer.writeAll(event.utf8);
-        return;
+        // still receive it. Release events never insert text, same as the
+        // plain-text path above.
+        if (event.action == .release) return;
+        if (event.utf8.len == 0) return;
+        return try writer.writeAll(event.utf8);
     };
 
     // If this is just a modifier we require "report all" to send the sequence.
@@ -1357,6 +1359,22 @@ test "kitty: shift+backspace emits CSI u" {
     try testing.expectEqualStrings("\x1b[127;2u", writer.buffered());
 }
 
+test "kitty: alt+backspace emits CSI u" {
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .backspace,
+        .mods = .{ .alt = true },
+        // macOS may mark Option as consumed while translating the key. With
+        // no attached control text, all modifiers must remain effective.
+        .consumed_mods = .{ .alt = true },
+        .utf8 = "",
+    }, .{
+        .kitty_flags = .{ .disambiguate = true },
+    });
+    try testing.expectEqualStrings("\x1b[127;3u", writer.buffered());
+}
+
 test "kitty: shift+enter emits CSI u" {
     var buf: [128]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);
@@ -1490,6 +1508,50 @@ test "kitty: composed text with report all" {
         },
     });
     try testing.expectEqualStrings("\xc3\xbb", writer.buffered());
+}
+
+// A key whose base (unshifted) keysym is a dead key has no unshifted
+// codepoint, so it has no kitty entry and falls back to writing the text
+// directly. That must not happen on release or the text is inserted twice.
+test "kitty: text fallback on release" {
+    for ([_]bool{ false, true }) |report_all| {
+        var buf: [128]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        try kitty(&writer, .{
+            .action = .release,
+            .key = .unidentified,
+            .mods = .{ .shift = true },
+            .utf8 = "!",
+        }, .{
+            .kitty_flags = .{
+                .disambiguate = true,
+                .report_events = true,
+                .report_alternates = true,
+                .report_all = report_all,
+                .report_associated = true,
+            },
+        });
+        try testing.expectEqualStrings("", writer.buffered());
+    }
+}
+
+test "kitty: text fallback on repeat" {
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .action = .repeat,
+        .key = .unidentified,
+        .mods = .{ .shift = true },
+        .utf8 = "!",
+    }, .{
+        .kitty_flags = .{
+            .disambiguate = true,
+            .report_events = true,
+            .report_alternates = true,
+            .report_associated = true,
+        },
+    });
+    try testing.expectEqualStrings("!", writer.buffered());
 }
 
 test "kitty: shift+a on US keyboard" {

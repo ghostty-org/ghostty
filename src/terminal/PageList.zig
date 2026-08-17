@@ -12,6 +12,7 @@ const fastmem = @import("../fastmem.zig");
 const simd = @import("../simd/main.zig");
 const tripwire = @import("../tripwire.zig");
 const DoublyLinkedList = @import("../datastruct/main.zig").IntrusiveDoublyLinkedList;
+const WasmPagePool = @import("../datastruct/main.zig").WasmPagePool;
 const color = @import("color.zig");
 const compression = @import("compress.zig");
 const highlight = @import("highlight.zig");
@@ -306,13 +307,24 @@ const std_capacity = pagepkg.std_capacity;
 /// The byte size required for a standard page.
 const std_size = Page.layout(std_capacity).total_size;
 
+/// True when the page pool is the wasm page pool, which recycles items
+/// through a free list shared by the whole module instance instead of
+/// dying with the pool.
+///
+/// Test builds use the std pool even on wasm so that pool memory goes
+/// through the testing allocator and participates in leak detection.
+const wasm_page_pool = builtin.target.cpu.arch.isWasm() and !builtin.is_test;
+
 /// The memory pool we use for page memory buffers. We use a separate pool
 /// so we can allocate these with a page allocator. We have to use a page
 /// allocator because we need memory that is zero-initialized and page-aligned.
-const PagePool = std.heap.memory_pool.AlignedManaged(
-    [std_size]u8,
-    .fromByteUnits(std.heap.page_size_min),
-);
+const PagePool = if (wasm_page_pool)
+    WasmPagePool([std_size]u8)
+else
+    std.heap.memory_pool.AlignedManaged(
+        [std_size]u8,
+        .fromByteUnits(std.heap.page_size_min),
+    );
 
 /// List of pins, known as "tracked" pins. These are pins that are kept
 /// up to date automatically through page-modifying operations.
@@ -677,13 +689,13 @@ fn initPages(
     // redundant here for safety.
     assert(layout.total_size <= size.max_page_size);
 
-    // If we have an error, we need to clean up our heap-owned pages
-    // since they're not in the pool.
+    // If we have an error, we need to clean up our pages: heap-owned
+    // pages are freed directly and pool-owned pages are reclaimed.
     errdefer {
         var it = page_list.first;
         while (it) |node| : (it = node.next) {
             switch (node.owned) {
-                .pool => {},
+                .pool => reclaimPoolPage(pool, node.page()),
                 .heap => page_alloc.free(node.page().memory),
             }
         }
@@ -876,6 +888,20 @@ fn verifyIntegrity(self: *const PageList) IntegrityError!void {
     }
 }
 
+/// Return a pool-owned page buffer to the page pool during a teardown
+/// walk, zeroed for reuse (mirroring destroyNodeExt). Teardown walks
+/// call this unconditionally for every pool-owned page.
+fn reclaimPoolPage(pool: *MemoryPool, page: *const Page) void {
+    // Only wasm requires this
+    if (comptime !wasm_page_pool) return;
+
+    const item: *align(std.heap.page_size_min) [std_size]u8 =
+        @ptrCast(@alignCast(page.memory.ptr));
+    // We have to zero the item
+    _ = terminal_mem.decommit(.zero, item, page.memory.len);
+    pool.pages.destroy(item);
+}
+
 /// Deinit the pagelist, freeing all page memory and the memory pool.
 pub fn deinit(self: *PageList) void {
     // Verify integrity before cleanup
@@ -884,14 +910,14 @@ pub fn deinit(self: *PageList) void {
     // Always deallocate our hashmap.
     self.tracked_pins.deinit(self.pool.alloc);
 
-    // Go through our linked list and deallocate all pages that are
-    // heap-owned (not in the pool).
+    // Go through our linked list and release every page: heap-owned
+    // pages are freed directly and pool-owned pages are reclaimed.
     const page_alloc = self.pool.pages.allocator;
     var it = self.pages.first;
     while (it) |node| : (it = node.next) {
         const page = node.restore(.discard);
         switch (node.owned) {
-            .pool => {},
+            .pool => reclaimPoolPage(&self.pool, page),
             .heap => page_alloc.free(page.memory),
         }
     }
@@ -933,15 +959,16 @@ pub fn reset(self: *PageList) void {
         cap.rows,
     ) catch unreachable;
 
-    // Before resetting our pools we need to free any pages that
-    // are heap-owned since those were allocated outside the pool.
+    // Before resetting our pools we need to release our pages:
+    // heap-owned pages are freed since they were allocated outside
+    // the pool, and pool-owned pages are reclaimed.
     {
         const page_alloc = self.pool.pages.allocator;
         var it = self.pages.first;
         while (it) |node| : (it = node.next) {
             const page = node.restore(.discard);
             switch (node.owned) {
-                .pool => {},
+                .pool => reclaimPoolPage(&self.pool, page),
                 .heap => page_alloc.free(page.memory),
             }
         }
@@ -962,46 +989,51 @@ pub fn reset(self: *PageList) void {
     // retaining a certain amount of memory, it won't use mmap and won't
     // be zeroed. This block zeroes out all the memory in the pool arena.
     //
+    // The wasm page pool has no arena to scrub: its free-list items were
+    // zeroed by reclaimPoolPage above.
+    //
     // Note: we only have to do this for the page pool because the nodes are
     // always fully overwritten on each allocation.
-    inline for (.{
-        self.pool.pages.unmanaged.arena_state.used_list,
-        self.pool.pages.unmanaged.arena_state.free_list,
-    }) |first| {
-        var node_ = first;
-        while (node_) |node| : (node_ = node.next) {
-            // NOTE: Zig 0.16.0's arenas don't use the linked list types
-            // anymore, so we can just reference fields directly. The node
-            // type is still private though, so we have to parse out some
-            // of the internal methods to work with the buffer - namely
-            // Node.loadBuf and Node.Size.toInt. They are combined below.
-            //
-            // PS: My (vancluever's) reading of the code gives me the
-            // impression that we no longer need to offset the data by the
-            // header, because there's no linked list overhead anymore. But
-            // I'm sure we'll see pretty quick when I run the tests. :)
-            //
-            const BufNode = struct {
-                size: Size,
-                end_index: usize,
-                next: ?*@This(),
+    if (comptime !wasm_page_pool) {
+        inline for (.{
+            self.pool.pages.unmanaged.arena_state.used_list,
+            self.pool.pages.unmanaged.arena_state.free_list,
+        }) |first| {
+            var node_ = first;
+            while (node_) |node| : (node_ = node.next) {
+                // NOTE: Zig 0.16.0's arenas don't use the linked list types
+                // anymore, so we can just reference fields directly. The node
+                // type is still private though, so we have to parse out some
+                // of the internal methods to work with the buffer - namely
+                // Node.loadBuf and Node.Size.toInt. They are combined below.
+                //
+                // PS: My (vancluever's) reading of the code gives me the
+                // impression that we no longer need to offset the data by the
+                // header, because there's no linked list overhead anymore. But
+                // I'm sure we'll see pretty quick when I run the tests. :)
+                //
+                const BufNode = struct {
+                    size: Size,
+                    end_index: usize,
+                    next: ?*@This(),
 
-                const Size = packed struct(usize) {
-                    resizing: bool,
-                    _: @Int(.unsigned, @bitSizeOf(usize) - 1) = 0,
+                    const Size = packed struct(usize) {
+                        resizing: bool,
+                        _: @Int(.unsigned, @bitSizeOf(usize) - 1) = 0,
 
-                    fn toInt(s: Size) usize {
-                        var int = s;
-                        int.resizing = false;
-                        return @bitCast(int);
-                    }
+                        fn toInt(s: Size) usize {
+                            var int = s;
+                            int.resizing = false;
+                            return @bitCast(int);
+                        }
+                    };
                 };
-            };
 
-            const buf_node_ptr: *BufNode = @ptrCast(node);
-            const buf_node_size = @atomicLoad(BufNode.Size, &buf_node_ptr.size, .monotonic);
-            const buf = @as([*]u8, @ptrCast(node))[0..buf_node_size.toInt()][@sizeOf(BufNode)..];
-            @memset(buf, 0);
+                const buf_node_ptr: *BufNode = @ptrCast(node);
+                const buf_node_size = @atomicLoad(BufNode.Size, &buf_node_ptr.size, .monotonic);
+                const buf = @as([*]u8, @ptrCast(node))[0..buf_node_size.toInt()][@sizeOf(BufNode)..];
+                @memset(buf, 0);
+            }
         }
     }
 
@@ -1104,7 +1136,7 @@ pub fn clone(
         var page_it = page_list.first;
         while (page_it) |node| : (page_it = node.next) {
             switch (node.owned) {
-                .pool => {},
+                .pool => reclaimPoolPage(&pool, node.page()),
                 .heap => page_alloc.free(node.page().memory),
             }
         }

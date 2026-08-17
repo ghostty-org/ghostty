@@ -69,6 +69,14 @@ pub fn build(b: *std.Build) !void {
         "test-lib-vt",
         "Run libghostty-vt tests",
     );
+    const test_lib_vt_build_step = b.step(
+        "test-lib-vt-build",
+        "Build libghostty-vt tests without running them (compile check)",
+    );
+    const test_lib_vt_schema_step = b.step(
+        "test-lib-vt-schema",
+        "Validate the libghostty-vt ABI type manifest",
+    );
     const test_valgrind_step = b.step(
         "test-valgrind",
         "Run tests under valgrind",
@@ -131,6 +139,12 @@ pub fn build(b: *std.Build) !void {
         );
     };
     libghostty_vt_shared.install(b.getInstallStep());
+
+    const type_schema_test = b.addSystemCommand(&.{"python3"});
+    type_schema_test.addFileArg(b.path("src/terminal/c/types-schema-verify.py"));
+    type_schema_test.addFileArg(b.path("src/terminal/c/types.schema.json"));
+    type_schema_test.addFileArg(libghostty_vt_shared.output);
+    test_lib_vt_schema_step.dependOn(&type_schema_test.step);
 
     // libghostty-vt static lib
     const libghostty_vt_static = try buildpkg.GhosttyLibVt.initStatic(
@@ -329,6 +343,7 @@ pub fn build(b: *std.Build) !void {
         });
         const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
         test_lib_vt_step.dependOn(&mod_vt_test_run.step);
+        test_lib_vt_build_step.dependOn(&mod_vt_test.step);
 
         const mod_vt_c_test = b.addTest(.{
             .root_module = mod.vt_c,
@@ -336,6 +351,7 @@ pub fn build(b: *std.Build) !void {
         });
         const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
         test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);
+        test_lib_vt_build_step.dependOn(&mod_vt_c_test.step);
     }
 
     // Tests (skip when building libghostty-vt)

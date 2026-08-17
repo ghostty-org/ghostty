@@ -810,6 +810,16 @@ pub const RenderState = struct {
         self.pending_styles.clearRetainingCapacity();
     }
 
+    /// Mark all render-state data as consumed by the renderer.
+    ///
+    /// This clears both the global dirty state and every per-row dirty flag.
+    /// Callers that only consume part of a frame should clear the two layers
+    /// individually instead.
+    pub fn clean(self: *RenderState) void {
+        self.dirty = .false;
+        @memset(self.row_data.items(.dirty), false);
+    }
+
     /// Fill a slice of styles with one value.
     ///
     /// This is equivalent to `@memset(dst, value)` but manually vectorized:

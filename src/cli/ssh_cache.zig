@@ -5,6 +5,7 @@ const args = @import("args.zig");
 const global = @import("../global.zig");
 const Action = @import("ghostty.zig").Action;
 const Duration = @import("../config.zig").Config.Duration;
+const terminfopkg = @import("../terminfo/main.zig");
 pub const Entry = @import("ssh-cache/Entry.zig");
 pub const DiskCache = @import("ssh-cache/DiskCache.zig");
 
@@ -198,6 +199,7 @@ pub fn runInner(
         cache.add(
             alloc,
             dest,
+            terminfopkg.version,
             std.Io.Timestamp.now(global.io(), .real).toSeconds(),
         ) catch |err| switch (err) {
             error.InvalidCacheKey => {

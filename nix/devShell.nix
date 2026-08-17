@@ -91,8 +91,10 @@
     inherit pkgs lib stdenv;
   };
   python = python3.withPackages (python-pkgs: [
+    python-pkgs.jsonschema
     python-pkgs.kaitaistruct
     python-pkgs.ucs-detect
+    python-pkgs.wasmtime
   ]);
 in
   mkShell {

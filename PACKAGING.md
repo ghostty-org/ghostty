@@ -141,6 +141,27 @@ Some notes for packaging the wasm module:
   a large performance win for VT parsing. If you target an unusual runtime
   without SIMD support, opt out with `-Dcpu=generic`.
 
+- Optional feature areas can be compiled out with `-Dvt-features` to
+  significantly reduce binary size. The flag takes comma-separated
+  modifications applied to the default all-enabled feature set,
+  `-Dcpu`-style: `+feature` (or bare `feature`) enables, `-feature`
+  disables, and the special name `all` refers to every feature. Hyphens
+  and underscores are interchangeable in feature names. For example, a
+  read-only terminal viewer only needs the render state API:
+
+  ```sh
+  zig build -Demit-lib-vt -Dtarget=wasm32-freestanding \
+    -Doptimize=ReleaseSmall -Dvt-features=-all,+render-state
+  ```
+
+  This roughly halves the compressed module size versus the default
+  build. An interactive terminal typically wants
+  `-Dvt-features=-all,+render-state,+input-encode,+selection,+color`.
+  Disabled features drop both their C API exports and any escape
+  sequence handling (the sequences are still consumed and safely
+  ignored). See the `Features` struct in `src/terminal/build_options.zig`
+  for the full list of features and what each one covers.
+
 - `ReleaseSmall` is the recommended optimization mode for the web. Running
   the result through [Binaryen's](https://github.com/WebAssembly/binaryen)
   `wasm-opt -O3` shrinks it by roughly a further 10% without hurting

@@ -60,6 +60,7 @@ b0uks
 b1nar10
 balazs-szucs
 barutsrb
+basteez
 bch
 bennettp123
 benodiwal
@@ -97,6 +98,8 @@ deblasis
 dervedro
 devsunb
 diaaeddin
+diego-moment
+diegoarmstrong
 dkinzler
 dmehala
 dmunozv04
@@ -254,6 +257,7 @@ pluiedev
 pouwerkerk
 poweruser64
 prakhar54-byte
+preiter93
 prihlop
 priyans-hu
 pssalman
@@ -302,6 +306,7 @@ ticclick
 tnagatomi
 trag1c
 tristan957
+tsacha
 turbolent
 tweedbeetle
 uhojin

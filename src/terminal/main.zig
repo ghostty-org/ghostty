@@ -90,6 +90,7 @@ test {
     // Internals
     _ = @import("bitmap_allocator.zig");
     _ = @import("compress.zig");
+    _ = @import("fraction.zig");
     _ = @import("hash_map.zig");
     _ = @import("mem.zig");
     _ = @import("ref_counted_set.zig");

@@ -236,7 +236,7 @@ pub const Action = union(Key) {
         @This(),
         // TODO: Before shipping an ABI-compatible libghostty, verify this.
         // This was just arbitrarily chosen for now.
-        [16]u64,
+        .{ .padding = [16]u64 },
     );
     pub const Tag = c_union.Tag;
     pub const Value = c_union.Value;

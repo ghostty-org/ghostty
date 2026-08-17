@@ -233,7 +233,17 @@ pub const Decoder = struct {
         // payload, so this is the byte count of the tables and grid.
         const remaining = self.record_reader.header.payload_len - Header.len;
 
-        if (remaining <= max_staged_payload) {
+        if (self.record_reader.payloadReader().bufferedLen() >= remaining) {
+            // The complete payload is already buffered, e.g. borrowed from
+            // an in-memory snapshot. Parse it in place with no staging
+            // copy; `finish` still enforces the CRC and exact exhaustion.
+            try decodePayloadBody(
+                self.record_reader.payloadReader(),
+                alloc,
+                destination,
+                self.header,
+            );
+        } else if (remaining <= max_staged_payload) {
             // Stage the payload with one bulk read. The whole payload passes
             // through the checksum hasher as one update and the payload
             // decoders then parse a flat buffer, which keeps per-row work free
@@ -357,31 +367,51 @@ fn decodePayloadBody(
     page.pauseIntegrityChecks(true);
     defer page.pauseIntegrityChecks(false);
 
-    var style_remap = grid.StyleRemap.init(alloc) catch
-        return error.OutOfMemory;
+    // Pages without styles or hyperlinks, the common case for plain
+    // scrollback, skip the remap tables entirely: every encoded cell ID
+    // resolves to the default through the empty remap.
+    var style_remap: grid.StyleRemap = if (header.style_count > 0)
+        grid.StyleRemap.init(alloc) catch return error.OutOfMemory
+    else
+        .empty;
     defer style_remap.deinit(alloc);
 
-    var hyperlink_remap = grid.HyperlinkRemap.init(alloc) catch
-        return error.OutOfMemory;
+    var hyperlink_remap: grid.HyperlinkRemap = if (header.hyperlink_count > 0)
+        grid.HyperlinkRemap.init(alloc) catch return error.OutOfMemory
+    else
+        .empty;
     defer hyperlink_remap.deinit(alloc);
 
-    // Styles
+    // Styles. The complete fixed-size entry is parsed from the buffered
+    // payload when possible so each entry costs no reader calls.
+    const style_entry_len = @sizeOf(TerminalStyleId) + style.len;
     for (0..header.style_count) |_| {
-        const native_id = try io.readInt(reader, TerminalStyleId);
-        const value = try style.decodeOrNull(reader);
+        const native_id: TerminalStyleId, const value = entry: {
+            if (reader.bufferedLen() >= style_entry_len) {
+                const bytes = reader.buffered()[0..style_entry_len];
+                defer reader.toss(style_entry_len);
+                break :entry .{
+                    std.mem.readInt(TerminalStyleId, bytes[0..2], .little),
+                    style.parseOrNull(bytes[2..][0..style.len]),
+                };
+            }
+            break :entry .{
+                try io.readInt(reader, TerminalStyleId),
+                try style.decodeOrNull(reader),
+            };
+        };
 
         // Zero is reserved for the implicit default. For a duplicate encoded
         // ID, the first entry wins and this complete entry is simply ignored.
         if (native_id == 0 or style_remap.contains(native_id)) continue;
 
-        // Invalid/default styles map to the native default. Repeated concrete
-        // values share the existing native entry, while capacity failure also
-        // degrades only this style.
+        // Invalid/default styles map to the native default. `add` returns
+        // the existing entry for a repeated concrete value, taking one
+        // reference either way, while capacity failure degrades only this
+        // style. The references are surrendered through the remap below
+        // once every cell reference is installed.
         const decoded_id: TerminalStyleId = if (value) |valid| decoded: {
             if (valid.default()) break :decoded 0;
-            if (page.styles.lookup(page.memory, valid)) |existing| {
-                break :decoded existing;
-            }
             break :decoded page.styles.add(
                 page.memory,
                 valid,
@@ -417,16 +447,17 @@ fn decodePayloadBody(
         &hyperlink_remap,
     );
 
-    // A newly inserted table value starts with one reference so grid decoding
-    // can safely attach it to any number of cells. Unlike organically built
-    // pages, that initial reference does not itself represent a cell. Release
-    // it once per distinct live style after every cell reference is installed;
-    // unused entries then become dead and disappear from canonical re-encoding.
-    for (1..@as(usize, page.styles.next_id)) |raw_id| {
-        const id: TerminalStyleId = @intCast(raw_id);
-        if (page.styles.refCount(page.memory, id) > 0) {
-            page.styles.release(page.memory, id);
-        }
+    // Every accepted table entry took one reference through `add` so grid
+    // decoding can safely attach its style to any number of cells. Unlike
+    // organically built pages, those references do not themselves represent
+    // cells. Release through the encoded-ID remap, so duplicate values
+    // which deduplicated to the same native ID each surrender their own
+    // reference; unused entries then become dead and disappear from
+    // canonical re-encoding.
+    var style_it = style_remap.seen.iterator(.{});
+    while (style_it.next()) |encoded_id| {
+        const id = style_remap.entries[encoded_id];
+        if (id != 0) page.styles.release(page.memory, id);
     }
 
     // Hyperlink insertion likewise creates one temporary reference for every

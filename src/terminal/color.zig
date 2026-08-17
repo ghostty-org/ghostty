@@ -3,6 +3,7 @@ const colorpkg = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
+const fraction = @import("fraction.zig");
 const x11_color = @import("x11_color.zig");
 
 /// The default palette.
@@ -641,14 +642,10 @@ pub const RGB = packed struct(u24) {
     ///
     /// The value should be between 0.0 and 1.0, inclusive.
     fn fromIntensity(value: []const u8) error{InvalidFormat}!u8 {
-        const i = std.fmt.parseFloat(f64, value) catch {
+        const i = fraction.parse(value) orelse {
             @branchHint(.cold);
             return error.InvalidFormat;
         };
-        if (i < 0.0 or i > 1.0) {
-            @branchHint(.cold);
-            return error.InvalidFormat;
-        }
 
         return @intFromFloat(i * std.math.maxInt(u8));
     }

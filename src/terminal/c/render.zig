@@ -42,6 +42,10 @@ const RowIteratorWrapper = struct {
     selection: []const ?[2]size.CellCountInt,
     dirty: []bool,
 
+    /// The global dirty state from the render state that populated this
+    /// iterator. This has the same borrowed lifetime as the row slices.
+    state_dirty: *const Dirty,
+
     /// The color palette from the render state, needed to resolve
     /// palette-indexed background colors on cells.
     palette: *const colorpkg.Palette,
@@ -100,6 +104,19 @@ pub const CursorVisualStyle = enum(c_int) {
     }
 };
 
+/// C: GhosttyRenderStateCursor
+pub const Cursor = extern struct {
+    size: usize = @sizeOf(Cursor),
+    viewport_has_value: bool,
+    viewport_x: u16,
+    viewport_y: u16,
+    wide_tail: bool,
+    visible: bool,
+    blinking: bool,
+    password_input: bool,
+    visual_style: CursorVisualStyle,
+};
+
 /// C: GhosttyRenderStateData
 pub const Data = enum(c_int) {
     invalid = 0,
@@ -120,6 +137,8 @@ pub const Data = enum(c_int) {
     cursor_viewport_x = 15,
     cursor_viewport_y = 16,
     cursor_viewport_wide_tail = 17,
+    cursor = 18,
+    colors = 19,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: Data) type {
@@ -135,6 +154,8 @@ pub const Data = enum(c_int) {
             .cursor_visible, .cursor_blinking, .cursor_password_input => bool,
             .cursor_viewport_has_value, .cursor_viewport_wide_tail => bool,
             .cursor_viewport_x, .cursor_viewport_y => size.CellCountInt,
+            .cursor => Cursor,
+            .colors => Colors,
         };
     }
 };
@@ -220,6 +241,14 @@ pub fn end_update(
     return .success;
 }
 
+pub fn clean(
+    state_: RenderState,
+) callconv(lib.calling_conv) Result {
+    const state = state_ orelse return .invalid_value;
+    state.state.clean();
+    return .success;
+}
+
 pub fn get(
     state_: RenderState,
     data: Data,
@@ -270,12 +299,13 @@ inline fn getDispatch(
         };
     }
 
+    const out_ptr = out orelse return .invalid_value;
     return switch (data) {
         .invalid => .invalid_value,
         inline else => |comptime_data| getTyped(
             state,
             comptime_data,
-            @ptrCast(@alignCast(out)),
+            @ptrCast(@alignCast(out_ptr)),
         ),
     };
 }
@@ -300,6 +330,7 @@ fn getTyped(
                 .cells = row_data.items(.cells),
                 .selection = row_data.items(.selection),
                 .dirty = row_data.items(.dirty),
+                .state_dirty = &state.state.dirty,
                 .palette = &state.state.colors.palette,
             };
         },
@@ -328,6 +359,8 @@ fn getTyped(
             const vp = state.state.cursor.viewport orelse return .invalid_value;
             out.* = vp.wide_tail;
         },
+        .cursor => return writeCursor(state, out),
+        .colors => return writeColors(state, out),
     }
 
     return .success;
@@ -367,12 +400,87 @@ fn setTyped(
     return .success;
 }
 
-pub fn colors_get(
-    state_: RenderState,
-    out_colors_: ?*Colors,
-) callconv(lib.calling_conv) Result {
-    const state = state_ orelse return .invalid_value;
-    const out_colors = out_colors_ orelse return .invalid_value;
+fn writeCursor(
+    state: *RenderStateWrapper,
+    out_cursor: *Cursor,
+) Result {
+    const out_size = out_cursor.size;
+    if (out_size < @sizeOf(usize)) return .invalid_value;
+
+    const cursor = &state.state.cursor;
+    if (lib.structSizedFieldFits(
+        Cursor,
+        out_size,
+        "viewport_has_value",
+    )) {
+        out_cursor.viewport_has_value = cursor.viewport != null;
+    }
+
+    if (cursor.viewport) |viewport| {
+        if (lib.structSizedFieldFits(
+            Cursor,
+            out_size,
+            "viewport_x",
+        )) {
+            out_cursor.viewport_x = viewport.x;
+        }
+
+        if (lib.structSizedFieldFits(
+            Cursor,
+            out_size,
+            "viewport_y",
+        )) {
+            out_cursor.viewport_y = viewport.y;
+        }
+
+        if (lib.structSizedFieldFits(
+            Cursor,
+            out_size,
+            "wide_tail",
+        )) {
+            out_cursor.wide_tail = viewport.wide_tail;
+        }
+    }
+
+    if (lib.structSizedFieldFits(
+        Cursor,
+        out_size,
+        "visible",
+    )) {
+        out_cursor.visible = cursor.visible;
+    }
+
+    if (lib.structSizedFieldFits(
+        Cursor,
+        out_size,
+        "blinking",
+    )) {
+        out_cursor.blinking = cursor.blinking;
+    }
+
+    if (lib.structSizedFieldFits(
+        Cursor,
+        out_size,
+        "password_input",
+    )) {
+        out_cursor.password_input = cursor.password_input;
+    }
+
+    if (lib.structSizedFieldFits(
+        Cursor,
+        out_size,
+        "visual_style",
+    )) {
+        out_cursor.visual_style = CursorVisualStyle.fromCursorStyle(cursor.visual_style);
+    }
+
+    return .success;
+}
+
+fn writeColors(
+    state: *RenderStateWrapper,
+    out_colors: *Colors,
+) Result {
     const out_size = out_colors.size;
     if (out_size < @sizeOf(usize)) return .invalid_value;
 
@@ -442,6 +550,7 @@ pub fn row_iterator_new(
         .cells = undefined,
         .selection = undefined,
         .dirty = undefined,
+        .state_dirty = undefined,
         .palette = undefined,
     };
     result.* = ptr;
@@ -461,6 +570,36 @@ pub fn row_iterator_next(iterator_: RowIterator) callconv(lib.calling_conv) bool
     if (next_y >= it.raws.len) return false;
     it.y = next_y;
     return true;
+}
+
+pub fn row_iterator_next_dirty(
+    iterator_: RowIterator,
+    out_y: ?*size.CellCountInt,
+) callconv(lib.calling_conv) bool {
+    const it = iterator_ orelse return false;
+    const y_out = out_y orelse return false;
+
+    switch (it.state_dirty.*) {
+        .false => return false,
+        .full => {
+            // The none sentinel wraps to zero.
+            const next_y = it.y +% 1;
+            if (next_y >= it.raws.len) return false;
+            it.y = next_y;
+            y_out.* = @intCast(next_y);
+            return true;
+        },
+        .partial => {
+            var next_y = it.y +% 1;
+            while (next_y < it.raws.len) : (next_y += 1) {
+                if (!it.dirty[next_y]) continue;
+                it.y = next_y;
+                y_out.* = @intCast(next_y);
+                return true;
+            }
+            return false;
+        },
+    }
 }
 
 pub fn row_cells_new(
@@ -997,6 +1136,14 @@ test "render: begin/end update" {
 test "render: get invalid value" {
     var cols: size.CellCountInt = 0;
     try testing.expectEqual(Result.invalid_value, get(null, .cols, @ptrCast(&cols)));
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+    try testing.expectEqual(Result.invalid_value, get(state, .cols, null));
 }
 
 test "render: get invalid data" {
@@ -1010,7 +1157,7 @@ test "render: get invalid data" {
     try testing.expectEqual(Result.invalid_value, get(state, .invalid, null));
 }
 
-test "render: colors get invalid value" {
+test "render: aggregate get invalid value" {
     var state: RenderState = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
@@ -1021,11 +1168,20 @@ test "render: colors get invalid value" {
     var colors: Colors = std.mem.zeroes(Colors);
     colors.size = @sizeOf(Colors);
 
-    try testing.expectEqual(Result.invalid_value, colors_get(null, &colors));
-    try testing.expectEqual(Result.invalid_value, colors_get(state, null));
+    try testing.expectEqual(Result.invalid_value, get(null, .colors, &colors));
+    try testing.expectEqual(Result.invalid_value, get(state, .colors, null));
 
     colors.size = @sizeOf(usize) - 1;
-    try testing.expectEqual(Result.invalid_value, colors_get(state, &colors));
+    try testing.expectEqual(Result.invalid_value, get(state, .colors, &colors));
+
+    var cursor: Cursor = std.mem.zeroes(Cursor);
+    cursor.size = @sizeOf(Cursor);
+
+    try testing.expectEqual(Result.invalid_value, get(null, .cursor, &cursor));
+    try testing.expectEqual(Result.invalid_value, get(state, .cursor, null));
+
+    cursor.size = @sizeOf(usize) - 1;
+    try testing.expectEqual(Result.invalid_value, get(state, .cursor, &cursor));
 }
 
 test "render: get/set dirty invalid value" {
@@ -1056,6 +1212,42 @@ test "render: get/set dirty" {
     try testing.expectEqual(Result.success, set(state, .dirty, @ptrCast(&dirty_full)));
     try testing.expectEqual(Result.success, get(state, .dirty, @ptrCast(&dirty)));
     try testing.expectEqual(Dirty.full, dirty);
+}
+
+test "render: clean" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        10,
+        3,
+    ));
+    defer terminal_c.free(terminal);
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+
+    try testing.expectEqual(Result.invalid_value, clean(null));
+    try testing.expectEqual(Result.success, update(state, terminal));
+    try testing.expectEqual(Dirty.full, state.?.state.dirty);
+
+    try testing.expectEqual(Result.success, clean(state));
+    try testing.expectEqual(Dirty.false, state.?.state.dirty);
+    for (state.?.state.row_data.items(.dirty)) |dirty| {
+        try testing.expect(!dirty);
+    }
+
+    // Cleaning is idempotent, and an unchanged update remains clean.
+    try testing.expectEqual(Result.success, clean(state));
+    try testing.expectEqual(Result.success, update(state, terminal));
+    try testing.expectEqual(Dirty.false, state.?.state.dirty);
+    for (state.?.state.row_data.items(.dirty)) |dirty| {
+        try testing.expect(!dirty);
+    }
 }
 
 test "render: set null value" {
@@ -1708,6 +1900,79 @@ test "render: row iterator next" {
     try testing.expectEqual(@as(usize, rows - 1), iterator.?.y);
 }
 
+test "render: row iterator next dirty" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        10,
+        4,
+    ));
+    defer terminal_c.free(terminal);
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var iterator: RowIterator = null;
+    try testing.expectEqual(Result.success, row_iterator_new(
+        &lib.alloc.test_allocator,
+        &iterator,
+    ));
+    defer row_iterator_free(iterator);
+
+    // Invalid arguments neither write the output nor advance the iterator.
+    try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&iterator)));
+    var out_y: size.CellCountInt = 0xCAFE;
+    try testing.expect(!row_iterator_next_dirty(null, &out_y));
+    try testing.expectEqual(@as(size.CellCountInt, 0xCAFE), out_y);
+    try testing.expect(!row_iterator_next_dirty(iterator, null));
+    try testing.expectEqual(position_none, iterator.?.y);
+
+    // A full redraw returns every row, even if its row flag was cleared.
+    @memset(state.?.state.row_data.items(.dirty), false);
+    var expected_y: size.CellCountInt = 0;
+    while (row_iterator_next_dirty(iterator, &out_y)) : (expected_y += 1) {
+        try testing.expectEqual(expected_y, out_y);
+    }
+    try testing.expectEqual(@as(size.CellCountInt, 4), expected_y);
+    try testing.expectEqual(@as(size.CellCountInt, 3), out_y);
+
+    // A partial redraw skips clean rows without consuming dirty flags.
+    const dirty = state.?.state.row_data.items(.dirty);
+    state.?.state.dirty = .partial;
+    @memset(dirty, false);
+    dirty[1] = true;
+    dirty[3] = true;
+    try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&iterator)));
+    try testing.expect(row_iterator_next_dirty(iterator, &out_y));
+    try testing.expectEqual(@as(size.CellCountInt, 1), out_y);
+    try testing.expect(row_iterator_next_dirty(iterator, &out_y));
+    try testing.expectEqual(@as(size.CellCountInt, 3), out_y);
+    try testing.expect(!row_iterator_next_dirty(iterator, &out_y));
+    try testing.expectEqual(@as(size.CellCountInt, 3), out_y);
+    try testing.expect(dirty[1]);
+    try testing.expect(dirty[3]);
+
+    // The global clean state is authoritative, even if stale row flags exist.
+    state.?.state.dirty = .false;
+    try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&iterator)));
+    out_y = 0xCAFE;
+    try testing.expect(!row_iterator_next_dirty(iterator, &out_y));
+    try testing.expectEqual(@as(size.CellCountInt, 0xCAFE), out_y);
+
+    // Existing iterators observe cleaning through their borrowed state.
+    state.?.state.dirty = .partial;
+    dirty[1] = true;
+    try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&iterator)));
+    try testing.expectEqual(Result.success, clean(state));
+    try testing.expect(!row_iterator_next_dirty(iterator, &out_y));
+}
+
 test "render: update" {
     var terminal: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
@@ -1738,7 +2003,7 @@ test "render: update" {
     try testing.expectEqual(@as(size.CellCountInt, 24), rows_val);
 }
 
-test "render: colors get" {
+test "render: colors data get" {
     var terminal: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
@@ -1759,7 +2024,7 @@ test "render: colors get" {
 
     var colors: Colors = std.mem.zeroes(Colors);
     colors.size = @sizeOf(Colors);
-    try testing.expectEqual(Result.success, colors_get(state, &colors));
+    try testing.expectEqual(Result.success, get(state, .colors, &colors));
 
     const state_colors = &state.?.state.colors;
     try testing.expectEqual(state_colors.background.cval(), colors.background);
@@ -1775,6 +2040,121 @@ test "render: colors get" {
     for (state_colors.palette, colors.palette) |expected, actual| {
         try testing.expectEqual(expected.cval(), actual);
     }
+}
+
+test "render: cursor data get matches scalar getters" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        80,
+        24,
+    ));
+    defer terminal_c.free(terminal);
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var cursor: Cursor = std.mem.zeroes(Cursor);
+    cursor.size = @sizeOf(Cursor);
+    try testing.expectEqual(Result.success, get(state, .cursor, &cursor));
+
+    var viewport_has_value: bool = undefined;
+    var viewport_x: u16 = undefined;
+    var viewport_y: u16 = undefined;
+    var wide_tail: bool = undefined;
+    var visible: bool = undefined;
+    var blinking: bool = undefined;
+    var password_input: bool = undefined;
+    var visual_style: CursorVisualStyle = undefined;
+    try testing.expectEqual(Result.success, get(state, .cursor_viewport_has_value, &viewport_has_value));
+    try testing.expectEqual(Result.success, get(state, .cursor_viewport_x, &viewport_x));
+    try testing.expectEqual(Result.success, get(state, .cursor_viewport_y, &viewport_y));
+    try testing.expectEqual(Result.success, get(state, .cursor_viewport_wide_tail, &wide_tail));
+    try testing.expectEqual(Result.success, get(state, .cursor_visible, &visible));
+    try testing.expectEqual(Result.success, get(state, .cursor_blinking, &blinking));
+    try testing.expectEqual(Result.success, get(state, .cursor_password_input, &password_input));
+    try testing.expectEqual(Result.success, get(state, .cursor_visual_style, &visual_style));
+
+    try testing.expectEqual(viewport_has_value, cursor.viewport_has_value);
+    try testing.expectEqual(viewport_x, cursor.viewport_x);
+    try testing.expectEqual(viewport_y, cursor.viewport_y);
+    try testing.expectEqual(wide_tail, cursor.wide_tail);
+    try testing.expectEqual(visible, cursor.visible);
+    try testing.expectEqual(blinking, cursor.blinking);
+    try testing.expectEqual(password_input, cursor.password_input);
+    try testing.expectEqual(visual_style, cursor.visual_style);
+}
+
+test "render: cursor data get without viewport" {
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+
+    state.?.state.cursor.viewport = null;
+    state.?.state.cursor.visible = true;
+    state.?.state.cursor.blinking = true;
+    state.?.state.cursor.password_input = true;
+    state.?.state.cursor.visual_style = .underline;
+
+    var cursor: Cursor = std.mem.zeroes(Cursor);
+    cursor.size = @sizeOf(Cursor);
+    cursor.viewport_x = 0xAAAA;
+    cursor.viewport_y = 0xBBBB;
+    cursor.wide_tail = true;
+    try testing.expectEqual(Result.success, get(state, .cursor, &cursor));
+
+    try testing.expect(!cursor.viewport_has_value);
+    try testing.expectEqual(@as(u16, 0xAAAA), cursor.viewport_x);
+    try testing.expectEqual(@as(u16, 0xBBBB), cursor.viewport_y);
+    try testing.expect(cursor.wide_tail);
+    try testing.expect(cursor.visible);
+    try testing.expect(cursor.blinking);
+    try testing.expect(cursor.password_input);
+    try testing.expectEqual(CursorVisualStyle.underline, cursor.visual_style);
+}
+
+test "render: cursor data get supports truncated sized struct" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        80,
+        24,
+    ));
+    defer terminal_c.free(terminal);
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+
+    try testing.expectEqual(Result.success, update(state, terminal));
+    const expected = state.?.state.cursor;
+    const viewport = expected.viewport.?;
+
+    var cursor: Cursor = std.mem.zeroes(Cursor);
+    cursor.size = @offsetOf(Cursor, "viewport_y") + @sizeOf(u16);
+    cursor.wide_tail = !viewport.wide_tail;
+    cursor.visible = !expected.visible;
+    try testing.expectEqual(Result.success, get(state, .cursor, &cursor));
+
+    try testing.expect(cursor.viewport_has_value);
+    try testing.expectEqual(viewport.x, cursor.viewport_x);
+    try testing.expectEqual(viewport.y, cursor.viewport_y);
+    try testing.expectEqual(!viewport.wide_tail, cursor.wide_tail);
+    try testing.expectEqual(!expected.visible, cursor.visible);
 }
 
 test "render: row cells bg_color no background" {
@@ -2020,7 +2400,7 @@ test "render: row cells fg_color from style" {
     try testing.expectEqual(@as(u8, 30), fg.b);
 }
 
-test "render: colors get supports truncated sized struct" {
+test "render: colors data get supports truncated sized struct" {
     var terminal: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
@@ -2044,7 +2424,7 @@ test "render: colors get supports truncated sized struct" {
     for (&colors.palette) |*entry| entry.* = sentinel;
 
     colors.size = @offsetOf(Colors, "palette") + @sizeOf(colorpkg.RGB.C) * 2;
-    try testing.expectEqual(Result.success, colors_get(state, &colors));
+    try testing.expectEqual(Result.success, get(state, .colors, &colors));
 
     const state_colors = &state.?.state.colors;
     try testing.expectEqual(state_colors.palette[0].cval(), colors.palette[0]);

@@ -1,4 +1,10 @@
 extension String {
+    /// True when the first scalar is an ASCII control character (C0 or DEL).
+    var startsWithASCIIControlCharacter: Bool {
+        guard let scalar = unicodeScalars.first else { return false }
+        return scalar.value < 0x20 || scalar.value == 0x7F
+    }
+
     func truncate(length: Int, trailing: String = "…") -> String {
         let maxLength = length - trailing.count
         guard maxLength > 0, !self.isEmpty, self.count > length else {

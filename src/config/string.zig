@@ -20,16 +20,23 @@ pub fn parse(out: []u8, bytes: []const u8) ![]u8 {
             continue;
         }
 
+        // Zig's \xNN syntax represents a single byte, while the other
+        // escape sequences represent Unicode codepoints.
+        const is_byte_escape = src_i + 1 < bytes.len and
+            bytes[src_i + 1] == 'x';
+
         // Parse the escape sequence
         switch (std.zig.string_literal.parseEscapeSequence(
             bytes,
             &src_i,
         )) {
             .failure => return error.InvalidString,
-            .success => |cp| dst_i += try std.unicode.utf8Encode(
-                cp,
-                out[dst_i..],
-            ),
+            .success => |cp| if (is_byte_escape) {
+                out[dst_i] = @intCast(cp);
+                dst_i += 1;
+            } else {
+                dst_i += try std.unicode.utf8Encode(cp, out[dst_i..]);
+            },
         }
     }
 
@@ -98,6 +105,15 @@ test "parse: escapes" {
         const result = try parse(&buf, "hello\\u{1F601}world");
         try testing.expectEqualStrings("hello\u{1F601}world", result);
     }
+}
+
+test "parse: hex escapes are bytes" {
+    var buf: [128]u8 = undefined;
+    const result = try parse(
+        &buf,
+        "\\xe6\\x97\\xa5\\xe6\\x9c\\xac\\xe8\\xaa\\x9e",
+    );
+    try std.testing.expectEqualStrings("日本語", result);
 }
 
 test "codepointIterator: empty" {

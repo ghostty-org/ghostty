@@ -71,7 +71,15 @@ pub const Point = union(Tag) {
         @This(),
         // Padding: largest variant is Coordinate (u16 + u32 = 6 bytes).
         // Use [2]u64 (16 bytes) for future expansion.
-        [2]u64,
+        .{
+            .padding = [2]u64,
+            .field_renames = .{
+                .active = "coordinate",
+                .viewport = "coordinate",
+                .screen = "coordinate",
+                .history = "coordinate",
+            },
+        },
     );
     pub const C = c_union.C;
     pub const CValue = c_union.CValue;

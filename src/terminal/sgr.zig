@@ -161,7 +161,18 @@ pub const Attribute = union(Tag) {
         // Largest variant is Unknown.C: 2 pointers + 2 usize = 32 bytes on 64-bit.
         // We use [8]u64 (64 bytes) to allow room for future expansion while
         // maintaining ABI compatibility.
-        [8]u64,
+        .{
+            .padding = [8]u64,
+            .field_renames = .{
+                .@"256_underline_color" = "underline_color_256",
+                .@"8_bg" = "bg_8",
+                .@"8_fg" = "fg_8",
+                .@"8_bright_bg" = "bright_bg_8",
+                .@"8_bright_fg" = "bright_fg_8",
+                .@"256_bg" = "bg_256",
+                .@"256_fg" = "fg_256",
+            },
+        },
     );
     pub const Value = c_union.Value;
     pub const C = c_union.C;
