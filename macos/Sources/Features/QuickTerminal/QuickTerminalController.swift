@@ -124,7 +124,9 @@ class QuickTerminalController: BaseTerminalController {
         syncAppearance()
 
         // Setup our initial size based on our configured position
-        position.setLoaded(window, size: derivedConfig.quickTerminalSize)
+        if let screen = window.screen ?? NSScreen.main {
+            position.setLoaded(window, size: derivedConfig.quickTerminalSize, availableFrame: availableFrame(for: screen))
+        }
 
         // Upon first adding this Window to its host view, older SwiftUI
         // seems to have a "hiccup" and corrupts the frameRect,
@@ -241,11 +243,11 @@ class QuickTerminalController: BaseTerminalController {
         case .top, .bottom, .center:
             // For centered positions (top, bottom, center), we need to recenter the window
             // when it's manually resized to maintain proper positioning
-            let newOrigin = position.centeredOrigin(for: window, on: screen)
+            let newOrigin = position.centeredOrigin(for: window, availableFrame: availableFrame(for: screen))
             window.setFrameOrigin(newOrigin)
         case .left, .right:
             // For side positions, we may need to adjust vertical centering
-            let newOrigin = position.verticallyCenteredOrigin(for: window, on: screen)
+            let newOrigin = position.verticallyCenteredOrigin(for: window, availableFrame: availableFrame(for: screen))
             window.setFrameOrigin(newOrigin)
         }
     }
@@ -426,8 +428,23 @@ class QuickTerminalController: BaseTerminalController {
         }
     }
 
+    /// Returns the frame available for quick terminal positioning on the given screen.
+    ///
+    /// When the active space is a fullscreen space, the menu bar and Dock are hidden,
+    /// so the full screen frame is available. Otherwise, the visible frame (excluding
+    /// menu bar and Dock) is used. This prevents the Quick Terminal from leaving an
+    /// empty gap at the top when summoned over a fullscreen app.
+    /// See: https://github.com/ghostty-org/ghostty/discussions/6950
+    private func availableFrame(for screen: NSScreen) -> NSRect {
+        if CGSSpace.active().type == .fullscreen {
+            return screen.frame
+        }
+        return screen.visibleFrame
+    }
+
     private func animateWindowIn(window: NSWindow, from position: QuickTerminalPosition) {
         guard let screen = derivedConfig.quickTerminalScreen.screen else { return }
+        let frame = availableFrame(for: screen)
 
         // Grab our last closed frame to use from the cache.
         let closedFrame = screenStateCache.frame(for: screen)
@@ -435,7 +452,7 @@ class QuickTerminalController: BaseTerminalController {
         // Move our window off screen to the initial animation position.
         position.setInitial(
             in: window,
-            on: screen,
+            availableFrame: frame,
             terminalSize: derivedConfig.quickTerminalSize,
             closedFrame: closedFrame)
 
@@ -470,7 +487,7 @@ class QuickTerminalController: BaseTerminalController {
             context.timingFunction = .init(name: .easeIn)
             position.setFinal(
                 in: window.animator(),
-                on: screen,
+                availableFrame: frame,
                 terminalSize: derivedConfig.quickTerminalSize,
                 closedFrame: closedFrame)
         }, completionHandler: {
@@ -569,6 +586,7 @@ class QuickTerminalController: BaseTerminalController {
 
         // We always animate out to whatever screen the window is actually on.
         guard let screen = window.screen ?? NSScreen.main else { return }
+        let frame = availableFrame(for: screen)
 
         // If we have a previously active application, restore focus to it. We
         // do this BEFORE the animation below because when the animation completes
@@ -593,7 +611,7 @@ class QuickTerminalController: BaseTerminalController {
             context.timingFunction = .init(name: .easeIn)
             position.setInitial(
                 in: window.animator(),
-                on: screen,
+                availableFrame: frame,
                 terminalSize: derivedConfig.quickTerminalSize,
                 closedFrame: window.frame)
         }, completionHandler: {

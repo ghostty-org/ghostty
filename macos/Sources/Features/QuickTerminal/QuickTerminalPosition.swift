@@ -9,11 +9,10 @@ enum QuickTerminalPosition: String {
 
     /// Set the loaded state for a window. This should only be called when the window is first loaded,
     /// usually in `windowDidLoad` or in a similar callback. This is the initial state.
-    func setLoaded(_ window: NSWindow, size: QuickTerminalSize) {
-        guard let screen = window.screen ?? NSScreen.main else { return }
+    func setLoaded(_ window: NSWindow, size: QuickTerminalSize, availableFrame: NSRect) {
         window.setFrame(.init(
             origin: window.frame.origin,
-            size: size.calculate(position: self, screenDimensions: screen.visibleFrame.size)
+            size: size.calculate(position: self, screenDimensions: availableFrame.size)
         ), display: false)
     }
 
@@ -21,7 +20,7 @@ enum QuickTerminalPosition: String {
     /// after animating out).
     func setInitial(
         in window: NSWindow,
-        on screen: NSScreen,
+        availableFrame: NSRect,
         terminalSize: QuickTerminalSize,
         closedFrame: NSRect? = nil
     ) {
@@ -30,9 +29,9 @@ enum QuickTerminalPosition: String {
 
         // Position depends
         window.setFrame(.init(
-            origin: initialOrigin(for: window, on: screen),
+            origin: initialOrigin(for: window, availableFrame: availableFrame),
             size: closedFrame?.size ?? configuredFrameSize(
-                on: screen,
+                for: availableFrame,
                 terminalSize: terminalSize)
         ), display: false)
     }
@@ -40,7 +39,7 @@ enum QuickTerminalPosition: String {
     /// Set the final state for a window in this position.
     func setFinal(
         in window: NSWindow,
-        on screen: NSScreen,
+        availableFrame: NSRect,
         terminalSize: QuickTerminalSize,
         closedFrame: NSRect? = nil
     ) {
@@ -49,72 +48,72 @@ enum QuickTerminalPosition: String {
 
         // Position depends
         window.setFrame(.init(
-            origin: finalOrigin(for: window, on: screen),
+            origin: finalOrigin(for: window, availableFrame: availableFrame),
             size: closedFrame?.size ?? configuredFrameSize(
-                on: screen,
+                for: availableFrame,
                 terminalSize: terminalSize)
         ), display: true)
     }
 
     /// Get the configured frame size for initial positioning and animations.
-    func configuredFrameSize(on screen: NSScreen, terminalSize: QuickTerminalSize) -> NSSize {
-        let dimensions = terminalSize.calculate(position: self, screenDimensions: screen.visibleFrame.size)
+    func configuredFrameSize(for availableFrame: NSRect, terminalSize: QuickTerminalSize) -> NSSize {
+        let dimensions = terminalSize.calculate(position: self, screenDimensions: availableFrame.size)
         return NSSize(width: dimensions.width, height: dimensions.height)
     }
 
     /// The initial point origin for this position.
-    func initialOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
+    func initialOrigin(for window: NSWindow, availableFrame: NSRect) -> CGPoint {
         switch self {
         case .top:
             return .init(
-                x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
-                y: screen.visibleFrame.maxY)
+                x: round(availableFrame.origin.x + (availableFrame.width - window.frame.width) / 2),
+                y: availableFrame.maxY)
 
         case .bottom:
             return .init(
-                x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
+                x: round(availableFrame.origin.x + (availableFrame.width - window.frame.width) / 2),
                 y: -window.frame.height)
 
         case .left:
             return .init(
-                x: screen.visibleFrame.minX-window.frame.width,
-                y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2))
+                x: availableFrame.minX - window.frame.width,
+                y: round(availableFrame.origin.y + (availableFrame.height - window.frame.height) / 2))
 
         case .right:
             return .init(
-                x: screen.visibleFrame.maxX,
-                y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2))
+                x: availableFrame.maxX,
+                y: round(availableFrame.origin.y + (availableFrame.height - window.frame.height) / 2))
 
         case .center:
-            return .init(x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2), y: screen.visibleFrame.height - window.frame.width)
+            return .init(x: round(availableFrame.origin.x + (availableFrame.width - window.frame.width) / 2), y: availableFrame.height - window.frame.width)
         }
     }
 
     /// The final point origin for this position.
-    func finalOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
+    func finalOrigin(for window: NSWindow, availableFrame: NSRect) -> CGPoint {
         switch self {
         case .top:
             return .init(
-                x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
-                y: screen.visibleFrame.maxY - window.frame.height)
+                x: round(availableFrame.origin.x + (availableFrame.width - window.frame.width) / 2),
+                y: availableFrame.maxY - window.frame.height)
 
         case .bottom:
             return .init(
-                x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
-                y: screen.visibleFrame.minY)
+                x: round(availableFrame.origin.x + (availableFrame.width - window.frame.width) / 2),
+                y: availableFrame.minY)
 
         case .left:
             return .init(
-                x: screen.visibleFrame.minX,
-                y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2))
+                x: availableFrame.minX,
+                y: round(availableFrame.origin.y + (availableFrame.height - window.frame.height) / 2))
 
         case .right:
             return .init(
-                x: screen.visibleFrame.maxX - window.frame.width,
-                y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2))
+                x: availableFrame.maxX - window.frame.width,
+                y: round(availableFrame.origin.y + (availableFrame.height - window.frame.height) / 2))
 
         case .center:
-            return .init(x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2), y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2))
+            return .init(x: round(availableFrame.origin.x + (availableFrame.width - window.frame.width) / 2), y: round(availableFrame.origin.y + (availableFrame.height - window.frame.height) / 2))
         }
     }
 
@@ -137,24 +136,24 @@ enum QuickTerminalPosition: String {
     }
 
     /// Calculate the centered origin for a window, keeping it properly positioned after manual resizing
-    func centeredOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
+    func centeredOrigin(for window: NSWindow, availableFrame: NSRect) -> CGPoint {
         switch self {
         case .top:
             return CGPoint(
-                x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
+                x: round(availableFrame.origin.x + (availableFrame.width - window.frame.width) / 2),
                 y: window.frame.origin.y // Keep the same Y position
             )
 
         case .bottom:
             return CGPoint(
-                x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
+                x: round(availableFrame.origin.x + (availableFrame.width - window.frame.width) / 2),
                 y: window.frame.origin.y // Keep the same Y position
             )
 
         case .center:
             return CGPoint(
-                x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
-                y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2)
+                x: round(availableFrame.origin.x + (availableFrame.width - window.frame.width) / 2),
+                y: round(availableFrame.origin.y + (availableFrame.height - window.frame.height) / 2)
             )
 
         case .left, .right:
@@ -164,18 +163,18 @@ enum QuickTerminalPosition: String {
     }
 
     /// Calculate the vertically centered origin for side-positioned windows
-    func verticallyCenteredOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
+    func verticallyCenteredOrigin(for window: NSWindow, availableFrame: NSRect) -> CGPoint {
         switch self {
         case .left:
             return CGPoint(
                 x: window.frame.origin.x, // Keep the same X position
-                y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2)
+                y: round(availableFrame.origin.y + (availableFrame.height - window.frame.height) / 2)
             )
 
         case .right:
             return CGPoint(
                 x: window.frame.origin.x, // Keep the same X position
-                y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2)
+                y: round(availableFrame.origin.y + (availableFrame.height - window.frame.height) / 2)
             )
 
         case .top, .bottom, .center:
