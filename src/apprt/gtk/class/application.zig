@@ -716,7 +716,7 @@ pub const Application = extern struct {
                 value,
             ),
 
-            .broadcast_group => return Action.broadcastGroup(target, value),
+            .sync_broadcast_group => return Action.syncBroadcastGroup(target, value),
 
             .key_sequence => return Action.keySequence(target, value),
             .key_table => return Action.keyTable(target, value),
@@ -2486,14 +2486,14 @@ const Action = struct {
         }
     }
 
-    pub fn broadcastGroup(
+    pub fn syncBroadcastGroup(
         target: apprt.Target,
         value: apprt.action.BroadcastGroup,
     ) bool {
         switch (target) {
             .app => return false,
             .surface => |core| {
-                core.rt_surface.surface.updateBroadcastGroup(value);
+                core.rt_surface.surface.syncBroadcastGroup(value);
                 return true;
             },
         }

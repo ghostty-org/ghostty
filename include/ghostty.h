@@ -628,7 +628,7 @@ typedef enum {
 // apprt.action.BroadcastGroup
 typedef struct {
   bool member;
-  uint8_t color;
+  uint8_t group;
 } ghostty_action_broadcast_group_s;
 
 // apprt.action.Fullscreen
@@ -983,7 +983,7 @@ typedef enum {
   GHOSTTY_ACTION_READONLY,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
   GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
-  GHOSTTY_ACTION_BROADCAST_GROUP,
+  GHOSTTY_ACTION_SYNC_BROADCAST_GROUP,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -991,7 +991,7 @@ typedef union {
   ghostty_action_fullscreen_e toggle_fullscreen;
   ghostty_action_move_tab_s move_tab;
   ghostty_action_goto_tab_e goto_tab;
-  ghostty_action_broadcast_group_s broadcast_group;
+  ghostty_action_broadcast_group_s sync_broadcast_group;
   ghostty_action_goto_split_e goto_split;
   ghostty_action_goto_window_e goto_window;
   ghostty_action_resize_split_s resize_split;

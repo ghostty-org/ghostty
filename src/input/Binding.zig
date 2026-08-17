@@ -679,16 +679,20 @@ pub const Action = union(enum) {
     /// group is replicated to every other member, similar to iTerm2's
     /// broadcast input and tmux's synchronized panes.
     ///
-    /// The argument is the group number from 1 to 16. Each group is
+    /// The argument is the group number from 0 to 15. Each group is
     /// outlined with a distinct border color (see
     /// `broadcast-group-colors`). A terminal that is already in the given
     /// group is removed from it instead (toggle), and a terminal in a
     /// different group is moved to the given group.
     ///
+    /// The default keybindings map the number row to groups 0 through
+    /// 9: cmd+ctrl+1 (macOS) or ctrl+shift+1 (Linux) toggles group 0,
+    /// and so on, with 0 toggling group 9.
+    ///
     /// Terminals can also be toggled in and out of groups by clicking
     /// them with the modifiers set by `broadcast-group-click-mods`
     /// (by default cmd+shift+click on macOS, ctrl+shift+click on Linux).
-    toggle_broadcast_group: u8,
+    toggle_broadcast_group: u4,
 
     /// Remove every terminal from its broadcast input group, dissolving
     /// all groups at once. See `toggle_broadcast_group` for details on

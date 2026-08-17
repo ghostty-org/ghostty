@@ -2572,18 +2572,18 @@ else
 /// The border colors used to identify broadcast input groups.
 ///
 /// The value takes the form `N=COLOR` where `N` is a group number from
-/// 1 to 16 and `COLOR` is a color in hex (`#RRGGBB` or `RRGGBB`) or
+/// 0 to 15 and `COLOR` is a color in hex (`#RRGGBB` or `RRGGBB`) or
 /// named X11 format. Like `palette`, this can be repeated to override
 /// multiple group colors, and only the specified groups change:
 ///
 /// ```ini
-/// broadcast-group-colors = 1=#ff0000
-/// broadcast-group-colors = 2=00ff00
+/// broadcast-group-colors = 0=#ff0000
+/// broadcast-group-colors = 1=00ff00
 /// ```
 ///
 /// At most 16 broadcast groups can exist at once, one per color. The
-/// default `toggle_broadcast_group` keybindings only cover groups 1
-/// through 10; higher groups can be reached by click or by binding the
+/// default `toggle_broadcast_group` keybindings only cover groups 0
+/// through 9; higher groups can be reached by click or by binding the
 /// action with a higher group number. The default colors are ordered
 /// so that consecutive group numbers are visually distinct from each
 /// other.
@@ -7021,10 +7021,11 @@ pub const Keybinds = struct {
             else
                 .{ .ctrl = true, .shift = true };
 
-            // Cmd/Ctrl+Shift+N for broadcast group N. Like the numeric
-            // goto_tab above, we register both the physical digit key and
-            // the unicode digit so layouts with shifted digits (e.g.
-            // AZERTY) work.
+            // Cmd/Ctrl+Shift+N for broadcast group N - 1 (groups are
+            // zero-based, the number row is one-based). Like the
+            // numeric goto_tab above, we register both the physical
+            // digit key and the unicode digit so layouts with shifted
+            // digits (e.g. AZERTY) work.
             const start: u21 = '1';
             const end: u21 = '9';
             comptime var i: u21 = start;
@@ -7038,27 +7039,27 @@ pub const Keybinds = struct {
                         ) },
                         .mods = mods,
                     },
-                    .{ .toggle_broadcast_group = (i - start) + 1 },
+                    .{ .toggle_broadcast_group = (i - start) },
                 );
 
                 try self.set.put(
                     alloc,
                     .{ .key = .{ .unicode = i }, .mods = mods },
-                    .{ .toggle_broadcast_group = (i - start) + 1 },
+                    .{ .toggle_broadcast_group = (i - start) },
                 );
             }
 
-            // 0 joins group 10, matching the number row read left
+            // 0 toggles group 9, matching the number row read left
             // to right.
             try self.set.put(
                 alloc,
                 .{ .key = .{ .physical = .digit_0 }, .mods = mods },
-                .{ .toggle_broadcast_group = 10 },
+                .{ .toggle_broadcast_group = 9 },
             );
             try self.set.put(
                 alloc,
                 .{ .key = .{ .unicode = '0' }, .mods = mods },
-                .{ .toggle_broadcast_group = 10 },
+                .{ .toggle_broadcast_group = 9 },
             );
         }
 
@@ -8859,33 +8860,33 @@ pub const BroadcastGroupColors = struct {
     const Self = @This();
 
     /// The number of colors, which is also the maximum number of
-    /// broadcast groups that can exist at once.
-    pub const len = 16;
+    /// broadcast groups that can exist at once. Group numbers are a
+    /// u4 so this covers exactly the representable range.
+    pub const len = std.math.maxInt(u4) + 1;
 
-    /// The color for each group; the one-based group number N uses
-    /// colors[N - 1].
+    /// The color for group N is colors[N].
     ///
     /// The defaults are ordered so that no two consecutive group
     /// numbers get easily confused colors, since consecutive numbers
     /// are what click-created groups receive: hue-adjacent pairs like
     /// red/pink or blue/cyan are kept apart.
     colors: [len]Color = .{
-        .{ .r = 0xff, .g = 0x78, .b = 0x00 }, // 1: orange
-        .{ .r = 0x35, .g = 0x84, .b = 0xe4 }, // 2: blue
-        .{ .r = 0xf6, .g = 0xd3, .b = 0x2d }, // 3: yellow
-        .{ .r = 0x91, .g = 0x41, .b = 0xac }, // 4: purple
-        .{ .r = 0x33, .g = 0xd1, .b = 0x7a }, // 5: green
-        .{ .r = 0xe0, .g = 0x1b, .b = 0x24 }, // 6: red
-        .{ .r = 0x33, .g = 0xc7, .b = 0xde }, // 7: cyan
-        .{ .r = 0xdc, .g = 0x8a, .b = 0xdd }, // 8: pink
-        .{ .r = 0xb5, .g = 0x83, .b = 0x5a }, // 9: brown
-        .{ .r = 0x99, .g = 0xc1, .b = 0xf1 }, // 10: light blue
-        .{ .r = 0xa5, .g = 0x1d, .b = 0x2d }, // 11: dark red
-        .{ .r = 0x8f, .g = 0xf0, .b = 0xa4 }, // 12: light green
-        .{ .r = 0x61, .g = 0x35, .b = 0x83 }, // 13: dark purple
-        .{ .r = 0x9a, .g = 0x99, .b = 0x96 }, // 14: gray
-        .{ .r = 0x1a, .g = 0x5f, .b = 0xb4 }, // 15: dark blue
-        .{ .r = 0xff, .g = 0xbe, .b = 0x6f }, // 16: light orange
+        .{ .r = 0xff, .g = 0x78, .b = 0x00 }, // 0: orange
+        .{ .r = 0x35, .g = 0x84, .b = 0xe4 }, // 1: blue
+        .{ .r = 0xf6, .g = 0xd3, .b = 0x2d }, // 2: yellow
+        .{ .r = 0x91, .g = 0x41, .b = 0xac }, // 3: purple
+        .{ .r = 0x33, .g = 0xd1, .b = 0x7a }, // 4: green
+        .{ .r = 0xe0, .g = 0x1b, .b = 0x24 }, // 5: red
+        .{ .r = 0x33, .g = 0xc7, .b = 0xde }, // 6: cyan
+        .{ .r = 0xdc, .g = 0x8a, .b = 0xdd }, // 7: pink
+        .{ .r = 0xb5, .g = 0x83, .b = 0x5a }, // 8: brown
+        .{ .r = 0x99, .g = 0xc1, .b = 0xf1 }, // 9: light blue
+        .{ .r = 0xa5, .g = 0x1d, .b = 0x2d }, // 10: dark red
+        .{ .r = 0x8f, .g = 0xf0, .b = 0xa4 }, // 11: light green
+        .{ .r = 0x61, .g = 0x35, .b = 0x83 }, // 12: dark purple
+        .{ .r = 0x9a, .g = 0x99, .b = 0x96 }, // 13: gray
+        .{ .r = 0x1a, .g = 0x5f, .b = 0xb4 }, // 14: dark blue
+        .{ .r = 0xff, .g = 0xbe, .b = 0x6f }, // 15: light orange
     },
 
     /// ghostty_config_broadcast_group_colors_s
@@ -8904,14 +8905,15 @@ pub const BroadcastGroupColors = struct {
         const eql_idx = std.mem.indexOfScalar(u8, value, '=') orelse
             return error.InvalidValue;
 
+        // A u4 makes the bounds check unnecessary: out of range
+        // numbers fail to parse.
         const number = std.fmt.parseInt(
-            u8,
+            u4,
             std.mem.trim(u8, value[0..eql_idx], " "),
             10,
         ) catch return error.InvalidValue;
-        if (number < 1 or number > len) return error.InvalidValue;
 
-        self.colors[number - 1] = try Color.parseCLI(
+        self.colors[number] = try Color.parseCLI(
             std.mem.trim(u8, value[eql_idx + 1 ..], " "),
         );
     }
@@ -8929,13 +8931,15 @@ pub const BroadcastGroupColors = struct {
     /// Used by Formatter
     pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [128]u8 = undefined;
-        for (self.colors, 1..) |v, number| {
+        for (self.colors, 0..) |v, number| {
+            var color_buf: [128]u8 = undefined;
+            const color_str = try v.formatBuf(&color_buf);
             try formatter.formatEntry(
                 []const u8,
                 std.fmt.bufPrint(
                     &buf,
-                    "{d}=#{x:0>2}{x:0>2}{x:0>2}",
-                    .{ number, v.r, v.g, v.b },
+                    "{d}={s}",
+                    .{ number, color_str },
                 ) catch return error.OutOfMemory,
             );
         }
@@ -8946,15 +8950,16 @@ pub const BroadcastGroupColors = struct {
 
         var p: Self = .{};
         try p.parseCLI("3=#AABBCC");
-        try testing.expectEqual(Color{ .r = 0xAA, .g = 0xBB, .b = 0xCC }, p.colors[2]);
+        try testing.expectEqual(Color{ .r = 0xAA, .g = 0xBB, .b = 0xCC }, p.colors[3]);
 
         // Whitespace and named colors are allowed
-        try p.parseCLI("16 = black");
-        try testing.expectEqual(Color{ .r = 0, .g = 0, .b = 0 }, p.colors[15]);
+        try p.parseCLI("0 = black");
+        try testing.expectEqual(Color{ .r = 0, .g = 0, .b = 0 }, p.colors[0]);
+        try p.parseCLI("15=white");
+        try testing.expectEqual(Color{ .r = 0xff, .g = 0xff, .b = 0xff }, p.colors[15]);
 
-        // Group numbers are one-based and bounded
-        try testing.expectError(error.InvalidValue, p.parseCLI("0=#AABBCC"));
-        try testing.expectError(error.InvalidValue, p.parseCLI("17=#AABBCC"));
+        // Group numbers are bounded by the u4 range
+        try testing.expectError(error.InvalidValue, p.parseCLI("16=#AABBCC"));
         try testing.expectError(error.InvalidValue, p.parseCLI("#AABBCC"));
         try testing.expectError(error.ValueRequired, p.parseCLI(null));
     }

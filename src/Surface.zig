@@ -159,10 +159,9 @@ focused: bool = true,
 visible: bool = true,
 
 /// The broadcast input group this surface is a member of, or null if
-/// it isn't in a group. This is the zero-based group index (the
-/// user-facing group number is one higher), which doubles as the
-/// index into the broadcast-group-colors config. Managed by App.
-broadcast_group: ?u8 = null,
+/// it isn't in a group. The group number doubles as the index into
+/// the broadcast-group-colors config. Managed by App.
+broadcast_group: ?u4 = null,
 
 /// Used to determine whether to continuously scroll.
 selection_scroll_active: bool = false,

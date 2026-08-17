@@ -590,7 +590,7 @@ pub fn toggleBroadcastGroup(
 
 /// The lowest group number without any member surface, or null if all
 /// group numbers are taken.
-fn lowestUnusedBroadcastGroup(self: *const App) ?u8 {
+fn lowestUnusedBroadcastGroup(self: *const App) ?u4 {
     var used: std.StaticBitSet(max_broadcast_groups) = .initEmpty();
     for (self.surfaces.items) |rt_surface| {
         if (rt_surface.core().broadcast_group) |group| used.set(group);
@@ -604,28 +604,18 @@ fn lowestUnusedBroadcastGroup(self: *const App) ?u8 {
 /// it, any other surface joins it (leaving its previous group).
 ///
 /// This is the implementation of the `toggle_broadcast_group`
-/// keybinding action. Returns false if the group number is out of
-/// range.
+/// keybinding action. The group is a u4 so every value is in range.
 pub fn toggleNumberedBroadcastGroup(
     self: *App,
     rt_app: *apprt.App,
     surface: *Surface,
-    group: u8,
+    group: u4,
 ) bool {
     _ = self;
-    if (group < 1 or group > max_broadcast_groups) {
-        log.warn(
-            "toggle_broadcast_group ignoring invalid group number={}",
-            .{group},
-        );
-        return false;
-    }
-
-    const number: u8 = group - 1;
-    surface.broadcast_group = if (surface.broadcast_group == number)
+    surface.broadcast_group = if (surface.broadcast_group == group)
         null
     else
-        number;
+        group;
     syncBroadcastGroup(rt_app, surface);
     return true;
 }
@@ -646,8 +636,8 @@ fn clearBroadcastGroups(self: *App, rt_app: *apprt.App) void {
 fn syncBroadcastGroup(rt_app: *apprt.App, surface: *Surface) void {
     _ = rt_app.performAction(
         .{ .surface = surface },
-        .broadcast_group,
-        .{ .color = surface.broadcast_group },
+        .sync_broadcast_group,
+        .{ .group = surface.broadcast_group },
     ) catch |err| {
         log.warn("error notifying apprt of broadcast group err={}", .{err});
     };

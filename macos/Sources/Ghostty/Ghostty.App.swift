@@ -638,8 +638,8 @@ extension Ghostty {
             case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
                 return copyTitleToClipboard(app, target: target)
 
-            case GHOSTTY_ACTION_BROADCAST_GROUP:
-                return broadcastGroup(app, target: target, v: action.action.broadcast_group)
+            case GHOSTTY_ACTION_SYNC_BROADCAST_GROUP:
+                return syncBroadcastGroup(app, target: target, v: action.action.sync_broadcast_group)
 
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue, privacy: .public)")
@@ -1142,7 +1142,7 @@ extension Ghostty {
                 return true
         }
 
-        private static func broadcastGroup(
+        private static func syncBroadcastGroup(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_broadcast_group_s) -> Bool {
@@ -1173,7 +1173,7 @@ extension Ghostty {
             guard v.member else { return nil }
             guard let delegate = NSApp.delegate as? AppDelegate else { return nil }
             let colors = delegate.ghostty.config.broadcastGroupColors
-            let idx = Int(v.color)
+            let idx = Int(v.group)
             guard idx < colors.count else { return nil }
             return Color(colors[idx])
         }

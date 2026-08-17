@@ -111,7 +111,7 @@ extension Ghostty {
 
         /// The border color for this surface's broadcast input group, or nil if
         /// the surface is not in a group. Updated by the core through the
-        /// broadcast_group apprt action.
+        /// sync_broadcast_group apprt action.
         @Published var broadcastGroupColor: Color?
 
         /// A clipboard confirmation waiting to be handled by its controller.
