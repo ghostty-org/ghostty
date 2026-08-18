@@ -925,7 +925,7 @@ msgstr "Focus venster: vorige"
 
 #: src/input/command.zig:534
 msgid "Focus the previous window, if any."
-msgstr "Focus het vorige venster, als dat er is."
+msgstr "Focus op het vorige venster, als dat er is."
 
 #: src/input/command.zig:538
 msgid "Focus Window: Next"
