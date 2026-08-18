@@ -1755,8 +1755,11 @@ pub const Surface = extern struct {
     /// Focus this surface. This properly focuses the input part of
     /// our surface.
     pub fn grabFocus(self: *Self) void {
-        const priv = self.private();
-        _ = priv.gl_area.as(gtk.Widget).grabFocus();
+        // Focus the GhosttySurface itself (not the inner GLArea) so the
+        // focused object exposes role=terminal and GtkAccessibleText to
+        // AT-SPI. The EventControllerKey attached to the template root
+        // receives key events from this focus target.
+        _ = self.as(gtk.Widget).grabFocus();
     }
 
     pub fn sendDesktopNotification(self: *Self, title: [:0]const u8, body: [:0]const u8) void {
@@ -2848,11 +2851,12 @@ pub const Surface = extern struct {
         const priv = self.private();
         const core_surface = priv.core_surface orelse return;
 
-        // If we don't have focus, grab it.
-        const gl_area_widget = priv.gl_area.as(gtk.Widget);
-        const had_focus = gl_area_widget.hasFocus() != 0;
+        // If we don't have focus, grab it. Focus is tracked on the
+        // GhosttySurface itself (see `grabFocus`), not the GLArea.
+        const widget = self.as(gtk.Widget);
+        const had_focus = widget.hasFocus() != 0;
         if (!had_focus) {
-            _ = gl_area_widget.grabFocus();
+            _ = widget.grabFocus();
         }
 
         // Report the event
@@ -2985,13 +2989,14 @@ pub const Surface = extern struct {
             @abs(priv.cursor_pos.y - pos.y) < 1;
         if (is_cursor_still) return;
 
-        // If we don't have focus, and we want it, grab it.
+        // If we don't have focus, and we want it, grab it. Focus lives
+        // on the GhosttySurface itself, not the inner GLArea.
         if (priv.config) |config| {
-            const gl_area_widget = priv.gl_area.as(gtk.Widget);
-            if (gl_area_widget.hasFocus() == 0 and
+            const widget = self.as(gtk.Widget);
+            if (widget.hasFocus() == 0 and
                 config.get().@"focus-follows-mouse")
             {
-                _ = gl_area_widget.grabFocus();
+                _ = widget.grabFocus();
             }
         }
 
@@ -3639,7 +3644,7 @@ pub const Surface = extern struct {
         _ = surface.performBindingAction(.end_search) catch |err| {
             log.warn("unable to perform end_search action err={}", .{err});
         };
-        _ = self.private().gl_area.as(gtk.Widget).grabFocus();
+        _ = self.as(gtk.Widget).grabFocus();
     }
 
     fn searchChanged(_: *SearchOverlay, needle: ?[*:0]const u8, self: *Self) callconv(.c) void {

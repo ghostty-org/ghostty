@@ -30,8 +30,8 @@ Overlay terminal_page {
       resize => $gl_resize();
       hexpand: true;
       vexpand: true;
-      focusable: true;
-      focus-on-click: true;
+      focusable: false;
+      focus-on-click: false;
       has-stencil-buffer: false;
       has-depth-buffer: false;
       allowed-apis: gl;
@@ -43,16 +43,6 @@ Overlay terminal_page {
       flags: nested;
       halign: start;
       has-arrow: false;
-    }
-
-    EventControllerFocus {
-      enter => $focus_enter();
-      leave => $focus_leave();
-    }
-
-    EventControllerKey {
-      key-pressed => $key_pressed();
-      key-released => $key_released();
     }
 
     EventControllerScroll {
@@ -292,6 +282,23 @@ template $GhosttySurface: Adw.Bin {
   notify::mouse-hidden => $notify_mouse_hidden();
   notify::mouse-shape => $notify_mouse_shape();
   notify::vadjustment => $notify_vadjustment();
+  // Focus lands on GhosttySurface (not the inner GLArea) so the focused
+  // object carries our role=terminal and GtkAccessibleText interface.
+  // Orca's restricted flat review only looks at the focused object, so
+  // focusing the bare GLArea (role=panel) gave it nothing to read.
+  focusable: true;
+  focus-on-click: true;
+
+  EventControllerFocus {
+    enter => $focus_enter();
+    leave => $focus_leave();
+  }
+
+  EventControllerKey {
+    key-pressed => $key_pressed();
+    key-released => $key_released();
+  }
+
   // Some history: we used to use a Stack here and swap between the
   // terminal and error pages as needed. But a Stack doesn't play nice
   // with our SplitTree and Gtk.Paned usage[^1]. Replacing this with
