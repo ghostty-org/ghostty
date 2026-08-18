@@ -25,6 +25,8 @@ var typeString: String?
 var uiTestDirectory: String?
 var soakIterations: Int?
 var probeGap: Double?
+var cycleCount: Int?
+var watchdogSeconds: Double?
 
 var argv = Array(CommandLine.arguments.dropFirst())
 while let arg = argv.first {
@@ -42,6 +44,8 @@ while let arg = argv.first {
     case "--press": pressButtonName = next()
     case "--probe": probeGap = next().flatMap(Double.init)
     case "--soak": soakIterations = next().flatMap(Int.init)
+    case "--cycle": cycleCount = next().flatMap(Int.init)
+    case "--watchdog": watchdogSeconds = next().flatMap(Double.init)
     case "--uitest": uiTestDirectory = next()
     case "--text": typeString = next()
     case "--tap":
@@ -75,6 +79,9 @@ while let arg = argv.first {
         Diagnostics:
           --soak <n>          n scripted iterations through one client
           --probe <secs>      one gesture, a pause, a second gesture
+          --cycle <n>         attach/detach n times, reporting resident memory
+          --watchdog <secs>   report session state while the device is shut down
+                              and rebooted underneath us
           --uitest <dir>      drive the real view with synthesized NSEvents
         """)
         exit(0)
@@ -135,9 +142,24 @@ final class ResultBox<T>: @unchecked Sendable {
     }
 }
 
+/// Keeps the run loop non-empty.
+///
+/// `RunLoop.run(mode:before:)` returns *immediately* when the loop has no input
+/// sources or timers, which means a busy pump loop never services the main
+/// dispatch queue — and anything scheduled there, including the library's own
+/// device watchdog, silently never runs. A real AppKit app never has this
+/// problem because NSApplication's event loop drains the queue; only these
+/// headless modes do. One idle timer is enough to make the loop behave.
+private let runLoopKeepAlive: Timer = {
+    let timer = Timer(timeInterval: 0.05, repeats: true) { _ in }
+    RunLoop.main.add(timer, forMode: .common)
+    return timer
+}()
+
 /// Waits without blocking the main thread. Delivery of Indigo messages stalls if
 /// the main runloop stops turning, so every pause pumps it.
 func pump(_ seconds: TimeInterval) {
+    _ = runLoopKeepAlive
     let deadline = Date().addingTimeInterval(seconds)
     while Date() < deadline {
         RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
@@ -224,6 +246,77 @@ if let statsSeconds {
     let damage = after.damageEvents - before.damageEvents
     print(String(format: "surface        : %.0fx%.0f", pixels.width, pixels.height))
     print(String(format: "damage events  : %d in %.1fs = %.1f/s", damage, elapsed, Double(damage) / elapsed))
+    exit(0)
+}
+
+if let watchdogSeconds {
+    // Shows what the pane does when the device disappears out from under it:
+    // shut the device down and boot it again from another shell while this runs.
+    print("watching session state for \(Int(watchdogSeconds))s")
+    var last = ""
+    let start = Date()
+    while Date().timeIntervalSince(start) < watchdogSeconds {
+        let now = session.state.label
+        if now != last {
+            print(String(format: "  %6.1fs  %@", Date().timeIntervalSince(start), now))
+            last = now
+        }
+        pump(0.25)
+    }
+    print("final: \(session.state.label), attached=\(session.isAttached)")
+    session.detach()
+    exit(0)
+}
+
+if let cycleCount {
+    // A leaked framebuffer reference would show up as roughly one surface per
+    // cycle — about 12 MB at this device's resolution — so resident size is a
+    // sensitive enough detector without needing a private allocation count.
+    func residentBytes() -> UInt64 {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<mach_task_basic_info>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? info.resident_size : 0
+    }
+
+    let megabyte = 1024.0 * 1024.0
+    print("attach/detach cycles: \(cycleCount)")
+    print("cycle  resident MB  delta MB")
+    print(String(repeating: "-", count: 34))
+
+    var baseline: UInt64 = 0
+    var previous: UInt64 = 0
+    for cycle in 1...cycleCount {
+        session.detach()
+        pump(0.3)
+        do {
+            try MainActor.assumeIsolated { try session.attach() }
+        } catch {
+            die("cycle \(cycle): attach failed: \(error.localizedDescription)")
+        }
+        // Let the surface actually bind and a few frames land before measuring.
+        pump(1.0)
+        let resident = residentBytes()
+        if cycle == 1 { baseline = resident }
+        print(String(format: "%5d  %11.1f  %+8.1f", cycle,
+                     Double(resident) / megabyte,
+                     Double(Int64(resident) - Int64(previous)) / megabyte))
+        previous = resident
+    }
+
+    let growth = Double(Int64(previous) - Int64(baseline)) / megabyte
+    print(String(format: "\ngrowth from cycle 1 to cycle %d: %+.1f MB", cycleCount, growth))
+    // One framebuffer at this resolution is ~12 MB; anything approaching that
+    // per cycle is a leak rather than allocator noise.
+    print(growth < Double(cycleCount) * 2.0
+        ? "PASS: no per-cycle surface retention"
+        : "FAIL: memory grows with attach/detach cycles")
+    session.detach()
     exit(0)
 }
 

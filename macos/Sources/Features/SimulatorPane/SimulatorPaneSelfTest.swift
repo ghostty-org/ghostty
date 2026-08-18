@@ -57,8 +57,15 @@ enum SimulatorPaneSelfTest {
 
         // A swipe through the view's own NSEvent path, not the scripted API, so
         // this covers the pane's event handling rather than just the wire format.
+        // Home first, so the swipe has something that reliably responds to it.
+        model.press(.home)
+        await wait(2)
+        log("mirror bounds=\(mirror.bounds) screen rect=\(session.contentRect)")
         let before = session.framebufferSample()
-        await swipe(in: mirror, window: controller.window, fromX: 0.7, toX: 0.3)
+        // Horizontal, across the middle: the pane letterboxes a tall device
+        // inside a narrow sidebar, so anything near the top or bottom edge of
+        // the *view* lands outside the screen and is correctly ignored.
+        await swipe(in: session, view: mirror, window: controller.window, from: 0.7, to: 0.3)
         await wait(2)
         let delta = SimulatorSession.frameDifference(before, session.framebufferSample())
         log(String(format: "swipe through the view: %.1f%% of the screen changed %@",
@@ -73,6 +80,13 @@ enum SimulatorPaneSelfTest {
         log("after double-Escape: keyboard to simulator=\(model.keyboardGoesToSimulator), "
             + "firstResponder is mirror=\(controller.window?.firstResponder === mirror)")
 
+        // Device loss and recovery. Killing the guest's launchd_sim is the only
+        // faithful way to stage this: `simctl shutdown` does not take effect
+        // while this pane holds the device open.
+        if ProcessInfo.processInfo.environment["GHOSTTY_SIMPANE_SELFTEST_DEVICE_LOSS"] != nil {
+            await testDeviceLoss(model: model)
+        }
+
         // Hold the pane open long enough to be observed from outside, then close
         // it and confirm nothing is retained. The plan's gate asks specifically
         // that closing the pane leaves no simulator work running.
@@ -85,10 +99,65 @@ enum SimulatorPaneSelfTest {
         log("done")
     }
 
+    /// Kills the guest out from under the pane, then boots it again, checking
+    /// that the pane notices both.
+    @MainActor
+    private static func testDeviceLoss(model: SimulatorPaneModel) async {
+        guard let udid = model.selectedUDID else { return }
+
+        guard let pid = shell("/usr/bin/pgrep", ["-f", "Devices/\(udid)/data"])?
+            .split(separator: "\n").first.map(String.init) else {
+            log("device-loss: could not find the guest process; skipping")
+            return
+        }
+        log("device-loss: killing guest launchd_sim \(pid)")
+        _ = shell("/bin/kill", ["-9", pid])
+
+        for _ in 0..<15 {
+            await wait(1)
+            if model.state == .deviceShutDown { break }
+        }
+        log("device-loss: pane state is \(model.state.label) (attached=\(model.isAttached))")
+
+        log("device-loss: rebooting the device")
+        _ = shell("/usr/bin/xcrun", ["simctl", "boot", udid])
+        for _ in 0..<45 {
+            await wait(1)
+            if model.isAttached { break }
+        }
+        // The model learns its state through a delegate hop, so give that a beat
+        // before reporting it or the label lags reality.
+        await wait(1)
+        log("device-loss: after reboot, state=\(model.state.label) attached=\(model.isAttached)")
+    }
+
+    private static func shell(_ path: String, _ args: [String]) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = args
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: Event synthesis
 
-    private static func point(_ fractionX: CGFloat, _ fractionY: CGFloat, in view: NSView) -> CGPoint {
-        let local = CGPoint(x: view.bounds.width * fractionX, y: view.bounds.height * fractionY)
+    /// A point given as a fraction of the *device screen*, not of the view. The
+    /// pane letterboxes, and a fraction of the view can easily land outside the
+    /// screen entirely — which the pane correctly ignores, and which then looks
+    /// exactly like broken input.
+    private static func point(
+        _ fractionX: CGFloat, _ fractionY: CGFloat, in session: SimulatorSession, view: NSView
+    ) -> CGPoint {
+        let screen = session.contentRect
+        let local = CGPoint(
+            x: screen.minX + screen.width * fractionX,
+            y: screen.minY + screen.height * fractionY)
         return view.convert(local, to: nil)
     }
 
@@ -112,21 +181,25 @@ enum SimulatorPaneSelfTest {
     }
 
     private static func swipe(
-        in view: NSView, window: NSWindow?, fromX: CGFloat, toX: CGFloat
+        in session: SimulatorSession, view: NSView, window: NSWindow?,
+        from fromX: CGFloat, to toX: CGFloat
     ) async {
-        guard let down = mouse(.leftMouseDown, at: point(fromX, 0.5, in: view), window: window)
+        guard let down = mouse(
+            .leftMouseDown, at: point(fromX, 0.5, in: session, view: view), window: window)
         else { return }
         view.mouseDown(with: down)
         let steps = 20
         for i in 1...steps {
             let t = CGFloat(i) / CGFloat(steps)
             let x = fromX + (toX - fromX) * t
-            if let moved = mouse(.leftMouseDragged, at: point(x, 0.5, in: view), window: window) {
+            if let moved = mouse(
+                .leftMouseDragged, at: point(x, 0.5, in: session, view: view), window: window) {
                 view.mouseDragged(with: moved)
             }
             await wait(0.012)
         }
-        if let up = mouse(.leftMouseUp, at: point(toX, 0.5, in: view), window: window) {
+        if let up = mouse(
+            .leftMouseUp, at: point(toX, 0.5, in: session, view: view), window: window) {
             view.mouseUp(with: up)
         }
     }

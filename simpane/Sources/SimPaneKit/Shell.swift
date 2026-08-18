@@ -27,10 +27,23 @@ enum Shell {
     }
 
     /// Runs a tool to completion and captures both streams.
-    static func capture(_ path: String, _ args: [String]) -> Result {
+    ///
+    /// `scrubEnvironment` launches the tool with a minimal environment. This
+    /// matters for `simctl`: a process that has loaded CoreSimulator can hand
+    /// its children a view of the world in which a device it holds open still
+    /// looks booted after it has been shut down elsewhere.
+    static func capture(
+        _ path: String, _ args: [String], scrubEnvironment: Bool = false
+    ) -> Result {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = args
+        if scrubEnvironment {
+            process.environment = [
+                "HOME": NSHomeDirectory(),
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            ]
+        }
         let out = Pipe()
         let err = Pipe()
         process.standardOutput = out
@@ -55,8 +68,8 @@ enum Shell {
     }
 
     /// Trimmed stdout, or nil if the tool could not be launched or exited non-zero.
-    static func run(_ path: String, _ args: [String]) -> String? {
-        let result = capture(path, args)
+    static func run(_ path: String, _ args: [String], scrubEnvironment: Bool = false) -> String? {
+        let result = capture(path, args, scrubEnvironment: scrubEnvironment)
         guard result.succeeded else { return nil }
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }

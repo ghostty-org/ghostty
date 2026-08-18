@@ -167,6 +167,51 @@ struct SimDeviceHandle {
     }
 }
 
+/// The classic failure after an Xcode update: the CoreSimulator framework on
+/// disk no longer matches the `com.apple.CoreSimulator.CoreSimulatorService`
+/// daemon still running from the previous version.
+///
+/// It surfaces as an opaque XPC error, so the error alone tells a user nothing.
+/// The remedy is well known and is worth putting in front of them instead.
+enum CoreSimulatorService {
+
+    static let remedy = """
+        This usually means the CoreSimulator service still running is from a         different Xcode than the one installed. Quit Simulator.app and Xcode, then run:
+
+            launchctl remove com.apple.CoreSimulator.CoreSimulatorService
+
+        and try again.
+        """
+
+    /// Markers seen when the daemon is stale or the connection to it is dead.
+    /// Deliberately broad: a false positive costs a user one extra sentence,
+    /// while a false negative costs them an afternoon.
+    private static let markers = [
+        "coresimulatorservice",
+        "connection to service",
+        "was invalidated",
+        "version mismatch",
+        "mismatched versions",
+        "xpc_error_connection",
+        "could not find or use runtime",
+    ]
+
+    static func looksLikeAServiceProblem(_ message: String) -> Bool {
+        let lowered = message.lowercased()
+        return markers.contains { lowered.contains($0) }
+    }
+
+    /// The message with the remedy appended, when it is the kind of failure the
+    /// remedy fixes.
+    static func annotating(_ message: String) -> String {
+        looksLikeAServiceProblem(message) ? "\(message)\n\n\(remedy)" : message
+    }
+
+    static func annotating(_ error: Error) -> String {
+        annotating(error.localizedDescription)
+    }
+}
+
 enum SimDevices {
 
     static func serviceContext() throws -> AnyObject {
@@ -180,10 +225,18 @@ enum SimDevices {
         guard let dir = PrivateFrameworks.developerDir else {
             throw SimPaneError("no developer directory")
         }
-        let ctx = try ObjCSend.callWithErrorOut(
-            cls, "sharedServiceContextForDeveloperDir:error:", [dir as NSString])
+        let ctx: Any?
+        do {
+            ctx = try ObjCSend.callWithErrorOut(
+                cls, "sharedServiceContextForDeveloperDir:error:", [dir as NSString])
+        } catch {
+            throw SimPaneError(CoreSimulatorService.annotating(error))
+        }
         guard let ctx = ctx as AnyObject? else {
-            throw SimPaneError("sharedServiceContextForDeveloperDir:error: returned nil")
+            // A nil context with no exception is itself the signature of a stale
+            // daemon, so the remedy is unconditional here.
+            throw SimPaneError(
+                "CoreSimulator returned no service context.\n\n\(CoreSimulatorService.remedy)")
         }
         return ctx
     }
@@ -194,7 +247,8 @@ enum SimDevices {
             return set
         }
         guard let set = ObjCSend.object(ctx, "defaultDeviceSet") else {
-            throw SimPaneError("could not obtain a device set")
+            throw SimPaneError(
+                "CoreSimulator returned no device set.\n\n\(CoreSimulatorService.remedy)")
         }
         return set
     }

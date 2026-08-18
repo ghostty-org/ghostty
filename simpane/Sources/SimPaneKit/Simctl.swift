@@ -19,8 +19,10 @@ enum Simctl {
         let devices: [String: [RawDevice]]
     }
 
-    static func devices() -> [SimDeviceInfo] {
-        guard let json = Shell.run(xcrun, ["simctl", "list", "-j", "devices", "available"]),
+    static func devices(scrubEnvironment: Bool = false) -> [SimDeviceInfo] {
+        guard let json = Shell.run(
+                xcrun, ["simctl", "list", "-j", "devices", "available"],
+                scrubEnvironment: scrubEnvironment),
               let data = json.data(using: .utf8),
               let list = try? JSONDecoder().decode(DeviceList.self, from: data)
         else { return [] }
@@ -44,12 +46,13 @@ enum Simctl {
         }
     }
 
-    static func device(udid: String) -> SimDeviceInfo? {
-        devices().first { $0.udid.caseInsensitiveCompare(udid) == .orderedSame }
+    static func device(udid: String, scrubEnvironment: Bool = false) -> SimDeviceInfo? {
+        devices(scrubEnvironment: scrubEnvironment)
+            .first { $0.udid.caseInsensitiveCompare(udid) == .orderedSame }
     }
 
-    static func state(udid: String) -> SimDeviceInfo.State {
-        device(udid: udid)?.state ?? .unknown
+    static func state(udid: String, scrubEnvironment: Bool = false) -> SimDeviceInfo.State {
+        device(udid: udid, scrubEnvironment: scrubEnvironment)?.state ?? .unknown
     }
 
     /// A reasonable default target: an already-booted device, else the first

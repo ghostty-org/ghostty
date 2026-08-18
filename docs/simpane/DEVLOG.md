@@ -801,3 +801,120 @@ pane closed: session=released, device still booted=true
   user's window would have required stealing focus. Same command, same proof.
 - `swiftlint` is still not installed, so the repo's Swift formatting step has not
   been run against any of this.
+
+## Phase 5 — Hardening & docs
+
+### Device shutdown and reboot underneath the pane
+
+This took most of the phase, almost entirely because **the obvious signals all
+lie**. In order of discovery:
+
+| Signal | Why it does not work |
+|---|---|
+| `SimDevice.state` | A value cached on the XPC proxy. Reports `Booted` indefinitely after the device is gone. Subscribing the device set with `subscribeToNotificationsWithError:` does not refresh it. |
+| `descriptor.framebufferSurface` | Still readable — we hold a reference to the last frame. |
+| `registerNotificationHandlerOnQueue:handler:` | Registration succeeds (on the device *and* on the device set, with the set subscribed) and then never fires. Not pursued further. |
+| `simctl`, run from our own process | Reports `Booted` while the shell reports `Shutdown`, at the same instant. Scrubbing the child environment does not change it. |
+| `DISPATCH_SOURCE_TYPE_PROC` `.exit` | Never fires for a process we did not spawn. |
+| `kill(pid, 0)` | Succeeds on a **zombie**, so a dead guest reads as alive. |
+
+What does work: the device's `launchd_sim` process, found once with `pgrep` on
+the device's data path, then polled with `sysctl(KERN_PROC_PID)` — a syscall, and
+zombie-aware via `p_stat`. Reboot is detected by a slower poll that only runs
+while the pane is visibly waiting.
+
+### The finding that explains most of the above
+
+**An attached pane keeps the device alive.** `simctl shutdown` returns success,
+the shell sees the device as `Shutdown`, and yet the guest keeps running: a second
+process attached to the "shut down" device and measured **40.5 damage events/s**.
+
+So for most of this phase the scenario being tested did not exist — the device
+never actually shut down. The faithful way to stage device loss is to kill the
+guest's `launchd_sim` outright, which is what the self-test does.
+
+This is also why closing the pane matters: the device only really goes down once
+nothing holds it. That is now documented in the README's troubleshooting.
+
+### The other reason nothing seemed to work
+
+The POC's `pump()` spins `RunLoop.run(mode:before:)`, which **returns immediately
+when the run loop has no sources or timers** — so a headless POC mode never
+services the main dispatch queue, and anything scheduled there silently never
+runs. That is why identical code detected device loss when driven from Ghostty
+and never detected it from the POC.
+
+The library uses a `DispatchSourceTimer` rather than a `Timer` for exactly this
+reason: run-loop timers depend on which mode the loop happens to be in, and were
+observed simply not firing under a nested run loop. Verification of this feature
+belongs in Ghostty, where AppKit drains the main queue, and that is where it is
+now done.
+
+### Memory: no IOSurface leak, and a 6× improvement anyway
+
+`SimPanePOC --cycle N` attaches and detaches N times and reports resident size. A
+retained framebuffer would cost ~12 MB per cycle at this device's resolution, so
+resident size is a sensitive detector.
+
+| | growth over 50 cycles |
+|---|---|
+| Before | **+14.7 MB** (~300 KB/cycle) |
+| Cache the device handle | +9.8 MB |
+| Cache the display | +6.6 MB |
+| Reuse the HID client | **+2.4 MB** (~48 KB/cycle) |
+
+No IOSurface retention at any point — the 12 MB/cycle signature never appeared.
+The rest was CoreSimulator's own proxies: re-walking the device set mints a fresh
+ROCK proxy for *every* device on the machine, walking the io ports mints more,
+and each `SimDeviceLegacyHIDClient` costs ~86 KB that SimulatorKit never returns.
+All three are now built once and reused, and dropped when the device goes away.
+
+Reusing the HID client is safe because `sendWithRecovery` already rebuilds from a
+dropped mach port — that path exists precisely for this.
+
+### CoreSimulator service version mismatch
+
+Detected from the error text (`CoreSimulatorService`, `connection to service`,
+`was invalidated`, `version mismatch`, …) and, unconditionally, when the service
+context or device set comes back nil — which is that failure's usual signature.
+The message carries the fix:
+
+```
+launchctl remove com.apple.CoreSimulator.CoreSimulatorService
+```
+
+Deliberately broad matching: a false positive costs a user one extra sentence, a
+false negative costs them an afternoon. Not staged end-to-end — doing so means
+installing a second Xcode — so this is the one Phase 5 item verified by
+inspection rather than by experiment.
+
+### Acceptance evidence
+
+Device loss and recovery, run inside Ghostty
+(`GHOSTTY_SIMPANE_SELFTEST_DEVICE_LOSS=1`):
+
+```
+device-loss: killing guest launchd_sim 39239
+device-loss: pane state is Device Shut Down (attached=false)
+device-loss: rebooting the device
+device-loss: after reboot, state=Mirroring attached=true
+pane closed: session=released, device still booted=true
+```
+
+Input through the pane's own NSEvent path, same run: **23.7% of the screen
+changed**. `swift test`: 33 tests, 0 failures. Rendering pause while hidden was
+measured in Phases 3 and 4 (visible 38 frames / hidden 0 / restored 59; 0.0% CPU
+with the pane closed and the device painting).
+
+### Two of my own bugs worth recording
+
+Both looked like library regressions and were not:
+
+- The self-test's swipe used fractions of the **view**, not of the device screen.
+  In a 410×262 pane the screen occupies x 144.7…265.3, so a swipe at x=0.7→0.3
+  ran entirely through the letterbox and was correctly ignored. `SimulatorSession`
+  now exposes `contentRect` so a caller can aim at the screen rather than guess.
+- A device showing a **black screen with a boot spinner** reads as "input does
+  nothing". Repeatedly killing its `launchd_sim` left one device stuck mid-boot;
+  every measurement against it was worthless until I looked at a screenshot
+  instead of the delta. That device needs `xcrun simctl erase` to recover.

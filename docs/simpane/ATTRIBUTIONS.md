@@ -57,3 +57,14 @@ frameworks, used here without support or stability guarantees. They are loaded a
 runtime via `dlopen`; nothing from them is linked, vendored, or redistributed.
 Expect breakage on Xcode updates — see `API-NOTES.md` for the introspection tool
 that re-derives the selector inventory.
+
+## Scope check, at the end of the project
+
+Phases 3–5 ported no further third-party code. Everything after Phase 2 — the
+library extraction, the Ghostty integration, and the hardening — is original,
+and the findings behind it (the stale `SimDevice.state`, the device-liveness
+signal, the attach/detach retention measurements) came from experiments recorded
+in `DEVLOG.md` rather than from any reference implementation.
+
+No third-party dependency was added to Ghostty. `SimPaneKit` depends only on
+Apple frameworks.

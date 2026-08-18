@@ -40,6 +40,9 @@ public final class SimulatorSession {
         case attaching
         case mirroring
         case shuttingDown
+        /// The device went away underneath us. The pane keeps watching for it to
+        /// come back rather than making the user reattach by hand.
+        case deviceShutDown
         case failed(String)
 
         public var label: String {
@@ -49,6 +52,7 @@ public final class SimulatorSession {
             case .attaching: return "Attaching"
             case .mirroring: return "Mirroring"
             case .shuttingDown: return "Shutting Down"
+            case .deviceShutDown: return "Device Shut Down"
             case .failed(let reason): return "Failed: \(reason)"
             }
         }
@@ -107,6 +111,21 @@ public final class SimulatorSession {
     /// deadlocks outright if the caller is what is blocking it.
     private var hid: IndigoHIDClient?
 
+    /// Set while the pane wants to be mirroring. Distinguishes "the device went
+    /// away" — where reattaching automatically is the right thing — from "the
+    /// host asked us to stop", where it very much is not.
+    private var cachedDisplay: SimDisplay?
+    private var wantsMirroring = false
+    private var deviceWatch: DispatchSourceTimer?
+    private var devicePID: pid_t?
+    private var isCheckingDeviceState = false
+    private var lastAuthoritativeCheck = Date.distantPast
+    /// How often the device's state is confirmed with `simctl`. Long enough that
+    /// the cost is invisible, short enough that a shut-down device does not sit
+    /// there looking live.
+    private let authoritativeInterval: TimeInterval = 5
+    private var rebootPoll: DispatchSourceTimer?
+
     /// Scripted gestures hold the finger down between messages. Doing that on the
     /// caller's thread would stall whatever runloop it belongs to, so all of it
     /// runs here.
@@ -151,7 +170,10 @@ public final class SimulatorSession {
     }
 
     deinit {
+        deviceWatch?.cancel()
+        rebootPoll?.cancel()
         display?.stopObserving()
+        hid?.disconnect()
     }
 
     // MARK: - The view
@@ -197,6 +219,15 @@ public final class SimulatorSession {
     public var inputUnavailableReason: String? { PrivateFrameworks.inputUnavailableReason }
 
     public var displayPixelSize: CGSize? { view.displayPixelSize }
+
+    /// The rect inside `mirrorView` that the device screen actually occupies, in
+    /// the view's own coordinates. The rest is letterbox and is not the device:
+    /// input that lands there is ignored, so anything positioning against the
+    /// screen — an overlay, a scripted gesture — has to use this rather than
+    /// `mirrorView.bounds`.
+    ///
+    /// Main thread only.
+    public var contentRect: CGRect { view.contentRect }
 
     public var statistics: Statistics {
         Statistics(
@@ -248,6 +279,8 @@ public final class SimulatorSession {
     /// Detaches and shuts the device down. A session is never shut down
     /// implicitly — closing a pane leaves the device running.
     public func shutdown() async throws {
+        // detach() clears the intent to mirror, so the watchdog will not race
+        // this and reattach to the device on its way down.
         await MainActor.run { self.detach() }
         await setState(.shuttingDown)
         do {
@@ -276,24 +309,47 @@ public final class SimulatorSession {
         }
 
         do {
-            guard let handle = try SimDevices.find(udid: udid) else {
+            // Reuse the device we already found. Re-walking the device set mints
+            // a fresh ROCK proxy for every device on the machine each time, and
+            // those are not cheap: repeated attach/detach cycles grew resident
+            // memory by ~300 KB each until this was cached.
+            let handle: SimDeviceHandle
+            if let existing = self.handle {
+                handle = existing
+            } else if let found = try SimDevices.find(udid: udid) {
+                handle = found
+            } else {
                 throw SimPaneError("device \(udid) is not visible through CoreSimulator")
             }
             guard handle.state == .booted else {
                 throw SimPaneError("device is \(handle.state.label); it must be booted to mirror")
             }
-            let display = try SimDisplay.mainDisplay(of: handle)
+            let display: SimDisplay
+            if let cached = cachedDisplay, cached.framebufferSurface != nil {
+                display = cached
+            } else {
+                display = try SimDisplay.mainDisplay(of: handle)
+                cachedDisplay = display
+            }
             guard display.framebufferSurface != nil else {
                 throw SimPaneError("the device's main display has no framebuffer surface yet")
             }
 
             // Input is optional. A mirror that only renders still beats no mirror,
             // so a HID failure is reported and then set aside.
-            var hid: IndigoHIDClient?
-            do {
-                hid = try IndigoHIDClient(device: handle)
-            } catch {
-                delegate?.simulatorSession(self, didFailWith: error)
+            //
+            // Reused across attaches for the same reason the handle is: building
+            // one costs ~86 KB that SimulatorKit never gives back, which is a
+            // measurable leak when a user toggles the pane repeatedly. A stale
+            // client is not a risk — a dropped mach port is exactly what
+            // IndigoHIDClient.sendWithRecovery already rebuilds itself from.
+            var hid: IndigoHIDClient? = self.hid
+            if hid == nil {
+                do {
+                    hid = try IndigoHIDClient(device: handle)
+                } catch {
+                    delegate?.simulatorSession(self, didFailWith: error)
+                }
             }
 
             self.handle = handle
@@ -302,6 +358,8 @@ public final class SimulatorSession {
             self.lastKnownDevice = device
             view.bind(display: display, hid: hid)
             state = .mirroring
+            wantsMirroring = true
+            startWatchingDevice()
         } catch {
             failNow(error)
             throw error
@@ -335,15 +393,169 @@ public final class SimulatorSession {
     ///
     /// Main thread only.
     public func detach() {
-        guard isAttached else { return }
+        wantsMirroring = false
+        stopWatchingDevice()
+        stopRebootPolling()
+        // The device handle is deliberately kept: it is one reference to a
+        // device that still exists, and re-deriving it means re-walking every
+        // device on the machine. It goes away with the session.
+        guard isAttached else {
+            // Nothing bound, but the session may have been sitting in
+            // .deviceShutDown waiting for a reboot. Stop waiting.
+            if state != .idle { state = .idle }
+            view.statusText = statusTextForCurrentState()
+            return
+        }
+        releaseMirror()
+        state = .idle
+        view.statusText = statusTextForCurrentState()
+    }
+
+    /// Drops everything bound to the device without touching the intent to
+    /// mirror, so both the deliberate and the accidental paths share it.
+    private func releaseMirror() {
         view.unbind()
         display?.stopObserving()
         display = nil
+    }
+
+    /// Everything tied to a *particular boot* of the device. A reboot invalidates
+    /// the display ports and the HID session, so both are rebuilt rather than
+    /// reused when the device comes back.
+    private func releaseDeviceResources() {
+        releaseMirror()
+        cachedDisplay = nil
         hid?.disconnect()
         hid = nil
-        handle = nil
-        state = .idle
-        view.statusText = statusTextForCurrentState()
+    }
+
+    // MARK: - Watching for the device going away and coming back
+
+    /// Starts watching whether the device is still up.
+    ///
+    /// Two signals, because neither is sufficient alone:
+    ///
+    /// * `kill`/`sysctl` on the device's `launchd_sim` pid is free, so it runs
+    ///   often. It is a fast path only — it has been observed reporting a
+    ///   running process after the device was shut down, and a
+    ///   `DISPATCH_SOURCE_TYPE_PROC` exit source never fires at all for a
+    ///   process we did not spawn.
+    /// * `simctl` is authoritative and costs ~40 ms of CPU, so it runs every few
+    ///   seconds on a background queue and is what actually decides.
+    ///
+    /// The device's own `state` is not used: it is a value cached on the XPC
+    /// proxy and keeps reporting `Booted` indefinitely. See DEVLOG, Phase 5.
+    private func startWatchingDevice() {
+        stopWatchingDevice()
+        devicePID = DeviceProcess.pid(forUDID: udid)
+        lastAuthoritativeCheck = Date()
+
+        // A dispatch timer rather than a `Timer`: run-loop timers depend on which
+        // mode the loop happens to be running in, and were observed simply never
+        // firing under a nested run loop. This fires off the main queue whatever
+        // the loop is doing.
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 2, repeating: 2)
+        timer.setEventHandler { [weak self] in self?.checkDeviceIsAlive() }
+        timer.resume()
+        deviceWatch = timer
+    }
+
+    private func stopWatchingDevice() {
+        deviceWatch?.cancel()
+        deviceWatch = nil
+        devicePID = nil
+    }
+
+    private func checkDeviceIsAlive() {
+        guard wantsMirroring, isAttached else { stopWatchingDevice(); return }
+
+        // The pid may not have been findable when the pane attached — a device
+        // that has only just booted takes a moment to show up — so keep looking
+        // rather than silently never watching, which is a failure mode that
+        // looks exactly like "everything is fine".
+        if devicePID == nil {
+            devicePID = DeviceProcess.pid(forUDID: udid)
+        }
+
+        // Free path: the guest's process is definitively gone.
+        if let pid = devicePID, !DeviceProcess.isAlive(pid) {
+            deviceDidGoAway()
+            return
+        }
+
+        // Authoritative path, rate-limited because it spawns a process. Note
+        // this cannot see a device that is merely *asked* to shut down while
+        // this pane holds it open — see DEVLOG, Phase 5 — so it is a backstop
+        // for the case where the pid was never found, not the primary signal.
+        guard devicePID == nil,
+              !isCheckingDeviceState,
+              Date().timeIntervalSince(lastAuthoritativeCheck) >= authoritativeInterval
+        else { return }
+        isCheckingDeviceState = true
+        lastAuthoritativeCheck = Date()
+
+        let udid = self.udid
+        DispatchQueue.global(qos: .utility).async {
+            let state = Simctl.state(udid: udid, scrubEnvironment: true)
+            DispatchQueue.main.async {
+                self.isCheckingDeviceState = false
+                guard self.wantsMirroring, self.isAttached else { return }
+                guard state != .booted else { return }
+                self.deviceDidGoAway()
+            }
+        }
+    }
+
+    private func deviceDidGoAway() {
+        stopWatchingDevice()
+        guard wantsMirroring else { return }
+
+        releaseDeviceResources()
+        state = .deviceShutDown
+        view.statusText = "Device shut down. Waiting for it to come back…"
+        delegate?.simulatorSession(self, didFailWith: SimPaneError("the device shut down"))
+        startRebootPolling()
+    }
+
+    /// Polling is only acceptable here because it is transient: it runs while the
+    /// pane is visibly waiting for a device to come back, never in steady state.
+    private func startRebootPolling() {
+        guard rebootPoll == nil, wantsMirroring else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 3, repeating: 3)
+        timer.setEventHandler { [weak self] in self?.checkForReboot() }
+        timer.resume()
+        rebootPoll = timer
+    }
+
+    private func stopRebootPolling() {
+        rebootPoll?.cancel()
+        rebootPoll = nil
+    }
+
+    private func checkForReboot() {
+        guard wantsMirroring, !isAttached else { stopRebootPolling(); return }
+        guard Simctl.state(udid: udid) == .booted else { return }
+
+        // The process is back, but "booted" arrives well before the guest's
+        // framebuffer does, so keep waiting until there is something to show.
+        guard let handle,
+              let display = try? SimDisplay.mainDisplay(of: handle),
+              display.framebufferSurface != nil
+        else { return }
+
+        var hid: IndigoHIDClient?
+        do { hid = try IndigoHIDClient(device: handle) } catch {
+            delegate?.simulatorSession(self, didFailWith: error)
+        }
+        cachedDisplay = display
+        self.display = display
+        self.hid = hid
+        view.bind(display: display, hid: hid)
+        state = .mirroring
+        stopRebootPolling()
+        startWatchingDevice()
     }
 
     // MARK: - Input
