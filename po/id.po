@@ -269,27 +269,27 @@ msgstr "Eksekusi perintah…"
 
 #: src/apprt/gtk/class/application.zig:1767
 msgid "The keybind was revoked by the system."
-msgstr ""
+msgstr "Kombinasi tombol dicabut oleh sistem."
 
 #: src/apprt/gtk/class/application.zig:1769
 msgid "The keybind was denied by the system."
-msgstr ""
+msgstr "Kombinasi tombol ditolak oleh sistem."
 
 #: src/apprt/gtk/class/application.zig:1780
 msgid "Global keybind unavailable"
-msgstr ""
+msgstr "Kombinasi tombol global tidak tersedia"
 
 #: src/apprt/gtk/class/application.zig:2259
 msgid "Export Terminal IO Events"
-msgstr ""
+msgstr "Ekspor peristiwa IO terminal"
 
 #: src/apprt/gtk/class/application.zig:2262
 msgid "Export"
-msgstr ""
+msgstr "Ekspor"
 
 #: src/apprt/gtk/class/application.zig:2783
 msgid "Editing configuration file"
-msgstr ""
+msgstr "Mengubah file konfigurasi"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
 msgid ""
@@ -395,7 +395,7 @@ msgstr "Pengembang Ghostty"
 
 #: src/input/command.zig:149
 msgid "Reset Terminal"
-msgstr ""
+msgstr "Atur ulang terminal"
 
 #: src/input/command.zig:150
 msgid "Reset the terminal to a clean state."
@@ -403,7 +403,7 @@ msgstr ""
 
 #: src/input/command.zig:155
 msgid "Copy to Clipboard"
-msgstr ""
+msgstr "Salin ke Papan klip"
 
 #: src/input/command.zig:156
 msgid ""
