@@ -901,7 +901,7 @@ msgstr "Focus splitsing: rechts"
 
 #: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
-msgstr "Focus de splitsing rechts, als die bestaat."
+msgstr "Focus op de splitsing rechts, als die er is."
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
