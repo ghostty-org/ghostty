@@ -91,6 +91,64 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
         checkTabsGeometry(app.windows.firstMatch)
     }
 
+    /// Regression test for https://github.com/ghostty-org/ghostty/discussions/13879
+    /// Double-clicking a tab that was dragged in from another window could intermittently
+    /// fail to show the inline rename textbox, because native tab layout can still be
+    /// settling asynchronously right after the drag completes.
+    @MainActor
+    func testDoubleClickRenameAfterDraggingTabBetweenWindows() throws {
+        let app = try ghosttyApplication()
+        app.launch()
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 1), "Main window should exist")
+        // create another 2 tabs
+        app.groups["Terminal pane"].typeKey("t", modifierFlags: .command)
+        app.groups["Terminal pane"].typeKey("t", modifierFlags: .command)
+
+        // move to the left
+        app.menuItems["_zoomLeft:"].firstMatch.click()
+
+        // create another window with 2 tabs
+        app.windows.firstMatch.groups["Terminal pane"].typeKey("n", modifierFlags: .command)
+        XCTAssertEqual(app.windows.count, 2, "There should be 2 windows")
+
+        // move to the right
+        app.menuItems["_zoomRight:"].firstMatch.click()
+
+        // now second window is the first/main one in the list
+        app.windows.firstMatch.groups["Terminal pane"].typeKey("t", modifierFlags: .command)
+
+        app.windows.element(boundBy: 1).tabs.firstMatch.click() // focus first window
+
+        // now the first window is the main one
+        let firstTabInFirstWindow = app.windows.firstMatch.tabs.firstMatch
+        let firstTabInSecondWindow = app.windows.element(boundBy: 1).tabs.firstMatch
+
+        // drag a tab from one window to another
+        firstTabInFirstWindow.press(forDuration: 0.2, thenDragTo: firstTabInSecondWindow)
+
+        let destinationWindow = app.windows.element(boundBy: 1)
+        let movedTab = destinationWindow.tabs.firstMatch
+
+        // Repeat a few times since the underlying failure was intermittent.
+        for attempt in 0 ..< 5 {
+            movedTab.doubleClick()
+
+            let editor = destinationWindow.textFields.firstMatch
+            XCTAssertTrue(
+                editor.waitForExistence(timeout: 2),
+                "Rename textbox should appear on double-click attempt \(attempt)"
+            )
+
+            let newTitle = "renamed-\(attempt)"
+            editor.typeText(newTitle + "\r")
+
+            XCTAssertTrue(
+                destinationWindow.tabs.firstMatch.staticTexts[newTitle].waitForExistence(timeout: 2),
+                "Tab should show the renamed title after attempt \(attempt)"
+            )
+        }
+    }
+
     @MainActor
     func testTabsGeometryAfterMergingAllWindows() throws {
         let app = try ghosttyApplication()
