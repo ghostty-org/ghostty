@@ -917,7 +917,7 @@ msgstr "Focus splitsing: beneden"
 
 #: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
-msgstr "Focus de splitsing eronder, als die bestaat."
+msgstr "Focus op de splitsing onder, als die er is."
 
 #: src/input/command.zig:533
 msgid "Focus Window: Previous"
