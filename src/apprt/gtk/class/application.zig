@@ -261,6 +261,21 @@ pub const Application = extern struct {
         // logging system rather than just getting dumped directly to stderr.
         _ = glib.logSetWriterFunc(glibLogWriterFunction, null, null);
 
+        // Seed the program name and application name before any GTK /
+        // libadwaita initialization. The AT-SPI bridge reads
+        // `g_get_prgname()` for the application object's "Name" property
+        // (`gtkatspiroot.c`: `g_variant_new_string (g_get_prgname () ?
+        // g_get_prgname () : "Unnamed")`) and `g_get_application_name()`
+        // for "Description". Without prgname we appear to screen readers
+        // and to accerciser as "Unnamed", and can't be located by name.
+        //
+        // On X11, `winproto/x11.zig` may override prgname later to derive
+        // WM_CLASS, which is fine; on Wayland this stays as "Ghostty".
+        // `g_set_application_name` is one-shot, so setting it this early
+        // also guarantees it wins over anything GTK would otherwise pick.
+        glib.setPrgname("Ghostty");
+        glib.setApplicationName("Ghostty");
+
         // Log our GTK versions
         gtk_version.logVersion();
         adw_version.logVersion();
