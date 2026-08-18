@@ -559,7 +559,7 @@ msgstr "Selecteer alle tekst op het scherm."
 
 #: src/input/command.zig:255
 msgid "Scroll to Top"
-msgstr "Scroll naar boven"
+msgstr "Scroll naar het begin"
 
 #: src/input/command.zig:256
 msgid "Scroll to the top of the screen."
