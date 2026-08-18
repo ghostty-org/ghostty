@@ -3852,6 +3852,12 @@ pub const Surface = extern struct {
             gobject.ext.ensureType(SearchOverlay);
             gobject.ext.ensureType(KeyStateOverlay);
             gobject.ext.ensureType(ChildExited);
+
+            // Set the accessible role to terminal so screen readers
+            // like Orca know how to handle this widget. This matches
+            // GTK_ACCESSIBLE_ROLE_TERMINAL added in GTK 4.14.
+            gtk.WidgetClass.setAccessibleRole(class.as(gtk.Widget.Class), .terminal);
+
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{

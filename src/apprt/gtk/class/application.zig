@@ -3176,6 +3176,10 @@ const Action = struct {
         const win = gobject.ext.newInstance(Window, .{
             .application = self,
             .@"quick-terminal" = true,
+            // Seed the accessible role for the same reason `Window.new`
+            // does; this path builds its instance directly and would
+            // otherwise get the default `.widget` role.
+            .@"accessible-role" = gtk.AccessibleRole.window,
         });
         assert(win.isQuickTerminal());
         initAndShowWindow(self, win, null, .none);
