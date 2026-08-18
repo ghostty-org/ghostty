@@ -688,3 +688,116 @@ Needed to proceed:
 2. `brew install nushell` for `macos/build.nu` — the documented build path.
 3. A decision on source control: the tree is not a git repository, so the
    plan's "commit at each acceptance gate" cannot be honoured.
+
+### Toolchain — three missing pieces, not one
+
+`brew install zig nushell` gave zig 0.16.0 (exactly `minimum_zig_version`) and
+nu 0.115.0. `zig build -Demit-macos-app=false` then still failed:
+
+```
+error: cannot execute tool 'metal' due to missing Metal Toolchain;
+use: xcodebuild -downloadComponent MetalToolchain
+```
+
+Xcode 26 ships the Metal compiler as a separate 688 MB component, and Ghostty
+compiles `src/renderer/shaders/shaders.metal`. After downloading it, the library
+builds and `macos/build.nu` reports **BUILD SUCCEEDED**.
+
+Baseline recorded *before* touching anything, per ground rule 2: stock app
+builds, launches, and runs a shell.
+
+Two linker warnings about `_ImFontConfig_ImFontConfig` and
+`_ImGuiStyle_ImGuiStyle` appear in every app build. They are pre-existing: they
+come from `ghostty-internal.a`, which `zig build` produces before any Swift is
+compiled, and the same zig run warns that libtool collided two `ext.o` members
+inside it. Not caused by this work.
+
+### What was actually changed in Ghostty
+
+Four existing files, plus new files in `Features/SimulatorPane/`:
+
+| File | Change |
+|---|---|
+| `TerminalView.swift` | protocol gains `simulatorPane`; body wraps the terminal in `SimulatorPaneSplit` |
+| `BaseTerminalController.swift` | owns the per-window `SimulatorPaneModel` |
+| `TerminalController.swift` | `@IBAction toggleSimulatorPane`, menu validation, self-test hook |
+| `MainMenu.xib` | `View → iOS Simulator`, ⌘⌥S |
+
+The Zig core, the config system, and every default keybinding are untouched.
+New Swift files needed no project-file edit — `fileSystemSynchronizedGroups`
+picks them up.
+
+When the pane is closed, `SimulatorPaneSplit` renders the terminal *and nothing
+else*: no split, no divider, no sidebar in the view hierarchy.
+
+### A real bug the integration found
+
+The POC always attached to a device that had been booted for a while. Booting
+from the pane exposed the difference:
+
+```
+after attach: state=Failed: the device's main display has no framebuffer surface yet
+```
+
+`simctl` reports `Booted` as soon as the device process is up, but the guest's
+display has no IOSurface until its window server starts, several seconds later.
+`bootIfNeeded` now polls for the *surface* rather than trusting the state. This
+was only ever going to show up in integration, which is the argument for having
+the gate boot a shutdown device rather than a convenient one.
+
+### Verifying without hijacking the machine
+
+The pane cannot be driven from outside: synthesizing menu shortcuts and clicks
+needs accessibility permission this process does not have, `CGEventPostToPid`
+does not reach menu key equivalents for a background app, and the user was
+actively working in another application on another display. Stealing their
+foreground to run a test is not acceptable.
+
+So the app verifies itself: `GHOSTTY_SIMPANE_SELFTEST=1` (DEBUG only, inert
+otherwise) opens the pane, attaches, drives the mirror through its real NSEvent
+path, and reports. It is also how this integration gets re-checked later.
+
+### Acceptance gate
+
+Every item, from a **Shutdown** device:
+
+```
+support: supported
+devices: 29, selected: iPhone 17 (Shutdown)
+after attach: state=Mirroring attached=true
+surface: 1206x2622
+keyboard to simulator: true (firstResponder is mirror: true)
+swipe through the view: 74.0% of the screen changed (responded)
+after double-Escape: keyboard to simulator=false, firstResponder is mirror=false
+pane closed: session=released, device still booted=true
+```
+
+- **Fresh build** — zig build and `macos/build.nu` both succeed; app launches and
+  is a stock terminal with the pane closed (screenshotted).
+- **Boot from the pane** — a Shutdown device boots and appears live.
+- **External command shows up** — `xcrun simctl launch booted com.apple.mobilesafari`
+  run from a separate shell appears in the embedded mirror (screenshotted).
+- **Interaction and focus** — a swipe through the view's own event path moves the
+  guest by 74%; focus goes to the simulator on first-responder and comes back on
+  double-Escape.
+- **Closing costs nothing** — with the pane closed and the device painting
+  continuously, Ghostty measures **0.0% CPU** across six samples; the session is
+  released and the device stays booted (never shut down implicitly).
+- **Clean quit** — no crash report generated.
+- **Degradation** — launched with `DEVELOPER_DIR` pointing at Command Line Tools,
+  support reports *"Xcode is required; developer dir is
+  /Library/Developer/CommandLineTools (Command Line Tools only)"*, the pane never
+  builds, and the app is an ordinary terminal.
+- **Persistence** — `simpane.lastDeviceUDID` and `simpane.paneVisible` land in
+  `com.mitchellh.ghostty.debug`.
+
+### Deviations worth stating
+
+- Pane size persists as a **fraction** (`simpane.paneSplit`), not a width. The
+  plan said width; `SplitView` is fraction-based and a fraction survives window
+  resizing sensibly.
+- The gate's "run simctl in the terminal pane beside it" was run from a separate
+  shell rather than typed into the embedded terminal, because typing into the
+  user's window would have required stealing focus. Same command, same proof.
+- `swiftlint` is still not installed, so the repo's Swift formatting step has not
+  been run against any of this.
