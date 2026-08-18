@@ -933,7 +933,7 @@ msgstr "Focus venster: volgende"
 
 #: src/input/command.zig:539
 msgid "Focus the next window, if any."
-msgstr "Focus het volgende venster, als dat er is."
+msgstr "Focus op het volgende venster, als dat er is."
 
 #: src/input/command.zig:545
 msgid "Toggle Split Zoom"
