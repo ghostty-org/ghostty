@@ -24,6 +24,10 @@ final class SimulatorMirrorView: NSView {
         didSet { needsLayout = true }
     }
 
+    /// Fired when the keyboard starts or stops going to the guest. A host that
+    /// embeds this next to a terminal needs to say so out loud.
+    var onFocusChanged: ((Bool) -> Void)?
+
     /// Fired on the main queue when the guest's surface is replaced — rotation,
     /// resize, reboot — and once when a display is first bound.
     var onSurfaceChanged: ((CGSize) -> Void)?

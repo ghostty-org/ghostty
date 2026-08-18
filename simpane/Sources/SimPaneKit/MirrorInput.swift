@@ -117,8 +117,18 @@ extension SimulatorMirrorView {
     // MARK: - Keyboard
 
     override var acceptsFirstResponder: Bool { true }
-    override func becomeFirstResponder() -> Bool { needsLayout = true; return true }
-    override func resignFirstResponder() -> Bool { needsLayout = true; return true }
+
+    override func becomeFirstResponder() -> Bool {
+        needsLayout = true
+        onFocusChanged?(true)
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        needsLayout = true
+        onFocusChanged?(false)
+        return true
+    }
 
     override func keyDown(with event: NSEvent) {
         guard isInputEnabled else { super.keyDown(with: event); return }

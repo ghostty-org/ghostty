@@ -34,7 +34,7 @@ public final class SimulatorSession {
 
     /// Where the session is in its own lifecycle, which is not the same as the
     /// device's: a booted device is not yet mirrored.
-    public enum State: Equatable {
+    public enum State: Equatable, Sendable {
         case idle
         case booting
         case attaching
@@ -54,7 +54,7 @@ public final class SimulatorSession {
         }
     }
 
-    public struct Statistics: Equatable {
+    public struct Statistics: Equatable, Sendable {
         public let framesPresented: Int
         public let damageEvents: Int
         public let presentedFPS: Double
@@ -177,6 +177,17 @@ public final class SimulatorSession {
         set { view.onFocusReleased = newValue }
     }
 
+    /// Called when the keyboard starts or stops going to the guest, so a host can
+    /// say which one is listening. The pane draws its own accent border too, but
+    /// a terminal user needs this to be unmissable.
+    public var onFocusChanged: ((Bool) -> Void)? {
+        get { view.onFocusChanged }
+        set { view.onFocusChanged = newValue }
+    }
+
+    /// Whether the mirror currently holds the keyboard.
+    public var hasKeyboardFocus: Bool { view.hasKeyboardFocus }
+
     public var isAttached: Bool { display != nil }
 
     /// Why input forwarding is unavailable, or nil when it works. Rendering can
@@ -212,6 +223,18 @@ public final class SimulatorSession {
                 await fail(error)
                 throw error
             }
+        }
+
+        do {
+            // "Booted" is not "ready". simctl reports the state as soon as the
+            // device process is up, but the guest's display has no IOSurface
+            // until its window server has started — several seconds later on a
+            // cold boot. Attaching in that window fails with "no framebuffer
+            // surface yet", so wait for the surface rather than the state.
+            try await offMain { try self.waitForDisplay(timeout: timeout) }
+        } catch {
+            await fail(error)
+            throw error
         }
 
         do {
@@ -283,6 +306,28 @@ public final class SimulatorSession {
             failNow(error)
             throw error
         }
+    }
+
+    /// Polls until the device's main display exists and has a framebuffer, which
+    /// is the real "ready to mirror" signal. Blocking, so it runs off the main
+    /// thread.
+    private func waitForDisplay(timeout: TimeInterval) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastError: Error = SimPaneError("timed out waiting for the device's display")
+        while Date() < deadline {
+            do {
+                guard let handle = try SimDevices.find(udid: udid) else {
+                    throw SimPaneError("device \(udid) is not visible through CoreSimulator")
+                }
+                let display = try SimDisplay.mainDisplay(of: handle)
+                if display.framebufferSurface != nil { return }
+                lastError = SimPaneError("the device's main display has no framebuffer surface yet")
+            } catch {
+                lastError = error
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        throw lastError
     }
 
     /// Releases the display and HID client and blanks the pane. The device keeps

@@ -14,7 +14,7 @@ import Foundation
 ///
 /// The reason string is meant to be shown to a user: it names the missing piece
 /// (no Xcode, framework absent, class renamed) rather than a status code.
-public enum SimPaneSupport: Equatable {
+public enum SimPaneSupport: Equatable, Sendable {
     case supported
     case unsupported(reason: String)
 
@@ -33,7 +33,7 @@ public enum SimPaneSupport: Equatable {
 /// the underlying failures come from private frameworks and shell tools that
 /// share no error domain, so a code would be inventing structure that is not
 /// there.
-public struct SimPaneError: LocalizedError, CustomStringConvertible, Equatable {
+public struct SimPaneError: LocalizedError, CustomStringConvertible, Equatable, Sendable {
     public let message: String
 
     public init(_ message: String) { self.message = message }

@@ -371,6 +371,13 @@
                                     <action selector="toggleTerminalInspector:" target="-1" id="87m-3R-fQl"/>
                                 </connections>
                             </menuItem>
+                            <menuItem isSeparatorItem="YES" id="SiM-Pn-Sep"/>
+                            <menuItem title="iOS Simulator" keyEquivalent="s" id="SiM-Pn-Itm">
+                                <modifierMask key="keyEquivalentModifierMask" option="YES" command="YES"/>
+                                <connections>
+                                    <action selector="toggleSimulatorPane:" target="-1" id="SiM-Pn-Act"/>
+                                </connections>
+                            </menuItem>
                         </items>
                     </menu>
                 </menuItem>

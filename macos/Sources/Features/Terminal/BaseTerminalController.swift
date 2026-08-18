@@ -59,6 +59,19 @@ class BaseTerminalController: NSWindowController,
     /// Set if the terminal view should show the update overlay.
     @Published var updateOverlayIsVisible: Bool = false
 
+    /// Per-window state for the iOS simulator pane. Created eagerly but inert:
+    /// it loads no device and touches no private framework until the pane is
+    /// actually opened.
+    lazy var simulatorPane: SimulatorPaneModel = {
+        let model = SimulatorPaneModel()
+        model.onFocusReleased = { [weak self] in
+            // Escape-escape in the mirror hands the keyboard back to the terminal.
+            guard let surface = self?.focusedSurface else { return }
+            Ghostty.moveFocus(to: surface)
+        }
+        return model
+    }()
+
     /// True when any surface in this controller currently has an active bell.
     @Published private(set) var bell: Bool = false
 

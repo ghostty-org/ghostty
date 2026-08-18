@@ -1096,6 +1096,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         window.contentView = container
 
+#if DEBUG
+        // Verifies the simulator pane end-to-end when explicitly asked to.
+        if SimulatorPaneSelfTest.isEnabled {
+            Task { @MainActor in await SimulatorPaneSelfTest.run(on: self) }
+        }
+#endif
+
         // If we have a default size, we want to apply it.
         if let defaultSize {
             defaultSize.apply(to: window)
@@ -1412,6 +1419,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         ghostty.toggleTerminalInspector(surface: surface)
     }
 
+    @IBAction func toggleSimulatorPane(_ sender: Any?) {
+        guard SimulatorPaneModel.support.isSupported else { return }
+        simulatorPane.isVisible.toggle()
+    }
+
     // MARK: - TerminalViewDelegate
 
     override func focusedSurfaceDidChange(to: Ghostty.SurfaceView?) {
@@ -1643,6 +1655,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 extension TerminalController {
     override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(toggleSimulatorPane):
+            item.state = simulatorPane.isVisible ? .on : .off
+            // The reason is the useful part: "no Xcode" and "the private class
+            // moved" are very different problems for whoever is reading it.
+            item.toolTip = SimulatorPaneModel.support.reason
+            return SimulatorPaneModel.support.isSupported
+
         case #selector(closeTabsOnTheRight):
             guard let window, let tabGroup = window.tabGroup else { return false }
             guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return false }
