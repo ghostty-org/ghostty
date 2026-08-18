@@ -909,7 +909,7 @@ msgstr "Focus splitsing: boven"
 
 #: src/input/command.zig:521
 msgid "Focus the split above, if it exists."
-msgstr "Focus de splitsing erboven, als die bestaat."
+msgstr "Focus op de splitsing boven, als die er is."
 
 #: src/input/command.zig:525
 msgid "Focus Split: Down"
