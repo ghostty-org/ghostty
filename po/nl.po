@@ -893,7 +893,7 @@ msgstr "Focus splitsing: links"
 
 #: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
-msgstr "Focus de splitsing links, als die bestaat."
+msgstr "Focus op de splitsing links, als die er is."
 
 #: src/input/command.zig:515
 msgid "Focus Split: Right"
