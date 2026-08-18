@@ -279,7 +279,7 @@ fn display(
                 // the work so an untrusted row count can't make us spin.
                 const rows_to_move: usize = @min(
                     @as(usize, size.rows),
-                    @as(usize, terminal.rows),
+                    @as(usize, 16 *| terminal.rows),
                 );
                 for (0..rows_to_move) |_| terminal.index() catch |err| {
                     log.warn("failed to move cursor: {}", .{err});
