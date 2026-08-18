@@ -377,7 +377,7 @@ msgstr "Wijzig tabbladtitel"
 
 #: src/apprt/gtk/class/title_dialog.zig:229
 msgid "Change Window Title"
-msgstr "Titel van het venster wijzigen"
+msgstr "Venstertitel wijzigen"
 
 #: src/apprt/gtk/class/window.zig:1153
 msgid "Reloaded the configuration"
