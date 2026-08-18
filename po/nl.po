@@ -877,7 +877,7 @@ msgstr "Focus splitsing: vorige"
 
 #: src/input/command.zig:501
 msgid "Focus the previous split, if any."
-msgstr "Focus de vorige splitsing, als die er is."
+msgstr "Focus op de vorige splitsing, als die er is."
 
 #: src/input/command.zig:505
 msgid "Focus Split: Next"
