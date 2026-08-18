@@ -418,6 +418,11 @@ fn drainMailbox(self: *Thread) !void {
                 self.armAnimationTimer();
             },
 
+            .shader_override => |enabled| {
+                self.renderer.setShaderOverride(enabled);
+                self.syncDrawTimer();
+            },
+
             .search_viewport_matches => |v| {
                 // Note we don't free the new value because we expect our
                 // allocators to match.

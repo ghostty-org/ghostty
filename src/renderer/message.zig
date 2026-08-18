@@ -64,6 +64,10 @@ pub const Message = union(enum) {
     /// Activate or deactivate the inspector.
     inspector: bool,
 
+    /// Override custom shader state for this surface.
+    /// true = shaders enabled (use configured), false = shaders suppressed.
+    shader_override: bool,
+
     /// The macOS display ID has changed for the window.
     macos_display_id: u32,
 

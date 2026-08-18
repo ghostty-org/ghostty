@@ -228,6 +228,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Whether or not we have custom shaders.
         has_custom_shaders: bool = false,
 
+        /// Whether custom shaders are suppressed via OSC 7776.
+        custom_shaders_suppressed: bool = false,
+
         /// Our shader pipelines.
         shaders: Shaders,
 
@@ -1038,9 +1041,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Must be called on the render thread.
         pub fn animationWake(self: *const Self) ?AnimationWake {
             // Custom shaders animate by redrawing on a fixed cadence,
-            // gated by configuration and focus.
+            // gated by configuration, focus, and suppression override.
             const shader_delay: ?u64 = shader: {
-                if (!self.has_custom_shaders) break :shader null;
+                if (!self.has_custom_shaders or self.custom_shaders_suppressed) break :shader null;
                 break :shader switch (self.config.custom_shader_animation) {
                     .false => null,
                     .always => draw_interval_ms,
@@ -1098,6 +1101,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.custom_shader_focused_changed = true;
 
             self.syncDisplayLink(null, null);
+        }
+
+        /// Set the shader override state (from OSC 7776).
+        /// When suppressed, custom shaders are not applied.
+        ///
+        /// Must be called on the render thread.
+        pub fn setShaderOverride(self: *Self, enabled: bool) void {
+            self.custom_shaders_suppressed = !enabled;
         }
 
         /// Callback when the window is visible or occluded.
@@ -1701,10 +1712,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Our shaders should not be defunct at this point.
             assert(!self.shaders.defunct);
 
-            // If we have custom shaders, make sure we have the
-            // custom shader state in our frame state, otherwise
-            // if we have a state but don't need it we remove it.
-            if (self.has_custom_shaders) {
+            // If we have custom shaders and they are not suppressed,
+            // make sure we have the custom shader state in our frame
+            // state, otherwise if we have a state but don't need it
+            // we remove it.
+            if (self.has_custom_shaders and !self.custom_shaders_suppressed) {
                 if (frame.custom_shader_state == null) {
                     frame.custom_shader_state = try .init(self.api);
                     try frame.custom_shader_state.?.resize(
@@ -2213,8 +2225,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         ///
         /// This should be called in `updateFrame` when terminal state changes.
         fn updateCustomShaderUniformsFromState(self: *Self) void {
-            // We only need to do this if we have custom shaders.
-            if (!self.has_custom_shaders) return;
+            if (!self.has_custom_shaders or self.custom_shaders_suppressed) return;
 
             // Only update when terminal state is dirty.
             if (self.terminal_state.dirty == .false) return;
@@ -2305,8 +2316,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         ///
         /// This should be called exactly once per frame, inside `drawFrame`.
         fn updateCustomShaderUniformsForFrame(self: *Self) !void {
-            // We only need to do this if we have custom shaders.
-            if (!self.has_custom_shaders) return;
+            if (!self.has_custom_shaders or self.custom_shaders_suppressed) return;
 
             const uniforms: *shadertoy.Uniforms = &self.custom_shader_uniforms;
 

@@ -167,6 +167,12 @@ pub const Command = union(Key) {
     /// Kitty desktop notifications (OSC 99)
     kitty_desktop_notification: KittyDesktopNotification,
 
+    /// OSC 7776. Fork-specific: per-surface shader override.
+    /// Programs can send this to suppress or restore custom shaders.
+    shader_override: ShaderOverride,
+
+    pub const ShaderOverride = enum { on, off };
+
     pub const SemanticPrompt = parsers.semantic_prompt.Command;
 
     pub const KittyClipboardProtocol = parsers.kitty_clipboard_protocol.OSC;
@@ -206,6 +212,7 @@ pub const Command = union(Key) {
             "kitty_dnd_protocol",
             "context_signal",
             "kitty_desktop_notification",
+            "shader_override",
         },
     );
 
@@ -386,6 +393,7 @@ pub const Parser = struct {
         @"133",
         @"552",
         @"777",
+        @"7776",
         @"1337",
         @"5522",
     };
@@ -454,6 +462,7 @@ pub const Parser = struct {
             .kitty_dnd_protocol,
             .kitty_desktop_notification,
             .context_signal,
+            .shader_override,
             => {},
         }
 
@@ -868,9 +877,19 @@ pub const Parser = struct {
 
             .@"0",
             .@"22",
-            .@"777",
             .@"8",
             => switch (c) {
+                ';' => self.captureTrailing(.fixed),
+                else => self.state = .invalid,
+            },
+
+            .@"777" => switch (c) {
+                ';' => self.captureTrailing(.fixed),
+                '6' => self.state = .@"7776",
+                else => self.state = .invalid,
+            },
+
+            .@"7776" => switch (c) {
                 ';' => self.captureTrailing(.fixed),
                 else => self.state = .invalid,
             },
@@ -957,6 +976,8 @@ pub const Parser = struct {
             .@"552" => null,
 
             .@"777" => parsers.rxvt_extension.parse(self, terminator_ch),
+
+            .@"7776" => parsers.shader_override.parse(self, terminator_ch),
 
             .@"1337" => parsers.iterm2.parse(self, terminator_ch),
 

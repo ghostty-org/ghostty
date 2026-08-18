@@ -340,6 +340,7 @@ pub const StreamHandler = struct {
             .start_hyperlink => try self.startHyperlink(value.uri, value.id),
             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
             .semantic_prompt => try self.semanticPrompt(value),
+            .shader_override => self.rendererMessageWriter(.{ .shader_override = value }),
             .mouse_shape => try self.setMouseShape(value),
             .configure_charset => self.configureCharset(value.slot, value.charset),
             .set_attribute => {

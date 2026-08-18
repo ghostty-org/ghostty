@@ -130,6 +130,7 @@ pub const Action = union(Key) {
     semantic_prompt: SemanticPrompt,
     kitty_clipboard: KittyClipboard,
     kitty_dnd: KittyDnd,
+    shader_override: bool,
 
     pub const Key = lib.Enum(
         lib.target,
@@ -231,6 +232,7 @@ pub const Action = union(Key) {
             "semantic_prompt",
             "kitty_clipboard",
             "kitty_dnd",
+            "shader_override",
         },
     );
 
@@ -2697,6 +2699,10 @@ pub fn Stream(comptime H: type) type {
                 .context_signal,
                 => {
                     log.debug("unimplemented OSC callback: {}", .{cmd});
+                },
+
+                .shader_override => |v| {
+                    self.handler.vt(.shader_override, v == .on);
                 },
 
                 .invalid => {
