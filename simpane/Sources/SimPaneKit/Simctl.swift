@@ -125,6 +125,43 @@ enum Simctl {
         return data
     }
 
+    /// Starts recording the device's display and returns the running process.
+    ///
+    /// Long-lived, so it deliberately bypasses `Shell.capture`: recording ends
+    /// when the process is sent SIGINT, and only then does simctl finalise the
+    /// movie. Killing it any harder truncates the file.
+    static func startRecording(udid: String, to url: URL) throws -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: xcrun)
+        process.arguments = [
+            "simctl", "io", udid, "recordVideo", "--codec=h264", "--force", url.path,
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            throw SimPaneError("could not start recording: \(error.localizedDescription)")
+        }
+        return process
+    }
+
+    /// Ends a recording and waits for the movie to be finalised.
+    static func stopRecording(_ process: Process) {
+        guard process.isRunning else { return }
+        process.interrupt()          // SIGINT: simctl's documented way to stop
+        process.waitUntilExit()
+    }
+
+    /// Hands the device to Simulator.app, which opens it in its own window.
+    static func openInSimulatorApp(udid: String) throws {
+        let result = Shell.capture(
+            "/usr/bin/open", ["-a", "Simulator", "--args", "-CurrentDeviceUDID", udid])
+        guard result.succeeded else {
+            throw SimPaneError("could not open Simulator.app: \(result.failureMessage)")
+        }
+    }
+
     static func launch(udid: String, bundleIdentifier: String) throws {
         let result = Shell.capture(xcrun, ["simctl", "launch", udid, bundleIdentifier])
         guard result.succeeded else {

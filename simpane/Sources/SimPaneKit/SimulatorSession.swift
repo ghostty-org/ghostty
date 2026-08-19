@@ -692,6 +692,36 @@ public final class SimulatorSession {
         Snapshot.difference(a, b)
     }
 
+    // MARK: - Recording
+
+    private var recording: Process?
+
+    public var isRecording: Bool { recording != nil }
+
+    /// Starts recording the device's display to `url`. Recording continues until
+    /// `stopRecording()`, and the file is only playable once that has run.
+    public func startRecording(to url: URL) throws {
+        guard recording == nil else { return }
+        recording = try Simctl.startRecording(udid: udid, to: url)
+    }
+
+    /// Ends the recording and waits for the movie to be finalised.
+    public func stopRecording() async {
+        guard let process = recording else { return }
+        recording = nil
+        await offMainVoid { Simctl.stopRecording(process) }
+    }
+
+    /// Hands this device to Simulator.app so it opens in a window of its own.
+    ///
+    /// The pane detaches first. Two consumers of one device is fine — that is how
+    /// the mirror coexists with anything else — but "pop this out" reads as
+    /// moving it, not duplicating it.
+    public func openInSimulatorApp() async throws {
+        await MainActor.run { self.detach() }
+        try await offMain { try Simctl.openInSimulatorApp(udid: self.udid) }
+    }
+
     // MARK: - Apps
 
     /// Launches an installed app by bundle identifier, via `simctl launch`.
@@ -724,6 +754,16 @@ public final class SimulatorSession {
 
     private func fail(_ error: Error) async {
         await MainActor.run { self.failNow(error) }
+    }
+
+    /// Runs blocking work off the main thread, ignoring any result.
+    private func offMainVoid(_ body: @escaping () -> Void) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                body()
+                continuation.resume()
+            }
+        }
     }
 
     /// Runs blocking work off the main thread and propagates its error.
