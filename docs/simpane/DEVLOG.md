@@ -918,3 +918,66 @@ Both looked like library regressions and were not:
   nothing". Repeatedly killing its `launchd_sim` left one device stuck mid-boot;
   every measurement against it was worthless until I looked at a screenshot
   instead of the delta. That device needs `xcrun simctl erase` to recover.
+
+### Verifying the pane by hand (the check Phase 4 could not run)
+
+With the machine free and accessibility permission available, the interactive
+path was finally driven for real. Everything works:
+
+1. **View → iOS Simulator** is in the menu, and **⌘⌥S** toggles the pane
+   (`simpane.paneVisible` flips with it).
+2. The device picker populates — 29 devices, remembered selection restored.
+3. Clicking **▶** boots and attaches; the pane shows the live device, the picker
+   disables itself, and ▶ becomes ■.
+4. Clicking the device screen delivers a touch — hit-tested to
+   `SimulatorMirrorView`, normalized to (0.50, 0.49), `send ok` for both the down
+   and the up — and the pane shows an accent border plus a **keys → simulator**
+   badge.
+5. **Escape twice** hands the keyboard back: badge gone, border gone, terminal
+   cursor solid again.
+
+### Two real bugs this found
+
+**The device picker was empty because `simctl` was being spawned from the app.**
+Listing devices shelled out to `xcrun simctl list`, and a process that has loaded
+CoreSimulator can spawn a `simctl` that never returns — three were observed stuck
+in uninterruptible wait. `SimulatorSession.listDevices()` now reads the device
+list in-process through CoreSimulator, with `simctl` only as the fallback for
+machines where the private path is unavailable.
+
+**Nothing bounded a shell command.** `Shell.capture` now takes a timeout
+(30 s default) and terminates the child, so a wedged `simctl` surfaces as an
+error rather than freezing the pane. The pipes are also drained on background
+queues instead of serially, which was a deadlock waiting to happen on a chatty
+tool.
+
+The sidebar was also moved outside the terminal's overlay `ZStack`. That was not
+the input fix — it was a wrong guess — but it is the better layout: the command
+palette should float over the terminal, not over the simulator.
+
+### What actually broke the machine
+
+Staging device loss by `kill -9`-ing `launchd_sim` orphans everything that guest
+supervised. Those orphans do not exit: **1,095 of them accumulated, burning
+1,116% CPU** (~11 cores), which is what made CoreSimulatorService glacial —
+`simctl list` took **4m21s** from a plain shell. Every "the pane is broken"
+symptom during that window was the starved machine.
+
+After killing the orphans, load fell from 407 to 28 and `simctl list` returned to
+**0.4 s**. `launchctl remove com.apple.CoreSimulator.CoreSimulatorService` alone
+did *not* fix it, which is worth knowing: the remedy in the README addresses a
+stale service, not a starved one.
+
+**If you kill a guest, clean up after it:**
+
+```sh
+ps -eo pid,ppid,command | awk '$2==1 && /CoreSimulator\/Volumes/ {print $1}' | xargs kill -9
+```
+
+### A testing artifact worth remembering
+
+System Events' `click at {x, y}` performs an **accessibility press on the element
+under the point**, not a mouse event. Against a plain `NSView` it does nothing at
+all — `hitTest` is never called, `mouseDown` never fires — which reads exactly
+like broken input. Real verification needs `CGEventPost`, and that needs the
+posting process to hold accessibility permission itself.

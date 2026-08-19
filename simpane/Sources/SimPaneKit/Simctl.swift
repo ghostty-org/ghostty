@@ -20,12 +20,20 @@ enum Simctl {
     }
 
     static func devices(scrubEnvironment: Bool = false) -> [SimDeviceInfo] {
-        guard let json = Shell.run(
-                xcrun, ["simctl", "list", "-j", "devices", "available"],
-                scrubEnvironment: scrubEnvironment),
-              let data = json.data(using: .utf8),
+        let result = Shell.capture(
+            xcrun, ["simctl", "list", "-j", "devices", "available"],
+            scrubEnvironment: scrubEnvironment)
+        guard result.succeeded,
+              let data = result.stdout.data(using: .utf8),
               let list = try? JSONDecoder().decode(DeviceList.self, from: data)
-        else { return [] }
+        else {
+            if ProcessInfo.processInfo.environment["SIMPANE_DEBUG_SIMCTL"] != nil {
+                let line = "simctl list failed: status=\(result.status) "
+                    + "stdout=\(result.stdout.prefix(120)) stderr=\(result.stderr.prefix(200))\n"
+                FileHandle.standardError.write(Data(line.utf8))
+            }
+            return []
+        }
 
         var out: [SimDeviceInfo] = []
         for (runtime, raw) in list.devices {

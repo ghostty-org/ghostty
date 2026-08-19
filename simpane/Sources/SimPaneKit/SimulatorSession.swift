@@ -72,9 +72,24 @@ public final class SimulatorSession {
     /// cannot. Cheap and cached; safe to call before anything else.
     public static func support() -> SimPaneSupport { PrivateFrameworks.support() }
 
-    /// Every available device, newest runtime first. Uses `simctl` only, so it
-    /// works — and is worth showing — even when `support()` is `.unsupported`.
-    public static func listDevices() -> [SimDeviceInfo] { Simctl.devices() }
+    /// Every available device, newest runtime first.
+    ///
+    /// Read through CoreSimulator in-process rather than by running `simctl`:
+    /// spawning `simctl` from a process that has loaded CoreSimulator has been
+    /// observed to hang indefinitely (DEVLOG, Phase 5), and a device picker that
+    /// freezes the window is far worse than one that is briefly empty. `simctl`
+    /// remains the fallback for machines where the private path is unavailable,
+    /// which is also the only case where the list is useful without it.
+    public static func listDevices() -> [SimDeviceInfo] {
+        if support().isSupported, let devices = try? SimDevices.listAll(), !devices.isEmpty {
+            return devices.sorted {
+                $0.runtimeIdentifier == $1.runtimeIdentifier
+                    ? $0.name < $1.name
+                    : $0.runtimeIdentifier > $1.runtimeIdentifier
+            }
+        }
+        return Simctl.devices()
+    }
 
     /// An already-booted device if there is one, else the newest iPhone.
     public static func preferredDevice() -> SimDeviceInfo? { Simctl.preferredTarget() }

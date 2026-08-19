@@ -33,7 +33,8 @@ enum Shell {
     /// its children a view of the world in which a device it holds open still
     /// looks booted after it has been shut down elsewhere.
     static func capture(
-        _ path: String, _ args: [String], scrubEnvironment: Bool = false
+        _ path: String, _ args: [String], scrubEnvironment: Bool = false,
+        timeout: TimeInterval = 30
     ) -> Result {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
@@ -55,10 +56,32 @@ enum Shell {
             return Result(status: -1, stdout: "", stderr: "could not launch \(path): \(error)")
         }
 
-        // Read before waiting: a tool that fills a pipe buffer would otherwise
-        // block forever on a write while we block forever on the exit.
-        let outData = out.fileHandleForReading.readDataToEndOfFile()
-        let errData = err.fileHandleForReading.readDataToEndOfFile()
+        // Read on background queues: a tool that fills a pipe buffer would
+        // otherwise block forever on a write while we block on its exit.
+        var outData = Data()
+        var errData = Data()
+        let group = DispatchGroup()
+        for (handle, sink) in [(out.fileHandleForReading, 0), (err.fileHandleForReading, 1)] {
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                let data = handle.readDataToEndOfFile()
+                if sink == 0 { outData = data } else { errData = data }
+                group.leave()
+            }
+        }
+
+        // A timeout, because `simctl` spawned from an app that has loaded
+        // CoreSimulator has been observed hanging indefinitely — see DEVLOG,
+        // Phase 5. A pane that reports a failure is recoverable; one that
+        // freezes is not.
+        if group.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            _ = group.wait(timeout: .now() + 2)
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            return Result(
+                status: -1, stdout: "",
+                stderr: "\(path) did not finish within \(Int(timeout))s")
+        }
         process.waitUntilExit()
 
         return Result(
@@ -68,8 +91,11 @@ enum Shell {
     }
 
     /// Trimmed stdout, or nil if the tool could not be launched or exited non-zero.
-    static func run(_ path: String, _ args: [String], scrubEnvironment: Bool = false) -> String? {
-        let result = capture(path, args, scrubEnvironment: scrubEnvironment)
+    static func run(
+        _ path: String, _ args: [String], scrubEnvironment: Bool = false,
+        timeout: TimeInterval = 30
+    ) -> String? {
+        let result = capture(path, args, scrubEnvironment: scrubEnvironment, timeout: timeout)
         guard result.succeeded else { return nil }
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }

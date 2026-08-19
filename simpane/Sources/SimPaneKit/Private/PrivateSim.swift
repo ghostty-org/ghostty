@@ -271,6 +271,18 @@ enum SimDevices {
         return SimDeviceHandle(udid: udid, name: name, runtimeName: runtime, object: device)
     }
 
+    /// Every device, as the public value type.
+    ///
+    /// Freshly walked, so the states are accurate — unlike a handle that has been
+    /// held for a while, whose `state` is a stale cached value.
+    static func listAll() throws -> [SimDeviceInfo] {
+        try all().map {
+            SimDeviceInfo(
+                udid: $0.udid, name: $0.name,
+                runtimeIdentifier: $0.runtimeName, state: $0.state)
+        }
+    }
+
     static func find(udid: String) throws -> SimDeviceHandle? {
         try all().first { $0.udid.caseInsensitiveCompare(udid) == .orderedSame }
     }

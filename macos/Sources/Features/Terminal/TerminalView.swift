@@ -74,65 +74,67 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
         case .error:
             ErrorView()
         case .ready:
-            ZStack {
-                // The sidebar wraps only the terminal content, so the command
-                // palette and update overlay still float above the whole window.
-                SimulatorPaneSplit(
-                    model: viewModel.simulatorPane,
-                    dividerColor: ghostty.config.splitDividerColor
-                ) {
+            // The sidebar wraps the entire terminal area, overlays included.
+            // Putting it *inside* the ZStack instead looks identical and is
+            // subtly broken: the command palette layer sits above it and
+            // silently swallows every click meant for the simulator.
+            SimulatorPaneSplit(
+                model: viewModel.simulatorPane,
+                dividerColor: ghostty.config.splitDividerColor
+            ) {
+                ZStack {
                     VStack(spacing: 0) {
-                        // If we're running in debug mode we show a warning so that users
-                        // know that performance will be degraded.
-                        if Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG || Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE {
-                            DebugBuildWarningView()
-                        }
+                            // If we're running in debug mode we show a warning so that users
+                            // know that performance will be degraded.
+                            if Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG || Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE {
+                                DebugBuildWarningView()
+                            }
 
-                        TerminalSplitTreeView(
-                            tree: viewModel.surfaceTree,
-                            action: { delegate?.performSplitAction($0) })
-                            .environmentObject(ghostty)
-                            .ghosttyLastFocusedSurface(lastFocusedSurface)
-                            .focused($focused)
-                            .onAppear { self.focused = true }
-                            .onChange(of: focusedSurface) { newValue in
-                                // We want to keep track of our last focused surface so even if
-                                // we lose focus we keep this set to the last non-nil value.
-                                if newValue != nil {
-                                    lastFocusedSurface = .init(newValue)
-                                    self.delegate?.focusedSurfaceDidChange(to: newValue)
+                            TerminalSplitTreeView(
+                                tree: viewModel.surfaceTree,
+                                action: { delegate?.performSplitAction($0) })
+                                .environmentObject(ghostty)
+                                .ghosttyLastFocusedSurface(lastFocusedSurface)
+                                .focused($focused)
+                                .onAppear { self.focused = true }
+                                .onChange(of: focusedSurface) { newValue in
+                                    // We want to keep track of our last focused surface so even if
+                                    // we lose focus we keep this set to the last non-nil value.
+                                    if newValue != nil {
+                                        lastFocusedSurface = .init(newValue)
+                                        self.delegate?.focusedSurfaceDidChange(to: newValue)
+                                    }
                                 }
-                            }
-                            .onChange(of: pwdURL) { newValue in
-                                self.delegate?.pwdDidChange(to: newValue)
-                            }
-                            .onChange(of: cellSize) { newValue in
-                                guard let size = newValue else { return }
-                                self.delegate?.cellSizeDidChange(to: size)
-                            }
-                            .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
-                                   idealHeight: lastFocusedSurface?.value?.initialSize?.height)
-                    }
-                    // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style
-                    .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
-                }
+                                .onChange(of: pwdURL) { newValue in
+                                    self.delegate?.pwdDidChange(to: newValue)
+                                }
+                                .onChange(of: cellSize) { newValue in
+                                    guard let size = newValue else { return }
+                                    self.delegate?.cellSizeDidChange(to: size)
+                                }
+                                .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
+                                       idealHeight: lastFocusedSurface?.value?.initialSize?.height)
+                        }
+                        // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style
+                        .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
 
-                if let surfaceView = lastFocusedSurface?.value {
-                    TerminalCommandPaletteView(
-                        surfaceView: surfaceView,
-                        isPresented: $viewModel.commandPaletteIsShowing,
-                        ghosttyConfig: ghostty.config,
-                        updateViewModel: (NSApp.delegate as? AppDelegate)?.updateViewModel) { action in
-                        self.delegate?.performAction(action, on: surfaceView)
+                    if let surfaceView = lastFocusedSurface?.value {
+                        TerminalCommandPaletteView(
+                            surfaceView: surfaceView,
+                            isPresented: $viewModel.commandPaletteIsShowing,
+                            ghosttyConfig: ghostty.config,
+                            updateViewModel: (NSApp.delegate as? AppDelegate)?.updateViewModel) { action in
+                            self.delegate?.performAction(action, on: surfaceView)
+                        }
+                    }
+
+                    // Show update information above all else.
+                    if viewModel.updateOverlayIsVisible {
+                        UpdateOverlay()
                     }
                 }
-
-                // Show update information above all else.
-                if viewModel.updateOverlayIsVisible {
-                    UpdateOverlay()
-                }
+                .frame(maxWidth: .greatestFiniteMagnitude, maxHeight: .greatestFiniteMagnitude)
             }
-            .frame(maxWidth: .greatestFiniteMagnitude, maxHeight: .greatestFiniteMagnitude)
         }
     }
 }
