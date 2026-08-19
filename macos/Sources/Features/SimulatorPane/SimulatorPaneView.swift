@@ -65,22 +65,26 @@ private struct SimulatorPaneHeader: View {
     @ObservedObject var model: SimulatorPaneModel
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             devicePicker
 
             if model.isBusy {
                 ProgressView()
                     .controlSize(.small)
-                    .scaleEffect(0.7)
+                    .scaleEffect(0.8)
             } else {
                 attachButton
             }
-
-            Spacer(minLength: 4)
-            focusBadge
         }
+        // Centred to sit over the device, matching the control capsule below.
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
+        // The badge is an overlay rather than part of the stack: in the stack it
+        // would shift the picker off centre whenever focus moved to the device.
+        .overlay(alignment: .trailing) {
+            focusBadge.padding(.trailing, 8)
+        }
     }
 
     private var devicePicker: some View {
@@ -111,8 +115,11 @@ private struct SimulatorPaneHeader: View {
             }
         } label: {
             Text(selectionLabel)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
-        .controlSize(.small)
+        .controlSize(.regular)
+        .fixedSize()
         .disabled(model.isAttached || model.isBusy)
         .help(model.isAttached
               ? "Stop mirroring to pick a different device"
@@ -148,7 +155,9 @@ private struct SimulatorPaneHeader: View {
             Button {
                 model.detach()
             } label: {
-                Image(systemName: "eject.fill").frame(width: 16, height: 16)
+                Image(systemName: "eject.fill")
+                    .font(.system(size: 14))
+                    .frame(width: 20, height: 20)
             }
             .buttonStyle(.borderless)
             .help("Stop mirroring (the device keeps running)")
@@ -156,7 +165,9 @@ private struct SimulatorPaneHeader: View {
             Button {
                 Task { await model.attach() }
             } label: {
-                Image(systemName: "play.fill").frame(width: 16, height: 16)
+                Image(systemName: "play.fill")
+                    .font(.system(size: 14))
+                    .frame(width: 20, height: 20)
             }
             .buttonStyle(.borderless)
             .disabled(model.selectedUDID == nil)
