@@ -6,3 +6,11 @@ updates:
     schedule:
       # Check for updates to GitHub Actions every weekday
       interval: "daily"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # Note: Zig dependencies (build.zig.zon) are not supported by Dependabot.
+  # Zig package updates must be managed manually.
+  # See: https://github.com/dependabot/dependabot-core/issues/6746

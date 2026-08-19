@@ -1,0 +1,43 @@
+# Maintainer: Ghostty Maintainers <maintainers@ghostty.org>
+pkgname=ghostty
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="A fast, feature-rich, and cross-platform terminal emulator"
+arch=('x86_64' 'aarch64' 'armv7h')
+url="https://ghostty.org"
+license=('MIT')
+depends=('gtk4' 'libadwaita' 'fontconfig' 'freetype2' 'harfbuzz' 'libpng' 'zlib')
+makedepends=('zig' 'pkg-config' 'git')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/ghostty-org/ghostty/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "$pkgname-$pkgver"
+    zig build -Doptimize=ReleaseFast -Dpie=true
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+
+    # Binary
+    install -Dm755 "zig-out/bin/ghostty" "$pkgdir/usr/bin/ghostty"
+
+    # Desktop file
+    install -Dm644 "dist/linux/app.desktop.in" "$pkgdir/usr/share/applications/com.mitchellh.ghostty.desktop"
+
+    # Metainfo
+    install -Dm644 "dist/linux/com.mitchellh.ghostty.metainfo.xml.in" "$pkgdir/usr/share/metainfo/com.mitchellh.ghostty.metainfo.xml"
+
+    # Resources (terminfo, shell integration, themes)
+    mkdir -p "$pkgdir/usr/share/ghostty"
+    cp -r zig-out/share/ghostty/* "$pkgdir/usr/share/ghostty/" || true
+
+    # Systemd user service
+    install -Dm644 "dist/linux/systemd.service.in" "$pkgdir/usr/lib/systemd/user/ghostty.service" || true
+
+    # D-Bus service
+    install -Dm644 "dist/linux/dbus.service.in" "$pkgdir/usr/share/dbus-1/services/com.mitchellh.ghostty.service" || true
+
+    # License
+    install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

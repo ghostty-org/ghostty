@@ -1,0 +1,30 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	zig build -Doptimize=ReleaseFast -Dpie=true
+
+override_dh_auto_install:
+	# Binary
+	install -Dm755 zig-out/bin/ghostty debian/ghostty/usr/bin/ghostty
+	# Resources (terminfo, shell integration, themes, etc.)
+	mkdir -p debian/ghostty/usr/share/ghostty
+	cp -r zig-out/share/ghostty/* debian/ghostty/usr/share/ghostty/ || true
+	# Desktop file
+	install -Dm644 dist/linux/app.desktop.in debian/ghostty/usr/share/applications/com.mitchellh.ghostty.desktop
+	# Metainfo
+	install -Dm644 dist/linux/com.mitchellh.ghostty.metainfo.xml.in debian/ghostty/usr/share/metainfo/com.mitchellh.ghostty.metainfo.xml
+	# Icons
+	install -Dm644 images/icons/icon_128x128.png debian/ghostty/usr/share/icons/hicolor/128x128/apps/com.mitchellh.ghostty.png || true
+	# Systemd service
+	install -Dm644 dist/linux/systemd.service.in debian/ghostty/usr/lib/systemd/user/ghostty.service || true
+	# D-Bus service
+	install -Dm644 dist/linux/dbus.service.in debian/ghostty/usr/share/dbus-1/services/com.mitchellh.ghostty.service || true
+
+override_dh_auto_test:
+	@echo "Skipping tests during package build"
+
+override_dh_auto_clean:
+	rm -rf zig-out zig-cache .zig-cache
