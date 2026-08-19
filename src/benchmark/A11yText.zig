@@ -33,11 +33,11 @@ alloc: Allocator,
 terminal: Terminal,
 /// Retained scratch + reference snapshot for `probe` mode, mirroring
 /// `probe_buf` and `last_snapshot` on the GTK surface a11y state.
-probe_buf: std.ArrayList(u8) = .empty,
-probe_snapshot: std.ArrayList(u8) = .empty,
+probe_buf: std.Io.Writer.Allocating,
+probe_snapshot: std.Io.Writer.Allocating,
 /// Per-codepoint cell widths, mirroring `cached_widths`. Only the
 /// `text` mode fills this, because only `A11y.refreshCache` asks for it.
-widths: std.ArrayList(u8) = .empty,
+widths: std.Io.Writer.Allocating,
 
 pub const Options = struct {
     /// The type of snapshot work to perform.
@@ -91,15 +91,18 @@ pub fn create(
             .rows = opts.@"terminal-rows",
             .cols = opts.@"terminal-cols",
         }),
+        .probe_buf = .init(alloc),
+        .probe_snapshot = .init(alloc),
+        .widths = .init(alloc),
     };
 
     return ptr;
 }
 
 pub fn destroy(self: *A11yText, alloc: Allocator) void {
-    self.probe_buf.deinit(alloc);
-    self.probe_snapshot.deinit(alloc);
-    self.widths.deinit(alloc);
+    self.probe_buf.deinit();
+    self.probe_snapshot.deinit();
+    self.widths.deinit();
     self.terminal.deinit(alloc);
     alloc.destroy(self);
 }
@@ -164,8 +167,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     // loop measures only the probe itself.
     self.probe_snapshot.clearRetainingCapacity();
     _ = a11y.text.build(
-        self.alloc,
-        &self.probe_snapshot,
+        &self.probe_snapshot.writer,
         self.terminal.screens.active,
         .{},
     ) catch |err| {
@@ -207,8 +209,7 @@ fn stepProbe(ptr: *anyopaque) Benchmark.Error!void {
         self.probe_buf.clearRetainingCapacity();
 
         const result = a11y.text.build(
-            self.alloc,
-            &self.probe_buf,
+            &self.probe_buf.writer,
             self.terminal.screens.active,
             .{},
         ) catch |err| {
@@ -218,8 +219,8 @@ fn stepProbe(ptr: *anyopaque) Benchmark.Error!void {
 
         const changed = !std.mem.eql(
             u8,
-            self.probe_snapshot.items,
-            self.probe_buf.items,
+            self.probe_snapshot.written(),
+            self.probe_buf.written(),
         );
 
         std.mem.doNotOptimizeAway(changed);
@@ -235,21 +236,20 @@ fn stepText(ptr: *anyopaque) Benchmark.Error!void {
     const self: *A11yText = @ptrCast(@alignCast(ptr));
 
     for (0..iterations(self)) |_| {
-        var buffer: std.ArrayList(u8) = .empty;
-        defer buffer.deinit(self.alloc);
+        var buffer: std.Io.Writer.Allocating = .init(self.alloc);
+        defer buffer.deinit();
         self.widths.clearRetainingCapacity();
 
         const result = a11y.text.build(
-            self.alloc,
-            &buffer,
+            &buffer.writer,
             self.terminal.screens.active,
-            .{ .widths = &self.widths },
+            .{ .widths = &self.widths.writer },
         ) catch |err| {
             log.warn("error building a11y text err={}", .{err});
             return error.BenchmarkFailed;
         };
 
-        const text = self.alloc.dupeZ(u8, buffer.items) catch |err| {
+        const text = self.alloc.dupeZ(u8, buffer.written()) catch |err| {
             log.warn("error duplicating a11y text err={}", .{err});
             return error.BenchmarkFailed;
         };
@@ -257,6 +257,6 @@ fn stepText(ptr: *anyopaque) Benchmark.Error!void {
 
         std.mem.doNotOptimizeAway(result.cp_count);
         std.mem.doNotOptimizeAway(text.len);
-        std.mem.doNotOptimizeAway(self.widths.items.len);
+        std.mem.doNotOptimizeAway(self.widths.written().len);
     }
 }

@@ -18,13 +18,12 @@
 //! `offsets.utf8CpCount` before handing it out.
 
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 const terminal = @import("../terminal/main.zig");
 const offsets = @import("offsets.zig");
 
 pub const Options = struct {
     /// Where to record how many columns each emitted codepoint occupies
-    /// (`offsets.CellWidths`). One entry is appended per codepoint
+    /// (`offsets.CellWidths`). One byte is written per codepoint
     /// appended to the text, so the two stay index-aligned: 2 for a
     /// double-width cell, 0 for a combining mark that shares its base
     /// character's cell, 1 otherwise.
@@ -35,14 +34,18 @@ pub const Options = struct {
     /// method. Callers that only need the text (the per-frame change
     /// probe, the benchmark) leave it null and pay nothing.
     ///
-    /// Must be empty when `build` is called; `build` only appends.
-    widths: ?*std.ArrayList(u8) = null,
+    /// Like the text, this stream is appended to, not cleared, so a
+    /// caller reusing a buffer must clear it or the widths drift out of
+    /// alignment with the text built by this call.
+    widths: ?*std.Io.Writer = null,
 };
 
 pub const Result = struct {
-    /// Byte offset into the built buffer where the cursor sits, or null
-    /// if the cursor row wasn't part of the viewport. Callers anchor a
-    /// null at end-of-text.
+    /// Byte offset of the cursor, counted from the first byte this walk
+    /// writes, or null if the cursor row wasn't part of the viewport.
+    /// Callers anchor a null at end-of-text. A caller that starts from
+    /// an empty buffer (all of them do) can read this as a buffer
+    /// offset directly.
     cursor_byte: ?usize,
 
     /// Total codepoints appended to the buffer by this walk.
@@ -59,14 +62,18 @@ pub const Result = struct {
 /// after the offending codepoint. That is the failure mode that put a routed
 /// caret inside the character to the left of the one it named.
 const Snapshot = struct {
-    alloc: Allocator,
-    text: *std.ArrayList(u8),
-    widths: ?*std.ArrayList(u8),
+    text: *std.Io.Writer,
+    widths: ?*std.Io.Writer,
     cp_count: usize = 0,
+    /// Bytes written to `text` so far. Tracked here rather than asked of
+    /// the writer, because a writer has no stream position: `Writer.end`
+    /// is an index into its internal buffer and resets when a draining
+    /// implementation flushes.
+    bytes: usize = 0,
 
     /// Byte offset of the next codepoint to be appended.
     fn end(self: Snapshot) usize {
-        return self.text.items.len;
+        return self.bytes;
     }
 
     /// Append `n` copies of an ASCII byte, each occupying `columns`
@@ -76,8 +83,9 @@ const Snapshot = struct {
         byte: u8,
         columns: u8,
         n: usize,
-    ) Allocator.Error!void {
-        try self.text.appendNTimes(self.alloc, byte, n);
+    ) std.Io.Writer.Error!void {
+        try self.text.splatByteAll(byte, n);
+        self.bytes += n;
         try self.advance(columns, n);
     }
 
@@ -88,7 +96,7 @@ const Snapshot = struct {
         base: u21,
         graphemes: ?[]const u21,
         columns: u8,
-    ) Allocator.Error!void {
+    ) std.Io.Writer.Error!void {
         var buf: [4]u8 = undefined;
         const n = std.unicode.utf8Encode(base, &buf) catch {
             // Shouldn't happen, since the terminal stores validated
@@ -98,41 +106,40 @@ const Snapshot = struct {
             // with it; they have nothing left to combine with.
             return self.addAscii('?', columns, 1);
         };
-        try self.text.appendSlice(self.alloc, buf[0..n]);
+        try self.text.writeAll(buf[0..n]);
+        self.bytes += n;
         try self.advance(columns, 1);
 
         for (graphemes orelse return) |cp| {
             const gn = std.unicode.utf8Encode(cp, &buf) catch continue;
-            try self.text.appendSlice(self.alloc, buf[0..gn]);
+            try self.text.writeAll(buf[0..gn]);
+            self.bytes += gn;
             // Part of the base character's cell: extra codepoints, no
             // extra columns.
             try self.advance(0, 1);
         }
     }
 
-    fn advance(self: *Snapshot, columns: u8, n: usize) Allocator.Error!void {
-        if (self.widths) |w| try w.appendNTimes(self.alloc, columns, n);
+    fn advance(self: *Snapshot, columns: u8, n: usize) std.Io.Writer.Error!void {
+        if (self.widths) |w| try w.splatByteAll(columns, n);
         self.cp_count += n;
     }
 };
 
-/// Walk the viewport of `screen` and append its text to `buffer`.
+/// Walk the viewport of `screen` and write its text to `writer`.
 ///
-/// `buffer` is appended to, not cleared, so callers reusing a buffer must
-/// clear it themselves.
+/// The stream is appended to, not cleared, so callers reusing a buffer
+/// must clear it themselves.
 pub fn build(
-    alloc: Allocator,
-    buffer: *std.ArrayList(u8),
+    writer: *std.Io.Writer,
     screen: *terminal.Screen,
     opts: Options,
-) Allocator.Error!Result {
+) std.Io.Writer.Error!Result {
     const pages = &screen.pages;
     const viewport_rows: usize = pages.rows;
 
-    if (opts.widths) |w| std.debug.assert(w.items.len == 0);
     var snap: Snapshot = .{
-        .alloc = alloc,
-        .text = buffer,
+        .text = writer,
         .widths = opts.widths,
     };
 
@@ -251,10 +258,6 @@ pub fn build(
         }
     }
 
-    // `Snapshot` keeps these in step by construction; this catches an
-    // append that went around it.
-    if (opts.widths) |w| std.debug.assert(w.items.len == snap.cp_count);
-
     return .{
         .cursor_byte = cursor_byte,
         .cp_count = snap.cp_count,
@@ -273,13 +276,13 @@ test "a11y text: rows joined by newline, trailing blanks trimmed" {
     try t.linefeed();
     try t.printString("world");
 
-    var buffer: std.ArrayList(u8) = .empty;
-    defer buffer.deinit(alloc);
+    var buffer: std.Io.Writer.Allocating = .init(alloc);
+    defer buffer.deinit();
 
-    const result = try build(alloc, &buffer, t.screens.active, .{});
+    const result = try build(&buffer.writer, t.screens.active, .{});
 
     // Row 2 is empty, so it contributes its leading '\n' and nothing else.
-    try testing.expectEqualStrings("hello\nworld\n", buffer.items);
+    try testing.expectEqualStrings("hello\nworld\n", buffer.written());
     try testing.expectEqual(@as(usize, 12), result.cp_count);
 }
 
@@ -293,37 +296,36 @@ test "a11y text: widths report the columns each codepoint covers" {
     // character while the row is 5 + 6 + 5 columns wide.
     try t.printString("wide 日本語 tail");
 
-    var buffer: std.ArrayList(u8) = .empty;
-    defer buffer.deinit(alloc);
-    var widths: std.ArrayList(u8) = .empty;
-    defer widths.deinit(alloc);
+    var buffer: std.Io.Writer.Allocating = .init(alloc);
+    defer buffer.deinit();
+    var widths: std.Io.Writer.Allocating = .init(alloc);
+    defer widths.deinit();
 
     const result = try build(
-        alloc,
-        &buffer,
+        &buffer.writer,
         t.screens.active,
-        .{ .widths = &widths },
+        .{ .widths = &widths.writer },
     );
 
     // One width per codepoint, or every lookup past the drift is wrong.
-    try testing.expectEqual(result.cp_count, widths.items.len);
+    try testing.expectEqual(result.cp_count, widths.written().len);
 
     // "wide " then 日本語 then " tail", plus the row separator.
     try testing.expectEqualSlices(
         u8,
         &.{ 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 0 },
-        widths.items,
+        widths.written(),
     );
 
     // The payoff: 't' of "tail" is codepoint 9 but column 12. Reading the
     // codepoint index as a column is what put a routed caret three cells
     // to the left, inside 語.
-    const t_byte = std.mem.indexOf(u8, buffer.items, "tail").?;
-    const cp_idx = offsets.utf8CpCount(buffer.items[0..t_byte]);
+    const t_byte = std.mem.indexOf(u8, buffer.written(), "tail").?;
+    const cp_idx = offsets.utf8CpCount(buffer.written()[0..t_byte]);
     try testing.expectEqual(@as(usize, 9), cp_idx);
     try testing.expectEqual(
         @as(u32, 12),
-        offsets.cpToGrid(buffer.items, .{ .per_cp = widths.items }, cp_idx).col,
+        offsets.cpToGrid(buffer.written(), .{ .per_cp = widths.written() }, cp_idx).col,
     );
 }
 
@@ -340,17 +342,21 @@ test "a11y text: recording widths does not change the text" {
     try t.linefeed();
     try t.printString("  spaced  out");
 
-    var with: std.ArrayList(u8) = .empty;
-    defer with.deinit(alloc);
-    var widths: std.ArrayList(u8) = .empty;
-    defer widths.deinit(alloc);
-    const with_result = try build(alloc, &with, t.screens.active, .{ .widths = &widths });
+    var with: std.Io.Writer.Allocating = .init(alloc);
+    defer with.deinit();
+    var widths: std.Io.Writer.Allocating = .init(alloc);
+    defer widths.deinit();
+    const with_result = try build(
+        &with.writer,
+        t.screens.active,
+        .{ .widths = &widths.writer },
+    );
 
-    var without: std.ArrayList(u8) = .empty;
-    defer without.deinit(alloc);
-    const without_result = try build(alloc, &without, t.screens.active, .{});
+    var without: std.Io.Writer.Allocating = .init(alloc);
+    defer without.deinit();
+    const without_result = try build(&without.writer, t.screens.active, .{});
 
-    try testing.expectEqualStrings(with.items, without.items);
+    try testing.expectEqualStrings(with.written(), without.written());
     try testing.expectEqual(with_result.cp_count, without_result.cp_count);
     try testing.expectEqual(with_result.cursor_byte, without_result.cursor_byte);
 }
@@ -364,11 +370,11 @@ test "a11y text: intermediate blanks preserved as spaces" {
     t.setCursorPos(1, 6);
     try t.printString("cd");
 
-    var buffer: std.ArrayList(u8) = .empty;
-    defer buffer.deinit(alloc);
+    var buffer: std.Io.Writer.Allocating = .init(alloc);
+    defer buffer.deinit();
 
-    _ = try build(alloc, &buffer, t.screens.active, .{});
-    try testing.expectEqualStrings("ab   cd", buffer.items);
+    _ = try build(&buffer.writer, t.screens.active, .{});
+    try testing.expectEqualStrings("ab   cd", buffer.written());
 }
 
 test "a11y text: cursor anchors past trailing blanks" {
@@ -381,14 +387,14 @@ test "a11y text: cursor anchors past trailing blanks" {
     try t.linefeed();
     try t.printString("abc");
 
-    var buffer: std.ArrayList(u8) = .empty;
-    defer buffer.deinit(alloc);
+    var buffer: std.Io.Writer.Allocating = .init(alloc);
+    defer buffer.deinit();
 
-    const result = try build(alloc, &buffer, t.screens.active, .{});
+    const result = try build(&buffer.writer, t.screens.active, .{});
 
     // "hi\nabc", with the cursor on the blank after "abc". That is
     // trailing, so it anchors at end-of-text.
-    try testing.expectEqualStrings("hi\nabc", buffer.items);
+    try testing.expectEqualStrings("hi\nabc", buffer.written());
     try testing.expectEqual(@as(usize, 6), result.cursor_byte.?);
 }
 
@@ -404,12 +410,12 @@ test "a11y text: cursor inside an interior blank run lands on its column" {
     // gets flushed as spaces rather than eaten as trailing.
     t.setCursorPos(1, 4);
 
-    var buffer: std.ArrayList(u8) = .empty;
-    defer buffer.deinit(alloc);
+    var buffer: std.Io.Writer.Allocating = .init(alloc);
+    defer buffer.deinit();
 
-    const result = try build(alloc, &buffer, t.screens.active, .{});
+    const result = try build(&buffer.writer, t.screens.active, .{});
 
-    try testing.expectEqualStrings("ab    cd", buffer.items);
+    try testing.expectEqualStrings("ab    cd", buffer.written());
     // Byte 3 is the second of the four spaces, the cell the cursor is
     // on, not the start or the end of the run.
     try testing.expectEqual(@as(usize, 3), result.cursor_byte.?);
@@ -424,12 +430,12 @@ test "a11y text: cursor on a wide character's spacer lands on the character" {
     try t.printString("ab日cd");
     t.setCursorPos(1, 4);
 
-    var buffer: std.ArrayList(u8) = .empty;
-    defer buffer.deinit(alloc);
+    var buffer: std.Io.Writer.Allocating = .init(alloc);
+    defer buffer.deinit();
 
-    const result = try build(alloc, &buffer, t.screens.active, .{});
+    const result = try build(&buffer.writer, t.screens.active, .{});
 
-    try testing.expectEqualStrings("ab日cd", buffer.items);
+    try testing.expectEqualStrings("ab日cd", buffer.written());
     // The cursor is visually sitting on 日, so it must resolve to that
     // character's own offset. A spacer has no text and is skipped without
     // accumulating a blank, so the deferred blank-run path can never

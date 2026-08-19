@@ -244,12 +244,16 @@ fn refreshCache(self: *A11y, surface: *Surface) ?[:0]const u8 {
 
     const core_surface = surface.core() orelse return null;
 
-    // Widths are rebuilt in lockstep with the text below; `build`
-    // requires an empty list and only appends.
+    // Widths are rebuilt in lockstep with the text below; `build` only
+    // appends, so the retained list must start empty to stay aligned
+    // with the fresh text. The writer takes over the list's memory and
+    // the defer hands it back on every exit path.
     self.cached_widths.clearRetainingCapacity();
+    var widths: std.Io.Writer.Allocating = .fromArrayList(alloc, &self.cached_widths);
+    defer self.cached_widths = widths.toArrayList();
 
-    var buffer: std.ArrayList(u8) = .empty;
-    defer buffer.deinit(alloc);
+    var buffer: std.Io.Writer.Allocating = .init(alloc);
+    defer buffer.deinit();
 
     // The renderer mutex covers only the walk; everything after this
     // point reads `buffer`, which is our own memory.
@@ -261,17 +265,16 @@ fn refreshCache(self: *A11y, surface: *Surface) ?[:0]const u8 {
             core_surface.renderer_state.terminal.screens.active;
 
         break :result a11y.text.build(
-            alloc,
-            &buffer,
+            &buffer.writer,
             screen,
-            .{ .widths = &self.cached_widths },
+            .{ .widths = &widths.writer },
         ) catch |err| {
             log.warn("ax text build failed: {}", .{err});
             return null;
         };
     };
 
-    const text = alloc.dupeZ(u8, buffer.items) catch return null;
+    const text = alloc.dupeZ(u8, buffer.written()) catch return null;
     self.cached_text = text;
 
     // AT-SPI wants the caret in codepoints; the walk reports a byte
@@ -296,7 +299,13 @@ fn probeChanged(self: *A11y, surface: *Surface) bool {
     const old_text: []const u8 = self.last_snapshot orelse return true;
 
     const alloc = Application.default().allocator();
+
+    // The writer takes over the retained scratch buffer's memory and
+    // the defer hands it back on every exit path, so the capacity it
+    // grew survives for the next frame's probe.
     self.probe_buf.clearRetainingCapacity();
+    var probe: std.Io.Writer.Allocating = .fromArrayList(alloc, &self.probe_buf);
+    defer self.probe_buf = probe.toArrayList();
 
     const result = result: {
         core_surface.renderer_state.mutex.lockUncancelable(global.io());
@@ -306,8 +315,7 @@ fn probeChanged(self: *A11y, surface: *Surface) bool {
             core_surface.renderer_state.terminal.screens.active;
 
         break :result a11y.text.build(
-            alloc,
-            &self.probe_buf,
+            &probe.writer,
             screen,
             .{},
         ) catch |err| {
@@ -318,7 +326,7 @@ fn probeChanged(self: *A11y, surface: *Surface) bool {
         };
     };
 
-    const text = self.probe_buf.items;
+    const text = probe.written();
     if (!std.mem.eql(u8, old_text, text)) return true;
 
     // Text is identical, so the caret's byte offset converts against
