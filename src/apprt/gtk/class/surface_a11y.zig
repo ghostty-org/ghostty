@@ -67,7 +67,7 @@ pub fn deinit(self: *A11y, alloc: Allocator) void {
 /// Narrower gates than `active` are wrong: focus would silence
 /// unfocused splits, and `org.a11y.Status.IsEnabled` is a hint ATs
 /// write, not proof one is listening. The latch costs one probe per
-/// rendered frame (6.7us at 30x80, 17.6us at 60x200, per
+/// rendered frame (4.0us at 30x80, 12.6us at 60x200, per
 /// `ghostty-bench +a11y-text --mode=probe`); idle surfaces pay nothing.
 pub fn frameRendered(self: *A11y, surface: *Surface) void {
     self.cache_stale = true;
