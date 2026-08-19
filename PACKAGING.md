@@ -1,177 +1,203 @@
-# Packaging Ghostty for Distribution
+# Packaging Guide
 
-Ghostty relies on downstream package maintainers to distribute Ghostty to
-end-users. This document provides guidance to package maintainers on how to
-package Ghostty for distribution.
+This document describes how Linux distribution packages (.deb, .rpm, .pkg.tar.zst) are built and released for Ghostty.
 
-> [!IMPORTANT]
->
-> This document is only accurate for the Ghostty source alongside it.
-> **Do not use this document for older or newer versions of Ghostty!** If
-> you are reading this document in a different version of Ghostty, please
-> find the `PACKAGING.md` file alongside that version.
+## Overview
 
-## Source Tarballs
+Ghostty provides automated package builds for:
 
-Source tarballs with stable checksums are available for tagged releases
-at `release.files.ghostty.org` in the following URL format where
-`VERSION` is the version number with no prefix such as `1.0.0`:
+| Format | Distributions | Architectures |
+|--------|--------------|---------------|
+| `.deb` | Debian, Ubuntu, Linux Mint, Pop!_OS | amd64, arm64, armhf |
+| `.rpm` | Fedora, RHEL, CentOS, openSUSE | x86_64, aarch64, armv7hl |
+| `.pkg.tar.zst` | Arch Linux, Manjaro, EndeavourOS | x86_64, aarch64, armv7h |
+
+In addition to these, Ghostty also supports:
+- **Flatpak** - See `flatpak/` directory
+- **Snap** - See `snap/` directory
+- **Nix** - See `flake.nix`
+
+## Release Triggers
+
+Packages are automatically built when:
+
+1. **Tag push** - A git tag matching `v[0-9]+.[0-9]+.[0-9]+*` is pushed (e.g., `v1.0.0`, `v1.2.3-rc1`)
+2. **Release publish** - A GitHub Release is published via the UI
+3. **Manual dispatch** - Triggered manually via GitHub Actions UI (for testing)
+
+## Where to Find Artifacts
+
+After a successful build, all packages are uploaded to the corresponding **GitHub Release** page:
 
 ```
-https://release.files.ghostty.org/VERSION/ghostty-VERSION.tar.gz
-https://release.files.ghostty.org/VERSION/ghostty-VERSION.tar.gz.minisig
+https://github.com/opentreecz/terminal-ghostty/releases/tag/v<VERSION>
 ```
 
-Signature files are signed with
-[minisign](https://jedisct1.github.io/minisign/)
-using the following public key:
+Each release includes:
+- `ghostty_<VERSION>_amd64.deb`
+- `ghostty_<VERSION>_arm64.deb`
+- `ghostty_<VERSION>_armhf.deb`
+- `ghostty-<VERSION>-1.<dist>.<arch>.rpm`
+- `ghostty-<VERSION>-1-<arch>.pkg.tar.zst`
+- `SHA256SUMS.txt` (checksums for all artifacts)
 
-```
-RWQlAjJC23149WL2sEpT/l0QKy7hMIFhYdQOFy0Z7z7PbneUgvlsnYcV
-```
+## Package Contents
 
-**Tip source tarballs** are available on the
-[GitHub releases page](https://github.com/ghostty-org/ghostty/releases/tag/tip).
-Use the `ghostty-source.tar.gz` asset and _not the GitHub auto-generated
-source tarball_. These tarballs are generated for every commit to
-the `main` branch and are not associated with a specific version.
+All packages include:
 
-> [!WARNING]
->
-> Source tarballs are _not the same_ as a Git checkout. Source tarballs
-> contain some preprocessed files that allow building Ghostty with less
-> dependencies. If you are building Ghostty from a Git checkout, the
-> steps below are the same but they may require additional dependencies
-> not listed here. See the `README.md` for more information on building
-> from a Git checkout.
->
-> For everyone except Ghostty developers, please use the source tarballs.
-> We generate tip source tarballs for users following the development
-> branch.
+- `/usr/bin/ghostty` - Main binary
+- `/usr/share/applications/com.mitchellh.ghostty.desktop` - Desktop entry
+- `/usr/share/metainfo/com.mitchellh.ghostty.metainfo.xml` - AppStream metadata
+- `/usr/share/ghostty/` - Resources (terminfo, shell integration, themes)
+- `/usr/lib/systemd/user/ghostty.service` - Systemd user service
+- `/usr/share/dbus-1/services/com.mitchellh.ghostty.service` - D-Bus service
+- `/usr/share/icons/hicolor/128x128/apps/com.mitchellh.ghostty.png` - Application icon
 
-## Zig Version
+## Runtime Dependencies
 
-[Zig](https://ziglang.org) is required to build Ghostty. Prior to Zig 1.0,
-Zig releases often have breaking changes. Ghostty requires specific Zig versions
-depending on the Ghostty version in order to build. To make things easier for
-package maintainers, Ghostty always uses some _released_ version of Zig.
+| Debian/Ubuntu | Fedora/RHEL | Arch Linux |
+|---------------|-------------|------------|
+| libgtk-4-1 | gtk4 | gtk4 |
+| libadwaita-1-0 | libadwaita | libadwaita |
+| libfontconfig1 | fontconfig | fontconfig |
+| libfreetype6 | freetype | freetype2 |
+| libharfbuzz0b | harfbuzz | harfbuzz |
+| libpng16-16 | libpng | libpng |
+| zlib1g | zlib | zlib |
 
-To find the version of Zig required to build Ghostty, check the `required_zig`
-constant in `build.zig`. You don't need to know Zig to extract this information.
-This version will always be an official released version of Zig.
+## Building Packages Locally
 
-For example, at the time of writing this document, Ghostty requires Zig 0.14.0.
+### Prerequisites
 
-## Building Ghostty
+- Zig >= 0.16.0 (see [ziglang.org/download](https://ziglang.org/download/))
+- Build dependencies for your distribution (see `packaging/debian/control` or `packaging/rpm/ghostty.spec`)
 
-The following is a standard example of how to build Ghostty _for system
-packages_. This is not the recommended way to build Ghostty for your
-own system. For that, see the primary README.
+### Cross-Compilation with Zig
 
-1. First, we fetch our dependencies from the internet into a cached directory.
-   This is the only step that requires internet access:
+Zig has excellent built-in cross-compilation support. To build for a different architecture:
 
-```sh
-ZIG_GLOBAL_CACHE_DIR=/tmp/offline-cache ./nix/build-support/fetch-zig-cache.sh
-```
+```bash
+# Build for aarch64
+zig build -Doptimize=ReleaseFast -Dpie=true -Dtarget=aarch64-linux-gnu
 
-2. Next, we build Ghostty. This step requires no internet access:
+# Build for armhf
+zig build -Doptimize=ReleaseFast -Dpie=true -Dtarget=arm-linux-gnueabihf
 
-```sh
-DESTDIR=/tmp/ghostty \
-zig build \
-  --prefix /usr \
-  --system /tmp/offline-cache/p \
-  -Doptimize=ReleaseFast \
-  -Dcpu=baseline
+# Build for native (x86_64)
+zig build -Doptimize=ReleaseFast -Dpie=true
 ```
 
-The build options are covered in the next section, but this will build
-and install Ghostty to `/tmp/ghostty` with the prefix `/usr` (i.e. the
-binary will be at `/tmp/ghostty/usr/bin/ghostty`). This style is common
-for system packages which separate a build and install step, since the
-install step can then be done with a `mv` or `cp` command (from `/tmp/ghostty`
-to wherever the package manager expects it).
+### Build .deb locally
 
-### Build Options
+```bash
+# Install dependencies (Debian/Ubuntu)
+sudo apt-get install pkg-config libgtk-4-dev libadwaita-1-dev \
+  libfontconfig1-dev libfreetype6-dev libharfbuzz-dev libpng-dev \
+  zlib1g-dev libbz2-dev libonig-dev
 
-Ghostty uses the Zig build system. You can see all available build options by
-running `zig build --help`. The following are options that are particularly
-relevant to package maintainers:
+# Build
+zig build -Doptimize=ReleaseFast -Dpie=true
 
-- `--prefix`: The installation prefix. Combine with the `DESTDIR` environment
-  variable to install to a temporary directory for packaging.
-
-- `--system`: The path to the offline cache directory. This disables
-  any package fetching from the internet. This flag also triggers all
-  dependencies to be dynamically linked by default. This flag also makes
-  the binary a PIE (Position Independent Executable) by default (override
-  with `-Dpie`).
-
-- `-Doptimize=ReleaseFast`: Build with optimizations enabled and safety checks
-  disabled. This is the recommended build mode for distribution. I'd prefer
-  a safe build but terminal emulators are performance-sensitive and the
-  safe build is currently too slow. I plan to improve this in the future.
-  Other build modes are available: `Debug`, `ReleaseSafe`, and `ReleaseSmall`.
-
-- `-Dcpu=baseline`: Build for the "baseline" CPU of the target architecture.
-  This avoids building for newer CPU features that may not be available on
-  all target machines.
-
-- `-Dtarget=$arch-$os-$abi`: Build for a specific target triple. This is
-  often necessary for system packages to specify a specific minimum Linux
-  version, glibc, etc. Run `zig targets` to a get a full list of available
-  targets.
-
-## WebAssembly (libghostty-vt)
-
-libghostty-vt can be built for WebAssembly for use in browsers and other
-wasm runtimes:
-
-```sh
-zig build -Demit-lib-vt -Dtarget=wasm32-freestanding -Doptimize=ReleaseSmall
+# Package (see .github/workflows/release-packages.yml for full steps)
 ```
 
-This produces `zig-out/bin/ghostty-vt.wasm`.
+### Build .rpm locally
 
-Some notes for packaging the wasm module:
+```bash
+# Install dependencies (Fedora)
+sudo dnf install pkg-config gtk4-devel libadwaita-devel fontconfig-devel \
+  freetype-devel harfbuzz-devel libpng-devel zlib-devel bzip2-devel \
+  oniguruma-devel rpm-build
 
-- The build enables the `simd128` feature by default. Every browser engine
-  has supported it for years (Chrome 91, Firefox 89, Safari 16.4) and it is
-  a large performance win for VT parsing. If you target an unusual runtime
-  without SIMD support, opt out with `-Dcpu=generic`.
+# Build and package
+zig build -Doptimize=ReleaseFast -Dpie=true
+rpmbuild -bb packaging/rpm/ghostty.spec
+```
 
-- Optional feature areas can be compiled out with `-Dvt-features` to
-  significantly reduce binary size. The flag takes comma-separated
-  modifications applied to the default all-enabled feature set,
-  `-Dcpu`-style: `+feature` (or bare `feature`) enables, `-feature`
-  disables, and the special name `all` refers to every feature. Hyphens
-  and underscores are interchangeable in feature names. For example, a
-  read-only terminal viewer only needs the render state API:
+### Build Arch package locally
 
-  ```sh
-  zig build -Demit-lib-vt -Dtarget=wasm32-freestanding \
-    -Doptimize=ReleaseSmall -Dvt-features=-all,+render-state
-  ```
+```bash
+# Install dependencies
+sudo pacman -S zig pkg-config gtk4 libadwaita fontconfig freetype2 \
+  harfbuzz libpng zlib bzip2 oniguruma
 
-  This roughly halves the compressed module size versus the default
-  build. An interactive terminal typically wants
-  `-Dvt-features=-all,+render-state,+input-encode,+selection,+color`.
-  Disabled features drop both their C API exports and any escape
-  sequence handling (the sequences are still consumed and safely
-  ignored). See the `Features` struct in `src/terminal/build_options.zig`
-  for the full list of features and what each one covers.
+# Build with makepkg
+cd packaging/arch
+makepkg -sf
+```
 
-- `ReleaseSmall` is the recommended optimization mode for the web. Running
-  the result through [Binaryen's](https://github.com/WebAssembly/binaryen)
-  `wasm-opt -O3` shrinks it by roughly a further 10% without hurting
-  performance.
+## Testing the Workflow
 
-- `ReleaseFast` measures 10-20% faster than `ReleaseSmall` on escape-heavy
-  terminal workloads, but the artifact is dominated by DWARF debug info.
-  If you want the speed, strip it: `wasm-opt -O3 --strip-dwarf` reduces a
-  ReleaseFast build from over 5MB to roughly 1.1MB (versus roughly 0.8MB
-  for ReleaseSmall). When invoking `wasm-opt`, pass the feature flags for
-  what the module uses, e.g. `--enable-simd --enable-bulk-memory
---enable-sign-ext --enable-nontrapping-float-to-int --enable-multivalue
---enable-reference-types`.
+To test the release workflow without creating a real release:
+
+1. Go to **Actions** > **Release Linux Packages**
+2. Click **Run workflow**
+3. Enter a version number (e.g., `0.0.1-test`)
+4. Click **Run workflow**
+
+Artifacts will be available for download from the workflow run (not attached to a release).
+
+## Dependabot
+
+This project uses [Dependabot](https://docs.github.com/en/code-security/dependabot) to keep dependencies up to date:
+
+- **GitHub Actions** - Checked daily, grouped into a single PR
+
+### Zig Dependencies
+
+Zig package ecosystem is not yet supported by Dependabot. Dependencies in `build.zig.zon` must be updated manually. Track progress at: https://github.com/dependabot/dependabot-core/issues/6746
+
+### Reviewing Dependabot PRs
+
+1. Check the PR description for changelog/compatibility notes
+2. Ensure CI passes (the existing CI workflow runs full test matrix)
+3. Merge if all checks pass
+
+## Troubleshooting
+
+### Common Build Failures
+
+| Issue | Solution |
+|-------|----------|
+| Zig version mismatch | Ensure Zig >= 0.16.0 is installed |
+| Missing GTK4 headers | Install `libgtk-4-dev` (Debian) or `gtk4-devel` (Fedora) |
+| Submodule not initialized | Run `git submodule update --init --recursive` |
+| Cross-compilation failure | Zig handles cross-compilation natively; check target triple |
+| Out of memory during build | Zig builds can use significant RAM; ensure at least 4GB available |
+
+### Architecture Notes
+
+- **amd64/x86_64**: Native build on GitHub Actions runners
+- **arm64/aarch64**: Cross-compiled by Zig (no QEMU needed for compilation)
+- **armhf/armv7h**: Cross-compiled by Zig (no QEMU needed for compilation)
+
+Note: While Zig cross-compiles without QEMU, system library headers for the target architecture may still be needed for linking against system libraries (GTK4, etc.).
+
+## Packaging File Locations
+
+```
+packaging/
+├── arch/
+│   └── PKGBUILD          # Arch Linux package definition
+├── debian/
+│   ├── compat            # Debhelper compatibility level
+│   ├── control           # Package metadata and dependencies
+│   ├── copyright         # License information (MIT)
+│   └── rules             # Build rules
+└── rpm/
+    └── ghostty.spec      # RPM specification file
+```
+
+## Related Packaging
+
+- **Flatpak**: `flatpak/com.mitchellh.ghostty.yml`
+- **Snap**: `snap/snapcraft.yaml`
+- **Nix**: `flake.nix`, `default.nix`
+- **Docker (Debian)**: `src/build/docker/debian/Dockerfile`
+
+## Workflow File
+
+The main workflow file is located at:
+```
+.github/workflows/release-packages.yml
+```
