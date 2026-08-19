@@ -26,7 +26,7 @@ msgstr "Отвори у Ghostty-ју"
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
 msgid "Authorize Clipboard Access"
-msgstr "Овласти приступ остави"
+msgstr "Одобри приступ остави"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:17
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:17
