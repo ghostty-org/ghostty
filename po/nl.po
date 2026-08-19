@@ -223,7 +223,7 @@ msgstr "Configuratie"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
-msgstr "Open configuratie in systeemeditor"
+msgstr "Open configuratie in standaardeditor"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
@@ -567,7 +567,7 @@ msgstr "Scroll naar de bovenkant van het scherm."
 
 #: src/input/command.zig:261
 msgid "Scroll to Bottom"
-msgstr "Scroll naar beneden"
+msgstr "Scroll naar het einde"
 
 #: src/input/command.zig:262
 msgid "Scroll to the bottom of the screen."
@@ -913,7 +913,7 @@ msgstr "Focus op de splitsing boven, als die er is."
 
 #: src/input/command.zig:525
 msgid "Focus Split: Down"
-msgstr "Focus splitsing: beneden"
+msgstr "Focus splitsing: onder"
 
 #: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
@@ -993,7 +993,7 @@ msgstr "Toon het schermtoetsenbord, als dat aanwezig is."
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
-msgstr "Open configuratie in systeemeditor"
+msgstr "Open configuratie in standaardeditor"
 
 #: src/input/command.zig:589
 msgid "Open the config file with the OS's default editor."
