@@ -228,7 +228,7 @@ private struct SimulatorPaneControls: View {
                 Task { await model.openInSimulatorApp() }
             }
         }
-        .padding(.horizontal, 3)
+        .padding(.horizontal, 4)
         .background(
             Capsule().fill(Color.black.opacity(0.25))
         )
@@ -250,8 +250,8 @@ private struct SimulatorPaneControls: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 12, weight: .regular))
-                .frame(width: 30, height: 24)
+                .font(.system(size: 15, weight: .regular))
+                .frame(width: 38, height: 30)
                 // The whole cell is the target, not just the glyph.
                 .contentShape(Rectangle())
         }
@@ -264,7 +264,7 @@ private struct SimulatorPaneControls: View {
     private var separator: some View {
         Rectangle()
             .fill(Color.primary.opacity(0.15))
-            .frame(width: 1, height: 14)
+            .frame(width: 1, height: 18)
     }
 }
 
