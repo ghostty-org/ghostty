@@ -981,3 +981,35 @@ under the point**, not a mouse event. Against a plain `NSView` it does nothing a
 all — `hitTest` is never called, `mouseDown` never fires — which reads exactly
 like broken input. Real verification needs `CGEventPost`, and that needs the
 posting process to hold accessibility permission itself.
+
+### Rotation: why the pane has no rotate button
+
+Rotation is not an Indigo event, so the HID client this pane owns cannot express
+it. Simulator.app sends a **GSEvent** — `kGSEventDeviceOrientationChanged`
+(type 50, OR'd with the host flag `0x20000`), a 112-byte mach message with
+`record_info_size = 4` at `0x48` and the orientation at `0x4C` — to the device's
+`PurpleWorkspacePort`. idb documents this completely and dlsym-free in
+`FBSimulatorControl/HID/FBSimulatorPurpleHID.swift`, so the *payload* is not the
+problem.
+
+The transport is. That port is reached through `SimDeviceLegacyClient`, which
+**does not exist on this CoreSimulator** (Phase 0 established that; the live class
+is `SimulatorKit.SimDeviceLegacyHIDClient`). Its only send method is:
+
+```
+-sendWithMessage:freeWhenDone:completionQueue:completion:
+    ^{IndigoHIDMessageStruct=…}
+```
+
+— Indigo only, and nothing in the entire runtime dump mentions "purple" or
+GSEvent. `simctl io <udid> enumerate` lists no orientation port either, and
+`SimDevice` exposes no orientation property.
+
+So rotation would mean finding the purple port some other way and calling
+`mach_msg_send` on it directly — new reverse engineering with a real chance of
+not existing on this version at all. Not attempted. The pane offers ⧉ instead,
+which hands the device to Simulator.app where ⌘←/⌘→ work.
+
+Recording, by contrast, needed no private API: `simctl io <udid> recordVideo`,
+stopped with **SIGINT** — the documented way, and the only one that finalises the
+movie rather than truncating it.

@@ -103,11 +103,58 @@ class SimulatorPaneModel: ObservableObject {
         guard Self.support.isSupported else { return }
         let listed = await Task.detached { SimulatorSession.listDevices() }.value
         devices = listed
+
         // Fall back to a sensible device if nothing is remembered or the
-        // remembered one is gone.
+        // remembered one is gone. Picked out of the list we just fetched rather
+        // than via `preferredDevice()`, which shells out to simctl — and a
+        // simctl spawned from this process can hang (DEVLOG, Phase 5).
+        //
+        // Never while attached: changing the selection tears the session down,
+        // and this runs on a refresh the user did not ask for.
+        guard !isAttached else { return }
         if selectedUDID == nil || !listed.contains(where: { $0.udid == selectedUDID }) {
-            selectedUDID = SimulatorSession.preferredDevice()?.udid ?? listed.first?.udid
+            selectedUDID = listed.first(where: \.isBooted)?.udid ?? listed.first?.udid
         }
+    }
+
+    // MARK: Grouping for the picker
+
+    /// Devices that are booted right now.
+    var runningDevices: [SimDeviceInfo] {
+        devices.filter(\.isBooted)
+    }
+
+    struct RuntimeGroup: Identifiable {
+        let runtime: String
+        let devices: [SimDeviceInfo]
+        var id: String { runtime }
+    }
+
+    /// Devices grouped by runtime, newest version of each platform first.
+    var devicesByRuntime: [RuntimeGroup] {
+        Dictionary(grouping: devices, by: \.runtime)
+            .map { runtime, devices in
+                RuntimeGroup(
+                    runtime: runtime,
+                    devices: devices.sorted {
+                        $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                    })
+            }
+            .sorted(by: Self.newestFirst)
+    }
+
+    /// Platforms alphabetically, versions newest first *numerically* — a plain
+    /// string sort files "iOS 9.0" above "iOS 26.3".
+    private static func newestFirst(_ a: RuntimeGroup, _ b: RuntimeGroup) -> Bool {
+        let left = split(a.runtime)
+        let right = split(b.runtime)
+        if left.platform != right.platform { return left.platform < right.platform }
+        return left.version.compare(right.version, options: .numeric) == .orderedDescending
+    }
+
+    private static func split(_ runtime: String) -> (platform: String, version: String) {
+        guard let separator = runtime.lastIndex(of: " ") else { return (runtime, "") }
+        return (String(runtime[..<separator]), String(runtime[runtime.index(after: separator)...]))
     }
 
     // MARK: Lifecycle
@@ -143,6 +190,12 @@ class SimulatorPaneModel: ObservableObject {
 
     /// Releases the mirror. The device keeps running.
     func detach() {
+        if isRecording, let session {
+            // A recording outliving its pane would keep writing a file nobody is
+            // watching, and only SIGINT makes it playable.
+            Task { await session.stopRecording() }
+            isRecording = false
+        }
         session?.detach()
         session = nil
         keyboardGoesToSimulator = false
@@ -168,6 +221,65 @@ class SimulatorPaneModel: ObservableObject {
         session?.pressButton(button)
     }
 
+    @Published private(set) var isRecording: Bool = false
+    private var recordingURL: URL?
+
+    /// Starts or ends a screen recording. The movie lands on the Desktop beside
+    /// the screenshots and is revealed when it is finished — a recording you
+    /// cannot find is not a recording.
+    func toggleRecording() async {
+        guard let session else { return }
+        if isRecording {
+            await session.stopRecording()
+            isRecording = false
+            if let url = recordingURL {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+                recordingURL = nil
+            }
+            return
+        }
+        do {
+            let url = desktopURL(extension: "mov")
+            try session.startRecording(to: url)
+            recordingURL = url
+            isRecording = true
+            status = nil
+        } catch {
+            status = error.localizedDescription
+        }
+    }
+
+    /// Hands the device to Simulator.app, which detaches the pane.
+    func openInSimulatorApp() async {
+        guard let session else { return }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            if isRecording {
+                await session.stopRecording()
+                isRecording = false
+            }
+            try await session.openInSimulatorApp()
+            self.session = nil
+            await refreshDevices()
+        } catch {
+            status = error.localizedDescription
+        }
+    }
+
+    /// Desktop path stamped with the device name and the time, so repeated
+    /// captures never collide.
+    private func desktopURL(extension ext: String) -> URL {
+        let name = (selectedDevice?.name ?? "Simulator")
+            .replacingOccurrences(of: "/", with: "-")
+        let stamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        return FileManager.default
+            .homeDirectoryForCurrentUser
+            .appendingPathComponent("Desktop")
+            .appendingPathComponent("\(name) \(stamp).\(ext)")
+    }
+
     /// Writes a `simctl` screenshot to the Desktop and reveals it, which is what
     /// a user reaching for a screenshot button almost always wants next.
     func saveScreenshot() async {
@@ -176,14 +288,7 @@ class SimulatorPaneModel: ObservableObject {
         defer { isBusy = false }
         do {
             let data = try await session.screenshotPNG()
-            let name = (selectedDevice?.name ?? "Simulator")
-                .replacingOccurrences(of: "/", with: "-")
-            let stamp = ISO8601DateFormatter().string(from: Date())
-                .replacingOccurrences(of: ":", with: "-")
-            let url = FileManager.default
-                .homeDirectoryForCurrentUser
-                .appendingPathComponent("Desktop")
-                .appendingPathComponent("\(name) \(stamp).png")
+            let url = desktopURL(extension: "png")
             try data.write(to: url)
             NSWorkspace.shared.activateFileViewerSelecting([url])
             status = nil

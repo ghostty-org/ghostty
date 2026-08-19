@@ -66,10 +66,15 @@ cd simpane && swift test
 
 | Control | What it does |
 |---|---|
-| Device picker | Any available device; disabled while attached |
-| ▶ / ■ | Boot and mirror, or shut the device down |
+| Device picker | Grouped by iOS version, with booted devices in a **Running** section at the top and marked with a dot. **Refresh** at the bottom; the list also refreshes when the app comes forward |
+| ▶ / ⏏ | Boot and mirror, or stop mirroring — **⏏ leaves the device running** |
 | ⌂ / 🔒 | Home and Lock, as hardware buttons |
 | 📷 | Writes a `simctl` screenshot to the Desktop and reveals it |
+| ⏺ | Records the screen to a movie on the Desktop; turns red while recording, and reveals the file when stopped |
+| ⏻ | Shuts the device down |
+| ⧉ | Hands the device to Simulator.app, which opens it in its own window (the pane detaches) |
+
+There is no rotate control. Rotation is not reachable from here — see below.
 
 **Where your keystrokes go matters.** Click the mirror and the keyboard is
 routed to the device: the screen gets an accent border and the toolbar shows
@@ -102,6 +107,16 @@ is almost always no Xcode selected, or a private class that has moved.
 **Input does nothing but rendering is fine.** Either CoreSimulator is ≥ 1155.4
 (see Requirements), or the guest is ignoring events because it is still booting.
 A device that shows a black screen with a spinner is not ready yet.
+
+**There is no way to rotate the device.** Rotation is not an Indigo HID event.
+Simulator.app sends a *GSEvent* (`kGSEventDeviceOrientationChanged`, type 50) to
+the device's `PurpleWorkspacePort`, which is a different mach port from the one
+this pane uses. The client class that reference implementations reach it through,
+`SimDeviceLegacyClient`, does not exist in this CoreSimulator — only
+`SimDeviceLegacyHIDClient`, whose sole send method takes an
+`IndigoHIDMessageStruct`. Reaching the purple port would mean looking it up and
+calling `mach_msg_send` directly. Use ⧉ to hand the device to Simulator.app,
+where ⌘← / ⌘→ rotate it.
 
 **"Device shut down. Waiting for it to come back…"** The device's guest process
 died. The pane reattaches by itself once the device is booted again.

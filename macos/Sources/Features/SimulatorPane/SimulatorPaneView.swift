@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import SimPaneKit
 
@@ -21,6 +22,13 @@ struct SimulatorPaneView: View {
             // Populate the picker as soon as the pane appears; attaching is a
             // deliberate act, so it waits for the user.
             await model.refreshDevices()
+        }
+        // A device can be booted or shut down from Xcode, Simulator.app, or a
+        // terminal. Refreshing when the app comes forward keeps the list honest
+        // without polling for it.
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await model.refreshDevices() }
         }
     }
 
@@ -74,6 +82,26 @@ private struct SimulatorPaneToolbar: View {
                 }
                 .disabled(!model.isAttached)
 
+                // Red while running, so a recording left going is obvious.
+                button(model.isRecording ? "stop.circle.fill" : "record.circle",
+                       model.isRecording
+                           ? "Stop recording and reveal the movie"
+                           : "Record the screen to a movie on the Desktop") {
+                    Task { await model.toggleRecording() }
+                }
+                .disabled(!model.isAttached)
+                .foregroundStyle(model.isRecording ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
+
+                button("power", "Shut this device down") {
+                    Task { await model.shutdownDevice() }
+                }
+                .disabled(!model.isAttached || model.isBusy)
+
+                button("macwindow.on.rectangle", "Open this device in Simulator.app") {
+                    Task { await model.openInSimulatorApp() }
+                }
+                .disabled(!model.isAttached || model.isBusy)
+
                 Spacer()
                 focusBadge
             }
@@ -83,27 +111,69 @@ private struct SimulatorPaneToolbar: View {
     }
 
     private var devicePicker: some View {
-        Picker("", selection: Binding(
-            get: { model.selectedUDID ?? "" },
-            set: { model.selectedUDID = $0.isEmpty ? nil : $0 }
-        )) {
+        Menu {
             if model.devices.isEmpty {
-                Text("No devices").tag("")
+                Text("No devices")
+            } else {
+                // Booted devices get their own section at the top. With thirty
+                // simulators installed, the one already running is nearly always
+                // the one being reached for, and hunting for it inside a version
+                // group defeats the point. They deliberately appear twice.
+                if !model.runningDevices.isEmpty {
+                    Section("Running") {
+                        ForEach(model.runningDevices) { deviceItem($0) }
+                    }
+                }
+
+                ForEach(model.devicesByRuntime) { group in
+                    Section(group.runtime) {
+                        ForEach(group.devices) { deviceItem($0) }
+                    }
+                }
             }
-            ForEach(model.devices) { device in
-                Text("\(device.name) — \(device.runtime)").tag(device.udid)
+
+            Divider()
+            Button("Refresh") {
+                Task { await model.refreshDevices() }
             }
+        } label: {
+            Text(selectionLabel)
         }
-        .labelsHidden()
         .controlSize(.small)
         .disabled(model.isAttached || model.isBusy)
+        .help(model.isAttached
+              ? "Shut the device down to pick a different one"
+              : "Choose a simulator to mirror")
+    }
+
+    /// One device row. Running devices carry a filled dot so they can be picked
+    /// out at a glance inside their version group too, not only in "Running".
+    @ViewBuilder
+    private func deviceItem(_ device: SimDeviceInfo) -> some View {
+        Button {
+            model.selectedUDID = device.udid
+        } label: {
+            if device.isBooted {
+                Label(device.name, systemImage: "circle.fill")
+            } else {
+                Text(device.name)
+            }
+        }
+    }
+
+    private var selectionLabel: String {
+        guard let device = model.selectedDevice else { return "No device" }
+        let name = "\(device.name) — \(device.runtime)"
+        return device.isBooted ? "● \(name)" : name
     }
 
     @ViewBuilder
     private var startStopButton: some View {
         if model.isAttached {
-            button("stop.fill", "Shut down this device") {
-                Task { await model.shutdownDevice() }
+            // Detach, not shut down: the power button next to it does that, and
+            // two controls that both kill the device would be a trap.
+            button("eject.fill", "Stop mirroring (the device keeps running)") {
+                model.detach()
             }
         } else {
             button("play.fill", "Boot and mirror this device") {
