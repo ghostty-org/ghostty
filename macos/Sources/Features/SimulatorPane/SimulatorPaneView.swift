@@ -2,13 +2,14 @@ import AppKit
 import SwiftUI
 import SimPaneKit
 
-/// The simulator sidebar: a slim toolbar above a live mirror of the device.
+/// The simulator sidebar: a device picker above a live mirror, with the device
+/// controls in a floating pill along the bottom.
 struct SimulatorPaneView: View {
     @ObservedObject var model: SimulatorPaneModel
 
     var body: some View {
         VStack(spacing: 0) {
-            SimulatorPaneToolbar(model: model)
+            SimulatorPaneHeader(model: model)
             Divider()
 
             if let session = model.session {
@@ -16,6 +17,9 @@ struct SimulatorPaneView: View {
             } else {
                 placeholder
             }
+
+            SimulatorPaneControls(model: model)
+                .padding(.vertical, 10)
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .task {
@@ -55,56 +59,25 @@ struct SimulatorPaneView: View {
     }
 }
 
-// MARK: - Toolbar
+// MARK: - Header: which device, and whether it is mirrored
 
-private struct SimulatorPaneToolbar: View {
+private struct SimulatorPaneHeader: View {
     @ObservedObject var model: SimulatorPaneModel
 
     var body: some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 6) {
-                devicePicker
+        HStack(spacing: 6) {
+            devicePicker
 
-                if model.isBusy {
-                    ProgressView()
-                        .controlSize(.small)
-                        .scaleEffect(0.7)
-                } else {
-                    startStopButton
-                }
+            if model.isBusy {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.7)
+            } else {
+                attachButton
             }
 
-            HStack(spacing: 4) {
-                button("house", "Home") { model.press(.home) }
-                button("lock", "Lock") { model.press(.lock) }
-                button("camera", "Save a screenshot to the Desktop") {
-                    Task { await model.saveScreenshot() }
-                }
-                .disabled(!model.isAttached)
-
-                // Red while running, so a recording left going is obvious.
-                button(model.isRecording ? "stop.circle.fill" : "record.circle",
-                       model.isRecording
-                           ? "Stop recording and reveal the movie"
-                           : "Record the screen to a movie on the Desktop") {
-                    Task { await model.toggleRecording() }
-                }
-                .disabled(!model.isAttached)
-                .foregroundStyle(model.isRecording ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
-
-                button("power", "Shut this device down") {
-                    Task { await model.shutdownDevice() }
-                }
-                .disabled(!model.isAttached || model.isBusy)
-
-                button("macwindow.on.rectangle", "Open this device in Simulator.app") {
-                    Task { await model.openInSimulatorApp() }
-                }
-                .disabled(!model.isAttached || model.isBusy)
-
-                Spacer()
-                focusBadge
-            }
+            Spacer(minLength: 4)
+            focusBadge
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -142,7 +115,7 @@ private struct SimulatorPaneToolbar: View {
         .controlSize(.small)
         .disabled(model.isAttached || model.isBusy)
         .help(model.isAttached
-              ? "Shut the device down to pick a different one"
+              ? "Stop mirroring to pick a different device"
               : "Choose a simulator to mirror")
     }
 
@@ -168,18 +141,26 @@ private struct SimulatorPaneToolbar: View {
     }
 
     @ViewBuilder
-    private var startStopButton: some View {
+    private var attachButton: some View {
         if model.isAttached {
-            // Detach, not shut down: the power button next to it does that, and
-            // two controls that both kill the device would be a trap.
-            button("eject.fill", "Stop mirroring (the device keeps running)") {
+            // Eject, not stop: the power button in the pill shuts the device
+            // down, and two controls that both kill it would be a trap.
+            Button {
                 model.detach()
+            } label: {
+                Image(systemName: "eject.fill").frame(width: 16, height: 16)
             }
+            .buttonStyle(.borderless)
+            .help("Stop mirroring (the device keeps running)")
         } else {
-            button("play.fill", "Boot and mirror this device") {
+            Button {
                 Task { await model.attach() }
+            } label: {
+                Image(systemName: "play.fill").frame(width: 16, height: 16)
             }
+            .buttonStyle(.borderless)
             .disabled(model.selectedUDID == nil)
+            .help("Boot and mirror this device")
         }
     }
 
@@ -196,14 +177,83 @@ private struct SimulatorPaneToolbar: View {
                 .help("Press Escape twice to give the keyboard back to the terminal")
         }
     }
+}
 
-    private func button(_ symbol: String, _ help: String, action: @escaping () -> Void)
-        -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).frame(width: 16, height: 16)
+// MARK: - The control pill
+
+/// Device controls, grouped into one capsule at the bottom of the pane.
+///
+/// Deliberately a single unit rather than loose buttons: these all act on the
+/// device rather than on the pane, and keeping them together — away from the
+/// picker — makes that distinction visible.
+private struct SimulatorPaneControls: View {
+    @ObservedObject var model: SimulatorPaneModel
+
+    var body: some View {
+        HStack(spacing: 0) {
+            control("house", "Home") { model.press(.home) }
+            separator
+            control("lock", "Lock") { model.press(.lock) }
+            separator
+            control("camera", "Save a screenshot to the Desktop") {
+                Task { await model.saveScreenshot() }
+            }
+            separator
+            control(model.isRecording ? "stop.fill" : "video",
+                    model.isRecording
+                        ? "Stop recording and reveal the movie"
+                        : "Record the screen to a movie on the Desktop",
+                    tint: model.isRecording ? .red : nil) {
+                Task { await model.toggleRecording() }
+            }
+            separator
+            control("power", "Shut this device down", enabled: !model.isBusy) {
+                Task { await model.shutdownDevice() }
+            }
+            separator
+            control("rectangle.portrait.and.arrow.right",
+                    "Open this device in Simulator.app",
+                    enabled: !model.isBusy) {
+                Task { await model.openInSimulatorApp() }
+            }
         }
-        .buttonStyle(.borderless)
+        .padding(.horizontal, 3)
+        .background(
+            Capsule().fill(Color.black.opacity(0.25))
+        )
+        .overlay(
+            Capsule().strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
+        )
+        // Everything here acts on a device, so none of it means anything without
+        // one attached.
+        .opacity(model.isAttached ? 1 : 0.4)
+        .animation(.easeInOut(duration: 0.15), value: model.isAttached)
+    }
+
+    private func control(
+        _ symbol: String,
+        _ help: String,
+        tint: Color? = nil,
+        enabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .regular))
+                .frame(width: 30, height: 24)
+                // The whole cell is the target, not just the glyph.
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(tint ?? .primary)
+        .disabled(!model.isAttached || !enabled)
         .help(help)
+    }
+
+    private var separator: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.15))
+            .frame(width: 1, height: 14)
     }
 }
 
