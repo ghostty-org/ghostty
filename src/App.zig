@@ -473,6 +473,7 @@ pub fn performAction(
         .toggle_visibility => _ = try rt_app.performAction(.app, .toggle_visibility, {}),
         .check_for_updates => _ = try rt_app.performAction(.app, .check_for_updates, {}),
         .show_gtk_inspector => _ = try rt_app.performAction(.app, .show_gtk_inspector, {}),
+        .clear_broadcast_groups => self.clearBroadcastGroups(rt_app),
         .undo => _ = try rt_app.performAction(.app, .undo, {}),
 
         .redo => _ = try rt_app.performAction(.app, .redo, {}),
@@ -555,6 +556,166 @@ pub fn findSurfaceByID(self: *const App, id: u64) ?*Surface {
     }
 
     return null;
+}
+
+/// The maximum number of broadcast input groups, one per
+/// broadcast-group-colors color.
+const max_broadcast_groups = Config.BroadcastGroupColors.len;
+
+/// Toggle the given surface's broadcast group membership using the
+/// click semantics: a member surface leaves its group; otherwise the
+/// surface joins the focused surface's group if it has one, else it
+/// starts a new group with the lowest unused group number. If all
+/// group numbers are in use this is a no-op.
+pub fn toggleBroadcastGroup(
+    self: *App,
+    rt_app: *apprt.App,
+    surface: *Surface,
+) void {
+    if (surface.broadcast_group != null) {
+        surface.broadcast_group = null;
+        syncBroadcastGroup(rt_app, surface);
+        return;
+    }
+
+    surface.broadcast_group = group: {
+        if (self.focusedSurface()) |focused| {
+            if (focused.broadcast_group) |group| break :group group;
+        }
+
+        break :group self.lowestUnusedBroadcastGroup() orelse return;
+    };
+    syncBroadcastGroup(rt_app, surface);
+}
+
+/// The lowest group number without any member surface, or null if all
+/// group numbers are taken.
+fn lowestUnusedBroadcastGroup(self: *const App) ?u4 {
+    var used: std.StaticBitSet(max_broadcast_groups) = .initEmpty();
+    for (self.surfaces.items) |rt_surface| {
+        if (rt_surface.core().broadcast_group) |group| used.set(group);
+    }
+    const unused = used.complement().findFirstSet() orelse return null;
+    return @intCast(unused);
+}
+
+/// Toggle the given surface's membership in the broadcast group with
+/// the given one-based number: a surface already in that group leaves
+/// it, any other surface joins it (leaving its previous group).
+///
+/// This is the implementation of the `toggle_broadcast_group`
+/// keybinding action. The group is a u4 so every value is in range.
+pub fn toggleNumberedBroadcastGroup(
+    self: *App,
+    rt_app: *apprt.App,
+    surface: *Surface,
+    group: u4,
+) bool {
+    _ = self;
+    surface.broadcast_group = if (surface.broadcast_group == group)
+        null
+    else
+        group;
+    syncBroadcastGroup(rt_app, surface);
+    return true;
+}
+
+/// Dissolve all broadcast groups. This is the implementation of the
+/// `clear_broadcast_groups` keybinding action.
+fn clearBroadcastGroups(self: *App, rt_app: *apprt.App) void {
+    for (self.surfaces.items) |rt_surface| {
+        const surface = rt_surface.core();
+        if (surface.broadcast_group == null) continue;
+        surface.broadcast_group = null;
+        syncBroadcastGroup(rt_app, surface);
+    }
+}
+
+/// Notify the apprt of the given surface's current broadcast group
+/// membership so it can update its visual indicator.
+fn syncBroadcastGroup(rt_app: *apprt.App, surface: *Surface) void {
+    _ = rt_app.performAction(
+        .{ .surface = surface },
+        .sync_broadcast_group,
+        .{ .group = surface.broadcast_group },
+    ) catch |err| {
+        log.warn("error notifying apprt of broadcast group err={}", .{err});
+    };
+}
+
+/// Replicate a key event typed into the origin surface to the other
+/// members of its broadcast group, if any. Keys that would trigger a
+/// keybinding on the receiving surface are skipped so that broadcast
+/// only ever replicates terminal input (e.g. a split-creating shortcut
+/// doesn't fire once per group member), unless the binding's only
+/// effect is sending terminal input (e.g. the default macOS cmd+left
+/// sends `text:\x01`). See Surface.keyEventBroadcastable.
+///
+/// Iterating the surface list directly is safe in the broadcast
+/// functions below: replication only ever delivers terminal input
+/// (never surface-closing binding actions) and terminal writes are
+/// queued asynchronously, so the callbacks cannot mutate the surface
+/// list mid-iteration.
+pub fn broadcastKeyEvent(
+    self: *App,
+    origin: *Surface,
+    event: input.KeyEvent,
+) void {
+    const group = origin.broadcast_group orelse return;
+    for (self.surfaces.items) |rt_surface| {
+        const peer = rt_surface.core();
+        if (peer == origin) continue;
+        if (peer.broadcast_group != group) continue;
+        if (!peer.keyEventBroadcastable(event)) continue;
+        _ = peer.keyCallbackLocal(event) catch |err| {
+            log.warn("error in broadcast key callback err={}", .{err});
+        };
+    }
+}
+
+/// Replicate text sent to the origin surface to the other members of
+/// its broadcast group, if any. See broadcastKeyEvent.
+pub fn broadcastTextEvent(
+    self: *App,
+    origin: *Surface,
+    text: []const u8,
+) void {
+    const group = origin.broadcast_group orelse return;
+    for (self.surfaces.items) |rt_surface| {
+        const peer = rt_surface.core();
+        if (peer == origin) continue;
+        if (peer.broadcast_group != group) continue;
+        peer.textCallbackLocal(text) catch |err| {
+            log.warn("error in broadcast text callback err={}", .{err});
+        };
+    }
+}
+
+/// Replicate a paste completed on the origin surface to the other
+/// members of its broadcast group, if any. Each member encodes the
+/// paste itself so per-surface state like bracketed paste mode is
+/// respected. See broadcastKeyEvent.
+pub fn broadcastPasteEvent(
+    self: *App,
+    origin: *Surface,
+    data: []const u8,
+) void {
+    const group = origin.broadcast_group orelse return;
+    for (self.surfaces.items) |rt_surface| {
+        const peer = rt_surface.core();
+        if (peer == origin) continue;
+        if (peer.broadcast_group != group) continue;
+
+        // The origin surface's safety check or user confirmation covers
+        // the whole group: the caller only replicates a paste that was
+        // already allowed there. Members must not re-run the safety
+        // check because a member without bracketed paste mode could
+        // judge the same data unsafe and silently drop it, and there is
+        // no way to prompt for confirmation from here.
+        peer.completeClipboardPaste(data, true) catch |err| {
+            log.warn("error in broadcast paste err={}", .{err});
+        };
+    }
 }
 
 fn hasRtSurface(self: *const App, surface: *apprt.Surface) bool {

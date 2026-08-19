@@ -109,6 +109,11 @@ extension Ghostty {
         /// True when the bell is active. This is set inactive on focus or event.
         @Published private(set) var bell: Bool = false
 
+        /// The border color for this surface's broadcast input group, or nil if
+        /// the surface is not in a group. Updated by the core through the
+        /// sync_broadcast_group apprt action.
+        @Published var broadcastGroupColor: Color?
+
         /// A clipboard confirmation waiting to be handled by its controller.
         @Published var pendingClipboardConfirmation: ClipboardConfirmationRequest? {
             didSet {
@@ -682,6 +687,31 @@ extension Ghostty {
             // We always assume that we're resetting our mouse suppression
             // unless we see the specific scenario below to set it.
             suppressNextLeftMouseUp = false
+
+            // A click with the broadcast-group-click-mods modifiers held
+            // toggles broadcast group membership, which the core detects
+            // in its mouse handling. Send the press to the core directly
+            // and consume the event: if it dispatched normally, AppKit
+            // would make this view first responder before delivering
+            // mouseDown, and that focus reaches the core synchronously,
+            // so the toggle would see the clicked surface as the focused
+            // surface and start a new group instead of joining the
+            // focused surface's group. Focus is transferred explicitly
+            // after the toggle instead. The real mouse-up still arrives
+            // and the core swallows the unpaired release itself. When
+            // the app isn't active the click is an ordinary activation
+            // click, so it continues as normal.
+            if NSApp.isActive,
+               let surface = self.surface,
+               let clickMods = derivedConfig.broadcastGroupClickMods,
+               event.modifierFlags.intersection([.shift, .control, .option, .command]) == clickMods {
+                let mods = Ghostty.ghosttyMods(event.modifierFlags)
+                ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
+                if window.firstResponder !== self {
+                    window.makeFirstResponder(self)
+                }
+                return nil
+            }
 
             // If we're already the first responder then no focus transfer is
             // happening, so the click should continue as normal.
@@ -1840,6 +1870,7 @@ extension Ghostty {
             let windowTitleFontFamily: String?
             let windowAppearance: NSAppearance?
             let scrollbar: Ghostty.Config.Scrollbar
+            let broadcastGroupClickMods: NSEvent.ModifierFlags?
 
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
@@ -1849,6 +1880,7 @@ extension Ghostty {
                 self.windowTitleFontFamily = nil
                 self.windowAppearance = nil
                 self.scrollbar = .system
+                self.broadcastGroupClickMods = nil
             }
 
             init(_ config: Ghostty.Config) {
@@ -1859,6 +1891,7 @@ extension Ghostty {
                 self.windowTitleFontFamily = config.windowTitleFontFamily
                 self.windowAppearance = .init(ghosttyConfig: config)
                 self.scrollbar = config.scrollbar
+                self.broadcastGroupClickMods = config.broadcastGroupClickMods
             }
         }
 

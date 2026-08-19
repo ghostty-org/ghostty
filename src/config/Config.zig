@@ -2541,6 +2541,56 @@ keybind: Keybinds = .{},
 /// OS settings. On every other platform it is 500ms.
 @"click-repeat-interval": u32 = 0,
 
+/// The modifier keys that must be held while left-clicking a terminal to
+/// toggle its broadcast input group membership. See the
+/// `toggle_broadcast_group` keybinding action for details on broadcast
+/// input groups.
+///
+/// The value is a comma-separated list of modifiers: `shift`, `ctrl`,
+/// `alt`, and `super` (the command key on macOS). The full modifier
+/// combination must match exactly: with the default, a click with any
+/// additional modifier held is not treated as a group toggle.
+///
+/// Set this to `false` to disable toggling groups by click entirely;
+/// groups can still be managed with the `toggle_broadcast_group`
+/// keybinding action.
+///
+/// When choosing a custom combination, note that Ghostty already assigns
+/// meaning to some modified clicks, such as `shift` (extend selection),
+/// `ctrl` (open link on Linux, context menu on macOS), and `super`
+/// (open link on macOS). Those behaviors will be shadowed if this
+/// setting overlaps them.
+///
+/// The default is `super,shift` on macOS and `ctrl,shift` on Linux.
+///
+/// Available since: 1.4.0
+@"broadcast-group-click-mods": BroadcastGroupClickMods = if (builtin.target.os.tag.isDarwin())
+    .{ .super = true, .shift = true }
+else
+    .{ .ctrl = true, .shift = true },
+
+/// The border colors used to identify broadcast input groups.
+///
+/// The value takes the form `N=COLOR` where `N` is a group number from
+/// 0 to 15 and `COLOR` is a color in hex (`#RRGGBB` or `RRGGBB`) or
+/// named X11 format. Like `palette`, this can be repeated to override
+/// multiple group colors, and only the specified groups change:
+///
+/// ```ini
+/// broadcast-group-colors = 0=#ff0000
+/// broadcast-group-colors = 1=00ff00
+/// ```
+///
+/// At most 16 broadcast groups can exist at once, one per color. The
+/// default `toggle_broadcast_group` keybindings only cover groups 0
+/// through 9; higher groups can be reached by click or by binding the
+/// action with a higher group number. The default colors are ordered
+/// so that consecutive group numbers are visually distinct from each
+/// other.
+///
+/// Available since: 1.4.0
+@"broadcast-group-colors": BroadcastGroupColors = .{},
+
 /// Additional configuration files to read. This configuration can be repeated
 /// to read multiple configuration files. Configuration files themselves can
 /// load more configuration files. Paths are relative to the file containing the
@@ -6972,6 +7022,57 @@ pub const Keybinds = struct {
                 },
             );
         }
+        {
+            // On macOS we default to cmd+ctrl because cmd+shift+N
+            // collides with the system screen capture shortcuts.
+            // Everywhere else is ctrl+shift, matching the default
+            // broadcast-group-click-mods group toggle.
+            const mods: inputpkg.Mods = if (builtin.target.os.tag.isDarwin())
+                .{ .super = true, .ctrl = true }
+            else
+                .{ .ctrl = true, .shift = true };
+
+            // Cmd/Ctrl+Shift+N for broadcast group N - 1 (groups are
+            // zero-based, the number row is one-based). Like the
+            // numeric goto_tab above, we register both the physical
+            // digit key and the unicode digit so layouts with shifted
+            // digits (e.g. AZERTY) work.
+            const start: u21 = '1';
+            const end: u21 = '9';
+            comptime var i: u21 = start;
+            inline while (i <= end) : (i += 1) {
+                try self.set.put(
+                    alloc,
+                    .{
+                        .key = .{ .physical = @field(
+                            inputpkg.Key,
+                            std.fmt.comptimePrint("digit_{u}", .{i}),
+                        ) },
+                        .mods = mods,
+                    },
+                    .{ .toggle_broadcast_group = (i - start) },
+                );
+
+                try self.set.put(
+                    alloc,
+                    .{ .key = .{ .unicode = i }, .mods = mods },
+                    .{ .toggle_broadcast_group = (i - start) },
+                );
+            }
+
+            // 0 toggles group 9, matching the number row read left
+            // to right.
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .physical = .digit_0 }, .mods = mods },
+                .{ .toggle_broadcast_group = 9 },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = '0' }, .mods = mods },
+                .{ .toggle_broadcast_group = 9 },
+            );
+        }
 
         // Toggle fullscreen
         try self.set.put(
@@ -8740,6 +8841,139 @@ pub const MiddleClickAction = enum {
 
     /// No action is taken on middle click.
     ignore,
+};
+
+/// See broadcast-group-click-mods. The field order must match the
+/// bit order of input.Mods (and GHOSTTY_MODS_* in ghostty.h) so the
+/// C API can expose this value as a modifier bitmask.
+pub const BroadcastGroupClickMods = packed struct(u4) {
+    shift: bool = false,
+    ctrl: bool = false,
+    alt: bool = false,
+    super: bool = false,
+
+    /// Returns true if the given mods exactly match this click
+    /// combination. Always false when no modifiers are configured,
+    /// since a bare left click must never toggle groups.
+    pub fn match(self: BroadcastGroupClickMods, mods: inputpkg.Mods) bool {
+        if (@as(u4, @bitCast(self)) == 0) return false;
+        return self.shift == mods.shift and
+            self.ctrl == mods.ctrl and
+            self.alt == mods.alt and
+            self.super == mods.super;
+    }
+};
+
+/// See broadcast-group-colors. This works like Palette: a fixed-size
+/// color table where individual entries can be overridden with
+/// `N=color` config values.
+pub const BroadcastGroupColors = struct {
+    const Self = @This();
+
+    /// The number of colors, which is also the maximum number of
+    /// broadcast groups that can exist at once. Group numbers are a
+    /// u4 so this covers exactly the representable range.
+    pub const len = std.math.maxInt(u4) + 1;
+
+    /// The color for group N is colors[N].
+    ///
+    /// The defaults are ordered so that no two consecutive group
+    /// numbers get easily confused colors, since consecutive numbers
+    /// are what click-created groups receive: hue-adjacent pairs like
+    /// red/pink or blue/cyan are kept apart.
+    colors: [len]Color = .{
+        .{ .r = 0xff, .g = 0x78, .b = 0x00 }, // 0: orange
+        .{ .r = 0x35, .g = 0x84, .b = 0xe4 }, // 1: blue
+        .{ .r = 0xf6, .g = 0xd3, .b = 0x2d }, // 2: yellow
+        .{ .r = 0x91, .g = 0x41, .b = 0xac }, // 3: purple
+        .{ .r = 0x33, .g = 0xd1, .b = 0x7a }, // 4: green
+        .{ .r = 0xe0, .g = 0x1b, .b = 0x24 }, // 5: red
+        .{ .r = 0x33, .g = 0xc7, .b = 0xde }, // 6: cyan
+        .{ .r = 0xdc, .g = 0x8a, .b = 0xdd }, // 7: pink
+        .{ .r = 0xb5, .g = 0x83, .b = 0x5a }, // 8: brown
+        .{ .r = 0x99, .g = 0xc1, .b = 0xf1 }, // 9: light blue
+        .{ .r = 0xa5, .g = 0x1d, .b = 0x2d }, // 10: dark red
+        .{ .r = 0x8f, .g = 0xf0, .b = 0xa4 }, // 11: light green
+        .{ .r = 0x61, .g = 0x35, .b = 0x83 }, // 12: dark purple
+        .{ .r = 0x9a, .g = 0x99, .b = 0x96 }, // 13: gray
+        .{ .r = 0x1a, .g = 0x5f, .b = 0xb4 }, // 14: dark blue
+        .{ .r = 0xff, .g = 0xbe, .b = 0x6f }, // 15: light orange
+    },
+
+    /// ghostty_config_broadcast_group_colors_s
+    pub const C = extern struct {
+        colors: [len]Color.C,
+    };
+
+    pub fn cval(self: Self) C {
+        var result: C = undefined;
+        for (self.colors, 0..) |color, i| result.colors[i] = color.cval();
+        return result;
+    }
+
+    pub fn parseCLI(self: *Self, input: ?[]const u8) !void {
+        const value = input orelse return error.ValueRequired;
+        const eql_idx = std.mem.indexOfScalar(u8, value, '=') orelse
+            return error.InvalidValue;
+
+        // A u4 makes the bounds check unnecessary: out of range
+        // numbers fail to parse.
+        const number = std.fmt.parseInt(
+            u4,
+            std.mem.trim(u8, value[0..eql_idx], " "),
+            10,
+        ) catch return error.InvalidValue;
+
+        self.colors[number] = try Color.parseCLI(
+            std.mem.trim(u8, value[eql_idx + 1 ..], " "),
+        );
+    }
+
+    /// Deep copy of the struct. Required by Config.
+    pub fn clone(self: Self, _: Allocator) error{}!Self {
+        return self;
+    }
+
+    /// Compare if two of our value are requal. Required by Config.
+    pub fn equal(self: Self, other: Self) bool {
+        return std.meta.eql(self, other);
+    }
+
+    /// Used by Formatter
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
+        var buf: [128]u8 = undefined;
+        for (self.colors, 0..) |v, number| {
+            var color_buf: [128]u8 = undefined;
+            const color_str = try v.formatBuf(&color_buf);
+            try formatter.formatEntry(
+                []const u8,
+                std.fmt.bufPrint(
+                    &buf,
+                    "{d}={s}",
+                    .{ number, color_str },
+                ) catch return error.OutOfMemory,
+            );
+        }
+    }
+
+    test "parseCLI" {
+        const testing = std.testing;
+
+        var p: Self = .{};
+        try p.parseCLI("3=#AABBCC");
+        try testing.expectEqual(Color{ .r = 0xAA, .g = 0xBB, .b = 0xCC }, p.colors[3]);
+
+        // Whitespace and named colors are allowed
+        try p.parseCLI("0 = black");
+        try testing.expectEqual(Color{ .r = 0, .g = 0, .b = 0 }, p.colors[0]);
+        try p.parseCLI("15=white");
+        try testing.expectEqual(Color{ .r = 0xff, .g = 0xff, .b = 0xff }, p.colors[15]);
+
+        // Group numbers are bounded by the u4 range
+        try testing.expectError(error.InvalidValue, p.parseCLI("16=#AABBCC"));
+        try testing.expectError(error.InvalidValue, p.parseCLI("#AABBCC"));
+        try testing.expectError(error.ValueRequired, p.parseCLI(null));
+    }
 };
 
 /// Shell integration values

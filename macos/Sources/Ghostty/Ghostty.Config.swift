@@ -439,6 +439,34 @@ extension Ghostty {
             return buffer.map { .init(ghostty: $0) }
         }
 
+        /// The modifiers that toggle broadcast group membership on left
+        /// click, or nil when toggling by click is disabled.
+        var broadcastGroupClickMods: NSEvent.ModifierFlags? {
+            guard let config = self.config else { return nil }
+            var v: UInt32 = 0
+            let key = "broadcast-group-click-mods"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
+            guard v != 0 else { return nil }
+
+            // The config value's bits match the GHOSTTY_MODS_* values.
+            return Ghostty.eventModifierFlags(mods: ghostty_input_mods_e(v))
+        }
+
+        /// The border colors identifying broadcast input groups, one
+        /// per group number.
+        var broadcastGroupColors: [NSColor] {
+            guard let config = self.config else { return [] }
+            var v: ghostty_config_broadcast_group_colors_s = .init()
+            let key = "broadcast-group-colors"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return [] }
+
+            // The fixed-size C array imports as a tuple, so read the
+            // colors through its raw bytes.
+            return withUnsafeBytes(of: v.colors) { buf in
+                buf.bindMemory(to: ghostty_config_color_s.self).map { .init(ghostty: $0) }
+            }
+        }
+
         var macosHidden: MacHidden {
             guard let config = self.config else { return .never }
             var v: UnsafePointer<Int8>?

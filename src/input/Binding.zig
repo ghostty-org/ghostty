@@ -673,6 +673,32 @@ pub const Action = union(enum) {
     ///     process is not running
     toggle_readonly,
 
+    /// Toggle the current terminal's membership in the numbered broadcast
+    /// input group, creating the group if it doesn't exist yet. Keyboard
+    /// input typed into and text pasted into any member of a broadcast
+    /// group is replicated to every other member, similar to iTerm2's
+    /// broadcast input and tmux's synchronized panes.
+    ///
+    /// The argument is the group number from 0 to 15. Each group is
+    /// outlined with a distinct border color (see
+    /// `broadcast-group-colors`). A terminal that is already in the given
+    /// group is removed from it instead (toggle), and a terminal in a
+    /// different group is moved to the given group.
+    ///
+    /// The default keybindings map the number row to groups 0 through
+    /// 9: cmd+ctrl+1 (macOS) or ctrl+shift+1 (Linux) toggles group 0,
+    /// and so on, with 0 toggling group 9.
+    ///
+    /// Terminals can also be toggled in and out of groups by clicking
+    /// them with the modifiers set by `broadcast-group-click-mods`
+    /// (by default cmd+shift+click on macOS, ctrl+shift+click on Linux).
+    toggle_broadcast_group: u4,
+
+    /// Remove every terminal from its broadcast input group, dissolving
+    /// all groups at once. See `toggle_broadcast_group` for details on
+    /// broadcast input groups.
+    clear_broadcast_groups,
+
     /// Resize the current split in the specified direction and amount in
     /// pixels. The two arguments should be joined with a comma (`,`),
     /// like in `resize_split:up,10`.
@@ -1348,6 +1374,36 @@ pub const Action = union(enum) {
         return Error.InvalidAction;
     }
 
+    /// Returns true if this action's only effect is to send input to
+    /// the terminal, i.e. write to the pty as if the user had typed it.
+    ///
+    /// Key events that trigger such a binding are replicated to the
+    /// other members of a broadcast input group, since replicating
+    /// terminal input is exactly what broadcast is for. Events that
+    /// trigger any other kind of binding only run on the surface that
+    /// received them.
+    pub fn terminalInput(self: Action) bool {
+        return switch (self) {
+            .csi,
+            .esc,
+            .text,
+            .cursor_key,
+            => true,
+
+            else => false,
+        };
+    }
+
+    test "terminalInput" {
+        const testing = std.testing;
+        try testing.expect((Action{ .text = "\\x01" }).terminalInput());
+        try testing.expect((Action{ .csi = "A" }).terminalInput());
+        try testing.expect((Action{ .esc = "b" }).terminalInput());
+        try testing.expect(!(Action{ .ignore = {} }).terminalInput());
+        try testing.expect(!(Action{ .paste_from_clipboard = {} }).terminalInput());
+        try testing.expect(!(Action{ .new_window = {} }).terminalInput());
+    }
+
     /// The scope of an action. The scope is the context in which an action
     /// must be executed.
     pub const Scope = enum {
@@ -1372,6 +1428,7 @@ pub const Action = union(enum) {
             .toggle_visibility,
             .check_for_updates,
             .show_gtk_inspector,
+            .clear_broadcast_groups,
             => .app,
 
             // These are app but can be special-cased in a surface context.
@@ -1459,6 +1516,7 @@ pub const Action = union(enum) {
             .goto_window,
             .toggle_split_zoom,
             .toggle_readonly,
+            .toggle_broadcast_group,
             .resize_split,
             .equalize_splits,
             .inspector,

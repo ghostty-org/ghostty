@@ -415,7 +415,8 @@ pub fn parseIntoField(
 
                 bool => try parseBool(value orelse "t"),
 
-                inline u8,
+                inline u4,
+                u8,
                 u16,
                 u21,
                 u32,

@@ -357,6 +357,12 @@ pub const Action = union(Key) {
     /// Move a tab to a new window.
     move_tab_to_new_window,
 
+    /// The target surface's broadcast input group membership changed.
+    /// The apprt should sync its visual indicator (e.g. a border in
+    /// the group's color). Group membership itself is managed entirely
+    /// by the core.
+    sync_broadcast_group: BroadcastGroup,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -428,6 +434,7 @@ pub const Action = union(Key) {
         readonly,
         copy_title_to_clipboard,
         move_tab_to_new_window,
+        sync_broadcast_group,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -561,6 +568,27 @@ pub const ResizeSplit = extern struct {
 
 pub const MoveTab = extern struct {
     amount: isize,
+};
+
+/// A surface's current broadcast input group membership.
+pub const BroadcastGroup = struct {
+    /// The group, which doubles as the color index into
+    /// `broadcast-group-colors`, or null if the surface is not in a
+    /// group.
+    group: ?u4,
+
+    // Sync with: ghostty_action_broadcast_group_s
+    pub const C = extern struct {
+        member: bool,
+        group: u8,
+    };
+
+    pub fn cval(self: BroadcastGroup) C {
+        return .{
+            .member = self.group != null,
+            .group = self.group orelse 0,
+        };
+    }
 };
 
 /// The tab to jump to. This is non-exhaustive so that integer values represent

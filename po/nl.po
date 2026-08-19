@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-08-10 10:06-0500\n"
+"POT-Creation-Date: 2026-08-17 10:51-0700\n"
 "PO-Revision-Date: 2026-02-18 20:59+0100\n"
 "Last-Translator: Nico Geesink <geesinknico@gmail.com>\n"
 "Language-Team: Dutch <vertaling@vrijschrift.org>\n"
@@ -49,7 +49,7 @@ msgstr "Herlaad de configuratie om deze prompt opnieuw weer te geven"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2263
+#: src/apprt/gtk/class/application.zig:2298
 msgid "Cancel"
 msgstr "Annuleren"
 
@@ -76,7 +76,7 @@ msgid "Ignore"
 msgstr "Negeer"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:13
-#: src/apprt/gtk/ui/1.2/surface.blp:439 src/apprt/gtk/ui/1.5/window.blp:318
+#: src/apprt/gtk/ui/1.2/surface.blp:462 src/apprt/gtk/ui/1.5/window.blp:318
 msgid "Reload Configuration"
 msgstr "Herlaad configuratie"
 
@@ -126,105 +126,105 @@ msgstr ""
 msgid "Read-only"
 msgstr "Alleen-lezen"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:316 src/apprt/gtk/ui/1.5/window.blp:203
+#: src/apprt/gtk/ui/1.2/surface.blp:339 src/apprt/gtk/ui/1.5/window.blp:203
 msgid "Copy"
 msgstr "Kopiëren"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:321 src/apprt/gtk/ui/1.5/window.blp:208
+#: src/apprt/gtk/ui/1.2/surface.blp:344 src/apprt/gtk/ui/1.5/window.blp:208
 msgid "Paste"
 msgstr "Plakken"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:326
+#: src/apprt/gtk/ui/1.2/surface.blp:349
 msgid "Notify on Next Command Finish"
 msgstr "Meld wanneer het volgende commando is afgerond"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
+#: src/apprt/gtk/ui/1.2/surface.blp:356 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
 msgstr "Leegmaken"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:338 src/apprt/gtk/ui/1.5/window.blp:286
+#: src/apprt/gtk/ui/1.2/surface.blp:361 src/apprt/gtk/ui/1.5/window.blp:286
 msgid "Reset"
 msgstr "Herstellen"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:250
+#: src/apprt/gtk/ui/1.2/surface.blp:368 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split"
 msgstr "Splitsen"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:348 src/apprt/gtk/ui/1.5/window.blp:253
+#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:253
 msgid "Change Title…"
 msgstr "Wijzig titel…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:353 src/apprt/gtk/ui/1.5/window.blp:180
+#: src/apprt/gtk/ui/1.2/surface.blp:376 src/apprt/gtk/ui/1.5/window.blp:180
 #: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:487
 msgid "Split Up"
 msgstr "Splits naar boven"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:359 src/apprt/gtk/ui/1.5/window.blp:185
+#: src/apprt/gtk/ui/1.2/surface.blp:382 src/apprt/gtk/ui/1.5/window.blp:185
 #: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:492
 msgid "Split Down"
 msgstr "Splits naar beneden"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:365 src/apprt/gtk/ui/1.5/window.blp:190
+#: src/apprt/gtk/ui/1.2/surface.blp:388 src/apprt/gtk/ui/1.5/window.blp:190
 #: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
 msgid "Split Left"
 msgstr "Splits naar links"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:195
+#: src/apprt/gtk/ui/1.2/surface.blp:394 src/apprt/gtk/ui/1.5/window.blp:195
 #: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
 msgid "Split Right"
 msgstr "Splits naar rechts"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:377
+#: src/apprt/gtk/ui/1.2/surface.blp:400
 msgid "Close Split"
 msgstr ""
 
-#: src/apprt/gtk/ui/1.2/surface.blp:383
+#: src/apprt/gtk/ui/1.2/surface.blp:406
 msgid "Tab"
 msgstr "Tabblad"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:386 src/apprt/gtk/ui/1.5/window.blp:232
+#: src/apprt/gtk/ui/1.2/surface.blp:409 src/apprt/gtk/ui/1.5/window.blp:232
 #: src/apprt/gtk/ui/1.5/window.blp:339 src/input/command.zig:464
 msgid "Change Tab Title…"
 msgstr "Wijzig tabbladtitel…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:391 src/apprt/gtk/ui/1.5/window.blp:60
+#: src/apprt/gtk/ui/1.2/surface.blp:414 src/apprt/gtk/ui/1.5/window.blp:60
 #: src/apprt/gtk/ui/1.5/window.blp:110 src/apprt/gtk/ui/1.5/window.blp:237
 #: src/input/command.zig:427
 msgid "New Tab"
 msgstr "Nieuw tabblad"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:396 src/apprt/gtk/ui/1.5/window.blp:242
+#: src/apprt/gtk/ui/1.2/surface.blp:419 src/apprt/gtk/ui/1.5/window.blp:242
 #: src/input/command.zig:613
 msgid "Close Tab"
 msgstr "Sluit tabblad"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:403
+#: src/apprt/gtk/ui/1.2/surface.blp:426
 msgid "Window"
 msgstr "Venster"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:215
+#: src/apprt/gtk/ui/1.2/surface.blp:429 src/apprt/gtk/ui/1.5/window.blp:215
 msgid "Change Window Title…"
 msgstr ""
 
-#: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:220
+#: src/apprt/gtk/ui/1.2/surface.blp:434 src/apprt/gtk/ui/1.5/window.blp:220
 #: src/input/command.zig:421
 msgid "New Window"
 msgstr "Nieuw venster"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:416 src/apprt/gtk/ui/1.5/window.blp:225
+#: src/apprt/gtk/ui/1.2/surface.blp:439 src/apprt/gtk/ui/1.5/window.blp:225
 #: src/input/command.zig:630
 msgid "Close Window"
 msgstr "Sluit venster"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:424 src/apprt/gtk/ui/1.5/window.blp:303
+#: src/apprt/gtk/ui/1.2/surface.blp:447 src/apprt/gtk/ui/1.5/window.blp:303
 msgid "Config"
 msgstr "Configuratie"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
+#: src/apprt/gtk/ui/1.2/surface.blp:450 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
 msgstr ""
 
-#: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
+#: src/apprt/gtk/ui/1.2/surface.blp:456 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
 msgstr ""
 
@@ -256,11 +256,11 @@ msgstr "Opdrachtpalet"
 msgid "Terminal Inspector"
 msgstr "Terminalinspecteur"
 
-#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1991
+#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1997
 msgid "About Ghostty"
 msgstr "Over Ghostty"
 
-#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:708
 msgid "Quit"
 msgstr "Afsluiten"
 
@@ -268,27 +268,27 @@ msgstr "Afsluiten"
 msgid "Execute a command…"
 msgstr "Voer een commando uit…"
 
-#: src/apprt/gtk/class/application.zig:1767
+#: src/apprt/gtk/class/application.zig:1781
 msgid "The keybind was revoked by the system."
 msgstr ""
 
-#: src/apprt/gtk/class/application.zig:1769
+#: src/apprt/gtk/class/application.zig:1783
 msgid "The keybind was denied by the system."
 msgstr ""
 
-#: src/apprt/gtk/class/application.zig:1780
+#: src/apprt/gtk/class/application.zig:1794
 msgid "Global keybind unavailable"
 msgstr ""
 
-#: src/apprt/gtk/class/application.zig:2259
+#: src/apprt/gtk/class/application.zig:2294
 msgid "Export Terminal IO Events"
 msgstr ""
 
-#: src/apprt/gtk/class/application.zig:2262
+#: src/apprt/gtk/class/application.zig:2297
 msgid "Export"
 msgstr ""
 
-#: src/apprt/gtk/class/application.zig:2783
+#: src/apprt/gtk/class/application.zig:2837
 msgid "Editing configuration file"
 msgstr ""
 
@@ -352,16 +352,16 @@ msgstr "Alle terminalsessies binnen dit venster zullen worden beëindigd."
 msgid "The currently running process in this split will be terminated."
 msgstr "Alle processen in deze splitsing zullen worden beëindigd."
 
-#: src/apprt/gtk/class/surface.zig:1181
+#: src/apprt/gtk/class/surface.zig:1186
 msgid "Command Finished"
 msgstr "Commando afgerond"
 
-#: src/apprt/gtk/class/surface.zig:1182
+#: src/apprt/gtk/class/surface.zig:1187
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
 msgstr "Commando succesvol afgerond"
 
-#: src/apprt/gtk/class/surface.zig:1183
+#: src/apprt/gtk/class/surface.zig:1188
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
 msgstr "Commando onsuccesvol afgerond"
@@ -378,19 +378,19 @@ msgstr "Wijzig tabbladtitel"
 msgid "Change Window Title"
 msgstr ""
 
-#: src/apprt/gtk/class/window.zig:1153
+#: src/apprt/gtk/class/window.zig:1159
 msgid "Reloaded the configuration"
 msgstr "De configuratie is herladen"
 
-#: src/apprt/gtk/class/window.zig:1830
+#: src/apprt/gtk/class/window.zig:1836
 msgid "Copied to clipboard"
 msgstr "Gekopieerd naar klembord"
 
-#: src/apprt/gtk/class/window.zig:1832
+#: src/apprt/gtk/class/window.zig:1838
 msgid "Cleared clipboard"
 msgstr "Klembord geleegd"
 
-#: src/apprt/gtk/class/window.zig:1972
+#: src/apprt/gtk/class/window.zig:1978
 msgid "Ghostty Developers"
 msgstr "Ghostty-ontwikkelaars"
 
@@ -1092,14 +1092,22 @@ msgstr ""
 msgid "Redo the last undone action."
 msgstr ""
 
-#: src/input/command.zig:703
-msgid "Quit the application."
+#: src/input/command.zig:702
+msgid "Clear Broadcast Groups"
 msgstr ""
 
-#: src/input/command.zig:708
-msgid "Ghostty"
+#: src/input/command.zig:703
+msgid "Remove all terminals from broadcast input groups."
 msgstr ""
 
 #: src/input/command.zig:709
+msgid "Quit the application."
+msgstr ""
+
+#: src/input/command.zig:714
+msgid "Ghostty"
+msgstr ""
+
+#: src/input/command.zig:715
 msgid "Put a little Ghostty in your terminal."
 msgstr ""

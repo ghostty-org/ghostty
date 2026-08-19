@@ -638,6 +638,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
                 return copyTitleToClipboard(app, target: target)
 
+            case GHOSTTY_ACTION_SYNC_BROADCAST_GROUP:
+                return syncBroadcastGroup(app, target: target, v: action.action.sync_broadcast_group)
+
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue, privacy: .public)")
                 return false
@@ -1137,6 +1140,42 @@ extension Ghostty {
                 }
 
                 return true
+        }
+
+        private static func syncBroadcastGroup(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_broadcast_group_s) -> Bool {
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("broadcast group does nothing with an app target")
+                    return false
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+
+                    Task { @MainActor in
+                        surfaceView.broadcastGroupColor = broadcastGroupColor(v)
+                    }
+                    return true
+
+                default:
+                    assertionFailure()
+                    return false
+                }
+        }
+
+        /// The border color for the given broadcast group membership, from
+        /// the broadcast-group-colors configuration.
+        @MainActor
+        private static func broadcastGroupColor(_ v: ghostty_action_broadcast_group_s) -> Color? {
+            guard v.member else { return nil }
+            guard let delegate = NSApp.delegate as? AppDelegate else { return nil }
+            let colors = delegate.ghostty.config.broadcastGroupColors
+            let idx = Int(v.group)
+            guard idx < colors.count else { return nil }
+            return Color(colors[idx])
         }
 
         private static func gotoTab(

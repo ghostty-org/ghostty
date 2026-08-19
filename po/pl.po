@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-08-10 10:06-0500\n"
+"POT-Creation-Date: 2026-08-17 10:51-0700\n"
 "PO-Revision-Date: 2026-08-13 21:08+0100\n"
 "Last-Translator: trag1c <dev@jakubr.me>\n"
 "Language-Team: Polish <translation-team-pl@lists.sourceforge.net>\n"
@@ -51,7 +51,7 @@ msgstr "Przeładuj konfigurację, by ponownie wyświetlić ten komunikat"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2263
+#: src/apprt/gtk/class/application.zig:2298
 msgid "Cancel"
 msgstr "Anuluj"
 
@@ -78,7 +78,7 @@ msgid "Ignore"
 msgstr "Zignoruj"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:13
-#: src/apprt/gtk/ui/1.2/surface.blp:439 src/apprt/gtk/ui/1.5/window.blp:318
+#: src/apprt/gtk/ui/1.2/surface.blp:462 src/apprt/gtk/ui/1.5/window.blp:318
 msgid "Reload Configuration"
 msgstr "Przeładuj konfigurację"
 
@@ -126,105 +126,105 @@ msgstr ""
 msgid "Read-only"
 msgstr "Tylko do odczytu"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:316 src/apprt/gtk/ui/1.5/window.blp:203
+#: src/apprt/gtk/ui/1.2/surface.blp:339 src/apprt/gtk/ui/1.5/window.blp:203
 msgid "Copy"
 msgstr "Kopiuj"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:321 src/apprt/gtk/ui/1.5/window.blp:208
+#: src/apprt/gtk/ui/1.2/surface.blp:344 src/apprt/gtk/ui/1.5/window.blp:208
 msgid "Paste"
 msgstr "Wklej"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:326
+#: src/apprt/gtk/ui/1.2/surface.blp:349
 msgid "Notify on Next Command Finish"
 msgstr "Powiadom o ukończeniu następnej komendy"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
+#: src/apprt/gtk/ui/1.2/surface.blp:356 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
 msgstr "Wyczyść"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:338 src/apprt/gtk/ui/1.5/window.blp:286
+#: src/apprt/gtk/ui/1.2/surface.blp:361 src/apprt/gtk/ui/1.5/window.blp:286
 msgid "Reset"
 msgstr "Zresetuj"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:250
+#: src/apprt/gtk/ui/1.2/surface.blp:368 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split"
 msgstr "Podział"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:348 src/apprt/gtk/ui/1.5/window.blp:253
+#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:253
 msgid "Change Title…"
 msgstr "Zmień tytuł…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:353 src/apprt/gtk/ui/1.5/window.blp:180
+#: src/apprt/gtk/ui/1.2/surface.blp:376 src/apprt/gtk/ui/1.5/window.blp:180
 #: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:487
 msgid "Split Up"
 msgstr "Podziel w górę"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:359 src/apprt/gtk/ui/1.5/window.blp:185
+#: src/apprt/gtk/ui/1.2/surface.blp:382 src/apprt/gtk/ui/1.5/window.blp:185
 #: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:492
 msgid "Split Down"
 msgstr "Podziel w dół"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:365 src/apprt/gtk/ui/1.5/window.blp:190
+#: src/apprt/gtk/ui/1.2/surface.blp:388 src/apprt/gtk/ui/1.5/window.blp:190
 #: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
 msgid "Split Left"
 msgstr "Podziel w lewo"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:195
+#: src/apprt/gtk/ui/1.2/surface.blp:394 src/apprt/gtk/ui/1.5/window.blp:195
 #: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
 msgid "Split Right"
 msgstr "Podziel w prawo"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:377
+#: src/apprt/gtk/ui/1.2/surface.blp:400
 msgid "Close Split"
 msgstr "Zamknij podział"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:383
+#: src/apprt/gtk/ui/1.2/surface.blp:406
 msgid "Tab"
 msgstr "Karta"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:386 src/apprt/gtk/ui/1.5/window.blp:232
+#: src/apprt/gtk/ui/1.2/surface.blp:409 src/apprt/gtk/ui/1.5/window.blp:232
 #: src/apprt/gtk/ui/1.5/window.blp:339 src/input/command.zig:464
 msgid "Change Tab Title…"
 msgstr "Zmień tytuł karty…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:391 src/apprt/gtk/ui/1.5/window.blp:60
+#: src/apprt/gtk/ui/1.2/surface.blp:414 src/apprt/gtk/ui/1.5/window.blp:60
 #: src/apprt/gtk/ui/1.5/window.blp:110 src/apprt/gtk/ui/1.5/window.blp:237
 #: src/input/command.zig:427
 msgid "New Tab"
 msgstr "Nowa karta"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:396 src/apprt/gtk/ui/1.5/window.blp:242
+#: src/apprt/gtk/ui/1.2/surface.blp:419 src/apprt/gtk/ui/1.5/window.blp:242
 #: src/input/command.zig:613
 msgid "Close Tab"
 msgstr "Zamknij kartę"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:403
+#: src/apprt/gtk/ui/1.2/surface.blp:426
 msgid "Window"
 msgstr "Okno"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:215
+#: src/apprt/gtk/ui/1.2/surface.blp:429 src/apprt/gtk/ui/1.5/window.blp:215
 msgid "Change Window Title…"
 msgstr "Zmień tytuł okna…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:220
+#: src/apprt/gtk/ui/1.2/surface.blp:434 src/apprt/gtk/ui/1.5/window.blp:220
 #: src/input/command.zig:421
 msgid "New Window"
 msgstr "Nowe okno"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:416 src/apprt/gtk/ui/1.5/window.blp:225
+#: src/apprt/gtk/ui/1.2/surface.blp:439 src/apprt/gtk/ui/1.5/window.blp:225
 #: src/input/command.zig:630
 msgid "Close Window"
 msgstr "Zamknij okno"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:424 src/apprt/gtk/ui/1.5/window.blp:303
+#: src/apprt/gtk/ui/1.2/surface.blp:447 src/apprt/gtk/ui/1.5/window.blp:303
 msgid "Config"
 msgstr "Konfiguracja"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
+#: src/apprt/gtk/ui/1.2/surface.blp:450 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
 msgstr "Otwórz konfigurację w systemowym edytorze"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
+#: src/apprt/gtk/ui/1.2/surface.blp:456 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
 msgstr "Otwórz konfigurację w nowym oknie"
 
@@ -256,11 +256,11 @@ msgstr "Paleta komend"
 msgid "Terminal Inspector"
 msgstr "Inspektor terminala"
 
-#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1991
+#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1997
 msgid "About Ghostty"
 msgstr "O Ghostty"
 
-#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:708
 msgid "Quit"
 msgstr "Zamknij"
 
@@ -268,27 +268,27 @@ msgstr "Zamknij"
 msgid "Execute a command…"
 msgstr "Wykonaj komendę…"
 
-#: src/apprt/gtk/class/application.zig:1767
+#: src/apprt/gtk/class/application.zig:1781
 msgid "The keybind was revoked by the system."
 msgstr "Skrót klawiszowy został unieważniony przez system."
 
-#: src/apprt/gtk/class/application.zig:1769
+#: src/apprt/gtk/class/application.zig:1783
 msgid "The keybind was denied by the system."
 msgstr "Skrót klawiszowy został odrzucony przez system."
 
-#: src/apprt/gtk/class/application.zig:1780
+#: src/apprt/gtk/class/application.zig:1794
 msgid "Global keybind unavailable"
 msgstr "Globalny skrót klawiszowy jest niedostępny"
 
-#: src/apprt/gtk/class/application.zig:2259
+#: src/apprt/gtk/class/application.zig:2294
 msgid "Export Terminal IO Events"
 msgstr "Wyeksportuj zdarzenia IO terminala"
 
-#: src/apprt/gtk/class/application.zig:2262
+#: src/apprt/gtk/class/application.zig:2297
 msgid "Export"
 msgstr "Eksportuj"
 
-#: src/apprt/gtk/class/application.zig:2783
+#: src/apprt/gtk/class/application.zig:2837
 msgid "Editing configuration file"
 msgstr "Edytowanie pliku konfiguracyjnego"
 
@@ -352,16 +352,16 @@ msgstr "Wszystkie sesje terminala w obecnym oknie zostaną zakończone."
 msgid "The currently running process in this split will be terminated."
 msgstr "Wszystkie trwające procesy w obecnym podziale zostaną zakończone."
 
-#: src/apprt/gtk/class/surface.zig:1181
+#: src/apprt/gtk/class/surface.zig:1186
 msgid "Command Finished"
 msgstr "Komenda zakończona"
 
-#: src/apprt/gtk/class/surface.zig:1182
+#: src/apprt/gtk/class/surface.zig:1187
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
 msgstr "Komenda wykonana pomyślnie"
 
-#: src/apprt/gtk/class/surface.zig:1183
+#: src/apprt/gtk/class/surface.zig:1188
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
 msgstr "Komenda nie powiodła się"
@@ -378,19 +378,19 @@ msgstr "Zmień tytuł karty"
 msgid "Change Window Title"
 msgstr "Zmień tytuł okna"
 
-#: src/apprt/gtk/class/window.zig:1153
+#: src/apprt/gtk/class/window.zig:1159
 msgid "Reloaded the configuration"
 msgstr "Przeładowano konfigurację"
 
-#: src/apprt/gtk/class/window.zig:1830
+#: src/apprt/gtk/class/window.zig:1836
 msgid "Copied to clipboard"
 msgstr "Skopiowano do schowka"
 
-#: src/apprt/gtk/class/window.zig:1832
+#: src/apprt/gtk/class/window.zig:1838
 msgid "Cleared clipboard"
 msgstr "Wyczyszczono schowek"
 
-#: src/apprt/gtk/class/window.zig:1972
+#: src/apprt/gtk/class/window.zig:1978
 msgid "Ghostty Developers"
 msgstr "Twórcy Ghostty"
 
@@ -410,8 +410,8 @@ msgstr "Skopiuj do schowka"
 msgid ""
 "Copy the selected text to the clipboard in both plain and styled formats."
 msgstr ""
-"Skopiuj zaznaczony tekst do schowka jako zwykły tekst oraz z "
-"zachowaniem formatowania."
+"Skopiuj zaznaczony tekst do schowka jako zwykły tekst oraz z zachowaniem "
+"formatowania."
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
@@ -495,7 +495,8 @@ msgstr "Zakończ wyszukiwanie"
 
 #: src/input/command.zig:210
 msgid "End the current search if any and hide any GUI elements."
-msgstr "Zakończ obecne wyszukiwanie (jeśli trwa) i ukryj wszelkie elementy GUI."
+msgstr ""
+"Zakończ obecne wyszukiwanie (jeśli trwa) i ukryj wszelkie elementy GUI."
 
 #: src/input/command.zig:215
 msgid "Next Search Result"
@@ -602,8 +603,8 @@ msgid ""
 "Copy the screen contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
-"Skopiuj zawartość ekranu do tymczasowego pliku i skopiuj jego ścieżkę "
-"do schowka."
+"Skopiuj zawartość ekranu do tymczasowego pliku i skopiuj jego ścieżkę do "
+"schowka."
 
 #: src/input/command.zig:291
 msgid "Copy Screen to Temporary File and Paste Path"
@@ -612,8 +613,7 @@ msgstr "Skopiuj ekran do tymczasowego pliku i wklej ścieżkę"
 #: src/input/command.zig:292
 msgid ""
 "Copy the screen contents to a temporary file and paste the path to the file."
-msgstr ""
-"Skopiuj zawartość ekranu do tymczasowego pliku i wklej jego ścieżkę."
+msgstr "Skopiuj zawartość ekranu do tymczasowego pliku i wklej jego ścieżkę."
 
 #: src/input/command.zig:296
 msgid "Copy Screen to Temporary File and Open"
@@ -644,7 +644,8 @@ msgid ""
 "Copy the screen contents as HTML to a temporary file and paste the path to "
 "the file."
 msgstr ""
-"Skopiuj zawartość ekranu jako HTML do tymczasowego pliku i wklej jego ścieżkę."
+"Skopiuj zawartość ekranu jako HTML do tymczasowego pliku i wklej jego "
+"ścieżkę."
 
 #: src/input/command.zig:321
 msgid "Copy Screen as HTML to Temporary File and Open"
@@ -663,12 +664,13 @@ msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
-"Skopiuj zawartość ekranu jako sekwencje ucieczki ANSI do tymczasowego pliku i "
-"wklej jego ścieżkę."
+"Skopiuj zawartość ekranu jako sekwencje ucieczki ANSI do tymczasowego pliku "
+"i wklej jego ścieżkę."
 
 #: src/input/command.zig:338
 msgid "Copy Screen as ANSI Sequences to Temporary File and Paste Path"
-msgstr "Skopiuj ekran jako sekwencje ANSI do tymczasowego pliku i wklej ścieżkę"
+msgstr ""
+"Skopiuj ekran jako sekwencje ANSI do tymczasowego pliku i wklej ścieżkę"
 
 #: src/input/command.zig:339
 msgid ""
@@ -1125,14 +1127,22 @@ msgstr "Powtórz"
 msgid "Redo the last undone action."
 msgstr "Powtórz ostatnią cofniętą akcję."
 
+#: src/input/command.zig:702
+msgid "Clear Broadcast Groups"
+msgstr ""
+
 #: src/input/command.zig:703
+msgid "Remove all terminals from broadcast input groups."
+msgstr ""
+
+#: src/input/command.zig:709
 msgid "Quit the application."
 msgstr "Wyjdź z aplikacji."
 
-#: src/input/command.zig:708
+#: src/input/command.zig:714
 msgid "Ghostty"
 msgstr "Ghostty"
 
-#: src/input/command.zig:709
+#: src/input/command.zig:715
 msgid "Put a little Ghostty in your terminal."
 msgstr "Umieść małe Ghostty w twoim terminalu."

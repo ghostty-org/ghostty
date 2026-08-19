@@ -223,6 +223,40 @@ test "c_get: background-blur" {
     }
 }
 
+test "c_get: broadcast-group-click-mods" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c = try Config.default(alloc);
+    defer c.deinit();
+
+    // The bits must match the GHOSTTY_MODS_* values: shift is 1 << 0,
+    // ctrl is 1 << 1, alt is 1 << 2, and super is 1 << 3.
+    c.@"broadcast-group-click-mods" = .{ .ctrl = true, .shift = true };
+    var bits: c_uint = undefined;
+    try testing.expect(get(&c, .@"broadcast-group-click-mods", @ptrCast(&bits)));
+    try testing.expectEqual(@as(c_uint, 0b0011), bits);
+
+    c.@"broadcast-group-click-mods" = .{ .super = true, .shift = true };
+    try testing.expect(get(&c, .@"broadcast-group-click-mods", @ptrCast(&bits)));
+    try testing.expectEqual(@as(c_uint, 0b1001), bits);
+}
+
+test "c_get: broadcast-group-colors" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c = try Config.default(alloc);
+    defer c.deinit();
+    c.@"broadcast-group-colors".colors[2] = .{ .r = 0xAA, .g = 0xBB, .b = 0xCC };
+
+    var cval: Config.BroadcastGroupColors.C = undefined;
+    try testing.expect(get(&c, .@"broadcast-group-colors", @ptrCast(&cval)));
+    try testing.expectEqual(0xAA, cval.colors[2].r);
+    try testing.expectEqual(0xBB, cval.colors[2].g);
+    try testing.expectEqual(0xCC, cval.colors[2].b);
+}
+
 test "c_get: split-preserve-zoom" {
     const testing = std.testing;
     const alloc = testing.allocator;
