@@ -577,7 +577,7 @@ msgstr "Zum Ende der Ausgabe scrollen."
 msgid "Scroll to Selection"
 msgstr "Zur Auswahl scrollen"
 
-msgid "Scroll the selected text."
+msgid "Scroll to the selected text."
 msgstr "Zum ausgewählten Text scrollen."
 
 #: src/input/command.zig:273
