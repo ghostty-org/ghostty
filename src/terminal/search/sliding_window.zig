@@ -58,6 +58,9 @@ pub const SlidingWindow = struct {
     /// to never fail allocation.
     chunk_buf: std.MultiArrayList(FlattenedHighlight.Chunk),
 
+    /// Scratch buffer for encoding pages before copying them into data.
+    encode_buf: std.Io.Writer.Allocating,
+
     /// Offset into data for our current state. This handles the
     /// situation where our search moved through meta[0] but didn't
     /// do enough to prune it.
@@ -134,6 +137,7 @@ pub const SlidingWindow = struct {
             .data = data,
             .meta = meta,
             .chunk_buf = .empty,
+            .encode_buf = .init(alloc),
             .needle = needle,
             .direction = direction,
             .overlap_buf = overlap_buf,
@@ -143,6 +147,7 @@ pub const SlidingWindow = struct {
     pub fn deinit(self: *SlidingWindow) void {
         self.alloc.free(self.overlap_buf);
         self.alloc.free(self.needle);
+        self.encode_buf.deinit();
         self.chunk_buf.deinit(self.alloc);
         self.data.deinit(self.alloc);
 
@@ -599,12 +604,11 @@ pub const SlidingWindow = struct {
         };
         errdefer meta.deinit(self.alloc);
 
-        // This is suboptimal but we need to encode the page once to
-        // temporary memory, and then copy it into our circular buffer.
-        // In the future, we should benchmark and see if we can encode
-        // directly into the circular buffer.
-        var encoded: std.Io.Writer.Allocating = .init(self.alloc);
-        defer encoded.deinit();
+        // Encode into reusable linear storage before committing the complete
+        // page to the circular buffer. Direct writes would complicate error
+        // rollback and reverse searches, which reverse each page before append.
+        self.encode_buf.clearRetainingCapacity();
+        const encoded = &self.encode_buf;
 
         // Encode the page into the buffer.
         const formatter: PageFormatter = formatter: {
