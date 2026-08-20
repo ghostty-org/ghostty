@@ -415,7 +415,7 @@ msgstr "In die Zwischenablage kopieren"
 msgid ""
 "Copy the selected text to the clipboard in both plain and styled formats."
 msgstr ""
-"Ausgewählten Text als Reintext und formatiert in die Zwischenablage kopieren."
+"Ausgewählten Text formatiert und unformatiert in die Zwischenablage kopieren."
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
@@ -423,7 +423,7 @@ msgstr "Auswahl als Reintext in die Zwischenablage kopieren"
 
 #: src/input/command.zig:160
 msgid "Copy the selected text as plain text to the clipboard."
-msgstr "Auswahl als Reintext in die Zwischenablage kopieren."
+msgstr "Auswahl unformatiert in die Zwischenablage kopieren."
 
 #: src/input/command.zig:163
 msgid "Copy Selection as ANSI Sequences to Clipboard"
