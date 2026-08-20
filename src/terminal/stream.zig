@@ -78,6 +78,7 @@ pub const Action = union(Key) {
     next_line,
     reverse_index,
     full_reset,
+    soft_reset,
     set_mode: Mode,
     reset_mode: Mode,
     save_mode: Mode,
@@ -177,6 +178,7 @@ pub const Action = union(Key) {
             "next_line",
             "reverse_index",
             "full_reset",
+            "soft_reset",
             "set_mode",
             "reset_mode",
             "save_mode",
@@ -2042,8 +2044,17 @@ pub fn Stream(comptime H: type) type {
                     }
                 },
 
-                // DECRQM - Request Mode
+                // DECSTR (soft reset) / DECRQM (request mode)
                 'p' => switch (input.intermediates.len) {
+                    1 => switch (input.intermediates[0]) {
+                        // DECSTR - Soft Terminal Reset (CSI ! p)
+                        '!' => self.handler.vt(.soft_reset, {}),
+                        else => log.warn(
+                            "ignoring unimplemented CSI p with intermediates: {s}",
+                            .{input.intermediates},
+                        ),
+                    },
+
                     2 => decrqm: {
                         const ansi_mode = ansi: {
                             switch (input.intermediates.len) {
