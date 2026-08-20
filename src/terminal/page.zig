@@ -1291,6 +1291,15 @@ pub const Page = struct {
         @memset(@as([]u64, @ptrCast(cells)), 0);
     }
 
+    /// Clear the full row and reset its content-derived metadata so it
+    /// can be reused as a blank row. The cells must be cleared first
+    /// because clearCells uses the metadata to release managed memory
+    /// (graphemes, styles, hyperlinks) referenced by the cells.
+    pub inline fn recycleRow(self: *Page, row: *Row) void {
+        self.clearCells(row, 0, self.size.cols);
+        row.resetMetadata();
+    }
+
     /// Returns the hyperlink ID for the given cell.
     pub inline fn lookupHyperlink(self: *const Page, cell: *const Cell) ?hyperlink.Id {
         const cell_offset = getOffset(Cell, self.memory, cell);
@@ -2040,6 +2049,18 @@ pub const Row = packed struct(u64) {
     pub inline fn managedMemory(self: Row) bool {
         // Ordered on purpose for likelihood.
         return self.styled or self.hyperlink or self.grapheme;
+    }
+
+    /// Reset metadata after all cells in this row have been cleared.
+    /// The cell offset and dirty state are preserved because they describe
+    /// the row's storage and rendering lifecycle rather than its contents.
+    pub inline fn resetMetadata(self: *Row) void {
+        const cells = self.cells;
+        const dirty = self.dirty;
+        self.* = .{
+            .cells = cells,
+            .dirty = dirty,
+        };
     }
 };
 

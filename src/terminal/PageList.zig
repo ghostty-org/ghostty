@@ -5208,7 +5208,7 @@ pub fn eraseRow(
     }
 
     // Clear the final row which was rotated from the top of the page.
-    page.clearCells(&rows[node.rows() - 1], 0, node.cols());
+    page.recycleRow(&rows[node.rows() - 1]);
 }
 
 /// A variant of eraseRow that shifts only a bounded number of following
@@ -5246,7 +5246,7 @@ pub fn eraseRowBounded(
     if (node.rows() - pn.y > limit) {
         // Rotating this bounded region changes its cached row coordinates.
         self.invalidateNodeLayout(node);
-        page.clearCells(&rows[pn.y], 0, node.cols());
+        page.recycleRow(&rows[pn.y]);
         fastmem.rotateOnce(Row, rows[pn.y..][0 .. limit + 1]);
 
         // Mark the whole page as dirty.
@@ -5358,7 +5358,7 @@ pub fn eraseRowBounded(
         if (node.rows() > shifted_limit) {
             // Rotating this bounded prefix changes its cached row coordinates.
             self.invalidateNodeLayout(node);
-            page.clearCells(&rows[0], 0, node.cols());
+            page.recycleRow(&rows[0]);
             fastmem.rotateOnce(Row, rows[0 .. shifted_limit + 1]);
 
             // Mark the whole page as dirty.
@@ -5428,7 +5428,7 @@ pub fn eraseRowBounded(
 
     // We reached the end of the page list before the limit, so we clear
     // the final row since it was rotated down from the top of this page.
-    page.clearCells(&rows[node.rows() - 1], 0, node.cols());
+    page.recycleRow(&rows[node.rows() - 1]);
 }
 
 /// Erase all history rows, optionally up to a bottom-left bound.
@@ -5524,12 +5524,7 @@ fn eraseRows(
         // Clear our remaining cells that we didn't shift or swapped
         // in case we grow back into them.
         for (scroll_amount..chunk.node.rows()) |i| {
-            const row: *Row = &rows[i];
-            page.clearCells(
-                row,
-                0,
-                chunk.node.cols(),
-            );
+            page.recycleRow(&rows[i]);
         }
 
         // Update any tracked pins to shift their y. If it was in the erased
@@ -14262,6 +14257,65 @@ test "PageList eraseRowBounded with pin at top" {
     try testing.expectEqual(s.pages.first.?, p_top.node);
     try testing.expectEqual(@as(usize, 0), p_top.y);
     try testing.expectEqual(@as(usize, 0), p_top.x);
+}
+
+test "PageList eraseRow clears recycled row metadata" {
+    const testing = std.testing;
+
+    var s = try init(testing.allocator, .{ .cols = 5, .rows = 3 });
+    defer s.deinit();
+
+    const top = s.getCell(.{ .active = .{} }).?;
+    top.row.wrap = true;
+    top.row.wrap_continuation = true;
+    top.row.semantic_prompt = .prompt;
+
+    try s.eraseRow(.{ .active = .{} });
+
+    const bottom = s.getCell(.{ .active = .{ .y = 2 } }).?;
+    try testing.expect(!bottom.row.wrap);
+    try testing.expect(!bottom.row.wrap_continuation);
+    try testing.expectEqual(.none, bottom.row.semantic_prompt);
+}
+
+test "PageList eraseRowBounded clears recycled row metadata" {
+    const testing = std.testing;
+
+    for ([_]usize{ 2, 3 }) |limit| {
+        var s = try init(testing.allocator, .{ .cols = 5, .rows = 3 });
+        defer s.deinit();
+
+        const top = s.getCell(.{ .active = .{} }).?;
+        top.row.wrap = true;
+        top.row.wrap_continuation = true;
+        top.row.semantic_prompt = .prompt;
+
+        try s.eraseRowBounded(.{ .active = .{} }, limit);
+
+        const bottom = s.getCell(.{ .active = .{ .y = 2 } }).?;
+        try testing.expect(!bottom.row.wrap);
+        try testing.expect(!bottom.row.wrap_continuation);
+        try testing.expectEqual(.none, bottom.row.semantic_prompt);
+    }
+}
+
+test "PageList eraseActive clears recycled row metadata" {
+    const testing = std.testing;
+
+    var s = try init(testing.allocator, .{ .cols = 5, .rows = 3 });
+    defer s.deinit();
+
+    const top = s.getCell(.{ .active = .{} }).?;
+    top.row.wrap = true;
+    top.row.wrap_continuation = true;
+    top.row.semantic_prompt = .prompt;
+
+    s.eraseActive(0);
+
+    const bottom = s.getCell(.{ .active = .{ .y = 2 } }).?;
+    try testing.expect(!bottom.row.wrap);
+    try testing.expect(!bottom.row.wrap_continuation);
+    try testing.expectEqual(.none, bottom.row.semantic_prompt);
 }
 
 test "PageList eraseRowBounded full rows single page" {

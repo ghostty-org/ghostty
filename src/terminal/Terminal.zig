@@ -4138,6 +4138,36 @@ test "Terminal setScrollback only affects primary screen" {
     try testing.expectEqual(alternate, t.screens.active);
 }
 
+test "Terminal: alternate screen scroll clears recycled row metadata" {
+    for ([_]size.CellCountInt{ 1, 3 }) |rows| {
+        var t = try init(testing.io, testing.allocator, .{
+            .cols = 5,
+            .rows = rows,
+        });
+        defer t.deinit(testing.allocator);
+
+        _ = try t.switchScreen(.alternate);
+        const screen = t.screens.active;
+
+        // Metadata on the row scrolled off the top must not be retained by the
+        // blank row that reuses its Row allocation at the bottom.
+        const top = screen.pages.getCell(.{ .active = .{} }).?;
+        top.row.wrap = true;
+        top.row.wrap_continuation = true;
+        top.row.semantic_prompt = .prompt;
+
+        screen.cursorAbsolute(0, t.rows - 1);
+        try t.index();
+
+        const bottom = screen.pages.getCell(.{ .active = .{
+            .y = t.rows - 1,
+        } }).?;
+        try testing.expect(!bottom.row.wrap);
+        try testing.expect(!bottom.row.wrap_continuation);
+        try testing.expectEqual(.none, bottom.row.semantic_prompt);
+    }
+}
+
 test "Terminal: resize resets synchronized output" {
     const alloc = testing.allocator;
     const io_impl = testing.io;

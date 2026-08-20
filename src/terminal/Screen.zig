@@ -912,6 +912,7 @@ pub fn cursorDownScroll(self: *Screen) !void {
                 self.cursor.page_row,
                 page.getCells(self.cursor.page_row),
             );
+            self.cursor.page_row.resetMetadata();
             self.cursorMarkDirty();
         } else {
             // The call to `eraseRow` will move the tracked cursor pin up by one
@@ -1190,6 +1191,7 @@ fn cursorScrollAboveRotate(
         &cur_rows[self.cursor.page_pin.y],
         cur_page.getCells(&cur_rows[self.cursor.page_pin.y]),
     );
+    cur_rows[self.cursor.page_pin.y].resetMetadata();
 
     // Mark the whole page as dirty.
     //
@@ -1264,6 +1266,8 @@ pub fn cursorScrollRegionUp(self: *Screen, limit: usize) !void {
             // row with our blank cell, preserving the background color.
             self.clearCells(page, row, page.getCells(row));
         }
+
+        row.resetMetadata();
     }
 
     // Rotate the region rows so the now-blank top row moves to the
@@ -5163,6 +5167,11 @@ test "Screen: cursorScrollRegionUp simple" {
     defer s.deinit();
     try s.testWriteString("1ABCD\n2EFGH\n3IJKL\n4MNOP\n5QRST");
 
+    const top = s.pages.getCell(.{ .active = .{} }).?;
+    top.row.wrap = true;
+    top.row.wrap_continuation = true;
+    top.row.semantic_prompt = .prompt;
+
     // Scroll a region ending at row 2 (zero-indexed) up by one. This
     // emulates a scroll region of rows 0-2 with the cursor at the
     // region bottom.
@@ -5180,6 +5189,11 @@ test "Screen: cursorScrollRegionUp simple" {
         defer alloc.free(contents);
         try testing.expectEqualStrings("2EFGH\n3IJKL\n\n4MNOP\n5QRST", contents);
     }
+
+    const blank = s.pages.getCell(.{ .active = .{ .y = 2 } }).?;
+    try testing.expect(!blank.row.wrap);
+    try testing.expect(!blank.row.wrap_continuation);
+    try testing.expectEqual(.none, blank.row.semantic_prompt);
 }
 
 test "Screen: cursorScrollRegionUp renews page generation" {
@@ -5278,6 +5292,11 @@ test "Screen: cursorScrollRegionUp region spans pages" {
     try testing.expect(s.cursor.page_pin.node == s.pages.pages.last.?);
     try testing.expectEqual(@as(usize, 0), s.cursor.page_pin.y);
 
+    const top = s.pages.getCell(.{ .active = .{ .y = 1 } }).?;
+    top.row.wrap = true;
+    top.row.wrap_continuation = true;
+    top.row.semantic_prompt = .prompt;
+
     // Scroll a region of active rows 1-3 with the cursor at the region
     // bottom. The region spans the page boundary so this exercises the
     // slow path.
@@ -5292,6 +5311,11 @@ test "Screen: cursorScrollRegionUp region spans pages" {
         defer alloc.free(contents);
         try testing.expectEqualStrings("1A\n3C\n4D\n\n5E", contents);
     }
+
+    const blank = s.pages.getCell(.{ .active = .{ .y = 3 } }).?;
+    try testing.expect(!blank.row.wrap);
+    try testing.expect(!blank.row.wrap_continuation);
+    try testing.expectEqual(.none, blank.row.semantic_prompt);
 
     // Our cursor style must remain usable: write a styled cell and
     // verify the style ref counting is intact on the cursor's page.
@@ -5699,6 +5723,47 @@ test "Screen: scroll above same page but cursor on previous page" {
     try testing.expect(s.pages.isDirty(.{ .active = .{ .x = 0, .y = 2 } }));
     try testing.expect(s.pages.isDirty(.{ .active = .{ .x = 0, .y = 3 } }));
     try testing.expect(s.pages.isDirty(.{ .active = .{ .x = 0, .y = 4 } }));
+}
+
+test "Screen: scroll above clears recycled row metadata" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 10, .rows = 5, .max_scrollback_bytes = 10 });
+    defer s.deinit();
+
+    // We need to get the cursor to a new page
+    const first_page_size = s.pages.pages.first.?.capacity().rows;
+    s.pages.pages.first.?.page().pauseIntegrityChecks(true);
+    for (0..first_page_size - 3) |_| try s.testWriteString("\n");
+    s.pages.pages.first.?.page().pauseIntegrityChecks(false);
+    try s.testWriteString("1A\n2B\n3C\n4D\n5E");
+    s.cursorAbsolute(0, 1);
+
+    // Ensure we're still on the first page and have a second
+    try testing.expect(s.cursor.page_pin.node == s.pages.pages.first.?);
+    try testing.expect(s.pages.pages.first.?.next != null);
+
+    // Metadata on the last row of the cursor page must not be retained by
+    // the blank row that reuses its Row after the content moves down a page.
+    const last = s.pages.getCell(.{ .active = .{ .y = 2 } }).?;
+    last.row.wrap = true;
+    last.row.wrap_continuation = true;
+    last.row.semantic_prompt = .prompt;
+
+    try s.cursorScrollAbove();
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2B\n\n3C\n4D\n5E", contents);
+    }
+
+    const blank = s.pages.getCell(.{ .active = .{ .y = 1 } }).?;
+    try testing.expect(!blank.row.wrap);
+    try testing.expect(!blank.row.wrap_continuation);
+    try testing.expectEqual(.none, blank.row.semantic_prompt);
 }
 
 test "Screen: scroll above same page but cursor on previous page last row" {
