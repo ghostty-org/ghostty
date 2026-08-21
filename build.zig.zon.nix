@@ -98,11 +98,11 @@
 in
   linkFarm name [
     {
-      name = "aro-0.0.0-JSD1Qk8rOQDnuVcD4jAwMpHitA6pADRKzQ7M7hKRwxvD";
+      name = "aro-0.0.0-JSD1Qm9yNgDMGFTikPpydON0cwZm0a6v1TSQZVKtgYh6";
       path = fetchZigArtifact {
         name = "aro";
-        url = "https://github.com/vancluever/arocc/archive/ecbc5c799574e0da2758a961b12efa586007f03c.tar.gz";
-        hash = "sha256-rjNfhWjmA/1WR/xuHo4ls4fnDCbsI1VZSvb8SFRvwso=";
+        url = "https://github.com/vancluever/arocc/archive/198c2d92b94e51c71b09c476cfbaac481c5add66.tar.gz";
+        hash = "sha256-dx6pazuHc9CJu3YBFXTGnoBowui0CC6/ktifvxaSzec=";
         unpack = true;
       };
     }
@@ -305,11 +305,11 @@ in
       };
     }
     {
-      name = "translate_c-0.0.0-Q_BUWmU6BwB_9JKG2l2W7i_mhmYWeRseTGBEHi_YlV5f";
+      name = "translate_c-0.0.0-Q_BUWv5BBwDmJP04p9f68173JwpyqoNzH9In3u6CS3Lj";
       path = fetchZigArtifact {
         name = "translate_c";
-        url = "https://deps.files.ghostty.org/translate_c-80f8b6e4f45a303268717d8e5f4f91d7837138bb.tar.gz";
-        hash = "sha256-fB7OsZ2PIijMzVMYg8SzDBtTKX7IZHbEvPuBTdyGtWk=";
+        url = "https://codeberg.org/vancluever/translate-c/archive/cec6ef8c9134c509f8ee008d34e9de845cbc10a8.tar.gz";
+        hash = "sha256-+9kR1nXQEjqELn69OdjrQLKoARuY7bMdrCi91L25HFM=";
         unpack = true;
       };
     }

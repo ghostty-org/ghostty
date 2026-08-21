@@ -6,8 +6,8 @@
     .dependencies = .{
         .apple_sdk = .{ .path = "../apple-sdk" },
         .translate_c = .{
-            .url = "https://deps.files.ghostty.org/translate_c-80f8b6e4f45a303268717d8e5f4f91d7837138bb.tar.gz",
-            .hash = "translate_c-0.0.0-Q_BUWmU6BwB_9JKG2l2W7i_mhmYWeRseTGBEHi_YlV5f",
+            .url = "https://codeberg.org/vancluever/translate-c/archive/cec6ef8c9134c509f8ee008d34e9de845cbc10a8.tar.gz",
+            .hash = "translate_c-0.0.0-Q_BUWv5BBwDmJP04p9f68173JwpyqoNzH9In3u6CS3Lj",
             .lazy = true,
         },
     },
