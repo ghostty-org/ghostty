@@ -227,6 +227,10 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // from the edges.
         window.styleMask.remove(.resizable)
 
+        // We don't need shadow in fullscreen and shadow causes macOS 26 to
+        // draw a tiny 1px gray border around the window so we disable it.
+        window.hasShadow = false
+
         // Focus window
         window.makeKeyAndOrderFront(nil)
 
@@ -267,6 +271,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
 
         // Restore our saved state
         window.styleMask = savedState.styleMask
+        window.hasShadow = savedState.hasShadow
         window.setFrame(window.frameRect(forContentRect: savedState.contentFrame), display: true)
 
         // Removing the "titled" style also derefs all our accessory view controllers
@@ -397,6 +402,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         let styleMask: NSWindow.StyleMask
         let toolbar: NSToolbar?
         let toolbarStyle: NSWindow.ToolbarStyle
+        let hasShadow: Bool
         let titlebarAccessoryViewControllers: [NSTitlebarAccessoryViewController]
         let dock: Bool
         let menu: Bool
@@ -411,6 +417,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             self.styleMask = window.styleMask
             self.toolbar = window.toolbar
             self.toolbarStyle = window.toolbarStyle
+            self.hasShadow = window.hasShadow
             self.dock = window.screen?.hasDock ?? false
 
             self.titlebarAccessoryViewControllers = if window.hasTitleBar {
