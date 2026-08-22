@@ -254,6 +254,52 @@ fn initLib(
         // are incompatible with the MSVC linker (LNK4229).
         lib.bundle_ubsan_rt = false;
 
+        // On Windows with MSVC, building a DLL requires the full CRT
+        // library chain. Linking libc provides msvcrt.lib, but that
+        // references symbols in vcruntime.lib and ucrt.lib. Zig's library
+        // search paths include the MSVC lib dir and the Windows SDK 'um'
+        // dir, but not the SDK 'ucrt' dir where ucrt.lib lives.
+        if (kind == .shared and target.result.abi == .msvc) {
+            const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
+                .preferred_link_mode = .dynamic,
+                .search_strategy = .mode_first,
+            };
+
+            // The CRT initialization code in msvcrt.lib calls __vcrt_initialize
+            // and __acrt_initialize; ensure the vcruntime and ucrt libraries are
+            // linked explicitly (they are not always discovered automatically).
+            lib.root_module.linkSystemLibrary("libvcruntime", dynamic_link_opts);
+
+            // ucrt.lib is in the Windows SDK 'ucrt' dir. Detect the SDK
+            // installation and add the UCRT library path.
+            const arch = target.result.cpu.arch;
+            const sdk = std.zig.WindowsSdk.find(
+                b.allocator,
+                b.graph.io,
+                arch,
+                &b.graph.environ_map,
+            ) catch null;
+            if (sdk) |s| {
+                if (s.windows10sdk) |w10| {
+                    const arch_str: []const u8 = switch (arch) {
+                        .x86_64 => "x64",
+                        .x86 => "x86",
+                        .aarch64 => "arm64",
+                        else => "x64",
+                    };
+                    const ucrt_lib_path = std.fmt.allocPrint(
+                        b.allocator,
+                        "{s}\\Lib\\{s}\\ucrt\\{s}",
+                        .{ w10.path, w10.version, arch_str },
+                    ) catch null;
+                    if (ucrt_lib_path) |path| {
+                        lib.root_module.addLibraryPath(.{ .cwd_relative = path });
+                    }
+                }
+            }
+            lib.root_module.linkSystemLibrary("libucrt", dynamic_link_opts);
+        }
+
         if (kind == .static) {
             if (target.result.abi == .msvc) {
                 // Zig's compiler runtime doesn't provide MSVC's security
