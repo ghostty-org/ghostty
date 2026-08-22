@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UserNotifications
 import OSLog
@@ -39,6 +40,7 @@ class AppDelegate: NSObject,
 
     @IBOutlet private var menuUndo: NSMenuItem?
     @IBOutlet private var menuRedo: NSMenuItem?
+    @IBOutlet private var menuCut: NSMenuItem?
     @IBOutlet private var menuCopy: NSMenuItem?
     @IBOutlet private var menuPaste: NSMenuItem?
     @IBOutlet private var menuPasteSelection: NSMenuItem?
@@ -171,6 +173,8 @@ class AppDelegate: NSObject,
     private let appIconUpdater = AppIconUpdater()
 
     @MainActor private lazy var menuShortcutManager = Ghostty.MenuShortcutManager()
+    /// A observer for resetting menu shortcuts based on firstResponder
+    private var resetMenuObserver: AnyCancellable?
 
     override init() {
 #if DEBUG
@@ -225,6 +229,8 @@ class AppDelegate: NSObject,
         if UserDefaults.ghostty.bool(forKey: "SecureInput") != SecureInput.shared.enabled {
             toggleSecureInput(self)
         }
+
+        setupRestorableMenuItems()
 
         // Initial config loading
         ghosttyConfigDidChange(config: ghostty.config)
@@ -1142,6 +1148,20 @@ extension AppDelegate {
         self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
     }
 
+    /// Save restorable menu items and restore them whenever the first responder is not a terminal surface
+    ///
+    /// If you plan to add more items here, make sure you add the default shortcut in MainMenu.xib
+    @MainActor private func setupRestorableMenuItems() {
+        [
+            (menuUndo, "undo"),
+            (menuRedo, "redo"),
+            (menuCut, nil),
+            (menuCopy, "copy_to_clipboard"),
+            (menuPaste, "paste_from_clipboard"),
+            (menuSelectAll, "select_all"),
+        ].forEach(menuShortcutManager.saveRestorableMenuItem(_:action:))
+    }
+
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
     @MainActor private func syncMenuShortcuts(_ config: Ghostty.Config) {
         guard ghostty.readiness == .ready else { return }
@@ -1166,6 +1186,7 @@ extension AppDelegate {
 
         syncMenuShortcut(config, action: "undo", menuItem: self.menuUndo)
         syncMenuShortcut(config, action: "redo", menuItem: self.menuRedo)
+        syncMenuShortcut(config, action: nil, menuItem: self.menuCut)
         syncMenuShortcut(config, action: "copy_to_clipboard", menuItem: self.menuCopy)
         syncMenuShortcut(config, action: "paste_from_clipboard", menuItem: self.menuPaste)
         syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)
@@ -1210,11 +1231,39 @@ extension AppDelegate {
         //
         // syncMenuShortcut(config, action: "toggle_fullscreen", menuItem: self.menuToggleFullScreen)
 
+        // The reason we're using publisher here instead of `windowDidBecomeKey`
+        // is that we want to restore menus when all windows are resigned as key window or simply closed.
+        resetMenuObserver = NSApp.publisher(for: \.keyWindow, options: [.new, .initial])
+            .flatMap {
+                $0?.publisher(for: \.firstResponder, options: [.new, .initial])
+                    .eraseToAnyPublisher() ??
+                Just(NSResponder?.none).eraseToAnyPublisher()
+                // When the keyWindow is nil, we want to re-sync them
+            }
+            .map { $0 is Ghostty.SurfaceView }
+            .removeDuplicates()
+            .sink { [weak self] isSurfaceFocused in
+                guard let self else { return }
+                if isSurfaceFocused {
+                    menuShortcutManager.reSyncRestoredMenuShortcuts(config: ghostty.config)
+                } else {
+                    // Restore for non terminal responders, like:
+                    // 1. About Window
+                    // 2. Alert modal
+                    // 3. ConfigurationErrors
+                    // 4. InlineTitleEditor
+                    // 5. SearchOverlay
+                    // 6. CommandPalette
+                    // 7. Help search
+                    menuShortcutManager.restoreMenuShortcuts()
+                }
+            }
+
         // Dock menu
         reloadDockMenu()
     }
 
-    @MainActor private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
+    @MainActor private func syncMenuShortcut(_ config: Ghostty.Config, action: String?, menuItem: NSMenuItem?) {
         menuShortcutManager.syncMenuShortcut(config, action: action, menuItem: menuItem)
     }
 
@@ -1299,7 +1348,6 @@ extension AppDelegate: NSMenuItemValidation {
                 item.title = "Redo"
             }
             return undoManager.canRedo
-
         default:
             return true
         }
