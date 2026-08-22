@@ -91,6 +91,12 @@ mouse_shape: mouse.Shape = .text,
 /// Per-session Glyph Protocol registrations.
 glyph_glossary: glyph.Glossary = .empty,
 
+/// Kitty drag and drop protocol (OSC 72) state. Allocated when a client
+/// registers to accept drops (t=a) and freed when it unregisters (t=A),
+/// so a terminal that never runs a drag and drop aware program pays
+/// nothing for it. Non-null means a client currently accepts drops.
+kitty_dnd: ?*kitty.dnd.State = null,
+
 /// These are just a packed set of flags we may set on the terminal.
 flags: packed struct {
     // This supports a Kitty extension where programs using semantic
@@ -353,6 +359,7 @@ pub fn deinit(self: *Terminal, alloc: Allocator) void {
     self.pwd.deinit(alloc);
     self.title.deinit(alloc);
     self.glyph_glossary.deinit(alloc);
+    if (self.kitty_dnd) |dnd| dnd.destroy(alloc);
     self.* = undefined;
 }
 
@@ -4907,6 +4914,9 @@ pub fn fullReset(self: *Terminal) void {
     self.pwd.clearRetainingCapacity();
     self.title.clearRetainingCapacity();
     self.glyph_glossary.clearAndFree(self.gpa());
+    // A reset only interrupts an in-progress chunked OSC 72 command;
+    // drag and drop registration survives, matching kitty.
+    if (self.kitty_dnd) |dnd| dnd.chunking = .{};
     self.status_display = .main;
     self.scrolling_region = .{
         .top = 0,

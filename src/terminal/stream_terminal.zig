@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const build_options = @import("terminal_options");
 const testing = std.testing;
 const apc = @import("apc.zig");
@@ -16,6 +17,7 @@ const osc = @import("osc.zig");
 const osc_color = @import("osc/parsers/color.zig");
 const kitty_clipboard = @import("kitty/clipboard.zig");
 const kitty_color = @import("kitty/color.zig");
+const kitty_dnd = @import("kitty/dnd.zig");
 const size_report = @import("size_report.zig");
 const simd = @import("../simd/main.zig");
 const terminfo = @import("../terminfo/main.zig");
@@ -115,6 +117,15 @@ pub const Handler = struct {
         /// valid for the duration of the callback.
         desktop_notification: ?*const fn (*Handler, Action.ShowDesktopNotification) void,
 
+        /// Called when drag and drop protocol state changes in a way the
+        /// embedder may need to act on: the running program registering
+        /// or unregistering to accept drops, answering a drag, or
+        /// concluding a drop. The event says what changed; the details
+        /// are read from `handler.terminal.kitty_dnd` (Kitty's OSC 72 is
+        /// the only drag and drop protocol today). Native drag events
+        /// flow the other way, by calling `kitty.dnd.State` directly.
+        drag_and_drop: ?*const fn (*Handler, kitty_dnd.Event) void,
+
         /// Called in response to a color scheme DSR query (CSI ? 996 n).
         /// Returns the current color scheme. Return null to silently
         /// ignore the query.
@@ -207,6 +218,7 @@ pub const Handler = struct {
             .color_scheme = null,
             .desktop_notification = null,
             .device_attributes = null,
+            .drag_and_drop = null,
             .enquiry = null,
             .progress_report = null,
             .size = null,
@@ -438,6 +450,12 @@ pub const Handler = struct {
             ) catch |err| {
                 // Clipboard operations are external effects, not terminal state.
                 log.warn("error handling clipboard operation err={}", .{err});
+            },
+            .kitty_dnd => self.kittyDnd(value) catch |err| {
+                // Drag and drop is a self-contained subsystem: an OOM
+                // updating its state or a failure writing a response
+                // degrades it without corrupting terminal state, so we log.
+                log.warn("error handling kitty dnd err={}", .{err});
             },
 
             .dcs_hook => try self.dcsHook(value),
@@ -1078,6 +1096,40 @@ pub const Handler = struct {
         const resp = aw.toOwnedSliceSentinel(0) catch return;
         defer alloc.free(resp);
         self.writePty(resp);
+    }
+
+    /// Handle an OSC 72 drag and drop command.
+    fn kittyDnd(
+        self: *Handler,
+        v: Action.KittyDnd,
+    ) (Allocator.Error || std.Io.Writer.Error)!void {
+        // Responses are usually small (queries, errors) but data
+        // serving can produce many chunks, so fall back to the heap.
+        var stack = std.heap.stackFallback(512, self.terminal.gpa());
+        const response_alloc = stack.get();
+        var aw: std.Io.Writer.Allocating = .init(response_alloc);
+        defer aw.deinit();
+
+        // The state is allocated on registration and owned by the
+        // terminal, so it uses the terminal's allocator, not the
+        // response's.
+        const event = try kitty_dnd.handleCommand(
+            &self.terminal.kitty_dnd,
+            self.terminal.gpa(),
+            &aw.writer,
+            v,
+        );
+
+        if (aw.written().len > 0) {
+            const written = aw.toOwnedSliceSentinel(0) catch return;
+            defer response_alloc.free(written);
+            self.writePty(written);
+        }
+
+        if (event) |ev| {
+            const func = self.effects.drag_and_drop orelse return;
+            func(self, ev);
+        }
     }
 
     fn reportDeviceAttributes(self: *Handler, req: device_attributes.Req) void {
@@ -5140,4 +5192,205 @@ test "continuation reconstructs standard stream without duplicate effects" {
         source_terminal.screens.active.cursor.style_id,
         restored_terminal.screens.active.cursor.style_id,
     );
+}
+
+test "kitty dnd: query response" {
+    const S = struct {
+        var pty: std.ArrayListUnmanaged(u8) = .empty;
+        fn writePty(_: *Handler, data: [:0]const u8) void {
+            pty.appendSlice(testing.allocator, data) catch unreachable;
+        }
+    };
+    S.pty = .empty;
+    defer S.pty.deinit(testing.allocator);
+
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    s.nextSlice("\x1B]72;t=q:i=3\x1B\\");
+    try testing.expectEqualStrings("\x1b]72;t=q:i=3\x1b\\", S.pty.items);
+}
+
+test "kitty dnd: register, drop, and serve data" {
+    const S = struct {
+        var pty: std.ArrayListUnmanaged(u8) = .empty;
+        fn writePty(_: *Handler, data: [:0]const u8) void {
+            pty.appendSlice(testing.allocator, data) catch unreachable;
+        }
+    };
+    S.pty = .empty;
+    defer S.pty.deinit(testing.allocator);
+
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // Client registers to accept drops.
+    s.nextSlice("\x1B]72;t=a;text/plain text/uri-list\x1B\\");
+    try testing.expectEqualStrings("", S.pty.items);
+    try testing.expect(t.kitty_dnd != null);
+
+    // A native drop arrives; the embedder feeds it to the terminal
+    // state and delivers the produced event bytes itself.
+    {
+        var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer aw.deinit();
+        try t.kitty_dnd.?.dragDrop(testing.allocator, &aw.writer, .{
+            .cell_x = 2,
+            .cell_y = 1,
+            .pixel_x = 20,
+            .pixel_y = 18,
+            .operations = .{ .copy = true },
+        }, &.{
+            .{ .mime = "text/plain", .data = "hello" },
+        });
+        try testing.expectEqualStrings(
+            "\x1b]72;t=M:x=2:y=1:X=20:Y=18:o=1:m=0;text/plain \x1b\\",
+            aw.written(),
+        );
+    }
+
+    // The client requests the data and concludes.
+    s.nextSlice("\x1B]72;t=r:x=1\x1B\\");
+    try testing.expectEqualStrings(
+        "\x1b]72;t=r:x=1:m=0;aGVsbG8=\x1b\\" ++ "\x1b]72;t=r:x=1\x1b\\",
+        S.pty.items,
+    );
+    S.pty.clearRetainingCapacity();
+
+    s.nextSlice("\x1B]72;t=r\x1B\\");
+    try testing.expectEqualStrings("", S.pty.items);
+    try testing.expect(t.kitty_dnd.?.drop.items == null);
+}
+
+test "kitty dnd: state updates work without write_pty effect" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+    defer s.deinit();
+
+    // Queries produce no output (nowhere to write) but registration
+    // state still updates.
+    s.nextSlice("\x1B]72;t=q\x1B\\");
+    s.nextSlice("\x1B]72;t=a\x1B\\");
+    try testing.expect(t.kitty_dnd != null);
+
+    // The terminal remains functional.
+    s.nextSlice("ok");
+    const str = try t.plainString(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("ok", str);
+}
+
+test "kitty dnd: registration survives terminal reset" {
+    const S = struct {
+        var pty: std.ArrayListUnmanaged(u8) = .empty;
+        fn writePty(_: *Handler, data: [:0]const u8) void {
+            pty.appendSlice(testing.allocator, data) catch unreachable;
+        }
+    };
+    S.pty = .empty;
+    defer S.pty.deinit(testing.allocator);
+
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // Start a chunked command, then reset mid-chunk.
+    s.nextSlice("\x1B]72;t=a:i=5\x1B\\");
+    s.nextSlice("\x1B]72;t=m:o=1:m=1;text/pl\x1B\\");
+    s.nextSlice("\x1Bc");
+
+    // Registration survives (matching kitty), chunking was interrupted
+    // so a new command is not treated as a continuation.
+    try testing.expect(t.kitty_dnd != null);
+    try testing.expect(!t.kitty_dnd.?.chunking.active);
+    s.nextSlice("\x1B]72;t=q\x1B\\");
+    try testing.expectEqualStrings("\x1b]72;t=q\x1b\\", S.pty.items);
+}
+
+test "kitty dnd: effect reports registration, acceptance, and conclusion" {
+    const S = struct {
+        var events: std.ArrayListUnmanaged(kitty_dnd.Event) = .empty;
+        var mimes: std.ArrayListUnmanaged(u8) = .empty;
+
+        fn clear() void {
+            events.deinit(testing.allocator);
+            events = .empty;
+            mimes.deinit(testing.allocator);
+            mimes = .empty;
+        }
+
+        fn dragAndDrop(handler: *Handler, ev: kitty_dnd.Event) void {
+            events.append(testing.allocator, ev) catch unreachable;
+            // Registration details are read from the terminal state.
+            if (ev == .registration) {
+                mimes.clearRetainingCapacity();
+                const state = handler.terminal.kitty_dnd orelse return;
+                var it = state.registeredMimes();
+                while (it.next()) |m| {
+                    mimes.appendSlice(testing.allocator, m) catch unreachable;
+                    mimes.append(testing.allocator, ',') catch unreachable;
+                }
+            }
+        }
+    };
+    S.clear();
+    defer S.clear();
+
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var handler: Handler = .init(&t);
+    handler.effects.drag_and_drop = &S.dragAndDrop;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // Registration with a MIME list, read back from the state.
+    s.nextSlice("\x1B]72;t=a;image/png text/plain\x1B\\");
+    try testing.expectEqual(@as(usize, 1), S.events.items.len);
+    try testing.expect(S.events.items[0] == .registration);
+    try testing.expectEqualStrings("image/png,text/plain,", S.mimes.items);
+
+    // A native drag and the client's answer.
+    {
+        var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer aw.deinit();
+        try t.kitty_dnd.?.dragDrop(testing.allocator, &aw.writer, .{
+            .cell_x = 0,
+            .cell_y = 0,
+            .pixel_x = 0,
+            .pixel_y = 0,
+            .operations = .{ .copy = true },
+        }, &.{.{ .mime = "text/plain", .data = "x" }});
+    }
+    s.nextSlice("\x1B]72;t=m:o=2;text/plain\x1B\\");
+    try testing.expectEqual(@as(usize, 2), S.events.items.len);
+    try testing.expect(S.events.items[1] == .acceptance);
+
+    // Conclusion carries the performed operation.
+    s.nextSlice("\x1B]72;t=r:o=2\x1B\\");
+    try testing.expectEqual(@as(usize, 3), S.events.items.len);
+    try testing.expectEqual(kitty_dnd.Event.concluded_move, S.events.items[2]);
+
+    // Unregistration reports with the state gone.
+    s.nextSlice("\x1B]72;t=A\x1B\\");
+    try testing.expectEqual(@as(usize, 4), S.events.items.len);
+    try testing.expect(S.events.items[3] == .registration);
+    try testing.expect(t.kitty_dnd == null);
+    try testing.expectEqualStrings("", S.mimes.items);
 }
