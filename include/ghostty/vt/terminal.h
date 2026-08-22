@@ -1815,6 +1815,19 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Output type: bool *
    */
   GHOSTTY_TERMINAL_DATA_CURSOR_AT_PROMPT = 39,
+
+  /**
+   * Populate and rewind a caller-owned Unicode placement iterator over the
+   * active viewport. The iterator returns decoded Kitty Unicode placeholder
+   * occurrences, including unresolved occurrences.
+   *
+   * The populated traversal state and returned grid references remain valid
+   * only until the next terminal mutation. Repopulate the iterator before
+   * using it again after mutation.
+   *
+   * Output type: GhosttyKittyGraphicsUnicodePlacementIterator *
+   */
+  GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS_UNICODE_PLACEMENT_ITERATOR = 40,
   GHOSTTY_TERMINAL_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalData;
 
