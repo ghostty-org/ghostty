@@ -22,6 +22,7 @@ const gresource = @import("../build/gresource.zig");
 const ext = @import("../ext.zig");
 const gsettings = @import("../gsettings.zig");
 const gtk_key = @import("../key.zig");
+const gtk_version = @import("../gtk_version.zig");
 const ApprtSurface = @import("../Surface.zig");
 const Common = @import("../class.zig").Common;
 const Application = @import("application.zig").Application;
@@ -29,6 +30,7 @@ const Config = @import("config.zig").Config;
 const ResizeOverlay = @import("resize_overlay.zig").ResizeOverlay;
 const SearchOverlay = @import("search_overlay.zig").SearchOverlay;
 const KeyStateOverlay = @import("key_state_overlay.zig").KeyStateOverlay;
+const A11y = @import("surface_a11y.zig");
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
 const TitleDialog = @import("title_dialog.zig").TitleDialog;
@@ -37,7 +39,6 @@ const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const i18n = @import("../../../os/i18n.zig");
 const global = @import("../../../global.zig");
-const gtk_version = @import("../gtk_version.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
@@ -45,7 +46,11 @@ pub const Surface = extern struct {
     const Self = @This();
     parent_instance: Parent,
     pub const Parent = adw.Bin;
-    pub const Implements = [_]type{gtk.Scrollable};
+    pub const Implements = [_]type{
+        gtk.Scrollable,
+        gtk.Accessible,
+        gtk.AccessibleText,
+    };
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
         .name = "GhosttySurface",
         .instanceInit = &init,
@@ -54,6 +59,17 @@ pub const Surface = extern struct {
         .private = .{ .Type = Private, .offset = &Private.offset },
         .implements = &.{
             gobject.ext.implement(gtk.Scrollable, .{}),
+            // Re-implement GtkAccessible (already provided by GtkWidget
+            // ancestry) so we can override `get_first_accessible_child`
+            // and present as a single text-bearing object. The iface_init
+            // receives the parent's already-populated vtable and only
+            // overrides that one child-walk hook.
+            gobject.ext.implement(gtk.Accessible, .{
+                .init = &A11y.initAccessibleInterface,
+            }),
+            gobject.ext.implement(gtk.AccessibleText, .{
+                .init = &A11y.initAccessibleTextInterface,
+            }),
         },
     });
 
@@ -695,6 +711,9 @@ pub const Surface = extern struct {
 
         action_group: ?*gio.SimpleActionGroup = null,
 
+        // Accessibility state for GtkAccessibleText; see surface_a11y.zig.
+        a11y: A11y = .{},
+
         // Gtk.Scrollable interface adjustments
         hadj: ?*gtk.Adjustment = null,
         vadj: ?*gtk.Adjustment = null,
@@ -769,6 +788,11 @@ pub const Surface = extern struct {
     pub fn core(self: *Self) ?*CoreSurface {
         const priv = self.private();
         return priv.core_surface;
+    }
+
+    /// The accessibility state for this surface.
+    pub fn a11y(self: *Self) *A11y {
+        return &self.private().a11y;
     }
 
     pub fn rt(self: *Self) *ApprtSurface {
@@ -1758,8 +1782,11 @@ pub const Surface = extern struct {
     /// Focus this surface. This properly focuses the input part of
     /// our surface.
     pub fn grabFocus(self: *Self) void {
-        const priv = self.private();
-        _ = priv.gl_area.as(gtk.Widget).grabFocus();
+        // Focus the GhosttySurface itself (not the inner GLArea) so the
+        // focused object exposes role=terminal and GtkAccessibleText to
+        // AT-SPI. The EventControllerKey attached to the template root
+        // receives key events from this focus target.
+        _ = self.as(gtk.Widget).grabFocus();
     }
 
     pub fn sendDesktopNotification(self: *Self, title: [:0]const u8, body: [:0]const u8) void {
@@ -1817,6 +1844,7 @@ pub const Surface = extern struct {
         priv.mapped = false;
         priv.size = .{ .width = 0, .height = 0 };
         priv.vadj_signal_group = null;
+        priv.a11y = .{};
 
         // If our configuration is null then we get the configuration
         // from the application.
@@ -2004,6 +2032,8 @@ pub const Surface = extern struct {
         priv.key_sequence.deinit(alloc);
         for (priv.key_tables.items) |s| alloc.free(s);
         priv.key_tables.deinit(alloc);
+
+        priv.a11y.deinit(alloc);
 
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,
@@ -2851,11 +2881,12 @@ pub const Surface = extern struct {
         const priv = self.private();
         const core_surface = priv.core_surface orelse return;
 
-        // If we don't have focus, grab it.
-        const gl_area_widget = priv.gl_area.as(gtk.Widget);
-        const had_focus = gl_area_widget.hasFocus() != 0;
+        // If we don't have focus, grab it. Focus is tracked on the
+        // GhosttySurface itself (see `grabFocus`), not the GLArea.
+        const widget = self.as(gtk.Widget);
+        const had_focus = widget.hasFocus() != 0;
         if (!had_focus) {
-            _ = gl_area_widget.grabFocus();
+            _ = widget.grabFocus();
         }
 
         // Report the event
@@ -2988,13 +3019,14 @@ pub const Surface = extern struct {
             @abs(priv.cursor_pos.y - pos.y) < 1;
         if (is_cursor_still) return;
 
-        // If we don't have focus, and we want it, grab it.
+        // If we don't have focus, and we want it, grab it. Focus lives
+        // on the GhosttySurface itself, not the inner GLArea.
         if (priv.config) |config| {
-            const gl_area_widget = priv.gl_area.as(gtk.Widget);
-            if (gl_area_widget.hasFocus() == 0 and
+            const widget = self.as(gtk.Widget);
+            if (widget.hasFocus() == 0 and
                 config.get().@"focus-follows-mouse")
             {
-                _ = gl_area_widget.grabFocus();
+                _ = widget.grabFocus();
             }
         }
 
@@ -3428,6 +3460,11 @@ pub const Surface = extern struct {
             return 0;
         };
 
+        // Notify AT-SPI clients of any content change, gated so that an
+        // unchanged frame emits nothing and an AT client is never
+        // interrupted mid-read by a cursor blink. See `A11y.frameRendered`.
+        priv.a11y.frameRendered(self);
+
         return 1;
     }
 
@@ -3499,6 +3536,7 @@ pub const Surface = extern struct {
     fn initSurface(self: *Self) InitError!void {
         const priv: *Private = self.private();
         assert(priv.core_surface == null);
+
         const gl_area = priv.gl_area;
 
         // We need to make the context current so we can call GL functions.
@@ -3644,7 +3682,7 @@ pub const Surface = extern struct {
         _ = surface.performBindingAction(.end_search) catch |err| {
             log.warn("unable to perform end_search action err={}", .{err});
         };
-        _ = self.private().gl_area.as(gtk.Widget).grabFocus();
+        _ = self.as(gtk.Widget).grabFocus();
     }
 
     fn searchChanged(_: *SearchOverlay, needle: ?[*:0]const u8, self: *Self) callconv(.c) void {
@@ -3857,6 +3895,12 @@ pub const Surface = extern struct {
             gobject.ext.ensureType(SearchOverlay);
             gobject.ext.ensureType(KeyStateOverlay);
             gobject.ext.ensureType(ChildExited);
+
+            // Set the accessible role to terminal so screen readers
+            // like Orca know how to handle this widget. This matches
+            // GTK_ACCESSIBLE_ROLE_TERMINAL added in GTK 4.14.
+            gtk.WidgetClass.setAccessibleRole(class.as(gtk.Widget.Class), .terminal);
+
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
