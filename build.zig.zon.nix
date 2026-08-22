@@ -21,11 +21,10 @@
     ''
       # workaround https://codeberg.org/ziglang/zig/issues/31866
       # https://github.com/Cloudef/zig2nix/issues/54
-      mkdir "$TMPDIR/src" "$TMPDIR/cache"
-      touch "$TMPDIR/src/build.zig"
-      hash="$(cd "$TMPDIR/src" && zig fetch --global-cache-dir "$TMPDIR/cache" ${artifact})"
-      mkdir "$out"
-      tar zxvf "$TMPDIR/cache/p/$hash.tar.gz" --directory "$out/" --strip-components=1
+      touch "$TMPDIR/build.zig"
+      hash="$(cd "$TMPDIR" && zig fetch --global-cache-dir "$TMPDIR" ${artifact})"
+      mv "$TMPDIR/p/$hash.tar.gz" "$out"
+      chmod 755 "$out"
     '';
 
   fetchZig = {

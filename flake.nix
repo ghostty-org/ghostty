@@ -6,10 +6,11 @@
     # glibc versions used by our dependencies from Nix are compatible with the
     # system glibc that the user is building for.
     #
-    # We are currently on nixpkgs-unstable to get Zig 0.15 for our package.nix and
-    # Gnome 49/Gtk 4.20.
+    # We are currently on nixpkgs-unstable to get Zig 0.16 for our package.nix,
+    # Gnome 50/Gtk 4.22, and fontconfig 2.18.
     #
-    nixpkgs.url = "https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.xz";
+    nixpkgs.url = "https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.zst";
+    # nixpkgs.url = "github:NixOS/nixpkgs?rev=cb73bff643b27b72994ddda0f98cb1cc6ed58c9c";
 
     # Used for shell.nix
     flake-compat = {
