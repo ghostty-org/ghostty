@@ -414,6 +414,12 @@ class AppDelegate: NSObject,
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Free every surface before application teardown closes their PTYs.
+        TerminalController.all.forEach { $0.freeSurfaces() }
+        if case .initialized(let controller) = quickTerminalControllerState {
+            controller.freeSurfaces()
+        }
+
         // We have no notifications we want to persist after death,
         // so remove them all now. In the future we may want to be
         // more selective and only remove surface-targeted notifications.
