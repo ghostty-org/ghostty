@@ -5422,6 +5422,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .detach_split => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .detach_split,
+            {},
+        ),
+
         .toggle_readonly => {
             self.readonly = !self.readonly;
             _ = try self.rt_app.performAction(
