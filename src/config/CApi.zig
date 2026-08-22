@@ -117,7 +117,12 @@ fn config_trigger_(
     str: []const u8,
 ) !inputpkg.Binding.Trigger.C {
     const action = try inputpkg.Binding.Action.parse(str);
-    const trigger: inputpkg.Binding.Trigger = self.keybind.set.getTrigger(action) orelse .{};
+    var trigger: inputpkg.Binding.Trigger = self.keybind.set.getTrigger(action) orelse .{};
+    const logical_mods = trigger.mods.binding();
+    trigger.mods = self.@"key-remap".unapply(trigger.mods);
+    if (!self.@"key-remap".apply(trigger.mods).binding().equal(logical_mods)) {
+        return .{};
+    }
     return trigger.cval();
 }
 
@@ -277,4 +282,29 @@ test "ghostty_config_trigger: default keybind" {
         try testing.expectEqual(.physical, trigger.tag);
         try testing.expectEqual(.unidentified, trigger.key.physical);
     }
+}
+
+test "ghostty_config_trigger: key-remap" {
+    if (comptime builtin.target.os.tag != .macos) return error.SkipZigTest;
+
+    const testing = std.testing;
+
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+
+    try cfg.@"key-remap".parseCLI(testing.allocator, "command=alt");
+    defer cfg.@"key-remap".deinit(testing.allocator);
+    cfg.@"key-remap".finalize();
+
+    try cfg.keybind.parseCLI(testing.allocator, "alt+n=new_tab");
+
+    const trigger = try config_trigger_(&cfg, "new_tab");
+    try testing.expectEqual(.unicode, trigger.tag);
+    try testing.expectEqual(@as(u32, 'n'), trigger.key.unicode);
+    try testing.expect(trigger.mods.super);
+    try testing.expect(!trigger.mods.alt);
+
+    const default_trigger = try config_trigger_(&cfg, "new_window");
+    try testing.expectEqual(.physical, default_trigger.tag);
+    try testing.expectEqual(.unidentified, default_trigger.key.physical);
 }
