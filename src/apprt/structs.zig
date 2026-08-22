@@ -93,7 +93,7 @@ pub const ClipboardRequest = union(ClipboardRequestType) {
 };
 
 /// The color scheme in use (light vs dark).
-pub const ColorScheme = enum(u2) {
+pub const ColorScheme = enum(u8) {
     light = 0,
     dark = 1,
 };
