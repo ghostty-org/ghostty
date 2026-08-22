@@ -5,14 +5,15 @@
 # Robin Pfäffle <r@rpfaeffle.com>, 2025.
 # Jan Klass <kissaki@posteo.de>, 2026.
 # Klaus Hipp <khipp@users.noreply.github.com>, 2026.
+# derVedro unter Druck <dervedro@googlemail.com>, 2026.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-08-10 10:06-0500\n"
-"PO-Revision-Date: 2026-02-13 08:05+0100\n"
-"Last-Translator: Klaus Hipp <khipp@users.noreply.github.com>\n"
+"PO-Revision-Date: 2026-02-18 21:12+0200\n"
+"Last-Translator: derVedro <dervedro@googlemail.com>\n"
 "Language-Team: German <translation-team-de@lists.sourceforge.net>\n"
 "Language: de\n"
 "MIME-Version: 1.0\n"
@@ -171,7 +172,7 @@ msgstr "Fenster nach unten teilen"
 #: src/apprt/gtk/ui/1.2/surface.blp:365 src/apprt/gtk/ui/1.5/window.blp:190
 #: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
 msgid "Split Left"
-msgstr "Fenter nach links teilen"
+msgstr "Fenster nach links teilen"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:195
 #: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
@@ -180,7 +181,7 @@ msgstr "Fenster nach rechts teilen"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:377
 msgid "Close Split"
-msgstr ""
+msgstr "Geteiltes Fenster schließen"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:383
 msgid "Tab"
@@ -208,7 +209,7 @@ msgstr "Fenster"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:215
 msgid "Change Window Title…"
-msgstr ""
+msgstr "Fenstertitel ändern…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:220
 #: src/input/command.zig:421
@@ -226,11 +227,11 @@ msgstr "Konfiguration"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
-msgstr ""
+msgstr "Konfiguration im Standardeditor des Betriebssystems öffnen"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
-msgstr ""
+msgstr "Konfiguration in neuem Fenster öffnen"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
@@ -274,27 +275,27 @@ msgstr "Einen Befehl ausführen…"
 
 #: src/apprt/gtk/class/application.zig:1767
 msgid "The keybind was revoked by the system."
-msgstr ""
+msgstr "Die Tastenkombination wurde vom System widerrufen."
 
 #: src/apprt/gtk/class/application.zig:1769
 msgid "The keybind was denied by the system."
-msgstr ""
+msgstr "Das System hat die Tastenkombination abgelehnt."
 
 #: src/apprt/gtk/class/application.zig:1780
 msgid "Global keybind unavailable"
-msgstr ""
+msgstr "Globale Tastenkombination nicht verfügbar"
 
 #: src/apprt/gtk/class/application.zig:2259
 msgid "Export Terminal IO Events"
-msgstr ""
+msgstr "Terminal-IO-Ereignisse exportieren"
 
 #: src/apprt/gtk/class/application.zig:2262
 msgid "Export"
-msgstr ""
+msgstr "Exportieren"
 
 #: src/apprt/gtk/class/application.zig:2783
 msgid "Editing configuration file"
-msgstr ""
+msgstr "Konfigurationsdatei wird bearbeitet"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
 msgid ""
@@ -380,7 +381,7 @@ msgstr "Tab-Titel ändern"
 
 #: src/apprt/gtk/class/title_dialog.zig:229
 msgid "Change Window Title"
-msgstr ""
+msgstr "Fenstertitel ändern"
 
 #: src/apprt/gtk/class/window.zig:1153
 msgid "Reloaded the configuration"
@@ -400,710 +401,741 @@ msgstr "Ghostty-Entwickler"
 
 #: src/input/command.zig:149
 msgid "Reset Terminal"
-msgstr ""
+msgstr "Terminal zurücksetzen"
 
 #: src/input/command.zig:150
 msgid "Reset the terminal to a clean state."
-msgstr ""
+msgstr "Terminal auf einen sauberen Zustand zurücksetzen."
 
 #: src/input/command.zig:155
 msgid "Copy to Clipboard"
-msgstr ""
+msgstr "In die Zwischenablage kopieren"
 
 #: src/input/command.zig:156
 msgid ""
 "Copy the selected text to the clipboard in both plain and styled formats."
 msgstr ""
+"Ausgewählten Text formatiert und unformatiert in die Zwischenablage kopieren."
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
-msgstr ""
+msgstr "Auswahl als Reintext in die Zwischenablage kopieren"
 
 #: src/input/command.zig:160
 msgid "Copy the selected text as plain text to the clipboard."
-msgstr ""
+msgstr "Auswahl unformatiert in die Zwischenablage kopieren."
 
 #: src/input/command.zig:163
 msgid "Copy Selection as ANSI Sequences to Clipboard"
-msgstr ""
+msgstr "Auswahl als ANSI in die Zwischenablage kopieren"
 
 #: src/input/command.zig:164
 msgid "Copy the selected text as ANSI escape sequences to the clipboard."
-msgstr ""
+msgstr "Auswahl als ANSI-Escapesequenzen in die Zwischenablage kopieren."
 
 #: src/input/command.zig:167
 msgid "Copy Selection as HTML to Clipboard"
-msgstr ""
+msgstr "Auswahl als HTML in die Zwischenablage kopieren"
 
 #: src/input/command.zig:168
 msgid "Copy the selected text as HTML to the clipboard."
-msgstr ""
+msgstr "Auswahl als HTML in die Zwischenablage kopieren."
 
 #: src/input/command.zig:173
 msgid "Copy URL to Clipboard"
-msgstr ""
+msgstr "URL in die Zwischenablage kopieren"
 
 #: src/input/command.zig:174
 msgid "Copy the URL under the cursor to the clipboard."
-msgstr ""
+msgstr "URL unter dem Cursor in die Zwischenablage kopieren."
 
 #: src/input/command.zig:179
 msgid "Copy Terminal Title to Clipboard"
-msgstr ""
+msgstr "Terminaltitel in die Zwischenablage kopieren"
 
 #: src/input/command.zig:180
 msgid ""
 "Copy the terminal title to the clipboard. If the terminal title is not set "
 "this has no effect."
 msgstr ""
+"Terminaltitel in die Zwischenablage kopieren. Wenn kein Terminaltitel "
+"festgelegt ist, hat dies keine Auswirkung."
 
 #: src/input/command.zig:185
 msgid "Paste from Clipboard"
-msgstr ""
+msgstr "Aus der Zwischenablage einfügen"
 
 #: src/input/command.zig:186
 msgid "Paste the contents of the main clipboard."
-msgstr ""
+msgstr "Inhalt aus der Zwischenablage einfügen."
 
 #: src/input/command.zig:191
 msgid "Paste from Selection"
-msgstr ""
+msgstr "Aus der Auswahl einfügen"
 
 #: src/input/command.zig:192
 msgid "Paste the contents of the selection clipboard."
-msgstr ""
+msgstr "Inhalt aus der Auswahl-Zwischenablage einfügen."
 
 #: src/input/command.zig:197
 msgid "Start Search"
-msgstr ""
+msgstr "Suche starten"
 
 #: src/input/command.zig:198
 msgid "Start a search if one isn't already active."
-msgstr ""
+msgstr "Suche starten, falls noch keine aktiv ist."
 
 #: src/input/command.zig:203
 msgid "Search Selection"
-msgstr ""
+msgstr "Auswahl suchen"
 
 #: src/input/command.zig:204
 msgid "Start a search for the current text selection."
-msgstr ""
+msgstr "Suche nach der aktuellen Auswahl starten."
 
 #: src/input/command.zig:209
 msgid "End Search"
-msgstr ""
+msgstr "Suche beenden"
 
 #: src/input/command.zig:210
 msgid "End the current search if any and hide any GUI elements."
-msgstr ""
+msgstr "Aktuelle Suche beenden und Suchmaske ausblenden."
 
 #: src/input/command.zig:215
 msgid "Next Search Result"
-msgstr ""
+msgstr "Nächstes Suchergebnis"
 
 #: src/input/command.zig:216
 msgid "Navigate to the next search result, if any."
-msgstr ""
+msgstr "Zum nächsten Suchergebnis wechseln."
 
 #: src/input/command.zig:219
 msgid "Previous Search Result"
-msgstr ""
+msgstr "Vorheriges Suchergebnis"
 
 #: src/input/command.zig:220
 msgid "Navigate to the previous search result, if any."
-msgstr ""
+msgstr "Zum vorherigen Suchergebnis wechseln."
 
 #: src/input/command.zig:225
 msgid "Increase Font Size"
-msgstr ""
+msgstr "Schriftgröße erhöhen"
 
 #: src/input/command.zig:226
 msgid "Increase the font size by 1 point."
-msgstr ""
+msgstr "Schriftgröße um 1 Punkt erhöhen."
 
 #: src/input/command.zig:231
 msgid "Decrease Font Size"
-msgstr ""
+msgstr "Schriftgröße verringern"
 
 #: src/input/command.zig:232
 msgid "Decrease the font size by 1 point."
-msgstr ""
+msgstr "Schriftgröße um 1 Punkt verringern."
 
 #: src/input/command.zig:237
 msgid "Reset Font Size"
-msgstr ""
+msgstr "Schriftgröße zurücksetzen"
 
 #: src/input/command.zig:238
 msgid "Reset the font size to the default."
-msgstr ""
+msgstr "Schriftgröße auf die Standardeinstellung zurücksetzen."
 
 #: src/input/command.zig:243
 msgid "Clear Screen"
-msgstr ""
+msgstr "Bildschirm leeren"
 
 #: src/input/command.zig:244
 msgid "Clear the screen and scrollback."
-msgstr ""
+msgstr "Bildschirm und Ausgabeverlauf leeren."
 
 #: src/input/command.zig:249
 msgid "Select All"
-msgstr ""
+msgstr "Alles auswählen"
 
 #: src/input/command.zig:250
 msgid "Select all text on the screen."
-msgstr ""
+msgstr "Gesamte Ausgabe auswählen."
 
 #: src/input/command.zig:255
 msgid "Scroll to Top"
-msgstr ""
+msgstr "Zum Anfang scrollen"
 
 #: src/input/command.zig:256
 msgid "Scroll to the top of the screen."
-msgstr ""
+msgstr "Zum Anfang der Ausgabe scrollen."
 
 #: src/input/command.zig:261
 msgid "Scroll to Bottom"
-msgstr ""
+msgstr "Zum Ende scrollen"
 
 #: src/input/command.zig:262
 msgid "Scroll to the bottom of the screen."
-msgstr ""
+msgstr "Zum Ende der Ausgabe scrollen."
 
 #: src/input/command.zig:267
 msgid "Scroll to Selection"
-msgstr ""
+msgstr "Zur Auswahl scrollen"
 
-#: src/input/command.zig:268
 msgid "Scroll to the selected text."
-msgstr ""
+msgstr "Zum ausgewählten Text scrollen."
 
 #: src/input/command.zig:273
 msgid "Scroll Page Up"
-msgstr ""
+msgstr "Seite nach oben scrollen"
 
 #: src/input/command.zig:274
 msgid "Scroll the screen up by a page."
-msgstr ""
+msgstr "Um eine Seite nach oben scrollen."
 
 #: src/input/command.zig:279
 msgid "Scroll Page Down"
-msgstr ""
+msgstr "Seite nach unten scrollen"
 
 #: src/input/command.zig:280
 msgid "Scroll the screen down by a page."
-msgstr ""
+msgstr "Um eine Seite nach unten scrollen."
 
 #: src/input/command.zig:286
 msgid "Copy Screen to Temporary File and Copy Path"
-msgstr ""
+msgstr "Ausgabe in temporäre Datei kopieren und Pfad kopieren"
 
 #: src/input/command.zig:287
 msgid ""
 "Copy the screen contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
+"Ausgabe in eine temporäre Datei kopieren und Pfad in die Zwischenablage "
+"kopieren."
 
 #: src/input/command.zig:291
 msgid "Copy Screen to Temporary File and Paste Path"
-msgstr ""
+msgstr "Ausgabe in temporäre Datei kopieren und Pfad einfügen"
 
 #: src/input/command.zig:292
 msgid ""
 "Copy the screen contents to a temporary file and paste the path to the file."
 msgstr ""
+"Ausgabe in eine temporäre Datei kopieren und Pfad zur Datei einfügen."
 
 #: src/input/command.zig:296
 msgid "Copy Screen to Temporary File and Open"
-msgstr ""
+msgstr "Ausgabe in temporäre Datei kopieren und öffnen"
 
 #: src/input/command.zig:297
 msgid "Copy the screen contents to a temporary file and open it."
-msgstr ""
+msgstr "Ausgabe in eine temporäre Datei kopieren und öffnen."
 
 #: src/input/command.zig:305
 msgid "Copy Screen as HTML to Temporary File and Copy Path"
-msgstr ""
+msgstr "Ausgabe als HTML in temporäre Datei kopieren und Pfad kopieren"
 
 #: src/input/command.zig:306
 msgid ""
 "Copy the screen contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
+"Ausgabe als HTML in eine temporäre Datei kopieren und Pfad in die "
+"Zwischenablage kopieren."
 
 #: src/input/command.zig:313
 msgid "Copy Screen as HTML to Temporary File and Paste Path"
-msgstr ""
+msgstr "Ausgabe als HTML in temporäre Datei kopieren und Pfad einfügen"
 
 #: src/input/command.zig:314
 msgid ""
 "Copy the screen contents as HTML to a temporary file and paste the path to "
 "the file."
 msgstr ""
+"Ausgabe als HTML in eine temporäre Datei kopieren und Pfad zur Datei "
+"einfügen."
 
 #: src/input/command.zig:321
 msgid "Copy Screen as HTML to Temporary File and Open"
-msgstr ""
+msgstr "Ausgabe als HTML in temporäre Datei kopieren und öffnen"
 
 #: src/input/command.zig:322
 msgid "Copy the screen contents as HTML to a temporary file and open it."
-msgstr ""
+msgstr "Ausgabe als HTML in eine temporäre Datei kopieren und öffnen."
 
 #: src/input/command.zig:330
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
-msgstr ""
+msgstr "Ausgabe als ANSI in temporäre Datei kopieren und Pfad kopieren"
 
 #: src/input/command.zig:331
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
+"Ausgabe als ANSI-Escapesequenzen in eine temporäre Datei kopieren und Pfad "
+"in die Zwischenablage kopieren."
 
 #: src/input/command.zig:338
 msgid "Copy Screen as ANSI Sequences to Temporary File and Paste Path"
-msgstr ""
+msgstr "Ausgabe als ANSI in temporäre Datei kopieren und Pfad einfügen"
 
 #: src/input/command.zig:339
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
+"Ausgabe als ANSI-Escapesequenzen in eine temporäre Datei kopieren und Pfad "
+"zur Datei einfügen."
 
 #: src/input/command.zig:346
 msgid "Copy Screen as ANSI Sequences to Temporary File and Open"
-msgstr ""
+msgstr "Ausgabe als ANSI in temporäre Datei kopieren und öffnen"
 
 #: src/input/command.zig:347
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
+"Ausgabe als ANSI-Escapesequenzen in eine temporäre Datei kopieren und "
+"öffnen."
 
 #: src/input/command.zig:354
 msgid "Copy Selection to Temporary File and Copy Path"
-msgstr ""
+msgstr "Auswahl in temporäre Datei kopieren und Pfad kopieren"
 
 #: src/input/command.zig:355
 msgid ""
 "Copy the selection contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
+"Auswahl in eine temporäre Datei kopieren und Pfad in die Zwischenablage "
+"kopieren."
 
 #: src/input/command.zig:359
 msgid "Copy Selection to Temporary File and Paste Path"
-msgstr ""
+msgstr "Auswahl in temporäre Datei kopieren und Pfad einfügen"
 
 #: src/input/command.zig:360
 msgid ""
 "Copy the selection contents to a temporary file and paste the path to the "
 "file."
 msgstr ""
+"Auswahl in eine temporäre Datei kopieren und Pfad zur Datei einfügen."
 
 #: src/input/command.zig:364
 msgid "Copy Selection to Temporary File and Open"
-msgstr ""
+msgstr "Auswahl in temporäre Datei kopieren und öffnen"
 
 #: src/input/command.zig:365
 msgid "Copy the selection contents to a temporary file and open it."
-msgstr ""
+msgstr "Auswahl in eine temporäre Datei kopieren und öffnen."
 
 #: src/input/command.zig:373
 msgid "Copy Selection as HTML to Temporary File and Copy Path"
-msgstr ""
+msgstr "Auswahl als HTML in temporäre Datei kopieren und Pfad kopieren"
 
 #: src/input/command.zig:374
 msgid ""
 "Copy the selection contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
+"Auswahl als HTML in eine temporäre Datei kopieren und Pfad in die "
+"Zwischenablage kopieren."
 
 #: src/input/command.zig:381
 msgid "Copy Selection as HTML to Temporary File and Paste Path"
-msgstr ""
+msgstr "Auswahl als HTML in temporäre Datei kopieren und Pfad einfügen"
 
 #: src/input/command.zig:382
 msgid ""
 "Copy the selection contents as HTML to a temporary file and paste the path "
 "to the file."
 msgstr ""
+"Auswahl als HTML in eine temporäre Datei kopieren und Pfad zur Datei "
+"einfügen."
 
 #: src/input/command.zig:389
 msgid "Copy Selection as HTML to Temporary File and Open"
-msgstr ""
+msgstr "Auswahl als HTML in temporäre Datei kopieren und öffnen"
 
 #: src/input/command.zig:390
 msgid "Copy the selection contents as HTML to a temporary file and open it."
-msgstr ""
+msgstr "Auswahl als HTML in eine temporäre Datei kopieren und öffnen."
 
 #: src/input/command.zig:398
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
-msgstr ""
+msgstr "Auswahl als ANSI in temporäre Datei kopieren und Pfad kopieren"
 
 #: src/input/command.zig:399
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
+"Auswahl als ANSI-Escapesequenzen in eine temporäre Datei kopieren und Pfad "
+"in die Zwischenablage kopieren."
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
-msgstr ""
+msgstr "Auswahl als ANSI in temporäre Datei kopieren und Pfad einfügen"
 
 #: src/input/command.zig:407
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
+"Auswahl als ANSI-Escapesequenzen in eine temporäre Datei kopieren und Pfad "
+"zur Datei einfügen."
 
 #: src/input/command.zig:414
 msgid "Copy Selection as ANSI Sequences to Temporary File and Open"
-msgstr ""
+msgstr "Auswahl als ANSI in temporäre Datei kopieren und öffnen"
 
 #: src/input/command.zig:415
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
+"Auswahl als ANSI-Escapesequenzen in eine temporäre Datei kopieren und "
+"öffnen."
 
 #: src/input/command.zig:422
 msgid "Open a new window."
-msgstr ""
+msgstr "Neues Fenster öffnen."
 
 #: src/input/command.zig:428
 msgid "Open a new tab."
-msgstr ""
+msgstr "Neuen Tab öffnen."
 
 #: src/input/command.zig:434
 msgid "Move Tab Left"
-msgstr ""
+msgstr "Tab nach links verschieben"
 
 #: src/input/command.zig:435
 msgid "Move the current tab to the left."
-msgstr ""
+msgstr "Aktuellen Tab nach links verschieben."
 
 #: src/input/command.zig:439
 msgid "Move Tab Right"
-msgstr ""
+msgstr "Tab nach rechts verschieben"
 
 #: src/input/command.zig:440
 msgid "Move the current tab to the right."
-msgstr ""
+msgstr "Aktuellen Tab nach rechts verschieben."
 
 #: src/input/command.zig:446
 msgid "Move Tab to New Window"
-msgstr ""
+msgstr "Tab in neues Fenster verschieben"
 
 #: src/input/command.zig:447
 msgid "Move the current tab to a new window."
-msgstr ""
+msgstr "Aktuellen Tab in ein neues Fenster verschieben."
 
 #: src/input/command.zig:452
 msgid "Toggle Tab Overview"
-msgstr ""
+msgstr "Tab-Übersicht umschalten"
 
 #: src/input/command.zig:453
 msgid "Toggle the tab overview."
-msgstr ""
+msgstr "Tab-Übersicht umschalten."
 
 #: src/input/command.zig:458
 msgid "Change Terminal Title…"
-msgstr ""
+msgstr "Terminaltitel ändern…"
 
 #: src/input/command.zig:459
 msgid "Prompt for a new title for the current terminal."
-msgstr ""
+msgstr "Neuen Titel für das aktuelle Terminal eingeben."
 
 #: src/input/command.zig:465
 msgid "Prompt for a new title for the current tab."
-msgstr ""
+msgstr "Neuen Titel für den aktuellen Tab eingeben."
 
 #: src/input/command.zig:478
 msgid "Split the terminal to the left."
-msgstr ""
+msgstr "Bereich nach links teilen."
 
 #: src/input/command.zig:483
 msgid "Split the terminal to the right."
-msgstr ""
+msgstr "Bereich nach rechts teilen."
 
 #: src/input/command.zig:488
 msgid "Split the terminal up."
-msgstr ""
+msgstr "Bereich nach oben teilen."
 
 #: src/input/command.zig:493
 msgid "Split the terminal down."
-msgstr ""
+msgstr "Bereich nach unten teilen."
 
 #: src/input/command.zig:500
 msgid "Focus Split: Previous"
-msgstr ""
+msgstr "Zum vorherigen Split wechseln"
 
 #: src/input/command.zig:501
 msgid "Focus the previous split, if any."
-msgstr ""
+msgstr "Zum vorherigen Split wechseln, falls vorhanden."
 
 #: src/input/command.zig:505
 msgid "Focus Split: Next"
-msgstr ""
+msgstr "Zum nächsten Split wechseln"
 
 #: src/input/command.zig:506
 msgid "Focus the next split, if any."
-msgstr ""
+msgstr "Zum nächsten Split wechseln, falls vorhanden."
 
 #: src/input/command.zig:510
 msgid "Focus Split: Left"
-msgstr ""
+msgstr "Zum linken Split wechseln"
 
 #: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
-msgstr ""
+msgstr "Zum linken Split wechseln, falls vorhanden."
 
 #: src/input/command.zig:515
 msgid "Focus Split: Right"
-msgstr ""
+msgstr "Zum rechten Split wechseln"
 
 #: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
-msgstr ""
+msgstr "Zum rechten Split wechseln, falls vorhanden."
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
-msgstr ""
+msgstr "Zum oberen Split wechseln"
 
 #: src/input/command.zig:521
 msgid "Focus the split above, if it exists."
-msgstr ""
+msgstr "Zum oberen Split wechseln, falls vorhanden."
 
 #: src/input/command.zig:525
 msgid "Focus Split: Down"
-msgstr ""
+msgstr "Zum unteren Split wechseln"
 
 #: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
-msgstr ""
+msgstr "Zum unteren Split wechseln, falls vorhanden."
 
 #: src/input/command.zig:533
 msgid "Focus Window: Previous"
-msgstr ""
+msgstr "Zum vorherigen Fenster wechseln"
 
 #: src/input/command.zig:534
 msgid "Focus the previous window, if any."
-msgstr ""
+msgstr "Zum vorherigen Fenster wechseln, falls vorhanden."
 
 #: src/input/command.zig:538
 msgid "Focus Window: Next"
-msgstr ""
+msgstr "Zum nächsten Fenster wechseln"
 
 #: src/input/command.zig:539
 msgid "Focus the next window, if any."
-msgstr ""
+msgstr "Zum nächsten Fenster wechseln, falls vorhanden."
 
 #: src/input/command.zig:545
 msgid "Toggle Split Zoom"
-msgstr ""
+msgstr "Split-Zoom umschalten"
 
 #: src/input/command.zig:546
 msgid "Toggle the zoom state of the current split."
-msgstr ""
+msgstr "Zoom des aktuellen Splits umschalten."
 
 #: src/input/command.zig:551
 msgid "Toggle Read-Only Mode"
-msgstr ""
+msgstr "Schreibgeschützten Modus umschalten"
 
 #: src/input/command.zig:552
 msgid "Toggle read-only mode for the current surface."
-msgstr ""
+msgstr "Schreibgeschützten Modus für den aktuellen Bereich umschalten."
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
-msgstr ""
+msgstr "Splits angleichen"
 
 #: src/input/command.zig:558
 msgid "Equalize the size of all splits."
-msgstr ""
+msgstr "Größe aller Splits angleichen."
 
 #: src/input/command.zig:563
 msgid "Reset Window Size"
-msgstr ""
+msgstr "Fenstergröße zurücksetzen"
 
 #: src/input/command.zig:564
 msgid "Reset the window size to the default."
-msgstr ""
+msgstr "Fenstergröße auf die Standardeinstellung zurücksetzen."
 
 #: src/input/command.zig:569
 msgid "Toggle Inspector"
-msgstr ""
+msgstr "Inspektor umschalten"
 
 #: src/input/command.zig:570
 msgid "Toggle the inspector."
-msgstr ""
+msgstr "Inspektor umschalten."
 
 #: src/input/command.zig:575
 msgid "Show the GTK Inspector"
-msgstr ""
+msgstr "GTK-Inspektor anzeigen"
 
 #: src/input/command.zig:576
 msgid "Show the GTK inspector."
-msgstr ""
+msgstr "GTK-Inspektor anzeigen."
 
 #: src/input/command.zig:581
 msgid "Show On-Screen Keyboard"
-msgstr ""
+msgstr "Bildschirmtastatur anzeigen"
 
 #: src/input/command.zig:582
 msgid "Show the on-screen keyboard if present."
-msgstr ""
+msgstr "Bildschirmtastatur anzeigen, falls vorhanden."
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
-msgstr ""
+msgstr "Konfiguration im Standardeditor öffnen"
 
 #: src/input/command.zig:589
 msgid "Open the config file with the OS's default editor."
-msgstr ""
+msgstr "Konfigurationsdatei im Standardeditor öffnen."
 
 #: src/input/command.zig:593
 msgid "Open Config in New Terminal Window"
-msgstr ""
+msgstr "Konfiguration in neuem Terminalfenster öffnen"
 
 #: src/input/command.zig:594
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
 msgstr ""
+"Konfigurationsdatei in einem neuen Fenster mit $EDITOR oder $VISUAL öffnen."
 
 #: src/input/command.zig:600
 msgid "Reload Config"
-msgstr ""
+msgstr "Konfiguration neu laden"
 
 #: src/input/command.zig:601
 msgid "Reload the config file."
-msgstr ""
+msgstr "Konfigurationsdatei neu laden."
 
 #: src/input/command.zig:606
 msgid "Close Terminal"
-msgstr ""
+msgstr "Terminal schließen"
 
 #: src/input/command.zig:607
 msgid "Close the current terminal."
-msgstr ""
+msgstr "Aktuelles Terminal schließen."
 
 #: src/input/command.zig:614
 msgid "Close the current tab."
-msgstr ""
+msgstr "Aktuellen Tab schließen."
 
 #: src/input/command.zig:618
 msgid "Close Other Tabs"
-msgstr ""
+msgstr "Andere Tabs schließen"
 
 #: src/input/command.zig:619
 msgid "Close all tabs in this window except the current one."
-msgstr ""
+msgstr "Alle anderen Tabs in diesem Fenster schließen."
 
 #: src/input/command.zig:623
 msgid "Close Tabs to the Right"
-msgstr ""
+msgstr "Tabs rechts schließen"
 
 #: src/input/command.zig:624
 msgid "Close all tabs to the right of the current one."
-msgstr ""
+msgstr "Alle Tabs rechts vom aktuellen schließen."
 
 #: src/input/command.zig:631
 msgid "Close the current window."
-msgstr ""
+msgstr "Aktuelles Fenster schließen."
 
 #: src/input/command.zig:636
 msgid "Close All Windows"
-msgstr ""
+msgstr "Alle Fenster schließen"
 
 #: src/input/command.zig:637
 msgid "Close all windows."
-msgstr ""
+msgstr "Alle Fenster schließen."
 
 #: src/input/command.zig:642
 msgid "Toggle Maximize"
-msgstr ""
+msgstr "Maximieren umschalten"
 
 #: src/input/command.zig:643
 msgid "Toggle the maximized state of the current window."
-msgstr ""
+msgstr "Maximierten Zustand des aktuellen Fensters umschalten."
 
 #: src/input/command.zig:648
 msgid "Toggle Fullscreen"
-msgstr ""
+msgstr "Vollbild umschalten"
 
 #: src/input/command.zig:649
 msgid "Toggle the fullscreen state of the current window."
-msgstr ""
+msgstr "Vollbildmodus des aktuellen Fensters umschalten."
 
 #: src/input/command.zig:654
 msgid "Toggle Window Decorations"
-msgstr ""
+msgstr "Fensterdekorationen umschalten"
 
 #: src/input/command.zig:655
 msgid "Toggle the window decorations."
-msgstr ""
+msgstr "Fensterdekorationen umschalten."
 
 #: src/input/command.zig:660
 msgid "Toggle Float on Top"
-msgstr ""
+msgstr "Immer im Vordergrund umschalten"
 
 #: src/input/command.zig:661
 msgid "Toggle the float on top state of the current window."
-msgstr ""
+msgstr "Status Immer-im-Vordergrund des aktuellen Fensters umschalten."
 
 #: src/input/command.zig:666
 msgid "Toggle Secure Input"
-msgstr ""
+msgstr "Sicheren Eingabemodus umschalten"
 
 #: src/input/command.zig:667
 msgid "Toggle secure input mode."
-msgstr ""
+msgstr "Sicheren Eingabemodus umschalten."
 
 #: src/input/command.zig:672
 msgid "Toggle Mouse Reporting"
-msgstr ""
+msgstr "Mausereignisweiterleitung umschalten"
 
 #: src/input/command.zig:673
 msgid "Toggle whether mouse events are reported to terminal applications."
-msgstr ""
+msgstr "Weiterleitung von Mausereignissen an Terminalanwendungen umschalten."
 
 #: src/input/command.zig:678
 msgid "Toggle Background Opacity"
-msgstr ""
+msgstr "Hintergrundtransparenz umschalten"
 
 #: src/input/command.zig:679
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr ""
+"Hintergrundtransparenz eines Fensters umschalten, das transparent gestartet "
+"wurde."
 
 #: src/input/command.zig:684
 msgid "Check for Updates"
-msgstr ""
+msgstr "Auf Updates prüfen"
 
 #: src/input/command.zig:685
 msgid "Check for updates to the application."
-msgstr ""
+msgstr "Auf Updates für die Anwendung prüfen."
 
 #: src/input/command.zig:690
 msgid "Undo"
-msgstr ""
+msgstr "Rückgängig"
 
 #: src/input/command.zig:691
 msgid "Undo the last action."
-msgstr ""
+msgstr "Letzte Aktion rückgängig machen."
 
 #: src/input/command.zig:696
 msgid "Redo"
-msgstr ""
+msgstr "Wiederholen"
 
 #: src/input/command.zig:697
 msgid "Redo the last undone action."
-msgstr ""
+msgstr "Letzte rückgängig gemachte Aktion wiederholen."
 
 #: src/input/command.zig:703
 msgid "Quit the application."
-msgstr ""
+msgstr "Anwendung beenden."
 
 #: src/input/command.zig:708
 msgid "Ghostty"
-msgstr ""
+msgstr "Ghostty"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."
-msgstr ""
+msgstr "Einen kleinen Ghostty in dein Terminal setzen."
