@@ -111,11 +111,14 @@ extension Ghostty {
         /// configuration would be "quit" action.
         ///
         /// Returns nil if there is no key equivalent for the given action.
-        func keyboardShortcut(for action: String) -> KeyboardShortcut? {
-            guard let cfg = self.config else { return nil }
-
-            let trigger = ghostty_config_trigger(cfg, action, UInt(action.lengthOfBytes(using: .utf8)))
+        @MainActor func keyboardShortcut(for action: String) -> KeyboardShortcut? {
+            guard let trigger = keybindTrigger(for: action) else { return nil }
             return Ghostty.keyboardShortcut(for: trigger)
+        }
+
+        func keybindTrigger(for action: String) -> ghostty_input_trigger_s? {
+            guard let config else { return nil }
+            return ghostty_config_trigger(config, action, UInt(action.lengthOfBytes(using: .utf8)))
         }
 
         // MARK: - Configuration Values

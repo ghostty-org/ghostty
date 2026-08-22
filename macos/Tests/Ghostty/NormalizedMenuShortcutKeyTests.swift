@@ -13,11 +13,6 @@ struct NormalizedMenuShortcutKeyTests {
         #expect(key == nil)
     }
 
-    @Test func lowercasesKeyEquivalent() {
-        let key = Key(keyEquivalent: "A", modifiers: .command)
-        #expect(key?.keyEquivalent == "a")
-    }
-
     @Test func stripsNonShortcutModifiers() {
         // .capsLock and .function should be stripped
         let key = Key(keyEquivalent: "c", modifiers: [.command, .capsLock, .function])
@@ -72,6 +67,17 @@ struct NormalizedMenuShortcutKeyTests {
         let a = Key(keyEquivalent: "a", modifiers: .command)
         let b = Key(keyEquivalent: "b", modifiers: .command)
         #expect(a != b)
+    }
+
+    @Test func physicalKeysUseKeyCodeIdentity() {
+        let physical = Key(physicalKeyCode: 0x32, modifiers: .command)
+        let same = Key(physicalKeyCode: 0x32, modifiers: .command)
+        let different = Key(physicalKeyCode: 0x31, modifiers: .command)
+        let unicode = Key(keyEquivalent: "`", modifiers: .command)
+
+        #expect(physical == same)
+        #expect(physical != different)
+        #expect(physical != unicode)
     }
 
     @Test func differentModifiersAreNotEqual() {

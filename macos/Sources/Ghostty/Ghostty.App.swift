@@ -1985,19 +1985,21 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
-                if v.active {
-                    NotificationCenter.default.post(
-                        name: Notification.didContinueKeySequence,
-                        object: surfaceView,
-                        userInfo: [
-                            Notification.KeySequenceKey: keyboardShortcut(for: v.trigger) as Any
-                        ]
-                    )
-                } else {
-                    NotificationCenter.default.post(
-                        name: Notification.didEndKeySequence,
-                        object: surfaceView
-                    )
+                DispatchQueue.main.async {
+                    if v.active {
+                        NotificationCenter.default.post(
+                            name: Notification.didContinueKeySequence,
+                            object: surfaceView,
+                            userInfo: [
+                                Notification.KeySequenceKey: keyboardShortcut(for: v.trigger) as Any
+                            ]
+                        )
+                    } else {
+                        NotificationCenter.default.post(
+                            name: Notification.didEndKeySequence,
+                            object: surfaceView
+                        )
+                    }
                 }
 
             default:
