@@ -300,6 +300,7 @@ slsrepo
 steven-tk
 sunshine-syz
 svmhdvn
+-tangivis
 tasselx
 tbrundige
 tdgroot
