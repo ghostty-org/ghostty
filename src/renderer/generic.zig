@@ -334,6 +334,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             cells: CellTextBuffer,
             cells_bg: CellBgBuffer,
 
+            /// Grid size used for the most recent cell buffer upload.
+            cell_grid_size: ?renderer.GridSize = null,
+
             grayscale: Texture,
             grayscale_modified: usize = 0,
             color: Texture,
@@ -1672,6 +1675,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 frame.target_config_modified = self.target_config_modified;
             }
 
+            // Check if the cell grid size has changed, which can happen
+            // on rebuildCells.
+            const cell_grid_size_changed = if (frame.cell_grid_size) |size|
+                !std.meta.eql(size, self.cells.size)
+            else
+                true;
+
             // Upload images to the GPU as necessary.
             _ = self.images.upload(self.alloc, &self.api);
 
@@ -1683,8 +1693,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Setup our frame data
             try frame.uniforms.sync(&.{self.uniforms});
-            try frame.cells_bg.sync(self.cells.bg_cells);
-            const fg_count = try frame.cells.syncFromArrayLists(self.cells.fg_rows);
+
+            const fg_count = if (cell_grid_size_changed) exact: {
+                try frame.cells_bg.sync(self.cells.bg_cells);
+                const count = try frame.cells.syncFromArrayLists(self.cells.fg_rows);
+
+                // Update the frame's cell grid size so we can detect changes next frame.
+                frame.cell_grid_size = self.cells.size;
+                break :exact count;
+            } else retain: {
+                try frame.cells_bg.syncRetainCapacity(self.cells.bg_cells);
+                const count = try frame.cells.syncFromArrayListsRetainCapacity(self.cells.fg_rows);
+
+                break :retain count;
+            };
 
             // If our background image buffer has changed, sync it.
             if (frame.bg_image_buffer_modified != self.bg_image_buffer_modified) {
