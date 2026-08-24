@@ -245,6 +245,7 @@ nolinmcfarland
 nouritsu
 nwehg
 ocean6954
+ollioddi
 oshdubh
 otomn
 paaloeye
@@ -277,6 +278,7 @@ rgehan
 rhodes-b
 rightaditya
 rjwittams
+rkoten
 rmengelbrecht
 rmunn
 rockorager
@@ -313,6 +315,7 @@ tothedarktowercame
 trag1c
 tristan957
 tsacha
+tuananh
 turbolent
 tweedbeetle
 uhojin
@@ -320,6 +323,7 @@ unphased
 unsaltedscholar
 uzaaft
 vancluever
+vasilmytsyk
 vaughanandrews
 -vectorpeak Stupid bot cosplaying as a maintainer
 vegerot
