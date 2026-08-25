@@ -141,7 +141,7 @@ msgstr "Einfügen"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:326
 msgid "Notify on Next Command Finish"
-msgstr "Bei Abschluss des nächsten Befehls benachrichtigen"
+msgstr "Nach Befehlsende melden"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
