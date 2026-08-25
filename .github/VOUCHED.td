@@ -302,6 +302,7 @@ slsrepo
 steven-tk
 sunshine-syz
 svmhdvn
+tacherasasi
 -tangivis
 tasselx
 tbrundige
