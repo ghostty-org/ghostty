@@ -546,6 +546,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Toggle the zoom state of the current split."),
         }},
 
+        .detach_split => comptime &.{.{
+            .action = .detach_split,
+            .title = i18n.N_("Detach Split"),
+            .description = i18n.N_("Detach the current split into its own window."),
+        }},
+
         .toggle_readonly => comptime &.{.{
             .action = .toggle_readonly,
             .title = i18n.N_("Toggle Read-Only Mode"),
@@ -746,10 +752,6 @@ fn actionCommands(action: Action.Key) []const Command {
         .next_tab,
         .last_tab,
         => comptime &.{},
-
-        // No command yet. The palette entry is added in a follow-up PR
-        // to avoid new translatable strings during the 1.4 string freeze.
-        .detach_split => comptime &.{},
 
         // No commands for obvious reasons
         .ignore,
