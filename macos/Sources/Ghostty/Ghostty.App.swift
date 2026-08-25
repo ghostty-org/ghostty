@@ -1511,18 +1511,25 @@ extension Ghostty {
                 return false
 
             case GHOSTTY_TARGET_SURFACE:
-                guard let surface = target.target.surface else { return false }
-                guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                guard let controller = surfaceView.window?.windowController as? BaseTerminalController else { return false }
+                guard
+                    let surface = target.target.surface,
+                    let surfaceView = self.surfaceView(from: surface),
+                    let controller = BaseTerminalController.controller(owning: surfaceView),
+                    // If the window has no splits, there is nothing to detach.
+                    controller.surfaceTree.isSplit,
+                    let window = controller.window
+                else {
+                    return false
+                }
 
-                // If the window has no splits, there is nothing to detach.
-                guard controller.surfaceTree.isSplit else { return false }
-
-                // The no-target drag handler implements exactly this operation:
-                // remove the surface from its tree and move it into a new window.
+                let surfaceFrameInWindow = surfaceView.convert(surfaceView.frame, to: nil)
+                let windowTopLeft = NSPoint(x: surfaceFrameInWindow.minX, y: surfaceFrameInWindow.maxY)
                 NotificationCenter.default.post(
                     name: .ghosttySurfaceDragEndedNoTarget,
-                    object: surfaceView
+                    object: surfaceView,
+                    userInfo: [
+                        Foundation.Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey: window.convertPoint(toScreen: windowTopLeft)
+                    ]
                 )
                 return true
 
