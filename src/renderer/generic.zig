@@ -1788,26 +1788,29 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             var frame_ctx = try self.api.beginFrame(self, &frame.target);
             defer frame_ctx.complete(sync);
 
+            // A background image composites over a transparent clear;
+            // that shader applies bg_color.
+            const clear_color: [4]f32 = if (self.bg_image != null)
+                .{ 0.0, 0.0, 0.0, 0.0 }
+            else
+                GraphicsAPI.clearColor(self.uniforms);
+
             {
                 var pass = frame_ctx.renderPass(&.{.{
                     .target = if (frame.custom_shader_state) |state|
                         .{ .texture = state.back_texture }
                     else
                         .{ .target = frame.target },
-                    .clear_color = .{ 0.0, 0.0, 0.0, 0.0 },
+                    .clear_color = .{
+                        @floatCast(clear_color[0]),
+                        @floatCast(clear_color[1]),
+                        @floatCast(clear_color[2]),
+                        @floatCast(clear_color[3]),
+                    },
                 }});
                 defer pass.complete();
 
-                // First we draw our background image, if we have one.
                 // The bg image shader also draws the main bg color.
-                //
-                // Otherwise, if we don't have a background image, we
-                // draw the background color by itself in its own step.
-                //
-                // NOTE: We don't use the clear_color for this because that
-                //       would require us to do color space conversion on the
-                //       CPU-side. In the future when we have utilities for
-                //       that we should remove this step and use clear_color.
                 if (self.bg_image) |img| switch (img) {
                     .ready => |texture| pass.step(.{
                         .pipeline = self.shaders.pipelines.bg_image,
@@ -1817,14 +1820,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .draw = .{ .type = .triangle, .vertex_count = 3 },
                     }),
                     else => {},
-                } else {
-                    pass.step(.{
-                        .pipeline = self.shaders.pipelines.bg_color,
-                        .uniforms = frame.uniforms.buffer,
-                        .buffers = &.{ null, frame.cells_bg.buffer },
-                        .draw = .{ .type = .triangle, .vertex_count = 3 },
-                    });
-                }
+                };
 
                 // Then we draw any kitty images that need
                 // to be behind text AND cell backgrounds.
@@ -1832,6 +1828,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     &self.api,
                     self.shaders.pipelines.image,
                     &pass,
+                    frame.uniforms.buffer,
                     .kitty_below_bg,
                 );
 
@@ -1848,6 +1845,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     &self.api,
                     self.shaders.pipelines.image,
                     &pass,
+                    frame.uniforms.buffer,
                     .kitty_below_text,
                 );
 
@@ -1875,6 +1873,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     &self.api,
                     self.shaders.pipelines.image,
                     &pass,
+                    frame.uniforms.buffer,
                     .kitty_above_text,
                 );
 
@@ -1884,6 +1883,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     &self.api,
                     self.shaders.pipelines.image,
                     &pass,
+                    frame.uniforms.buffer,
                     .overlay,
                 );
             }

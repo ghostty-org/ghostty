@@ -217,22 +217,6 @@ vertex FullScreenVertexOut full_screen_vertex(
 }
 
 //-------------------------------------------------------------------
-// Background Color Shader
-//-------------------------------------------------------------------
-#pragma mark - BG Color Shader
-
-fragment float4 bg_color_fragment(
-  FullScreenVertexOut in [[stage_in]],
-  constant Uniforms& uniforms [[buffer(1)]]
-) {
-  return load_color(
-    uniforms.bg_color,
-    uniforms.use_display_p3,
-    uniforms.use_linear_blending
-  );
-}
-
-//-------------------------------------------------------------------
 // Background Image Shader
 //-------------------------------------------------------------------
 #pragma mark - BG Image Shader

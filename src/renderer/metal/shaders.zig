@@ -12,11 +12,6 @@ const log = std.log.scoped(.metal);
 
 const pipeline_descs: []const struct { [:0]const u8, PipelineDescription } =
     &.{
-        .{ "bg_color", .{
-            .vertex_fn = "full_screen_vertex",
-            .fragment_fn = "bg_color_fragment",
-            .blending_enabled = false,
-        } },
         .{ "cell_bg", .{
             .vertex_fn = "full_screen_vertex",
             .fragment_fn = "cell_bg_fragment",

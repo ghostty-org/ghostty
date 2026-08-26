@@ -15,6 +15,7 @@ const rendererpkg = @import("../renderer.zig");
 const Renderer = rendererpkg.GenericRenderer(Metal);
 const shadertoy = @import("shadertoy.zig");
 
+const color = @import("color.zig");
 const mtl = @import("metal/api.zig");
 const IOSurfaceLayer = @import("metal/IOSurfaceLayer.zig");
 
@@ -493,4 +494,68 @@ fn queryMaxTextureSize(device: objc.Object) u32 {
     )) return 16384;
 
     return 8192;
+}
+
+/// Converted `uniforms.bg_color` for the render pass clear.
+pub fn clearColor(uniforms: shaders.Uniforms) [4]f32 {
+    return loadColor(
+        uniforms.bg_color,
+        uniforms.bools.use_display_p3,
+        uniforms.bools.use_linear_blending,
+    );
+}
+
+/// CPU equivalent of Metal `load_color(in, display_p3, linear)`.
+///
+/// `display_p3` true means the input is already Display P3.
+/// Output is Display P3.
+pub fn loadColor(in: [4]u8, display_p3: bool, linear: bool) [4]f32 {
+    var out: [4]f32 = .{
+        @as(f32, @floatFromInt(in[0])) / 255.0,
+        @as(f32, @floatFromInt(in[1])) / 255.0,
+        @as(f32, @floatFromInt(in[2])) / 255.0,
+        @as(f32, @floatFromInt(in[3])) / 255.0,
+    };
+
+    // Already P3 and gamma output: premultiply and return.
+    if (display_p3 and !linear) {
+        out[0] *= out[3];
+        out[1] *= out[3];
+        out[2] *= out[3];
+        return out;
+    }
+
+    // sRGB and Display P3 share the sRGB transfer. Linearize before
+    // any color-space convert, even when the output is gamma-encoded.
+    out[0] = color.linearize(out[0]);
+    out[1] = color.linearize(out[1]);
+    out[2] = color.linearize(out[2]);
+
+    if (!display_p3) {
+        const p3 = color.srgbToDisplayP3(.{ out[0], out[1], out[2] });
+        out[0] = p3[0];
+        out[1] = p3[1];
+        out[2] = p3[2];
+    }
+
+    if (!linear) {
+        out[0] = color.unlinearize(out[0]);
+        out[1] = color.unlinearize(out[1]);
+        out[2] = color.unlinearize(out[2]);
+    }
+
+    out[0] *= out[3];
+    out[1] *= out[3];
+    out[2] *= out[3];
+    return out;
+}
+
+test "loadColor sRGB red to gamma Display P3" {
+    const testing = std.testing;
+    // Default macOS: window-colorspace=srgb, alpha-blending=native.
+    const got = loadColor(.{ 255, 0, 0, 255 }, false, false);
+    try testing.expectApproxEqAbs(0.9175287, got[0], 1e-5);
+    try testing.expectApproxEqAbs(0.2002283, got[1], 1e-5);
+    try testing.expectApproxEqAbs(0.1388760, got[2], 1e-5);
+    try testing.expectApproxEqAbs(1.0, got[3], 1e-6);
 }

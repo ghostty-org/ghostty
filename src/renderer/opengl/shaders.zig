@@ -9,11 +9,6 @@ const log = std.log.scoped(.opengl);
 
 const pipeline_descs: []const struct { [:0]const u8, PipelineDescription } =
     &.{
-        .{ "bg_color", .{
-            .vertex_fn = loadShaderCode("../shaders/glsl/full_screen.v.glsl"),
-            .fragment_fn = loadShaderCode("../shaders/glsl/bg_color.f.glsl"),
-            .blending_enabled = false,
-        } },
         .{ "cell_bg", .{
             .vertex_fn = loadShaderCode("../shaders/glsl/full_screen.v.glsl"),
             .fragment_fn = loadShaderCode("../shaders/glsl/cell_bg.f.glsl"),

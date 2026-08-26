@@ -9,6 +9,7 @@
 
 const build_config = @import("build_config.zig");
 
+pub const color = @import("renderer/color.zig");
 const cursor = @import("renderer/cursor.zig");
 const message = @import("renderer/message.zig");
 const size = @import("renderer/size.zig");
@@ -57,6 +58,7 @@ test {
     // Our comptime-chosen renderer
     _ = Renderer;
 
+    _ = color;
     _ = cursor;
     _ = message;
     _ = shadertoy;

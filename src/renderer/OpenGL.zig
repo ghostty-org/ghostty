@@ -5,6 +5,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
 const gl = @import("opengl");
+const color = @import("color.zig");
 const shadertoy = @import("shadertoy.zig");
 const apprt = @import("../apprt.zig");
 const font = @import("../font/main.zig");
@@ -464,4 +465,33 @@ pub inline fn beginFrame(
 ) !Frame {
     _ = self;
     return try Frame.begin(.{}, renderer, target);
+}
+
+/// Converted `uniforms.bg_color` for the render pass clear.
+pub fn clearColor(uniforms: shaders.Uniforms) [4]f32 {
+    return loadColor(
+        uniforms.bg_color,
+        uniforms.bools.use_linear_blending,
+    );
+}
+
+/// CPU equivalent of GLSL `load_color(in, linear)`.
+pub fn loadColor(in: [4]u8, linear: bool) [4]f32 {
+    var out: [4]f32 = .{
+        @as(f32, @floatFromInt(in[0])) / 255.0,
+        @as(f32, @floatFromInt(in[1])) / 255.0,
+        @as(f32, @floatFromInt(in[2])) / 255.0,
+        @as(f32, @floatFromInt(in[3])) / 255.0,
+    };
+
+    if (linear) {
+        out[0] = color.linearize(out[0]);
+        out[1] = color.linearize(out[1]);
+        out[2] = color.linearize(out[2]);
+    }
+
+    out[0] *= out[3];
+    out[1] *= out[3];
+    out[2] *= out[3];
+    return out;
 }
