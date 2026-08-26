@@ -3498,7 +3498,7 @@ fn promptClickLine(self: *Screen, click_pin: Pin) PromptClickMove {
         var row_pin = click_pin;
         prompt: while (true) {
             const rac = row_pin.rowAndCell();
-            const cells = row_pin.node.data.getCells(rac.row);
+            const cells = row_pin.node.page().getCells(rac.row);
             for (cells) |cell| {
                 if (cell.semantic_content == .input) break :prompt;
             }
