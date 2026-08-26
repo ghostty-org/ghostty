@@ -10,9 +10,14 @@ const log = std.log.scoped(.opengl);
 const pipeline_descs: []const struct { [:0]const u8, PipelineDescription } =
     &.{
         .{ "cell_bg", .{
-            .vertex_fn = loadShaderCode("../shaders/glsl/full_screen.v.glsl"),
+            .vertex_fn = loadShaderCode("../shaders/glsl/cell_bg.v.glsl"),
             .fragment_fn = loadShaderCode("../shaders/glsl/cell_bg.f.glsl"),
             .blending_enabled = true,
+        } },
+        .{ "cell_bg_opaque", .{
+            .vertex_fn = loadShaderCode("../shaders/glsl/cell_bg.v.glsl"),
+            .fragment_fn = loadShaderCode("../shaders/glsl/cell_bg.f.glsl"),
+            .blending_enabled = false,
         } },
         .{ "cell_text", .{
             .vertex_attributes = CellText,

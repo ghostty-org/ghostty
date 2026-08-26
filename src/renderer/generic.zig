@@ -157,6 +157,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// cells for the draw call.
         cells_rebuilt: bool = false,
 
+        /// True if any cell bg has partial alpha (0 < a < 255). Those
+        /// cells need blending; otherwise the cell_bg pass is opaque.
+        cell_bg_needs_blend: bool = false,
+
         /// The current GPU uniform values.
         uniforms: shaderpkg.Uniforms,
 
@@ -1832,12 +1836,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .kitty_below_bg,
                 );
 
-                // Then we draw any opaque cell backgrounds.
+                // Alpha-0 (default bg) instances are skipped so the clear,
+                // bg image, or kitty-below-bg shows through.
                 pass.step(.{
-                    .pipeline = self.shaders.pipelines.cell_bg,
+                    .pipeline = if (self.cell_bg_needs_blend)
+                        self.shaders.pipelines.cell_bg
+                    else
+                        self.shaders.pipelines.cell_bg_opaque,
                     .uniforms = frame.uniforms.buffer,
                     .buffers = &.{ null, frame.cells_bg.buffer },
-                    .draw = .{ .type = .triangle, .vertex_count = 3 },
+                    .draw = .{
+                        .type = .triangle_strip,
+                        .vertex_count = 4,
+                        .instance_count = @as(usize, self.cells.size.columns) *
+                            @as(usize, self.cells.size.rows),
+                    },
                 });
 
                 // Kitty images between cell backgrounds and text.
@@ -2784,6 +2797,18 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     };
 
                     x += if (cp.wide) 2 else 1;
+                }
+            }
+
+            // Partial-alpha cell backgrounds (background-opacity-cells)
+            // still need blending. Opaque cells replace the dest, so we
+            // can use a blend-off pipeline. Scan the dense grid so dirty
+            // row rebuilds still see translucent cells on clean rows.
+            self.cell_bg_needs_blend = false;
+            for (self.cells.bg_cells) |c| {
+                if (c[3] > 0 and c[3] < 255) {
+                    self.cell_bg_needs_blend = true;
+                    break;
                 }
             }
 
