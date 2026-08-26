@@ -3224,8 +3224,19 @@ keybind: Keybinds = .{},
 ///
 ///  * `title` *(enabled by default)*
 ///
-///    Prepend a bell emoji (🔔) to the title of the alerted surface until the
-///    terminal is re-focused or interacted with (such as on keyboard input).
+///    On macOS, display a bell icon in the title/tab bar of the alerted
+///    surface until the terminal is re-focused or interacted with (such as
+///    on keyboard input). Prior to 1.4.0, this prepended a bell emoji (🔔)
+///    to the title instead.
+///
+///    > [!NOTE]
+///    > If multiple surfaces have been alerted, you can left click the icon
+///    > to focus the first alerted surface in the tree from root to leaf.
+///    > Or you can right click to select which surface you want to focus.
+///
+///    On GTK, prepend a bell emoji (🔔) to the title of the alerted surface
+///    until the terminal is re-focused or interacted with (such as on
+///    keyboard input).
 ///
 ///  * `border`
 ///
