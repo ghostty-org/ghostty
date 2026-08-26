@@ -12395,8 +12395,9 @@ test "Screen: promptClickMove line left basic" {
 test "Screen: promptClickMove ignores click on prompt-only line" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    var s = try init(io, alloc, .{ .cols = 20, .rows = 5, .max_scrollback_bytes = 0 });
     defer s.deinit();
 
     s.semantic_prompt.click = .{ .cl = .line };
@@ -12420,8 +12421,9 @@ test "Screen: promptClickMove ignores click on prompt-only line" {
 test "Screen: promptClickMove click on wrapped multi-line prompt moves to input start" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var s = try init(alloc, .{ .cols = 10, .rows = 5, .max_scrollback = 0 });
+    var s = try init(io, alloc, .{ .cols = 10, .rows = 5, .max_scrollback_bytes = 0 });
     defer s.deinit();
 
     s.semantic_prompt.click = .{ .cl = .line };
