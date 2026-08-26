@@ -40,17 +40,17 @@ here:
 
 ## Extra Dependencies
 
+### Linux
+
 Building Ghostty from a Git checkout on Linux requires some additional
 dependencies:
 
 - `blueprint-compiler` (version 0.16.0 or newer)
 
-macOS users don't require any additional dependencies.
-
-## Xcode Version and SDKs
+### macOS
 
 Building the Ghostty macOS app requires that Xcode, the macOS SDK,
-the iOS SDK, and Metal Toolchain are all installed.
+and Metal Toolchain are all installed.
 
 A common issue is that the incorrect version of Xcode is either
 installed or selected. Use the `xcode-select` command to

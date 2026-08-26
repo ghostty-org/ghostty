@@ -15,6 +15,7 @@ const Library = font.Library;
 const SharedGrid = font.SharedGrid;
 const Style = font.Style;
 const Presentation = font.Presentation;
+const global = @import("../../global.zig");
 
 const log = std.log.scoped(.font_shaper);
 
@@ -36,7 +37,7 @@ pub const Shaper = struct {
     /// The codepoints added to the buffer before shaping. We need to keep
     /// these separately because after shaping, HarfBuzz replaces codepoints
     /// with glyph indices in the buffer.
-    codepoints: std.ArrayListUnmanaged(Codepoint) = .{},
+    codepoints: std.ArrayList(Codepoint) = .empty,
 
     const Codepoint = struct {
         cluster: u32,
@@ -87,7 +88,7 @@ pub const Shaper = struct {
         return Shaper{
             .alloc = alloc,
             .hb_buf = try harfbuzz.Buffer.create(),
-            .cell_buf = .{},
+            .cell_buf = .empty,
             .hb_feats = hb_feats,
         };
     }
@@ -104,7 +105,7 @@ pub const Shaper = struct {
     }
 
     /// Returns an iterator that returns one text run at a time for the
-    /// given terminal row. Note that text runs are are only valid one at a time
+    /// given terminal row. Note that text runs are only valid one at a time
     /// for a Shaper struct since they share state.
     ///
     /// The selection must be a row-only selection (height = 1). See
@@ -134,8 +135,8 @@ pub const Shaper = struct {
             // We have to lock the grid to get the face and unfortunately
             // freetype faces (typically used with harfbuzz) are not thread
             // safe so this has to be an exclusive lock.
-            run.grid.lock.lock();
-            defer run.grid.lock.unlock();
+            run.grid.lock.lockUncancelable(global.io());
+            defer run.grid.lock.unlock(global.io());
 
             const face = try run.grid.resolver.collection.getFace(run.font_index);
             const i = if (!face.quirks_disable_default_font_features) 0 else i: {
@@ -437,18 +438,19 @@ pub const Shaper = struct {
 test "run iterator" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
 
     {
         // Make a screen with some data
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("ABCD");
+        s.nextSlice("ABCD");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -467,12 +469,12 @@ test "run iterator" {
 
     // Spaces should be part of a run
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 10, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("ABCD   EFG");
+        s.nextSlice("ABCD   EFG");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -490,12 +492,12 @@ test "run iterator" {
 
     {
         // Make a screen with some data
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("A😃D");
+        s.nextSlice("A😃D");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -521,19 +523,20 @@ test "run iterator" {
 test "run iterator: empty cells with background set" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
 
     {
         // Make a screen with some data
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
         defer s.deinit();
         // Set red background and write A
-        try s.nextSlice("\x1b[48;2;255;0;0mA");
+        s.nextSlice("\x1b[48;2;255;0;0mA");
 
         // Get our first row
         {
@@ -576,6 +579,7 @@ test "run iterator: empty cells with background set" {
 test "shape" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -587,12 +591,12 @@ test "shape" {
     buf_idx += try std.unicode.utf8Encode(0x1F3FD, buf[buf_idx..]); // Medium skin tone
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -616,17 +620,18 @@ test "shape" {
 test "shape inconsolata ligs" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
 
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice(">=");
+        s.nextSlice(">=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -650,12 +655,12 @@ test "shape inconsolata ligs" {
     }
 
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("===");
+        s.nextSlice("===");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -682,17 +687,18 @@ test "shape inconsolata ligs" {
 test "shape monaspace ligs" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaperWithFont(alloc, .monaspace_neon);
     defer testdata.deinit();
 
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("===");
+        s.nextSlice("===");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -723,16 +729,17 @@ test "shape monaspace ligs" {
 test "shape arabic forced LTR" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaperWithFont(alloc, .arabic);
     defer testdata.deinit();
 
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 120, .rows = 30 });
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 120, .rows = 30 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(@embedFile("testdata/arabic.txt"));
+    s.nextSlice(@embedFile("testdata/arabic.txt"));
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -763,17 +770,18 @@ test "shape arabic forced LTR" {
 test "shape emoji width" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
 
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("👍");
+        s.nextSlice("👍");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -800,23 +808,25 @@ test "shape emoji width" {
 test "shape emoji width long" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
 
     // Make a screen and add a long emoji sequence to it.
     var t = try terminal.Terminal.init(
+        io,
         alloc,
         .{ .cols = 30, .rows = 3 },
     );
     defer t.deinit(alloc);
 
-    var page = t.screens.active.pages.pages.first.?.data;
+    var page = t.screens.active.pages.pages.first.?.page();
     var row = page.getRow(1);
     const cell = &row.cells.ptr(page.memory)[0];
     cell.* = .{
         .content_tag = .codepoint,
-        .content = .{ .codepoint = 0x1F9D4 }, // Person with beard
+        .content = .{ .codepoint = @bitCast(@as(u24, 0x1F9D4)) }, // Person with beard
     };
     var graphemes = [_]u21{
         0x1F3FB, // Light skin tone (Fitz 1-2)
@@ -852,9 +862,45 @@ test "shape emoji width long" {
     try testing.expectEqual(@as(usize, 1), count);
 }
 
+test "shaper selects font for entire grapheme" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var testdata = try testShaper(alloc);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 5, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("#\u{20E3}"); // Combining enclosing keycap
+
+    const primary = (try testdata.grid.getIndex(alloc, '#', .regular, null)).?;
+    try testing.expect(testdata.grid.hasCodepoint(primary, '#', null));
+    try testing.expect(!testdata.grid.hasCodepoint(primary, 0x20E3, null));
+
+    const additional = (try testdata.grid.getIndex(alloc, 0x20E3, .regular, null)).?;
+    try testing.expect(testdata.grid.hasCodepoint(additional, '#', null));
+    try testing.expect(testdata.grid.hasCodepoint(additional, 0x20E3, null));
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var it = testdata.shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    const run = (try it.next(alloc)).?;
+    try testing.expectEqual(additional, run.font_index);
+}
+
 test "shape variation selector VS15" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -865,12 +911,12 @@ test "shape variation selector VS15" {
     buf_idx += try std.unicode.utf8Encode(0xFE0E, buf[buf_idx..]); // ZWJ to force text
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -896,6 +942,7 @@ test "shape variation selector VS15" {
 test "shape variation selector VS16" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -906,12 +953,12 @@ test "shape variation selector VS16" {
     buf_idx += try std.unicode.utf8Encode(0xFE0F, buf[buf_idx..]); // ZWJ to force color
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -937,12 +984,14 @@ test "shape variation selector VS16" {
 test "shape with empty cells in between" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
 
     // Make a screen with some data
     var t = try terminal.Terminal.init(
+        io,
         alloc,
         .{ .cols = 30, .rows = 3 },
     );
@@ -950,9 +999,9 @@ test "shape with empty cells in between" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("A");
-    try s.nextSlice("\x1b[5C");
-    try s.nextSlice("B");
+    s.nextSlice("A");
+    s.nextSlice("\x1b[5C");
+    s.nextSlice("B");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -977,6 +1026,7 @@ test "shape with empty cells in between" {
 test "shape Combining characters" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -990,6 +1040,7 @@ test "shape Combining characters" {
 
     // Make a screen with some data
     var t = try terminal.Terminal.init(
+        io,
         alloc,
         .{ .cols = 30, .rows = 3 },
     );
@@ -997,7 +1048,7 @@ test "shape Combining characters" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1029,6 +1080,7 @@ test "shape Combining characters" {
 test "shape Devanagari string" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     // We need a font that supports devanagari for this to work, if we can't
     // find Arial Unicode MS, which is a system font on macOS, we just skip
@@ -1040,7 +1092,7 @@ test "shape Devanagari string" {
     defer testdata.deinit();
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
     // Disable grapheme clustering
@@ -1048,7 +1100,7 @@ test "shape Devanagari string" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("अपार्टमेंट");
+    s.nextSlice("अपार्टमेंट");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1087,6 +1139,7 @@ test "shape Tai Tham vowels (position differs from advance)" {
     // // behavior.
     // const testing = std.testing;
     // const alloc = testing.allocator;
+    // const io = testing.io;
 
     // // We need a font that supports Tai Tham for this to work, if we can't find
     // // Noto Sans Tai Tham, which is a system font on macOS, we just skip the
@@ -1103,7 +1156,7 @@ test "shape Tai Tham vowels (position differs from advance)" {
     // buf_idx += try std.unicode.utf8Encode(0x1a70, buf[buf_idx..]); //  ᩰ
 
     // // Make a screen with some data
-    // var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    // var t = try terminal.Terminal.init(io, alloc, .{ .cols = 30, .rows = 3 });
     // defer t.deinit(alloc);
 
     // // Enable grapheme clustering
@@ -1111,7 +1164,7 @@ test "shape Tai Tham vowels (position differs from advance)" {
 
     // var s = t.vtStream();
     // defer s.deinit();
-    // try s.nextSlice(buf[0..buf_idx]);
+    // s.nextSlice(buf[0..buf_idx]);
 
     // var state: terminal.RenderState = .empty;
     // defer state.deinit(alloc);
@@ -1147,6 +1200,7 @@ test "shape Tai Tham vowels (position differs from advance)" {
 test "shape Tibetan characters" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     // We need a font that has multiple glyphs for this codepoint to reproduce
     // the old broken behavior, and Noto Serif Tibetan is one of them. It's not
@@ -1162,7 +1216,7 @@ test "shape Tibetan characters" {
     buf_idx += try std.unicode.utf8Encode(0x0f00, buf[buf_idx..]); // ༀ
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
     // Enable grapheme clustering
@@ -1170,7 +1224,7 @@ test "shape Tibetan characters" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1203,6 +1257,7 @@ test "shape Tai Tham letters (run_offset.y differs from zero)" {
     return error.SkipZigTest;
     // const testing = std.testing;
     // const alloc = testing.allocator;
+    // const io = testing.io;
 
     // // We need a font that supports Tai Tham for this to work, if we can't find
     // // Noto Sans Tai Tham, which is a system font on macOS, we just skip the
@@ -1224,7 +1279,7 @@ test "shape Tai Tham letters (run_offset.y differs from zero)" {
     // buf_idx += try std.unicode.utf8Encode(0x1a69, buf[buf_idx..]); // U
 
     // // Make a screen with some data
-    // var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    // var t = try terminal.Terminal.init(io, alloc, .{ .cols = 30, .rows = 3 });
     // defer t.deinit(alloc);
 
     // // Enable grapheme clustering
@@ -1232,7 +1287,7 @@ test "shape Tai Tham letters (run_offset.y differs from zero)" {
 
     // var s = t.vtStream();
     // defer s.deinit();
-    // try s.nextSlice(buf[0..buf_idx]);
+    // s.nextSlice(buf[0..buf_idx]);
 
     // var state: terminal.RenderState = .empty;
     // defer state.deinit(alloc);
@@ -1266,6 +1321,7 @@ test "shape Javanese ligatures" {
     return error.SkipZigTest;
     // const testing = std.testing;
     // const alloc = testing.allocator;
+    // const io = testing.io;
 
     // // We need a font that supports Javanese for this to work, if we can't find
     // // Noto Sans Javanese Regular, which is a system font on macOS, we just
@@ -1287,7 +1343,7 @@ test "shape Javanese ligatures" {
     // buf_idx += try std.unicode.utf8Encode(0xa9b8, buf[buf_idx..]); // Vowel sign SUKU
 
     // // Make a screen with some data
-    // var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    // var t = try terminal.Terminal.init(io, alloc, .{ .cols = 30, .rows = 3 });
     // defer t.deinit(alloc);
 
     // // Enable grapheme clustering
@@ -1295,7 +1351,7 @@ test "shape Javanese ligatures" {
 
     // var s = t.vtStream();
     // defer s.deinit();
-    // try s.nextSlice(buf[0..buf_idx]);
+    // s.nextSlice(buf[0..buf_idx]);
 
     // var state: terminal.RenderState = .empty;
     // defer state.deinit(alloc);
@@ -1327,6 +1383,7 @@ test "shape Javanese ligatures" {
 test "shape Chakma vowel sign with ligature (vowel sign renders first)" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     // We need a font that supports Chakma for this to work, if we can't find
     // Noto Sans Chakma Regular, which is a system font on macOS, we just skip
@@ -1350,7 +1407,7 @@ test "shape Chakma vowel sign with ligature (vowel sign renders first)" {
     buf_idx += try std.unicode.utf8Encode(0x1112c, buf[buf_idx..]); // Vowel Sign U
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
     // Enable grapheme clustering
@@ -1358,7 +1415,7 @@ test "shape Chakma vowel sign with ligature (vowel sign renders first)" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1398,6 +1455,7 @@ test "shape Bengali ligatures with out of order vowels" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     // We need a font that supports Bengali for this to work, if we can't find
     // Arial Unicode MS, which is a system font on macOS, we just skip the
@@ -1425,7 +1483,7 @@ test "shape Bengali ligatures with out of order vowels" {
     buf_idx += try std.unicode.utf8Encode(0x09c7, buf[buf_idx..]); // Vowel sign E
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
     // Enable grapheme clustering
@@ -1433,7 +1491,7 @@ test "shape Bengali ligatures with out of order vowels" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1472,6 +1530,7 @@ test "shape Bengali ligatures with out of order vowels" {
 test "shape box glyphs" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -1482,12 +1541,12 @@ test "shape box glyphs" {
     buf_idx += try std.unicode.utf8Encode(0x2501, buf[buf_idx..]); //
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1516,17 +1575,18 @@ test "shape box glyphs" {
 test "shape selection boundary" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("a1b2c3d4e5");
+    s.nextSlice("a1b2c3d4e5");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1621,17 +1681,18 @@ test "shape selection boundary" {
 test "shape cursor boundary" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("a1b2c3d4e5");
+    s.nextSlice("a1b2c3d4e5");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1758,12 +1819,14 @@ test "shape cursor boundary" {
 test "shape cursor boundary and colored emoji" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
 
     // Make a screen with some data
     var t = try terminal.Terminal.init(
+        io,
         alloc,
         .{ .cols = 3, .rows = 10 },
     );
@@ -1771,7 +1834,7 @@ test "shape cursor boundary and colored emoji" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("👍🏼");
+    s.nextSlice("👍🏼");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1857,18 +1920,19 @@ test "shape cursor boundary and colored emoji" {
 test "shape cell attribute change" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
 
     // Plain >= should shape into 1 run
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 10, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice(">=");
+        s.nextSlice(">=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1889,14 +1953,14 @@ test "shape cell attribute change" {
 
     // Bold vs regular should split
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 3, .rows = 10 });
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 3, .rows = 10 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice(">");
-        try s.nextSlice("\x1b[1m");
-        try s.nextSlice("=");
+        s.nextSlice(">");
+        s.nextSlice("\x1b[1m");
+        s.nextSlice("=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1917,17 +1981,17 @@ test "shape cell attribute change" {
 
     // Changing fg color should split
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 3, .rows = 10 });
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 3, .rows = 10 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
         defer s.deinit();
         // RGB 1, 2, 3
-        try s.nextSlice("\x1b[38;2;1;2;3m");
-        try s.nextSlice(">");
+        s.nextSlice("\x1b[38;2;1;2;3m");
+        s.nextSlice(">");
         // RGB 3, 2, 1
-        try s.nextSlice("\x1b[38;2;3;2;1m");
-        try s.nextSlice("=");
+        s.nextSlice("\x1b[38;2;3;2;1m");
+        s.nextSlice("=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1948,17 +2012,17 @@ test "shape cell attribute change" {
 
     // Changing bg color should not split
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 3, .rows = 10 });
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 3, .rows = 10 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
         defer s.deinit();
         // RGB 1, 2, 3 bg
-        try s.nextSlice("\x1b[48;2;1;2;3m");
-        try s.nextSlice(">");
+        s.nextSlice("\x1b[48;2;1;2;3m");
+        s.nextSlice(">");
         // RGB 3, 2, 1 bg
-        try s.nextSlice("\x1b[48;2;3;2;1m");
-        try s.nextSlice("=");
+        s.nextSlice("\x1b[48;2;3;2;1m");
+        s.nextSlice("=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1979,15 +2043,15 @@ test "shape cell attribute change" {
 
     // Same bg color should not split
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 3, .rows = 10 });
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 3, .rows = 10 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
         defer s.deinit();
         // RGB 1, 2, 3 bg
-        try s.nextSlice("\x1b[48;2;1;2;3m");
-        try s.nextSlice(">");
-        try s.nextSlice("=");
+        s.nextSlice("\x1b[48;2;1;2;3m");
+        s.nextSlice(">");
+        s.nextSlice("=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -2071,7 +2135,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         });
     } else {
         // On CoreText we want to load Apple Emoji, we should have it.
-        var disco = font.Discover.init();
+        var disco = font.Discover.init(lib);
         defer disco.deinit();
         var disco_it = try disco.discover(alloc, .{
             .family = "Apple Color Emoji",
@@ -2126,7 +2190,7 @@ fn testShaperWithDiscoveredFont(alloc: Allocator, font_req: [:0]const u8) !TestS
 
     // Discover and add our font to the collection.
     {
-        var disco = font.Discover.init();
+        var disco = font.Discover.init(lib);
         defer disco.deinit();
         var disco_it = try disco.discover(alloc, .{
             .family = font_req,

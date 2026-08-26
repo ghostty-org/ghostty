@@ -2,7 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-const xev = @import("../global.zig").xev;
+const global = @import("../global.zig");
+const xev = global.xev;
 const apprt = @import("../apprt.zig");
 const build_config = @import("../build_config.zig");
 const configpkg = @import("../config.zig");
@@ -36,15 +37,9 @@ pub const StreamHandler = struct {
     /// The mailbox for notifying the renderer of things.
     renderer_mailbox: *renderer.Thread.Mailbox,
 
-    /// A handle to wake up the renderer. This hints to the renderer that that
+    /// A handle to wake up the renderer. This hints to the renderer that
     /// a repaint should happen.
     renderer_wakeup: xev.Async,
-
-    /// The default cursor state. This is used with CSI q. This is
-    /// set to true when we're currently in the default cursor state.
-    default_cursor: bool = true,
-    default_cursor_style: terminal.CursorStyle,
-    default_cursor_blink: ?bool,
 
     /// The response to use for ENQ requests. The memory is owned by
     /// whoever owns StreamHandler.
@@ -55,6 +50,10 @@ pub const StreamHandler = struct {
 
     /// The clipboard write access configuration.
     clipboard_write: configpkg.ClipboardAccess,
+
+    /// Maximum total decoded bytes per Kitty clipboard protocol
+    /// (OSC 5522) write transaction; exceeding it aborts with EFBIG.
+    clipboard_write_limit: usize,
 
     //---------------------------------------------------------------
     // Internal state
@@ -73,6 +72,14 @@ pub const StreamHandler = struct {
     /// The tmux control mode viewer state.
     tmux_viewer: if (tmux_enabled) ?*terminal.tmux.Viewer else void = if (tmux_enabled) null else {},
 
+    /// Session password grants for the Kitty clipboard protocol.
+    /// Requests carrying a granted password skip the permission prompt.
+    kitty_clipboard_grants: terminal.kitty.clipboard.Grants = .{},
+
+    /// The in-flight Kitty clipboard protocol (OSC 5522) write
+    /// transaction, if any.
+    kitty_clipboard_write: ?*terminal.kitty.clipboard.WriteState = null,
+
     /// This is set to true when a message was written to the termio
     /// mailbox. This can be used by callers to determine if they need
     /// to wake up the termio thread.
@@ -90,6 +97,8 @@ pub const StreamHandler = struct {
     pub fn deinit(self: *StreamHandler) void {
         self.apc.deinit();
         self.dcs.deinit();
+        self.kittyClipboardWriteAbort();
+        self.kitty_clipboard_grants.deinit(self.alloc);
         if (comptime tmux_enabled) tmux: {
             const viewer = self.tmux_viewer orelse break :tmux;
             viewer.deinit();
@@ -109,14 +118,10 @@ pub const StreamHandler = struct {
     pub fn changeConfig(self: *StreamHandler, config: *termio.DerivedConfig) void {
         self.osc_color_report_format = config.osc_color_report_format;
         self.clipboard_write = config.clipboard_write;
+        self.clipboard_write_limit = config.clipboard_write_limit;
         self.enquiry_response = config.enquiry_response;
-        self.default_cursor_style = config.cursor_style;
-        self.default_cursor_blink = config.cursor_blink;
-
-        // If our cursor is the default, then we update it immediately.
-        if (self.default_cursor) self.setCursorStyle(.default) catch |err| {
-            log.warn("failed to set default cursor style: {}", .{err});
-        };
+        self.terminal.setDefaultCursorStyle(config.cursor_style);
+        self.terminal.setDefaultCursorBlink(config.cursor_blink);
 
         // The config could have changed any of our colors so update mode 2031
         self.messageWriter(.{ .color_scheme_report = .{ .force = false } });
@@ -129,8 +134,8 @@ pub const StreamHandler = struct {
         // See messageWriter which has similar logic and explains why
         // we may have to do this.
         if (self.surface_mailbox.push(msg, .{ .instant = {} }) == 0) {
-            self.renderer_state.mutex.unlock();
-            defer self.renderer_state.mutex.lock();
+            self.renderer_state.mutex.unlock(global.io());
+            defer self.renderer_state.mutex.lockUncancelable(global.io());
             _ = self.surface_mailbox.push(msg, .{ .forever = {} });
         }
     }
@@ -158,8 +163,8 @@ pub const StreamHandler = struct {
         // Instant would have blocked. Release the renderer mutex,
         // wake up the renderer to allow it to process the message,
         // and then try again.
-        self.renderer_state.mutex.unlock();
-        defer self.renderer_state.mutex.lock();
+        self.renderer_state.mutex.unlock(global.io());
+        defer self.renderer_state.mutex.lockUncancelable(global.io());
         self.renderer_wakeup.notify() catch |err| {
             // This is an EXTREMELY unlikely case. We still don't return
             // and attempt to send the message because its most likely
@@ -173,6 +178,16 @@ pub const StreamHandler = struct {
     }
 
     pub fn vt(
+        self: *StreamHandler,
+        comptime action: Stream.Action.Tag,
+        value: Stream.Action.Value(action),
+    ) void {
+        self.vtFallible(action, value) catch |err| {
+            log.warn("error handling VT action action={} err={}", .{ action, err });
+        };
+    }
+
+    inline fn vtFallible(
         self: *StreamHandler,
         comptime action: Stream.Action.Tag,
         value: Stream.Action.Value(action),
@@ -194,6 +209,10 @@ pub const StreamHandler = struct {
             .print => {
                 @branchHint(.likely);
                 try self.terminal.print(value.cp);
+            },
+            .print_slice => {
+                @branchHint(.likely);
+                try self.terminal.printSlice(value.cps);
             },
             .print_repeat => try self.terminal.printRepeat(value),
             .bell => self.bell(),
@@ -228,7 +247,7 @@ pub const StreamHandler = struct {
                 self.terminal.screens.active.cursor.y + 1 +| value.value,
                 self.terminal.screens.active.cursor.x + 1,
             ),
-            .cursor_style => try self.setCursorStyle(value),
+            .cursor_style => self.terminal.setCursorStyle(value),
             .erase_display_below => self.terminal.eraseDisplay(.below, value),
             .erase_display_above => self.terminal.eraseDisplay(.above, value),
             .erase_display_complete => {
@@ -347,10 +366,13 @@ pub const StreamHandler = struct {
             .apc_start => self.apc.start(),
             .apc_end => try self.apcEnd(),
             .apc_put => self.apc.feed(self.alloc, value),
+            .apc_put_slice => self.apc.feedSlice(self.alloc, value.bytes),
+            .kitty_clipboard => try self.kittyClipboard(value),
 
             // Unimplemented
             .title_push,
             .title_pop,
+            .kitty_dnd,
             => {},
         }
     }
@@ -388,7 +410,7 @@ pub const StreamHandler = struct {
                         assert(self.tmux_viewer == null);
                         const viewer = try self.alloc.create(terminal.tmux.Viewer);
                         errdefer self.alloc.destroy(viewer);
-                        viewer.* = try .init(self.alloc);
+                        viewer.* = try .init(global.io(), self.alloc);
                         errdefer viewer.deinit();
                         self.tmux_viewer = viewer;
                         break :tmux;
@@ -459,86 +481,26 @@ pub const StreamHandler = struct {
             },
 
             .decrqss => |decrqss| {
-                var response: [128]u8 = undefined;
-                var stream = std.io.fixedBufferStream(&response);
-                const writer = stream.writer();
-
-                // Offset the stream position to just past the response prefix.
-                // We will write the "payload" (if any) below. If no payload is
-                // written then we send an invalid DECRPSS response.
-                const prefix_fmt = "\x1bP{d}$r";
-                const prefix_len = std.fmt.comptimePrint(prefix_fmt, .{0}).len;
-                stream.pos = prefix_len;
-
-                switch (decrqss) {
-                    // Invalid or unhandled request
-                    .none => {},
-
-                    .sgr => {
-                        const buf = try self.terminal.printAttributes(stream.buffer[stream.pos..]);
-
-                        // printAttributes wrote into our buffer, so adjust the stream
-                        // position
-                        stream.pos += buf.len;
-
-                        try writer.writeByte('m');
-                    },
-
-                    .decscusr => {
-                        const blink = self.terminal.modes.get(.cursor_blinking);
-                        const style: u8 = switch (self.terminal.screens.active.cursor.cursor_style) {
-                            .block => if (blink) 1 else 2,
-                            .underline => if (blink) 3 else 4,
-                            .bar => if (blink) 5 else 6,
-
-                            // Below here, the cursor styles aren't represented by
-                            // DECSCUSR so we map it to some other style.
-                            .block_hollow => if (blink) 1 else 2,
-                        };
-                        try writer.print("{d} q", .{style});
-                    },
-
-                    .decstbm => {
-                        try writer.print("{d};{d}r", .{
-                            self.terminal.scrolling_region.top + 1,
-                            self.terminal.scrolling_region.bottom + 1,
-                        });
-                    },
-
-                    .decslrm => {
-                        // We only send a valid response when left and right
-                        // margin mode (DECLRMM) is enabled.
-                        if (self.terminal.modes.get(.enable_left_and_right_margin)) {
-                            try writer.print("{d};{d}s", .{
-                                self.terminal.scrolling_region.left + 1,
-                                self.terminal.scrolling_region.right + 1,
-                            });
-                        }
-                    },
-                }
-
-                // Our response is valid if we have a response payload
-                const valid = stream.pos > prefix_len;
-
-                // Write the terminator
-                try writer.writeAll("\x1b\\");
-
-                // Write the response prefix into the buffer
-                _ = try std.fmt.bufPrint(response[0..prefix_len], prefix_fmt, .{@intFromBool(valid)});
-                const msg = try termio.Message.writeReq(self.alloc, response[0..stream.pos]);
+                var response: [terminal.dcs.Command.DECRQSS.max_response_bytes]u8 = undefined;
+                const encoded = try decrqss.encode(self.terminal, &response);
+                const msg = try termio.Message.writeReq(
+                    self.alloc,
+                    encoded,
+                );
                 self.messageWriter(msg);
             },
         }
     }
 
     pub fn apcEnd(self: *StreamHandler) !void {
-        var cmd = self.apc.end() orelse return;
-        defer cmd.deinit(self.alloc);
+        var result = self.apc.end() orelse return;
+        defer result.deinit(self.alloc);
 
-        // log.warn("APC command: {}", .{cmd});
-        switch (cmd) {
+        // log.warn("APC command: {}", .{result});
+        switch (result) {
+            .unknown => return,
             .kitty => |*kitty_cmd| {
-                if (self.terminal.kittyGraphics(self.alloc, kitty_cmd)) |resp| {
+                if (self.terminal.kittyGraphics(global.io(), self.alloc, kitty_cmd)) |resp| {
                     var buf: [1024]u8 = undefined;
                     var writer: std.Io.Writer = .fixed(&buf);
                     try resp.encode(&writer);
@@ -547,6 +509,23 @@ pub const StreamHandler = struct {
                         log.debug("kitty graphics response: {x}", .{final});
                         self.messageWriter(try termio.Message.writeReq(self.alloc, final));
                     }
+                }
+            },
+
+            .glyph => |*glyph_req| {
+                const resp = self.terminal.glyphProtocol(self.alloc, glyph_req);
+                switch (glyph_req.*) {
+                    .register, .clear => try self.queueRender(),
+                    .support, .query => {},
+                }
+
+                if (resp) |r| {
+                    var buf: [terminal.apc.glyph.Response.max_wire_bytes]u8 = undefined;
+                    var writer: std.Io.Writer = .fixed(&buf);
+                    try r.formatWire(&writer);
+                    const final = writer.buffered();
+                    log.debug("glyph protocol response: {x}", .{final});
+                    self.messageWriter(try termio.Message.writeReq(self.alloc, final));
                 }
             },
         }
@@ -600,35 +579,24 @@ pub const StreamHandler = struct {
     }
 
     fn requestMode(self: *StreamHandler, mode: terminal.Mode) !void {
-        const tag: terminal.modes.ModeTag = @bitCast(@intFromEnum(mode));
-        const code: u8 = if (self.terminal.modes.get(mode)) 1 else 2;
-
-        var msg: termio.Message = .{ .write_small = .{} };
-        const resp = try std.fmt.bufPrint(
-            &msg.write_small.data,
-            "\x1B[{s}{};{}$y",
-            .{
-                if (tag.ansi) "" else "?",
-                tag.value,
-                code,
-            },
-        );
-        msg.write_small.len = @intCast(resp.len);
-        self.messageWriter(msg);
+        self.sendModeReport(self.terminal.modes.getReport(.fromMode(mode)));
     }
 
     fn requestModeUnknown(self: *StreamHandler, mode_raw: u16, ansi: bool) !void {
-        var msg: termio.Message = .{ .write_small = .{} };
-        const resp = try std.fmt.bufPrint(
-            &msg.write_small.data,
-            "\x1B[{s}{};0$y",
-            .{
-                if (ansi) "" else "?",
-                mode_raw,
-            },
-        );
-        msg.write_small.len = @intCast(resp.len);
-        self.messageWriter(msg);
+        self.sendModeReport(self.terminal.modes.getReport(.{ .value = @truncate(mode_raw), .ansi = ansi }));
+    }
+
+    fn sendModeReport(self: *StreamHandler, report: terminal.modes.Report) void {
+        var data: termio.Message.WriteReq.Small.Array = undefined;
+        var writer: std.Io.Writer = .fixed(&data);
+        report.encode(&writer) catch |err| {
+            log.err("error encoding mode report err={}", .{err});
+            return;
+        };
+        self.messageWriter(.{ .write_small = .{
+            .data = data,
+            .len = @intCast(writer.buffered().len),
+        } });
     }
 
     pub fn setMode(self: *StreamHandler, mode: terminal.Mode, enabled: bool) !void {
@@ -666,7 +634,7 @@ pub const StreamHandler = struct {
         // their shell config when they render prompts to ensure the
         // cursor is exactly as they request.
         if (mode == .cursor_blinking and
-            self.default_cursor_blink != null)
+            self.terminal.cursor.default_blink != null)
         {
             return;
         }
@@ -726,8 +694,10 @@ pub const StreamHandler = struct {
                 const grid_size = self.size.grid();
                 self.terminal.resize(
                     self.alloc,
-                    grid_size.columns,
-                    grid_size.rows,
+                    .{
+                        .cols = grid_size.columns,
+                        .rows = grid_size.rows,
+                    },
                 ) catch |err| {
                     log.err("error updating terminal size: {}", .{err});
                 };
@@ -750,6 +720,13 @@ pub const StreamHandler = struct {
 
             .in_band_size_reports => if (enabled) self.messageWriter(.{
                 .size_report = .mode_2048,
+            }),
+
+            .report_visibility => if (enabled) self.messageWriter(.{
+                .visibility_report = .{
+                    .visible = self.terminal.flags.visible,
+                    .force = true,
+                },
             }),
 
             .focus_event => if (enabled) self.messageWriter(.{
@@ -868,55 +845,11 @@ pub const StreamHandler = struct {
             },
 
             .color_scheme => self.messageWriter(.{ .color_scheme_report = .{ .force = true } }),
-        }
-    }
 
-    pub fn setCursorStyle(
-        self: *StreamHandler,
-        style: terminal.CursorStyleReq,
-    ) !void {
-        // Assume we're setting to a non-default.
-        self.default_cursor = false;
-
-        switch (style) {
-            .default => {
-                self.default_cursor = true;
-                self.terminal.screens.active.cursor.cursor_style = self.default_cursor_style;
-                self.terminal.modes.set(
-                    .cursor_blinking,
-                    self.default_cursor_blink orelse true,
-                );
-            },
-
-            .blinking_block => {
-                self.terminal.screens.active.cursor.cursor_style = .block;
-                self.terminal.modes.set(.cursor_blinking, true);
-            },
-
-            .steady_block => {
-                self.terminal.screens.active.cursor.cursor_style = .block;
-                self.terminal.modes.set(.cursor_blinking, false);
-            },
-
-            .blinking_underline => {
-                self.terminal.screens.active.cursor.cursor_style = .underline;
-                self.terminal.modes.set(.cursor_blinking, true);
-            },
-
-            .steady_underline => {
-                self.terminal.screens.active.cursor.cursor_style = .underline;
-                self.terminal.modes.set(.cursor_blinking, false);
-            },
-
-            .blinking_bar => {
-                self.terminal.screens.active.cursor.cursor_style = .bar;
-                self.terminal.modes.set(.cursor_blinking, true);
-            },
-
-            .steady_bar => {
-                self.terminal.screens.active.cursor.cursor_style = .bar;
-                self.terminal.modes.set(.cursor_blinking, false);
-            },
+            .visibility => self.messageWriter(.{ .visibility_report = .{
+                .visible = self.terminal.flags.visible,
+                .force = true,
+            } }),
         }
     }
 
@@ -951,11 +884,25 @@ pub const StreamHandler = struct {
         self.terminal.fullReset();
         try self.setMouseShape(.text);
 
+        // Full reset clears Kitty clipboard session grants.
+        self.kitty_clipboard_grants.deinit(self.alloc);
+        self.kitty_clipboard_grants = .{};
+
         // Reset resets our palette so we report it for mode 2031.
         self.messageWriter(.{ .color_scheme_report = .{ .force = false } });
 
         // Clear the progress bar
         self.progressReport(.{ .state = .remove });
+    }
+
+    /// Record a Kitty clipboard protocol session grant so future
+    /// requests with this password skip the permission prompt.
+    pub fn kittyClipboardGrant(
+        self: *StreamHandler,
+        pw: []const u8,
+        dir: terminal.kitty.clipboard.Grants.Direction,
+    ) error{OutOfMemory}!void {
+        try self.kitty_clipboard_grants.grant(self.alloc, pw, dir, false);
     }
 
     pub fn queryKittyKeyboard(self: *StreamHandler) !void {
@@ -1000,6 +947,12 @@ pub const StreamHandler = struct {
             return;
         }
 
+        // Set the title on the terminal state. We ignore any errors since
+        // we can continue to operate just fine without it.
+        self.terminal.setTitle(title) catch |err| {
+            log.warn("error setting title in terminal state: {}", .{err});
+        };
+
         @memcpy(buf[0..title.len], title);
         buf[title.len] = 0;
 
@@ -1028,7 +981,7 @@ pub const StreamHandler = struct {
         self: *StreamHandler,
         shape: terminal.MouseShape,
     ) !void {
-        // Avoid changing the shape it it is already set to avoid excess
+        // Avoid changing the shape if it is already set to avoid excess
         // cross-thread messaging.
         if (self.terminal.mouse_shape == shape) return;
 
@@ -1064,6 +1017,410 @@ pub const StreamHandler = struct {
                 .clipboard_type = clipboard_type,
             },
         });
+    }
+
+    /// Handle one Kitty clipboard protocol (OSC 5522) packet.
+    fn kittyClipboard(
+        self: *StreamHandler,
+        v: terminal.osc.Command.KittyClipboardProtocol,
+    ) error{ OutOfMemory, WriteFailed }!void {
+        const kitty_clipboard = terminal.kitty.clipboard;
+
+        // Decode and validate the metadata. Malformed structure drops
+        // the packet without a response. Invalid decoded text on a write
+        // data or alias packet aborts an in-flight transaction.
+        var arena: std.heap.ArenaAllocator = .init(self.alloc);
+        defer arena.deinit();
+        const meta = (kitty_clipboard.Metadata.parse(
+            arena.allocator(),
+            v.metadata,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.InvalidValue => {
+                const state = self.kitty_clipboard_write orelse return;
+                switch (kitty_clipboard.Metadata.operation(v.metadata) orelse return) {
+                    .wdata, .walias => try self.kittyClipboardWriteFinish(
+                        state,
+                        .EINVAL,
+                        v.terminator,
+                    ),
+                    .read, .write => {},
+                }
+                return;
+            },
+        }) orelse return;
+
+        switch (meta.op) {
+            .read => try self.kittyClipboardRead(
+                &meta,
+                v.payload orelse "",
+                v.terminator,
+            ),
+
+            .write => try self.kittyClipboardWriteBegin(
+                &meta,
+                v.terminator,
+            ),
+
+            .wdata => try self.kittyClipboardWriteData(
+                &meta,
+                v.payload orelse "",
+                v.terminator,
+            ),
+
+            .walias => try self.kittyClipboardWriteAlias(
+                &meta,
+                v.payload orelse "",
+                v.terminator,
+            ),
+        }
+    }
+
+    fn kittyClipboardRead(
+        self: *StreamHandler,
+        meta: *const terminal.kitty.clipboard.Metadata,
+        payload: []const u8,
+        terminator: terminal.osc.Terminator,
+    ) !void {
+        const kitty_clipboard = terminal.kitty.clipboard;
+
+        // Everything about the request, including the request struct
+        // itself, lives in a single arena that crosses to the surface
+        // thread, which owns it from the moment the message is sent.
+        var arena: std.heap.ArenaAllocator = .init(self.alloc);
+        errdefer arena.deinit();
+        const alloc = arena.allocator();
+
+        // The payload is the requested MIME list. A read request with
+        // an undecodable payload is dropped without any response,
+        // matching kitty.
+        const decoded = kitty_clipboard.Payload.init(
+            alloc,
+            payload,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.Invalid => {
+                arena.deinit();
+                return;
+            },
+        };
+        if (!decoded.isValidUtf8()) {
+            arena.deinit();
+            return;
+        }
+
+        // The targets type ('.') asks for the listing of available
+        // types rather than data. Requested types beyond the cap are
+        // dropped and simply never served, which is how the protocol
+        // reports an unavailable type anyway.
+        var mimes_buf: [kitty_clipboard.max_read_mimes][]const u8 = undefined;
+        var mimes_len: usize = 0;
+        var list = false;
+        var it = decoded.mimeIterator();
+        while (it.next()) |mime| {
+            if (std.mem.eql(u8, mime, kitty_clipboard.targets_mime)) {
+                list = true;
+                continue;
+            }
+            if (mimes_len == mimes_buf.len) continue;
+            mimes_buf[mimes_len] = mime;
+            mimes_len += 1;
+        }
+
+        // Per the spec a password without a name is no password. A
+        // stored session grant for it lets the surface skip its
+        // permission prompt.
+        const pw: []const u8 = if (meta.name.len > 0) meta.pw else "";
+        const granted = self.kittyClipboardReadGranted(pw, mimes_len);
+
+        const req = try alloc.create(apprt.ClipboardRequest.KittyRead);
+        const mimes = try alloc.alloc([:0]const u8, mimes_len);
+        for (mimes_buf[0..mimes_len], mimes) |src, *dst| {
+            dst.* = try alloc.dupeZ(u8, src);
+        }
+        const id = try alloc.dupe(u8, meta.id);
+        const pw_owned = try alloc.dupe(u8, pw);
+        const name_owned = try alloc.dupeZ(u8, meta.name);
+        req.* = .{
+            // The arena must be copied in last so it tracks every
+            // allocation above.
+            .arena = arena,
+            .location = switch (meta.loc) {
+                .primary => .primary,
+                else => .standard,
+            },
+            .mimes = mimes,
+            .list = list,
+            .id = id,
+            .pw = pw_owned,
+            .name = name_owned,
+            .granted = granted,
+            .terminator = terminator,
+        };
+
+        self.surfaceMessageWriter(.{ .kitty_clipboard_read = req });
+    }
+
+    /// Whether a session grant covers a read request, consuming
+    /// one-time grants. A prompt-exempt request never consults the
+    /// grants: consuming a one-time paste password on a listing would
+    /// burn the grant before the follow-up data read.
+    fn kittyClipboardReadGranted(
+        self: *StreamHandler,
+        pw: []const u8,
+        mimes_len: usize,
+    ) bool {
+        if (terminal.kitty.clipboard.readPromptExempt(mimes_len)) return false;
+        return self.kitty_clipboard_grants.use(self.alloc, pw, .read);
+    }
+
+    /// Begin a Kitty clipboard write transaction (type=write).
+    fn kittyClipboardWriteBegin(
+        self: *StreamHandler,
+        meta: *const terminal.kitty.clipboard.Metadata,
+        terminator: terminal.osc.Terminator,
+    ) error{ OutOfMemory, WriteFailed }!void {
+        // A new write silently replaces any in-flight transaction.
+        self.kittyClipboardWriteAbort();
+
+        // A write denied by policy can never succeed, so fail the
+        // transaction up front instead of spooling data we'd only
+        // throw away. Later wdata packets are ignored.
+        if (self.clipboard_write == .deny) {
+            log.info("application attempted to write clipboard, but 'clipboard-write' is set to deny", .{});
+            try self.kittyClipboardWriteStatus(
+                .EPERM,
+                meta.id,
+                terminator,
+            );
+            return;
+        }
+
+        const state = try self.alloc.create(terminal.kitty.clipboard.WriteState);
+        errdefer self.alloc.destroy(state);
+        state.* = try .init(self.alloc, meta, .{
+            .max_size = self.clipboard_write_limit,
+        });
+        self.kitty_clipboard_write = state;
+    }
+
+    /// Accumulate one wdata chunk, or commit the transaction when the
+    /// chunk carries no MIME type.
+    fn kittyClipboardWriteData(
+        self: *StreamHandler,
+        meta: *const terminal.kitty.clipboard.Metadata,
+        payload: []const u8,
+        terminator: terminal.osc.Terminator,
+    ) error{ OutOfMemory, WriteFailed }!void {
+        // Data without a transaction is silently ignored, matching
+        // kitty.
+        const state = self.kitty_clipboard_write orelse return;
+
+        // A wdata packet without a MIME type commits the transaction.
+        if (meta.mime.len == 0) return self.kittyClipboardWriteCommit(
+            state,
+            terminator,
+        );
+
+        state.data(
+            self.alloc,
+            meta,
+            payload,
+        ) catch |err| switch (err) {
+            // Failing to spool matches kitty's EIO for a failed buffer write.
+            error.OutOfMemory => {
+                try self.kittyClipboardWriteFinish(
+                    state,
+                    .EIO,
+                    terminator,
+                );
+                return error.OutOfMemory;
+            },
+
+            // Data over the write limit aborts the transaction and is
+            // reported to the client.
+            error.TooLarge => try self.kittyClipboardWriteFinish(
+                state,
+                .EFBIG,
+                terminator,
+            ),
+
+            // An invalid base64 payload stream aborts the transaction.
+            error.Invalid => try self.kittyClipboardWriteFinish(
+                state,
+                .EINVAL,
+                terminator,
+            ),
+        };
+    }
+
+    /// Register aliases from a walias packet.
+    fn kittyClipboardWriteAlias(
+        self: *StreamHandler,
+        meta: *const terminal.kitty.clipboard.Metadata,
+        payload: []const u8,
+        terminator: terminal.osc.Terminator,
+    ) error{ OutOfMemory, WriteFailed }!void {
+        // Aliases without a transaction are silently ignored. Once a
+        // transaction exists, a missing target MIME type is invalid and
+        // aborts the transaction.
+        const state = self.kitty_clipboard_write orelse return;
+        if (meta.mime.len == 0) return self.kittyClipboardWriteFinish(
+            state,
+            .EINVAL,
+            terminator,
+        );
+
+        state.alias(
+            self.alloc,
+            meta,
+            payload,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => {
+                try self.kittyClipboardWriteFinish(
+                    state,
+                    .EIO,
+                    terminator,
+                );
+                return error.OutOfMemory;
+            },
+
+            // An undecodable alias payload aborts the transaction.
+            error.Invalid => try self.kittyClipboardWriteFinish(
+                state,
+                .EINVAL,
+                terminator,
+            ),
+        };
+    }
+
+    /// Commit the transaction: resolve the final contents and forward
+    /// them to the surface thread, which owns policy, any permission
+    /// prompt, the clipboard write itself, and the final reply.
+    fn kittyClipboardWriteCommit(
+        self: *StreamHandler,
+        state: *terminal.kitty.clipboard.WriteState,
+        terminator: terminal.osc.Terminator,
+    ) error{ OutOfMemory, WriteFailed }!void {
+        self.kittyClipboardWriteSend(
+            state,
+            terminator,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => {
+                try self.kittyClipboardWriteFinish(
+                    state,
+                    .EIO,
+                    terminator,
+                );
+                return error.OutOfMemory;
+            },
+
+            // The last MIME type's payload stream was not correctly
+            // padded, which aborts the transaction.
+            error.Invalid => return try self.kittyClipboardWriteFinish(
+                state,
+                .EINVAL,
+                terminator,
+            ),
+        };
+
+        // The transaction is complete; the surface owns the reply.
+        self.kittyClipboardWriteAbort();
+    }
+
+    fn kittyClipboardWriteSend(
+        self: *StreamHandler,
+        state: *terminal.kitty.clipboard.WriteState,
+        terminator: terminal.osc.Terminator,
+    ) error{ OutOfMemory, Invalid }!void {
+        const committed = try state.commit(self.alloc);
+        defer committed.deinit(self.alloc);
+
+        // Per the spec a password without a name is no password. A
+        // stored session grant for it lets the surface skip its
+        // permission prompt.
+        const pw: []const u8 = if (committed.name.len > 0) committed.pw else "";
+        const granted = self.kitty_clipboard_grants.use(self.alloc, pw, .write);
+
+        // Everything about the request, including the request struct
+        // itself, lives in a single arena that crosses to the surface
+        // thread, which owns it from the moment the message is sent.
+        var arena: std.heap.ArenaAllocator = .init(self.alloc);
+        errdefer arena.deinit();
+        const alloc = arena.allocator();
+
+        const req = try alloc.create(apprt.ClipboardRequest.KittyWrite);
+        const contents = try alloc.alloc(
+            apprt.ClipboardContent,
+            committed.contents.len,
+        );
+        for (committed.contents, contents) |src, *dst| dst.* = .{
+            .mime = try alloc.dupeZ(u8, src.mime),
+            .data = try alloc.dupeZ(u8, src.data),
+        };
+        const id = try alloc.dupe(u8, committed.id);
+        const pw_owned = try alloc.dupe(u8, pw);
+        const name_owned = try alloc.dupeZ(u8, committed.name);
+        req.* = .{
+            // The arena must be copied in last so it tracks every
+            // allocation above.
+            .arena = arena,
+            .location = switch (committed.loc) {
+                .primary => .primary,
+                else => .standard,
+            },
+            .contents = contents,
+            .id = id,
+            .pw = pw_owned,
+            .name = name_owned,
+            .granted = granted,
+            .terminator = terminator,
+        };
+
+        self.surfaceMessageWriter(.{ .kitty_clipboard_write = req });
+    }
+
+    /// Answer the write transaction with its final status and drop it.
+    /// The id echoed is the one from the transaction's opening write
+    /// packet, matching kitty.
+    fn kittyClipboardWriteFinish(
+        self: *StreamHandler,
+        state: *const terminal.kitty.clipboard.WriteState,
+        status: terminal.kitty.clipboard.Status,
+        terminator: terminal.osc.Terminator,
+    ) error{ OutOfMemory, WriteFailed }!void {
+        defer self.kittyClipboardWriteAbort();
+        try self.kittyClipboardWriteStatus(status, state.id, terminator);
+    }
+
+    /// Reply to a write transaction with a single status packet.
+    fn kittyClipboardWriteStatus(
+        self: *StreamHandler,
+        status: terminal.kitty.clipboard.Status,
+        id: []const u8,
+        terminator: terminal.osc.Terminator,
+    ) error{ OutOfMemory, WriteFailed }!void {
+        var stream: std.Io.Writer.Allocating = .init(self.alloc);
+        defer stream.deinit();
+        try (terminal.kitty.clipboard.Response{
+            .op = .write,
+            .status = status,
+            .id = id,
+            .terminator = terminator,
+        }).encode(&stream.writer);
+        self.messageWriter(.{ .write_alloc = .{
+            .alloc = self.alloc,
+            .data = try stream.toOwnedSlice(),
+        } });
+    }
+
+    /// Drop any in-flight write transaction without responding.
+    fn kittyClipboardWriteAbort(self: *StreamHandler) void {
+        if (self.kitty_clipboard_write) |state| {
+            state.deinit(self.alloc);
+            self.alloc.destroy(state);
+            self.kitty_clipboard_write = null;
+        }
     }
 
     fn semanticPrompt(
@@ -1148,14 +1505,10 @@ pub const StreamHandler = struct {
             return;
         }
 
-        var host_buffer: [std.Uri.host_name_max]u8 = undefined;
+        var host_buffer: [std.Io.net.HostName.max_len]u8 = undefined;
         const host = uri.getHost(&host_buffer) catch |err| switch (err) {
             error.UriMissingHost => {
                 log.warn("OSC 7 uri must contain a hostname: {}", .{err});
-                return;
-            },
-            error.UriHostTooLong => {
-                log.warn("failed to get full hostname for OSC 7 validation: {}", .{err});
                 return;
             },
         };
@@ -1163,7 +1516,7 @@ pub const StreamHandler = struct {
         // OSC 7 is a little sketchy because anyone can send any value from
         // any host (such an SSH session). The best practice terminals follow
         // is to valid the hostname to be local.
-        const host_valid = internal_os.hostname.isLocal(host) catch |err| switch (err) {
+        const host_valid = internal_os.hostname.isLocal(host.bytes) catch |err| switch (err) {
             error.PermissionDenied,
             error.Unexpected,
             => {
@@ -1172,7 +1525,7 @@ pub const StreamHandler = struct {
             },
         };
         if (!host_valid) {
-            log.warn("OSC 7 host ({s}) must be local", .{host});
+            log.warn("OSC 7 host ({s}) must be local", .{host.bytes});
             return;
         }
 
@@ -1217,8 +1570,7 @@ pub const StreamHandler = struct {
         var fba: std.heap.FixedBufferAllocator = .init(&buffer);
         const alloc = fba.allocator();
 
-        var response: std.ArrayListUnmanaged(u8) = .empty;
-        const writer = response.writer(alloc);
+        var response: std.Io.Writer.Allocating = .init(alloc);
 
         var it = requests.constIterator(0);
         while (it.next()) |req| {
@@ -1365,7 +1717,7 @@ pub const StreamHandler = struct {
 
                     switch (self.osc_color_report_format) {
                         .@"16-bit" => switch (kind) {
-                            .palette => |i| try writer.print(
+                            .palette => |i| try response.writer.print(
                                 "\x1b]4;{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}",
                                 .{
                                     i,
@@ -1374,7 +1726,7 @@ pub const StreamHandler = struct {
                                     @as(u16, color.b) * 257,
                                 },
                             ),
-                            .dynamic => |dynamic| try writer.print(
+                            .dynamic => |dynamic| try response.writer.print(
                                 "\x1b]{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}",
                                 .{
                                     @intFromEnum(dynamic),
@@ -1387,7 +1739,7 @@ pub const StreamHandler = struct {
                         },
 
                         .@"8-bit" => switch (kind) {
-                            .palette => |i| try writer.print(
+                            .palette => |i| try response.writer.print(
                                 "\x1b]4;{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}",
                                 .{
                                     i,
@@ -1396,7 +1748,7 @@ pub const StreamHandler = struct {
                                     @as(u16, color.b),
                                 },
                             ),
-                            .dynamic => |dynamic| try writer.print(
+                            .dynamic => |dynamic| try response.writer.print(
                                 "\x1b]{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}",
                                 .{
                                     @intFromEnum(dynamic),
@@ -1411,15 +1763,15 @@ pub const StreamHandler = struct {
                         .none => unreachable,
                     }
 
-                    try writer.writeAll(terminator.string());
+                    try response.writer.writeAll(terminator.string());
                 },
             }
         }
 
-        if (response.items.len > 0) {
+        if (response.writer.end > 0) {
             // If any of the operations were reports, finalize the report
             // string and send it to the terminal.
-            const msg = try termio.Message.writeReq(self.alloc, response.items);
+            const msg = try termio.Message.writeReq(self.alloc, response.writer.buffered());
             self.messageWriter(msg);
         }
     }
@@ -1429,17 +1781,9 @@ pub const StreamHandler = struct {
         title: []const u8,
         body: []const u8,
     ) !void {
-        var message = apprt.surface.Message{ .desktop_notification = undefined };
-
-        const title_len = @min(title.len, message.desktop_notification.title.len);
-        @memcpy(message.desktop_notification.title[0..title_len], title[0..title_len]);
-        message.desktop_notification.title[title_len] = 0;
-
-        const body_len = @min(body.len, message.desktop_notification.body.len);
-        @memcpy(message.desktop_notification.body[0..body_len], body[0..body_len]);
-        message.desktop_notification.body[body_len] = 0;
-
-        self.surfaceMessageWriter(message);
+        self.surfaceMessageWriter(.{
+            .desktop_notification = .init(title, body),
+        });
     }
 
     /// Send a report to the pty.
@@ -1549,3 +1893,78 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.{ .progress_report = report });
     }
 };
+
+test "kitty clipboard read: targets-only never consumes a one-time grant" {
+    const testing = std.testing;
+
+    var handler: StreamHandler = undefined;
+    handler.alloc = testing.allocator;
+    handler.kitty_clipboard_grants = .{};
+    defer handler.kitty_clipboard_grants.deinit(testing.allocator);
+    try handler.kitty_clipboard_grants.grant(testing.allocator, "otp", .read, true);
+
+    // A listing request must not burn the one-time paste password...
+    try testing.expect(!handler.kittyClipboardReadGranted("otp", 0));
+    // ...so the follow-up data read is still granted, exactly once.
+    try testing.expect(handler.kittyClipboardReadGranted("otp", 1));
+    try testing.expect(!handler.kittyClipboardReadGranted("otp", 1));
+}
+
+test "kitty clipboard write: oversized text replies EFBIG" {
+    const testing = std.testing;
+
+    var mailbox = try termio.Mailbox.initSPSC(testing.allocator);
+    defer mailbox.deinit(testing.allocator);
+
+    var mutex: std.Io.Mutex = .init;
+    mutex.lockUncancelable(global.io());
+    defer mutex.unlock(global.io());
+
+    var renderer_state: renderer.State = .{
+        .mutex = &mutex,
+        .terminal = undefined,
+    };
+    var handler: StreamHandler = undefined;
+    handler.alloc = testing.allocator;
+    handler.termio_mailbox = &mailbox;
+    handler.renderer_state = &renderer_state;
+    handler.clipboard_write = .allow;
+    handler.clipboard_write_limit = 4;
+    handler.kitty_clipboard_write = null;
+    defer handler.kittyClipboardWriteAbort();
+
+    const begin: terminal.kitty.clipboard.Metadata = .{
+        .op = .write,
+        .id = "macos",
+    };
+    try handler.kittyClipboardWriteBegin(&begin, .st);
+    const state = handler.kitty_clipboard_write.?;
+    try state.data(
+        testing.allocator,
+        &.{ .op = .wdata, .mime = "text/plain" },
+        "SGVsbA==", // "Hell"
+    );
+    try testing.expectError(error.TooLarge, state.data(
+        testing.allocator,
+        &.{ .op = .wdata, .mime = "text/plain" },
+        "bw==", // "o"
+    ));
+    try handler.kittyClipboardWriteFinish(state, .EFBIG, .st);
+    try testing.expect(handler.kitty_clipboard_write == null);
+
+    const response = mailbox.spsc.queue.pop(global.io());
+    try testing.expect(response != null);
+    const msg = response.?;
+    defer msg.deinit();
+    switch (msg) {
+        .write_alloc => |v| try testing.expectEqualStrings(
+            "\x1B]5522;type=write:status=EFBIG:id=macos\x1B\\",
+            v.data,
+        ),
+        else => try testing.expect(false),
+    }
+
+    // Teardown leaves no transaction that could be committed and
+    // forwarded to the macOS clipboard path.
+    try testing.expect(mailbox.spsc.queue.pop(global.io()) == null);
+}

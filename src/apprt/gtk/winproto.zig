@@ -8,6 +8,7 @@ const Config = @import("../../config.zig").Config;
 const input = @import("../../input.zig");
 const key = @import("key.zig");
 const ApprtWindow = @import("class/window.zig").Window;
+const GlobalShortcuts = @import("class/global_shortcuts.zig").GlobalShortcuts;
 
 pub const noop = @import("winproto/noop.zig");
 pub const x11 = @import("winproto/x11.zig");
@@ -46,9 +47,9 @@ pub const App = union(Protocol) {
         return .{ .none = .{} };
     }
 
-    pub fn deinit(self: *App, alloc: Allocator) void {
+    pub fn deinit(self: *App) void {
         switch (self.*) {
-            inline else => |*v| v.deinit(alloc),
+            inline else => |*v| v.deinit(),
         }
     }
 
@@ -76,6 +77,26 @@ pub const App = union(Protocol) {
     pub fn initQuickTerminal(self: *App, apprt_window: *ApprtWindow) !void {
         switch (self.*) {
             inline else => |*v| try v.initQuickTerminal(apprt_window),
+        }
+    }
+
+    /// Bind all global keybinds through a mechanism native to the
+    /// windowing protocol. Returns false if there is none; the caller
+    /// should then fall back to the XDG desktop portal.
+    pub fn bindGlobalShortcuts(
+        self: *App,
+        shortcuts: *GlobalShortcuts,
+        config: *const Config,
+    ) bool {
+        return switch (self.*) {
+            inline else => |*v| v.bindGlobalShortcuts(shortcuts, config),
+        };
+    }
+
+    /// Unbind all global keybinds bound via bindGlobalShortcuts.
+    pub fn clearGlobalShortcuts(self: *App) void {
+        switch (self.*) {
+            inline else => |*v| v.clearGlobalShortcuts(),
         }
     }
 };
@@ -117,9 +138,9 @@ pub const Window = union(Protocol) {
         };
     }
 
-    pub fn deinit(self: *Window, alloc: Allocator) void {
+    pub fn deinit(self: *Window) void {
         switch (self.*) {
-            inline else => |*v| v.deinit(alloc),
+            inline else => |*v| v.deinit(),
         }
     }
 
@@ -141,7 +162,7 @@ pub const Window = union(Protocol) {
         };
     }
 
-    pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
+    pub fn addSubprocessEnv(self: *Window, env: *std.process.Environ.Map) !void {
         switch (self.*) {
             inline else => |*v| try v.addSubprocessEnv(env),
         }

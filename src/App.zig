@@ -15,6 +15,7 @@ const Config = configpkg.Config;
 const BlockingQueue = @import("datastruct/main.zig").BlockingQueue;
 const renderer = @import("renderer.zig");
 const font = @import("font/main.zig");
+const global = @import("global.zig");
 
 const log = std.log.scoped(.app);
 
@@ -56,7 +57,7 @@ font_grid_set: font.SharedGridSet,
 // Used to rate limit desktop notifications. Some platforms (notably macOS) will
 // run out of resources if desktop notifications are sent too fast and the OS
 // will kill Ghostty.
-last_notification_time: ?std.time.Instant = null,
+last_notification_time: ?std.Io.Timestamp = null,
 last_notification_digest: u64 = 0,
 
 /// The conditional state of the configuration. See the equivalent field
@@ -77,6 +78,32 @@ pub fn create(alloc: Allocator) CreateError!*App {
     var app = try alloc.create(App);
     errdefer alloc.destroy(app);
     try app.init(alloc);
+
+    // If font discovery supports warmup, then we call it. Some font
+    // mechanisms (e.g. CoreText) have a multi-millisecond one-time cost
+    // on startup.
+    if (comptime @hasDecl(font.Discover, "warmup")) {
+        if (std.Thread.spawn(
+            .{},
+            font.Discover.warmup,
+            .{},
+        )) |thr| thr.detach() else |err| {
+            log.warn("font warmup thread spawn failed err={}", .{err});
+        }
+    }
+
+    // Same for the renderer's graphics API (e.g. Metal), which pays
+    // one-time framework initialization costs on first use.
+    if (comptime @hasDecl(renderer.Renderer.API, "warmup")) {
+        if (std.Thread.spawn(
+            .{},
+            renderer.Renderer.API.warmup,
+            .{},
+        )) |thr| thr.detach() else |err| {
+            log.warn("renderer warmup thread spawn failed err={}", .{err});
+        }
+    }
+
     return app;
 }
 
@@ -95,7 +122,7 @@ pub fn init(
 
     self.* = .{
         .alloc = alloc,
-        .surfaces = .{},
+        .surfaces = .empty,
         .mailbox = .{},
         .font_grid_set = font_grid_set,
         .config_conditional_state = .{},
@@ -236,7 +263,7 @@ pub fn needsConfirmQuit(self: *const App) bool {
 
 /// Drain the mailbox.
 fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
-    while (self.mailbox.pop()) |message| {
+    while (self.mailbox.pop(global.io())) |message| {
         if (comptime std.log.logEnabled(.debug, .app)) {
             switch (message) {
                 // these tend to be way too verbose for normal debugging
@@ -245,7 +272,15 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
             }
         }
         switch (message) {
-            .open_config => try self.performAction(rt_app, .open_config),
+            .open_config => |v| try self.performAction(
+                rt_app,
+                .{
+                    .open_config = switch (v) {
+                        .os_open => .os_open,
+                        .new_window => .new_window,
+                    },
+                },
+            ),
             .new_window => |msg| try self.newWindow(rt_app, msg),
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
@@ -313,25 +348,6 @@ pub fn focusEvent(self: *App, focused: bool) void {
 
     log.debug("focus event focused={}", .{focused});
     self.focused = focused;
-}
-
-/// Returns true if the given key event would trigger a keybinding
-/// if it were to be processed. This is useful for determining if
-/// a key event should be sent to the terminal or not.
-pub fn keyEventIsBinding(
-    self: *App,
-    rt_app: *apprt.App,
-    event: input.KeyEvent,
-) bool {
-    _ = self;
-
-    switch (event.action) {
-        .release => return false,
-        .press, .repeat => {},
-    }
-
-    // If we have a keybinding for this event then we return true.
-    return rt_app.config.keybind.set.getEvent(event) != null;
 }
 
 /// Handle a key event at the app-scope. If this key event is used,
@@ -443,7 +459,14 @@ pub fn performAction(
         .ignore => {},
         .quit => _ = try rt_app.performAction(.app, .quit, {}),
         .new_window => _ = try self.newWindow(rt_app, .{ .parent = null }),
-        .open_config => _ = try rt_app.performAction(.app, .open_config, {}),
+        .open_config => |v| _ = try rt_app.performAction(
+            .app,
+            .open_config,
+            switch (v) {
+                .os_open => .os_open,
+                .new_window => .new_window,
+            },
+        ),
         .reload_config => _ = try rt_app.performAction(.app, .reload_config, .{}),
         .close_all_windows => _ = try rt_app.performAction(.app, .close_all_windows, {}),
         .toggle_quick_terminal => _ = try rt_app.performAction(.app, .toggle_quick_terminal, {}),
@@ -494,8 +517,8 @@ pub fn performAllAction(
         // are logged but processing continues.
         .surface => for (self.surfaces.items) |surface| {
             _ = surface.core().performBindingAction(action) catch |err| {
-                log.warn("error performing binding action on surface ptr={X} err={}", .{
-                    @intFromPtr(surface),
+                log.warn("error performing binding action on surface id={x} err={}", .{
+                    surface.core().id,
                     err,
                 });
             };
@@ -524,6 +547,16 @@ fn hasSurface(self: *const App, surface: *const Surface) bool {
     return false;
 }
 
+/// Search for a surface by a 64 bit unique ID.
+pub fn findSurfaceByID(self: *const App, id: u64) ?*Surface {
+    for (self.surfaces.items) |v| {
+        const surface: *Surface = v.core();
+        if (surface.id == id) return surface;
+    }
+
+    return null;
+}
+
 fn hasRtSurface(self: *const App, surface: *apprt.Surface) bool {
     for (self.surfaces.items) |v| {
         if (v == surface) return true;
@@ -535,7 +568,7 @@ fn hasRtSurface(self: *const App, surface: *apprt.Surface) bool {
 /// The message types that can be sent to the app thread.
 pub const Message = union(enum) {
     // Open the configuration file
-    open_config: void,
+    open_config: OpenConfig,
 
     /// Create a new terminal window.
     new_window: NewWindow,
@@ -563,6 +596,13 @@ pub const Message = union(enum) {
         /// The parent surface
         parent: ?*Surface = null,
     };
+
+    pub const OpenConfig = enum {
+        /// Open the config in the OS default editor.
+        os_open,
+        /// Open the config in a new window using $EDITOR or $VISUAL
+        new_window,
+    };
 };
 
 /// Mailbox is the way that other threads send the app thread messages.
@@ -575,7 +615,7 @@ pub const Mailbox = struct {
 
     /// Send a message to the surface.
     pub fn push(self: Mailbox, msg: Message, timeout: Queue.Timeout) Queue.Size {
-        const result = self.mailbox.push(msg, timeout);
+        const result = self.mailbox.push(global.io(), msg, timeout);
 
         // Wake up our app loop
         self.rt_app.wakeup();

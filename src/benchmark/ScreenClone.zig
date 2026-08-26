@@ -11,6 +11,7 @@ const terminalpkg = @import("../terminal/main.zig");
 const Benchmark = @import("Benchmark.zig");
 const options = @import("options.zig");
 const Terminal = terminalpkg.Terminal;
+const global = @import("../global.zig");
 
 const log = std.log.scoped(.@"terminal-stream-bench");
 
@@ -20,6 +21,10 @@ terminal: Terminal,
 pub const Options = struct {
     /// The type of codepoint width calculation to use.
     mode: Mode = .clone,
+
+    /// Multiplier on the number of iterations each step runs. This is
+    /// useful to make a benchmark run long enough for profiling.
+    loops: u32 = 1,
 
     /// The size of the terminal. This affects benchmarking when
     /// dealing with soft line wrapping and the memory impact
@@ -48,6 +53,22 @@ pub const Mode = enum {
 
     /// RenderState rather than a screen clone.
     render,
+
+    /// Like render, but only the portion of the render state update
+    /// that requires holding a terminal lock (beginUpdate). The
+    /// deferred work (endUpdate) is excluded since it happens outside
+    /// of any locks.
+    @"render-locked",
+
+    /// RenderState update with no changes to the terminal. This is
+    /// the common case for a renderer that is redrawing frames (e.g.
+    /// cursor blink, mouse movement) without terminal changes.
+    @"render-clean",
+
+    /// RenderState update where a single row is dirty. This models the
+    /// common case of a shell prompt or TUI updating a small portion
+    /// of the screen between frames.
+    @"render-partial",
 };
 
 pub fn create(
@@ -59,7 +80,7 @@ pub fn create(
 
     ptr.* = .{
         .opts = opts,
-        .terminal = try .init(alloc, .{
+        .terminal = try .init(global.io(), alloc, .{
             .rows = opts.@"terminal-rows",
             .cols = opts.@"terminal-cols",
         }),
@@ -79,6 +100,9 @@ pub fn benchmark(self: *ScreenClone) Benchmark {
             .noop => stepNoop,
             .clone => stepClone,
             .render => stepRender,
+            .@"render-locked" => stepRenderLocked,
+            .@"render-clean" => stepRenderClean,
+            .@"render-partial" => stepRenderPartial,
         },
         .setupFn = setup,
         .teardownFn = teardown,
@@ -94,12 +118,12 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     // Force a style on every single row, which
     var s = self.terminal.vtStream();
     defer s.deinit();
-    s.nextSlice("\x1b[48;2;20;40;60m") catch unreachable;
-    for (0..self.terminal.rows - 1) |_| s.nextSlice("hello\r\n") catch unreachable;
-    s.nextSlice("hello") catch unreachable;
+    s.nextSlice("\x1b[48;2;20;40;60m");
+    for (0..self.terminal.rows - 1) |_| s.nextSlice("hello\r\n");
+    s.nextSlice("hello");
 
     // Setup our terminal state
-    const data_f: std.fs.File = (options.dataFile(
+    const data_f: std.Io.File = (options.dataFile(
         self.opts.data,
     ) catch |err| {
         log.warn("error opening data file err={}", .{err});
@@ -110,7 +134,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     defer stream.deinit();
 
     var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    var f_reader = data_f.reader(&read_buf);
+    var f_reader = data_f.reader(global.io(), &read_buf);
     const r = &f_reader.interface;
 
     var buf: [4096]u8 = undefined;
@@ -120,10 +144,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
             return error.BenchmarkFailed;
         };
         if (n == 0) break; // EOF reached
-        stream.nextSlice(buf[0..n]) catch |err| {
-            log.warn("error processing data file chunk err={}", .{err});
-            return error.BenchmarkFailed;
-        };
+        stream.nextSlice(buf[0..n]);
     }
 }
 
@@ -151,6 +172,7 @@ fn stepClone(ptr: *anyopaque) Benchmark.Error!void {
     for (0..1000) |_| {
         const s: *terminalpkg.Screen = self.terminal.screens.active;
         const copy = s.clone(
+            s.io,
             s.alloc,
             .{ .viewport = .{} },
             null,
@@ -181,16 +203,102 @@ fn stepRender(ptr: *anyopaque) Benchmark.Error!void {
 
     // We loop because its so fast that a single benchmark run doesn't
     // properly capture our speeds.
-    for (0..1000) |_| {
+    for (0..50_000 * @as(u64, self.opts.loops)) |_| {
         // Forces a full rebuild because it thinks our screen changed
         state.screen = .alternate;
         state.update(alloc, &self.terminal) catch |err| {
             log.warn("error cloning screen err={}", .{err});
             return error.BenchmarkFailed;
         };
-        std.mem.doNotOptimizeAway(state);
+        std.mem.doNotOptimizeAway(&state);
 
         // Note: we purposely do not free memory because we don't want
         // to benchmark that. We'll free when the benchmark exits.
+    }
+}
+
+fn stepRenderLocked(ptr: *anyopaque) Benchmark.Error!void {
+    const self: *ScreenClone = @ptrCast(@alignCast(ptr));
+
+    // We do this once out of the loop because a significant slowdown
+    // on the first run is allocation. After that first run, even with
+    // a full rebuild, it is much faster. Let's ignore that first run
+    // slowdown.
+    const alloc = self.terminal.screens.active.alloc;
+    var state: terminalpkg.RenderState = .empty;
+    state.update(alloc, &self.terminal) catch |err| {
+        log.warn("error cloning screen err={}", .{err});
+        return error.BenchmarkFailed;
+    };
+
+    // We loop because its so fast that a single benchmark run doesn't
+    // properly capture our speeds.
+    for (0..50_000 * @as(u64, self.opts.loops)) |_| {
+        // Forces a full rebuild because it thinks our screen changed
+        state.screen = .alternate;
+        state.beginUpdate(alloc, &self.terminal) catch |err| {
+            log.warn("error cloning screen err={}", .{err});
+            return error.BenchmarkFailed;
+        };
+        std.mem.doNotOptimizeAway(&state);
+
+        // Note: we purposely do not free memory because we don't want
+        // to benchmark that. We'll free when the benchmark exits.
+    }
+}
+
+fn stepRenderClean(ptr: *anyopaque) Benchmark.Error!void {
+    const self: *ScreenClone = @ptrCast(@alignCast(ptr));
+
+    // Initial update so that subsequent updates are clean (nothing
+    // dirty, no rebuilds).
+    const alloc = self.terminal.screens.active.alloc;
+    var state: terminalpkg.RenderState = .empty;
+    state.update(alloc, &self.terminal) catch |err| {
+        log.warn("error cloning screen err={}", .{err});
+        return error.BenchmarkFailed;
+    };
+
+    // We loop because its so fast that a single benchmark run doesn't
+    // properly capture our speeds.
+    for (0..3_000_000 * @as(u64, self.opts.loops)) |_| {
+        state.update(alloc, &self.terminal) catch |err| {
+            log.warn("error cloning screen err={}", .{err});
+            return error.BenchmarkFailed;
+        };
+        std.mem.doNotOptimizeAway(&state);
+    }
+}
+
+fn stepRenderPartial(ptr: *anyopaque) Benchmark.Error!void {
+    const self: *ScreenClone = @ptrCast(@alignCast(ptr));
+
+    // Initial update so that subsequent updates are incremental.
+    const alloc = self.terminal.screens.active.alloc;
+    var state: terminalpkg.RenderState = .empty;
+    state.update(alloc, &self.terminal) catch |err| {
+        log.warn("error cloning screen err={}", .{err});
+        return error.BenchmarkFailed;
+    };
+
+    // Grab a pin roughly in the middle of the active area that we
+    // dirty on every iteration to simulate a small screen update.
+    const pages = &self.terminal.screens.active.pages;
+    const pin = pages.pin(.{ .active = .{
+        .x = 0,
+        .y = self.terminal.rows / 2,
+    } }).?;
+
+    // We loop because its so fast that a single benchmark run doesn't
+    // properly capture our speeds.
+    for (0..2_000_000 * @as(u64, self.opts.loops)) |_| {
+        // Mark a single row dirty. `update` clears this so each
+        // iteration rebuilds exactly one row.
+        pin.markDirty();
+        state.update(alloc, &self.terminal) catch |err| {
+            log.warn("error cloning screen err={}", .{err});
+            return error.BenchmarkFailed;
+        };
+        std.mem.doNotOptimizeAway(&state);
     }
 }

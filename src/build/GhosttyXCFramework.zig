@@ -24,34 +24,15 @@ pub fn init(
         Config.genericMacOSTarget(b, null),
     ));
 
-    // iOS
-    const ios = try GhosttyLib.initStatic(b, &try deps.retarget(
-        b,
-        b.resolveTargetQuery(.{
-            .cpu_arch = .aarch64,
-            .os_tag = .ios,
-            .os_version_min = Config.osVersionMin(.ios),
-            .abi = null,
-        }),
-    ));
-
-    // iOS Simulator
-    const ios_sim = try GhosttyLib.initStatic(b, &try deps.retarget(
-        b,
-        b.resolveTargetQuery(.{
-            .cpu_arch = .aarch64,
-            .os_tag = .ios,
-            .os_version_min = Config.osVersionMin(.ios),
-            .abi = .simulator,
-
-            // We force the Apple CPU model because the simulator
-            // doesn't support the generic CPU model as of Zig 0.14 due
-            // to missing "altnzcv" instructions, which is false. This
-            // surely can't be right but we can fix this if/when we get
-            // back to running simulator builds.
-            .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.apple_a17 },
-        }),
-    ));
+    // Generate a headers directory with only ghostty.h and the module
+    // map. We can't use include/ directly because it also contains the
+    // libghostty-vt headers under include/ghostty/, which would trigger
+    // "umbrella header does not include header" warnings from Clang's
+    // module system.
+    const wf = b.addWriteFiles();
+    _ = wf.addCopyFile(b.path("include/ghostty.h"), "ghostty.h");
+    _ = wf.addCopyFile(b.path("include/module.modulemap"), "module.modulemap");
+    const headers = wf.getDirectory();
 
     // The xcframework wraps our ghostty library so that we can link
     // it to the final app built with Swift.
@@ -62,24 +43,14 @@ pub fn init(
             .universal => &.{
                 .{
                     .library = macos_universal.output,
-                    .headers = b.path("include"),
+                    .headers = headers,
                     .dsym = macos_universal.dsym,
-                },
-                .{
-                    .library = ios.output,
-                    .headers = b.path("include"),
-                    .dsym = ios.dsym,
-                },
-                .{
-                    .library = ios_sim.output,
-                    .headers = b.path("include"),
-                    .dsym = ios_sim.dsym,
                 },
             },
 
             .native => &.{.{
                 .library = macos_native.output,
-                .headers = b.path("include"),
+                .headers = headers,
                 .dsym = macos_native.dsym,
             }},
         },

@@ -9,6 +9,7 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
     private var lastSurfaceConfig: Ghostty.SurfaceView.DerivedConfig?
 
     /// KVO observation for tab group window changes.
+    private weak var observedTabGroup: NSWindowTabGroup?
     private var tabGroupWindowsObservation: NSKeyValueObservation?
     private var tabBarVisibleObservation: NSKeyValueObservation?
 
@@ -129,9 +130,27 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
     // MARK: Tab Group Observation
 
     private func setupKVO() {
-        // See the docs for the respective setup functions for why.
-        setupTabGroupObservation()
-        setupTabBarVisibleObservation()
+        // This can run from one of the observation callbacks below. Replacing
+        // an observation before its callback returns leaves the window retained
+        // by AppKit, so always rebind on the next main-queue turn.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            // Recheck because the tab group and observation state may have changed
+            // while this work was waiting on the main queue.
+            let currentTabGroup = self.tabGroup
+            let observationsValid = currentTabGroup == nil || (
+                self.tabGroupWindowsObservation != nil &&
+                self.tabBarVisibleObservation != nil
+            )
+
+            // Keep the existing observations when they already match.
+            guard self.observedTabGroup !== currentTabGroup || !observationsValid else { return }
+
+            self.observedTabGroup = currentTabGroup
+            self.setupTabGroupObservation()
+            self.setupTabBarVisibleObservation()
+        }
     }
 
     /// Monitors the tabGroup windows value for any changes and resyncs the appearance on change.

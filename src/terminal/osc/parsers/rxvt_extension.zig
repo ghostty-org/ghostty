@@ -7,16 +7,16 @@ const log = std.log.scoped(.osc_rxvt_extension);
 
 /// Parse OSC 777
 pub fn parse(parser: *Parser, _: ?u8) ?*Command {
-    const writer = parser.writer orelse {
+    const cap = if (parser.capture) |*c| c else {
         parser.state = .invalid;
         return null;
     };
     // ensure that we are sentinel terminated
-    writer.writeByte(0) catch {
+    cap.writer.writeByte(0) catch {
         parser.state = .invalid;
         return null;
     };
-    const data = writer.buffered();
+    const data = cap.trailing();
     const k = std.mem.indexOfScalar(u8, data, ';') orelse {
         parser.state = .invalid;
         return null;

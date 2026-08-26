@@ -6,6 +6,12 @@ pub const Backend = enum {
     /// FreeType for font rendering with no font discovery enabled.
     freetype,
 
+    /// FreeType for font rendering with a built-in Windows font directory
+    /// scanner (C:\Windows\Fonts + %LOCALAPPDATA%\Microsoft\Windows\Fonts).
+    /// Used when DirectWrite is not available; matches by family_name and
+    /// SFNT name table without any external index.
+    freetype_windows,
+
     /// Fontconfig for font discovery and FreeType for font rendering.
     fontconfig_freetype,
 
@@ -40,6 +46,14 @@ pub const Backend = enum {
             };
         }
 
+        if (target.os.tag == .windows) {
+            // Avoid fontconfig on Windows because its libxml2 dependency
+            // may not unpack due to symlinks. Use the FreeType-based
+            // Windows font-directory scanner for discovery. A future
+            // DirectWrite backend can replace this if needed.
+            return .freetype_windows;
+        }
+
         // macOS also supports "coretext_freetype" but there is no scenario
         // that is the default. It is only used by people who want to
         // self-compile Ghostty and prefer the freetype aesthetic.
@@ -52,6 +66,7 @@ pub const Backend = enum {
     pub fn hasFreetype(self: Backend) bool {
         return switch (self) {
             .freetype,
+            .freetype_windows,
             .fontconfig_freetype,
             .coretext_freetype,
             => true,
@@ -73,6 +88,7 @@ pub const Backend = enum {
             => true,
 
             .freetype,
+            .freetype_windows,
             .fontconfig_freetype,
             .web_canvas,
             => false,
@@ -84,6 +100,7 @@ pub const Backend = enum {
             .fontconfig_freetype => true,
 
             .freetype,
+            .freetype_windows,
             .coretext,
             .coretext_freetype,
             .coretext_harfbuzz,
@@ -96,6 +113,7 @@ pub const Backend = enum {
     pub fn hasHarfbuzz(self: Backend) bool {
         return switch (self) {
             .freetype,
+            .freetype_windows,
             .fontconfig_freetype,
             .coretext_freetype,
             .coretext_harfbuzz,

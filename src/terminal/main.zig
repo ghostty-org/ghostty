@@ -3,23 +3,30 @@ const stream = @import("stream.zig");
 const ansi = @import("ansi.zig");
 const csi = @import("csi.zig");
 const render = @import("render.zig");
-const stream_readonly = @import("stream_readonly.zig");
+const stream_terminal = @import("stream_terminal.zig");
 const style = @import("style.zig");
 pub const apc = @import("apc.zig");
 pub const dcs = @import("dcs.zig");
 pub const osc = @import("osc.zig");
 pub const point = @import("point.zig");
 pub const color = @import("color.zig");
+pub const clipboard = @import("clipboard.zig");
+pub const device_attributes = @import("device_attributes.zig");
 pub const device_status = @import("device_status.zig");
+pub const focus = @import("focus.zig");
 pub const formatter = @import("formatter.zig");
 pub const highlight = @import("highlight.zig");
 pub const kitty = @import("kitty.zig");
 pub const modes = @import("modes.zig");
 pub const page = @import("page.zig");
 pub const parse_table = @import("parse_table.zig");
+pub const paste = @import("paste.zig");
 pub const search = @import("search.zig");
+pub const snapshot = @import("snapshot/main.zig");
 pub const sgr = @import("sgr.zig");
 pub const size = @import("size.zig");
+pub const size_report = @import("size_report.zig");
+pub const sys = @import("sys.zig");
 pub const tmux = if (options.tmux_control_mode) @import("tmux.zig") else struct {};
 pub const x11_color = @import("x11_color.zig");
 
@@ -31,29 +38,38 @@ pub const Cell = page.Cell;
 pub const Coordinate = point.Coordinate;
 pub const CSI = Parser.Action.CSI;
 pub const DCS = Parser.Action.DCS;
-pub const MouseShape = @import("mouse_shape.zig").MouseShape;
+pub const mouse = @import("mouse.zig");
+pub const MouseEvent = mouse.Event;
+pub const MouseFormat = mouse.Format;
+pub const MouseShape = mouse.Shape;
 pub const Page = page.Page;
 pub const PageList = @import("PageList.zig");
 pub const Parser = @import("Parser.zig");
 pub const Pin = PageList.Pin;
 pub const Point = point.Point;
-pub const ReadonlyHandler = stream_readonly.Handler;
-pub const ReadonlyStream = stream_readonly.Stream;
 pub const RenderState = render.RenderState;
 pub const Screen = @import("Screen.zig");
 pub const ScreenSet = @import("ScreenSet.zig");
 pub const Scrollbar = PageList.Scrollbar;
 pub const Selection = @import("Selection.zig");
+pub const SelectionGesture = @import("SelectionGesture.zig");
 pub const SizeReportStyle = csi.SizeReportStyle;
 pub const StringMap = @import("StringMap.zig");
 pub const Style = style.Style;
 pub const Terminal = @import("Terminal.zig");
+pub const TerminalStream = stream_terminal.Stream;
 pub const Stream = stream.Stream;
 pub const StreamAction = stream.Action;
+pub const UnknownSequence = stream_terminal.Handler.UnknownSequence;
+pub const Paste = paste.Request;
+pub const PasteContents = paste.Contents;
+pub const PasteSource = paste.Source;
+pub const MimeReader = clipboard.MimeReader;
+pub const PasteError = stream_terminal.Handler.PasteError;
 pub const Cursor = Screen.Cursor;
 pub const CursorStyle = Screen.CursorStyle;
 pub const CursorStyleReq = ansi.CursorStyle;
-pub const DeviceAttributeReq = ansi.DeviceAttributeReq;
+pub const DeviceAttributeReq = device_attributes.Req;
 pub const Mode = modes.Mode;
 pub const ModePacked = modes.ModePacked;
 pub const ModifyKeyFormat = ansi.ModifyKeyFormat;
@@ -68,6 +84,9 @@ pub const Attribute = sgr.Attribute;
 pub const Options = @import("build_options.zig").Options;
 pub const options = @import("terminal_options");
 
+/// Whether this target supports terminal page compression.
+pub const compression_enabled = @import("mem.zig").canReclaim(.strict);
+
 /// This is set to true when we're building the C library.
 pub const c_api = if (options.c_abi) @import("c/main.zig") else void;
 
@@ -76,7 +95,10 @@ test {
 
     // Internals
     _ = @import("bitmap_allocator.zig");
+    _ = @import("compress.zig");
+    _ = @import("fraction.zig");
     _ = @import("hash_map.zig");
+    _ = @import("mem.zig");
     _ = @import("ref_counted_set.zig");
     _ = @import("size.zig");
 }

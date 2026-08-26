@@ -30,7 +30,7 @@ mailbox: termio.Mailbox,
 /// terminal implementation.)
 renderer_state: *renderer.State,
 
-/// A handle to wake up the renderer. This hints to the renderer that that
+/// A handle to wake up the renderer. This hints to the renderer that
 /// a repaint should happen.
 renderer_wakeup: xev.Async,
 

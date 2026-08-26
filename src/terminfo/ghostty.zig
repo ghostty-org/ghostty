@@ -106,14 +106,18 @@ pub const ghostty: Source = .{
         // Curly, dashed, etc underlines
         .{ .name = "Smulx", .value = .{ .string = "\\E[4:%p1%dm" } },
 
+        // Overline
+        .{ .name = "Smol", .value = .{ .string = "\\E[53m" } },
+        .{ .name = "Rmol", .value = .{ .string = "\\E[55m" } },
+
         // Colored underlines
         .{ .name = "Setulc", .value = .{ .string = "\\E[58:2::%p1%{65536}%/%d:%p1%{256}%/%{255}%&%d:%p1%{255}%&%d%;m" } },
 
         // Cursor styles
         .{ .name = "Ss", .value = .{ .string = "\\E[%p1%d q" } },
 
-        // Cursor style reset
-        .{ .name = "Se", .value = .{ .string = "\\E[2 q" } },
+        // Cursor style reset (to user configured default)
+        .{ .name = "Se", .value = .{ .string = "\\E[0 q" } },
 
         // OSC 52 Clipboard
         .{ .name = "Ms", .value = .{ .string = "\\E]52;%p1%s;%p2%s\\007" } },
@@ -386,6 +390,15 @@ pub const ghostty: Source = .{
         .{ .name = "rs1", .value = .{ .string = "\\E]\\E\\\\\\Ec" } },
         .{ .name = "sc", .value = .{ .string = "\\E7" } },
     },
+};
+
+/// A content-derived version of the encoded terminfo source.
+pub const version = version: {
+    @setEvalBranchQuota(100_000);
+    var hashing: std.Io.Writer.Hashing(std.hash.Wyhash) =
+        .initHasher(.init(0), &.{});
+    ghostty.encode(&hashing.writer) catch unreachable;
+    break :version std.fmt.comptimePrint("{x}", .{hashing.hasher.final()});
 };
 
 test "encode" {

@@ -6,7 +6,6 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const homedir = @import("homedir.zig");
-const env_os = @import("env.zig");
 
 pub const Options = struct {
     /// Subdirectories to join to the base. This avoids extra allocations
@@ -20,8 +19,8 @@ pub const Options = struct {
 };
 
 /// Get the XDG user config directory. The returned value is allocated.
-pub fn config(alloc: Allocator, opts: Options) ![]u8 {
-    return try dir(alloc, opts, .{
+pub fn config(io: std.Io, alloc: Allocator, environ_map: *const std.process.Environ.Map, opts: Options) ![]u8 {
+    return try dir(io, alloc, environ_map, opts, .{
         .env = "XDG_CONFIG_HOME",
         .windows_env = "LOCALAPPDATA",
         .default_subdir = ".config",
@@ -29,8 +28,8 @@ pub fn config(alloc: Allocator, opts: Options) ![]u8 {
 }
 
 /// Get the XDG cache directory. The returned value is allocated.
-pub fn cache(alloc: Allocator, opts: Options) ![]u8 {
-    return try dir(alloc, opts, .{
+pub fn cache(io: std.Io, alloc: Allocator, environ_map: *const std.process.Environ.Map, opts: Options) ![]u8 {
+    return try dir(io, alloc, environ_map, opts, .{
         .env = "XDG_CACHE_HOME",
         .windows_env = "LOCALAPPDATA",
         .default_subdir = ".cache",
@@ -38,8 +37,8 @@ pub fn cache(alloc: Allocator, opts: Options) ![]u8 {
 }
 
 /// Get the XDG state directory. The returned value is allocated.
-pub fn state(alloc: Allocator, opts: Options) ![]u8 {
-    return try dir(alloc, opts, .{
+pub fn state(io: std.Io, alloc: Allocator, environ_map: *const std.process.Environ.Map, opts: Options) ![]u8 {
+    return try dir(io, alloc, environ_map, opts, .{
         .env = "XDG_STATE_HOME",
         .windows_env = "LOCALAPPDATA",
         .default_subdir = ".local/state",
@@ -54,7 +53,9 @@ const InternalOptions = struct {
 
 /// Unified helper to get XDG directories that follow a common pattern.
 fn dir(
+    io: std.Io,
     alloc: Allocator,
+    environ_map: *const std.process.Environ.Map,
     opts: Options,
     internal_opts: InternalOptions,
 ) ![]u8 {
@@ -67,30 +68,28 @@ fn dir(
         });
     }
 
-    // First check the env var. On Windows we have to allocate so this tracks
-    // both whether we have the env var and whether we own it.
-    // on Windows we treat `LOCALAPPDATA` as a fallback for `XDG_CONFIG_HOME`
-    const env_ = try env_os.getenvNotEmpty(alloc, internal_opts.env) orelse switch (builtin.os.tag) {
-        else => null,
-        .windows => try env_os.getenvNotEmpty(alloc, internal_opts.windows_env),
+    // First check the env var. On Windows we treat `LOCALAPPDATA` as a
+    // fallback for `XDG_CONFIG_HOME`
+    const env = switch (builtin.os.tag) {
+        .windows => environ_map.get(internal_opts.env) orelse environ_map.get(internal_opts.windows_env) orelse "",
+        else => environ_map.get(internal_opts.env) orelse "",
     };
-    defer if (env_) |env| env.deinit(alloc);
 
-    if (env_) |env| {
+    if (env.len > 0) {
         // If we have a subdir, then we use the env as-is to avoid a copy.
         if (opts.subdir) |subdir| {
             return try std.fs.path.join(alloc, &[_][]const u8{
-                env.value,
+                env,
                 subdir,
             });
         }
 
-        return try alloc.dupe(u8, env.value);
+        return try alloc.dupe(u8, env);
     }
 
     // Get our home dir
     var buf: [1024]u8 = undefined;
-    if (try homedir.home(&buf)) |home| {
+    if (try homedir.home(io, environ_map, &buf)) |home| {
         return try std.fs.path.join(alloc, &[_][]const u8{
             home,
             internal_opts.default_subdir,
@@ -120,10 +119,13 @@ pub fn parseTerminalExec(argv: []const [*:0]const u8) ?[]const [*:0]const u8 {
 
 test {
     const testing = std.testing;
+    const io = testing.io;
     const alloc = testing.allocator;
+    var environ_map = try testing.environ.createMap(alloc);
+    defer environ_map.deinit();
 
     {
-        const value = try config(alloc, .{});
+        const value = try config(io, alloc, &environ_map, .{});
         defer alloc.free(value);
         try testing.expect(value.len > 0);
     }
@@ -131,26 +133,33 @@ test {
 
 test "cache directory paths" {
     const testing = std.testing;
+    const io = testing.io;
     const alloc = testing.allocator;
-    const mock_home = "/Users/test";
+    const mock_home = if (builtin.os.tag == .windows) "C:\\Users\\test" else "/Users/test";
+    var environ_map = try testing.environ.createMap(alloc);
+    defer environ_map.deinit();
 
     // Test when XDG_CACHE_HOME is not set
     {
         // Test base path
         {
-            const cache_path = try cache(alloc, .{ .home = mock_home });
+            const cache_path = try cache(io, alloc, &environ_map, .{ .home = mock_home });
             defer alloc.free(cache_path);
-            try testing.expectEqualStrings("/Users/test/.cache", cache_path);
+            const expected = try std.fs.path.join(alloc, &.{ mock_home, ".cache" });
+            defer alloc.free(expected);
+            try testing.expectEqualStrings(expected, cache_path);
         }
 
         // Test with subdir
         {
-            const cache_path = try cache(alloc, .{
+            const cache_path = try cache(io, alloc, &environ_map, .{
                 .home = mock_home,
                 .subdir = "ghostty",
             });
             defer alloc.free(cache_path);
-            try testing.expectEqualStrings("/Users/test/.cache/ghostty", cache_path);
+            const expected = try std.fs.path.join(alloc, &.{ mock_home, ".cache", "ghostty" });
+            defer alloc.free(expected);
+            try testing.expectEqualStrings(expected, cache_path);
         }
     }
 }
@@ -158,26 +167,12 @@ test "cache directory paths" {
 test "fallback when xdg env empty" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 
+    const io = std.testing.io;
     const alloc = std.testing.allocator;
-
-    const saved_home = home: {
-        const home = std.posix.getenv("HOME") orelse break :home null;
-        break :home try alloc.dupeZ(u8, home);
-    };
-    defer env: {
-        const home = saved_home orelse {
-            _ = env_os.unsetenv("HOME");
-            break :env;
-        };
-        _ = env_os.setenv("HOME", home);
-        std.testing.allocator.free(home);
-    }
-    const temp_home = "/tmp/ghostty-test-home";
-    _ = env_os.setenv("HOME", temp_home);
 
     const DirCase = struct {
         name: [:0]const u8,
-        func: fn (Allocator, Options) anyerror![]u8,
+        func: fn (std.Io, Allocator, *std.process.Environ.Map, Options) anyerror![]u8,
         default_subdir: []const u8,
     };
 
@@ -188,19 +183,10 @@ test "fallback when xdg env empty" {
     };
 
     inline for (cases) |case| {
-        // Save and restore each environment variable
-        const saved_env = blk: {
-            const value = std.posix.getenv(case.name) orelse break :blk null;
-            break :blk try alloc.dupeZ(u8, value);
-        };
-        defer env: {
-            const value = saved_env orelse {
-                _ = env_os.unsetenv(case.name);
-                break :env;
-            };
-            _ = env_os.setenv(case.name, value);
-            alloc.free(value);
-        }
+        var environ_map = try std.testing.environ.createMap(alloc);
+        defer environ_map.deinit();
+        const temp_home = "/tmp/ghostty-test-home";
+        try environ_map.put("HOME", temp_home);
 
         const expected = try std.fs.path.join(alloc, &[_][]const u8{
             temp_home,
@@ -209,8 +195,8 @@ test "fallback when xdg env empty" {
         defer alloc.free(expected);
 
         // Test with empty string - should fallback to home
-        _ = env_os.setenv(case.name, "");
-        const actual = try case.func(alloc, .{});
+        try environ_map.put(case.name, "");
+        const actual = try case.func(io, alloc, &environ_map, .{});
         defer alloc.free(actual);
 
         try std.testing.expectEqualStrings(expected, actual);
@@ -220,28 +206,12 @@ test "fallback when xdg env empty" {
 test "fallback when xdg env empty and subdir" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 
-    const env = @import("env.zig");
+    const io = std.testing.io;
     const alloc = std.testing.allocator;
-
-    const saved_home = home: {
-        const home = std.posix.getenv("HOME") orelse break :home null;
-        break :home try alloc.dupeZ(u8, home);
-    };
-    defer env: {
-        const home = saved_home orelse {
-            _ = env.unsetenv("HOME");
-            break :env;
-        };
-        _ = env.setenv("HOME", home);
-        std.testing.allocator.free(home);
-    }
-
-    const temp_home = "/tmp/ghostty-test-home";
-    _ = env.setenv("HOME", temp_home);
 
     const DirCase = struct {
         name: [:0]const u8,
-        func: fn (Allocator, Options) anyerror![]u8,
+        func: fn (std.Io, Allocator, *const std.process.Environ.Map, Options) anyerror![]u8,
         default_subdir: []const u8,
     };
 
@@ -252,19 +222,10 @@ test "fallback when xdg env empty and subdir" {
     };
 
     inline for (cases) |case| {
-        // Save and restore each environment variable
-        const saved_env = blk: {
-            const value = std.posix.getenv(case.name) orelse break :blk null;
-            break :blk try alloc.dupeZ(u8, value);
-        };
-        defer env: {
-            const value = saved_env orelse {
-                _ = env.unsetenv(case.name);
-                break :env;
-            };
-            _ = env.setenv(case.name, value);
-            alloc.free(value);
-        }
+        var environ_map = try std.testing.environ.createMap(alloc);
+        defer environ_map.deinit();
+        const temp_home = "/tmp/ghostty-test-home";
+        try environ_map.put("HOME", temp_home);
 
         const expected = try std.fs.path.join(alloc, &[_][]const u8{
             temp_home,
@@ -274,8 +235,8 @@ test "fallback when xdg env empty and subdir" {
         defer alloc.free(expected);
 
         // Test with empty string - should fallback to home
-        _ = env.setenv(case.name, "");
-        const actual = try case.func(alloc, .{ .subdir = "ghostty" });
+        try environ_map.put(case.name, "");
+        const actual = try case.func(io, alloc, &environ_map, .{ .subdir = "ghostty" });
         defer alloc.free(actual);
 
         try std.testing.expectEqualStrings(expected, actual);

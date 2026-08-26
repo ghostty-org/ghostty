@@ -147,8 +147,8 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
         }
 
         // Update our window light/darkness based on our updated background color
-        let themeChanged = isLightTheme != OSColor(surfaceConfig.backgroundColor).isLightColor
-        isLightTheme = OSColor(surfaceConfig.backgroundColor).isLightColor
+        let themeChanged = isLightTheme != NSColor(surfaceConfig.backgroundColor).isLightColor
+        isLightTheme = NSColor(surfaceConfig.backgroundColor).isLightColor
 
         // Update our titlebar color
         if let preferredBackgroundColor {
@@ -687,6 +687,11 @@ private class CenteredDynamicLabel: NSTextField {
         // Set content hugging and compression resistance priorities
         setContentHuggingPriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+    }
+
+    /// Click through, so we can double click here to enlarge current window
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 
     // Vertically center the text

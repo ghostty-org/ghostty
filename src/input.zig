@@ -12,6 +12,7 @@ pub const function_keys = @import("input/function_keys.zig");
 pub const keycodes = @import("input/keycodes.zig");
 pub const key_encode = @import("input/key_encode.zig");
 pub const kitty = @import("input/kitty.zig");
+pub const mouse_encode = @import("input/mouse_encode.zig");
 pub const paste = @import("input/paste.zig");
 
 pub const ctrlOrSuper = key.ctrlOrSuper;
@@ -25,6 +26,7 @@ pub const KeyEvent = key.KeyEvent;
 pub const KeyRemapSet = key_mods.RemapSet;
 pub const InspectorMode = Binding.Action.InspectorMode;
 pub const Mods = key_mods.Mods;
+pub const MouseAction = mouse.Action;
 pub const MouseButton = mouse.Button;
 pub const MouseButtonState = mouse.ButtonState;
 pub const MousePressureStage = mouse.PressureStage;

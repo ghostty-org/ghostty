@@ -42,61 +42,6 @@ pub fn format(self: Entry, writer: *std.Io.Writer) FormatError!void {
     );
 }
 
-pub fn isExpired(self: Entry, expire_days_: ?u32) bool {
-    const expire_days = expire_days_ orelse return false;
-    const now = std.time.timestamp();
-    const age_days = @divTrunc(now -| self.timestamp, std.time.s_per_day);
-    return age_days > expire_days;
-}
-
-test "cache entry expiration" {
-    const testing = std.testing;
-    const now = std.time.timestamp();
-
-    const fresh_entry: Entry = .{
-        .hostname = "test.com",
-        .timestamp = now - std.time.s_per_day, // 1 day old
-        .terminfo_version = "xterm-ghostty",
-    };
-    try testing.expect(!fresh_entry.isExpired(90));
-
-    const old_entry: Entry = .{
-        .hostname = "old.com",
-        .timestamp = now - (std.time.s_per_day * 100), // 100 days old
-        .terminfo_version = "xterm-ghostty",
-    };
-    try testing.expect(old_entry.isExpired(90));
-
-    // Test never-expire case
-    try testing.expect(!old_entry.isExpired(null));
-}
-
-test "cache entry expiration exact boundary" {
-    const testing = std.testing;
-    const now = std.time.timestamp();
-
-    // Exactly at expiration boundary
-    const boundary_entry: Entry = .{
-        .hostname = "example.com",
-        .timestamp = now - (std.time.s_per_day * 30),
-        .terminfo_version = "xterm-ghostty",
-    };
-    try testing.expect(!boundary_entry.isExpired(30));
-    try testing.expect(boundary_entry.isExpired(29));
-}
-
-test "cache entry expiration large timestamp" {
-    const testing = std.testing;
-    const now = std.time.timestamp();
-
-    const boundary_entry: Entry = .{
-        .hostname = "example.com",
-        .timestamp = now + (std.time.s_per_day * 30),
-        .terminfo_version = "xterm-ghostty",
-    };
-    try testing.expect(!boundary_entry.isExpired(30));
-}
-
 test "cache entry parsing valid formats" {
     const testing = std.testing;
 

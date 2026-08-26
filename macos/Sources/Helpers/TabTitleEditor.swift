@@ -125,6 +125,7 @@ final class TabTitleEditor: NSObject, NSTextFieldDelegate {
     ///
     /// If this returns true then the event was handled by the coordinator.
     func handleRightMouseDown(_ event: NSEvent) -> Bool {
+        guard event.type == .rightMouseDown else { return false }
         if isMouseEventWithinEditor(event) {
             inlineTitleEditor?.rightMouseDown(with: event)
             return true
@@ -157,10 +158,8 @@ final class TabTitleEditor: NSObject, NSTextFieldDelegate {
         // Build the editor using title text and style derived from the tab's existing label.
         let editedTitle = delegate?.tabTitleEditor(self, titleFor: targetWindow) ?? targetWindow.title
         let sourceLabel = sourceTabTitleLabel(from: tabState.labels.map(\.label), matching: editedTitle)
-        let editorFrame = tabTitleEditorFrame(for: tabButton, sourceLabel: sourceLabel)
-        guard editorFrame.width >= 20, editorFrame.height >= 14 else { return false }
 
-        let editor = NSTextField(frame: editorFrame)
+        let editor = NSTextField(frame: .zero)
         editor.delegate = self
         editor.stringValue = editedTitle
         editor.alignment = sourceLabel?.alignment ?? .center
@@ -192,6 +191,15 @@ final class TabTitleEditor: NSObject, NSTextFieldDelegate {
         tabButton.layoutSubtreeIfNeeded()
         tabButton.displayIfNeeded()
         tabButton.addSubview(editor)
+        editor.translatesAutoresizingMaskIntoConstraints = false
+        let horizontalInset: CGFloat = 6
+        let editorHeight = sourceLabel?.bounds.height ?? tabButton.bounds.height
+        NSLayoutConstraint.activate([
+            editor.centerYAnchor.constraint(equalTo: tabButton.centerYAnchor),
+            editor.leadingAnchor.constraint(equalTo: tabButton.leadingAnchor, constant: horizontalInset),
+            editor.trailingAnchor.constraint(equalTo: tabButton.trailingAnchor, constant: -horizontalInset),
+            editor.heightAnchor.constraint(equalToConstant: editorHeight),
+        ])
         CATransaction.commit()
 
         // Focus after insertion so AppKit has created the field editor for this text field.
@@ -253,23 +261,6 @@ final class TabTitleEditor: NSObject, NSTextFieldDelegate {
 
         // Notify delegate that editing is done so it can restore focus.
         delegate?.tabTitleEditor(self, didFinishEditing: targetWindow)
-    }
-
-    /// Chooses an editor frame that aligns with the tab title within the tab button.
-    private func tabTitleEditorFrame(for tabButton: NSView, sourceLabel: NSTextField?) -> NSRect {
-        let bounds = tabButton.bounds
-        let horizontalInset: CGFloat = 6
-        var frame = bounds.insetBy(dx: horizontalInset, dy: 0)
-
-        if let sourceLabel {
-            let labelFrame = tabButton.convert(sourceLabel.bounds, from: sourceLabel)
-            /// The `labelFrame.minY` value changes unexpectedly after double clicking selected text,
-            /// I don't know exactly why, but `tabButton.bounds` appears stable enough to calculate the correct position reliably.
-            frame.origin.y = bounds.midY - labelFrame.height * 0.5
-            frame.size.height = labelFrame.height
-        }
-
-        return frame.integral
     }
 
     /// Selects the best title label candidate from private tab button subviews.

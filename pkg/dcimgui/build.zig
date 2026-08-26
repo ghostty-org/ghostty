@@ -22,11 +22,16 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
+            // On MSVC, we must not use linkLibCpp because Zig unconditionally
+            // passes -nostdinc++ and then adds its bundled libc++/libc++abi
+            // include paths, which conflict with MSVC's own C++ runtime
+            // headers. The MSVC SDK include directories (added via linkLibC)
+            // contain both C and C++ headers, so linkLibCpp is not needed.
+            .link_libcpp = target.result.abi != .msvc,
         }),
         .linkage = .static,
     });
-    lib.linkLibC();
-    lib.linkLibCpp();
     b.installArtifact(lib);
 
     // Zig module
@@ -53,6 +58,12 @@ pub fn build(b: *std.Build) !void {
         "-DIMGUI_USE_WCHAR32=1",
         "-DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=1",
     });
+    if (target.result.abi == .msvc) {
+        try flags.appendSlice(b.allocator, &.{
+            "-fno-sanitize=undefined",
+            "-fno-sanitize-trap=undefined",
+        });
+    }
     if (freetype) try flags.appendSlice(b.allocator, &.{
         "-DIMGUI_ENABLE_FREETYPE=1",
     });
@@ -74,8 +85,8 @@ pub fn build(b: *std.Build) !void {
 
     // Add the core Dear Imgui source files
     if (b.lazyDependency("imgui", .{})) |upstream| {
-        lib.addIncludePath(upstream.path(""));
-        lib.addCSourceFiles(.{
+        lib.root_module.addIncludePath(upstream.path(""));
+        lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .files = &.{
                 "imgui_demo.cpp",
@@ -94,20 +105,20 @@ pub fn build(b: *std.Build) !void {
         );
 
         if (freetype) {
-            lib.addCSourceFile(.{
+            lib.root_module.addCSourceFile(.{
                 .file = upstream.path("misc/freetype/imgui_freetype.cpp"),
                 .flags = flags.items,
             });
 
             if (b.systemIntegrationOption("freetype", .{})) {
-                lib.linkSystemLibrary2("freetype2", dynamic_link_opts);
+                lib.root_module.linkSystemLibrary("freetype2", dynamic_link_opts);
             } else {
                 const freetype_dep = b.dependency("freetype", .{
                     .target = target,
                     .optimize = optimize,
                     .@"enable-libpng" = true,
                 });
-                lib.linkLibrary(freetype_dep.artifact("freetype"));
+                lib.root_module.linkLibrary(freetype_dep.artifact("freetype"));
                 if (freetype_dep.builder.lazyDependency(
                     "freetype",
                     .{},
@@ -118,7 +129,7 @@ pub fn build(b: *std.Build) !void {
         }
 
         if (backend_metal) {
-            lib.addCSourceFiles(.{
+            lib.root_module.addCSourceFiles(.{
                 .root = upstream.path("backends"),
                 .files = &.{"imgui_impl_metal.mm"},
                 .flags = flags.items,
@@ -130,7 +141,7 @@ pub fn build(b: *std.Build) !void {
             );
         }
         if (backend_osx) {
-            lib.addCSourceFiles(.{
+            lib.root_module.addCSourceFiles(.{
                 .root = upstream.path("backends"),
                 .files = &.{"imgui_impl_osx.mm"},
                 .flags = flags.items,
@@ -142,7 +153,7 @@ pub fn build(b: *std.Build) !void {
             );
         }
         if (backend_opengl3) {
-            lib.addCSourceFiles(.{
+            lib.root_module.addCSourceFiles(.{
                 .root = upstream.path("backends"),
                 .files = &.{"imgui_impl_opengl3.cpp"},
                 .flags = flags.items,
@@ -157,8 +168,8 @@ pub fn build(b: *std.Build) !void {
 
     // Add the C bindings
     if (b.lazyDependency("bindings", .{})) |upstream| {
-        lib.addIncludePath(upstream.path(""));
-        lib.addCSourceFiles(.{
+        lib.root_module.addIncludePath(upstream.path(""));
+        lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .files = &.{
                 "dcimgui.cpp",
@@ -166,7 +177,7 @@ pub fn build(b: *std.Build) !void {
             },
             .flags = flags.items,
         });
-        lib.addCSourceFiles(.{
+        lib.root_module.addCSourceFiles(.{
             .root = b.path(""),
             .files = &.{"ext.cpp"},
             .flags = flags.items,
@@ -188,7 +199,7 @@ pub fn build(b: *std.Build) !void {
         }),
     });
     test_exe.root_module.addOptions("build_options", options);
-    test_exe.linkLibrary(lib);
+    test_exe.root_module.linkLibrary(lib);
     const tests_run = b.addRunArtifact(test_exe);
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&tests_run.step);

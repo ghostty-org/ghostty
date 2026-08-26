@@ -1,6 +1,7 @@
 //! https://gitlab.freedesktop.org/Per_Bothner/specifications/blob/master/proposals/semantic-prompts.md
 const std = @import("std");
 
+const lib = @import("../../lib.zig");
 const Parser = @import("../../osc.zig").Parser;
 const OSCCommand = @import("../../osc.zig").Command;
 const string_encoding = @import("../../../os/string_encoding.zig");
@@ -14,6 +15,8 @@ const log = std.log.scoped(.osc_semantic_prompt);
 /// all except one do and the spec does also say to ignore unknown
 /// options. So, I think this is a fair interpretation.
 pub const Command = struct {
+    pub const C = void;
+
     action: Action,
     options_unvalidated: []const u8,
 
@@ -58,6 +61,19 @@ pub const Command = struct {
     }
 };
 
+// ClickEvents can either be a click_events=1 or click_events=2.
+// The click_events=1 sends a click event with the absolute coordinates
+// of the click.
+// The click_events=2 sends a click event with the coordinates of the click
+// relative to the prompt area.
+// See https://github.com/ghostty-org/ghostty/issues/10865 and
+// https://github.com/kovidgoyal/kitty/issues/9500
+// for further details.
+pub const ClickEvents = lib.Enum(
+    lib.target,
+    &.{ "absolute", "relative" },
+);
+
 pub const Option = enum {
     aid,
     cl,
@@ -100,7 +116,7 @@ pub const Option = enum {
             .err => []const u8,
             .redraw => Redraw,
             .special_key => bool,
-            .click_events => bool,
+            .click_events => ClickEvents,
             .cmdline => []const u8,
             .cmdline_url => []const u8,
             .exit_code => i32,
@@ -187,7 +203,7 @@ pub const Option = enum {
 
             return switch (self) {
                 .aid => value,
-                .cl => .init(value),
+                .cl => parseClick(value),
                 .prompt_kind => if (value.len == 1) PromptKind.init(value[0]) else null,
                 .err => value,
                 .redraw => if (std.mem.eql(u8, value, "0"))
@@ -198,7 +214,12 @@ pub const Option = enum {
                     .last
                 else
                     null,
-                .special_key, .click_events => if (value.len == 1) switch (value[0]) {
+                .click_events => if (value.len == 1) switch (value[0]) {
+                    '1' => .absolute,
+                    '2' => .relative,
+                    else => null,
+                } else null,
+                .special_key => if (value.len == 1) switch (value[0]) {
                     '0' => false,
                     '1' => true,
                     else => null,
@@ -217,42 +238,50 @@ pub const Option = enum {
 
 /// The `cl` option specifies what kind of cursor key sequences are handled
 /// by the application for click-to-move-cursor functionality.
-pub const Click = enum {
-    /// Value: "line". Allows motion within a single input line using standard
-    /// left/right arrow escape sequences. Only a single left/right sequence
-    /// should be emitted for double-width characters.
-    line,
+///
+/// `line` allows movement within one input line. `multiple` allows movement
+/// across lines with left/right sequences. The two vertical modes additionally
+/// allow up/down sequences, with `smart_vertical` permitting editor-aware
+/// column clamping.
+pub const Click = lib.Enum(
+    lib.target,
+    &.{
+        // Value: "line". Allows motion within a single input line using
+        // standard left/right arrow escape sequences. Only a single left/right
+        // sequence should be emitted for double-width characters.
+        "line",
 
-    /// Value: "m". Allows movement between different lines in the same group,
-    /// but only using left/right arrow escape sequences.
-    multiple,
+        // Value: "m". Allows movement between different lines in the same
+        // group, but only using left/right arrow escape sequences.
+        "multiple",
 
-    /// Value: "v". Like `multiple` but cursor up/down should be used. The
-    /// terminal should be conservative when moving between lines: move the
-    /// cursor left to the start of line, emit the needed up/down sequences,
-    /// then move the cursor right to the clicked destination.
-    conservative_vertical,
+        // Value: "v". Like `multiple` but cursor up/down should be used. The
+        // terminal should be conservative when moving between lines: move the
+        // cursor left to the start of line, emit the needed up/down sequences,
+        // then move the cursor right to the clicked destination.
+        "conservative_vertical",
 
-    /// Value: "w". Like `conservative_vertical` but specifies that there are
-    /// no spurious spaces at the end of the line, and the application editor
-    /// handles "smart vertical movement" (moving 2 lines up from position 20,
-    /// where the intermediate line is 15 chars wide and the destination is
-    /// 18 chars wide, ends at position 18).
-    smart_vertical,
+        // Value: "w". Like `conservative_vertical` but specifies that there
+        // are no spurious spaces at the end of the line, and the application
+        // editor handles "smart vertical movement" (moving 2 lines up from
+        // position 20, where the intermediate line is 15 chars wide and the
+        // destination is 18 chars wide, ends at position 18).
+        "smart_vertical",
+    },
+);
 
-    pub fn init(value: []const u8) ?Click {
-        return if (value.len == 1) switch (value[0]) {
-            'm' => .multiple,
-            'v' => .conservative_vertical,
-            'w' => .smart_vertical,
-            else => null,
-        } else if (std.mem.eql(
-            u8,
-            value,
-            "line",
-        )) .line else null;
-    }
-};
+fn parseClick(value: []const u8) ?Click {
+    return if (value.len == 1) switch (value[0]) {
+        'm' => .multiple,
+        'v' => .conservative_vertical,
+        'w' => .smart_vertical,
+        else => null,
+    } else if (std.mem.eql(
+        u8,
+        value,
+        "line",
+    )) .line else null;
+}
 
 pub const PromptKind = enum {
     initial,
@@ -296,11 +325,11 @@ pub const Redraw = enum(u2) {
 
 /// Parse OSC 133, semantic prompts
 pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
-    const writer = parser.writer orelse {
+    const cap = if (parser.capture) |*c| c else {
         parser.state = .invalid;
         return null;
     };
-    const data = writer.buffered();
+    const data = cap.trailing();
     if (data.len == 0) {
         parser.state = .invalid;
         return null;
@@ -1247,9 +1276,10 @@ test "Option.read special_key" {
 
 test "Option.read click_events" {
     const testing = std.testing;
-    try testing.expect(Option.click_events.read("click_events=1").? == true);
-    try testing.expect(Option.click_events.read("click_events=0").? == false);
     try testing.expect(Option.click_events.read("click_events=yes") == null);
+    try testing.expect(Option.click_events.read("click_events=0") == null);
+    try testing.expect(Option.click_events.read("click_events=1").? == .absolute);
+    try testing.expect(Option.click_events.read("click_events=2").? == .relative);
 }
 
 test "Option.read exit_code" {

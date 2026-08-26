@@ -13,9 +13,10 @@ const posix = std.posix;
 const builtin = @import("builtin");
 const build_config = @import("build_config.zig");
 const main = @import("main_ghostty.zig");
-const state = &@import("global.zig").state;
+const global = @import("global.zig");
 const apprt = @import("apprt.zig");
 const internal_os = @import("os/main.zig");
+const windows = @import("os/windows.zig");
 
 // Some comptime assertions that our C API depends on.
 comptime {
@@ -43,6 +44,10 @@ comptime {
     // Our benchmark API. We probably want to gate this on a build
     // config in the future but for now we always just export it.
     _ = @import("benchmark/main.zig").CApi;
+
+    // Force-reference our memset override so its export is emitted.
+    // See quirks_memset.zig for details on why this exists.
+    _ = @import("quirks_memset.zig");
 }
 
 /// ghostty_info_s
@@ -94,9 +99,9 @@ pub const String = extern struct {
     pub fn deinit(self: *const String) void {
         const ptr = self.ptr orelse return;
         if (self.sentinel) {
-            state.alloc.free(ptr[0..self.len :0]);
+            global.alloc().free(ptr[0..self.len :0]);
         } else {
-            state.alloc.free(ptr[0..self.len]);
+            global.alloc().free(ptr[0..self.len]);
         }
     }
 };
@@ -105,8 +110,23 @@ pub const String = extern struct {
 pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
     assert(builtin.link_libc);
 
-    std.os.argv = argv[0..argc];
-    state.init() catch |err| {
+    global.init(.{
+        .c = .{
+            .argc = argc,
+            .argv = argv,
+            .environ = if (std.process.Environ.Block == std.process.Environ.PosixBlock)
+                // Asserting libc means that we can fast-path all POSIX blocks
+                .{ .block = .{ .slice = std.c.environ[0..env_len: {
+                    var len: usize = 0;
+                    while (std.c.environ[len]) |_| : (len += 1) {}
+                    break :env_len len;
+                } :null] } }
+            else
+                // Anything that is not using PosixBlock is a global block for
+                // purposes of initialization.
+                .{ .block = .{ .use_global = true } },
+        },
+    }) catch |err| {
         std.log.err("failed to initialize ghostty error={}", .{err});
         return 1;
     };
@@ -117,14 +137,14 @@ pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
 /// Runs an action if it is specified. If there is no action this returns
 /// false. If there is an action then this doesn't return.
 pub export fn ghostty_cli_try_action() void {
-    const action = state.action orelse return;
+    const action = global.action() orelse return;
     std.log.info("executing CLI action={}", .{action});
-    posix.exit(action.run(state.alloc) catch |err| {
+    posix.system.exit(action.run(global.alloc()) catch |err| {
         std.log.err("CLI action failed error={}", .{err});
-        posix.exit(1);
+        posix.system.exit(1);
     });
 
-    posix.exit(0);
+    posix.system.exit(0);
 }
 
 /// Return metadata about Ghostty, such as version, build mode, etc.
@@ -156,6 +176,56 @@ pub export fn ghostty_string_free(str: String) void {
     str.deinit();
 }
 
+// On Windows, Zig's _DllMainCRTStartup does not initialize the MSVC C
+// runtime when targeting MSVC ABI. Without initialization, any C library
+// function that depends on CRT internal state (setlocale, malloc from C
+// dependencies, C++ constructors in glslang) crashes with null pointer
+// dereferences. Declaring DllMain causes Zig's start.zig to call it
+// during DLL_PROCESS_ATTACH/DETACH, and for MSVC we forward to the CRT
+// bootstrap functions from libvcruntime and libucrt (already linked).
+// For other ABIs (MinGW) the handler is a no-op since dllcrt2.obj already
+// handles CRT init; we still need `DllMain` declared so that Zig's
+// start.zig does not fall back to calling a non-function value.
+//
+// This is a workaround. Zig handles MinGW DLLs correctly (via dllcrt2.obj)
+// but not MSVC. No upstream issue tracks this exact gap as of 2026-03-26.
+// Closest: Codeberg ziglang/zig #30936 (reimplement crt0 code).
+// Remove this DllMain when Zig handles MSVC DLL CRT init natively.
+pub const DllMain = if (builtin.os.tag == .windows) struct {
+    const BOOL = windows.BOOL;
+    const HINSTANCE = windows.HINSTANCE;
+    const DWORD = windows.DWORD;
+    const LPVOID = windows.LPVOID;
+    const TRUE = windows.TRUE;
+    const FALSE = windows.FALSE;
+
+    const DLL_PROCESS_ATTACH: DWORD = 1;
+    const DLL_PROCESS_DETACH: DWORD = 0;
+
+    const __vcrt_initialize = @extern(*const fn () callconv(.c) c_int, .{ .name = "__vcrt_initialize" });
+    const __vcrt_uninitialize = @extern(*const fn (c_int) callconv(.c) c_int, .{ .name = "__vcrt_uninitialize" });
+    const __acrt_initialize = @extern(*const fn () callconv(.c) c_int, .{ .name = "__acrt_initialize" });
+    const __acrt_uninitialize = @extern(*const fn (c_int) callconv(.c) c_int, .{ .name = "__acrt_uninitialize" });
+
+    pub fn handler(_: HINSTANCE, fdwReason: DWORD, _: LPVOID) callconv(.winapi) BOOL {
+        // Only MSVC needs to bootstrap the CRT; MinGW handles it via dllcrt2.obj.
+        if (builtin.abi != .msvc) return TRUE;
+        switch (fdwReason) {
+            DLL_PROCESS_ATTACH => {
+                if (__vcrt_initialize() < 0) return FALSE;
+                if (__acrt_initialize() < 0) return FALSE;
+                return TRUE;
+            },
+            DLL_PROCESS_DETACH => {
+                _ = __acrt_uninitialize(1);
+                _ = __vcrt_uninitialize(1);
+                return TRUE;
+            },
+            else => return TRUE,
+        }
+    }
+}.handler else void;
+
 test "ghostty_string_s empty string" {
     const testing = std.testing;
     const empty_string = String.empty;
@@ -167,7 +237,6 @@ test "ghostty_string_s empty string" {
 
 test "ghostty_string_s c string" {
     const testing = std.testing;
-    state.alloc = testing.allocator;
 
     const slice: [:0]const u8 = "hello";
     const allocated_slice = try testing.allocator.dupeZ(u8, slice);
@@ -183,7 +252,6 @@ test "ghostty_string_s c string" {
 
 test "ghostty_string_s zig string" {
     const testing = std.testing;
-    state.alloc = testing.allocator;
 
     const slice: []const u8 = "hello";
     const allocated_slice = try testing.allocator.dupe(u8, slice);

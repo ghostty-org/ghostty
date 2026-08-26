@@ -14,7 +14,6 @@ const tripwire = @import("../tripwire.zig");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const assert = @import("../quirks.zig").inlineAssert;
-const fastmem = @import("../fastmem.zig");
 
 /// Unit is the type we use per tabstop unit (see file docs).
 const Unit = u8;
@@ -94,13 +93,13 @@ pub fn unset(self: *Tabstops, col: usize) void {
     const i = entry(col);
     const idx = index(col);
     if (i < prealloc_count) {
-        self.prealloc_stops[i] ^= masks[idx];
+        self.prealloc_stops[i] &= ~masks[idx];
         return;
     }
 
     const dynamic_i = i - prealloc_count;
     assert(dynamic_i < self.dynamic_stops.len);
-    self.dynamic_stops[dynamic_i] ^= masks[idx];
+    self.dynamic_stops[dynamic_i] &= ~masks[idx];
 }
 
 /// Get the value of a tabstop at a specific column. The columns are 0-indexed.
@@ -138,24 +137,21 @@ pub fn resize(
         return;
     }
 
-    // What we need in the dynamic size
-    const size = cols - prealloc_columns;
-    if (size < self.dynamic_stops.len) {
+    // Number of units needed beyond the preallocated columns.
+    const dynamic_count = std.math.divCeil(
+        usize,
+        cols - prealloc_columns,
+        unit_bits,
+    ) catch unreachable;
+    if (dynamic_count <= self.dynamic_stops.len) {
         self.cols = cols;
         return;
     }
 
-    // Note: we can probably try to realloc here but I'm not sure it matters.
     try tw.check(.dynamic_alloc);
-    const new = try alloc.alloc(Unit, size);
-    errdefer comptime unreachable;
-    @memset(new, 0);
-    if (self.dynamic_stops.len > 0) {
-        fastmem.copy(Unit, new, self.dynamic_stops);
-        alloc.free(self.dynamic_stops);
-    }
-
-    self.dynamic_stops = new;
+    const old_len = self.dynamic_stops.len;
+    self.dynamic_stops = try alloc.realloc(self.dynamic_stops, dynamic_count);
+    @memset(self.dynamic_stops[old_len..], 0);
     self.cols = cols;
 }
 
@@ -170,11 +166,11 @@ pub fn reset(self: *Tabstops, interval: usize) void {
     @memset(&self.prealloc_stops, 0);
     @memset(self.dynamic_stops, 0);
 
-    if (interval > 0) {
-        var i: usize = interval;
-        while (i < self.cols - 1) : (i += interval) {
-            self.set(i);
-        }
+    if (interval == 0 or self.cols <= 1) return;
+
+    var i: usize = interval;
+    while (i < self.cols - 1) : (i += interval) {
+        self.set(i);
     }
 }
 
@@ -202,23 +198,46 @@ test "Tabstops: basic" {
     try testing.expect(t.get(4));
     t.unset(4);
     try testing.expect(!t.get(4));
+
+    // Unsetting a column with no tabstop should be a no-op, not a toggle.
+    t.unset(4);
+    try testing.expect(!t.get(4));
 }
 
 test "Tabstops: dynamic allocations" {
     var t: Tabstops = .{};
     defer t.deinit(testing.allocator);
 
-    // Grow the capacity by 2.
+    // Grow by less than one unit to verify the allocation rounds up.
     const cap = t.capacity();
-    try t.resize(testing.allocator, cap * 2);
+    try t.resize(testing.allocator, cap + 5);
+    try testing.expectEqual(cap + unit_bits, t.capacity());
 
     // Set something that was out of range of the first
-    t.set(cap + 5);
-    try testing.expect(t.get(cap + 5));
-    try testing.expect(!t.get(cap + 4));
+    t.set(cap + 4);
+    try testing.expect(t.get(cap + 4));
+    try testing.expect(!t.get(cap + 3));
+
+    // Unsetting a column with no tabstop should be a no-op, not a toggle.
+    t.unset(cap + 3);
+    try testing.expect(!t.get(cap + 3));
+
+    // Growing again preserves existing stops and clears the new unit.
+    try t.resize(testing.allocator, cap + unit_bits + 1);
+    try testing.expect(t.get(cap + 4));
+    try testing.expect(!t.get(cap + unit_bits));
 
     // Prealloc still works
     try testing.expect(!t.get(5));
+}
+
+test "Tabstops: resize to existing capacity does not allocate" {
+    var backing: [prealloc_count]Unit = undefined;
+    var fixed = std.heap.FixedBufferAllocator.init(&backing);
+    var t: Tabstops = .{};
+
+    try t.resize(fixed.allocator(), prealloc_columns * 2);
+    try t.resize(fixed.allocator(), prealloc_columns * 2);
 }
 
 test "Tabstops: interval" {
@@ -228,6 +247,13 @@ test "Tabstops: interval" {
     try testing.expect(t.get(4));
     try testing.expect(!t.get(5));
     try testing.expect(t.get(8));
+}
+
+test "Tabstops: interval with zero columns" {
+    var t: Tabstops = try init(testing.allocator, 0, 8);
+    defer t.deinit(testing.allocator);
+
+    try testing.expectEqual(@as(usize, 0), t.cols);
 }
 
 test "Tabstops: count on 80" {

@@ -845,7 +845,7 @@ fn dashHorizontal(
         }
         hline(canvas, x, x1, y, thick_px);
         // Advance by the width of the dash we drew and the width
-        // of a gap to get the the start of the next dash.
+        // of a gap to get the start of the next dash.
         x = x1 + gap_width;
     }
 }
@@ -923,7 +923,7 @@ fn dashVertical(
         }
         vline(canvas, y, y1, x, thick_px);
         // Advance by the height of the dash we drew and the height
-        // of a gap to get the the start of the next dash.
+        // of a gap to get the start of the next dash.
         y = y1 + gap_height;
     }
 }

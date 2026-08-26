@@ -67,8 +67,8 @@ struct NewTerminalIntent: AppIntent {
 
         // We don't run command as "command" and instead use "initialInput" so
         // that we can get all the login scripts to setup things like PATH.
-        if let command {
-            config.initialInput = "\(Ghostty.Shell.quote(command)); exit\n"
+        if let command, !command.isEmpty {
+            config.initialInput = "\(command); exit\n"
         }
 
         // If we were given a working directory then open that directory
@@ -112,7 +112,7 @@ struct NewTerminalIntent: AppIntent {
                 withBaseConfig: config,
                 withParent: parent?.window)
             if let view = newController.surfaceTree.root?.leftmostLeaf() {
-                return .result(value: TerminalEntity(view))
+                return .result(value: await TerminalEntity(view: view))
             }
 
         case .tab:
@@ -121,7 +121,7 @@ struct NewTerminalIntent: AppIntent {
                 from: parent?.window,
                 withBaseConfig: config)
             if let view = newController?.surfaceTree.root?.leftmostLeaf() {
-                return .result(value: TerminalEntity(view))
+                return .result(value: await TerminalEntity(view: view))
             }
 
         case .splitLeft, .splitRight, .splitUp, .splitDown:
@@ -135,7 +135,7 @@ struct NewTerminalIntent: AppIntent {
                 direction: location.splitDirection!,
                 baseConfig: config
             ) {
-                return .result(value: TerminalEntity(view))
+                return .result(value: await TerminalEntity(view: view))
             }
         }
 

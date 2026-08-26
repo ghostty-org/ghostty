@@ -1,14 +1,11 @@
 //! SGR (Select Graphic Rendition) attrinvbute parsing and types.
 
 const std = @import("std");
-const build_options = @import("terminal_options");
 const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
-const lib = @import("../lib/main.zig");
+const lib = @import("lib.zig");
 const color = @import("color.zig");
 const SepList = @import("Parser.zig").Action.CSI.SepList;
-
-const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
 
 /// Attribute type for SGR
 pub const Attribute = union(Tag) {
@@ -81,7 +78,7 @@ pub const Attribute = union(Tag) {
     @"256_fg": u8,
 
     pub const Tag = lib.Enum(
-        lib_target,
+        lib.target,
         &.{
             "unset",
             "unknown",
@@ -158,13 +155,24 @@ pub const Attribute = union(Tag) {
 
     /// C ABI functions.
     const c_union = lib.TaggedUnion(
-        lib_target,
+        lib.target,
         @This(),
         // Padding size for C ABI compatibility.
         // Largest variant is Unknown.C: 2 pointers + 2 usize = 32 bytes on 64-bit.
         // We use [8]u64 (64 bytes) to allow room for future expansion while
         // maintaining ABI compatibility.
-        [8]u64,
+        .{
+            .padding = [8]u64,
+            .field_renames = .{
+                .@"256_underline_color" = "underline_color_256",
+                .@"8_bg" = "bg_8",
+                .@"8_fg" = "fg_8",
+                .@"8_bright_bg" = "bright_bg_8",
+                .@"8_bright_fg" = "bright_fg_8",
+                .@"256_bg" = "bg_256",
+                .@"256_fg" = "fg_256",
+            },
+        },
     );
     pub const Value = c_union.Value;
     pub const C = c_union.C;

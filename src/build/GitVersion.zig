@@ -23,17 +23,20 @@ pub fn detect(b: *std.Build) !Version {
         const tmp: []u8 = b.runAllowFail(
             &[_][]const u8{ "git", "-C", b.build_root.path orelse ".", "rev-parse", "--abbrev-ref", "HEAD" },
             &code,
-            .Ignore,
+            .ignore,
         ) catch |err| switch (err) {
             error.FileNotFound => return error.GitNotFound,
             error.ExitCodeFailure => return error.GitNotRepository,
             else => return err,
         };
-        // Replace any '/' with '-' as including slashes will mess up building
-        // the dist tarball - the tarball uses the branch as part of the
-        // name and including slashes means that the tarball will end up in
-        // subdirectories instead of where it's supposed to be.
-        std.mem.replaceScalar(u8, tmp, '/', '-');
+
+        // Replace characters that are not valid in semantic version
+        // pre-release identifiers (which only allow [0-9A-Za-z-]).
+        // Slashes would also mess up dist tarball paths.
+        for (tmp) |*c| {
+            if (!std.ascii.isAlphanumeric(c.*) and c.* != '-') c.* = '-';
+        }
+
         break :b tmp;
     };
 
@@ -41,19 +44,19 @@ pub fn detect(b: *std.Build) !Version {
         const output = b.runAllowFail(
             &[_][]const u8{ "git", "-C", b.build_root.path orelse ".", "-c", "log.showSignature=false", "log", "--pretty=format:%h", "-n", "1" },
             &code,
-            .Ignore,
+            .ignore,
         ) catch |err| switch (err) {
             error.FileNotFound => return error.GitNotFound,
             else => return err,
         };
 
-        break :short_hash std.mem.trimRight(u8, output, "\r\n ");
+        break :short_hash std.mem.trimEnd(u8, output, "\r\n ");
     };
 
     const tag = b.runAllowFail(
         &[_][]const u8{ "git", "-C", b.build_root.path orelse ".", "describe", "--exact-match", "--tags" },
         &code,
-        .Ignore,
+        .ignore,
     ) catch |err| switch (err) {
         error.FileNotFound => return error.GitNotFound,
         error.ExitCodeFailure => "", // expected
@@ -67,7 +70,7 @@ pub fn detect(b: *std.Build) !Version {
         "diff",
         "--quiet",
         "--exit-code",
-    }, &code, .Ignore) catch |err| switch (err) {
+    }, &code, .ignore) catch |err| switch (err) {
         error.FileNotFound => return error.GitNotFound,
         error.ExitCodeFailure => {}, // expected
         else => return err,
@@ -77,7 +80,7 @@ pub fn detect(b: *std.Build) !Version {
     return .{
         .short_hash = short_hash,
         .changes = changes,
-        .tag = if (tag.len > 0) std.mem.trimRight(u8, tag, "\r\n ") else null,
-        .branch = std.mem.trimRight(u8, branch, "\r\n "),
+        .tag = if (tag.len > 0) std.mem.trimEnd(u8, tag, "\r\n ") else null,
+        .branch = std.mem.trimEnd(u8, branch, "\r\n "),
     };
 }

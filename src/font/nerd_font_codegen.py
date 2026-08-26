@@ -460,10 +460,9 @@ def generate_zig_switch_arms(
                         # scaled and aligned position would span the line height
                         # plus overlap. Thus, we can use any other stretched
                         # glyph with overlap as stand-in to get the vertical
-                        # bounds, such as as 0xE0B0 (powerline left hard
-                        # divider). We don't worry about the horizontal bounds,
-                        # as they by design should not affect the group's
-                        # bounding box.
+                        # bounds, such as 0xE0B0 (powerline left hard divider).
+                        # We don't worry about the horizontal bounds, as they by
+                        # design should not affect the group's bounding box.
                         if (
                             patch_set_name == "Progress Indicators"
                             and cp_original == 0xEDFF

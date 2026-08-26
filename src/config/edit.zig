@@ -4,6 +4,7 @@ const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const file_load = @import("file_load.zig");
+const global = @import("../global.zig");
 
 /// The path to the configuration that should be opened for editing.
 ///
@@ -26,30 +27,52 @@ pub fn openPath(alloc_gpa: Allocator) ![:0]const u8 {
     // Get the path we should open
     const config_path = try configPath(alloc_arena);
 
-    // Create config directory recursively.
-    if (std.fs.path.dirname(config_path)) |config_dir| {
-        try std.fs.cwd().makePath(config_dir);
+    if (!config_path.exists) {
+        if (std.fs.path.dirname(config_path.name)) |config_dir| check_dir: {
+            // Check to see if dir exists.
+            const dir = std.Io.Dir.cwd().openDir(global.io(), config_dir, .{ .follow_symlinks = true }) catch |err| {
+                switch (err) {
+                    error.FileNotFound => {
+                        // Create config directory recursively. Note that this does not
+                        // allow intermediate symlinks by design, see
+                        // std.Io.Threaded.dirCreateDirPath for why. If some sort of
+                        // complex symlink structure is needed, it will need to be created
+                        // manually.
+                        try std.Io.Dir.cwd().createDirPath(global.io(), config_dir);
+                        break :check_dir;
+                    },
+                    else => return err,
+                }
+            };
+            dir.close(global.io());
+        }
+
+        // Try to create file and go on if it already exists
+        _ = std.Io.Dir.createFileAbsolute(
+            global.io(),
+            config_path.name,
+            .{ .exclusive = true },
+        ) catch |err| {
+            switch (err) {
+                error.PathAlreadyExists => {},
+                else => return err,
+            }
+        };
     }
 
-    // Try to create file and go on if it already exists
-    _ = std.fs.createFileAbsolute(
-        config_path,
-        .{ .exclusive = true },
-    ) catch |err| {
-        switch (err) {
-            error.PathAlreadyExists => {},
-            else => return err,
-        }
-    };
-
-    return try alloc_gpa.dupeZ(u8, config_path);
+    return try alloc_gpa.dupeZ(u8, config_path.name);
 }
+
+const ConfigPathResult = struct {
+    name: []const u8,
+    exists: bool,
+};
 
 /// Returns the config path to use for open for the current OS.
 ///
 /// The allocator must be an arena allocator. No memory is freed by this
 /// function and the resulting path is not all the memory that is allocated.
-fn configPath(alloc_arena: Allocator) ![]const u8 {
+fn configPath(alloc_arena: Allocator) !ConfigPathResult {
     const paths: []const []const u8 = try configPathCandidates(alloc_arena);
     assert(paths.len > 0);
 
@@ -58,7 +81,7 @@ fn configPath(alloc_arena: Allocator) ![]const u8 {
     // exists.
     var exists: ?[]const u8 = null;
     for (paths) |path| {
-        const f = std.fs.openFileAbsolute(path, .{}) catch |err| {
+        const f = std.Io.Dir.openFileAbsolute(global.io(), path, .{}) catch |err| {
             switch (err) {
                 // File doesn't exist, continue.
                 error.BadPathName, error.FileNotFound => continue,
@@ -67,23 +90,32 @@ fn configPath(alloc_arena: Allocator) ![]const u8 {
                 else => return err,
             }
         };
-        defer f.close();
+        defer f.close(global.io());
 
         // We expect stat to succeed because we just opened the file.
-        const stat = try f.stat();
+        const stat = try f.stat(global.io());
 
         // If the file is non-empty, return it.
-        if (stat.size > 0) return path;
+        if (stat.size > 0) return .{
+            .name = path,
+            .exists = true,
+        };
 
         // If the file is empty, remember it exists.
         if (exists == null) exists = path;
     }
 
     // No paths are non-empty, return the first path that exists.
-    if (exists) |v| return v;
+    if (exists) |v| return .{
+        .name = v,
+        .exists = true,
+    };
 
     // No paths are non-empty or exist, return the first path.
-    return paths[0];
+    return .{
+        .name = paths[0],
+        .exists = false,
+    };
 }
 
 /// Returns a const list of possible paths the main config file could be

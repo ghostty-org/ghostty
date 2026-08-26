@@ -1,0 +1,8 @@
+# Ghostty snapshot fixture
+# Kaitai type: continuation_record
+# Kaitai params:
+# Kaitai offset: 0
+# Wire version: 1
+
+# Incomplete SGR CSI.
+07 00 04 00 00 00 30 d5 20 17 1b 5b 33 31

@@ -43,6 +43,9 @@ pub const Entry = struct {
 
     /// The sequence to send to the pty if this entry matches.
     sequence: []const u8,
+
+    /// Sequence to send to the PTY if DECBKM is set.
+    sequence_decbkm: ?[]const u8 = null,
 };
 
 /// The list of modifier combinations for modify other key sequences.
@@ -161,8 +164,8 @@ pub const keys = keys: {
         .{ .mods = .{ .alt = true, .super = true, .ctrl = true }, .modify_other_keys = .set_other, .sequence = "\x1b[27;15;127~" },
         .{ .mods = .{ .alt = true, .super = true, .ctrl = true, .shift = true }, .modify_other_keys = .set_other, .sequence = "\x1b[27;16;127~" },
 
-        .{ .mods = .{ .ctrl = true }, .sequence = "\x08" },
-        .{ .sequence = "\x7f" },
+        .{ .mods = .{ .ctrl = true }, .sequence = "\x08", .sequence_decbkm = "\x7f" },
+        .{ .sequence = "\x7f", .sequence_decbkm = "\x08" },
     });
 
     result.set(.tab, &.{

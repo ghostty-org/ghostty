@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const c = @import("c.zig").c;
+const c = @import("wuffs_c");
 const Error = @import("error.zig").Error;
 
 const log = std.log.scoped(.wuffs_swizzler);
@@ -16,11 +16,15 @@ pub fn gToRgba(alloc: Allocator, src: []const u8) Error![]u8 {
 }
 
 pub fn gaToRgba(alloc: Allocator, src: []const u8) Error![]u8 {
+    // Wuffs doesn't support YA_PREMUL as a swizzle source. The nonpremul
+    // pair produces the same bytes (r=g=b=y, a=a, no alpha math), which
+    // is what we want: alpha semantics are preserved as-is, matching the
+    // other conversions here.
     return swizzle(
         alloc,
         src,
-        c.WUFFS_BASE__PIXEL_FORMAT__YA_PREMUL,
-        c.WUFFS_BASE__PIXEL_FORMAT__RGBA_PREMUL,
+        c.WUFFS_BASE__PIXEL_FORMAT__YA_NONPREMUL,
+        c.WUFFS_BASE__PIXEL_FORMAT__RGBA_NONPREMUL,
     );
 }
 
@@ -49,6 +53,69 @@ pub fn bgraToRgba(alloc: Allocator, src: []const u8) Error![]u8 {
         c.WUFFS_BASE__PIXEL_FORMAT__BGRA_PREMUL,
         c.WUFFS_BASE__PIXEL_FORMAT__RGBA_PREMUL,
     );
+}
+
+/// Composite `src` over `dst` in place. Both are straight
+/// (non-premultiplied) alpha RGBA of the same length. A transparent
+/// destination pixel takes the source pixel exactly; wuffs composites
+/// everything else in 16-bit integer space.
+pub fn rgbaSrcOver(dst: []u8, src: []const u8) void {
+    assert(dst.len == src.len);
+    assert(dst.len % 4 == 0);
+
+    var swizzler: c.wuffs_base__pixel_swizzler = undefined;
+    const status = c.wuffs_base__pixel_swizzler__prepare(
+        &swizzler,
+        c.wuffs_base__make_pixel_format(c.WUFFS_BASE__PIXEL_FORMAT__RGBA_NONPREMUL),
+        c.wuffs_base__empty_slice_u8(),
+        c.wuffs_base__make_pixel_format(c.WUFFS_BASE__PIXEL_FORMAT__RGBA_NONPREMUL),
+        c.wuffs_base__empty_slice_u8(),
+        c.WUFFS_BASE__PIXEL_BLEND__SRC_OVER,
+    );
+    // This format pair and blend mode is a supported swizzle, so
+    // preparation can only fail on a programming error.
+    assert(c.wuffs_base__status__is_ok(&status));
+
+    _ = c.wuffs_base__pixel_swizzler__swizzle_interleaved_from_slice(
+        &swizzler,
+        c.wuffs_base__make_slice_u8(dst.ptr, dst.len),
+        c.wuffs_base__empty_slice_u8(),
+        c.wuffs_base__make_slice_u8(@constCast(src.ptr), src.len),
+    );
+}
+
+test "gaToRgba" {
+    const rgba = try gaToRgba(std.testing.allocator, &.{ 7, 100, 8, 200 });
+    defer std.testing.allocator.free(rgba);
+
+    try std.testing.expectEqualSlices(u8, &.{
+        7, 7, 7, 100,
+        8, 8, 8, 200,
+    }, rgba);
+}
+
+test "rgbaSrcOver" {
+    // 50% white over opaque black, opaque over anything, transparent
+    // source over anything, and anything over a transparent
+    // destination (exact source passthrough).
+    var dst = [_]u8{
+        0,  0,  0,  255,
+        10, 20, 30, 40,
+        10, 20, 30, 40,
+        0,  0,  0,  0,
+    };
+    rgbaSrcOver(&dst, &.{
+        255, 255, 255, 128,
+        100, 110, 120, 255,
+        100, 110, 120, 0,
+        200, 100, 50,  128,
+    });
+    try std.testing.expectEqualSlices(u8, &.{
+        128, 128, 128, 255,
+        100, 110, 120, 255,
+        10,  20,  30,  40,
+        200, 100, 50,  128,
+    }, &dst);
 }
 
 fn swizzle(

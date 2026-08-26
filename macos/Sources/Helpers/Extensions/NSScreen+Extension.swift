@@ -18,7 +18,7 @@ extension NSScreen {
     // AND present on this screen.
     var hasDock: Bool {
         // If the dock autohides then we don't have a dock ever.
-        if let dockAutohide = UserDefaults.standard.persistentDomain(forName: "com.apple.dock")?["autohide"] as? Bool {
+        if let dockAutohide = UserDefaults.ghostty.persistentDomain(forName: "com.apple.dock")?["autohide"] as? Bool {
             if dockAutohide { return false }
         }
 

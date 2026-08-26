@@ -11,6 +11,8 @@ import AppKit
 /// - `property id` -> `@objc(id)` getter below.
 /// - `property title` -> `@objc(title)` getter below.
 /// - `property working directory` -> `@objc(workingDirectory)` getter below.
+/// - `property pid` -> `@objc(pid)` getter below.
+/// - `property tty` -> `@objc(tty)` getter below.
 ///
 /// We keep only a weak reference to the underlying `SurfaceView` so this
 /// wrapper never extends the terminal's lifetime.
@@ -51,6 +53,20 @@ final class ScriptTerminal: NSObject {
     var workingDirectory: String {
         guard NSApp.isAppleScriptEnabled else { return "" }
         return surfaceView?.pwd ?? ""
+    }
+
+    /// Exposed as the AppleScript `pid` property.
+    @objc(pid)
+    var pid: Int {
+        guard NSApp.isAppleScriptEnabled else { return 0 }
+        return surfaceView?.surfaceModel?.foregroundPID ?? 0
+    }
+
+    /// Exposed as the AppleScript `tty` property.
+    @objc(tty)
+    var tty: String {
+        guard NSApp.isAppleScriptEnabled else { return "" }
+        return surfaceView?.surfaceModel?.ttyName ?? ""
     }
 
     /// Used by command handling (`perform action ... on <terminal>`).
@@ -96,7 +112,7 @@ final class ScriptTerminal: NSObject {
             baseConfig = nil
         }
 
-        guard let controller = surfaceView.window?.windowController as? BaseTerminalController else {
+        guard let controller = BaseTerminalController.controller(owning: surfaceView) else {
             command.scriptErrorNumber = errAEEventFailed
             command.scriptErrorString = "Terminal is not in a splittable window."
             return nil
@@ -126,7 +142,7 @@ final class ScriptTerminal: NSObject {
             return nil
         }
 
-        guard let controller = surfaceView.window?.windowController as? BaseTerminalController else {
+        guard let controller = BaseTerminalController.controller(owning: surfaceView) else {
             command.scriptErrorNumber = errAEEventFailed
             command.scriptErrorString = "Terminal is not in a window."
             return nil
@@ -147,7 +163,7 @@ final class ScriptTerminal: NSObject {
             return nil
         }
 
-        guard let controller = surfaceView.window?.windowController as? BaseTerminalController else {
+        guard let controller = BaseTerminalController.controller(owning: surfaceView) else {
             command.scriptErrorNumber = errAEEventFailed
             command.scriptErrorString = "Terminal is not in a window."
             return nil

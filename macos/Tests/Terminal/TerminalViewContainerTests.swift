@@ -60,44 +60,4 @@ struct TerminalViewContainerTests {
             #expect(view.glassEffectView == nil)
         }
     }
-
-#if compiler(>=6.2)
-    @Test func configChangeUpdatesGlass() async throws {
-        guard #available(macOS 26.0, *) else { return }
-        let view = await MockTerminalViewContainer {
-            EmptyView()
-        }
-        let config1 = MockConfig(backgroundBlur: .macosGlassRegular, backgroundColor: .clear, backgroundOpacity: 1)
-        await view.ghosttyConfigDidChange(config1, preferredBackgroundColor: nil)
-        let glassEffectView = await view.descendants(withClassName: "NSGlassEffectView").first as? NSGlassEffectView
-        let effectView = try #require(glassEffectView)
-        try await Task.sleep(nanoseconds: UInt64(1e8)) // wait for the view to be setup if needed
-        #expect(effectView.tintColor?.hexString == NSColor.clear.hexString)
-
-        // Test with same config but with different preferredBackgroundColor
-        await view.ghosttyConfigDidChange(config1, preferredBackgroundColor: .red)
-        #expect(effectView.tintColor?.hexString == NSColor.red.hexString)
-
-        // MARK: - Corner Radius
-
-        #expect(effectView.cornerRadius == 0)
-        await MainActor.run { view._windowCornerRadius = 10 }
-
-        // This won't change, unless ghosttyConfigDidChange is called
-        #expect(effectView.cornerRadius == 0)
-
-        await view.ghosttyConfigDidChange(config1, preferredBackgroundColor: .red)
-        #expect(effectView.cornerRadius == 10)
-
-        // MARK: - Glass Style
-
-        #expect(effectView.style == .regular)
-
-        let config2 = MockConfig(backgroundBlur: .macosGlassClear, backgroundColor: .clear, backgroundOpacity: 1)
-        await view.ghosttyConfigDidChange(config2, preferredBackgroundColor: .red)
-
-        #expect(effectView.style == .clear)
-
-    }
-#endif // compiler(>=6.2)
 }

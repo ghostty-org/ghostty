@@ -7,6 +7,7 @@ const Action = @import("ghostty.zig").Action;
 const configpkg = @import("../config.zig");
 const internal_os = @import("../os/main.zig");
 const Config = configpkg.Config;
+const global = @import("../global.zig");
 
 pub const Options = struct {
     pub fn deinit(self: Options) void {
@@ -48,14 +49,14 @@ pub fn run(alloc: Allocator) !u8 {
     // critical where setting up the defer cleanup is a problem.
 
     var buffer: [1024]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&buffer);
+    var stderr_writer = std.Io.File.stderr().writer(global.io(), &buffer);
     const stderr = &stderr_writer.interface;
 
     var opts: Options = .{};
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(alloc, global.args());
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }
@@ -67,6 +68,12 @@ pub fn run(alloc: Allocator) !u8 {
 }
 
 fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
+    // We require libc because we want to use std.c.environ for envp
+    // and not have to build that ourselves. We can remove this
+    // limitation later but Ghostty already heavily requires libc
+    // so this is not a big deal.
+    comptime assert(builtin.link_libc);
+
     // We load the configuration once because that will write our
     // default configuration files to disk. We don't use the config.
     var config = try Config.load(alloc);
@@ -82,87 +89,74 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
             \\The `ghostty +edit-config` command is not supported on Windows.
             \\Please edit the configuration file manually at the following path:
             \\
-            \\{s}
-            \\
-        ,
-            .{path},
-        );
-        return 1;
-    }
-
-    // Get our editor
-    const get_env_: ?internal_os.GetEnvResult = env: {
-        // VISUAL vs. EDITOR: https://unix.stackexchange.com/questions/4859/visual-vs-editor-what-s-the-difference
-        if (try internal_os.getenv(alloc, "VISUAL")) |v| {
-            if (v.value.len > 0) break :env v;
-            v.deinit(alloc);
-        }
-
-        if (try internal_os.getenv(alloc, "EDITOR")) |v| {
-            if (v.value.len > 0) break :env v;
-            v.deinit(alloc);
-        }
-
-        break :env null;
-    };
-    defer if (get_env_) |v| v.deinit(alloc);
-    const editor: []const u8 = if (get_env_) |v| v.value else "";
-
-    // If we don't have `$EDITOR` set then we can't do anything
-    // but we can still print a helpful message.
-    if (editor.len == 0) {
-        try stderr.print(
-            \\The $EDITOR or $VISUAL environment variable is not set or is empty.
-            \\This environment variable is required to edit the Ghostty configuration
-            \\via this CLI command.
-            \\
-            \\Please set the environment variable to your preferred terminal
-            \\text editor and try again.
-            \\
-            \\If you prefer to edit the configuration file another way,
-            \\you can find the configuration file at the following path:
-            \\
             \\
         ,
             .{},
         );
-
-        // Output the path using the OSC8 sequence so that it is linked.
-        try stderr.print(
-            "\x1b]8;;file://{s}\x1b\\{s}\x1b]8;;\x1b\\\n",
-            .{ path, path },
-        );
-
         return 1;
     }
 
-    // We require libc because we want to use std.c.environ for envp
-    // and not have to build that ourselves. We can remove this
-    // limitation later but Ghostty already heavily requires libc
-    // so this is not a big deal.
-    comptime assert(builtin.link_libc);
+    const command = internal_os.getConfigEditCommand(alloc, path, .{ .default_editor = .failure }) catch |err| {
+        switch (err) {
+            error.NoEditorConfigured => {
+                try stderr.print(
+                    \\The $EDITOR or $VISUAL environment variable is not set or is empty.
+                    \\This environment variable is required to edit the Ghostty configuration
+                    \\via this CLI command.
+                    \\
+                    \\Please set the environment variable to your preferred terminal
+                    \\text editor and try again.
+                    \\
+                    \\If you prefer to edit the configuration file another way,
+                    \\you can find the configuration file at the following path:
+                    \\
+                    \\
+                ,
+                    .{},
+                );
 
-    const editorZ = try alloc.dupeZ(u8, editor);
-    defer alloc.free(editorZ);
-    const pathZ = try alloc.dupeZ(u8, path);
-    defer alloc.free(pathZ);
-    const err = std.posix.execvpeZ(
-        editorZ,
-        &.{ editorZ, pathZ },
-        std.c.environ,
-    );
+                // Output the path using the OSC8 sequence so that it is linked.
+                try stderr.print(
+                    "\x1b]8;;file://{s}\x1b\\{s}\x1b]8;;\x1b\\\n",
+                    .{ path, path },
+                );
+
+                return 1;
+            },
+            error.WriteFailed,
+            error.OutOfMemory,
+            => |e| return e,
+        }
+    };
+    defer alloc.free(command);
+
+    // Run/replace process (using execve)
+    const argv = [_:null]?[*:0]const u8{
+        "/bin/sh",
+        "-c",
+        command.ptr,
+    };
+    const envp = std.c.environ;
+    const err = std.posix.errno(std.posix.system.execve(argv[0].?, &argv, envp));
 
     // If we reached this point then exec failed.
     try stderr.print(
-        \\Failed to execute the editor. Error code={}.
+        \\Failed to execute the editor (E{t}).
         \\
         \\This is usually due to the executable path not existing, invalid
         \\permissions, or the shell environment not being set up
         \\correctly.
         \\
-        \\Editor: {s}
-        \\Path: {s}
+        \\Command: {s}
         \\
-    , .{ err, editor, path });
+    , .{
+        err,
+        command,
+    });
+    // Output the path using the OSC8 sequence so that it is linked.
+    try stderr.print(
+        "Path: \x1b]8;;file://{s}\x1b\\{s}\x1b]8;;\x1b\\\n",
+        .{ path, path },
+    );
     return 1;
 }

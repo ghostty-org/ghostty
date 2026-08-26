@@ -1,4 +1,5 @@
 using Gtk 4.0;
+using Gdk 4.0;
 using Adw 1;
 
 Adw.StatusPage error_page {
@@ -23,6 +24,8 @@ Overlay terminal_page {
     GLArea gl_area {
       realize => $gl_realize();
       unrealize => $gl_unrealize();
+      map => $gl_map();
+      unmap => $gl_unmap();
       render => $gl_render();
       resize => $gl_resize();
       hexpand: true;
@@ -94,7 +97,9 @@ Overlay terminal_page {
       // TODO: the tooltip doesn't actually work, but keep it here for now so
       // that we can get the tooltip text translated.
       has-tooltip: true;
-      tooltip-text: _("This terminal is in read-only mode. You can still view, select, and scroll through the content, but no input events will be sent to the running application.");
+      tooltip-text: _(
+        "This terminal is in read-only mode. You can still view, select, and scroll through the content, but no input events will be sent to the running application."
+      );
       halign: end;
       valign: start;
       spacing: 6;
@@ -203,7 +208,11 @@ Overlay terminal_page {
   // Apply unfocused-split-fill and unfocused-split-opacity to current surface
   // this is only applied when a tab has more than one surface
   Revealer {
-    reveal-child: bind $should_unfocused_split_be_shown(search_overlay.active, template.focused, template.is-split) as <bool>;
+    reveal-child: bind $should_unfocused_split_be_shown(
+      search_overlay.active,
+      template.focused,
+      template.is-split
+      ) as <bool>;
     transition-duration: 0;
     // This is all necessary so that the Revealer itself doesn't override
     // any input events from the other overlays. Namely, if you don't have
@@ -219,9 +228,56 @@ Overlay terminal_page {
     }
   }
 
+  [overlay]
+  CenterBox drag_handle {
+    halign: fill;
+    valign: start;
+    visible: bind $should_drag_handle_be_shown(template.config, template.is-split) as <bool>;
+
+    styles [
+      "drag-handle",
+    ]
+
+    [center]
+    Image {
+      icon-name: "view-more-horizontal-symbolic";
+    }
+
+    DragSource surface_drag_source {
+      actions: move;
+      prepare => $surface_drag_prepare();
+      drag-begin => $surface_drag_begin();
+    }
+  }
+
+  [overlay]
+  DrawingArea drop_overlay {
+    halign: fill;
+    valign: fill;
+    can-focus: false;
+    can-target: false;
+    focusable: false;
+
+    styles [
+      "drop-overlay",
+    ]
+  }
+
   DropTarget drop_target {
     drop => $drop();
     actions: copy | move;
+  }
+
+  DropTarget surface_drop_target {
+    // Enabling preload is required since that lets us know
+    // which surface is currently being dragged, and to turn off
+    // the drop overlay if the source and target are the same
+    preload: true;
+    leave => $surface_drop_leave();
+    motion => $surface_drop_motion();
+    drop => $surface_drop();
+    notify::value => $notify_drop_value();
+    actions: move;
   }
 }
 
@@ -316,6 +372,11 @@ menu context_menu_model {
         action: "split-tree.new-split";
         target: "right";
       }
+
+      item {
+        label: _("Close Split");
+        action: "split-tree.close-split";
+      }
     }
 
     submenu {
@@ -342,6 +403,11 @@ menu context_menu_model {
       label: _("Window");
 
       item {
+        label: _("Change Window Title…");
+        action: "win.prompt-window-title";
+      }
+
+      item {
         label: _("New Window");
         action: "win.new-window";
       }
@@ -358,8 +424,15 @@ menu context_menu_model {
       label: _("Config");
 
       item {
-        label: _("Open Configuration");
+        label: _("Open Configuration in OS Editor");
         action: "app.open-config";
+        target: "os-open";
+      }
+
+      item {
+        label: _("Open Configuration in New Window");
+        action: "app.open-config";
+        target: "new-window";
       }
 
       item {

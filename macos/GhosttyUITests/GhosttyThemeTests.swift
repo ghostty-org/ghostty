@@ -9,6 +9,10 @@ import AppKit
 import XCTest
 
 final class GhosttyThemeTests: GhosttyCustomConfigCase {
+    override static var runsForEachTargetApplicationUIConfiguration: Bool {
+        true
+    }
+
     let windowTitle = "GhosttyThemeTests"
     private func assertTitlebarAppearance(
         _ appearance: XCUIDevice.Appearance,

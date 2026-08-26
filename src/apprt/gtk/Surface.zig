@@ -74,7 +74,7 @@ pub fn clipboardRequest(
     self: *Self,
     clipboard_type: apprt.Clipboard,
     state: apprt.ClipboardRequest,
-) !bool {
+) !apprt.ClipboardReadResult {
     return try self.surface.clipboardRequest(
         clipboard_type,
         state,
@@ -94,7 +94,7 @@ pub fn setClipboard(
     );
 }
 
-pub fn defaultTermioEnv(self: *Self) !std.process.EnvMap {
+pub fn defaultTermioEnv(self: *Self) !std.process.Environ.Map {
     return try self.surface.defaultTermioEnv();
 }
 

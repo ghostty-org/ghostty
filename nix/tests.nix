@@ -281,4 +281,113 @@ in {
           server.wait_for_file("${user.home}/.terminfo/x/xterm-ghostty", timeout=30)
     '';
   };
+
+  # Regression test for the GTK audio-bell GStreamer thread leak. Each audio
+  # bell used to allocate a fresh gtk.MediaFile (and thus a GStreamer pipeline
+  # whose GL sink spawns gstglcontext/gldisplay-event threads that are never
+  # joined), leaking ~4 threads per ring; the fix reuses one MediaFile per
+  # surface. This rings many bells and asserts the GUI process thread count
+  # stays bounded. Runs under GNOME on Wayland so it exercises the real path.
+  bell-leak-check-gnome = mkTestGnome {
+    name = "bell-leak-check-gnome";
+    settings = {
+      # The VM has no GPU, so GNOME and Ghostty render via llvmpipe. Give the
+      # guest enough cores/RAM that software GL can bring up Ghostty's window
+      # before the +new-window D-Bus activation times out, and force clean
+      # software GL so mesa doesn't stall probing for absent hardware.
+      virtualisation.cores = 4;
+      virtualisation.memorySize = 4096;
+      environment.sessionVariables = {
+        LIBGL_ALWAYS_SOFTWARE = "1";
+        GALLIUM_DRIVER = "llvmpipe";
+      };
+
+      home-manager.users.ghostty = {
+        xdg.configFile = {
+          "ghostty/config".text = ''
+            bell-features = audio
+            bell-audio-path = ${pkgs.sound-theme-freedesktop}/share/sounds/freedesktop/stereo/bell.oga
+            bell-audio-volume = 0
+          '';
+        };
+      };
+    };
+    testScript = {nodes, ...}: let
+      user = nodes.machine.users.users.ghostty;
+      bus_path = "/run/user/${toString user.uid}/bus";
+      bus = "DBUS_SESSION_BUS_ADDRESS=unix:path=${bus_path}";
+      gdbus = "${bus} gdbus";
+      ghostty = "${bus} ghostty";
+      su = command: "su - ${user.name} -c '${command}'";
+      gseval = "call --session -d org.gnome.Shell -o /org/gnome/Shell -m org.gnome.Shell.Eval";
+      wm_class = su "${gdbus} ${gseval} global.display.focus_window.wm_class";
+
+      # Emits N BELs >100ms apart (which clears the bell rate-limit), then holds
+      # so the window (and its audio pipeline) stays alive while we sample. Run
+      # by typing its path into the open window; written as a script to avoid
+      # shell-escaping the BEL byte through the test driver.
+      ringBells = pkgs.writeShellScript "ring-bells" ''
+        for _ in $(seq 100); do printf '\a'; sleep 0.12; done
+        sleep 60
+      '';
+    in ''
+      # Thread count of the ghostty GUI process: the ghostty process with the
+      # most threads. The CLI also spawns 1-thread launcher/helper stubs (and
+      # this very command matches the pgrep), but those are filtered by the max.
+      def ghostty_threads():
+          out = machine.succeed(
+              "max=0; "
+              "for p in $(pgrep -f ghostty); do "
+              "  n=$(ls /proc/$p/task 2>/dev/null | wc -l); "
+              "  [ \"$n\" -gt \"$max\" ] && max=$n; "
+              "done; "
+              "echo $max"
+          ).strip()
+          return int(out)
+
+      def window_open():
+          status, _ = machine.execute("${wm_class} | grep -q 'com.mitchellh.ghostty-debug'")
+          return status == 0
+
+      with subtest("boot and open a keep-alive ghostty window"):
+          start_all()
+          machine.wait_for_x()
+          machine.wait_for_file("${bus_path}")
+          machine.systemctl("enable app-com.mitchellh.ghostty-debug.service", user="${user.name}")
+
+          # Under software GL the +new-window D-Bus activation can exceed its
+          # client-side timeout even though the window still comes up, so we
+          # tolerate a failed call and (re)nudge until the window appears.
+          for _ in range(6):
+              machine.execute("${su "${ghostty} +new-window"}")
+              if window_open():
+                  break
+              machine.sleep(5)
+          assert window_open(), "ghostty window never appeared"
+          machine.sleep(2)
+
+      with subtest("ring 100 bells and assert the thread count stays bounded"):
+          baseline = ghostty_threads()
+
+          # Ring the bells by running the script inside the focused window (type
+          # its path + Enter). A separate `ghostty -e` process can't open the
+          # display from the bare su environment, so we drive the open window.
+          machine.send_chars("${ringBells}\n")
+
+          # 100 bells * 0.12s + settle, within the script's trailing hold so the
+          # window (and its audio pipeline) is still alive when we sample.
+          machine.sleep(22)
+          final = ghostty_threads()
+
+          growth = final - baseline
+          print(f"bell-leak: baseline={baseline} final={final} growth={growth}")
+
+          # Pre-fix grows ~4 threads/bell (~+400 over 100 bells); the fix adds
+          # only one pipeline's worth of threads. 40 sits well clear of both.
+          assert growth <= 40, (
+              f"thread count grew by {growth} over 100 bells "
+              f"(baseline={baseline}, final={final}): audio-bell pipeline leak regressed"
+          )
+    '';
+  };
 }

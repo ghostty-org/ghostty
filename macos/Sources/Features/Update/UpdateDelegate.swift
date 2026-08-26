@@ -23,20 +23,12 @@ extension UpdateDriver: SPUUpdaterDelegate {
     /// delegate method on the responsible driver instead.
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
         viewModel.state = .installing(.init(
-            isAutoUpdate: true,
-            retryTerminatingApplication: immediateInstallHandler,
-            dismiss: { [weak viewModel] in
-                viewModel?.state = .idle
-            }
+            appcastItem: item,
+            retryTerminatingApplication: immediateInstallHandler
         ))
+        AppDelegate.logger.info("Version: \(item.displayVersionString) installed silently, waiting for relaunch...")
+        // Even when hasUnobtrusiveTarget is false, we don't show the alert immediately.
+        // We wait until the user manually checks for updates or relaunches.
         return true
-    }
-
-    func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
-        // When the updater is relaunching the application we want to get macOS
-        // to invalidate and re-encode all of our restorable state so that when
-        // we relaunch it uses it.
-        NSApp.invalidateRestorableState()
-        for window in NSApp.windows { window.invalidateRestorableState() }
     }
 }

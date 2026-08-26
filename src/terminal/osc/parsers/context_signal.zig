@@ -16,6 +16,8 @@ const max_context_id_len = 64;
 
 /// A single OSC 3008 context signal command.
 pub const Command = struct {
+    pub const C = void;
+
     action: Action,
     /// The context identifier. Must be 1-64 characters in the 32..126 byte range.
     id: []const u8,
@@ -199,11 +201,11 @@ pub const Field = enum {
 ///   start=<id>[;<field>=<value>]*
 ///   end=<id>[;<field>=<value>]*
 pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
-    const writer = parser.writer orelse {
+    const cap = if (parser.capture) |*c| c else {
         parser.state = .invalid;
         return null;
     };
-    const data = writer.buffered();
+    const data = cap.trailing();
     if (data.len == 0) {
         parser.state = .invalid;
         return null;

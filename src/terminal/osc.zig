@@ -11,11 +11,11 @@ const build_options = @import("terminal_options");
 const mem = std.mem;
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = mem.Allocator;
-const LibEnum = @import("../lib/enum.zig").Enum;
+const lib = @import("lib.zig");
+const LibEnum = lib.Enum;
 const kitty_color = @import("kitty/color.zig");
 const parsers = @import("osc/parsers.zig");
 const encoding = @import("osc/encoding.zig");
-const lib = @import("../lib/main.zig");
 
 pub const color = parsers.color;
 pub const semantic_prompt = parsers.semantic_prompt;
@@ -46,12 +46,13 @@ pub const Command = union(Key) {
     /// Semantic prompt command: https://gitlab.freedesktop.org/Per_Bothner/specifications/blob/master/proposals/semantic-prompts.md
     semantic_prompt: SemanticPrompt,
 
-    /// Set or get clipboard contents. If data is null, then the current
-    /// clipboard contents are sent to the pty. If data is set, this
-    /// contents is set on the clipboard.
+    /// Set or get clipboard contents. If data is "?", then the current
+    /// clipboard contents are sent to the pty. Otherwise, the contents
+    /// are set on the clipboard.
     clipboard_contents: struct {
         kind: u8,
         data: [:0]const u8,
+        terminator: Terminator = .st,
     },
 
     /// OSC 7. Reports the current working directory of the shell. This is
@@ -156,16 +157,26 @@ pub const Command = union(Key) {
 
     kitty_clipboard_protocol: KittyClipboardProtocol,
 
+    /// Kitty drag and drop protocol (OSC 72)
+    kitty_dnd_protocol: KittyDndProtocol,
+
     /// OSC 3008. Hierarchical context signalling (UAPI spec).
     /// https://uapi-group.org/specifications/specs/osc_context/
     context_signal: parsers.context_signal.Command,
+
+    /// Kitty desktop notifications (OSC 99)
+    kitty_desktop_notification: KittyDesktopNotification,
 
     pub const SemanticPrompt = parsers.semantic_prompt.Command;
 
     pub const KittyClipboardProtocol = parsers.kitty_clipboard_protocol.OSC;
 
+    pub const KittyDndProtocol = parsers.kitty_dnd_protocol.OSC;
+
+    pub const KittyDesktopNotification = parsers.kitty_desktop_notification.OSC;
+
     pub const Key = LibEnum(
-        if (build_options.c_abi) .c else .zig,
+        lib.target,
         // NOTE: Order matters, see LibEnum documentation.
         &.{
             "invalid",
@@ -192,22 +203,22 @@ pub const Command = union(Key) {
             "conemu_comment",
             "kitty_text_sizing",
             "kitty_clipboard_protocol",
+            "kitty_dnd_protocol",
             "context_signal",
+            "kitty_desktop_notification",
         },
     );
 
     pub const ProgressReport = struct {
-        pub const State = enum(c_int) {
-            remove,
-            set,
-            @"error",
-            indeterminate,
-            pause,
-
-            test "ghostty.h Command.ProgressReport.State" {
-                try lib.checkGhosttyHEnum(State, "GHOSTTY_PROGRESS_STATE_");
-            }
+        const state_keys = &.{
+            "remove",
+            "set",
+            "error",
+            "indeterminate",
+            "pause",
         };
+
+        pub const State = LibEnum(lib.target, state_keys);
 
         state: State,
         progress: ?u8 = null,
@@ -227,6 +238,12 @@ pub const Command = union(Key) {
                     100,
                 )) else -1,
             };
+        }
+
+        test "ghostty.h Command.ProgressReport.State" {
+            if (comptime build_options.artifact == .lib) return error.SkipZigTest;
+            const CState = LibEnum(.c, state_keys);
+            try lib.checkGhosttyHEnum(CState, "GHOSTTY_PROGRESS_STATE_");
         }
     };
 
@@ -290,22 +307,29 @@ pub const Parser = struct {
     /// Maximum size of a "normal" OSC.
     pub const MAX_BUF = 2048;
 
+    /// Maximum size of an OSC that requires dynamically allocated storage.
+    /// OSC input is untrusted, so these captures must have a finite bound.
+    pub const MAX_ALLOCATING_BUF = 8 * 1024 * 1024;
+
     /// Optional allocator used to accept data longer than MAX_BUF.
     /// This only applies to some commands (e.g. OSC 52) that can
     /// reasonably exceed MAX_BUF.
     alloc: ?Allocator,
+
+    /// Maximum number of bytes retained by an allocating capture.
+    /// This is configurable primarily so callers and tests can choose a
+    /// smaller policy than the default.
+    max_allocating_bytes: usize,
 
     /// Current state of the parser.
     state: State,
 
     /// Buffer for temporary storage of OSC data
     buffer: [MAX_BUF]u8,
-    /// Fixed writer for accumulating OSC data
-    fixed: ?std.Io.Writer,
-    /// Allocating writer for accumulating OSC data
-    allocating: ?std.Io.Writer.Allocating,
-    /// Pointer to the active writer for accumulating OSC data
-    writer: ?*std.Io.Writer,
+
+    /// Capture state. If this is set then we're actively capturing the
+    /// bytes coming into the parser.
+    capture: ?Capture,
 
     /// The command that is the result of parsing.
     command: Command,
@@ -345,7 +369,9 @@ pub const Parser = struct {
         @"52",
         @"55",
         @"66",
+        @"72",
         @"77",
+        @"99",
         @"104",
         @"110",
         @"111",
@@ -367,10 +393,9 @@ pub const Parser = struct {
     pub fn init(alloc: ?Allocator) Parser {
         var result: Parser = .{
             .alloc = alloc,
+            .max_allocating_bytes = MAX_ALLOCATING_BUF,
             .state = .start,
-            .fixed = null,
-            .allocating = null,
-            .writer = null,
+            .capture = null,
             .command = .invalid,
 
             // Keeping all our undefined values together so we can
@@ -393,18 +418,20 @@ pub const Parser = struct {
 
     /// Reset the parser state.
     pub fn reset(self: *Parser) void {
-        // If we set up an allocating writer, free up that memory.
-        if (self.allocating) |*allocating| allocating.deinit();
+        // If we're capturing, then stop it.
+        if (self.capture) |*cap| cap.deinit();
 
         // Handle any cleanup that individual OSCs require.
         switch (self.command) {
             .kitty_color_protocol => |*v| kitty_color_protocol: {
                 v.deinit(self.alloc orelse break :kitty_color_protocol);
             },
+            .color_operation => |*v| color_operation: {
+                v.requests.deinit(self.alloc orelse break :color_operation);
+            },
             .change_window_icon,
             .change_window_title,
             .clipboard_contents,
-            .color_operation,
             .conemu_change_tab_title,
             .conemu_comment,
             .conemu_guimacro,
@@ -424,14 +451,14 @@ pub const Parser = struct {
             .show_desktop_notification,
             .kitty_text_sizing,
             .kitty_clipboard_protocol,
+            .kitty_dnd_protocol,
+            .kitty_desktop_notification,
             .context_signal,
             => {},
         }
 
         self.state = .start;
-        self.fixed = null;
-        self.allocating = null;
-        self.writer = null;
+        self.capture = null;
         self.command = .invalid;
 
         if (std.valgrind.runningOnValgrind() > 0) {
@@ -450,31 +477,181 @@ pub const Parser = struct {
         return false;
     }
 
-    /// Set up a fixed Writer to collect the rest of the OSC data.
-    inline fn writeToFixed(self: *Parser) void {
-        self.fixed = .fixed(&self.buffer);
-        self.writer = &self.fixed.?;
+    const Capture = struct {
+        writer: *std.Io.Writer,
+        backing: Backing,
+        max_bytes: usize,
+
+        const Backing = union(enum) {
+            fixed: std.Io.Writer,
+            allocating: std.Io.Writer.Allocating,
+        };
+
+        const Mode = enum {
+            fixed,
+            allocating,
+        };
+
+        pub inline fn fixed(new: *?Capture, buf: []u8) void {
+            new.* = .{
+                .backing = .{ .fixed = .fixed(buf) },
+                .writer = &new.*.?.backing.fixed,
+                .max_bytes = buf.len,
+            };
+        }
+
+        pub inline fn allocating(
+            new: *?Capture,
+            alloc: Allocator,
+            max_bytes: usize,
+        ) error{OutOfMemory}!void {
+            new.* = .{
+                .backing = .{ .allocating = try std.Io.Writer.Allocating.initCapacity(
+                    alloc,
+                    @min(MAX_BUF, max_bytes),
+                ) },
+                .writer = &new.*.?.backing.allocating.writer,
+                .max_bytes = max_bytes,
+            };
+        }
+
+        /// Append one byte without permitting the backing allocation to grow
+        /// beyond max_bytes. Allocating.Writer normally grows super-linearly,
+        /// so grow it explicitly to keep the allocation itself bounded too.
+        pub inline fn writeByte(self: *Capture, byte: u8) error{WriteFailed}!void {
+            if (self.writer.buffered().len >= self.max_bytes) return error.WriteFailed;
+
+            switch (self.backing) {
+                .fixed => {},
+                .allocating => |*w| {
+                    if (w.writer.end >= w.writer.buffer.len) {
+                        const new_capacity = @min(
+                            self.max_bytes,
+                            @max(w.writer.buffer.len *| 2, 1),
+                        );
+                        w.writer.buffer = w.allocator.realloc(
+                            w.writer.buffer,
+                            new_capacity,
+                        ) catch return error.WriteFailed;
+                    }
+                },
+            }
+
+            try self.writer.writeByte(byte);
+        }
+
+        /// Append a slice without permitting the backing allocation to
+        /// grow beyond max_bytes. This matches the byte-at-a-time
+        /// semantics of writeByte: bytes are retained up to exactly
+        /// max_bytes and the first byte that doesn't fit fails the
+        /// write.
+        pub fn writeSlice(
+            self: *Capture,
+            bytes: []const u8,
+        ) error{WriteFailed}!void {
+            const avail = self.max_bytes - self.writer.buffered().len;
+            const n = @min(bytes.len, avail);
+
+            switch (self.backing) {
+                .fixed => {},
+                .allocating => |*w| {
+                    const needed = w.writer.end + n;
+                    if (needed > w.writer.buffer.len) {
+                        const new_capacity = @min(
+                            self.max_bytes,
+                            @max(w.writer.buffer.len *| 2, needed),
+                        );
+                        w.writer.buffer = w.allocator.realloc(
+                            w.writer.buffer,
+                            new_capacity,
+                        ) catch return error.WriteFailed;
+                    }
+                },
+            }
+
+            try self.writer.writeAll(bytes[0..n]);
+            if (n < bytes.len) return error.WriteFailed;
+        }
+
+        pub fn deinit(self: *Capture) void {
+            switch (self.backing) {
+                .fixed => {},
+                .allocating => |*w| w.deinit(),
+            }
+        }
+
+        /// Return the captured trailing data. This is the data from the
+        /// point that trailing data capture was requested.
+        pub inline fn trailing(self: *Capture) []u8 {
+            return self.writer.buffered();
+        }
+    };
+
+    /// Begin capturing trailing data. All inputs to next from this point
+    /// forward will be captured into the `self.capture.writer` buffer
+    /// which may be backed by either a fixed size or allocating buffer
+    /// depending on mode.
+    ///
+    /// Get the trailing data using `capture.trailing()`. Do not access
+    /// the writer directly.
+    inline fn captureTrailing(
+        self: *Parser,
+        comptime mode: Capture.Mode,
+    ) void {
+        assert(self.capture == null);
+        switch (mode) {
+            .fixed => Capture.fixed(
+                &self.capture,
+                &self.buffer,
+            ),
+
+            .allocating => {
+                const alloc = self.alloc orelse {
+                    // We don't have an allocator - fall back to a fixed buffer and hope
+                    // that it's big enough.
+                    self.captureTrailing(.fixed);
+                    return;
+                };
+
+                Capture.allocating(
+                    &self.capture,
+                    alloc,
+                    self.max_allocating_bytes,
+                ) catch {
+                    // The allocator failed for some reason, fall back to a fixed buffer
+                    // and hope that it's big enough.
+                    self.captureTrailing(.fixed);
+                    return;
+                };
+            },
+        }
     }
 
-    /// Set up an allocating Writer to collect the rest of the OSC data. If we
-    /// don't have an allocator or setting up the allocator fails, fall back to
-    /// writing to a fixed buffer and hope that it's big enough.
-    inline fn writeToAllocating(self: *Parser) void {
-        const alloc = self.alloc orelse {
-            // We don't have an allocator - fall back to a fixed buffer and hope
-            // that it's big enough.
-            self.writeToFixed();
-            return;
-        };
+    /// Consume a slice of bytes, advancing the parser state. This is
+    /// equivalent to calling `next` for each byte in order, but is much
+    /// faster once a data capture is active because the remaining bytes
+    /// are appended to the capture in bulk.
+    pub fn nextSlice(self: *Parser, input: []const u8) void {
+        if (self.state == .invalid) return;
 
-        self.allocating = std.Io.Writer.Allocating.initCapacity(alloc, 2048) catch {
-            // The allocator failed for some reason, fall back to a fixed buffer
-            // and hope that it's big enough.
-            self.writeToFixed();
-            return;
-        };
+        // Run the state machine byte-at-a-time until a capture begins.
+        // The command prefix before a capture starts is only a handful
+        // of bytes so this loop is short in practice.
+        var offset: usize = 0;
+        while (self.capture == null) {
+            if (offset >= input.len) return;
+            self.next(input[offset]);
+            offset += 1;
+            if (self.state == .invalid) return;
+        }
 
-        self.writer = &self.allocating.?.writer;
+        const rem = input[offset..];
+        if (rem.len == 0) return;
+        self.capture.?.writeSlice(rem) catch |err| switch (err) {
+            // We have overflowed our buffer or had some other error, set
+            // the state to invalid so that we discard any further input.
+            error.WriteFailed => self.state = .invalid,
+        };
     }
 
     /// Consume the next character c and advance the parser state.
@@ -485,8 +662,8 @@ pub const Parser = struct {
 
         // If a writer has been initialized, we just accumulate the rest of the
         // OSC sequence in the writer's buffer and skip the state machine.
-        if (self.writer) |writer| {
-            writer.writeByte(c) catch |err| switch (err) {
+        if (self.capture) |*cap| {
+            cap.writeByte(c) catch |err| switch (err) {
                 // We have overflowed our buffer or had some other error, set the
                 // state to invalid so that we discard any further input.
                 error.WriteFailed => self.state = .invalid,
@@ -528,12 +705,12 @@ pub const Parser = struct {
             },
 
             .@"3008" => switch (c) {
-                ';' => self.writeToFixed(),
+                ';' => self.captureTrailing(.fixed),
                 else => self.state = .invalid,
             },
 
             .@"1" => switch (c) {
-                ';' => self.writeToFixed(),
+                ';' => self.captureTrailing(.fixed),
                 '0' => self.state = .@"10",
                 '1' => self.state = .@"11",
                 '2' => self.state = .@"12",
@@ -548,18 +725,18 @@ pub const Parser = struct {
             },
 
             .@"10" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
+                ';' => if (self.ensureAllocator()) self.captureTrailing(.fixed),
                 '4' => self.state = .@"104",
                 else => self.state = .invalid,
             },
 
             .@"104" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
+                ';' => if (self.ensureAllocator()) self.captureTrailing(.fixed),
                 else => self.state = .invalid,
             },
 
             .@"11" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
+                ';' => if (self.ensureAllocator()) self.captureTrailing(.fixed),
                 '0' => self.state = .@"110",
                 '1' => self.state = .@"111",
                 '2' => self.state = .@"112",
@@ -593,25 +770,25 @@ pub const Parser = struct {
             .@"118",
             .@"119",
             => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
+                ';' => if (self.ensureAllocator()) self.captureTrailing(.fixed),
                 else => self.state = .invalid,
             },
 
             .@"13" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
+                ';' => if (self.ensureAllocator()) self.captureTrailing(.fixed),
                 '3' => self.state = .@"133",
                 else => self.state = .invalid,
             },
 
             .@"2" => switch (c) {
-                ';' => self.writeToFixed(),
+                ';' => self.captureTrailing(.fixed),
                 '1' => self.state = .@"21",
                 '2' => self.state = .@"22",
                 else => self.state = .invalid,
             },
 
             .@"5" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
+                ';' => if (self.ensureAllocator()) self.captureTrailing(.fixed),
                 '2' => self.state = .@"52",
                 '5' => self.state = .@"55",
                 else => self.state = .invalid,
@@ -625,7 +802,7 @@ pub const Parser = struct {
             .@"52",
             .@"66",
             => switch (c) {
-                ';' => self.writeToAllocating(),
+                ';' => self.captureTrailing(.allocating),
                 else => self.state = .invalid,
             },
 
@@ -635,8 +812,14 @@ pub const Parser = struct {
             },
 
             .@"7" => switch (c) {
-                ';' => self.writeToFixed(),
+                ';' => self.captureTrailing(.fixed),
+                '2' => self.state = .@"72",
                 '7' => self.state = .@"77",
+                else => self.state = .invalid,
+            },
+
+            .@"72" => switch (c) {
+                ';' => self.captureTrailing(.allocating),
                 else => self.state = .invalid,
             },
 
@@ -647,7 +830,7 @@ pub const Parser = struct {
 
             .@"133",
             => switch (c) {
-                ';' => self.writeToFixed(),
+                ';' => self.captureTrailing(.fixed),
                 '7' => self.state = .@"1337",
                 else => self.state = .invalid,
             },
@@ -659,13 +842,27 @@ pub const Parser = struct {
 
             .@"1337",
             => switch (c) {
-                ';' => self.writeToFixed(),
+                ';' => self.captureTrailing(.fixed),
                 else => self.state = .invalid,
             },
 
             .@"5522",
             => switch (c) {
-                ';' => self.writeToAllocating(),
+                ';' => self.captureTrailing(.allocating),
+                else => self.state = .invalid,
+            },
+
+            .@"9",
+            => switch (c) {
+                ';' => self.captureTrailing(.fixed),
+                '9' => self.state = .@"99",
+                else => self.state = .invalid,
+            },
+
+            .@"99",
+            => switch (c) {
+                // OSC 99 encoded payloads can exceed the fixed buffer.
+                ';' => self.captureTrailing(.allocating),
                 else => self.state = .invalid,
             },
 
@@ -673,9 +870,8 @@ pub const Parser = struct {
             .@"22",
             .@"777",
             .@"8",
-            .@"9",
             => switch (c) {
-                ';' => self.writeToFixed(),
+                ';' => self.captureTrailing(.fixed),
                 else => self.state = .invalid,
             },
         }
@@ -750,7 +946,11 @@ pub const Parser = struct {
 
             .@"66" => parsers.kitty_text_sizing.parse(self, terminator_ch),
 
+            .@"72" => parsers.kitty_dnd_protocol.parse(self, terminator_ch),
+
             .@"77" => null,
+
+            .@"99" => parsers.kitty_desktop_notification.parse(self, terminator_ch),
 
             .@"133" => parsers.semantic_prompt.parse(self, terminator_ch),
 
@@ -768,4 +968,107 @@ pub const Parser = struct {
 test {
     _ = parsers;
     _ = encoding;
+}
+
+test "Parser allocating captures have a hard limit" {
+    const testing = std.testing;
+    const prefixes = [_][]const u8{ "52;", "66;", "72;", "99;", "5522;" };
+    const limit = Parser.MAX_BUF + 1;
+
+    for (prefixes) |prefix| {
+        var p: Parser = .init(testing.allocator);
+        defer p.deinit();
+        p.max_allocating_bytes = limit;
+
+        for (prefix) |ch| p.next(ch);
+        for (0..limit) |_| p.next('a');
+
+        const cap = &p.capture.?;
+        try testing.expectEqual(@as(usize, limit), cap.trailing().len);
+        try testing.expectEqual(@as(usize, limit), cap.writer.buffer.len);
+
+        p.next('a');
+        try testing.expectEqual(Parser.State.invalid, p.state);
+        try testing.expectEqual(@as(usize, limit), cap.trailing().len);
+        try testing.expectEqual(@as(usize, limit), cap.writer.buffer.len);
+    }
+}
+
+test "Parser nextSlice allocating captures have a hard limit" {
+    const testing = std.testing;
+    const limit = Parser.MAX_BUF + 1;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+    p.max_allocating_bytes = limit;
+
+    const data = try testing.allocator.alloc(u8, limit);
+    defer testing.allocator.free(data);
+    @memset(data, 'a');
+
+    // Exactly at the limit stays valid and bounded.
+    p.nextSlice("52;");
+    p.nextSlice(data);
+    const cap = &p.capture.?;
+    try testing.expect(p.state != .invalid);
+    try testing.expectEqual(@as(usize, limit), cap.trailing().len);
+    try testing.expectEqual(@as(usize, limit), cap.writer.buffer.len);
+
+    // One more byte overflows: the state becomes invalid and the
+    // retained bytes and allocation stay bounded.
+    p.nextSlice("a");
+    try testing.expectEqual(Parser.State.invalid, p.state);
+    try testing.expectEqual(@as(usize, limit), cap.trailing().len);
+    try testing.expectEqual(@as(usize, limit), cap.writer.buffer.len);
+    try testing.expect(p.end(null) == null);
+}
+
+test "Parser nextSlice overflowing slice is truncated at the limit" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+    p.max_allocating_bytes = 4;
+
+    p.nextSlice("52;abcdef");
+    try testing.expectEqual(Parser.State.invalid, p.state);
+    try testing.expect(p.end(null) == null);
+
+    const cap = &p.capture.?;
+    try testing.expectEqualStrings("abcd", cap.trailing());
+    try testing.expectEqual(@as(usize, 4), cap.writer.buffer.len);
+}
+
+test "Parser nextSlice matches per-byte parsing" {
+    const testing = std.testing;
+    const input = "52;c;aGVsbG8=";
+
+    // Every two-way split of the input must parse identically to
+    // the byte-at-a-time path.
+    for (0..input.len + 1) |split| {
+        var p: Parser = .init(testing.allocator);
+        defer p.deinit();
+        p.nextSlice(input[0..split]);
+        p.nextSlice(input[split..]);
+
+        const cmd = p.end(null).?.*;
+        try testing.expect(cmd == .clipboard_contents);
+        try testing.expectEqual(@as(u8, 'c'), cmd.clipboard_contents.kind);
+        try testing.expectEqualStrings("aGVsbG8=", cmd.clipboard_contents.data);
+    }
+}
+
+test "Parser allocating capture limit includes parser-added bytes" {
+    const testing = std.testing;
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+    p.max_allocating_bytes = 4;
+
+    for ("52;abcd") |ch| p.next(ch);
+    try testing.expect(p.end(null) == null);
+    try testing.expectEqual(Parser.State.invalid, p.state);
+
+    const cap = &p.capture.?;
+    try testing.expectEqual(@as(usize, 4), cap.trailing().len);
+    try testing.expectEqual(@as(usize, 4), cap.writer.buffer.len);
 }

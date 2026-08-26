@@ -56,6 +56,10 @@ pub const ActiveSearch = struct {
         // Clear our previous sliding window
         self.window.clearAndRetainCapacity();
 
+        // An empty needle represents an inactive search and has no overlap
+        // or history to load.
+        if (self.window.needle.len == 0) return null;
+
         // First up, add enough pages to cover the active area.
         var rem: usize = list.rows;
         var node_ = list.pages.last;
@@ -68,26 +72,22 @@ pub const ActiveSearch = struct {
             // page that contains the active area. We go to the previous
             // page once more since its the first page of our required
             // overlap.
-            if (rem <= node.data.size.rows) {
+            if (rem <= node.rows()) {
                 node_ = node.prev;
                 break;
             }
 
-            rem -= node.data.size.rows;
+            rem -= node.rows();
         }
 
         // Next, add enough overlap to cover needle.len - 1 bytes (if it
         // exists) so we can cover the overlap.
         while (node_) |node| : (node_ = node.prev) {
-            // If the last row of this node isn't wrapped we can't overlap.
-            const row = node.data.getRow(node.data.size.rows - 1);
-            if (!row.wrap) break;
-
             // We could be more accurate here and count bytes since the
             // last wrap but its complicated and unlikely multiple pages
             // wrap so this should be fine.
-            const added = try self.window.append(node);
-            if (added >= self.window.needle.len - 1) break;
+            const appended = try self.window.appendIfWrapped(node) orelse break;
+            if (appended.content_len >= self.window.needle.len - 1) break;
         }
 
         // Return the last node we added to our window.
@@ -103,12 +103,13 @@ pub const ActiveSearch = struct {
 
 test "simple search" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ActiveSearch = try .init(alloc, "Fizz");
     defer search.deinit();
@@ -143,20 +144,21 @@ test "simple search" {
 
 test "clear screen and search" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ActiveSearch = try .init(alloc, "Fizz");
     defer search.deinit();
     _ = try search.update(&t.screens.active.pages);
 
-    try s.nextSlice("\x1b[2J"); // Clear screen
-    try s.nextSlice("\x1b[H"); // Move cursor home
-    try s.nextSlice("Buzz\r\nFizz\r\nBuzz");
+    s.nextSlice("\x1b[2J"); // Clear screen
+    s.nextSlice("\x1b[H"); // Move cursor home
+    s.nextSlice("Buzz\r\nFizz\r\nBuzz");
     _ = try search.update(&t.screens.active.pages);
 
     {

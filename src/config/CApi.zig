@@ -1,7 +1,8 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const inputpkg = @import("../input.zig");
-const state = &@import("../global.zig").state;
-const c = @import("../main_c.zig");
+const global = @import("../global.zig");
+const String = @import("../main_c.zig").String;
 
 const Config = @import("Config.zig");
 const c_get = @import("c_get.zig");
@@ -12,14 +13,14 @@ const log = std.log.scoped(.config);
 
 /// Create a new configuration filled with the initial default values.
 export fn ghostty_config_new() ?*Config {
-    const result = state.alloc.create(Config) catch |err| {
+    const result = global.alloc().create(Config) catch |err| {
         log.err("error allocating config err={}", .{err});
         return null;
     };
 
-    result.* = Config.default(state.alloc) catch |err| {
+    result.* = Config.default(global.alloc()) catch |err| {
         log.err("error creating config err={}", .{err});
-        state.alloc.destroy(result);
+        global.alloc().destroy(result);
         return null;
     };
 
@@ -29,20 +30,20 @@ export fn ghostty_config_new() ?*Config {
 export fn ghostty_config_free(ptr: ?*Config) void {
     if (ptr) |v| {
         v.deinit();
-        state.alloc.destroy(v);
+        global.alloc().destroy(v);
     }
 }
 
 /// Deep clone the configuration.
 export fn ghostty_config_clone(self: *Config) ?*Config {
-    const result = state.alloc.create(Config) catch |err| {
+    const result = global.alloc().create(Config) catch |err| {
         log.err("error allocating config err={}", .{err});
         return null;
     };
 
-    result.* = self.clone(state.alloc) catch |err| {
+    result.* = self.clone(global.alloc()) catch |err| {
         log.err("error cloning config err={}", .{err});
-        state.alloc.destroy(result);
+        global.alloc().destroy(result);
         return null;
     };
 
@@ -51,7 +52,7 @@ export fn ghostty_config_clone(self: *Config) ?*Config {
 
 /// Load the configuration from the CLI args.
 export fn ghostty_config_load_cli_args(self: *Config) void {
-    self.loadCliArgs(state.alloc) catch |err| {
+    self.loadCliArgs(global.alloc()) catch |err| {
         log.err("error loading config err={}", .{err});
     };
 }
@@ -60,7 +61,7 @@ export fn ghostty_config_load_cli_args(self: *Config) void {
 /// is usually done first. The default file locations are locations
 /// such as the home directory.
 export fn ghostty_config_load_default_files(self: *Config) void {
-    self.loadDefaultFiles(state.alloc) catch |err| {
+    self.loadDefaultFiles(global.alloc()) catch |err| {
         log.err("error loading config err={}", .{err});
     };
 }
@@ -69,7 +70,7 @@ export fn ghostty_config_load_default_files(self: *Config) void {
 /// The path must be null-terminated.
 export fn ghostty_config_load_file(self: *Config, path: [*:0]const u8) void {
     const path_slice = std.mem.span(path);
-    self.loadFile(state.alloc, path_slice) catch |err| {
+    self.loadFile(global.alloc(), path_slice) catch |err| {
         log.err("error loading config from file path={s} err={}", .{ path_slice, err });
     };
 }
@@ -78,7 +79,7 @@ export fn ghostty_config_load_file(self: *Config, path: [*:0]const u8) void {
 /// file locations in the previously loaded configuration. This will
 /// recursively continue to load up to a built-in limit.
 export fn ghostty_config_load_recursive_files(self: *Config) void {
-    self.loadRecursiveFiles(state.alloc) catch |err| {
+    self.loadRecursiveFiles(global.alloc()) catch |err| {
         log.err("error loading config err={}", .{err});
     };
 }
@@ -131,8 +132,8 @@ export fn ghostty_config_get_diagnostic(self: *Config, idx: u32) Diagnostic {
     return .{ .message = message.ptr };
 }
 
-export fn ghostty_config_open_path() c.String {
-    const path = edit.openPath(state.alloc) catch |err| {
+export fn ghostty_config_open_path() String {
+    const path = edit.openPath(global.alloc()) catch |err| {
         log.err("error opening config in editor err={}", .{err});
         return .empty;
     };
@@ -241,4 +242,39 @@ test "ghostty_config_get: struct cval conversion" {
     try testing.expectEqual(@as(u8, 12), out.r);
     try testing.expectEqual(@as(u8, 34), out.g);
     try testing.expectEqual(@as(u8, 56), out.b);
+}
+
+test "ghostty_config_trigger: default keybind" {
+    const testing = std.testing;
+
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+
+    // Default commands should be fetchable through config_trigger_
+    {
+        const trigger = try config_trigger_(&cfg, "open_config");
+        try testing.expectEqual(.unicode, trigger.tag);
+        try testing.expectEqual(@as(u32, ','), trigger.key.unicode);
+    }
+    {
+        const trigger = try config_trigger_(&cfg, "reload_config");
+        try testing.expectEqual(.unicode, trigger.tag);
+        try testing.expectEqual(@as(u32, ','), trigger.key.unicode);
+    }
+    // Performable bindings are not tracked in the reverse map,
+    // so config_trigger_ should return a default (empty) trigger.
+    if (comptime builtin.target.os.tag.isDarwin()) {
+        const next = try config_trigger_(&cfg, "navigate_search:next");
+        try testing.expectEqual(.physical, next.tag);
+        try testing.expectEqual(.unidentified, next.key.physical);
+
+        const prev = try config_trigger_(&cfg, "navigate_search:previous");
+        try testing.expectEqual(.physical, prev.tag);
+        try testing.expectEqual(.unidentified, prev.key.physical);
+    }
+    {
+        const trigger = try config_trigger_(&cfg, "adjust_selection:left");
+        try testing.expectEqual(.physical, trigger.tag);
+        try testing.expectEqual(.unidentified, trigger.key.physical);
+    }
 }

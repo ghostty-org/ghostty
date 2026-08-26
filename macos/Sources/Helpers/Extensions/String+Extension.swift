@@ -1,4 +1,10 @@
 extension String {
+    /// True when the first scalar is an ASCII control character (C0 or DEL).
+    var startsWithASCIIControlCharacter: Bool {
+        guard let scalar = unicodeScalars.first else { return false }
+        return scalar.value < 0x20 || scalar.value == 0x7F
+    }
+
     func truncate(length: Int, trailing: String = "…") -> String {
         let maxLength = length - trailing.count
         guard maxLength > 0, !self.isEmpty, self.count > length else {
@@ -7,7 +13,6 @@ extension String {
         return self.prefix(maxLength) + trailing
     }
 
-#if canImport(AppKit)
     func temporaryFile(_ filename: String = "temp") -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(filename)
@@ -25,7 +30,6 @@ extension String {
         }
         return self
     }
-#endif
 
     /// Converts a four-character ASCII string to its `FourCharCode` (`UInt32`) value.
     var fourCharCode: UInt32 {

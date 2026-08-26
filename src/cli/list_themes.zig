@@ -5,7 +5,7 @@ const Config = @import("../config/Config.zig");
 const configpkg = @import("../config.zig");
 const themepkg = @import("../config/theme.zig");
 const tui = @import("tui.zig");
-const global_state = &@import("../global.zig").state;
+const global = @import("../global.zig");
 
 const vaxis = @import("vaxis");
 const zf = @import("zf");
@@ -108,7 +108,7 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(gpa_alloc);
+        var iter = try args.argsIterator(gpa_alloc, global.args());
         defer iter.deinit();
         try args.parse(Options, gpa_alloc, &opts, &iter);
     }
@@ -117,15 +117,15 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     const alloc = arena.allocator();
 
     var stdout_buf: [4096]u8 = undefined;
-    var stdout_file: std.fs.File = .stdout();
-    var stdout_writer = stdout_file.writer(&stdout_buf);
+    var stdout_file: std.Io.File = .stdout();
+    var stdout_writer = stdout_file.writer(global.io(), &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     var stderr_buf: [4096]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+    var stderr_writer = std.Io.File.stderr().writer(global.io(), &stderr_buf);
     const stderr = &stderr_writer.interface;
 
-    const resources_dir = global_state.resources_dir.app();
+    const resources_dir = global.resourcesDir().app();
     if (resources_dir == null)
         try stderr.print("Could not find the Ghostty resources directory. Please ensure " ++
             "that Ghostty is installed correctly.\n", .{});
@@ -137,18 +137,22 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     var it: themepkg.LocationIterator = .{ .arena_alloc = arena.allocator() };
 
     while (try it.next()) |loc| {
-        var dir = std.fs.cwd().openDir(loc.dir, .{ .iterate = true }) catch |err| switch (err) {
+        var dir = std.Io.Dir.cwd().openDir(
+            global.io(),
+            loc.dir,
+            .{ .iterate = true },
+        ) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => {
                 std.debug.print("error trying to open {s}: {}\n", .{ loc.dir, err });
                 continue;
             },
         };
-        defer dir.close();
+        defer dir.close(global.io());
 
         var walker = dir.iterate();
 
-        while (try walker.next()) |entry| {
+        while (try walker.next(global.io())) |entry| {
             switch (entry.kind) {
                 .file, .sym_link => {
                     if (std.mem.eql(u8, entry.name, ".DS_Store"))
@@ -174,7 +178,7 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
 
     std.mem.sortUnstable(ThemeListElement, themes.items, {}, ThemeListElement.lessThan);
 
-    if (tui.can_pretty_print and !opts.plain and stdout_file.isTty()) {
+    if (tui.can_pretty_print and !opts.plain and try stdout_file.isTty(global.io())) {
         try preview(gpa_alloc, themes.items, opts.color);
         return 0;
     }
@@ -210,14 +214,18 @@ fn writeAutoThemeFile(alloc: std.mem.Allocator, theme_name: []const u8) !void {
     defer alloc.free(auto_path);
 
     if (std.fs.path.dirname(auto_path)) |dir| {
-        try std.fs.cwd().makePath(dir);
+        try std.Io.Dir.cwd().createDirPath(global.io(), dir);
     }
 
-    var f = try std.fs.createFileAbsolute(auto_path, .{ .truncate = true });
-    defer f.close();
+    var f = try std.Io.Dir.createFileAbsolute(
+        global.io(),
+        auto_path,
+        .{ .truncate = true },
+    );
+    defer f.close(global.io());
 
     var buf: [128]u8 = undefined;
-    var w = f.writer(&buf);
+    var w = f.writer(global.io(), &buf);
     try w.interface.print("theme = {s}\n", .{theme_name});
     try w.interface.flush();
 }
@@ -233,6 +241,7 @@ const Preview = struct {
     allocator: std.mem.Allocator,
     should_quit: bool,
     tty: vaxis.Tty,
+    env_map: std.process.Environ.Map,
     vx: vaxis.Vaxis,
     mouse: ?vaxis.Mouse,
     themes: []ThemeListElement,
@@ -257,12 +266,14 @@ const Preview = struct {
         buf: []u8,
     ) !*Preview {
         const self = try allocator.create(Preview);
+        errdefer allocator.destroy(self);
 
         self.* = .{
             .allocator = allocator,
             .should_quit = false,
-            .tty = try .init(buf),
-            .vx = try vaxis.init(allocator, .{}),
+            .tty = try .init(global.io(), buf),
+            .env_map = try global.environMap(),
+            .vx = undefined,
             .mouse = null,
             .themes = themes,
             .filtered = try .initCapacity(allocator, themes.len),
@@ -274,6 +285,7 @@ const Preview = struct {
             .text_input = .init(allocator),
             .theme_filter = theme_filter,
         };
+        self.vx = try vaxis.init(global.io(), allocator, &self.env_map, .{});
 
         try self.updateFiltered();
 
@@ -285,23 +297,20 @@ const Preview = struct {
         self.filtered.deinit(allocator);
         self.text_input.deinit();
         self.vx.deinit(allocator, self.tty.writer());
+        self.env_map.deinit();
         self.tty.deinit();
         allocator.destroy(self);
     }
 
     pub fn run(self: *Preview) !void {
-        var loop: vaxis.Loop(Event) = .{
-            .tty = &self.tty,
-            .vaxis = &self.vx,
-        };
-        try loop.init();
+        var loop: vaxis.Loop(Event) = .init(global.io(), &self.tty, &self.vx);
         try loop.start();
+        defer loop.stop();
 
         const writer = self.tty.writer();
-
         try self.vx.enterAltScreen(writer);
         try self.vx.setTitle(writer, "👻 Ghostty Theme Preview 👻");
-        try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
+        try self.vx.queryTerminal(writer, .fromSeconds(1));
         try self.vx.setMouseMode(writer, true);
         if (self.vx.caps.color_scheme_updates)
             try self.vx.subscribeToColorSchemeUpdates(writer);
@@ -311,8 +320,8 @@ const Preview = struct {
             defer arena.deinit();
             const alloc = arena.allocator();
 
-            loop.pollEvent();
-            while (loop.tryEvent()) |event| {
+            try loop.pollEvent();
+            while (try loop.tryEvent()) |event| {
                 try self.update(event, alloc);
             }
             try self.draw(alloc);
@@ -366,7 +375,12 @@ const Preview = struct {
                 if (!shouldIncludeTheme(self.theme_filter, theme_config)) continue;
 
                 theme.rank = zf.rank(theme.theme, tokens.items, .{
-                    .to_lower = true,
+                    // NOTE: Changed from ".to_lower = true" (the option was
+                    // renamed). I think this is the correct analog for case
+                    // insensitive ranking (which is what I'm guessing
+                    // ".to_lower = true" implies, but this comment serves as a
+                    // hint if there's a regression.
+                    .case_sensitive = false,
                     .plain = true,
                 });
                 if (theme.rank != null) try self.filtered.append(self.allocator, i);
@@ -450,9 +464,9 @@ const Preview = struct {
                             self.text_input.buf.clearRetainingCapacity();
                             try self.updateFiltered();
                         }
-                        if (key.matchesAny(&.{ vaxis.Key.home, vaxis.Key.kp_home }, .{}))
+                        if (key.matchesAny(&.{ vaxis.Key.home, vaxis.Key.kp_home, 'g' }, .{}))
                             self.current = 0;
-                        if (key.matchesAny(&.{ vaxis.Key.end, vaxis.Key.kp_end }, .{}))
+                        if (key.matchesAny(&.{ vaxis.Key.end, vaxis.Key.kp_end, 'G' }, .{}))
                             self.current = self.filtered.items.len - 1;
                         if (key.matchesAny(&.{ 'j', '+', vaxis.Key.down, vaxis.Key.kp_down, vaxis.Key.kp_add }, .{}))
                             self.down(1);
@@ -620,13 +634,21 @@ const Preview = struct {
                     self.down(1);
                 }
                 if (theme_list.hasMouse(mouse)) |_| {
+                    // NOTE: mouse co-ordinates can be negative (see
+                    // https://github.com/rockorager/libvaxis/pull/276).
+                    // Working around it in this case, but putting this here in
+                    // case there are issues.
                     if (mouse.button == .left and mouse.type == .release) {
-                        const selection = self.window + mouse.row;
+                        const selection: usize = selection: {
+                            var window: i32 = @min(self.window, std.math.maxInt(i32));
+                            window += mouse.row;
+                            break :selection @max(0, window);
+                        };
                         if (selection < self.filtered.items.len) {
                             self.current = selection;
                         }
                     }
-                    highlight = mouse.row;
+                    highlight = @max(0, mouse.row);
                 }
             }
         }
@@ -757,8 +779,8 @@ const Preview = struct {
                     .{ .keys = "d", .help = "Show palette numbers in decimal." },
                     .{ .keys = "c", .help = "Copy theme name to the clipboard." },
                     .{ .keys = "C", .help = "Copy theme path to the clipboard." },
-                    .{ .keys = "Home", .help = "Go to the start of the list." },
-                    .{ .keys = "End", .help = "Go to the end of the list." },
+                    .{ .keys = "Home, g", .help = "Go to the start of the list." },
+                    .{ .keys = "End, G", .help = "Go to the end of the list." },
                     .{ .keys = "/", .help = "Start search." },
                     .{ .keys = "^X, ^/", .help = "Clear search." },
                     .{ .keys = "⏎", .help = "Save theme or close search window." },
@@ -1183,7 +1205,7 @@ const Preview = struct {
                         .x_off = x_off,
                         .y_off = next_start,
                         .width = width,
-                        .height = 24,
+                        .height = 28,
                     },
                 );
                 const bold: vaxis.Style = .{
@@ -1360,7 +1382,9 @@ const Preview = struct {
                         .{ .text = "pub ", .style = color5 },
                         .{ .text = "fn ", .style = color12 },
                         .{ .text = "main", .style = color2 },
-                        .{ .text = "() ", .style = standard },
+                        .{ .text = "(init: ", .style = standard },
+                        .{ .text = "std.process.Init", .style = color12 },
+                        .{ .text = ") ", .style = standard },
                         .{ .text = "!", .style = color5 },
                         .{ .text = "void", .style = color12 },
                         .{ .text = " {", .style = standard },
@@ -1373,10 +1397,11 @@ const Preview = struct {
                 _ = child.print(
                     &.{
                         .{ .text = "   4   │     ", .style = color238 },
-                        .{ .text = "const ", .style = color5 },
-                        .{ .text = "stdout ", .style = standard },
-                        .{ .text = "=", .style = color5 },
-                        .{ .text = " std.Io.getStdOut().writer();", .style = standard },
+                        .{ .text = "var ", .style = color5 },
+                        .{ .text = "buf:", .style = standard },
+                        .{ .text = " [1024]u8", .style = color12 },
+                        .{ .text = " =", .style = color5 },
+                        .{ .text = " undefined;", .style = standard },
                     },
                     .{
                         .row_offset = 7,
@@ -1387,11 +1412,9 @@ const Preview = struct {
                     &.{
                         .{ .text = "   5   │     ", .style = color238 },
                         .{ .text = "var ", .style = color5 },
-                        .{ .text = "i:", .style = standard },
-                        .{ .text = " usize", .style = color12 },
-                        .{ .text = " =", .style = color5 },
-                        .{ .text = " 1", .style = color4 },
-                        .{ .text = ";", .style = standard },
+                        .{ .text = "stdout ", .style = standard },
+                        .{ .text = "=", .style = color5 },
+                        .{ .text = " std.Io.File.stdout().writer(init.io, &buf);", .style = standard },
                     },
                     .{
                         .row_offset = 8,
@@ -1401,6 +1424,43 @@ const Preview = struct {
                 _ = child.print(
                     &.{
                         .{ .text = "   6   │     ", .style = color238 },
+                        .{ .text = "const ", .style = color5 },
+                        .{ .text = "w ", .style = standard },
+                        .{ .text = "=", .style = color5 },
+                        .{ .text = " &stdout.interface;", .style = standard },
+                    },
+                    .{
+                        .row_offset = 9,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "   7   │", .style = color238 },
+                    },
+                    .{
+                        .row_offset = 10,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "   8   │     ", .style = color238 },
+                        .{ .text = "var ", .style = color5 },
+                        .{ .text = "i:", .style = standard },
+                        .{ .text = " usize", .style = color12 },
+                        .{ .text = " =", .style = color5 },
+                        .{ .text = " 1", .style = color4 },
+                        .{ .text = ";", .style = standard },
+                    },
+                    .{
+                        .row_offset = 11,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "   9   │     ", .style = color238 },
                         .{ .text = "while ", .style = color5 },
                         .{ .text = "(i ", .style = standard },
                         .{ .text = "<= ", .style = color5 },
@@ -1411,13 +1471,13 @@ const Preview = struct {
                         .{ .text = ") {", .style = standard },
                     },
                     .{
-                        .row_offset = 9,
+                        .row_offset = 12,
                         .col_offset = 2,
                     },
                 );
                 _ = child.print(
                     &.{
-                        .{ .text = "   7   │         ", .style = color238 },
+                        .{ .text = "  10   │         ", .style = color238 },
                         .{ .text = "if ", .style = color5 },
                         .{ .text = "(i ", .style = standard },
                         .{ .text = "% ", .style = color5 },
@@ -1427,28 +1487,28 @@ const Preview = struct {
                         .{ .text = ") {", .style = standard },
                     },
                     .{
-                        .row_offset = 10,
+                        .row_offset = 13,
                         .col_offset = 2,
                     },
                 );
                 _ = child.print(
                     &.{
-                        .{ .text = "   8   │             ", .style = color238 },
+                        .{ .text = "  11   │             ", .style = color238 },
                         .{ .text = "try ", .style = color5 },
-                        .{ .text = "stdout.writeAll(", .style = standard },
+                        .{ .text = "w.writeAll(", .style = standard },
                         .{ .text = "\"ZiggZagg", .style = color10 },
                         .{ .text = "\\n", .style = color12 },
                         .{ .text = "\"", .style = color10 },
                         .{ .text = ");", .style = standard },
                     },
                     .{
-                        .row_offset = 11,
+                        .row_offset = 14,
                         .col_offset = 2,
                     },
                 );
                 _ = child.print(
                     &.{
-                        .{ .text = "   9   │         ", .style = color238 },
+                        .{ .text = "  12   │         ", .style = color238 },
                         .{ .text = "} ", .style = standard },
                         .{ .text = "else if ", .style = color5 },
                         .{ .text = "(i ", .style = standard },
@@ -1459,28 +1519,28 @@ const Preview = struct {
                         .{ .text = ") {", .style = standard },
                     },
                     .{
-                        .row_offset = 12,
+                        .row_offset = 15,
                         .col_offset = 2,
                     },
                 );
                 _ = child.print(
                     &.{
-                        .{ .text = "  10   │             ", .style = color238 },
+                        .{ .text = "  13   │             ", .style = color238 },
                         .{ .text = "try ", .style = color5 },
-                        .{ .text = "stdout.writeAll(", .style = standard },
+                        .{ .text = "w.writeAll(", .style = standard },
                         .{ .text = "\"Zigg", .style = color10 },
                         .{ .text = "\\n", .style = color12 },
                         .{ .text = "\"", .style = color10 },
                         .{ .text = ");", .style = standard },
                     },
                     .{
-                        .row_offset = 13,
+                        .row_offset = 16,
                         .col_offset = 2,
                     },
                 );
                 _ = child.print(
                     &.{
-                        .{ .text = "  11   │         ", .style = color238 },
+                        .{ .text = "  14   │         ", .style = color238 },
                         .{ .text = "} ", .style = standard },
                         .{ .text = "else if ", .style = color5 },
                         .{ .text = "(i ", .style = standard },
@@ -1491,53 +1551,19 @@ const Preview = struct {
                         .{ .text = ") {", .style = standard },
                     },
                     .{
-                        .row_offset = 14,
-                        .col_offset = 2,
-                    },
-                );
-                _ = child.print(
-                    &.{
-                        .{ .text = "  12   │             ", .style = color238 },
-                        .{ .text = "try ", .style = color5 },
-                        .{ .text = "stdout.writeAll(", .style = standard },
-                        .{ .text = "\"Zagg", .style = color10 },
-                        .{ .text = "\\n", .style = color12 },
-                        .{ .text = "\"", .style = color10 },
-                        .{ .text = ");", .style = standard },
-                    },
-                    .{
-                        .row_offset = 15,
-                        .col_offset = 2,
-                    },
-                );
-                _ = child.print(
-                    &.{
-                        .{ .text = "  13   │         ", .style = color238 },
-                        .{ .text = "} ", .style = standard },
-                        .{ .text = "else ", .style = color5 },
-                        .{ .text = "{", .style = standard },
-                    },
-                    .{
-                        .row_offset = 16,
-                        .col_offset = 2,
-                    },
-                );
-                _ = child.print(
-                    &.{
-                        .{ .text = "  14   │             ", .style = color238 },
-                        .{ .text = "try ", .style = color5 },
-                        .{ .text = "stdout.print(\"{d}\\n\", .{i})", .style = standard_selection },
-                        .{ .text = ";", .style = cursor },
-                    },
-                    .{
                         .row_offset = 17,
                         .col_offset = 2,
                     },
                 );
                 _ = child.print(
                     &.{
-                        .{ .text = "  15   │         ", .style = color238 },
-                        .{ .text = "}", .style = standard },
+                        .{ .text = "  15   │             ", .style = color238 },
+                        .{ .text = "try ", .style = color5 },
+                        .{ .text = "w.writeAll(", .style = standard },
+                        .{ .text = "\"Zagg", .style = color10 },
+                        .{ .text = "\\n", .style = color12 },
+                        .{ .text = "\"", .style = color10 },
+                        .{ .text = ");", .style = standard },
                     },
                     .{
                         .row_offset = 18,
@@ -1546,8 +1572,10 @@ const Preview = struct {
                 );
                 _ = child.print(
                     &.{
-                        .{ .text = "  16   │     ", .style = color238 },
-                        .{ .text = "}", .style = standard },
+                        .{ .text = "  16   │         ", .style = color238 },
+                        .{ .text = "} ", .style = standard },
+                        .{ .text = "else ", .style = color5 },
+                        .{ .text = "{", .style = standard },
                     },
                     .{
                         .row_offset = 19,
@@ -1556,11 +1584,54 @@ const Preview = struct {
                 );
                 _ = child.print(
                     &.{
-                        .{ .text = "  17   │ ", .style = color238 },
-                        .{ .text = "}", .style = standard },
+                        .{ .text = "  17   │             ", .style = color238 },
+                        .{ .text = "try ", .style = color5 },
+                        .{ .text = "w.print(\"{d}\\n\", .{i})", .style = standard_selection },
+                        .{ .text = ";", .style = cursor },
                     },
                     .{
                         .row_offset = 20,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "  18   │         ", .style = color238 },
+                        .{ .text = "}", .style = standard },
+                    },
+                    .{
+                        .row_offset = 21,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "  19   │     ", .style = color238 },
+                        .{ .text = "}", .style = standard },
+                    },
+                    .{
+                        .row_offset = 22,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "  20   │     ", .style = color238 },
+                        .{ .text = "try ", .style = color5 },
+                        .{ .text = "w.flush();", .style = standard },
+                    },
+                    .{
+                        .row_offset = 23,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "  21   │ ", .style = color238 },
+                        .{ .text = "}", .style = standard },
+                    },
+                    .{
+                        .row_offset = 24,
                         .col_offset = 2,
                     },
                 );
@@ -1573,7 +1644,7 @@ const Preview = struct {
                             },
                         },
                         .{
-                            .row_offset = 21,
+                            .row_offset = 25,
                             .col_offset = 2,
                         },
                     );
@@ -1588,7 +1659,7 @@ const Preview = struct {
                                     },
                                 },
                                 .{
-                                    .row_offset = 21,
+                                    .row_offset = 25,
                                     .col_offset = col,
                                 },
                             );
@@ -1602,12 +1673,12 @@ const Preview = struct {
                         .{ .text = " main ", .style = color4 },
                         .{ .text = "[+] ", .style = color1 },
                         .{ .text = "via ", .style = standard },
-                        .{ .text = " v0.13.0 ", .style = color3 },
+                        .{ .text = " v0.16.0 ", .style = color3 },
                         .{ .text = "via ", .style = standard },
                         .{ .text = "  impure (ghostty-env)", .style = color4 },
                     },
                     .{
-                        .row_offset = 22,
+                        .row_offset = 26,
                         .col_offset = 2,
                     },
                 );
@@ -1619,7 +1690,7 @@ const Preview = struct {
                         .{ .text = "→", .style = color2 },
                     },
                     .{
-                        .row_offset = 23,
+                        .row_offset = 27,
                         .col_offset = 2,
                     },
                 );

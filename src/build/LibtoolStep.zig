@@ -33,7 +33,15 @@ pub fn create(b: *std.Build, opts: Options) *LibtoolStep {
     const run_step = RunStep.create(b, b.fmt("libtool {s}", .{opts.name}));
     run_step.addArgs(&.{ "libtool", "-static", "-o" });
     const output = run_step.addOutputFileArg(opts.out_name);
-    for (opts.sources) |source| run_step.addFileArg(source);
+    for (opts.sources, 0..) |source, i| {
+        run_step.addFileArg(normalizeArchive(
+            b,
+            opts.name,
+            opts.out_name,
+            i,
+            source,
+        ));
+    }
 
     self.* = .{
         .step = &run_step.step,
@@ -41,4 +49,30 @@ pub fn create(b: *std.Build, opts: Options) *LibtoolStep {
     };
 
     return self;
+}
+
+fn normalizeArchive(
+    b: *std.Build,
+    step_name: []const u8,
+    out_name: []const u8,
+    index: usize,
+    source: LazyPath,
+) LazyPath {
+    // Newer Xcode libtool can drop 64-bit archive members if the input
+    // archive layout doesn't match what it expects. ranlib rewrites the
+    // archive without flattening members through the filesystem, so we
+    // normalize each source archive first. This is a Zig/toolchain
+    // interoperability workaround, not a Ghostty archive format change.
+    const run_step = RunStep.create(
+        b,
+        b.fmt("ranlib {s} #{d}", .{ step_name, index }),
+    );
+    run_step.addArgs(&.{
+        "/bin/sh",
+        "-c",
+        "/bin/cp \"$1\" \"$2\" && /usr/bin/ranlib \"$2\"",
+        "_",
+    });
+    run_step.addFileArg(source);
+    return run_step.addOutputFileArg(b.fmt("{d}-{s}", .{ index, out_name }));
 }

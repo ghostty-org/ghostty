@@ -2,3 +2,5 @@
 dist/
 node_modules/
 example.wasm*
+build/
+.build/

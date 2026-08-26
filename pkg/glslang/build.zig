@@ -26,7 +26,7 @@ pub fn build(b: *std.Build) !void {
                 .optimize = optimize,
             }),
         });
-        test_exe.linkLibrary(lib);
+        test_exe.root_module.linkLibrary(lib);
         const tests_run = b.addRunArtifact(test_exe);
         const test_step = b.step("test", "Run tests");
         test_step.dependOn(&tests_run.step);
@@ -47,13 +47,18 @@ fn buildGlslang(
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
+            // On MSVC, we must not use linkLibCpp because Zig unconditionally
+            // passes -nostdinc++ and then adds its bundled libc++/libc++abi
+            // include paths, which conflict with MSVC's own C++ runtime
+            // headers. The MSVC SDK include directories (added via linkLibC)
+            // contain both C and C++ headers, so linkLibCpp is not needed.
+            .link_libcpp = target.result.abi != .msvc,
         }),
         .linkage = .static,
     });
-    lib.linkLibC();
-    lib.linkLibCpp();
-    if (upstream_) |upstream| lib.addIncludePath(upstream.path(""));
-    lib.addIncludePath(b.path("override"));
+    if (upstream_) |upstream| lib.root_module.addIncludePath(upstream.path(""));
+    lib.root_module.addIncludePath(b.path("override"));
     if (target.result.os.tag.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
         try apple_sdk.addPaths(b, lib);
@@ -65,13 +70,17 @@ fn buildGlslang(
         "-fno-sanitize=undefined",
         "-fno-sanitize-trap=undefined",
     });
+    // MSVC requires explicit std specification otherwise C++17 features
+    // like std::variant, std::filesystem, and inline variables are
+    // guarded behind _HAS_CXX17.
+    try flags.append(b.allocator, "-std=c++17");
 
     if (target.result.os.tag == .freebsd or target.result.abi == .musl) {
         try flags.append(b.allocator, "-fPIC");
     }
 
     if (upstream_) |upstream| {
-        lib.addCSourceFiles(.{
+        lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .flags = flags.items,
             .files = &.{
@@ -130,7 +139,7 @@ fn buildGlslang(
         });
 
         if (target.result.os.tag != .windows) {
-            lib.addCSourceFiles(.{
+            lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .flags = flags.items,
                 .files = &.{
@@ -138,7 +147,7 @@ fn buildGlslang(
                 },
             });
         } else {
-            lib.addCSourceFiles(.{
+            lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .flags = flags.items,
                 .files = &.{

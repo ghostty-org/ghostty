@@ -7,6 +7,8 @@ const CircBuf = @import("../../datastruct/main.zig").CircBuf;
 const Surface = @import("../../Surface.zig");
 const screen = @import("screen.zig");
 
+const log = std.log.scoped(.inspector_terminal_io);
+
 /// VT event stream inspector widget.
 pub const Stream = struct {
     events: VTEvent.Ring,
@@ -30,7 +32,10 @@ pub const Stream = struct {
 
         return .{
             .events = events,
-            .parser_stream = .initAlloc(alloc, handler),
+            .parser_stream = .init(.{
+                .allocator = alloc,
+                .handler = handler,
+            }),
         };
     }
 
@@ -54,14 +59,15 @@ pub const Stream = struct {
             .events = &self.events,
         };
         defer self.parser_stream.handler.state = null;
-        try self.parser_stream.nextSlice(data);
+        self.parser_stream.nextSlice(data);
     }
 
     pub fn draw(
         self: *Stream,
-        alloc: Allocator,
+        surface: *Surface,
         palette: *const terminal.color.Palette,
     ) void {
+        const alloc = surface.alloc;
         const events = &self.events;
         const handler = &self.parser_stream.handler;
         const popup_filter = "Filter";
@@ -92,6 +98,16 @@ pub const Stream = struct {
                     events.clear();
 
                     handler.current_seq = 1;
+                }
+
+                cimgui.c.ImGui_SameLineEx(0, cimgui.c.ImGui_GetStyle().*.ItemInnerSpacing.x);
+                if (cimgui.c.ImGui_Button("Copy")) {
+                    self.copyEvents(surface);
+                }
+
+                cimgui.c.ImGui_SameLineEx(0, cimgui.c.ImGui_GetStyle().*.ItemInnerSpacing.x);
+                if (cimgui.c.ImGui_Button("Export to file")) {
+                    self.exportEvents(surface);
                 }
             }
         }
@@ -329,6 +345,73 @@ pub const Stream = struct {
                 cimgui.c.ImGui_CloseCurrentPopup();
             }
         } // filter popup
+    }
+
+    /// Copy all recorded events to the standard clipboard in chronological
+    /// order.
+    fn copyEvents(
+        self: *const Stream,
+        surface: *Surface,
+    ) void {
+        const alloc = surface.alloc;
+        const contents = self.formatEvents(alloc) catch |err| {
+            log.err("failed to format terminal IO events for copy err={}", .{err});
+            return;
+        };
+        defer alloc.free(contents);
+
+        surface.rt_surface.setClipboard(.standard, &.{.{
+            .mime = "text/plain",
+            .data = contents,
+        }}, false) catch |err| {
+            log.err("failed to copy terminal IO events err={}", .{err});
+        };
+    }
+
+    /// Ask the application runtime to save all recorded events to a file.
+    fn exportEvents(
+        self: *const Stream,
+        surface: *Surface,
+    ) void {
+        const alloc = surface.alloc;
+        const contents = self.formatEvents(alloc) catch |err| {
+            log.err("failed to format terminal IO events for export err={}", .{err});
+            return;
+        };
+        defer alloc.free(contents);
+
+        const handled = surface.rt_app.performAction(
+            .{ .surface = surface },
+            .export_terminal_io,
+            .{ .contents = contents },
+        ) catch |err| {
+            log.err("failed to export terminal IO events err={}", .{err});
+            return;
+        };
+        if (!handled) {
+            log.warn("application runtime does not support exporting terminal IO events", .{});
+        }
+    }
+
+    /// Format all recorded events as tab-separated text. Events are exported
+    /// oldest-first even though the inspector displays the newest event first.
+    fn formatEvents(
+        self: *const Stream,
+        alloc: Allocator,
+    ) ![:0]u8 {
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        errdefer buf.deinit();
+
+        try buf.writer.writeAll("Seq\tKind\tDescription\n");
+        var it = self.events.iterator(.forward);
+        while (it.next()) |ev| {
+            try buf.writer.print(
+                "{d}\t{s}\t{s}\n",
+                .{ ev.seq, @tagName(ev.kind), ev.raw_description },
+            );
+        }
+
+        return try buf.toOwnedSliceSentinel(0);
     }
 };
 
@@ -736,7 +819,7 @@ const VTHandler = struct {
         self: *VTHandler,
         comptime action: VTHandler.Stream.Action.Tag,
         value: VTHandler.Stream.Action.Value(action),
-    ) !void {
+    ) void {
         _ = self;
         _ = value;
     }
@@ -793,8 +876,6 @@ const VTHandler = struct {
                 vt_events.deleteOldest(1);
                 try vt_events.append(ev);
             },
-
-            else => return err,
         };
 
         // Do NOT skip it, because we want to record more information

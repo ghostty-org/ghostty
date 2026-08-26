@@ -16,21 +16,36 @@ extension Ghostty {
     /// (F1, F2, ...) with a KeyboardShortcut. This doesn't represent a practical issue because input
     /// handling for Ghostty is handled at a lower level (usually). This function should generally only
     /// be used for things like NSMenu that only support keyboard shortcuts anyways.
-    static func keyboardShortcut(for trigger: ghostty_input_trigger_s) -> KeyboardShortcut? {
+    @MainActor static func keyboardShortcut(for trigger: ghostty_input_trigger_s) -> KeyboardShortcut? {
+        let modifierFlags = Self.eventModifierFlags(mods: trigger.mods)
         let key: KeyEquivalent
         switch trigger.tag {
         case GHOSTTY_TRIGGER_PHYSICAL:
-            // Only functional keys can be converted to a KeyboardShortcut. Other physical
-            // mappings cannot because KeyboardShortcut in Swift is inherently layout-dependent.
-            if let equiv = Self.keyToEquivalent[trigger.key.physical] {
-                key = equiv
+            let physical = trigger.key.physical
+            if let equivalent = Self.keyToEquivalent[physical] {
+                key = equivalent
             } else {
-                return nil
+                guard
+                    Self.writingSystemKeyRange.contains(physical.rawValue),
+                    let inputKey = Input.Key(cKey: physical),
+                    let keyCode = inputKey.keyCode,
+                    // Command can select a distinct layout table. Other modifiers remain
+                    // separate in the menu's modifier mask and must not affect this character.
+                    let character = KeyboardLayout.character(
+                        for: keyCode,
+                        modifiers: modifierFlags.intersection(.command))
+                else { return nil }
+
+                // Printable physical keys must be translated through the current layout.
+                key = KeyEquivalent(character)
             }
 
         case GHOSTTY_TRIGGER_UNICODE:
-            guard let scalar = UnicodeScalar(trigger.key.unicode) else { return nil }
-            key = KeyEquivalent(Character(scalar))
+            guard
+                let scalar = UnicodeScalar(trigger.key.unicode),
+                let normalized = Character(scalar).lowercased().first
+            else { return nil }
+            key = KeyEquivalent(normalized)
 
         case GHOSTTY_TRIGGER_CATCH_ALL:
             // catch_all matches any key, so it can't be represented as a KeyboardShortcut
@@ -42,7 +57,7 @@ extension Ghostty {
 
         return KeyboardShortcut(
             key,
-            modifiers: EventModifiers(nsFlags: Ghostty.eventModifierFlags(mods: trigger.mods)))
+            modifiers: EventModifiers(nsFlags: modifierFlags))
     }
 
     // MARK: Mods
@@ -89,7 +104,7 @@ extension Ghostty {
         GHOSTTY_KEY_ARROW_RIGHT: .rightArrow,
         GHOSTTY_KEY_HOME: .home,
         GHOSTTY_KEY_END: .end,
-        GHOSTTY_KEY_DELETE: .delete,
+        GHOSTTY_KEY_DELETE: .deleteForward,
         GHOSTTY_KEY_PAGE_UP: .pageUp,
         GHOSTTY_KEY_PAGE_DOWN: .pageDown,
         GHOSTTY_KEY_ESCAPE: .escape,
@@ -98,6 +113,10 @@ extension Ghostty {
         GHOSTTY_KEY_BACKSPACE: .delete,
         GHOSTTY_KEY_SPACE: .space,
     ]
+
+    /// The contiguous W3C "Writing System Keys" § 3.1.1 key range.
+    private static let writingSystemKeyRange =
+        GHOSTTY_KEY_BACKQUOTE.rawValue...GHOSTTY_KEY_SLASH.rawValue
 }
 
 // MARK: Ghostty.Input.BindingFlags
@@ -515,7 +534,6 @@ extension Ghostty.Input.Momentum: AppEnum {
     ]
 }
 
-#if canImport(AppKit)
 import AppKit
 
 extension Ghostty.Input.Momentum {
@@ -532,7 +550,6 @@ extension Ghostty.Input.Momentum {
         }
     }
 }
-#endif
 
 // MARK: Ghostty.Input.Mods
 
@@ -770,14 +787,15 @@ extension Ghostty.Input {
         case cut
         case paste
 
+        init?(cKey: ghostty_input_key_e) {
+            guard let key = Key.allCases.first(where: { $0.cKey == cKey }) else { return nil }
+            self = key
+        }
+
         /// Get a key from a keycode
         init?(keyCode: UInt16) {
-            if let key = Key.allCases.first(where: { $0.keyCode == keyCode }) {
-                self = key
-                return
-            }
-
-            return nil
+            guard let key = Key.allCases.first(where: { $0.keyCode == keyCode }) else { return nil }
+            self = key
         }
 
         var cKey: ghostty_input_key_e {
