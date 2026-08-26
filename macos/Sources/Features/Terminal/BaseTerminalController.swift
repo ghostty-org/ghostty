@@ -1239,11 +1239,6 @@ class BaseTerminalController: NSWindowController,
         // without separately tracking NSWindow lifecycle events.
         if bell {
             bell = false
-            NotificationCenter.default.post(
-                name: .terminalWindowBellDidChangeNotification,
-                object: self,
-                userInfo: [Notification.Name.terminalWindowHasBellKey: false]
-            )
         }
 
         // I don't know if this is required anymore. We previously had a ref cycle between
@@ -1699,11 +1694,6 @@ extension BaseTerminalController {
             .sink { [weak self] hasBell in
                 guard let self else { return }
                 bell = hasBell
-                NotificationCenter.default.post(
-                    name: .terminalWindowBellDidChangeNotification,
-                    object: self,
-                    userInfo: [Notification.Name.terminalWindowHasBellKey: hasBell]
-                )
             }
     }
 
@@ -1730,12 +1720,4 @@ extension BaseTerminalController {
             .switchToLatest()
             .eraseToAnyPublisher()
     }
-}
-
-// MARK: Notifications
-
-extension Notification.Name {
-    /// Terminal window aggregate bell state changed.
-    static let terminalWindowBellDidChangeNotification = Notification.Name("com.mitchellh.ghostty.terminalWindowBellDidChange")
-    static let terminalWindowHasBellKey = terminalWindowBellDidChangeNotification.rawValue + ".hasBell"
 }

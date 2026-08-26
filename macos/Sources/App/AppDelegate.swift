@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UserNotifications
 import OSLog
@@ -165,6 +166,10 @@ class AppDelegate: NSObject,
     /// The observer for the app appearance.
     private var appearanceObserver: NSKeyValueObservation?
 
+    private var bellObserver: AnyCancellable?
+    // Save current bell count so we can display it after permission is granted.
+    private var bellCount = 0
+
     /// Signals
     private var signals: [DispatchSourceSignal] = []
 
@@ -277,12 +282,6 @@ class AppDelegate: NSObject,
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(terminalWindowHasBell(_:)),
-            name: .terminalWindowBellDidChangeNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
             selector: #selector(ghosttyNewWindow(_:)),
             name: Ghostty.Notification.ghosttyNewWindow,
             object: nil)
@@ -325,6 +324,8 @@ class AppDelegate: NSObject,
 
             ghostty_app_set_color_scheme(app, scheme)
         }
+
+        setupBellNotificationPublisher()
 
         // Setup our menu
         setupMenuImages()
@@ -660,6 +661,25 @@ class AppDelegate: NSObject,
         TerminalController.all.forEach { $0.relabelTabs() }
     }
 
+    // MARK: - Bell
+
+    private func setupBellNotificationPublisher() {
+        bellObserver = NSApp.publisher(for: \.windows, options: [.initial, .new])
+            .map { windows in
+                windows.compactMap({ $0.windowController as? BaseTerminalController })
+            }
+            .flatMap { controllers in
+                Publishers.MergeMany(controllers.map { controller in
+                    controller.surfaceValuesPublisher(valueKeyPath: \.bell, publisherKeyPath: \.$bell)
+                })
+            }
+            .map({ $0.filter { $0.value }.count })
+            .sink { [weak self] in
+                self?.bellCount = $0
+                self?.syncDockBadge()
+            }
+    }
+
     @objc private func ghosttyBellDidRing(_ notification: Notification) {
         if ghostty.config.bellFeatures.contains(.system) {
             NSSound.beep()
@@ -677,11 +697,6 @@ class AppDelegate: NSObject,
             // Bounce the dock icon if we're not focused.
             NSApp.requestUserAttention(.informationalRequest)
         }
-    }
-
-    @objc private func terminalWindowHasBell(_ notification: Notification) {
-        guard notification.object is BaseTerminalController else { return }
-        syncDockBadge()
     }
 
     private func requestBadgeAuthorizationAndSet(_ center: UNUserNotificationCenter) {
@@ -753,9 +768,6 @@ class AppDelegate: NSObject,
     }
 
     private func setDockBadge() {
-        let bellCount = NSApp.windows
-            .compactMap { $0.windowController as? BaseTerminalController }
-            .reduce(0) { $0 + ($1.bell ? 1 : 0) }
         let wantsBadge = ghostty.config.bellFeatures.contains(.attention) && bellCount > 0
         let label = wantsBadge ? (bellCount > 99 ? "99+" : String(bellCount)) : nil
         NSApp.dockTile.badgeLabel = label
