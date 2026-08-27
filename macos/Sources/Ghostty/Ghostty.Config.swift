@@ -413,6 +413,46 @@ extension Ghostty {
             )
         }
 
+        var macosTabBellOutline: Bool {
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "macos-tab-bell-outline"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
+        private static let defaultMacOSTabBellOutlineColor = Color(
+            red: Double(0xFF) / 255,
+            green: Double(0x9F) / 255,
+            blue: Double(0x0A) / 255
+        )
+
+        var macosTabBellOutlineColor: Color {
+            guard let config = self.config else {
+                return Self.defaultMacOSTabBellOutlineColor
+            }
+
+            var color: ghostty_config_color_s = .init()
+            let key = "macos-tab-bell-outline-color"
+            if !ghostty_config_get(config, &color, key, UInt(key.lengthOfBytes(using: .utf8))) {
+                return Self.defaultMacOSTabBellOutlineColor
+            }
+
+            return .init(
+                red: Double(color.r) / 255,
+                green: Double(color.g) / 255,
+                blue: Double(color.b) / 255
+            )
+        }
+
+        var macosTabBellOutlineWidth: Double {
+            guard let config = self.config else { return 2 }
+            var v: Double = 2
+            let key = "macos-tab-bell-outline-width"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return max(0, v)
+        }
+
         private static let defaultMacOSBroadcastBadgeColor = Color(
             red: Double(0x0A) / 255,
             green: Double(0x84) / 255,

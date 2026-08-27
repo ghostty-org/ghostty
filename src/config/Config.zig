@@ -3461,6 +3461,33 @@ keybind: Keybinds = .{},
 /// The default value is a fluorescent green.
 @"macos-tab-border-color": Color = .{ .r = 0x39, .g = 0xFF, .b = 0x14 },
 
+/// Whether to outline tabs in the vertical tab sidebar that are ringing
+/// the bell (for example, a program such as an AI coding agent prompting
+/// for input while its tab isn't focused). This makes it easy to spot,
+/// at a glance, which of several tabs are waiting on you.
+///
+/// This option only has an effect when `macos-tabs-location` is set to
+/// `left` or `right`.
+///
+/// The default value is `true`.
+@"macos-tab-bell-outline": bool = true,
+
+/// The outline color for a tab in the vertical tab sidebar that is
+/// ringing the bell. See `macos-tab-bell-outline`.
+///
+/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
+///
+/// The default value is orange.
+@"macos-tab-bell-outline-color": Color = .{ .r = 0xFF, .g = 0x9F, .b = 0x0A },
+
+/// The width in points of the bell outline drawn around a tab in the
+/// vertical tab sidebar. See `macos-tab-bell-outline`.
+///
+/// Decimal values are allowed.
+///
+/// The default value is `2`.
+@"macos-tab-bell-outline-width": f64 = 2.0,
+
 /// Additional arguments to pass to the `ssh` command when launching a
 /// macOS cssh window via `ghostty +cssh`.
 ///

@@ -10,6 +10,16 @@ struct VerticalTabSidebar: View {
     /// Border color for the selected tab row.
     var selectedBorderColor: Color
 
+    /// Whether to outline tab rows whose window is ringing the bell (e.g. an
+    /// AI coding agent waiting for input).
+    var bellOutlineEnabled: Bool = true
+
+    /// Outline color for tab rows that are ringing the bell.
+    var bellOutlineColor: Color = .orange
+
+    /// Outline width for tab rows that are ringing the bell.
+    var bellOutlineWidth: CGFloat = 2
+
     /// The window controller that manages the tabs
     weak var windowController: BaseTerminalController?
 
@@ -40,11 +50,17 @@ struct VerticalTabSidebar: View {
     init(
         tabColorEnabled: Bool,
         selectedBorderColor: Color,
+        bellOutlineEnabled: Bool = true,
+        bellOutlineColor: Color = .orange,
+        bellOutlineWidth: CGFloat = 2,
         windowController: BaseTerminalController?,
         isRightSide: Bool = false
     ) {
         self.tabColorEnabled = tabColorEnabled
         self.selectedBorderColor = selectedBorderColor
+        self.bellOutlineEnabled = bellOutlineEnabled
+        self.bellOutlineColor = bellOutlineColor
+        self.bellOutlineWidth = bellOutlineWidth
         self.windowController = windowController
         self.isRightSide = isRightSide
         self._tabModel = ObservedObject(
@@ -72,6 +88,9 @@ struct VerticalTabSidebar: View {
                                 hasCustomTitle: tab.hasCustomTitle,
                                 color: tabColorEnabled ? tab.color : nil,
                                 selectedBorderColor: selectedBorderColor,
+                                hasBell: bellOutlineEnabled && tab.hasBell,
+                                bellOutlineColor: bellOutlineColor,
+                                bellOutlineWidth: bellOutlineWidth,
                                 onSelect: {
                                     selectTab(tab.window)
                                 },
@@ -135,6 +154,9 @@ struct VerticalTabSidebar: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyVerticalTabsDidChange)) { notification in
             guard shouldRefresh(for: notification) else { return }
+            refreshTabs()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .terminalWindowBellDidChangeNotification)) { _ in
             refreshTabs()
         }
         .sheet(isPresented: $isShowingRenameDialog) {
@@ -260,6 +282,7 @@ struct VerticalTabSidebar: View {
         let colorIndex: Int
         let customTabColor: TerminalTabColor
         let hasCustomTitle: Bool
+        let hasBell: Bool
 
         init(
             window: NSWindow,
@@ -283,6 +306,7 @@ struct VerticalTabSidebar: View {
             self.id = ObjectIdentifier(window)
             self.hasCustomTitle = self.titleOverride != nil
             self.title = self.titleOverride ?? resolvedTitle
+            self.hasBell = controller?.bell ?? false
         }
     }
 
@@ -393,6 +417,9 @@ struct VerticalTabSidebar: View {
         let hasCustomTitle: Bool
         let color: Color?
         let selectedBorderColor: Color
+        let hasBell: Bool
+        let bellOutlineColor: Color
+        let bellOutlineWidth: CGFloat
         let onSelect: () -> Void
         let onClose: () -> Void
         let onRename: () -> Void
@@ -460,6 +487,10 @@ struct VerticalTabSidebar: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(borderColor, lineWidth: isSelected ? 2.5 : 0)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(hasBell ? bellOutlineColor : Color.clear, lineWidth: bellOutlineWidth)
             )
             .contentShape(Rectangle())
             .onTapGesture {
@@ -549,7 +580,8 @@ struct VerticalTabSidebar: View {
                 new.title != old.title ||
                 new.hasCustomTitle != old.hasCustomTitle ||
                 new.customTabColor != old.customTabColor ||
-                new.colorIndex != old.colorIndex
+                new.colorIndex != old.colorIndex ||
+                new.hasBell != old.hasBell
             }
 
         if changed {

@@ -92,6 +92,9 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         VerticalTabSidebar(
                             tabColorEnabled: ghostty.config.macosTabColor,
                             selectedBorderColor: ghostty.config.macosTabBorderColor,
+                            bellOutlineEnabled: ghostty.config.macosTabBellOutline,
+                            bellOutlineColor: ghostty.config.macosTabBellOutlineColor,
+                            bellOutlineWidth: ghostty.config.macosTabBellOutlineWidth,
                             windowController: windowController,
                             isRightSide: false
                         )
@@ -134,6 +137,9 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         VerticalTabSidebar(
                             tabColorEnabled: ghostty.config.macosTabColor,
                             selectedBorderColor: ghostty.config.macosTabBorderColor,
+                            bellOutlineEnabled: ghostty.config.macosTabBellOutline,
+                            bellOutlineColor: ghostty.config.macosTabBellOutlineColor,
+                            bellOutlineWidth: ghostty.config.macosTabBellOutlineWidth,
                             windowController: windowController,
                             isRightSide: true
                         )

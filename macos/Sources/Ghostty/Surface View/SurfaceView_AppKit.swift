@@ -109,6 +109,10 @@ extension Ghostty {
         /// True when the bell is active. This is set inactive on focus or event.
         @Published private(set) var bell: Bool = false
 
+        /// True when this surface has an undelivered/pending desktop notification
+        /// (OSC 9 / OSC 777), such as an AI coding agent prompting for input.
+        @Published private(set) var hasPendingNotification: Bool = false
+
         /// A clipboard confirmation waiting to be handled by its controller.
         @Published var pendingClipboardConfirmation: ClipboardConfirmationRequest? {
             didSet {
@@ -189,7 +193,9 @@ extension Ghostty {
         var scrollbar: Ghostty.Action.Scrollbar?
 
         // Notification identifiers associated with this surface
-        var notificationIdentifiers: Set<String> = []
+        var notificationIdentifiers: Set<String> = [] {
+            didSet { hasPendingNotification = !notificationIdentifiers.isEmpty }
+        }
 
         private var markedText: NSMutableAttributedString
         private(set) var focused: Bool = true
