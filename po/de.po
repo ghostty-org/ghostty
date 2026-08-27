@@ -44,7 +44,7 @@ msgstr "Erlauben"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
 msgid "Remember choice for this split"
-msgstr "Auswahl für dieses geteilte Fenster beibehalten"
+msgstr "Auswahl für diesen Bereich beibehalten"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
 msgid "Reload configuration to show this prompt again"
@@ -141,7 +141,7 @@ msgstr "Einfügen"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:326
 msgid "Notify on Next Command Finish"
-msgstr "Bei Abschluss des nächsten Befehls benachrichtigen"
+msgstr "Nach Befehlsende melden"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
@@ -153,35 +153,35 @@ msgstr "Zurücksetzen"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split"
-msgstr "Fenster teilen"
+msgstr "Bereich"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:348 src/apprt/gtk/ui/1.5/window.blp:253
 msgid "Change Title…"
-msgstr "Titel bearbeiten…"
+msgstr "Bereichtitel ändern…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:353 src/apprt/gtk/ui/1.5/window.blp:180
 #: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:487
 msgid "Split Up"
-msgstr "Fenster nach oben teilen"
+msgstr "Nach oben teilen"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:359 src/apprt/gtk/ui/1.5/window.blp:185
 #: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:492
 msgid "Split Down"
-msgstr "Fenster nach unten teilen"
+msgstr "Nach unten teilen"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:365 src/apprt/gtk/ui/1.5/window.blp:190
 #: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
 msgid "Split Left"
-msgstr "Fenster nach links teilen"
+msgstr "Nach links teilen"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:195
 #: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
 msgid "Split Right"
-msgstr "Fenster nach rechts teilen"
+msgstr "Nach rechts teilen"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:377
 msgid "Close Split"
-msgstr "Geteiltes Fenster schließen"
+msgstr "Bereich schließen"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:383
 msgid "Tab"
@@ -190,7 +190,7 @@ msgstr "Tab"
 #: src/apprt/gtk/ui/1.2/surface.blp:386 src/apprt/gtk/ui/1.5/window.blp:232
 #: src/apprt/gtk/ui/1.5/window.blp:339 src/input/command.zig:464
 msgid "Change Tab Title…"
-msgstr "Tab-Titel ändern…"
+msgstr "Tabtitel ändern…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:391 src/apprt/gtk/ui/1.5/window.blp:60
 #: src/apprt/gtk/ui/1.5/window.blp:110 src/apprt/gtk/ui/1.5/window.blp:237
@@ -243,7 +243,7 @@ msgstr "OK"
 
 #: src/apprt/gtk/ui/1.5/window.blp:61 src/apprt/gtk/ui/1.5/window.blp:111
 msgid "New Split"
-msgstr "Neues geteiltes Fenster"
+msgstr "Neuer Bereich"
 
 #: src/apprt/gtk/ui/1.5/window.blp:71 src/apprt/gtk/ui/1.5/window.blp:129
 msgid "View Open Tabs"
@@ -339,7 +339,7 @@ msgstr "Fenster schließen?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:187
 msgid "Close Split?"
-msgstr "Geteiltes Fenster schließen?"
+msgstr "Bereich schließen?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions will be terminated."
@@ -355,7 +355,7 @@ msgstr "Alle Terminalsitzungen in diesem Fenster werden beendet."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:196
 msgid "The currently running process in this split will be terminated."
-msgstr "Der aktuell laufende Prozess in diesem geteilten Fenster wird beendet."
+msgstr "Der aktuell laufende Prozess in diesem Bereich wird beendet."
 
 #: src/apprt/gtk/class/surface.zig:1181
 msgid "Command Finished"
@@ -863,51 +863,51 @@ msgstr "Bereich nach unten teilen."
 
 #: src/input/command.zig:500
 msgid "Focus Split: Previous"
-msgstr "Zum vorherigen Split wechseln"
+msgstr "Zum vorherigen Bereich wechseln"
 
 #: src/input/command.zig:501
 msgid "Focus the previous split, if any."
-msgstr "Zum vorherigen Split wechseln, falls vorhanden."
+msgstr "Zum vorherigen Bereich wechseln, falls vorhanden."
 
 #: src/input/command.zig:505
 msgid "Focus Split: Next"
-msgstr "Zum nächsten Split wechseln"
+msgstr "Zum nächsten Bereich wechseln"
 
 #: src/input/command.zig:506
 msgid "Focus the next split, if any."
-msgstr "Zum nächsten Split wechseln, falls vorhanden."
+msgstr "Zum nächsten Bereich wechseln, falls vorhanden."
 
 #: src/input/command.zig:510
 msgid "Focus Split: Left"
-msgstr "Zum linken Split wechseln"
+msgstr "Zum linken Bereich wechseln"
 
 #: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
-msgstr "Zum linken Split wechseln, falls vorhanden."
+msgstr "Zum linken Bereich wechseln, falls vorhanden."
 
 #: src/input/command.zig:515
 msgid "Focus Split: Right"
-msgstr "Zum rechten Split wechseln"
+msgstr "Zum rechten Bereich wechseln"
 
 #: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
-msgstr "Zum rechten Split wechseln, falls vorhanden."
+msgstr "Zum rechten Bereich wechseln, falls vorhanden."
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
-msgstr "Zum oberen Split wechseln"
+msgstr "Zum oberen Bereich wechseln"
 
 #: src/input/command.zig:521
 msgid "Focus the split above, if it exists."
-msgstr "Zum oberen Split wechseln, falls vorhanden."
+msgstr "Zum oberen Bereich wechseln, falls vorhanden."
 
 #: src/input/command.zig:525
 msgid "Focus Split: Down"
-msgstr "Zum unteren Split wechseln"
+msgstr "Zum unteren Bereich wechseln"
 
 #: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
-msgstr "Zum unteren Split wechseln, falls vorhanden."
+msgstr "Zum unteren Bereich wechseln, falls vorhanden."
 
 #: src/input/command.zig:533
 msgid "Focus Window: Previous"
@@ -927,11 +927,11 @@ msgstr "Zum nächsten Fenster wechseln, falls vorhanden."
 
 #: src/input/command.zig:545
 msgid "Toggle Split Zoom"
-msgstr "Split-Zoom umschalten"
+msgstr "Bereichs-Zoom umschalten"
 
 #: src/input/command.zig:546
 msgid "Toggle the zoom state of the current split."
-msgstr "Zoom des aktuellen Splits umschalten."
+msgstr "Zoom des aktuellen Bereichs umschalten."
 
 #: src/input/command.zig:551
 msgid "Toggle Read-Only Mode"
@@ -943,11 +943,11 @@ msgstr "Schreibgeschützten Modus für den aktuellen Bereich umschalten."
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
-msgstr "Splits angleichen"
+msgstr "Bereiche angleichen"
 
 #: src/input/command.zig:558
 msgid "Equalize the size of all splits."
-msgstr "Größe aller Splits angleichen."
+msgstr "Größe aller Bereiche angleichen."
 
 #: src/input/command.zig:563
 msgid "Reset Window Size"
