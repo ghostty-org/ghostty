@@ -2167,7 +2167,7 @@ pub fn Stream(comptime H: type) type {
 
                 // DECRQM - Request Mode
                 'p' => switch (input.intermediates.len) {
-                    2 => decrqm: {
+                    1, 2 => decrqm: {
                         const ansi_mode = ansi: {
                             switch (input.intermediates.len) {
                                 1 => if (input.intermediates[0] == '$') break :ansi true,
@@ -3426,6 +3426,36 @@ test "stream: ansi set mode (SM) and reset mode (RM) with unknown value" {
 
     s.nextSlice("\x1B[6l");
     try testing.expect(s.handler.mode == null);
+}
+
+test "stream: ansi request mode (DECRQM) known and unknown" {
+    const H = struct {
+        requested: ?modes.Mode = null,
+        unknown: ?Action.RawMode = null,
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: Action.Tag,
+            value: Action.Value(action),
+        ) void {
+            switch (action) {
+                .request_mode => self.requested = value.mode,
+                .request_mode_unknown => self.unknown = value,
+                else => {},
+            }
+        }
+    };
+
+    var s: Stream(H) = .init(.{ .handler = .{} });
+    s.nextSlice("\x1B[4$p");
+    try testing.expectEqual(@as(modes.Mode, .insert), s.handler.requested.?);
+    try testing.expect(s.handler.unknown == null);
+
+    s.handler.requested = null;
+    s.nextSlice("\x1B[7777$p");
+    try testing.expect(s.handler.requested == null);
+    try testing.expectEqual(@as(u16, 7777), s.handler.unknown.?.mode);
+    try testing.expect(s.handler.unknown.?.ansi);
 }
 
 test "stream: restore mode" {
