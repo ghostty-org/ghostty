@@ -1775,10 +1775,22 @@ extension BaseTerminalController {
 
 extension BaseTerminalController {
     /// Publishes an app-wide notification whenever this terminal window's aggregate
-    /// bell state changes.
+    /// bell state changes. This also considers a surface to be "ringing the bell"
+    /// while it has an undelivered desktop notification (OSC 9 / OSC 777), such as
+    /// an AI coding agent prompting for input, so attention indicators (dock badge,
+    /// title emoji, tab outline) all respond to both signals.
     private func setupBellNotificationPublisher() {
-        bellStateCancellable = surfaceValuesPublisher(valueKeyPath: \.bell, publisherKeyPath: \.$bell)
+        let bellPublisher = surfaceValuesPublisher(valueKeyPath: \.bell, publisherKeyPath: \.$bell)
             .map { $0.values.contains(true) }
+
+        let pendingNotificationPublisher = surfaceValuesPublisher(
+            valueKeyPath: \.hasPendingNotification,
+            publisherKeyPath: \.$hasPendingNotification
+        )
+        .map { $0.values.contains(true) }
+
+        bellStateCancellable = Publishers.CombineLatest(bellPublisher, pendingNotificationPublisher)
+            .map { hasBell, hasPendingNotification in hasBell || hasPendingNotification }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] hasBell in

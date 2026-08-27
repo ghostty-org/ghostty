@@ -288,6 +288,12 @@ jobs:
             file.puts
             file.puts "Submitting an empty title clears the custom title and restores the default title reported by the terminal."
             file.puts
+            file.puts "### Tab bell outline"
+            file.puts
+            file.puts "The vertical tab sidebar can outline a tab whose terminal wants your attention, such as an AI coding agent (Claude Code, Codex, etc.) prompting for input in a background tab. This considers both a real terminal bell and an undelivered desktop notification (OSC 9 / OSC 777), so it also lights up for tools that only send a system notification rather than ringing the bell."
+            file.puts
+            file.puts "Controlled by `macos-tab-bell-outline` (on by default), with color and width configurable via `macos-tab-bell-outline-color` and `macos-tab-bell-outline-width`. Like `macos-tab-border-color`, this only has an effect when `macos-tabs-location` is `left` or `right`."
+            file.puts
             file.puts "### Session history restore"
             file.puts
             file.puts "When `session-history-dir` is configured, macOS saves a Ghostty session manifest plus per-surface plaintext scrollback history into that directory."
