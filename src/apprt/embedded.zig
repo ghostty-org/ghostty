@@ -20,6 +20,7 @@ const CoreApp = @import("../App.zig");
 const CoreInspector = @import("../inspector/main.zig").Inspector;
 const CoreSurface = @import("../Surface.zig");
 const configpkg = @import("../config.zig");
+const compat_file = @import("../lib/compat/file.zig");
 const Config = configpkg.Config;
 const String = @import("../main_c.zig").String;
 
@@ -751,13 +752,13 @@ pub const Surface = struct {
 
     pub fn initialScrollback(self: *const Surface, alloc: std.mem.Allocator, max: usize) !?[]u8 {
         const path = self.scrollback_history_path orelse return null;
-        const file = std.fs.openFileAbsolute(path, .{}) catch |err| {
+        const file = std.Io.Dir.openFileAbsolute(global.io(), path, .{}) catch |err| {
             log.warn("failed to open session history path={s} err={}", .{ path, err });
             return null;
         };
-        defer file.close();
+        defer file.close(global.io());
 
-        return file.readToEndAlloc(alloc, max) catch |err| {
+        return compat_file.readToEndAlloc(file, alloc, max) catch |err| {
             log.warn("failed to read session history path={s} err={}", .{ path, err });
             return null;
         };
@@ -2045,13 +2046,13 @@ pub const CAPI = struct {
     /// Returns the current working directory for the surface. The returned
     /// string must be freed by the caller via ghostty_string_free.
     export fn ghostty_surface_pwd(surface: *Surface) String {
-        const pwd = surface.core_surface.pwd(global.alloc) catch |err| {
+        const pwd = surface.core_surface.pwd(global.alloc()) catch |err| {
             log.err("error allocating pwd err={}", .{err});
             return .empty;
         } orelse return .empty;
-        defer global.alloc.free(pwd);
+        defer global.alloc().free(pwd);
 
-        const copy = global.alloc.dupeZ(u8, pwd) catch |err| {
+        const copy = global.alloc().dupeZ(u8, pwd) catch |err| {
             log.err("error allocating pwd err={}", .{err});
             return .empty;
         };

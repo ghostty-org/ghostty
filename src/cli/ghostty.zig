@@ -245,7 +245,7 @@ test "parse action cssh is app launch mode" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter = try std.process.Args.IteratorGeneral(.{}).init(
         alloc,
         "+cssh host-a host-b",
     );

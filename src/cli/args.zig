@@ -1403,7 +1403,7 @@ test "ArgsIterator: cssh consumes trailing host args" {
 
     const testing = std.testing;
 
-    const child = try std.process.ArgIteratorGeneral(.{}).init(
+    const child = try std.process.Args.IteratorGeneral(.{}).init(
         testing.allocator,
         "--font-size=14 +cssh host-a host-b --theme=broken",
     );

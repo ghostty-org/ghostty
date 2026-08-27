@@ -440,8 +440,8 @@ fn parseSshBadge(value: []const u8) SshBadge {
 
 fn emitBadge(alloc: Allocator, badge: SshBadge) !void {
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_file: std.fs.File = .stdout();
-    var stdout_writer = stdout_file.writer(&stdout_buffer);
+    var stdout_file: std.Io.File = .stdout();
+    var stdout_writer = stdout_file.writer(global.io(), &stdout_buffer);
     const stdout = &stdout_writer.interface;
 
     try writeBadgeEscape(alloc, stdout, badge);

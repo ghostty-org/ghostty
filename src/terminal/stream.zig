@@ -4060,7 +4060,7 @@ test "stream: set badge" {
         }
     };
 
-    var s: Stream(H) = .init(.{});
+    var s: Stream(H) = .init(.{ .handler = .{} });
     s.nextSlice("\x1b]1337;SetBadgeFormat=UHJvZHVjdGlvbg==\x07");
     try testing.expect(s.handler.seen);
     try testing.expectEqualStrings("Production", s.handler.badge[0..s.handler.badge_len]);

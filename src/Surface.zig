@@ -684,7 +684,7 @@ pub fn init(
             if (comptime @hasDecl(apprt.runtime.Surface, "initialScrollback")) {
                 break :initial_scrollback try rt_surface.initialScrollback(
                     alloc,
-                    config.@"scrollback-limit",
+                    config.@"scrollback-limit-bytes".value,
                 );
             }
 

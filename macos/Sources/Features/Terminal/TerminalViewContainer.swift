@@ -22,6 +22,14 @@ class TerminalViewContainer: NSView {
         return window.value(forKey: "_cornerRadius") as? CGFloat
     }
 
+    /// Wraps an arbitrary SwiftUI view. Retained from upstream so that tests
+    /// can construct a container without a full Ghostty.App.
+    init<Root: View>(@ViewBuilder rootView: () -> Root) {
+        self.terminalView = NSHostingView(rootView: rootView())
+        super.init(frame: .zero)
+        setup()
+    }
+
     init<ViewModel: TerminalViewModel>(ghostty: Ghostty.App, viewModel: ViewModel, delegate: (any TerminalViewDelegate)? = nil, windowController: BaseTerminalController? = nil) {
         self.terminalView = NSHostingView(rootView: TerminalView(
             ghostty: ghostty,

@@ -110,6 +110,7 @@ extension Ghostty {
                         }
                     )
                 }
+#endif
 
                 // Show key state indicator for active key tables and/or pending key sequences
                 KeyStateIndicator(
