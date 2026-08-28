@@ -182,8 +182,8 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
 
         // Setup our restored state on the controller
         // Find the focused surface in surfaceTree
+        var foundView: Ghostty.SurfaceView?
         if let focusedStr = state.focusedSurface {
-            var foundView: Ghostty.SurfaceView?
             for view in c.surfaceTree where view.id.uuidString == focusedStr {
                 foundView = view
                 break
@@ -192,8 +192,20 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
             if let view = foundView {
                 c.focusedSurface = view
                 c.focusedSurfaceDidChange(to: view)
-                restoreFocus(to: view, inWindow: window)
             }
+        }
+
+        // Every restored surface defaults its internal `focused` state to
+        // `true`, since that's correct for a freshly-created single surface.
+        // On restore that's wrong for every surface except the one actually
+        // regaining focus below: `focusDidChange` no-ops when the new value
+        // matches the current one, so those panes never get a real focus
+        // transition and libghostty never learns they aren't focused. We
+        // explicitly reconcile every restored surface's focus state here so
+        // later real focus changes (e.g. clicking into a background split)
+        // aren't silently swallowed by that stale default.
+        for view in c.surfaceTree {
+            restoreFocusState(for: view, isFocused: view === foundView, inWindow: window)
         }
 
         completionHandler(window, nil)
@@ -209,7 +221,16 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
     /// This restores the focus state of the surfaceview within the given window. When restoring,
     /// the view isn't immediately attached to the window since we have to wait for SwiftUI to
     /// catch up. Therefore, we sit in an async loop waiting for the attachment to happen.
-    private static func restoreFocus(to: Ghostty.SurfaceView, inWindow: NSWindow, attempts: Int = 0) {
+    ///
+    /// This is called for every restored surface, not just the focused one: `isFocused`
+    /// surfaces become the window's first responder, and every other surface is explicitly
+    /// told to resign so its internal focus state (which defaults to focused) is corrected.
+    private static func restoreFocusState(
+        for view: Ghostty.SurfaceView,
+        isFocused: Bool,
+        inWindow: NSWindow,
+        attempts: Int = 0
+    ) {
         // For the first attempt, we schedule it immediately. Subsequent events wait a bit
         // so we don't just spin the CPU at 100%. Give up after some period of time.
         let after: DispatchTime
@@ -224,15 +245,20 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
 
         DispatchQueue.main.asyncAfter(deadline: after) {
             // If the view is not attached to a window yet then we repeat.
-            guard let viewWindow = to.window else {
-                restoreFocus(to: to, inWindow: inWindow, attempts: attempts + 1)
+            guard let viewWindow = view.window else {
+                restoreFocusState(for: view, isFocused: isFocused, inWindow: inWindow, attempts: attempts + 1)
                 return
             }
 
             // If the view is attached to some other window, we give up
             guard viewWindow == inWindow else { return }
 
-            inWindow.makeFirstResponder(to)
+            guard isFocused else {
+                _ = view.resignFirstResponder()
+                return
+            }
+
+            inWindow.makeFirstResponder(view)
 
             // If the window is main, then we also make sure it comes forward. This
             // prevents a bug found in #1177 where sometimes on restore the windows
