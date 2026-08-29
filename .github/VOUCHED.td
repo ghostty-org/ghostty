@@ -301,6 +301,7 @@ simonbcn
 slsrepo
 steven-tk
 sunshine-syz
+svector-anu
 svmhdvn
 tacherasasi
 -tangivis
