@@ -39,6 +39,7 @@ const RenderSurface = @import("render_surface.zig").RenderSurface;
 const i18n = @import("../../../os/i18n.zig");
 const global = @import("../../../global.zig");
 const gtk_version = @import("../gtk_version.zig");
+const scale_util = @import("../scale.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
@@ -1498,9 +1499,7 @@ pub const Surface = extern struct {
         y: f64,
     ) struct { x: f64, y: f64 } {
         const widget = self.private().render_surface;
-        const scale_factor: f64 = @floatFromInt(
-            widget.as(gtk.Widget).getScaleFactor(),
-        );
+        const scale_factor = scale_util.widgetSurfaceScale(widget.as(gtk.Widget));
 
         return .{
             .x = x * scale_factor,
@@ -1548,14 +1547,12 @@ pub const Surface = extern struct {
         const widget = priv.render_surface.as(gtk.Widget);
 
         const gtk_scale: f32 = scale: {
-            // Future: detect GTK version 4.12+ and use gdk_surface_get_scale so we
-            // can support fractional scaling.
-            const scale = widget.getScaleFactor();
-            if (scale <= 0) {
-                log.warn("gtk_widget_get_scale_factor returned a non-positive number: {}", .{scale});
+            const surface_scale = scale_util.widgetSurfaceScale(widget);
+            if (surface_scale <= 0) {
+                log.warn("widget surface scale was non-positive: {d}", .{surface_scale});
                 break :scale 1.0;
             }
-            break :scale @floatFromInt(scale);
+            break :scale @floatCast(surface_scale);
         };
 
         // Also scale using font-specific DPI, which is often exposed to the user
@@ -3395,19 +3392,11 @@ pub const Surface = extern struct {
         // Some debug output to help understand what GTK is telling us.
         {
             const widget = self.private().render_surface.as(gtk.Widget);
-            const scale_factor = widget.getScaleFactor();
-            const window_scale_factor = scale: {
-                const root = widget.getRoot() orelse break :scale 0;
-                const gtk_native = root.as(gtk.Native);
-                const gdk_surface = gtk_native.getSurface() orelse break :scale 0;
-                break :scale gdk_surface.getScaleFactor();
-            };
-
-            log.debug("gl resize width={} height={} scale={} window_scale={}", .{
+            log.debug("gl resize width={} height={} scale={d} scale_factor={}", .{
                 width,
                 height,
-                scale_factor,
-                window_scale_factor,
+                scale_util.widgetSurfaceScale(widget),
+                widget.getScaleFactor(),
             });
         }
 

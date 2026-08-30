@@ -8,6 +8,8 @@ const gtk = @import("gtk");
 const global = @import("../../../global.zig");
 const Application = @import("application.zig").Application;
 const Common = @import("../class.zig").Common;
+const scale_util = @import("../scale.zig");
+const gtk_version = @import("../gtk_version.zig");
 const CoreSurface = @import("../../../Surface.zig");
 const rendererpkg = @import("../../../renderer.zig");
 const ExportedFrame = rendererpkg.Renderer.ExportedFrame;
@@ -61,6 +63,8 @@ pub const RenderSurface = extern struct {
 
         /// The GDK Texture currently being displayed.
         texture: ?*gdk.Texture = null,
+        scale_notify_id: c_ulong = 0,
+        scale_surface: ?*gdk.Surface = null,
 
         pub var offset: c_int = 0;
     };
@@ -92,11 +96,14 @@ pub const RenderSurface = extern struct {
 
         // Request a draw in case frames were produced before we
         // realized. The snapshot will pull from the renderer's queue.
+        self.connectScaleNotify();
         self.as(gtk.Widget).queueDraw();
     }
 
     fn unrealize(self: *Self) callconv(.c) void {
         const priv = self.private();
+
+        self.disconnectScaleNotify();
 
         if (priv.texture) |tex| {
             tex.as(gobject.Object).unref();
@@ -115,16 +122,7 @@ pub const RenderSurface = extern struct {
         height: c_int,
         baseline: c_int,
     ) callconv(.c) void {
-        const scale = self.as(gtk.Widget).getScaleFactor();
-        const device_width = width * scale;
-        const device_height = height * scale;
-
-        // Emit resize so the surface's renderSurfaceResize callback
-        // forwards size updates to the core surface/renderer. We emit
-        // device pixels (width*scale) so that the renderer's size matches
-        // what `surfaceSize` reports and what the render target is
-        // allocated at.
-        signals.resize.impl.emit(self, null, .{ device_width, device_height }, null);
+        self.emitDeviceResize(width, height);
 
         gtk.Widget.virtual_methods.size_allocate.call(
             Class.parent,
@@ -154,13 +152,17 @@ pub const RenderSurface = extern struct {
         const texture = priv.texture orelse return;
 
         const widget = self.as(gtk.Widget);
-        const w = widget.getWidth();
-        const h = widget.getHeight();
-        if (w == 0 or h == 0) return;
+        if (widget.getWidth() == 0 or widget.getHeight() == 0) return;
+
+        // Map one texture texel to one device pixel. Widget CSS size would
+        // stretch a fractionally scaled buffer.
+        const surface_scale = scale_util.widgetSurfaceScale(widget);
+        const css_w: f32 = @as(f32, @floatFromInt(texture.getWidth())) / @as(f32, @floatCast(surface_scale));
+        const css_h: f32 = @as(f32, @floatFromInt(texture.getHeight())) / @as(f32, @floatCast(surface_scale));
 
         snap.appendTexture(texture, &.{
             .f_origin = .{ .f_x = 0, .f_y = 0 },
-            .f_size = .{ .f_width = @floatFromInt(w), .f_height = @floatFromInt(h) },
+            .f_size = .{ .f_width = css_w, .f_height = css_h },
         });
     }
 
@@ -170,14 +172,64 @@ pub const RenderSurface = extern struct {
     /// Return the size of this surface in device pixels. Used by the
     /// apprt surface to report the size to the renderer.
     pub fn deviceSize(self: *Self) struct { width: u32, height: u32 } {
-        const scale = @max(self.as(gtk.Widget).getScaleFactor(), 1);
-        const width = self.as(gtk.Widget).getWidth();
-        const height = self.as(gtk.Widget).getHeight();
+        const size = scale_util.widgetDeviceSize(self.as(gtk.Widget));
+        return .{ .width = size.width, .height = size.height };
+    }
 
-        return .{
-            .width = @intCast(@max(width * scale, 0)),
-            .height = @intCast(@max(height * scale, 0)),
-        };
+    fn emitDeviceResize(self: *Self, css_w: c_int, css_h: c_int) void {
+        const size = scale_util.deviceSize(
+            css_w,
+            css_h,
+            scale_util.widgetSurfaceScale(self.as(gtk.Widget)),
+        );
+        if (size.width == 0 or size.height == 0) return;
+        signals.resize.impl.emit(
+            self,
+            null,
+            .{ @intCast(size.width), @intCast(size.height) },
+            null,
+        );
+    }
+
+    fn connectScaleNotify(self: *Self) void {
+        if (comptime !gtk_version.atLeast(4, 12, 0)) return;
+        if (!gtk_version.runtimeAtLeast(4, 12, 0)) return;
+
+        const priv = self.private();
+        if (priv.scale_notify_id != 0) return;
+        const native = self.as(gtk.Widget).getNative() orelse return;
+        const surface = native.getSurface() orelse return;
+        priv.scale_surface = surface;
+        priv.scale_notify_id = gobject.Object.signals.notify.connect(
+            surface,
+            *Self,
+            onScaleNotify,
+            self,
+            .{ .detail = "scale" },
+        );
+    }
+
+    fn disconnectScaleNotify(self: *Self) void {
+        const priv = self.private();
+        if (priv.scale_notify_id == 0) return;
+        if (priv.scale_surface) |surface| {
+            gobject.signalHandlerDisconnect(
+                surface.as(gobject.Object),
+                priv.scale_notify_id,
+            );
+        }
+        priv.scale_notify_id = 0;
+        priv.scale_surface = null;
+    }
+
+    fn onScaleNotify(
+        _: *gdk.Surface,
+        _: *gobject.ParamSpec,
+        self: *Self,
+    ) callconv(.c) void {
+        const widget = self.as(gtk.Widget);
+        self.emitDeviceResize(widget.getWidth(), widget.getHeight());
+        widget.queueDraw();
     }
 
     /// Set the core surface to pull presents from. Nothing will
