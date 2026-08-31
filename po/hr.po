@@ -589,206 +589,233 @@ msgstr "Skrolaj stranicu dolje"
 
 #: src/input/command.zig:280
 msgid "Scroll the screen down by a page."
-msgstr ""
+msgstr "Pomakni zaslon prema dolje za jednu stranicu."
 
 #: src/input/command.zig:286
 msgid "Copy Screen to Temporary File and Copy Path"
-msgstr ""
+msgstr "Kopiraj zaslon u privremenu datoteku i kopiraj put."
 
 #: src/input/command.zig:287
 msgid ""
 "Copy the screen contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
+"Kopiraj sadržaj zaslona u privremenu datoteku i kopiraj put "
+"međuspremnika."
 
 #: src/input/command.zig:291
 msgid "Copy Screen to Temporary File and Paste Path"
-msgstr ""
+msgstr "Kopiraj zaslon u privremenu datoteku i zalijepi put."
 
 #: src/input/command.zig:292
 msgid ""
 "Copy the screen contents to a temporary file and paste the path to the file."
 msgstr ""
+"Kopiraj sadržaj zaslona u privremenu datoteku i zalijepi put datoteke."
 
 #: src/input/command.zig:296
 msgid "Copy Screen to Temporary File and Open"
-msgstr ""
+msgstr "Kopiraj zaslon u privremenu datoteku i otvori."
 
 #: src/input/command.zig:297
 msgid "Copy the screen contents to a temporary file and open it."
-msgstr ""
+msgstr "Kopiraj sadržaj zaslona u privremenu datotku u otvori je."
 
 #: src/input/command.zig:305
 msgid "Copy Screen as HTML to Temporary File and Copy Path"
-msgstr ""
+msgstr "Kopiraj zaslon u privremenu datoteku kao HTML i kopiraj put."
 
 #: src/input/command.zig:306
 msgid ""
 "Copy the screen contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
+"Kopiraj sadržaj zaslona u privremenu datoteku kao HTML i kopiraj put "
+"međuspremnika."
 
 #: src/input/command.zig:313
 msgid "Copy Screen as HTML to Temporary File and Paste Path"
-msgstr ""
+msgstr "Kopiraj zaslon u privremenu datoteku kao HTML i zalijepi put."
 
 #: src/input/command.zig:314
 msgid ""
 "Copy the screen contents as HTML to a temporary file and paste the path to "
 "the file."
 msgstr ""
+"Kopiraj sadržaj zaslona u privremenu datoteku kao HTML i zalijepi put "
+"datoteke."
 
 #: src/input/command.zig:321
 msgid "Copy Screen as HTML to Temporary File and Open"
-msgstr ""
+msgstr "Kopiraj zaslon u privremenu datoteku kao HTML i otvori."
 
 #: src/input/command.zig:322
 msgid "Copy the screen contents as HTML to a temporary file and open it."
-msgstr ""
+msgstr "Kopiraj sadržaj zaslona u privremenu datoteku kao HTML i otvori je."
 
 #: src/input/command.zig:330
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
-msgstr ""
+msgstr "Kopiraj zaslon u privremenu datoteku kao ANSI nizove i kopiraj put."
 
 #: src/input/command.zig:331
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
+"Kopiraj sadržaj zaslone u privremenu datoteku kao ANSI izlazne nizove i "
+"kopiraj put međuspremnika."
 
 #: src/input/command.zig:338
 msgid "Copy Screen as ANSI Sequences to Temporary File and Paste Path"
-msgstr ""
+msgstr "Kopiraj zaslon u privremenu datoteku kao ANSI nizove i zalijepi put."
 
 #: src/input/command.zig:339
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
+"Kopiraj sadržaj zaslona u privremenu datoteku kao ANSI izlazne nizove i "
+"zalijepi put datoteke."
 
 #: src/input/command.zig:346
 msgid "Copy Screen as ANSI Sequences to Temporary File and Open"
-msgstr ""
+msgstr "Kopiraj zaslon u privremenu datoteku kao ANSI nizove i otvori."
 
 #: src/input/command.zig:347
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
+"Kopiraj sadržaj zaslona u privremenu datoteku kao ANSI izlazne nizove i "
+"otvori je."
 
 #: src/input/command.zig:354
 msgid "Copy Selection to Temporary File and Copy Path"
-msgstr ""
+msgstr "Kopiraj odabir u privremenu datoteku i kopiraj put."
 
 #: src/input/command.zig:355
 msgid ""
 "Copy the selection contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
+"Kopiraj sadržaj odabira u privremenu datoteku i kopiraj put "
+"međuspremnika."
 
 #: src/input/command.zig:359
 msgid "Copy Selection to Temporary File and Paste Path"
-msgstr ""
+msgstr "Kopiraj odabir u privremenu datoteku i zalijepi put."
 
 #: src/input/command.zig:360
 msgid ""
 "Copy the selection contents to a temporary file and paste the path to the "
 "file."
 msgstr ""
+"Kopiraj sadržaj odabira u privremenu datoteku i zalijepi put "
+"datoteke."
 
 #: src/input/command.zig:364
 msgid "Copy Selection to Temporary File and Open"
-msgstr ""
+msgstr "Kopiraj odabir u privremenu datoteku i otvori."
 
 #: src/input/command.zig:365
 msgid "Copy the selection contents to a temporary file and open it."
-msgstr ""
+msgstr "Kopiraj sadržaj odabira u privremenu datoteku i otvori je."
 
 #: src/input/command.zig:373
 msgid "Copy Selection as HTML to Temporary File and Copy Path"
-msgstr ""
+msgstr "Kopiraj odabir u privremenu datoteku kao HTML i kopiraj put."
 
 #: src/input/command.zig:374
 msgid ""
 "Copy the selection contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
+"Kopiraj sadržaj odabira u privremenu datoteku kao HTML i kopiraj put "
+"međuspremnika."
 
 #: src/input/command.zig:381
 msgid "Copy Selection as HTML to Temporary File and Paste Path"
-msgstr ""
+msgstr "Kopiraj odabir u privremenu datoteku kao HTML i zalijepi put."
 
 #: src/input/command.zig:382
 msgid ""
 "Copy the selection contents as HTML to a temporary file and paste the path "
 "to the file."
 msgstr ""
+"Kopiraj sadržaj odabira u privremenu datoteku kao HTML i zalijepi put "
+"datoteke."
 
 #: src/input/command.zig:389
 msgid "Copy Selection as HTML to Temporary File and Open"
-msgstr ""
+msgstr "Kopiraj odabir u privremenu datoteku kao HTML i otvori."
 
 #: src/input/command.zig:390
 msgid "Copy the selection contents as HTML to a temporary file and open it."
-msgstr ""
+msgstr "Kopiraj sadržaj odabira u privremenu datoteku kao HTML i otvori je."
 
 #: src/input/command.zig:398
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
-msgstr ""
+msgstr "Kopiraj odabir u privremenu datoteku kao ANSI nizove i kopiraj put."
 
 #: src/input/command.zig:399
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
+"Kopiraj sadržaj odabira u privremenu datoteku kao ANSI izlazne nizove i "
+"kopiraj put međuspremnika."
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
-msgstr ""
+msgstr "Kopiraj odabir u privremenu datoteku kao ANSI nizove i zalijepi put."
 
 #: src/input/command.zig:407
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
+"Kopiraj sadržaj odabira u privremenu datoteku kao ANSI izlazne nizove i "
+"zalijepi put datoteke."
 
 #: src/input/command.zig:414
 msgid "Copy Selection as ANSI Sequences to Temporary File and Open"
-msgstr ""
+msgstr "Kopiraj odabir u privremenu datoteku kao ANSI nizove i otvori."
 
 #: src/input/command.zig:415
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
+"Kopiraj sadržaj odabira u privremenu datoteku kao ANSI izlazne nizove i "
+"otvori je."
 
 #: src/input/command.zig:422
 msgid "Open a new window."
-msgstr ""
+msgstr "Otvori novi prozor."
 
 #: src/input/command.zig:428
 msgid "Open a new tab."
-msgstr ""
+msgstr "Otvori novu karticu."
 
 #: src/input/command.zig:434
 msgid "Move Tab Left"
-msgstr ""
+msgstr "Pomakni karticu ulijevo."
 
 #: src/input/command.zig:435
 msgid "Move the current tab to the left."
-msgstr ""
+msgstr "Pomakni trenutačnu karticu ulijevo."
 
 #: src/input/command.zig:439
 msgid "Move Tab Right"
-msgstr ""
+msgstr "Pomakni karticu udesno."
 
 #: src/input/command.zig:440
 msgid "Move the current tab to the right."
-msgstr ""
+msgstr "Pomakni trenutačnu karticu udesno."
 
 #: src/input/command.zig:446
 msgid "Move Tab to New Window"
-msgstr ""
+msgstr "Pomakni karticu u novi prozor."
 
 #: src/input/command.zig:447
 msgid "Move the current tab to a new window."
@@ -796,71 +823,71 @@ msgstr ""
 
 #: src/input/command.zig:452
 msgid "Toggle Tab Overview"
-msgstr ""
+msgstr "Uključi/isključi pregled kartica."
 
 #: src/input/command.zig:453
 msgid "Toggle the tab overview."
-msgstr ""
+msgstr "Uključi/isključi pregled kartica."
 
 #: src/input/command.zig:458
 msgid "Change Terminal Title…"
-msgstr ""
+msgstr "Promijeni naslov terminala…"
 
 #: src/input/command.zig:459
 msgid "Prompt for a new title for the current terminal."
-msgstr ""
+msgstr "Zatraži novi naslov za trenutačni terminal."
 
 #: src/input/command.zig:465
 msgid "Prompt for a new title for the current tab."
-msgstr ""
+msgstr "Zatraži novi naslov za trenutačnu karticu."
 
 #: src/input/command.zig:478
 msgid "Split the terminal to the left."
-msgstr ""
+msgstr "Podijeli terminal ulijevo."
 
 #: src/input/command.zig:483
 msgid "Split the terminal to the right."
-msgstr ""
+msgstr "Podijeli terminal udesno."
 
 #: src/input/command.zig:488
 msgid "Split the terminal up."
-msgstr ""
+msgstr "Podijeli terminal prema gore."
 
 #: src/input/command.zig:493
 msgid "Split the terminal down."
-msgstr ""
+msgstr "Podijeli terminal prema dolje."
 
 #: src/input/command.zig:500
 msgid "Focus Split: Previous"
-msgstr ""
+msgstr "Fokusiraj okno: prethodno."
 
 #: src/input/command.zig:501
 msgid "Focus the previous split, if any."
-msgstr ""
+msgstr "Fokusiraj prethodno okno, ako postoji."
 
 #: src/input/command.zig:505
 msgid "Focus Split: Next"
-msgstr ""
+msgstr "Fokusiraj okno: sljedeće"
 
 #: src/input/command.zig:506
 msgid "Focus the next split, if any."
-msgstr ""
+msgstr "Fokusiraj sljedeće okno, ako postoji."
 
 #: src/input/command.zig:510
 msgid "Focus Split: Left"
-msgstr ""
+msgstr "Fokusiraj okno: lijevo"
 
 #: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
-msgstr ""
+msgstr "Fokusiraj lijevo okno, ako postoji."
 
 #: src/input/command.zig:515
 msgid "Focus Split: Right"
-msgstr ""
+msgstr "Fokusiraj okno: desno"
 
 #: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
-msgstr ""
+msgstr "Fokusiraj desno okno, ako postoji."
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
