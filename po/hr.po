@@ -105,7 +105,7 @@ msgstr "Sljedeće podudaranje"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Oh, no."
-msgstr "Oh, ne."
+msgstr "O, ne."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:8
 msgid "Unable to acquire an OpenGL context for rendering."
@@ -221,7 +221,7 @@ msgstr "Postavke"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
-msgstr "Otvori postavke u uređivaću teksta OS-a"
+msgstr "Otvori postavke u uređivaču teksta OS-a"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
@@ -273,7 +273,7 @@ msgstr "Tipkovni prečac je opozvan od strane sustava."
 
 #: src/apprt/gtk/class/application.zig:1769
 msgid "The keybind was denied by the system."
-msgstr "Tipkovni prečac je odbijen od starne sustava."
+msgstr "Tipkovni prečac je odbijen od strane sustava."
 
 #: src/apprt/gtk/class/application.zig:1780
 msgid "Global keybind unavailable"
@@ -281,7 +281,7 @@ msgstr "Globalni tipkovni prečac nije dostupan"
 
 #: src/apprt/gtk/class/application.zig:2259
 msgid "Export Terminal IO Events"
-msgstr "Izvezi IO događje terminala"
+msgstr "Izvezi ulazno-izlazne događaje terminala"
 
 #: src/apprt/gtk/class/application.zig:2262
 msgid "Export"
@@ -413,11 +413,11 @@ msgstr ""
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
-msgstr "Kopiraj odabrano kao jednostavni tekst u međuspremnik"
+msgstr "Kopiraj odabrano kao obični tekst u međuspremnik"
 
 #: src/input/command.zig:160
 msgid "Copy the selected text as plain text to the clipboard."
-msgstr "Kopiraj odabrani tekst kao jednostavni u međuspremnik."
+msgstr "Kopiraj odabrani tekst kao obični u međuspremnik."
 
 #: src/input/command.zig:163
 msgid "Copy Selection as ANSI Sequences to Clipboard"
@@ -425,15 +425,15 @@ msgstr "Kopiraj odabrano kao ANSI sekvencu u međuspremnik"
 
 #: src/input/command.zig:164
 msgid "Copy the selected text as ANSI escape sequences to the clipboard."
-msgstr "Kopiraj odabrani tekst kao ANSI upravljačka sekvenca."
+msgstr "Kopiraj odabrani tekst kao ANSI izlazni niz."
 
 #: src/input/command.zig:167
 msgid "Copy Selection as HTML to Clipboard"
-msgstr "Kopiraj odabrano kao HTML u međuspremnik"
+msgstr "Kopiraj odabrano u međuspremnik kao HTML"
 
 #: src/input/command.zig:168
 msgid "Copy the selected text as HTML to the clipboard."
-msgstr "Kopiraj odabrani tekst kao HTML u međuspremnik."
+msgstr "Kopiraj odabrani tekst u međuspremnik kao HTML."
 
 #: src/input/command.zig:173
 msgid "Copy URL to Clipboard"
@@ -485,39 +485,39 @@ msgstr "Pretraži odabir"
 
 #: src/input/command.zig:204
 msgid "Start a search for the current text selection."
-msgstr "Započni pretragu za trenutni odabir teksta."
+msgstr "Pokreni pretraživanje odabranog teksta."
 
 #: src/input/command.zig:209
 msgid "End Search"
-msgstr "Zaustavi pretragu"
+msgstr "Završi pretraživanje"
 
 #: src/input/command.zig:210
 msgid "End the current search if any and hide any GUI elements."
-msgstr "Završi trenutnu pretragu ako je aktivna i sakrij GUI elemente."
+msgstr "Završi trenutno pretraživanje ako je aktivno i sakrij GUI elemente."
 
 #: src/input/command.zig:215
 msgid "Next Search Result"
-msgstr "Idući rezultat pretrage"
+msgstr "Sljedeći rezultat pretraživanja"
 
 #: src/input/command.zig:216
 msgid "Navigate to the next search result, if any."
-msgstr "Odi na idući rezultat pretrage, ako postoji."
+msgstr "Prijeđi na sljedeći rezultat pretraživanja, ako postoji."
 
 #: src/input/command.zig:219
 msgid "Previous Search Result"
-msgstr "Prethodni rezultat pretrage"
+msgstr "Prethodni rezultat pretraživanja"
 
 #: src/input/command.zig:220
 msgid "Navigate to the previous search result, if any."
-msgstr "Odi na prethodni rezultat pretrage, ako postoji."
+msgstr "Odi na prethodni rezultat pretraživanja, ako postoji."
 
 #: src/input/command.zig:225
 msgid "Increase Font Size"
-msgstr "Povečaj veličinu fonta"
+msgstr "Povećaj veličinu fonta"
 
 #: src/input/command.zig:226
 msgid "Increase the font size by 1 point."
-msgstr "Povečaj veličinu fonta za 1 vrijednost."
+msgstr "Povećaj veličinu fonta za 1 točku."
 
 #: src/input/command.zig:231
 msgid "Decrease Font Size"
@@ -525,7 +525,7 @@ msgstr "Smanji veličinu fonta"
 
 #: src/input/command.zig:232
 msgid "Decrease the font size by 1 point."
-msgstr "Smanji veličinu fonta za 1 vrijednost."
+msgstr "Smanji veličinu fonta za 1 točku."
 
 #: src/input/command.zig:237
 msgid "Reset Font Size"
@@ -537,11 +537,11 @@ msgstr "Resetiraj veličinu fonta na zadanu vrijednost."
 
 #: src/input/command.zig:243
 msgid "Clear Screen"
-msgstr "Očisti ekran"
+msgstr "Očisti zaslon"
 
 #: src/input/command.zig:244
 msgid "Clear the screen and scrollback."
-msgstr "Očisti ekran i povijest ispisa."
+msgstr "Očisti zaslon i povijest ispisa."
 
 #: src/input/command.zig:249
 msgid "Select All"
@@ -549,7 +549,7 @@ msgstr "Odaberi sve"
 
 #: src/input/command.zig:250
 msgid "Select all text on the screen."
-msgstr "Odaberi sav tekst na ekranu."
+msgstr "Odaberi sav tekst na zaslonu."
 
 #: src/input/command.zig:255
 msgid "Scroll to Top"
@@ -557,7 +557,7 @@ msgstr "Skrolaj na vrh"
 
 #: src/input/command.zig:256
 msgid "Scroll to the top of the screen."
-msgstr "Skrolaj na vrh ekrana."
+msgstr "Skrolaj na vrh zaslona."
 
 #: src/input/command.zig:261
 msgid "Scroll to Bottom"
@@ -565,7 +565,7 @@ msgstr "Skrolaj na kraj"
 
 #: src/input/command.zig:262
 msgid "Scroll to the bottom of the screen."
-msgstr "Skrolaj na kraj ekrana."
+msgstr "Skrolaj na kraj zaslona."
 
 #: src/input/command.zig:267
 msgid "Scroll to Selection"
@@ -581,7 +581,7 @@ msgstr "Skrolaj stranicu gore"
 
 #: src/input/command.zig:274
 msgid "Scroll the screen up by a page."
-msgstr "Skrolaj ekran prema gore za stranicu."
+msgstr "Skrolaj zaslon prema gore za stranicu."
 
 #: src/input/command.zig:279
 msgid "Scroll Page Down"
@@ -859,35 +859,35 @@ msgstr "Podijeli terminal prema dolje."
 
 #: src/input/command.zig:500
 msgid "Focus Split: Previous"
-msgstr "Fokusiraj okno: prethodno."
+msgstr "Fokusiraj podjelu: prethodnu."
 
 #: src/input/command.zig:501
 msgid "Focus the previous split, if any."
-msgstr "Fokusiraj prethodno okno, ako postoji."
+msgstr "Fokusiraj prethodnu podjelu, ako postoji."
 
 #: src/input/command.zig:505
 msgid "Focus Split: Next"
-msgstr "Fokusiraj okno: sljedeće"
+msgstr "Fokusiraj podjelu: sljedeće"
 
 #: src/input/command.zig:506
 msgid "Focus the next split, if any."
-msgstr "Fokusiraj sljedeće okno, ako postoji."
+msgstr "Fokusiraj sljedeću podjelu, ako postoji."
 
 #: src/input/command.zig:510
 msgid "Focus Split: Left"
-msgstr "Fokusiraj okno: lijevo"
+msgstr "Fokusiraj podjelu: lijevo"
 
 #: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
-msgstr "Fokusiraj lijevo okno, ako postoji."
+msgstr "Fokusiraj lijevu podjelu, ako postoji."
 
 #: src/input/command.zig:515
 msgid "Focus Split: Right"
-msgstr "Fokusiraj okno: desno"
+msgstr "Fokusiraj podjelu: desno"
 
 #: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
-msgstr "Fokusiraj desno okno, ako postoji."
+msgstr "Fokusiraj desnu podjelu, ako postoji."
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
@@ -991,55 +991,55 @@ msgstr ""
 
 #: src/input/command.zig:594
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
-msgstr ""
+msgstr "Otvori "
 
 #: src/input/command.zig:600
 msgid "Reload Config"
-msgstr ""
+msgstr "Ponovno učitaj postavke"
 
 #: src/input/command.zig:601
 msgid "Reload the config file."
-msgstr ""
+msgstr "Ponovno učitaj datotku postavki."
 
 #: src/input/command.zig:606
 msgid "Close Terminal"
-msgstr ""
+msgstr "Zatvori terminal"
 
 #: src/input/command.zig:607
 msgid "Close the current terminal."
-msgstr ""
+msgstr "Zatvori trenutni terminal."
 
 #: src/input/command.zig:614
 msgid "Close the current tab."
-msgstr ""
+msgstr "Zatvori trenutnu karticu."
 
 #: src/input/command.zig:618
 msgid "Close Other Tabs"
-msgstr ""
+msgstr "Zatvori ostale kartice"
 
 #: src/input/command.zig:619
 msgid "Close all tabs in this window except the current one."
-msgstr ""
+msgstr "Zatvori sve kartice u ovom prozoru osim trenutne."
 
 #: src/input/command.zig:623
 msgid "Close Tabs to the Right"
-msgstr ""
+msgstr "Zatvori sve kartice na desno"
 
 #: src/input/command.zig:624
 msgid "Close all tabs to the right of the current one."
-msgstr ""
+msgstr "Zatvori sve kartice desno od trenutne."
 
 #: src/input/command.zig:631
 msgid "Close the current window."
-msgstr ""
+msgstr "Zatvori trenutni prozor."
 
 #: src/input/command.zig:636
 msgid "Close All Windows"
-msgstr ""
+msgstr "Zatvori sve prozore"
 
 #: src/input/command.zig:637
 msgid "Close all windows."
-msgstr ""
+msgstr "Zatvori sve prozore."
 
 #: src/input/command.zig:642
 msgid "Toggle Maximize"
@@ -1099,36 +1099,36 @@ msgstr ""
 
 #: src/input/command.zig:684
 msgid "Check for Updates"
-msgstr ""
+msgstr "Provjeri ažuriranja"
 
 #: src/input/command.zig:685
 msgid "Check for updates to the application."
-msgstr ""
+msgstr "Provjeri ažuriranja aplikacije."
 
 #: src/input/command.zig:690
 msgid "Undo"
-msgstr ""
+msgstr "Otkaži"
 
 #: src/input/command.zig:691
 msgid "Undo the last action."
-msgstr ""
+msgstr "Otkaži zadnju radnju."
 
 #: src/input/command.zig:696
 msgid "Redo"
-msgstr ""
+msgstr "Ponovno odradi"
 
 #: src/input/command.zig:697
 msgid "Redo the last undone action."
-msgstr ""
+msgstr "Otkaži zadnju otkazanu akciju."
 
 #: src/input/command.zig:703
 msgid "Quit the application."
-msgstr ""
+msgstr "Izađi iz aplikacije."
 
 #: src/input/command.zig:708
 msgid "Ghostty"
-msgstr ""
+msgstr "Ghostty"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."
-msgstr ""
+msgstr "Stavi malog Ghosttyja u svoj terminal."
