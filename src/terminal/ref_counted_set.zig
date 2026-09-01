@@ -339,9 +339,9 @@ pub fn RefCountedSet(
                     self.deleteItem(base, id, ctx);
                     const added_id = self.insert(base, value, id, ctx);
 
+                    const was_dead = items[added_id].meta.ref == 0;
                     items[added_id].meta.ref += 1;
-
-                    self.living += 1;
+                    if (was_dead) self.living += 1;
 
                     return if (added_id == id) null else added_id;
                 } else if (ctx.eql(value, items[id].value)) {
@@ -860,4 +860,57 @@ test "iterator visits live entries in ID order" {
     try testing.expectEqual(@as(u32, 33), last_entry.value_ptr.*);
 
     try testing.expect(it.next() == null);
+}
+
+test "addWithId preserves living count for a duplicate resurrection" {
+    const alloc = testing.allocator;
+    const TestSet = RefCountedSet(
+        u32,
+        u16,
+        u16,
+        struct {
+            pub fn hash(_: *const @This(), value: u32) u64 {
+                return std.hash.int(value);
+            }
+
+            pub fn eql(_: *const @This(), a: u32, b: u32) bool {
+                return a == b;
+            }
+        },
+    );
+
+    const layout: TestSet.Layout = .init(8);
+    const buf = try alloc.alignedAlloc(
+        u8,
+        TestSet.base_align,
+        layout.total_size,
+    );
+    defer alloc.free(buf);
+
+    var set: TestSet = .init(.init(buf), layout, .{});
+    const id_a = try set.add(buf, 11);
+    const id_b = try set.add(buf, 22);
+    set.release(buf, id_b);
+
+    const expected_count: usize = 1;
+    try testing.expectEqual(expected_count, set.count());
+
+    const added_id = try set.addWithId(buf, 11, id_b);
+    try testing.expectEqual(@as(?TestSet.Id, id_a), added_id);
+    try testing.expectEqual(expected_count, set.count());
+
+    for (0..256) |_| {
+        const before = set.count();
+        try testing.expectEqual(@as(?TestSet.Id, id_a), try set.addWithId(buf, 11, id_b));
+        try testing.expectEqual(before, set.count());
+
+        var it = set.iterator(buf);
+        var iterator_count: usize = 0;
+        while (it.next()) |_| iterator_count += 1;
+        try testing.expectEqual(set.count(), iterator_count);
+        try testing.expectEqual(
+            TestSet.capacityForCount(expected_count),
+            TestSet.capacityForCount(set.count()),
+        );
+    }
 }

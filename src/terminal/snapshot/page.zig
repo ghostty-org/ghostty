@@ -866,6 +866,81 @@ test "framed PAGE encode and decode a sparse native page" {
     );
 }
 
+test "PAGE style table count matches header after duplicate resurrection" {
+    var source = try TerminalPage.init(.{
+        .cols = 1,
+        .rows = 1,
+        .styles = 8,
+    });
+    defer source.deinit();
+
+    var destination = try TerminalPage.init(.{
+        .cols = 1,
+        .rows = 1,
+        .styles = 8,
+    });
+    defer destination.deinit();
+
+    const source_dead_id = try source.styles.add(
+        source.memory,
+        .{ .flags = .{ .italic = true } },
+    );
+    const source_style_id = try source.styles.add(
+        source.memory,
+        .{ .flags = .{ .bold = true } },
+    );
+    source.styles.release(source.memory, source_dead_id);
+
+    const source_rac = source.getRowAndCell(0, 0);
+    source_rac.row.styled = true;
+    source_rac.cell.* = .{
+        .content_tag = .codepoint,
+        .content = .{ .codepoint = .{ .data = 'A' } },
+        .style_id = source_style_id,
+    };
+
+    const destination_style_id = try destination.styles.add(
+        destination.memory,
+        .{ .flags = .{ .bold = true } },
+    );
+    const destination_dead_id = try destination.styles.add(
+        destination.memory,
+        .{ .flags = .{ .italic = true } },
+    );
+    destination.styles.release(destination.memory, destination_dead_id);
+    try std.testing.expectEqual(source_style_id, destination_dead_id);
+
+    try destination.cloneRowFrom(
+        &source,
+        destination.getRow(0),
+        source.getRow(0),
+    );
+    try std.testing.expectEqual(@as(usize, 1), destination.styles.count());
+    try std.testing.expectEqual(
+        destination_style_id,
+        destination.getRowAndCell(0, 0).cell.style_id,
+    );
+
+    var encoded: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer encoded.deinit();
+    try encodePayload(&destination, &encoded.writer);
+
+    var reader: std.Io.Reader = .fixed(encoded.written());
+    const header = try Header.decode(&reader);
+
+    var grid_counter: std.Io.Writer.Discarding = .init(&.{});
+    try grid.encode(&destination, &grid_counter.writer);
+
+    const style_entry_len = @sizeOf(TerminalStyleId) + style.len;
+    const grid_len: usize = @intCast(grid_counter.count);
+    const style_table_len = encoded.written().len - Header.len - grid_len;
+    try std.testing.expectEqual(@as(usize, 0), style_table_len % style_entry_len);
+    try std.testing.expectEqual(
+        header.style_count,
+        @as(u16, @intCast(style_table_len / style_entry_len)),
+    );
+}
+
 test "framed PAGE golden empty record" {
     const capacity: TerminalPageCapacity = .{
         .cols = 1,
