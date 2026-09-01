@@ -611,7 +611,7 @@ msgstr "Kopiraj zaslon u privremenu datoteku i zalijepi put."
 msgid ""
 "Copy the screen contents to a temporary file and paste the path to the file."
 msgstr ""
-"Kopiraj sadržaj zaslona u privremenu datoteku i zalijepi put datoteke."
+"Kopiraj sadržaj zaslona u privremenu datoteku i zalijepi putanju datoteke."
 
 #: src/input/command.zig:296
 msgid "Copy Screen to Temporary File and Open"
@@ -623,26 +623,26 @@ msgstr "Kopiraj sadržaj zaslona u privremenu datotku u otvori je."
 
 #: src/input/command.zig:305
 msgid "Copy Screen as HTML to Temporary File and Copy Path"
-msgstr "Kopiraj zaslon u privremenu datoteku kao HTML i kopiraj put."
+msgstr "Kopiraj zaslon u privremenu datoteku kao HTML i kopiraj putanju."
 
 #: src/input/command.zig:306
 msgid ""
 "Copy the screen contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
-"Kopiraj sadržaj zaslona u privremenu datoteku kao HTML i kopiraj put "
+"Kopiraj sadržaj zaslona u privremenu datoteku kao HTML i kopiraj putanju "
 "međuspremnika."
 
 #: src/input/command.zig:313
 msgid "Copy Screen as HTML to Temporary File and Paste Path"
-msgstr "Kopiraj zaslon u privremenu datoteku kao HTML i zalijepi put."
+msgstr "Kopiraj zaslon u privremenu datoteku kao HTML i zalijepi putanju."
 
 #: src/input/command.zig:314
 msgid ""
 "Copy the screen contents as HTML to a temporary file and paste the path to "
 "the file."
 msgstr ""
-"Kopiraj sadržaj zaslona u privremenu datoteku kao HTML i zalijepi put "
+"Kopiraj sadržaj zaslona u privremenu datoteku kao HTML i zalijepi putanju "
 "datoteke."
 
 #: src/input/command.zig:321
@@ -655,19 +655,19 @@ msgstr "Kopiraj sadržaj zaslona u privremenu datoteku kao HTML i otvori je."
 
 #: src/input/command.zig:330
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
-msgstr "Kopiraj zaslon u privremenu datoteku kao ANSI nizove i kopiraj put."
+msgstr "Kopiraj zaslon u privremenu datoteku kao ANSI nizove i kopiraj putanju."
 
 #: src/input/command.zig:331
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
-"Kopiraj sadržaj zaslone u privremenu datoteku kao ANSI izlazne nizove i "
-"kopiraj put međuspremnika."
+"Kopiraj sadržaj zaslona u privremenu datoteku kao ANSI izlazne nizove i "
+"kopiraj putanju u međuspremnik."
 
 #: src/input/command.zig:338
 msgid "Copy Screen as ANSI Sequences to Temporary File and Paste Path"
-msgstr "Kopiraj zaslon u privremenu datoteku kao ANSI nizove i zalijepi put."
+msgstr "Kopiraj zaslon u privremenu datoteku kao ANSI nizove i zalijepi putanju."
 
 #: src/input/command.zig:339
 msgid ""
@@ -675,7 +675,7 @@ msgid ""
 "paste the path to the file."
 msgstr ""
 "Kopiraj sadržaj zaslona u privremenu datoteku kao ANSI izlazne nizove i "
-"zalijepi put datoteke."
+"zalijepi putanju datoteke."
 
 #: src/input/command.zig:346
 msgid "Copy Screen as ANSI Sequences to Temporary File and Open"
@@ -691,26 +691,26 @@ msgstr ""
 
 #: src/input/command.zig:354
 msgid "Copy Selection to Temporary File and Copy Path"
-msgstr "Kopiraj odabir u privremenu datoteku i kopiraj put."
+msgstr "Kopiraj odabir u privremenu datoteku i kopiraj putanju."
 
 #: src/input/command.zig:355
 msgid ""
 "Copy the selection contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
-"Kopiraj sadržaj odabira u privremenu datoteku i kopiraj put "
+"Kopiraj sadržaj odabira u privremenu datoteku i kopiraj putanju "
 "međuspremnika."
 
 #: src/input/command.zig:359
 msgid "Copy Selection to Temporary File and Paste Path"
-msgstr "Kopiraj odabir u privremenu datoteku i zalijepi put."
+msgstr "Kopiraj odabir u privremenu datoteku i zalijepi putanju."
 
 #: src/input/command.zig:360
 msgid ""
 "Copy the selection contents to a temporary file and paste the path to the "
 "file."
 msgstr ""
-"Kopiraj sadržaj odabira u privremenu datoteku i zalijepi put "
+"Kopiraj sadržaj odabira u privremenu datoteku i zalijepi putanju "
 "datoteke."
 
 #: src/input/command.zig:364
@@ -723,26 +723,26 @@ msgstr "Kopiraj sadržaj odabira u privremenu datoteku i otvori je."
 
 #: src/input/command.zig:373
 msgid "Copy Selection as HTML to Temporary File and Copy Path"
-msgstr "Kopiraj odabir u privremenu datoteku kao HTML i kopiraj put."
+msgstr "Kopiraj odabir u privremenu datoteku kao HTML i kopiraj putanju."
 
 #: src/input/command.zig:374
 msgid ""
 "Copy the selection contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
-"Kopiraj sadržaj odabira u privremenu datoteku kao HTML i kopiraj put "
+"Kopiraj sadržaj odabira u privremenu datoteku kao HTML i kopiraj putanju "
 "međuspremnika."
 
 #: src/input/command.zig:381
 msgid "Copy Selection as HTML to Temporary File and Paste Path"
-msgstr "Kopiraj odabir u privremenu datoteku kao HTML i zalijepi put."
+msgstr "Kopiraj odabir u privremenu datoteku kao HTML i zalijepi putanju."
 
 #: src/input/command.zig:382
 msgid ""
 "Copy the selection contents as HTML to a temporary file and paste the path "
 "to the file."
 msgstr ""
-"Kopiraj sadržaj odabira u privremenu datoteku kao HTML i zalijepi put "
+"Kopiraj sadržaj odabira u privremenu datoteku kao HTML i zalijepi putanju "
 "datoteke."
 
 #: src/input/command.zig:389
@@ -755,7 +755,7 @@ msgstr "Kopiraj sadržaj odabira u privremenu datoteku kao HTML i otvori je."
 
 #: src/input/command.zig:398
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
-msgstr "Kopiraj odabir u privremenu datoteku kao ANSI nizove i kopiraj put."
+msgstr "Kopiraj odabir u privremenu datoteku kao ANSI nizove i kopiraj putanju."
 
 #: src/input/command.zig:399
 msgid ""
@@ -763,11 +763,11 @@ msgid ""
 "copy the path to the clipboard."
 msgstr ""
 "Kopiraj sadržaj odabira u privremenu datoteku kao ANSI izlazne nizove i "
-"kopiraj put međuspremnika."
+"kopiraj putanju u međuspremnik."
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
-msgstr "Kopiraj odabir u privremenu datoteku kao ANSI nizove i zalijepi put."
+msgstr "Kopiraj odabir u privremenu datoteku kao ANSI nizove i zalijepi putanju."
 
 #: src/input/command.zig:407
 msgid ""
@@ -775,7 +775,7 @@ msgid ""
 "paste the path to the file."
 msgstr ""
 "Kopiraj sadržaj odabira u privremenu datoteku kao ANSI izlazne nizove i "
-"zalijepi put datoteke."
+"zalijepi putanju datoteke."
 
 #: src/input/command.zig:414
 msgid "Copy Selection as ANSI Sequences to Temporary File and Open"
@@ -819,7 +819,7 @@ msgstr "Pomakni karticu u novi prozor."
 
 #: src/input/command.zig:447
 msgid "Move the current tab to a new window."
-msgstr ""
+msgstr "Prebaci trebutnu karticu u novi prozor"
 
 #: src/input/command.zig:452
 msgid "Toggle Tab Overview"
@@ -891,107 +891,107 @@ msgstr "Fokusiraj desnu podjelu, ako postoji."
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
-msgstr ""
+msgstr "Fokusiraj podjelu: gore"
 
 #: src/input/command.zig:521
 msgid "Focus the split above, if it exists."
-msgstr ""
+msgstr "Fokusiraj gornju podjelu, ako postoji."
 
 #: src/input/command.zig:525
 msgid "Focus Split: Down"
-msgstr ""
+msgstr "Fokusiraj podjelu: dolje"
 
 #: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
-msgstr ""
+msgstr "Fokusiraj podjelu ispod, ako postoji."
 
 #: src/input/command.zig:533
 msgid "Focus Window: Previous"
-msgstr ""
+msgstr "Fokusiraj prozor: prethodni"
 
 #: src/input/command.zig:534
 msgid "Focus the previous window, if any."
-msgstr ""
+msgstr "Fokusiraj prethodni prozor, ako postoji."
 
 #: src/input/command.zig:538
 msgid "Focus Window: Next"
-msgstr ""
+msgstr "Fokusiraj prozor: sljedeći"
 
 #: src/input/command.zig:539
 msgid "Focus the next window, if any."
-msgstr ""
+msgstr "Fokusiraj sljedeći prozor, ako postoji."
 
 #: src/input/command.zig:545
 msgid "Toggle Split Zoom"
-msgstr ""
+msgstr "Uključi/Isključi povećanje podjele"
 
 #: src/input/command.zig:546
 msgid "Toggle the zoom state of the current split."
-msgstr ""
+msgstr "Uključi ili isključi stanje povećanja trenutne podjele."
 
 #: src/input/command.zig:551
 msgid "Toggle Read-Only Mode"
-msgstr ""
+msgstr "Uključi/Isključi način rada samo za čitanje"
 
 #: src/input/command.zig:552
 msgid "Toggle read-only mode for the current surface."
-msgstr ""
+msgstr "Uključi ili isključi način rada samo za čitanje za tenutnu površinu."
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
-msgstr ""
+msgstr "Ujednači podjele"
 
 #: src/input/command.zig:558
 msgid "Equalize the size of all splits."
-msgstr ""
+msgstr "Ujednači veličinu svih podjela."
 
 #: src/input/command.zig:563
 msgid "Reset Window Size"
-msgstr ""
+msgstr "Resetiraj veličinu prozora"
 
 #: src/input/command.zig:564
 msgid "Reset the window size to the default."
-msgstr ""
+msgstr "Resetiraj veličinu prozora na zadnu veličinu."
 
 #: src/input/command.zig:569
 msgid "Toggle Inspector"
-msgstr ""
+msgstr "Uključi/Isključi inspektor terminala"
 
 #: src/input/command.zig:570
 msgid "Toggle the inspector."
-msgstr ""
+msgstr "Uključi ili isključi inspektor terminala."
 
 #: src/input/command.zig:575
 msgid "Show the GTK Inspector"
-msgstr ""
+msgstr "Prikaži GTK inspektor"
 
 #: src/input/command.zig:576
 msgid "Show the GTK inspector."
-msgstr ""
+msgstr "Prikaži GTK inspektor."
 
 #: src/input/command.zig:581
 msgid "Show On-Screen Keyboard"
-msgstr ""
+msgstr "Pokaži tipkovnicu na ekrnau"
 
 #: src/input/command.zig:582
 msgid "Show the on-screen keyboard if present."
-msgstr ""
+msgstr "Pokaži tipkovnicu na ekranu ako je prisutna."
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
-msgstr ""
+msgstr "Otvori konfiguraciju koristeči uređivač teksta OS-a"
 
 #: src/input/command.zig:589
 msgid "Open the config file with the OS's default editor."
-msgstr ""
+msgstr "Otvori konfiguraciju koristeči zadani uređivač teksta OS-a"
 
 #: src/input/command.zig:593
 msgid "Open Config in New Terminal Window"
-msgstr ""
+msgstr "Otvori konfiguraciju u novom prozoru terminala"
 
 #: src/input/command.zig:594
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
-msgstr "Otvori "
+msgstr "Otvori konfiguraciju u novom prozoru koristeči $EIDTOR ili $VISUAL."
 
 #: src/input/command.zig:600
 msgid "Reload Config"
@@ -1043,59 +1043,59 @@ msgstr "Zatvori sve prozore."
 
 #: src/input/command.zig:642
 msgid "Toggle Maximize"
-msgstr ""
+msgstr "Uključi/Isključi maksimizaciju"
 
 #: src/input/command.zig:643
 msgid "Toggle the maximized state of the current window."
-msgstr ""
+msgstr "Uključi ili isključi maksimizaciju trenutnog prozora."
 
 #: src/input/command.zig:648
 msgid "Toggle Fullscreen"
-msgstr ""
+msgstr "Uključi/Isključi puni ekran"
 
 #: src/input/command.zig:649
 msgid "Toggle the fullscreen state of the current window."
-msgstr ""
+msgstr "Uključi ili isključi puni ekran trenutnog prozora."
 
 #: src/input/command.zig:654
 msgid "Toggle Window Decorations"
-msgstr ""
+msgstr "Uključi/Isključi dekoracije prozora"
 
 #: src/input/command.zig:655
 msgid "Toggle the window decorations."
-msgstr ""
+msgstr "Uključi ili isključi dekoracije prozora."
 
 #: src/input/command.zig:660
 msgid "Toggle Float on Top"
-msgstr ""
+msgstr "Uključi/Isključi plutanje na vrhu"
 
 #: src/input/command.zig:661
 msgid "Toggle the float on top state of the current window."
-msgstr ""
+msgstr "Uključi ili isključi plutanje na vrhu trenutnog prozora."
 
 #: src/input/command.zig:666
 msgid "Toggle Secure Input"
-msgstr ""
+msgstr "Uključi/Isključi sigurni unos"
 
 #: src/input/command.zig:667
 msgid "Toggle secure input mode."
-msgstr ""
+msgstr "Uključi ili isključi način sigurnog unosa."
 
 #: src/input/command.zig:672
 msgid "Toggle Mouse Reporting"
-msgstr ""
+msgstr "Uključi/Isključi obavještavanje miša"
 
 #: src/input/command.zig:673
 msgid "Toggle whether mouse events are reported to terminal applications."
-msgstr ""
+msgstr "Uključi ili isključi obavještava li se terminal o događajima miša."
 
 #: src/input/command.zig:678
 msgid "Toggle Background Opacity"
-msgstr ""
+msgstr "Uključi/Isključi prozirnost pozadine"
 
 #: src/input/command.zig:679
 msgid "Toggle the background opacity of a window that started transparent."
-msgstr ""
+msgstr "Uključi ili isključi prozirnost pozadine prozora koji je započeo transparento."
 
 #: src/input/command.zig:684
 msgid "Check for Updates"
@@ -1131,4 +1131,4 @@ msgstr "Ghostty"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."
-msgstr "Stavi malog Ghosttyja u svoj terminal."
+msgstr "Stavi mali Ghostty u svoj terminal."
