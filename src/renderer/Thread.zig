@@ -420,7 +420,7 @@ fn drainMailbox(self: *Thread) !void {
 
             .shader_override => |enabled| {
                 self.renderer.setShaderOverride(enabled);
-                self.syncDrawTimer();
+                self.armAnimationTimer();
             },
 
             .search_viewport_matches => |v| {

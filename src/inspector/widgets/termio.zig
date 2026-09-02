@@ -689,6 +689,8 @@ const VTEvent = struct {
                     }
                 },
 
+                .@"enum" => try md.put("data", @tagName(v)),
+
                 else => {
                     @compileLog(T);
                     @compileError("unsupported type, see log");

@@ -156,7 +156,7 @@ pub const StreamHandler = struct {
         // See termio.Mailbox.send for more details on how this works.
 
         // Try instant first. If it works then we can return.
-        if (self.renderer_mailbox.push(msg, .{ .instant = {} }) > 0) {
+        if (self.renderer_mailbox.push(global.io(), msg, .{ .instant = {} }) > 0) {
             return;
         }
 
@@ -174,7 +174,7 @@ pub const StreamHandler = struct {
                 .{err},
             );
         };
-        _ = self.renderer_mailbox.push(msg, .{ .forever = {} });
+        _ = self.renderer_mailbox.push(global.io(), msg, .{ .forever = {} });
     }
 
     pub fn vt(
