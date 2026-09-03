@@ -12,6 +12,7 @@ pub const Image = extern struct {
     height: u32,
     data: ?[*]u8,
     data_len: usize,
+    data_extra: usize,
 };
 
 /// C: GhosttySysDecodePngFn
@@ -96,15 +97,33 @@ fn decodePngWrapper(
     const func = global.decode_png orelse return error.InvalidData;
 
     const c_alloc = CAllocator.fromZig(&alloc);
-    var out: Image = undefined;
+
+    // Zero-initialized so that a callback that doesn't know about `data_extra`
+    // leaves it at zero rather than reading back whatever was on the stack.
+    var out: Image = .{
+        .width = 0,
+        .height = 0,
+        .data = null,
+        .data_len = 0,
+        .data_extra = 0,
+    };
     if (!func(global.userdata, &c_alloc, data.ptr, data.len, &out)) return error.InvalidData;
 
     const result_data = out.data orelse return error.InvalidData;
+
+    // The callback may allocate more than it fills, so the allocation is the
+    // pixel data plus whatever surplus it reported. Checked because both
+    // lengths come from the callback: on overflow we have no idea how much
+    // was really allocated, so we reject the image rather than free a wrong
+    // length. That leaks the buffer, which beats corrupting the allocator.
+    const capacity = std.math.add(usize, out.data_len, out.data_extra) catch
+        return error.InvalidData;
 
     return .{
         .width = out.width,
         .height = out.height,
         .data = result_data[0..out.data_len],
+        .capacity = capacity,
     };
 }
 
@@ -298,7 +317,7 @@ test "set decode_png with null clears" {
 test "set decode_png installs wrapper" {
     const S = struct {
         fn decode(_: ?*anyopaque, _: *const CAllocator, _: [*]const u8, _: usize, out: *Image) callconv(lib.calling_conv) bool {
-            out.* = .{ .width = 1, .height = 1, .data = null, .data_len = 0 };
+            out.* = .{ .width = 1, .height = 1, .data = null, .data_len = 0, .data_extra = 0 };
             return true;
         }
     };
@@ -312,6 +331,123 @@ test "set decode_png installs wrapper" {
     // Clear it again.
     try std.testing.expectEqual(Result.success, set(.decode_png, null));
     try std.testing.expect(terminal_sys.decode_png == null);
+}
+
+test "decode_png over-allocates and reports the surplus" {
+    const testing = std.testing;
+
+    // Allocates twice the pixel data and reports the surplus.
+    // testing.allocator asserts the free length matches, so this only
+    // passes if we free data_len + data_extra and not data_len.
+    const S = struct {
+        const pixels = 4;
+        const allocated = pixels * 2;
+
+        fn decode(
+            _: ?*anyopaque,
+            alloc: *const CAllocator,
+            _: [*]const u8,
+            _: usize,
+            out: *Image,
+        ) callconv(lib.calling_conv) bool {
+            const buf = alloc.zig().alloc(u8, allocated) catch return false;
+            @memset(buf, 0);
+            out.* = .{
+                .width = 1,
+                .height = 1,
+                .data = buf.ptr,
+                .data_len = pixels,
+                .data_extra = allocated - pixels,
+            };
+            return true;
+        }
+    };
+
+    try testing.expectEqual(Result.success, set(.decode_png, @ptrCast(&S.decode)));
+    defer _ = set(.decode_png, null);
+
+    const func = terminal_sys.decode_png.?;
+    const image = try func(testing.allocator, "");
+
+    // The image is the pixel data, not the whole allocation.
+    try testing.expectEqual(@as(usize, S.pixels), image.data.len);
+    try testing.expectEqual(@as(usize, S.allocated), image.capacity);
+
+    image.deinit(testing.allocator);
+}
+
+test "decode_png with no surplus frees the pixel data" {
+    const testing = std.testing;
+
+    // A callback that doesn't set data_extra. The allocation is exactly the
+    // pixel data, which is the behavior before data_extra existed.
+    const S = struct {
+        const pixels = 4;
+
+        fn decode(
+            _: ?*anyopaque,
+            alloc: *const CAllocator,
+            _: [*]const u8,
+            _: usize,
+            out: *Image,
+        ) callconv(lib.calling_conv) bool {
+            const buf = alloc.zig().alloc(u8, pixels) catch return false;
+            @memset(buf, 0);
+            out.* = .{
+                .width = 1,
+                .height = 1,
+                .data = buf.ptr,
+                .data_len = pixels,
+                .data_extra = 0,
+            };
+            return true;
+        }
+    };
+
+    try testing.expectEqual(Result.success, set(.decode_png, @ptrCast(&S.decode)));
+    defer _ = set(.decode_png, null);
+
+    const func = terminal_sys.decode_png.?;
+    const image = try func(testing.allocator, "");
+
+    try testing.expectEqual(@as(usize, S.pixels), image.data.len);
+    try testing.expectEqual(@as(usize, S.pixels), image.capacity);
+
+    image.deinit(testing.allocator);
+}
+
+test "decode_png rejects lengths that overflow" {
+    const testing = std.testing;
+
+    // A surplus that overflows when added to the pixel length. We can't know
+    // the real allocation size, so the image is rejected. `data` points at
+    // static memory here so that rejecting it without freeing is not a leak.
+    const S = struct {
+        var buf: [4]u8 = @splat(0);
+
+        fn decode(
+            _: ?*anyopaque,
+            _: *const CAllocator,
+            _: [*]const u8,
+            _: usize,
+            out: *Image,
+        ) callconv(lib.calling_conv) bool {
+            out.* = .{
+                .width = 1,
+                .height = 1,
+                .data = &buf,
+                .data_len = std.math.maxInt(usize),
+                .data_extra = 1,
+            };
+            return true;
+        }
+    };
+
+    try testing.expectEqual(Result.success, set(.decode_png, @ptrCast(&S.decode)));
+    defer _ = set(.decode_png, null);
+
+    const func = terminal_sys.decode_png.?;
+    try testing.expectError(error.InvalidData, func(testing.allocator, ""));
 }
 
 test "set log with null clears" {
