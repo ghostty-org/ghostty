@@ -54,6 +54,12 @@ extern "C" {
  * The pixel buffer must be allocated with the allocator passed to the
  * decode callback. When the callback returns true, the library takes
  * ownership of the buffer and frees it with that same allocator.
+ *
+ * The allocator requires the allocation length to free, so a decoder that
+ * allocates more than it fills must report the surplus in `data_extra`.
+ * This lets a decoder over-allocate (round up to a block size, reuse a
+ * buffer sized for the largest image it expects, and so on) instead of
+ * sizing every allocation exactly.
  */
 typedef struct {
     /** Image width in pixels. */
@@ -69,11 +75,20 @@ typedef struct {
     uint8_t* data;
 
     /**
-     * Length of `data` in bytes. This must be the exact size that was
-     * requested from the allocator, because the library uses it to free
-     * the buffer.
+     * Length of the pixel data in bytes. Together with `data_extra`, this
+     * must be the exact size that was requested from the allocator,
+     * because the library uses it to free the buffer.
      */
     size_t data_len;
+
+    /**
+     * Number of bytes allocated beyond `data_len`, when the decoder
+     * allocated more than it filled. The library frees the buffer with
+     * `data_len + data_extra` bytes.
+     *
+     * Leave this as 0 when the allocation is exactly `data_len` bytes.
+     */
+    size_t data_extra;
 } GhosttySysImage;
 
 /**
@@ -126,9 +141,10 @@ typedef void (*GhosttySysLogFn)(
  * ### On success
  *
  * Allocate the pixel buffer with ghostty_alloc() and @p allocator, write
- * the decoded pixels into it, set all four fields of @p out, and return
- * true. The library then owns the buffer and frees it with the same
- * allocator. See GhosttySysImage for the expected pixel layout.
+ * the decoded pixels into it, set `width`, `height`, `data` and `data_len`
+ * of @p out, and return true. The library then owns the buffer and frees
+ * it with the same allocator. See GhosttySysImage for the expected pixel
+ * layout.
  *
  * The allocator limits how much memory a single image may use, so
  * ghostty_alloc() can return NULL for very large images. Treat that as
@@ -155,6 +171,9 @@ typedef void (*GhosttySysLogFn)(
  *
  * @p data and @p allocator are only valid for the duration of the
  * callback.
+ *
+ * Set `out->data_extra` if the allocation is larger than the pixel data,
+ * otherwise leave it at 0. See GhosttySysImage.
  *
  * @param userdata  The userdata pointer set via GHOSTTY_SYS_OPT_USERDATA
  * @param allocator The allocator to use for the output pixel buffer
