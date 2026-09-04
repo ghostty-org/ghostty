@@ -220,3 +220,16 @@ extension NSView {
 		return result
 	}
 }
+
+struct RepresentableView<NSViewType: NSView>: NSViewRepresentable {
+    let creation: (Context) -> NSViewType
+    let update: (_ nsView: NSViewType, _ context: Context) -> Void
+
+    func makeNSView(context: Context) -> NSViewType {
+        creation(context)
+    }
+
+    func updateNSView(_ nsView: NSViewType, context: Context) {
+        update(nsView, context)
+    }
+}
