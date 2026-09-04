@@ -46,6 +46,10 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleHelpBookFolder</key>
+	<string>Ghostty.help</string>
+	<key>CFBundleHelpBookName</key>
+	<string>com.mitchellh.ghostty.help</string>
 	<key>GhosttyBuild</key>
 	<string></string>
 	<key>GhosttyCommit</key>
