@@ -7,7 +7,52 @@ import GhosttyKit
 
 extension Ghostty {
     /// The NSView implementation for a terminal surface.
-    class SurfaceView: OSSurfaceView, Codable, Identifiable {
+    class SurfaceView: NSView, ObservableObject, Codable, Identifiable {
+        typealias ID = UUID
+
+        /// Unique ID per surface
+        let id: UUID
+
+        // The current pwd of the surface as defined by the pty. This can be
+        // changed with escape codes.
+        @Published var pwd: String?
+
+        // The cell size of this surface. This is set by the core when the
+        // surface is first created and any time the cell size changes (i.e.
+        // when the font size changes). This is used to allow windows to be
+        // resized in discrete steps of a single cell.
+        @Published var cellSize: CGSize = .zero
+
+        // The health state of the surface. This currently only reflects the
+        // renderer health. In the future we may want to make this an enum.
+        @Published var healthy: Bool = true
+
+        // Any error while initializing the surface.
+        @Published var error: Error?
+
+        // The hovered URL string
+        @Published var hoverUrl: String?
+
+        // The currently active key tables. Empty if no tables are active.
+        @Published var keyTables: [String] = []
+
+        // The time this surface last became focused. This is a ContinuousClock.Instant
+        // on supported platforms.
+        @Published var focusInstant: ContinuousClock.Instant?
+
+        // Returns sizing information for the surface. This is the raw C
+        // structure because I'm lazy.
+        @Published var surfaceSize: ghostty_surface_size_s?
+
+        /// True when the surface is in readonly mode.
+        @Published private(set) var readonly: Bool = false
+
+        /// True when the surface should show a highlight effect (e.g., when presented via goto_split).
+        @Published private(set) var highlighted: Bool = false
+
+        /// A message sent from `ghostty_surface_t` when a child process exited
+        @Published private(set) var childExitedMessage: ChildExitedMessage?
+
         // The current title of the surface as defined by the pty. This can be
         // changed with escape codes.
         @Published private(set) var title: String = "" {
@@ -20,7 +65,7 @@ extension Ghostty {
         }
 
         // The progress report (if any)
-        override var progressReport: Action.ProgressReport? {
+        @Published var progressReport: Action.ProgressReport? {
             didSet {
                 // Cancel any existing timer
                 progressReportTimer?.invalidate()
@@ -40,7 +85,7 @@ extension Ghostty {
         @Published var keySequence: [KeyboardShortcut] = []
 
         // The current search state. When non-nil, the search overlay should be shown.
-        override var searchState: SearchState? {
+        @Published var searchState: SearchState? {
             didSet {
                 if let searchState {
                     // I'm not a Combine expert so if there is a better way to do this I'm
@@ -181,7 +226,7 @@ extension Ghostty {
         private(set) var surfaceModel: Ghostty.Surface?
 
         /// Returns the underlying C value for the surface. See "note" on surfaceModel.
-        override var surface: ghostty_surface_t? {
+        var surface: ghostty_surface_t? {
             surfaceModel?.unsafeCValue
         }
         /// Current scrollbar state, cached here for persistence across rebuilds
@@ -230,6 +275,7 @@ extension Ghostty {
         override var acceptsFirstResponder: Bool { return true }
 
         init(_ app: ghostty_app_t, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil) {
+            self.id = uuid ?? UUID()
             self.markedText = NSMutableAttributedString()
 
             // Our initial config always is our application wide config.
@@ -248,7 +294,7 @@ extension Ghostty {
             // Initialize with some default frame size. The important thing is that this
             // is non-zero so that our layer bounds are non-zero so that our renderer
             // can do SOMETHING.
-            super.init(id: uuid, frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+            super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
             // Our cache of screen data
             cachedScreenContents = .init(duration: .milliseconds(500)) { [weak self] in
@@ -358,6 +404,12 @@ extension Ghostty {
                 object: self)
             center.addObserver(
                 self,
+                selector: #selector(ghosttyDidChangeReadonly(_:)),
+                name: .ghosttyDidChangeReadonly,
+                object: self,
+            )
+            center.addObserver(
+                self,
                 selector: #selector(ghosttyBellDidRing(_:)),
                 name: .ghosttyBellDidRing,
                 object: self)
@@ -437,12 +489,25 @@ extension Ghostty {
             progressReportTimer?.invalidate()
         }
 
-        override func endSearch() {
-            Ghostty.moveFocus(to: self)
-            super.endSearch()
+        func setChildExitedMessage(_ message: ChildExitedMessage) {
+            self.childExitedMessage = message
         }
 
-        override func focusDidChange(_ focused: Bool) {
+        /// Triggers a brief highlight animation on this surface.
+        func highlight() {
+            highlighted = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.highlighted = false
+            }
+        }
+
+        @MainActor
+        func endSearch() {
+            Ghostty.moveFocus(to: self)
+            searchState = nil
+        }
+
+        func focusDidChange(_ focused: Bool) {
             guard let surface = self.surface else { return }
             guard self.focused != focused else { return }
             self.focused = focused
@@ -479,7 +544,7 @@ extension Ghostty {
             }
         }
 
-        override func sizeDidChange(_ size: CGSize) {
+        func sizeDidChange(_ size: CGSize) {
             // Ghostty wants to know the actual framebuffer size... It is very important
             // here that we use "size" and NOT the view frame. If we're in the middle of
             // an animation (i.e. a fullscreen animation), the frame will not yet be updated.
@@ -797,6 +862,11 @@ extension Ghostty {
                 // We don't do anything for the other colors yet.
                 break
             }
+        }
+
+        @objc private func ghosttyDidChangeReadonly(_ notification: Foundation.Notification) {
+            guard let value = notification.userInfo?[Foundation.Notification.Name.ReadonlyKey] as? Bool else { return }
+            readonly = value
         }
 
         @objc private func ghosttyBellDidRing(_ notification: SwiftUI.Notification) {
@@ -2163,252 +2233,62 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     }
 }
 
-// MARK: Services
+// MARK: - Focus move
 
-// https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/SysServices/Articles/using.html
-extension Ghostty.SurfaceView: NSServicesMenuRequestor {
-    override func validRequestor(
-        forSendType sendType: NSPasteboard.PasteboardType?,
-        returnType: NSPasteboard.PasteboardType?
-    ) -> Any? {
-        // This function confused me a bit so I'm going to add my own commentary on
-        // how this works. macOS sends this callback with the given send/return types and
-        // we must return the responder capable of handling the COMBINATION of those send
-        // and return types (or super up if we can't handle it).
-        //
-        // The "COMBINATION" bit is key: we might get sent a string (we can handle that)
-        // but get requested an image (we can't handle that at the time of writing this),
-        // so we must bubble up.
+extension Ghostty {
+    /// When changing the split state, or going full screen (native or non), the terminal view
+    /// will lose focus. There has to be some nice SwiftUI-native way to fix this but I can't
+    /// figure it out so we're going to do this hacky thing to bring focus back to the terminal
+    /// that should have it.
+    static func moveFocus(
+        to: SurfaceView,
+        from: SurfaceView? = nil,
+        delay: TimeInterval? = nil
+    ) {
+        // The whole delay machinery is a bit of a hack to work around a
+        // situation where the window is destroyed and the surface view
+        // will never be attached to a window. Realistically, we should
+        // handle this upstream but we also don't want this function to be
+        // a source of infinite loops.
 
-        // Types we can receive
-        let receivable: [NSPasteboard.PasteboardType] = [.string, .init("public.utf8-plain-text")]
+        // Our max delay before we give up
+        let maxDelay: TimeInterval = 0.5
+        guard (delay ?? 0) < maxDelay else { return }
 
-        // Types that we can send. Currently the same as receivable but I'm separating
-        // this out so we can modify this in the future.
-        let sendable: [NSPasteboard.PasteboardType] = receivable
+        // We start at a 50 millisecond delay and do a doubling backoff
+        let nextDelay: TimeInterval = if let delay {
+            delay * 2
+        } else {
+            // 100 milliseconds
+            0.05
+        }
 
-        // The sendable types that require a selection (currently all)
-        let sendableRequiresSelection = sendable
-
-        // If we expect no data to be sent/received we can obviously handle it (that's
-        // the nil check), otherwise it must conform to the types we support on both sides.
-        if (returnType == nil || receivable.contains(returnType!)) &&
-            (sendType == nil || sendable.contains(sendType!)) {
-            // If we're expected to send back a type that requires selection, then
-            // verify that we have a selection. We do this within this block because
-            // validateRequestor is called a LOT and we want to prevent unnecessary
-            // performance hits because `ghostty_surface_has_selection` isn't free.
-            if let sendType, sendableRequiresSelection.contains(sendType) {
-                if surface == nil || !ghostty_surface_has_selection(surface) {
-                    return super.validRequestor(forSendType: sendType, returnType: returnType)
-                }
+        let work: DispatchWorkItem = .init {
+            // If the callback runs before the surface is attached to a view
+            // then the window will be nil. We just reschedule in that case.
+            guard let window = to.window else {
+                moveFocus(to: to, from: from, delay: nextDelay)
+                return
             }
 
-            return self
-        }
-
-        return super.validRequestor(forSendType: sendType, returnType: returnType)
-    }
-
-    func writeSelection(
-        to pboard: NSPasteboard,
-        types: [NSPasteboard.PasteboardType]
-    ) -> Bool {
-        guard let surface = self.surface else { return false }
-
-        // Read the selection
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_selection(surface, &text) else { return false }
-        defer { ghostty_surface_free_text(surface, &text) }
-
-        pboard.declareTypes([.string], owner: nil)
-        pboard.setString(String(cString: text.text), forType: .string)
-        return true
-    }
-
-    func readSelection(from pboard: NSPasteboard) -> Bool {
-        guard let str = pboard.getOpinionatedStringContents() else { return false }
-
-        let len = str.utf8CString.count
-        if len == 0 { return true }
-        str.withCString { ptr in
-            // len includes the null terminator so we do len - 1
-            ghostty_surface_text(surface, ptr, UInt(len - 1))
-        }
-
-        return true
-    }
-}
-
-// MARK: NSMenuItemValidation
-
-extension Ghostty.SurfaceView: NSMenuItemValidation {
-    func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        switch item.action {
-        case #selector(pasteSelection):
-            let pb = NSPasteboard.ghosttySelection
-            guard let str = pb.getOpinionatedStringContents() else { return false }
-            return !str.isEmpty
-
-        case #selector(findHide):
-            return searchState != nil
-
-        case #selector(toggleReadonly):
-            item.state = readonly ? .on : .off
-            return true
-
-        case #selector(copy(_:)):
-            // We only enable copy menu item when there're actual selected text
-            if let text = self.accessibilitySelectedText(), text.count > 0 {
-                return true
-            } else {
-                return false
+            // If we had a previously focused node and its not where we're sending
+            // focus, make sure that we explicitly tell it to lose focus. In theory
+            // we should NOT have to do this but the focus callback isn't getting
+            // called for some reason.
+            if let from = from {
+                _ = from.resignFirstResponder()
             }
 
-        default:
-            return true
-        }
-    }
-}
-
-// MARK: NSDraggingDestination
-
-extension Ghostty.SurfaceView {
-    static let dropTypes: Set<NSPasteboard.PasteboardType> = [
-        .string,
-        .fileURL,
-    ]
-
-    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard let types = sender.draggingPasteboard.types else { return [] }
-
-        // If the dragging object contains none of our types then we return none.
-        // This shouldn't happen because AppKit should guarantee that we only
-        // receive types we registered for but its good to check.
-        if Set(types).isDisjoint(with: Self.dropTypes) {
-            return []
+            window.makeFirstResponder(to)
         }
 
-        // We use copy to get the proper icon
-        return .copy
-    }
-
-    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        let pb = sender.draggingPasteboard
-
-        let content = pb.getOpinionatedStringContents()
-
-        if let content {
-            DispatchQueue.main.async {
-                self.surfaceModel?.sendText(content)
-            }
-            return true
+        let queue = DispatchQueue.main
+        if let delay {
+            queue.asyncAfter(deadline: .now() + delay, execute: work)
+        } else {
+            queue.async(execute: work)
         }
-
-        return false
     }
-}
-
-// MARK: Accessibility
-
-extension Ghostty.SurfaceView {
-    /// Indicates that this view should be exposed to accessibility tools like VoiceOver.
-    /// By returning true, we make the terminal surface accessible to screen readers
-    /// and other assistive technologies.
-    override func isAccessibilityElement() -> Bool {
-         return true
-     }
-
-    /// Defines the accessibility role for this view, which helps assistive technologies
-    /// understand what kind of content this view contains and how users can interact with it.
-    override func accessibilityRole() -> NSAccessibility.Role? {
-        /// We use .textArea because the terminal surface is essentially an editable text area
-        /// where users can input commands and view output.
-        return .textArea
-    }
-
-    override func accessibilityHelp() -> String? {
-        return "Terminal content area"
-    }
-
-    override func accessibilityValue() -> Any? {
-        return cachedScreenContents.get()
-    }
-
-    /// Returns the range of text that is currently selected in the terminal.
-    /// This allows VoiceOver and other assistive technologies to understand
-    /// what text the user has selected.
-    override func accessibilitySelectedTextRange() -> NSRange {
-        return selectedRange()
-    }
-
-    /// Returns the currently selected text as a string.
-    /// This allows assistive technologies to read the selected content.
-    override func accessibilitySelectedText() -> String? {
-        guard let surface = self.surface else { return nil }
-
-        // Attempt to read the selection
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_selection(surface, &text) else { return nil }
-        defer { ghostty_surface_free_text(surface, &text) }
-
-        let str = String(cString: text.text)
-        return str.isEmpty ? nil : str
-    }
-
-    /// Returns the number of characters in the terminal content.
-    /// This helps assistive technologies understand the size of the content.
-    override func accessibilityNumberOfCharacters() -> Int {
-        let content = cachedScreenContents.get()
-        return content.count
-    }
-
-    /// Returns the visible character range for the terminal.
-    /// For terminals, we typically show all content as visible.
-    override func accessibilityVisibleCharacterRange() -> NSRange {
-        let content = cachedScreenContents.get()
-        return NSRange(location: 0, length: content.count)
-    }
-
-    /// Returns the line number for a given character index.
-    /// This helps assistive technologies navigate by line.
-    override func accessibilityLine(for index: Int) -> Int {
-        let content = cachedScreenContents.get()
-        let substring = String(content.prefix(index))
-        return substring.components(separatedBy: .newlines).count - 1
-    }
-
-    /// Returns a substring for the given range.
-    /// This allows assistive technologies to read specific portions of the content.
-    override func accessibilityString(for range: NSRange) -> String? {
-        let content = cachedScreenContents.get()
-        guard let swiftRange = Range(range, in: content) else { return nil }
-        return String(content[swiftRange])
-    }
-
-    /// Returns an attributed string for the given range.
-    ///
-    /// Note: right now this only applies font information. One day it'd be nice to extend
-    /// this to copy styling information as well but we need to augment Ghostty core to
-    /// expose that.
-    ///
-    /// This provides styling information to assistive technologies.
-    override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
-        guard let surface = self.surface else { return nil }
-        guard let plainString = accessibilityString(for: range) else { return nil }
-
-        var attributes: [NSAttributedString.Key: Any] = [:]
-
-        // Try to get the font from the surface
-        if let fontRaw = ghostty_surface_quicklook_font(surface) {
-            let font = Unmanaged<CTFont>.fromOpaque(fontRaw)
-            attributes[.font] = font.takeUnretainedValue()
-            font.release()
-        }
-
-        return NSAttributedString(string: plainString, attributes: attributes)
-    }
-
 }
 
 /// Caches a value for some period of time, evicting it automatically when that time expires.
