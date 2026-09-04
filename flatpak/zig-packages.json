@@ -1,9 +1,9 @@
 [
   {
     "type": "archive",
-    "url": "https://github.com/vancluever/arocc/archive/ecbc5c799574e0da2758a961b12efa586007f03c.tar.gz",
-    "dest": "vendor/p/aro-0.0.0-JSD1Qk8rOQDnuVcD4jAwMpHitA6pADRKzQ7M7hKRwxvD",
-    "sha256": "aa54487bd727e8fa36744ff0a824dedb2f4ca45f4c2d4d9d2437cf5fd3d0ad1a"
+    "url": "https://github.com/vancluever/arocc/archive/82eda8ccba84403361839fe77499fb9bc609c47c.tar.gz",
+    "dest": "vendor/p/aro-0.0.0-JSD1QqiXNgAyRm8VNuJWPUBAHAsDwbLQL17yhZmNWntE",
+    "sha256": "c50ca9442e43c35ff45426c3291ecbb47a6b0e0664885b04406c2d2510e5802f"
   },
   {
     "type": "archive",
@@ -139,9 +139,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/translate_c-80f8b6e4f45a303268717d8e5f4f91d7837138bb.tar.gz",
-    "dest": "vendor/p/translate_c-0.0.0-Q_BUWmU6BwB_9JKG2l2W7i_mhmYWeRseTGBEHi_YlV5f",
-    "sha256": "38c9e59d58f36e3481f6fa38f11fe59c63c12492fccf399ca56f3dfcce17b53e"
+    "url": "https://codeberg.org/vancluever/translate-c/archive/07ea2216f7dd038dc367574f7c414a9ad314b917.tar.gz",
+    "dest": "vendor/p/translate_c-0.0.0-Q_BUWhVNBwAhixArwmXq4Li29d7M_cR5KNUtgiovODb-",
+    "sha256": "2894ff7640131e22cf39541a85b9a054625e8efeba413d4b697d6cf9bb487f8e"
   },
   {
     "type": "archive",

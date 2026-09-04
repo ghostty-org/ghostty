@@ -5,8 +5,8 @@
     .dependencies = .{
         .translate_c = .{
             .lazy = true,
-            .url = "https://deps.files.ghostty.org/translate_c-80f8b6e4f45a303268717d8e5f4f91d7837138bb.tar.gz",
-            .hash = "translate_c-0.0.0-Q_BUWmU6BwB_9JKG2l2W7i_mhmYWeRseTGBEHi_YlV5f",
+            .url = "https://codeberg.org/vancluever/translate-c/archive/07ea2216f7dd038dc367574f7c414a9ad314b917.tar.gz",
+            .hash = "translate_c-0.0.0-Q_BUWhVNBwAhixArwmXq4Li29d7M_cR5KNUtgiovODb-",
         },
 
         // google/wuffs
