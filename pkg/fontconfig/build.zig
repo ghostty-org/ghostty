@@ -1,5 +1,48 @@
 const std = @import("std");
+const build_zon = @import("build.zig.zon");
 const NativeTargetInfo = std.zig.system.NativeTargetInfo;
+
+// NOTE: This build is becoming more and more complex; we need to continually
+// extract the correct options from fontconfig build process (although this
+// part has been reasonably manageable for now); more concerning is the fact
+// that we also need to now extract more generated files as fontconfig is
+// leaning on generation more during their own Autoconf/Meson toolchain.
+// Additionally, the Autoconf process (which incidentally is what Nix uses as
+// well) has been deprecated since 2.18.3 (based on tracking the contents of
+// the INSTALL file), which means we will need to lean on Meson more and more
+// for this data.
+//
+// For now, autoconf still seems to work and can get us the files we need.
+//
+// If this build fails for any reason during update, you will need to inspect
+// the build logs and extract any possible missing headers. These can be
+// fetched through the following:
+//
+// * Set yourself up a Nix flake or build environment otherwise with the
+//   following deps (note: these were extracted from the Nix package itself):
+//
+//     autoconf
+//     automake
+//     expat
+//     freetype
+//     gettext
+//     gperf
+//     libtool
+//     libxslt
+//     pkg-config
+//     python3
+//
+// * Fetch the fontconfig source and extract it in this environment.
+//
+// * In the source root, run "./autogen.sh" followed by "make". (Don't run
+//   "make install").
+//
+// * You should now have a reasonable set of files that you can use to hunt for
+//   any missing auto-generated headers and plumb through errors otherwise.
+//
+// * Make sure when you copy includes and what not into the "override" tree,
+//   that you preserve directory structure. This will help us keep track of what
+//   we need and where it specifically came from.
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -82,11 +125,32 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         lib.root_module.linkSystemLibrary("pthread", dynamic_link_opts);
     }
 
-    lib.root_module.addIncludePath(b.path("override/include"));
-    module.addIncludePath(b.path("override/include"));
+    // NOTE: The following directories are present in override but don't need
+    // to be added here:
+    //
+    //   override/fc-case
+    //
+    inline for (.{
+        "override",
+        "override/fc-const",
+        "override/fc-genericfamily",
+        "override/fc-lang",
+        "override/src",
+    }) |override_dir| {
+        lib.root_module.addIncludePath(b.path(override_dir));
+        module.addIncludePath(b.path(override_dir));
+    }
 
     var flags: std.ArrayList([]const u8) = .empty;
     defer flags.deinit(b.allocator);
+
+    const version = try std.SemanticVersion.parse(build_zon.version);
+    try flags.appendSlice(b.allocator, &.{
+        b.fmt("-DFC_VERSION_MAJOR={d}", .{version.major}),
+        b.fmt("-DFC_VERSION_MINOR={d}", .{version.minor}),
+        b.fmt("-DFC_VERSION_MICRO={d}", .{version.patch}),
+    });
+
     try flags.appendSlice(b.allocator, &.{
         "-DHAVE_DIRENT_H",
         "-DHAVE_FCNTL_H",
@@ -101,6 +165,7 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         "-DHAVE_RAND",
         //"-DHAVE_RANDOM_R",
         "-DHAVE_VPRINTF",
+        "-DHAVE_VSNPRINTF",
 
         "-DHAVE_FT_GET_BDF_PROPERTY",
         "-DHAVE_FT_GET_PS_FONT_INFO",
@@ -168,6 +233,7 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
             "-DHAVE_RANDOM",
             "-DHAVE_RAND_R",
             "-DHAVE_READLINK",
+            "-DHAVE_USELOCALE",
             "-DHAVE_SYS_MOUNT_H",
             "-DHAVE_SYS_STATVFS_H",
 
@@ -200,6 +266,8 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     // Freetype2
     _ = b.systemIntegrationOption("freetype", .{}); // So it shows up in help
     if (freetype_enabled) {
+        // Value-tested (#if/#elif) by upstream so it must be =1.
+        try flags.append(b.allocator, "-DENABLE_FREETYPE=1");
         if (b.systemIntegrationOption("freetype", .{})) {
             lib.root_module.linkSystemLibrary("freetype2", dynamic_link_opts);
         } else {
@@ -254,18 +322,24 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
             "fontconfig",
             .{ .include_extensions = &.{".h"} },
         );
+
+        // Upstream only ships fontconfig.h.in; we generate fontconfig.h into
+        // our override directory.
+        //
+        // TODO: I'm not too sure if this is fully needed - testing the build
+        // with both system integration on and off seems to be not break with
+        // this missing (and for that matter, all of the header install stuff
+        // we do, funny enough).
+        lib.installHeader(
+            b.path("override/fontconfig/fontconfig.h"),
+            "fontconfig/fontconfig.h",
+        );
     }
 
     b.installArtifact(lib);
 
     return lib;
 }
-
-const headers = &.{
-    "fontconfig/fontconfig.h",
-    "fontconfig/fcprivate.h",
-    "fontconfig/fcfreetype.h",
-};
 
 const srcs: []const []const u8 = &.{
     "src/fcatomic.c",
@@ -279,6 +353,7 @@ const srcs: []const []const u8 = &.{
     "src/fcformat.c",
     "src/fcfreetype.c",
     "src/fcfs.c",
+    "src/fcgenericalias.c",
     "src/fcptrlist.c",
     "src/fchash.c",
     "src/fcinit.c",
