@@ -8,6 +8,7 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const input = @import("../../../input.zig");
+const command_support = @import("../command.zig");
 const gresource = @import("../build/gresource.zig");
 const key = @import("../key.zig");
 const WeakRef = @import("../weak_ref.zig").WeakRef;
@@ -191,7 +192,7 @@ pub const CommandPalette = extern struct {
         for (cfg.@"command-palette-entry".value.items) |command| {
             // Filter out actions that are not implemented or don't make sense
             // for GTK.
-            if (!isActionSupportedOnGtk(command.action)) continue;
+            if (!command_support.supported(command.action)) continue;
 
             const cmd = Command.new(config, command) catch |err| {
                 log.warn("failed to create command: {}", .{err});
@@ -204,22 +205,6 @@ pub const CommandPalette = extern struct {
                 continue;
             };
         }
-    }
-
-    /// Check if an action is supported on GTK.
-    fn isActionSupportedOnGtk(action: input.Binding.Action) bool {
-        return switch (action) {
-            .close_all_windows,
-            .toggle_secure_input,
-            .check_for_updates,
-            .redo,
-            .undo,
-            .reset_window_size,
-            .toggle_window_float_on_top,
-            => false,
-
-            else => true,
-        };
     }
 
     /// Collect jump commands for all surfaces across all windows.
