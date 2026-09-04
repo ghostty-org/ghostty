@@ -237,6 +237,11 @@ fn initLib(
     );
 
     if (kind == .static) {
+        // Allow consumers to discard unused parts of the C API when linking
+        // the archive with section garbage collection enabled.
+        lib.link_function_sections = true;
+        lib.link_data_sections = true;
+
         // These must be bundled since we're compiling into a static lib.
         // Otherwise, you get undefined symbol errors. This could cause
         // problems if you're linking multiple static Zig libraries but
