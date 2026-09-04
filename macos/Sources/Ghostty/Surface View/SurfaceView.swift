@@ -72,17 +72,6 @@ extension Ghostty {
                 }
                 .ghosttySurfaceView(surfaceView)
 
-                // Progress report
-                if let progressReport = surfaceView.progressReport, progressReport.state != .remove {
-                    VStack(spacing: 0) {
-                        SurfaceProgressBar(report: progressReport)
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
-                }
-
                 // Readonly indicator badge
                 if surfaceView.readonly {
                     ReadonlyBadge {
