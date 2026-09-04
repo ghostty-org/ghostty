@@ -478,7 +478,11 @@ pub const Surface = extern struct {
             );
         };
 
-        /// Emitted whenever the clipboard has been written.
+        /// Emitted whenever the clipboard has been written. The string
+        /// is the text representation of the written contents, empty
+        /// when there is none (e.g. an image-only Kitty clipboard
+        /// protocol write). The boolean is true when the write cleared
+        /// the clipboard, i.e. it carried no non-empty representation.
         pub const @"clipboard-write" = struct {
             pub const name = "clipboard-write";
             pub const connect = impl.connect;
@@ -488,6 +492,7 @@ pub const Surface = extern struct {
                 &.{
                     apprt.Clipboard,
                     [*:0]const u8,
+                    bool,
                 },
                 void,
             );
@@ -4051,12 +4056,13 @@ const Clipboard = struct {
         const priv = self.private();
 
         // Grab our plaintext content for use in confirmation dialogs
-        // and signals. We always expect one to exist.
+        // and signals. Kitty clipboard protocol writes may carry no
+        // text representation at all.
         const text: [:0]const u8 = for (contents) |content| {
-            if (std.mem.eql(u8, content.mime, "text/plain")) {
+            if (terminal.clipboard.isTextMime(content.mime)) {
                 break content.data;
             }
-        } else return;
+        } else "";
 
         // If no confirmation is necessary, set the clipboard.
         if (!confirm) {
@@ -4114,10 +4120,16 @@ const Clipboard = struct {
                 clipboard.setText(text);
             }
 
+            // A write that carries no non-empty representation clears
+            // the clipboard.
+            const cleared = for (contents) |content| {
+                if (content.data.len > 0) break false;
+            } else true;
+
             Surface.signals.@"clipboard-write".impl.emit(
                 self,
                 null,
-                .{ clipboard_type, text.ptr },
+                .{ clipboard_type, text.ptr, cleared },
                 null,
             );
 
@@ -4128,6 +4140,7 @@ const Clipboard = struct {
             self,
             .{ .osc_52_write = clipboard_type },
             text,
+            null,
         );
     }
 
@@ -4139,17 +4152,42 @@ const Clipboard = struct {
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
     ) Allocator.Error!apprt.ClipboardReadResult {
-        // The GTK apprt doesn't support the Kitty clipboard protocol
-        // yet.
-        if (state == .kitty_read or
-            state == .kitty_write or
-            state == .list) return .unsupported;
-
         // Get our requested clipboard
         const clipboard = get(
             self.private().gl_area.as(gtk.Widget),
             clipboard_type,
         ) orelse return .unsupported;
+
+        switch (state) {
+            // Kitty clipboard protocol writes carry their own committed
+            // contents and read nothing from the clipboard, so the
+            // request completes immediately. A completion that requires
+            // confirmation diverts into the confirmation dialog flow.
+            .kitty_write => {
+                completeKittyWrite(self, state);
+                return .started;
+            },
+
+            // A mode 5522 paste event only needs the listing of
+            // available MIME types, which the advertised content
+            // formats provide synchronously.
+            .list => {
+                completeList(self, clipboard, state);
+                return .started;
+            },
+
+            // Kitty clipboard protocol reads gather each requested
+            // representation from the clipboard asynchronously.
+            .kitty_read => return try kittyReadStart(
+                self,
+                clipboard,
+                state,
+                false,
+                false,
+            ),
+
+            .paste, .osc_52_read, .osc_52_write => {},
+        }
 
         // For paste requests, check if clipboard has text format available.
         // This is a synchronous check that allows performable keybinds to
@@ -4184,6 +4222,445 @@ const Clipboard = struct {
         return .started;
     }
 
+    /// Complete a MIME type listing request (a mode 5522 paste event).
+    /// The listing reads no clipboard data; it only reports the types
+    /// the clipboard advertises.
+    fn completeList(
+        self: *Surface,
+        clipboard: *gdk.Clipboard,
+        state: apprt.ClipboardRequest,
+    ) void {
+        const surface = self.private().core_surface orelse return;
+
+        var buf: [terminal.kitty.clipboard.max_listing_mimes][]const u8 = undefined;
+        surface.completeClipboardRequest(state, .{
+            .available = availableMimes(clipboard, &buf),
+        }) catch |err| {
+            log.warn("failed to complete clipboard request err={}", .{err});
+        };
+    }
+
+    /// Complete a committed Kitty clipboard protocol write. The
+    /// authoritative contents live in the request itself so the apprt
+    /// contributes nothing, but a completion that requires confirmation
+    /// diverts into the confirmation dialog flow, which keeps the
+    /// request state alive for the asynchronous prompt.
+    fn completeKittyWrite(
+        self: *Surface,
+        state: apprt.ClipboardRequest,
+    ) void {
+        const kitty = state.kitty_write;
+        const surface = self.private().core_surface orelse {
+            kitty.destroy();
+            return;
+        };
+
+        surface.completeClipboardRequest(state, .{}) catch |err| switch (err) {
+            error.UnauthorizedPaste => showKittyConfirmation(
+                self,
+                state,
+                kitty.contents,
+            ),
+
+            else => log.warn(
+                "failed to complete clipboard request err={}",
+                .{err},
+            ),
+        };
+    }
+
+    /// Collect the MIME types the clipboard advertises into `buf`,
+    /// returning the filled portion. The returned strings are owned by
+    /// the clipboard's current content formats.
+    fn availableMimes(
+        clipboard: *gdk.Clipboard,
+        buf: [][]const u8,
+    ) []const []const u8 {
+        var n: usize = 0;
+        const mimes = clipboard.getFormats().getMimeTypes(&n) orelse
+            return buf[0..0];
+        const len = @min(n, buf.len);
+        for (mimes[0..len], buf[0..len]) |mime, *dst| {
+            dst.* = std.mem.sliceTo(mime.?, 0);
+        }
+        return buf[0..len];
+    }
+
+    /// Show the confirmation dialog for a Kitty clipboard protocol
+    /// request. The preview shown is the image when the contents carry
+    /// a decodable image representation, otherwise the text
+    /// representation, otherwise the list of MIME types involved.
+    ///
+    /// The contents are anytype because they are only forwarded to the
+    /// preview helpers; see kittyPreview for why those take anytype.
+    fn showKittyConfirmation(
+        self: *Surface,
+        req: apprt.ClipboardRequest,
+        contents: anytype,
+    ) void {
+        const alloc = Application.default().allocator();
+        const preview: ?[:0]const u8 = kittyPreview(alloc, contents) catch null;
+        defer if (preview) |v| alloc.free(v);
+        const image = kittyImagePreview(contents);
+        defer if (image) |v| v.unref();
+        showClipboardConfirmation(self, req, preview orelse "", image);
+    }
+
+    /// Create a texture for the first decodable image representation
+    /// in the contents, if any, for the confirmation dialog preview.
+    /// The caller owns the returned reference.
+    ///
+    /// The contents are anytype because the callers hold different
+    /// element types with the same field shape: write requests carry
+    /// []const apprt.ClipboardContent (sentinel-terminated so they can
+    /// cross the C apprt boundary) while reads gather []const
+    /// terminal.clipboard.Content. Only the mime and data fields are
+    /// read, so comptime duck typing avoids copying one representation
+    /// into the other.
+    fn kittyImagePreview(contents: anytype) ?*gdk.Texture {
+        for (contents) |content| {
+            if (!std.mem.startsWith(u8, content.mime, "image/")) continue;
+            if (content.data.len == 0) continue;
+
+            const bytes = glib.Bytes.new(content.data.ptr, content.data.len);
+            defer bytes.unref();
+
+            // TODO: use glycin directly here so untrusted image data
+            // is decoded in its sandboxed decoder rather than by
+            // GTK's in-process decoders.
+            var gerr: ?*glib.Error = null;
+            if (gdk.Texture.newFromBytes(bytes, &gerr)) |texture| {
+                return texture;
+            }
+            if (gerr) |err| {
+                defer err.free();
+                log.debug(
+                    "failed to decode clipboard image preview err={s}",
+                    .{err.f_message orelse "(no message)"},
+                );
+            }
+        }
+        return null;
+    }
+
+    /// Build the confirmation dialog preview for Kitty clipboard
+    /// contents. The result is owned by the caller.
+    ///
+    /// The contents are anytype because the callers hold different
+    /// element types with the same field shape: write requests carry
+    /// []const apprt.ClipboardContent (sentinel-terminated so they can
+    /// cross the C apprt boundary) while reads gather []const
+    /// terminal.clipboard.Content. Only the mime and data fields are
+    /// read, so comptime duck typing avoids copying one representation
+    /// into the other.
+    fn kittyPreview(
+        alloc: Allocator,
+        contents: anytype,
+    ) Allocator.Error![:0]const u8 {
+        for (contents) |content| {
+            if (terminal.clipboard.isTextMime(content.mime)) {
+                return alloc.dupeZ(u8, content.data);
+            }
+        }
+
+        // No text representation; list the MIME types so the user
+        // at least knows what kinds of data are involved.
+        var list: std.ArrayList(u8) = .empty;
+        defer list.deinit(alloc);
+        for (contents) |content| {
+            try list.appendSlice(alloc, content.mime);
+            try list.append(alloc, '\n');
+        }
+        return list.toOwnedSliceSentinel(alloc, 0);
+    }
+
+    /// State for one in-flight Kitty clipboard protocol read against
+    /// the GDK clipboard. The requested representations are read one
+    /// at a time; representations the clipboard can't serve are
+    /// skipped, which is how the protocol reports an unavailable
+    /// representation.
+    const KittyReadOp = struct {
+        /// The allocator this operation was created with, used by
+        /// destroy to free it.
+        alloc: Allocator,
+
+        /// Reffed so the surface can't be disposed mid-operation.
+        self: *Surface,
+
+        /// The clipboard being read. Owned by the GDK display, which
+        /// outlives the operation.
+        clipboard: *gdk.Clipboard,
+
+        /// The request being served. Always `.kitty_read`.
+        state: apprt.ClipboardRequest,
+
+        /// Holds the representation data read so far.
+        arena: std.heap.ArenaAllocator,
+
+        /// The representations read so far. Bounded by the request's
+        /// MIME types, which the sender capped at max_read_mimes.
+        contents: [terminal.kitty.clipboard.max_read_mimes]terminal.clipboard.Content,
+        contents_len: usize,
+
+        /// Index of the requested MIME type currently being read.
+        idx: usize,
+
+        /// Confirmation state forwarded to the completion. Set when the
+        /// read is rerun after the user confirmed the request.
+        confirmed: bool,
+        remember: bool,
+
+        fn destroy(op: *KittyReadOp) void {
+            const alloc = op.alloc;
+            op.self.unref();
+            op.arena.deinit();
+            alloc.destroy(op);
+        }
+    };
+
+    /// Start a Kitty clipboard protocol read. The operation owns a
+    /// surface reference until it completes.
+    fn kittyReadStart(
+        self: *Surface,
+        clipboard: *gdk.Clipboard,
+        state: apprt.ClipboardRequest,
+        confirmed: bool,
+        remember: bool,
+    ) Allocator.Error!apprt.ClipboardReadResult {
+        const alloc = Application.default().allocator();
+        const op = try alloc.create(KittyReadOp);
+        op.* = .{
+            .alloc = alloc,
+            .self = self.ref(),
+            .clipboard = clipboard,
+            .state = state,
+            .arena = .init(alloc),
+            .contents = undefined,
+            .contents_len = 0,
+            .idx = 0,
+            .confirmed = confirmed,
+            .remember = remember,
+        };
+        kittyReadNext(op);
+        return .started;
+    }
+
+    /// Start reading the next requested representation, or complete
+    /// the request once they have all been read.
+    fn kittyReadNext(op: *KittyReadOp) void {
+        const kitty = op.state.kitty_read;
+        if (op.idx >= kitty.mimes.len) {
+            kittyReadFinish(op);
+            return;
+        }
+
+        const mime = kitty.mimes[op.idx];
+
+        // Text-like types are served through GDK's text reading so
+        // they pick up the same conversions ordinary pastes use.
+        if (terminal.clipboard.isTextMime(mime)) {
+            op.clipboard.readTextAsync(null, kittyReadText, op);
+            return;
+        }
+
+        // GDK copies the type list into content formats before
+        // returning, so the stack lifetime is fine.
+        var mime_types = [_:null]?[*:0]const u8{mime.ptr};
+        op.clipboard.readAsync(
+            @ptrCast(&mime_types),
+            glib.PRIORITY_DEFAULT,
+            null,
+            kittyReadStream,
+            op,
+        );
+    }
+
+    /// Record data for the representation currently being read, under
+    /// the MIME type the program requested.
+    fn kittyReadStore(op: *KittyReadOp, data: []const u8) void {
+        const kitty = op.state.kitty_read;
+        const copy = op.arena.allocator().dupe(u8, data) catch |err| {
+            log.warn("failed to store clipboard contents err={}", .{err});
+            return;
+        };
+        op.contents[op.contents_len] = .{
+            .mime = kitty.mimes[op.idx],
+            .data = copy,
+        };
+        op.contents_len += 1;
+    }
+
+    fn kittyReadText(
+        source: ?*gobject.Object,
+        res: *gio.AsyncResult,
+        ud: ?*anyopaque,
+    ) callconv(.c) void {
+        const op: *KittyReadOp = @ptrCast(@alignCast(ud orelse return));
+        read: {
+            const clipboard = gobject.ext.cast(
+                gdk.Clipboard,
+                source orelse break :read,
+            ) orelse break :read;
+
+            var gerr: ?*glib.Error = null;
+            const cstr_ = clipboard.readTextFinish(res, &gerr);
+            if (gerr) |err| {
+                defer err.free();
+                // An unavailable representation is expected: it is
+                // simply never served.
+                log.debug(
+                    "failed to read clipboard text err={s}",
+                    .{err.f_message orelse "(no message)"},
+                );
+                break :read;
+            }
+            const cstr = cstr_ orelse break :read;
+            defer glib.free(cstr);
+            kittyReadStore(op, std.mem.sliceTo(cstr, 0));
+        }
+
+        op.idx += 1;
+        kittyReadNext(op);
+    }
+
+    fn kittyReadStream(
+        source: ?*gobject.Object,
+        res: *gio.AsyncResult,
+        ud: ?*anyopaque,
+    ) callconv(.c) void {
+        const op: *KittyReadOp = @ptrCast(@alignCast(ud orelse return));
+        read: {
+            const clipboard = gobject.ext.cast(
+                gdk.Clipboard,
+                source orelse break :read,
+            ) orelse break :read;
+
+            var gerr: ?*glib.Error = null;
+            const stream_ = clipboard.readFinish(res, null, &gerr);
+            if (gerr) |err| {
+                defer err.free();
+                // An unavailable representation is expected: it is
+                // simply never served.
+                log.debug(
+                    "failed to read clipboard representation err={s}",
+                    .{err.f_message orelse "(no message)"},
+                );
+                break :read;
+            }
+            const stream = stream_ orelse break :read;
+            defer stream.unref();
+
+            // Splice the representation into memory. The splice holds
+            // its own reference on the source stream; ours is released
+            // above. Our reference on the output stream is released by
+            // the splice callback.
+            const output = gio.MemoryOutputStream.newResizable();
+            output.as(gio.OutputStream).spliceAsync(
+                stream,
+                .{ .close_source = true, .close_target = true },
+                glib.PRIORITY_DEFAULT,
+                null,
+                kittyReadSplice,
+                op,
+            );
+            return;
+        }
+
+        op.idx += 1;
+        kittyReadNext(op);
+    }
+
+    fn kittyReadSplice(
+        source: ?*gobject.Object,
+        res: *gio.AsyncResult,
+        ud: ?*anyopaque,
+    ) callconv(.c) void {
+        const op: *KittyReadOp = @ptrCast(@alignCast(ud orelse return));
+        read: {
+            const output = gobject.ext.cast(
+                gio.MemoryOutputStream,
+                source orelse break :read,
+            ) orelse break :read;
+            defer output.unref();
+
+            var gerr: ?*glib.Error = null;
+            _ = output.as(gio.OutputStream).spliceFinish(res, &gerr);
+            if (gerr) |err| {
+                defer err.free();
+                log.debug(
+                    "failed to read clipboard representation err={s}",
+                    .{err.f_message orelse "(no message)"},
+                );
+                break :read;
+            }
+
+            // The splice closed the stream, so the bytes are complete.
+            const bytes = output.stealAsBytes();
+            defer bytes.unref();
+            var size: usize = 0;
+            const data = bytes.getData(&size);
+            kittyReadStore(op, if (data) |v| v[0..size] else "");
+        }
+
+        op.idx += 1;
+        kittyReadNext(op);
+    }
+
+    /// Complete the read request with everything gathered. A completion
+    /// that requires confirmation keeps the request state alive and
+    /// diverts into the confirmation dialog flow; the read is rerun
+    /// with the confirmation attached if the user allows it.
+    fn kittyReadFinish(op: *KittyReadOp) void {
+        defer op.destroy();
+        const self = op.self;
+        const kitty = op.state.kitty_read;
+
+        const surface = self.private().core_surface orelse {
+            kitty.destroy();
+            return;
+        };
+
+        // Gather the available type listing when it was requested. The
+        // listing is available synchronously from the advertised
+        // content formats.
+        var available_buf: [terminal.kitty.clipboard.max_listing_mimes][]const u8 = undefined;
+        const available: []const []const u8 = if (kitty.list)
+            availableMimes(op.clipboard, &available_buf)
+        else
+            &.{};
+
+        surface.completeClipboardRequest(op.state, .{
+            .contents = op.contents[0..op.contents_len],
+            .available = available,
+            .confirmed = op.confirmed,
+            .remember = op.remember,
+        }) catch |err| switch (err) {
+            error.UnauthorizedPaste => {
+                showKittyConfirmation(
+                    self,
+                    op.state,
+                    op.contents[0..op.contents_len],
+                );
+                return;
+            },
+
+            else => {
+                log.warn(
+                    "failed to complete clipboard request err={}",
+                    .{err},
+                );
+                return;
+            },
+        };
+
+        Surface.signals.@"clipboard-read".impl.emit(
+            self,
+            null,
+            .{},
+            null,
+        );
+    }
+
     /// Paste explicit text directly into the surface, regardless of the
     /// actual clipboard contents.
     pub fn paste(
@@ -4204,6 +4681,7 @@ const Clipboard = struct {
                     self,
                     .{ .paste = .standard },
                     text,
+                    null,
                 );
                 return;
             },
@@ -4233,6 +4711,7 @@ const Clipboard = struct {
         self: *Surface,
         req: apprt.ClipboardRequest,
         str: [:0]const u8,
+        image: ?*gdk.Texture,
     ) void {
         // Build a text buffer for our contents
         const contents_buf: *gtk.TextBuffer = .new(null);
@@ -4244,9 +4723,16 @@ const Clipboard = struct {
             ClipboardConfirmationDialog,
             .{
                 .request = &req,
+                .@"clipboard-image" = image,
                 .@"can-remember" = switch (req) {
                     .osc_52_read, .osc_52_write => true,
-                    .paste, .list, .kitty_read, .kitty_write => false,
+
+                    // Kitty clipboard protocol requests can only be
+                    // remembered as a session grant, which requires a
+                    // session password.
+                    inline .kitty_read, .kitty_write => |kitty| kitty.pw.len > 0,
+
+                    .paste, .list => false,
                 },
                 .@"clipboard-contents" = contents_buf,
             },
@@ -4279,12 +4765,58 @@ const Clipboard = struct {
         const surface = priv.core_surface orelse return;
         const req = dialog.getRequest() orelse return;
 
-        // Handle remember
+        // Handle remember. OSC 52 remembers by changing the configured
+        // policy; Kitty clipboard protocol requests remember via a
+        // session grant recorded by the completion below.
         if (remember) switch (req.*) {
             .osc_52_read => surface.config.clipboard_read = .allow,
             .osc_52_write => surface.config.clipboard_write = .allow,
             .paste, .list, .kitty_read, .kitty_write => {},
         };
+
+        switch (req.*) {
+            // A confirmed Kitty read must serve the actual requested
+            // representations rather than the text preview shown in
+            // the dialog, so the read is rerun with the confirmation
+            // attached.
+            .kitty_read => |kitty| {
+                const clipboard = get(
+                    self.private().gl_area.as(gtk.Widget),
+                    kitty.location,
+                ) orelse {
+                    surface.denyClipboardRequest(req.*);
+                    return;
+                };
+                _ = kittyReadStart(
+                    self,
+                    clipboard,
+                    req.*,
+                    true,
+                    remember,
+                ) catch |err| {
+                    log.warn("failed to restart clipboard read err={}", .{err});
+                    surface.denyClipboardRequest(req.*);
+                };
+                return;
+            },
+
+            // A confirmed Kitty write carries its committed contents
+            // in the request itself.
+            .kitty_write => {
+                surface.completeClipboardRequest(req.*, .{
+                    .confirmed = true,
+                    .remember = remember,
+                }) catch |err| {
+                    log.warn(
+                        "failed to complete clipboard request err={}",
+                        .{err},
+                    );
+                };
+                return;
+            },
+
+            .paste, .osc_52_read, .osc_52_write, .list => {},
+        }
 
         // Get our text
         const text_buf = dialog.getClipboardContents() orelse return;
@@ -4317,12 +4849,21 @@ const Clipboard = struct {
         const surface = priv.core_surface orelse return;
         const req = dialog.getRequest() orelse return;
 
-        // Handle remember
+        // Handle remember. Kitty clipboard protocol session grants only
+        // record allowed requests, so a denied request is never
+        // remembered.
         if (remember) switch (req.*) {
             .osc_52_read => surface.config.clipboard_read = .deny,
             .osc_52_write => surface.config.clipboard_write = .deny,
-            .paste, .list, .kitty_read, .kitty_write => @panic("request should not be able to be remembered"),
+            .kitty_read, .kitty_write => {},
+            .paste, .list => @panic("request should not be able to be remembered"),
         };
+
+        // The denial consumes the request, and protocols whose client
+        // waits on a reply are answered: an OSC 52 read replies with
+        // empty contents and the Kitty clipboard protocol reports
+        // EPERM. The other request types simply don't happen.
+        surface.denyClipboardRequest(req.*);
     }
 
     fn clipboardReadText(
@@ -4350,6 +4891,13 @@ const Clipboard = struct {
                 "failed to read clipboard err={s}",
                 .{err.f_message orelse "(no message)"},
             );
+
+            // The requester may be waiting on a reply, e.g. an OSC 52
+            // read of a clipboard with no text representation. Denying
+            // the request answers the protocols that expect one.
+            if (self.private().core_surface) |surface| {
+                surface.denyClipboardRequest(req.state);
+            }
             return;
         }
         const cstr = cstr_ orelse return;
@@ -4368,6 +4916,7 @@ const Clipboard = struct {
                     self,
                     req.state,
                     str,
+                    null,
                 );
                 return;
             },
