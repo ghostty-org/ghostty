@@ -721,6 +721,7 @@ fn addGtkNg(
             .{ "glib", "glib2" },
             .{ "glibunix", "glibunix2" },
             .{ "gobject", "gobject2" },
+            .{ "graphene", "graphene1" },
             .{ "gtk", "gtk4" },
             .{ "xlib", "xlib2" },
         };
@@ -1003,6 +1004,7 @@ pub fn addSimd(
                 "src/simd/base64.cpp",
                 "src/simd/codepoint_width.cpp",
                 "src/simd/index_of.cpp",
+                "src/simd/utf8_count.cpp",
                 "src/simd/vt.cpp",
             },
             .flags = flags.items,
