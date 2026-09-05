@@ -117,18 +117,6 @@ pub const Surface = extern struct {
             );
         };
 
-        pub const @"default-size" = struct {
-            pub const name = "default-size";
-            const impl = gobject.ext.defineProperty(
-                name,
-                Self,
-                ?*Size,
-                .{
-                    .accessor = C.privateBoxedFieldAccessor("default_size"),
-                },
-            );
-        };
-
         pub const @"error" = struct {
             pub const name = "error";
             const impl = gobject.ext.defineProperty(
@@ -584,9 +572,6 @@ pub const Surface = extern struct {
         /// The configuration that this surface is using.
         config: ?*Config = null,
 
-        /// The default size for a window that embeds this surface.
-        default_size: ?*Size = null,
-
         /// The minimum size for this surface. Embedders enforce this,
         /// not the surface itself.
         min_size: ?*Size = null,
@@ -814,6 +799,11 @@ pub const Surface = extern struct {
         font_size_ptr.* = parent.font_size;
         priv.font_size_request = font_size_ptr;
         self.as(gobject.Object).notifyByPspec(properties.@"font-size-request".impl.param_spec);
+
+        // The font size affects our estimated initial size so re-estimate
+        // it. If we don't have a config yet then this is a no-op and the
+        // estimate will be done when the config is set.
+        self.estimateInitialSize();
 
         // Remainder needs a config. If there is no config we just assume
         // we aren't inheriting any of these values.
@@ -1868,6 +1858,12 @@ pub const Surface = extern struct {
 
         // Initialize our config
         self.propConfig(undefined, null);
+
+        // Estimate our initial size based on the config.
+        // If this surface inherits from a parent surface, this estimate may
+        // be overridden later in `setParent` with the parent's font size,
+        // which might differ from the config's font size.
+        self.estimateInitialSize();
     }
 
     fn initActionMap(self: *Self) void {
@@ -1982,10 +1978,6 @@ pub const Surface = extern struct {
         if (priv.mouse_hover_url) |v| {
             glib.free(@ptrCast(@constCast(v)));
             priv.mouse_hover_url = null;
-        }
-        if (priv.default_size) |v| {
-            ext.boxedFree(Size, v);
-            priv.default_size = null;
         }
         if (priv.font_size_request) |v| {
             glib.ext.destroy(v);
@@ -2161,75 +2153,63 @@ pub const Surface = extern struct {
         self.as(gobject.Object).notifyByPspec(properties.config.impl.param_spec);
     }
 
-    /// Return the default size, if set.
-    pub fn getDefaultSize(self: *Self) ?*Size {
-        const priv = self.private();
-        return priv.default_size;
-    }
-
-    /// Set the default size for a window that contains this surface.
-    /// This is up to the embedding widget to respect this. Generally, only
-    /// the first surface in a window respects this.
-    pub fn setDefaultSize(self: *Self, size: Size) void {
-        const priv = self.private();
-        if (priv.default_size) |v| ext.boxedFree(
-            Size,
-            v,
-        );
-        priv.default_size = ext.boxedCopy(
-            Size,
-            &size,
-        );
-        self.as(gobject.Object).notifyByPspec(properties.@"default-size".impl.param_spec);
-    }
-
-    /// Estimate and set the initial window size from config and font metrics.
-    /// This can be called before the core surface exists to set up the window
-    /// size before presenting. This is an estimate because it does not take
-    /// into account any padding that may need to be added to the window.
+    /// Estimate the initial size of this surface.
+    ///
+    /// The reason why we need this is a chicken-and-egg problem: the true size
+    /// of a freshly-created surface is sent by the core surface, but since GTK
+    /// widgets start in an unrealized state, we cannot eagerly create the core
+    /// surface when we have to know the surface size. What do we do then?
+    /// We guess based on the information we have. This is not perfect, but it
+    /// should take care of most user needs. When the core surface is actually
+    /// created, we can simply update the natural size of the render surface
+    /// underneath with the `initial_size` apprt action.
     pub fn estimateInitialSize(self: *Self) void {
-        const priv: *Private = self.private();
-        const config_obj = priv.config orelse return;
-        const config = config_obj.get();
-
-        // Both dimensions must be configured
-        if (config.@"window-height" <= 0 or config.@"window-width" <= 0) return;
-
+        const priv = self.private();
         const app = Application.default();
-        const alloc = app.allocator();
-
-        // Get content scale and compute DPI
+        const config = if (priv.config) |c| c.get() else return;
         const content_scale = self.getContentScale();
-        const x_dpi = content_scale.x * font.face.default_dpi;
-        const y_dpi = content_scale.y * font.face.default_dpi;
 
-        const font_size: font.face.DesiredSize = .{
-            .points = config.@"font-size",
-            .xdpi = @intFromFloat(@round(x_dpi)),
-            .ydpi = @intFromFloat(@round(y_dpi)),
-        };
-
-        // Get font grid for cell metrics
-        var derived_config = font.SharedGridSet.DerivedConfig.init(alloc, config) catch return;
-        defer derived_config.deinit();
-
-        const font_grid_key, const font_grid = app.core().font_grid_set.ref(
-            &derived_config,
-            font_size,
+        // Calculate the cell metrics (cell size and padding) exactly
+        // like the core surface would. If we have a requested font size
+        // (e.g. inherited from a parent surface) then use that, matching
+        // what the core surface will be initialized with.
+        const metrics = CoreSurface.CellMetrics.init(
+            app.allocator(),
+            &app.core().font_grid_set,
+            config,
+            content_scale,
+            if (priv.font_size_request) |v| v.* else null,
         ) catch return;
-        defer app.core().font_grid_set.deref(font_grid_key);
 
-        const cell = font_grid.cellSize();
+        // Our minimum size is the smallest grid we allow (the core's
+        // `min_window_*_cells`), while our natural size is the configured
+        // grid size. Both use the core's shared initial size calculation.
+        // If `window-width` and `window-height` are unset, fall back to
+        // 80x24.
+        const min: CoreSurface.InitialSize = .init(
+            CoreSurface.min_window_width_cells,
+            CoreSurface.min_window_height_cells,
+            metrics.cell,
+            metrics.padding,
+            content_scale,
+        );
+        const nat: CoreSurface.InitialSize = .init(
+            if (config.@"window-width" > 0) config.@"window-width" else 80,
+            if (config.@"window-height" > 0) config.@"window-height" else 24,
+            metrics.cell,
+            metrics.padding,
+            content_scale,
+        );
+        log.debug("render surface size estimated to be min={} natural={}", .{ min, nat });
 
-        const width = @max(CoreSurface.min_window_width_cells, config.@"window-width") * cell.width;
-        const height = @max(CoreSurface.min_window_height_cells, config.@"window-height") * cell.height;
-        const width_f32: f32 = @floatFromInt(width);
-        const height_f32: f32 = @floatFromInt(height);
+        priv.render_surface.setMinimumSize(@intCast(min.width), @intCast(min.height));
+        priv.render_surface.setNaturalSize(@intCast(nat.width), @intCast(nat.height));
+    }
 
-        const final_width: u32 = @intFromFloat(@ceil(width_f32 / content_scale.x));
-        const final_height: u32 = @intFromFloat(@ceil(height_f32 / content_scale.y));
-
-        self.setDefaultSize(.{ .width = final_width, .height = final_height });
+    /// Set the initial size as precisely calculated by the core surface.
+    pub fn setInitialSize(self: *Self, width: u32, height: u32) void {
+        const priv = self.private();
+        priv.render_surface.setNaturalSize(@intCast(width), @intCast(height));
     }
 
     /// Get the key sequence list. Full transfer.
@@ -2275,24 +2255,19 @@ pub const Surface = extern struct {
         const cell_width: u32 = @intFromFloat(@ceil(width_f32 / content_scale.x));
         const cell_height: u32 = @intFromFloat(@ceil(height_f32 / content_scale.y));
 
-        // Padding is in points, and is rounded down like scaledPadding in
-        // the core surface.
-        const padding = struct {
-            fn logical(points: u32) u32 {
-                const points_f32: f32 = @floatFromInt(points);
-                return @intFromFloat(@floor(points_f32 * font.face.default_dpi / 72));
-            }
-        }.logical;
+        // Padding is in points, converted to logical pixels using the
+        // core's shared padding calculation (rounded down like the
+        // core's `scaledPadding`).
         const padding_x = config.@"window-padding-x";
         const padding_y = config.@"window-padding-y";
 
         priv.split_min_size = .{
             .width = cell_width +
-                padding(padding_x.top_left) +
-                padding(padding_x.bottom_right),
+                CoreSurface.paddingDevicePixels(padding_x.top_left, font.face.default_dpi) +
+                CoreSurface.paddingDevicePixels(padding_x.bottom_right, font.face.default_dpi),
             .height = cell_height +
-                padding(padding_y.top_left) +
-                padding(padding_y.bottom_right),
+                CoreSurface.paddingDevicePixels(padding_y.top_left, font.face.default_dpi) +
+                CoreSurface.paddingDevicePixels(padding_y.bottom_right, font.face.default_dpi),
         };
 
         if (ext.getAncestor(
@@ -4006,7 +3981,6 @@ pub const Surface = extern struct {
                 properties.@"bell-ringing".impl,
                 properties.config.impl,
                 properties.@"child-exited".impl,
-                properties.@"default-size".impl,
                 properties.@"error".impl,
                 properties.@"font-size-request".impl,
                 properties.focused.impl,

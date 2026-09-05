@@ -526,6 +526,23 @@ pub const SplitTree = extern struct {
     //---------------------------------------------------------------
     // Properties
 
+    /// Rebuild the widget tree immediately.
+    ///
+    /// This is necessary when the widget hierarchy must be up-to-date
+    /// before an important calculation, e.g. right before a window is
+    /// presented so that the initial window size accounts for the
+    /// surfaces within it.
+    pub fn forceRebuild(self: *Self) void {
+        const priv = self.private();
+        if (priv.rebuild_source) |v| {
+            priv.rebuild_source = null;
+            if (glib.Source.remove(v) == 0) {
+                log.warn("unable to remove rebuild source", .{});
+            }
+            _ = onRebuild(self);
+        }
+    }
+
     /// Returns true if this split tree needs confirmation before quitting based
     /// on the various Ghostty configurations.
     pub fn getNeedsConfirmQuit(self: *Self) bool {

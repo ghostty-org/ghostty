@@ -445,28 +445,11 @@ const DerivedConfig = struct {
     }
 
     fn scaledPadding(self: *const DerivedConfig, x_dpi: f32, y_dpi: f32) rendererpkg.Padding {
-        const padding_top: u32 = padding_top: {
-            const padding_top: f32 = @floatFromInt(self.window_padding_top);
-            break :padding_top @intFromFloat(@floor(padding_top * y_dpi / 72));
-        };
-        const padding_bottom: u32 = padding_bottom: {
-            const padding_bottom: f32 = @floatFromInt(self.window_padding_bottom);
-            break :padding_bottom @intFromFloat(@floor(padding_bottom * y_dpi / 72));
-        };
-        const padding_left: u32 = padding_left: {
-            const padding_left: f32 = @floatFromInt(self.window_padding_left);
-            break :padding_left @intFromFloat(@floor(padding_left * x_dpi / 72));
-        };
-        const padding_right: u32 = padding_right: {
-            const padding_right: f32 = @floatFromInt(self.window_padding_right);
-            break :padding_right @intFromFloat(@floor(padding_right * x_dpi / 72));
-        };
-
         return .{
-            .top = padding_top,
-            .bottom = padding_bottom,
-            .left = padding_left,
-            .right = padding_right,
+            .top = paddingDevicePixels(self.window_padding_top, y_dpi),
+            .bottom = paddingDevicePixels(self.window_padding_bottom, y_dpi),
+            .left = paddingDevicePixels(self.window_padding_left, x_dpi),
+            .right = paddingDevicePixels(self.window_padding_right, x_dpi),
         };
     }
 };
@@ -519,11 +502,7 @@ pub fn init(
     });
 
     // The font size we desire along with the DPI determined for the surface
-    const font_size: font.face.DesiredSize = .{
-        .points = config.@"font-size",
-        .xdpi = @intFromFloat(@round(x_dpi)),
-        .ydpi = @intFromFloat(@round(y_dpi)),
-    };
+    const font_size: font.face.DesiredSize = desiredFontSize(config, content_scale);
 
     // Setup our font group. This will reuse an existing font group if
     // it was already loaded.
@@ -1910,6 +1889,120 @@ const InitialSizeError = error{
     AppActionFailed,
 };
 
+/// Convert a padding value from points to device pixels at the given DPI.
+pub fn paddingDevicePixels(points: u32, dpi: f32) u32 {
+    const points_f32: f32 = @floatFromInt(points);
+    return @intFromFloat(@floor(points_f32 * dpi / 72));
+}
+
+/// Calculate the desired font size for a surface based on its configured
+/// font size and the content scale (which determines the DPI).
+fn desiredFontSize(
+    config: *const configpkg.Config,
+    content_scale: apprt.ContentScale,
+) font.face.DesiredSize {
+    const x_dpi = content_scale.x * font.face.default_dpi;
+    const y_dpi = content_scale.y * font.face.default_dpi;
+    return .{
+        .points = config.@"font-size",
+        .xdpi = @intFromFloat(@round(x_dpi)),
+        .ydpi = @intFromFloat(@round(y_dpi)),
+    };
+}
+
+/// The metrics of a surface used for initial size calculations
+/// in device pixels.
+pub const CellMetrics = struct {
+    cell: rendererpkg.CellSize,
+    padding: rendererpkg.Padding,
+
+    /// Calculate the cell metrics for a surface based on its configuration
+    /// and content scale. The padding is the explicit, unbalanced padding.
+    /// Balanced padding depends on the actual surface size, so it cannot be
+    /// calculated here.
+    ///
+    /// The `font_size` parameter can be used to override the configured font
+    /// size, e.g. a size inherited from a parent surface. If null then the
+    /// configured font size is used.
+    ///
+    /// This is public so apprts can calculate surface metrics exactly like
+    /// the core does, e.g. to estimate the initial size of a surface before
+    /// the core surface exists.
+    pub fn init(
+        alloc: Allocator,
+        font_grid_set: *font.SharedGridSet,
+        config: *const configpkg.Config,
+        content_scale: apprt.ContentScale,
+        font_size: ?font.face.DesiredSize,
+    ) !CellMetrics {
+        const x_dpi = content_scale.x * font.face.default_dpi;
+        const y_dpi = content_scale.y * font.face.default_dpi;
+
+        var derived_config: font.SharedGridSet.DerivedConfig = try .init(alloc, config);
+        defer derived_config.deinit();
+
+        const font_grid_key, const font_grid = try font_grid_set.ref(
+            &derived_config,
+            font_size orelse desiredFontSize(config, content_scale),
+        );
+        defer font_grid_set.deref(font_grid_key);
+
+        return .{
+            .cell = font_grid.cellSize(),
+            .padding = .{
+                .top = paddingDevicePixels(config.@"window-padding-y".top_left, y_dpi),
+                .bottom = paddingDevicePixels(config.@"window-padding-y".bottom_right, y_dpi),
+                .left = paddingDevicePixels(config.@"window-padding-x".top_left, x_dpi),
+                .right = paddingDevicePixels(config.@"window-padding-x".bottom_right, x_dpi),
+            },
+        };
+    }
+};
+
+/// The initial size of a surface in logical (device independent) pixels.
+pub const InitialSize = struct {
+    width: u32,
+    height: u32,
+
+    /// Calculate the initial size of a surface based on a requested grid
+    /// size (in cells), the cell size and padding (in device pixels), and
+    /// the content scale. The requested grid size is clamped to the minimum
+    /// window cell sizes (`min_window_*_cells`).
+    ///
+    /// Callers must guarantee that the grid size is well-defined and neither
+    /// dimension is zero.
+    ///
+    /// The returned size includes the padding so that the terminal grid fits
+    /// exactly in the allocated surface.
+    ///
+    /// This is public so that apprts can calculate (or estimate, before the
+    /// core surface exists and the true cell metrics are known) the initial
+    /// size of a surface using the exact same logic as the core.
+    pub fn init(
+        cells_width: u32,
+        cells_height: u32,
+        cell: rendererpkg.CellSize,
+        padding: rendererpkg.Padding,
+        scale: apprt.ContentScale,
+    ) InitialSize {
+        assert(cells_width > 0 and cells_height > 0);
+
+        const width = @max(cells_width, min_window_width_cells) * cell.width;
+        const height = @max(cells_height, min_window_height_cells) * cell.height;
+        const width_f32: f32 = @floatFromInt(width);
+        const height_f32: f32 = @floatFromInt(height);
+
+        // The final values are affected by content scale and we need to
+        // account for the padding so we get the exact correct grid size.
+        return .{
+            .width = @as(u32, @intFromFloat(@ceil(width_f32 / scale.x))) +
+                padding.left + padding.right,
+            .height = @as(u32, @intFromFloat(@ceil(height_f32 / scale.y))) +
+                padding.top + padding.bottom,
+        };
+    }
+};
+
 /// Recalculate the initial size of the window based on the
 /// configuration and invoke the apprt `initial_size` action if
 /// necessary.
@@ -1923,33 +2016,42 @@ fn recomputeInitialSize(
 
     const scale = self.rt_surface.getContentScale() catch
         return error.ContentScaleUnavailable;
-    const height = @max(
-        self.config.window_height,
-        min_window_height_cells,
-    ) * self.size.cell.height;
-    const width = @max(
+    const size: InitialSize = .init(
         self.config.window_width,
-        min_window_width_cells,
-    ) * self.size.cell.width;
-    const width_f32: f32 = @floatFromInt(width);
-    const height_f32: f32 = @floatFromInt(height);
-
-    // The final values are affected by content scale and we need to
-    // account for the padding so we get the exact correct grid size.
-    const final_width: u32 =
-        @as(u32, @intFromFloat(@ceil(width_f32 / scale.x))) +
-        self.size.padding.left +
-        self.size.padding.right;
-    const final_height: u32 =
-        @as(u32, @intFromFloat(@ceil(height_f32 / scale.y))) +
-        self.size.padding.top +
-        self.size.padding.bottom;
+        self.config.window_height,
+        self.size.cell,
+        self.size.padding,
+        scale,
+    );
 
     _ = self.rt_app.performAction(
         .{ .surface = self },
         .initial_size,
-        .{ .width = final_width, .height = final_height },
+        .{ .width = size.width, .height = size.height },
     ) catch return error.AppActionFailed;
+}
+
+test "Surface.InitialSize.init" {
+    const testing = std.testing;
+    const cell: rendererpkg.CellSize = .{ .width = 10, .height = 20 };
+    const padding: rendererpkg.Padding = .{ .top = 2, .bottom = 2, .left = 4, .right = 4 };
+    const scale: apprt.ContentScale = .{ .x = 2, .y = 2 };
+
+    // 80x24 cells at 2x scale: ceil((800 / 2)) + 8 = 408,
+    // ceil((480 / 2)) + 4 = 244.
+    const normal: InitialSize = .init(80, 24, cell, padding, scale);
+    try testing.expectEqual(
+        InitialSize{ .width = 408, .height = 244 },
+        normal,
+    );
+
+    // Grid sizes below the minimum are clamped (10x4 cells):
+    // ceil((10 * 10) / 2) + 8 = 58, ceil((4 * 20) / 2) + 4 = 44.
+    const clamped: InitialSize = .init(1, 1, cell, padding, scale);
+    try testing.expectEqual(
+        InitialSize{ .width = 58, .height = 44 },
+        clamped,
+    );
 }
 
 /// Handle a request from the running program (CSI 8 t) to resize the
