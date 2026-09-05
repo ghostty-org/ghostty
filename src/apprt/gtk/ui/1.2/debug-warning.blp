@@ -7,5 +7,8 @@ template $GhosttyDebugWarning: Gtk.Box {
     label: _("⚠️ You're running a debug build of Ghostty! Performance will be degraded.");
     margin-top: 10;
     margin-bottom: 10;
+    // Allow the label to wrap so that it doesn't take up
+    // unneeded horizontal space
+    wrap: true;
   }
 }

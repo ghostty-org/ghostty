@@ -72,6 +72,13 @@ pub const RenderSurface = extern struct {
         /// One-shot so we log the first real allocation, not every size-allocate.
         scale_logged_size: bool = false,
 
+        /// The minimum and natural size of this surface in logical pixels.
+        /// Calculated from the window size and padding settings.
+        minimum_width: c_int,
+        minimum_height: c_int,
+        natural_width: c_int,
+        natural_height: c_int,
+
         pub var offset: c_int = 0;
     };
 
@@ -89,6 +96,30 @@ pub const RenderSurface = extern struct {
             );
         };
     };
+
+    /// Set the minimum size of this render surface.
+    pub fn setMinimumSize(
+        self: *Self,
+        width: c_int,
+        height: c_int,
+    ) void {
+        const priv = self.private();
+        priv.minimum_width = width;
+        priv.minimum_height = height;
+        self.as(gtk.Widget).queueResize();
+    }
+
+    /// Set the natural size of this render surface.
+    pub fn setNaturalSize(
+        self: *Self,
+        width: c_int,
+        height: c_int,
+    ) void {
+        const priv = self.private();
+        priv.natural_width = width;
+        priv.natural_height = height;
+        self.as(gtk.Widget).queueResize();
+    }
 
     //---------------------------------------------------------------
     // Virtual methods
@@ -120,6 +151,36 @@ pub const RenderSurface = extern struct {
             Class.parent,
             self.as(gtk.Widget),
         );
+    }
+
+    fn measure(
+        self: *Self,
+        orientation: gtk.Orientation,
+        for_size: c_int,
+        minimum: ?*c_int,
+        natural: ?*c_int,
+        minimum_baseline: ?*c_int,
+        natural_baseline: ?*c_int,
+    ) callconv(.c) void {
+        // This should always be -1 given we're in constant size mode
+        // (see `gtk.Widget.getRequestMode`) so we ignore it
+        _ = for_size;
+
+        minimum_baseline.?.* = -1;
+        natural_baseline.?.* = -1;
+
+        const priv = self.private();
+        switch (orientation) {
+            .vertical => {
+                minimum.?.* = priv.minimum_height;
+                natural.?.* = priv.natural_height;
+            },
+            .horizontal => {
+                minimum.?.* = priv.minimum_width;
+                natural.?.* = priv.natural_width;
+            },
+            _ => {},
+        }
     }
 
     fn sizeAllocate(
@@ -447,6 +508,7 @@ pub const RenderSurface = extern struct {
             // Virtual methods
             gtk.Widget.virtual_methods.realize.implement(class, &realize);
             gtk.Widget.virtual_methods.unrealize.implement(class, &unrealize);
+            gtk.Widget.virtual_methods.measure.implement(class, &measure);
             gtk.Widget.virtual_methods.size_allocate.implement(class, &sizeAllocate);
             gtk.Widget.virtual_methods.snapshot.implement(class, &snapshot);
 
