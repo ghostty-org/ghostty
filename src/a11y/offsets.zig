@@ -31,32 +31,7 @@
 //! reviewable place instead of spread across the arithmetic.
 
 const std = @import("std");
-const simd = @import("../simd/main.zig");
-
-/// Byte length of a UTF-8 codepoint given its leading byte. A total
-/// wrapper over `std.unicode.utf8ByteSequenceLength`: stray continuation
-/// bytes advance 1 so a scan over malformed input can't stall. These
-/// helpers are total (rather than using e.g.
-/// `std.unicode.utf8CountCodepoints`) because their call sites are AT
-/// callbacks with no useful error path, and the snapshots they read are
-/// built codepoint by codepoint and always well-formed.
-pub fn utf8CpLen(b: u8) usize {
-    return std.unicode.utf8ByteSequenceLength(b) catch 1;
-}
-
-/// Count UTF-8 codepoints in `s`, via simdutf when the build has SIMD
-/// enabled.
-pub fn utf8CpCount(s: []const u8) usize {
-    return simd.countUtf8(s);
-}
-
-/// Byte offset of the `cp_idx`-th codepoint in `s`. Clamps at `s.len`.
-pub fn utf8CpToByte(s: []const u8, cp_idx: usize) usize {
-    var i: usize = 0;
-    var c: usize = 0;
-    while (i < s.len and c < cp_idx) : (c += 1) i += utf8CpLen(s[i]);
-    return i;
-}
+const utf8 = @import("../unicode/main.zig").utf8;
 
 /// The unchanged ends of two snapshots: the leading `prefix_len` bytes
 /// and the trailing `suffix_len` bytes are common to both, and everything
@@ -105,17 +80,11 @@ pub fn prefixSuffix(old_text: []const u8, new_text: []const u8) PrefixSuffixDiff
     // prefix of `new_text`: `prefix == old_text.len` and indexing would go
     // out of bounds, but end-of-buffer is already a codepoint boundary.
     while (prefix > 0 and prefix < old_text.len and
-        isContinuation(old_text[prefix])) : (prefix -= 1)
+        utf8.isContinuation(old_text[prefix])) : (prefix -= 1)
     {}
-    while (suffix > 0 and isContinuation(old_text[old_text.len - suffix])) : (suffix -= 1) {}
+    while (suffix > 0 and utf8.isContinuation(old_text[old_text.len - suffix])) : (suffix -= 1) {}
 
     return .{ .prefix_len = prefix, .suffix_len = suffix };
-}
-
-/// Whether `b` is a UTF-8 continuation byte, i.e. a byte that cannot
-/// begin a codepoint.
-fn isContinuation(b: u8) bool {
-    return b & 0xC0 == 0x80;
 }
 
 /// Look for a whole-line shift: a K > 0 at a `\n` boundary of `old` such
@@ -269,7 +238,7 @@ fn rowStart(text: []const u8, row: u32) ?RowStart {
     var seen: u32 = 0;
     while (byte < text.len) {
         const is_newline = text[byte] == '\n';
-        byte += utf8CpLen(text[byte]);
+        byte += utf8.cpLen(text[byte]);
         cp += 1;
         if (!is_newline) continue;
         seen += 1;
@@ -286,7 +255,7 @@ fn lastRowStart(text: []const u8) RowStart {
     var cp: usize = 0;
     while (byte < text.len) {
         const is_newline = text[byte] == '\n';
-        byte += utf8CpLen(text[byte]);
+        byte += utf8.cpLen(text[byte]);
         cp += 1;
         if (is_newline) out = .{ .byte = byte, .cp = cp };
     }
@@ -314,7 +283,7 @@ fn cpAtColumn(
         // column resolves to that base and never to one of them.
         if (w > 0 and col < column + w) return cp;
         column += w;
-        byte += utf8CpLen(text[byte]);
+        byte += utf8.cpLen(text[byte]);
         cp += 1;
     }
     return cp;
@@ -344,7 +313,7 @@ fn columnOfCp(
         const w = widths.at(cp);
         if (w > 0) cell_start = column;
         column += w;
-        byte += utf8CpLen(text[byte]);
+        byte += utf8.cpLen(text[byte]);
         cp += 1;
     }
 
@@ -411,7 +380,7 @@ fn locate(text: []const u8, cp_idx: usize) Location {
     var row_start: RowStart = .{ .byte = 0, .cp = 0 };
     while (byte < text.len and cp < cp_idx) {
         const is_newline = text[byte] == '\n';
-        byte += utf8CpLen(text[byte]);
+        byte += utf8.cpLen(text[byte]);
         cp += 1;
         // A newline ends its row, so the row below starts just past it.
         if (is_newline) {
@@ -497,7 +466,7 @@ pub fn extentsCells(
     var cp = loc.cp;
     while (cp < end_cp and byte < text.len and text[byte] != '\n') {
         width_cols += widths.at(cp);
-        byte += utf8CpLen(text[byte]);
+        byte += utf8.cpLen(text[byte]);
         cp += 1;
     }
     if (width_cols == 0) width_cols = 1;
@@ -537,9 +506,9 @@ pub fn contentsAt(
     offset_cp: usize,
     granularity: Granularity,
 ) Contents {
-    const text_cp_count = utf8CpCount(text);
+    const text_cp_count = utf8.cpCount(text);
     const off_cp = @min(offset_cp, text_cp_count);
-    const off_byte = utf8CpToByte(text, off_cp);
+    const off_byte = utf8.cpToByte(text, off_cp);
 
     switch (granularity) {
         .character => {
@@ -548,7 +517,7 @@ pub fn contentsAt(
                 .end_cp = text_cp_count,
                 .bytes = text[text.len..],
             };
-            const end_byte = off_byte + utf8CpLen(text[off_byte]);
+            const end_byte = off_byte + utf8.cpLen(text[off_byte]);
             return .{
                 .start_cp = off_cp,
                 .end_cp = off_cp + 1,
@@ -567,8 +536,8 @@ pub fn contentsAt(
                 text[we_byte] != '\n') : (we_byte += 1)
             {}
             return .{
-                .start_cp = utf8CpCount(text[0..ws_byte]),
-                .end_cp = utf8CpCount(text[0..we_byte]),
+                .start_cp = utf8.cpCount(text[0..ws_byte]),
+                .end_cp = utf8.cpCount(text[0..we_byte]),
                 .bytes = text[ws_byte..we_byte],
             };
         },
@@ -579,8 +548,8 @@ pub fn contentsAt(
             while (le_byte < text.len and text[le_byte] != '\n') : (le_byte += 1) {}
             if (le_byte < text.len) le_byte += 1; // include the newline
             return .{
-                .start_cp = utf8CpCount(text[0..ls_byte]),
-                .end_cp = utf8CpCount(text[0..le_byte]),
+                .start_cp = utf8.cpCount(text[0..ls_byte]),
+                .end_cp = utf8.cpCount(text[0..le_byte]),
                 .bytes = text[ls_byte..le_byte],
             };
         },
@@ -594,27 +563,6 @@ const testing = std.testing;
 // byte-wise diff land mid-character.
 const box_v = "│";
 const box_t = "├";
-
-test "utf8: codepoint length, count and index" {
-    try testing.expectEqual(@as(usize, 1), utf8CpLen('a'));
-    try testing.expectEqual(@as(usize, 2), utf8CpLen("é"[0]));
-    try testing.expectEqual(@as(usize, 3), utf8CpLen(box_v[0]));
-    try testing.expectEqual(@as(usize, 4), utf8CpLen("😀"[0]));
-
-    // Continuation bytes advance by one so a malformed scan terminates.
-    try testing.expectEqual(@as(usize, 1), utf8CpLen(0x80));
-
-    const s = "a" ++ box_v ++ "b😀";
-    try testing.expectEqual(@as(usize, 4), utf8CpCount(s));
-    try testing.expectEqual(@as(usize, 9), s.len);
-
-    try testing.expectEqual(@as(usize, 0), utf8CpToByte(s, 0));
-    try testing.expectEqual(@as(usize, 1), utf8CpToByte(s, 1));
-    try testing.expectEqual(@as(usize, 4), utf8CpToByte(s, 2));
-    try testing.expectEqual(@as(usize, 5), utf8CpToByte(s, 3));
-    // Past the end clamps rather than overruns.
-    try testing.expectEqual(s.len, utf8CpToByte(s, 99));
-}
 
 test "diff: prefixSuffix on a plain single-character edit" {
     const old_text = "hello world";
@@ -1064,7 +1012,7 @@ test "contents: every granularity yields valid UTF-8 on multi-byte text" {
     // The bridge substitutes the literal "[Invalid UTF-8]" for anything
     // that fails validation, and a screen reader then speaks it.
     const text = box_v ++ " " ++ box_t ++ "x\n😀 tail";
-    const cp_count = utf8CpCount(text);
+    const cp_count = utf8.cpCount(text);
 
     var off: usize = 0;
     while (off <= cp_count) : (off += 1) {
@@ -1104,8 +1052,8 @@ const EventModel = struct {
         start_cp: usize,
         end_cp: usize,
     ) !void {
-        const s = utf8CpToByte(self.buf, start_cp);
-        const e = utf8CpToByte(self.buf, end_cp);
+        const s = utf8.cpToByte(self.buf, start_cp);
+        const e = utf8.cpToByte(self.buf, end_cp);
         const out = try alloc.alloc(u8, self.buf.len - (e - s));
         @memcpy(out[0..s], self.buf[0..s]);
         @memcpy(out[s..], self.buf[e..]);
@@ -1124,9 +1072,9 @@ const EventModel = struct {
         end_cp: usize,
         new_text: []const u8,
     ) !void {
-        const cs = utf8CpToByte(new_text, start_cp);
-        const ce = utf8CpToByte(new_text, end_cp);
-        const at = utf8CpToByte(self.buf, start_cp);
+        const cs = utf8.cpToByte(new_text, start_cp);
+        const ce = utf8.cpToByte(new_text, end_cp);
+        const at = utf8.cpToByte(self.buf, start_cp);
         const out = try alloc.alloc(u8, self.buf.len + (ce - cs));
         @memcpy(out[0..at], self.buf[0..at]);
         @memcpy(out[at..][0 .. ce - cs], new_text[cs..ce]);
@@ -1154,9 +1102,9 @@ fn replayDiff(
         .none => {},
 
         .shift_up => |k| {
-            const removed_cp = utf8CpCount(old_text[0..k]);
-            const tail_cp = utf8CpCount(old_text[k..]);
-            const new_end_cp = utf8CpCount(new_text);
+            const removed_cp = utf8.cpCount(old_text[0..k]);
+            const tail_cp = utf8.cpCount(old_text[k..]);
+            const new_end_cp = utf8.cpCount(new_text);
             try model.remove(alloc, 0, removed_cp);
             if (new_end_cp > tail_cp) {
                 try model.insert(alloc, tail_cp, new_end_cp, new_text);
@@ -1165,9 +1113,9 @@ fn replayDiff(
 
         .shift_down => |j| {
             const kept = new_text.len - j;
-            const kept_cp = utf8CpCount(old_text[0..kept]);
-            const old_end_cp = utf8CpCount(old_text);
-            const inserted_cp = utf8CpCount(new_text[0..j]);
+            const kept_cp = utf8.cpCount(old_text[0..kept]);
+            const old_end_cp = utf8.cpCount(old_text);
+            const inserted_cp = utf8.cpCount(new_text[0..j]);
             if (old_end_cp > kept_cp) {
                 try model.remove(alloc, kept_cp, old_end_cp);
             }
@@ -1177,19 +1125,19 @@ fn replayDiff(
         .replace => |ps| {
             const p = ps.prefix_len;
             const s = ps.suffix_len;
-            const start_cp = utf8CpCount(old_text[0..p]);
+            const start_cp = utf8.cpCount(old_text[0..p]);
             if (old_text.len - p - s != 0) {
                 try model.remove(
                     alloc,
                     start_cp,
-                    utf8CpCount(old_text[0 .. old_text.len - s]),
+                    utf8.cpCount(old_text[0 .. old_text.len - s]),
                 );
             }
             if (new_text.len - p - s != 0) {
                 try model.insert(
                     alloc,
                     start_cp,
-                    utf8CpCount(new_text[0 .. new_text.len - s]),
+                    utf8.cpCount(new_text[0 .. new_text.len - s]),
                     new_text,
                 );
             }
