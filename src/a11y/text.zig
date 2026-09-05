@@ -15,10 +15,11 @@
 //! IMPORTANT: every offset produced here that is destined for an AT
 //! client is in UTF-8 *codepoints*, not bytes. `Result.cursor_byte` is
 //! the one exception and is explicitly named as such; convert it with
-//! `offsets.utf8CpCount` before handing it out.
+//! `unicode.utf8.cpCount` before handing it out.
 
 const std = @import("std");
 const terminal = @import("../terminal/main.zig");
+const unicode = @import("../unicode/main.zig");
 const offsets = @import("offsets.zig");
 
 pub const Options = struct {
@@ -321,7 +322,7 @@ test "a11y text: widths report the columns each codepoint covers" {
     // codepoint index as a column is what put a routed caret three cells
     // to the left, inside 語.
     const t_byte = std.mem.indexOf(u8, buffer.written(), "tail").?;
-    const cp_idx = offsets.utf8CpCount(buffer.written()[0..t_byte]);
+    const cp_idx = unicode.utf8.cpCount(buffer.written()[0..t_byte]);
     try testing.expectEqual(@as(usize, 9), cp_idx);
     try testing.expectEqual(
         @as(u32, 12),
