@@ -48,7 +48,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// The initial window presentation is deferred by one runloop turn in a few places so
     /// AppKit can settle tab/window state first. Close actions must cancel it to avoid
-    /// re-showing a tab that was already closed.
+    /// re-showing a tab/window that was already closed.
     private var pendingInitialPresentation: DispatchWorkItem?
 
     /// This is set to false by init if the window managed by this controller should not be restorable.
@@ -283,17 +283,25 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             }
         }
 
-        // We're dispatching this async because otherwise the lastCascadePoint doesn't
-        // take effect. Our best theory is there is some next-event-loop-tick logic
-        // that Cocoa is doing that we need to be after.
         c.scheduleInitialPresentation {
-            c.showWindow(self)
+            // We're dispatching this async because in some cases AppKit will tab this window,
+            // although we have a check in `windowDidLoad` and it works in most cases, but not for AppIntent
+            //
+            // That weird tabbing behavior only happens in the following cases at the point of writing.
+            // - Creating a window via the Shortcuts app for now.
+            // - Creating a window via `New Ghostty Window Here` service.
+            c.showWindowSafely(self)
 
             // Only cascade if we aren't fullscreen.
             if let window = c.window {
                 if !window.styleMask.contains(.fullScreen) {
                     let hasFixedPos = c.derivedConfig.windowPositionX != nil && c.derivedConfig.windowPositionY != nil
-                    Self.applyCascade(to: window, hasFixedPos: hasFixedPos)
+                    // We're dispatching this async because otherwise the lastCascadePoint doesn't
+                    // take effect after positioning in `showWindow`. Our best theory is there is
+                    // some next-event-loop-tick logic that Cocoa is doing that we need to be after.
+                    DispatchQueue.main.async {
+                        Self.applyCascade(to: window, hasFixedPos: hasFixedPos)
+                    }
                 }
             }
 
@@ -353,8 +361,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             c.isBackgroundOpaque = inheritBackgroundOpacity
         }
 
+        // Showing window in current event loop works so far with dragging surface into
+        // a new window, but remember to defer the cascade when you move it inside
+        // `scheduleInitialPresentation` to solve other issues in the future.
+        c.showWindowSafely(self)
         c.scheduleInitialPresentation {
-            c.showWindow(self)
             if let window = c.window {
                 // If we have a tree size, resize the window's content to match
                 if let treeSize, treeSize.width > 0, treeSize.height > 0 {
@@ -453,26 +464,44 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // If we don't allow tabs then we create a new window instead.
         if window.tabbingMode != .disallowed {
+            let tabCreated: Bool
             // Add the window to the tab group and show it.
             switch ghostty.config.windowNewTabPosition {
             case "end":
                 // If we already have a tab group and we want the new tab to open at the end,
                 // then we use the last window in the tab group as the parent.
                 if let last = parent.tabGroup?.windows.last {
-                    last.addTabbedWindowSafely(window, ordered: .above)
+                    tabCreated = last.addTabbedWindowSafely(window, ordered: .above)
                 } else {
                     fallthrough
                 }
 
             case "current": fallthrough
             default:
-                parent.addTabbedWindowSafely(window, ordered: .above)
+                tabCreated = parent.addTabbedWindowSafely(window, ordered: .above)
+            }
+            if tabCreated {
+                // We set the selectedWindow early here because we want the next window
+                // to become first responder as quickly as possible. Usually this is
+                // set while `-[NSWindowController showWindow:]` is called, but we're
+                // dispatching it to resolve other issues.
+                parent.tabGroup?.selectedWindow = window
             }
         }
 
+        // showWindow makes regular windows key and ordered front. AppKit can
+        // throw while selecting a tab if its fullscreen stack is inconsistent,
+        // so this must cross the Objective-C exception bridge.
+        // We don't need to dispatch this because `tabbingMode = .disallowed`
+        // for HiddenTitlebarTerminalWindow.
+        controller.showWindowSafely(self)
+
+        // Windows with `macos-titlebar-style = hidden` create new windows when the
+        // new tab binding is pressed, we should cascade those windows as well.
+
         // We're dispatching this async because otherwise the lastCascadePoint doesn't
-        // take effect. Our best theory is there is some next-event-loop-tick logic
-        // that Cocoa is doing that we need to be after.
+        // take effect after position in `showWindow`. Our best theory is there is some
+        // next-event-loop-tick logic that Cocoa is doing that we need to be after.
         controller.scheduleInitialPresentation {
             // Only cascade if we aren't fullscreen and are alone in the tab group.
             if !window.styleMask.contains(.fullScreen) &&
@@ -480,11 +509,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 let hasFixedPos = controller.derivedConfig.windowPositionX != nil && controller.derivedConfig.windowPositionY != nil
                 Self.applyCascade(to: window, hasFixedPos: hasFixedPos)
             }
-
-            // showWindow makes regular windows key and ordered front. AppKit can
-            // throw while selecting a tab if its fullscreen stack is inconsistent,
-            // so this must cross the Objective-C exception bridge.
-            controller.showWindowSafely(self)
 
             // We also activate our app so that it becomes front. This may be
             // necessary for the dock menu.
@@ -1239,12 +1263,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         super.windowDidBecomeKey(notification)
         self.relabelTabs()
         self.fixTabBar()
-        terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: true)
-    }
-
-    override func windowDidResignKey(_ notification: Notification) {
-        super.windowDidResignKey(notification)
-        terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: false)
     }
 
     override func windowDidMove(_ notification: Notification) {
@@ -1384,21 +1402,58 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // if we're closing the window. If we don't have a tabgroup for any
         // reason we check ourselves.
         let windows: [NSWindow] = window.tabGroup?.windows ?? [window]
-        guard let confirmController = windows
+        let confirmControllers = windows
             .compactMap({ $0.windowController as? TerminalController })
-            .first(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) })
+            .filter({ $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) })
+        guard
+            !confirmControllers.isEmpty
         else {
             closeWindowImmediately()
             return
         }
+        if confirmControllers.count == 1 {
+            // We call confirmClose on the proper controller so the alert is
+            // attached to the window that needs confirmation.
+            confirmControllers[0].confirmClose(
+                messageText: "Close Window?",
+                informativeText: "All terminal sessions in this window will be terminated.",
+            ) {
+                self.closeWindowImmediately()
+            }
+            return
+        }
 
-        // We call confirmClose on the proper controller so the alert is
-        // attached to the window that needs confirmation.
-        confirmController.confirmClose(
-            messageText: "Close Window?",
-            informativeText: "All terminal sessions in this window will be terminated.",
-        ) {
-            self.closeWindowImmediately()
+        Task {
+            let alert = NSAlert.reviewWindowsAlert(
+                messageText: "You have \(confirmControllers.count) windows with running processes. Do you want to review these windows before closing?",
+                terminateNowButtonTitle: "Close"
+            )
+            switch await alert.beginSheetModal(for: window) {
+            case .alertFirstButtonReturn:
+                await reviewWindows(confirmControllers, window: window)
+            case .alertSecondButtonReturn:
+                closeWindowImmediately()
+            default:
+                break
+            }
+        }
+    }
+
+    private func reviewWindows(_ controllers: [TerminalController], window: NSWindow) async {
+        for controller in controllers {
+            let response = await controller.confirmCloseAsync(
+                messageText: "Close Window?",
+                informativeText: "All terminal sessions in this window will be terminated.",
+            )
+
+            if [.OK, .alertFirstButtonReturn].contains(response) {
+                // Close this tab
+                controller.closeTabImmediately()
+                continue
+            } else {
+                // Cancel the review
+                return
+            }
         }
     }
 

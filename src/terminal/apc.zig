@@ -82,12 +82,16 @@ pub const Handler = struct {
                 if (byte == ';') {
                     const str = id.buf[0..id.len];
                     if (std.mem.eql(u8, str, glyph.identifier)) {
-                        if (self.enabled.contains(.glyph)) {
-                            self.state = .{ .glyph = .init(
-                                alloc,
-                                self.max_bytes.get(.glyph) orelse
-                                    Protocol.defaultMaxBytes(.glyph),
-                            ) };
+                        if (comptime build_options.glyph_protocol) {
+                            if (self.enabled.contains(.glyph)) {
+                                self.state = .{ .glyph = .init(
+                                    alloc,
+                                    self.max_bytes.get(.glyph) orelse
+                                        Protocol.defaultMaxBytes(.glyph),
+                                ) };
+                            } else {
+                                self.state = .ignore;
+                            }
                         } else {
                             self.state = .ignore;
                         }
@@ -127,11 +131,13 @@ pub const Handler = struct {
                 };
             } else unreachable,
 
-            .glyph => |*p| p.feed(byte) catch |err| {
-                log.warn("glyph protocol error: {}", .{err});
-                p.deinit();
-                self.state = .ignore;
-            },
+            .glyph => |*p| if (comptime build_options.glyph_protocol) {
+                p.feed(byte) catch |err| {
+                    log.warn("glyph protocol error: {}", .{err});
+                    p.deinit();
+                    self.state = .ignore;
+                };
+            } else unreachable,
         }
     }
 
@@ -191,14 +197,14 @@ pub const Handler = struct {
                     return;
                 } else unreachable,
 
-                .glyph => |*p| {
+                .glyph => |*p| if (comptime build_options.glyph_protocol) {
                     p.feedSlice(rem) catch |err| {
                         log.warn("glyph protocol error: {}", .{err});
                         p.deinit();
                         self.state = .ignore;
                     };
                     return;
-                },
+                } else unreachable,
             }
         }
     }
@@ -229,6 +235,8 @@ pub const Handler = struct {
             },
 
             .glyph => |*p| glyph_cmd: {
+                if (comptime !build_options.glyph_protocol) unreachable;
+
                 const command = p.complete(p.alloc) catch |err| {
                     log.warn("glyph protocol error: {}", .{err});
                     break :glyph_cmd null;
@@ -269,7 +277,10 @@ pub const State = union(enum) {
         void,
 
     /// Glyph protocol
-    glyph: glyph.CommandParser,
+    glyph: if (build_options.glyph_protocol)
+        glyph.CommandParser
+    else
+        void,
 
     /// An unsupported APC retained for the optional unknown callback.
     /// Keep this after recognized protocol states so their tag values and
@@ -280,7 +291,10 @@ pub const State = union(enum) {
         switch (self.*) {
             .inactive, .ignore, .identify => {},
             .unknown => |*v| v.deinit(),
-            .glyph => |*v| v.deinit(),
+            .glyph => |*v| if (comptime build_options.glyph_protocol)
+                v.deinit()
+            else
+                unreachable,
             .kitty => |*v| if (comptime build_options.kitty_graphics)
                 v.deinit()
             else
@@ -415,7 +429,11 @@ pub const Command = union(enum) {
     else
         void,
 
-    glyph: glyph.Request,
+    glyph: if (build_options.glyph_protocol)
+        glyph.Request
+    else
+        void,
+
     unknown: Unknown,
 
     pub fn deinit(self: *Command, alloc: Allocator) void {
@@ -425,7 +443,11 @@ pub const Command = union(enum) {
             else
                 unreachable,
 
-            .glyph => |*v| v.deinit(alloc),
+            .glyph => |*v| if (comptime build_options.glyph_protocol)
+                v.deinit(alloc)
+            else
+                unreachable,
+
             .unknown => |*v| v.deinit(alloc),
         }
     }
@@ -636,6 +658,8 @@ test "garbage glyph command" {
 }
 
 test "valid glyph command" {
+    if (comptime !build_options.glyph_protocol) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -700,6 +724,8 @@ test "feedSlice unknown APC command is ignored" {
 }
 
 test "feedSlice valid glyph command" {
+    if (comptime !build_options.glyph_protocol) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 

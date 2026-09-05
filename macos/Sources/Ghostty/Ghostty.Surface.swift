@@ -44,8 +44,9 @@ extension Ghostty {
             }
         }
 
-        /// Send text to the terminal as if it was typed. This doesn't send the key events so keyboard
-        /// shortcuts and other encodings do not take effect.
+        /// Send text to the terminal using paste semantics. This doesn't send key events, so keyboard
+        /// shortcuts and other encodings do not take effect. Bracketed paste framing is applied when
+        /// the terminal has enabled it.
         @MainActor
         func sendText(_ text: String) {
             let len = text.utf8CString.count
@@ -55,6 +56,17 @@ extension Ghostty {
                 // len includes the null terminator so we do len - 1
                 ghostty_surface_text(surface, ptr, UInt(len - 1))
             }
+        }
+
+        /// Returns the modifiers that participate in text translation for key
+        /// events on this surface. This honors configuration such as
+        /// `macos-option-as-alt`, which may exclude option from translation.
+        ///
+        /// - Parameter mods: The full set of modifiers for the key event.
+        /// - Returns: The subset of `mods` to use for keyboard layout translation.
+        @MainActor
+        func keyTranslationMods(_ mods: Input.Mods) -> Input.Mods {
+            Input.Mods(cMods: ghostty_surface_key_translation_mods(surface, mods.cMods))
         }
 
         /// Send a key event to the terminal.

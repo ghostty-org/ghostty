@@ -10,6 +10,12 @@ const Result = @import("result.zig").Result;
 /// C: GhosttyCell
 pub const CCell = u64;
 
+/// C: GhosttyCellsView
+pub const CellsView = extern struct {
+    ptr: ?[*]const CCell,
+    len: usize,
+};
+
 /// C: GhosttyCellContentTag
 pub const ContentTag = enum(c_int) {
     codepoint = 0,

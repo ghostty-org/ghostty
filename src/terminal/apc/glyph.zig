@@ -133,9 +133,7 @@
 //! ## Glossary Capacity
 //!
 //! Each session holds at most 1024 registrations keyed by codepoint.
-//! Registrations live for the session duration. A 1025th registration
-//! evicts the oldest entry (FIFO). Sessions are isolated: two tabs may
-//! independently register the same codepoint.
+//! Each allocation made by the `glyf` decoder is limited to 64 KiB.
 //!
 //! ## Security: PUA-Only Restriction
 //!

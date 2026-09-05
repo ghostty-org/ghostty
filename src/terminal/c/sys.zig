@@ -23,6 +23,13 @@ pub const DecodePngFn = *const fn (
     *Image,
 ) callconv(lib.calling_conv) bool;
 
+/// C: GhosttySysRandomSecureFn
+pub const RandomSecureFn = *const fn (
+    ?*anyopaque,
+    [*]u8,
+    usize,
+) callconv(lib.calling_conv) bool;
+
 /// C: GhosttySysLogLevel
 pub const LogLevel = enum(c_int) {
     @"error" = 0,
@@ -55,12 +62,14 @@ pub const Option = enum(c_int) {
     userdata = 0,
     decode_png = 1,
     log = 2,
+    random_secure = 3,
 
     pub fn InType(comptime self: Option) type {
         return switch (self) {
             .userdata => ?*const anyopaque,
             .decode_png => ?DecodePngFn,
             .log => ?LogFn,
+            .random_secure => ?RandomSecureFn,
         };
     }
 };
@@ -71,6 +80,7 @@ const Global = struct {
     userdata: ?*anyopaque = null,
     decode_png: ?DecodePngFn = null,
     log: ?LogFn = null,
+    random_secure: ?RandomSecureFn = null,
 };
 
 /// Global state for the C sys interface.
@@ -96,6 +106,12 @@ fn decodePngWrapper(
         .height = out.height,
         .data = result_data[0..out.data_len],
     };
+}
+
+/// Zig-compatible wrapper that calls through to the stored C callback.
+fn randomSecureWrapper(buffer: []u8) terminal_sys.RandomSecureError!void {
+    const func = global.random_secure orelse return error.EntropyUnavailable;
+    if (!func(global.userdata, buffer.ptr, buffer.len)) return error.EntropyUnavailable;
 }
 
 pub fn set(
@@ -127,6 +143,10 @@ fn setTyped(
             terminal_sys.decode_png = if (value != null) &decodePngWrapper else null;
         },
         .log => global.log = value,
+        .random_secure => {
+            global.random_secure = value;
+            terminal_sys.random_secure = if (value != null) &randomSecureWrapper else null;
+        },
     }
     return .success;
 }

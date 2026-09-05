@@ -43,7 +43,7 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/ghostty-org/zig-gobject/releases/download/0.10.0-2026-07-28-36-1/ghostty-gobject-0.10.0-2026-07-28-36-1.tar.zst",
+    "url": "https://deps.files.ghostty.org/gobject-2026-07-28-36-1.tar.zst",
     "dest": "vendor/p/gobject-0.3.2-Skun7F6HogCMynX2JqeSHS7xr-8pK4ob-qRFIcEasVi3",
     "sha256": "9014db570db06e3fbfcfadb7b32aa8addacc6969e701650683c1c74428adba6c"
   },
@@ -73,9 +73,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260803-155300-875a82f.tgz",
-    "dest": "vendor/p/N-V-__8AAPpcBAD4_75xLBbLiYqdojOwQP74eoWmpL3jPrBl",
-    "sha256": "feac4b6bd4bc6d28363406c9cf012d6611af3b168f4c05453569c10acfcc141b"
+    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260824-153547-75c93ee.tgz",
+    "dest": "vendor/p/N-V-__8AAGZkBACH0haGC9R-hfNPYWxu16hr-ydEsolad9GV",
+    "sha256": "b1fd1f31057f97c1274db03c6ce44960837a1a41f52275cbc64aee2e6e34eb9e"
   },
   {
     "type": "archive",
@@ -181,9 +181,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd.tar.gz",
-    "dest": "vendor/p/N-V-__8AAAzZywE3s51XfsLbP9eyEw57ae9swYB9aGB6fCMs",
-    "sha256": "9e4cd20abe96e6c4c6ede9c3057108860126e7be2e2c3e35515476c250be1c13"
+    "url": "https://deps.files.ghostty.org/wuffs-7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz",
+    "dest": "vendor/p/N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
+    "sha256": "17877d346f7988651d6c62e45b2e3b05c86809a6442c5e34612374b2a9719a1c"
   },
   {
     "type": "archive",

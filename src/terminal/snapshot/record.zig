@@ -257,6 +257,18 @@ pub const Reader = struct {
     limited: std.Io.Reader.Limited,
     hashing: std.Io.Reader.Hashed(Crc32c),
 
+    /// When the source already has the complete payload buffered, for
+    /// example an in-memory snapshot, the payload is borrowed straight
+    /// from the source buffer instead of streaming through the limited
+    /// and hashing adapters. The checksum is then verified with one bulk
+    /// update in `finish`, and the source is not advanced until `finish`.
+    borrowed: ?Borrowed,
+
+    const Borrowed = struct {
+        source: *std.Io.Reader,
+        payload: std.Io.Reader,
+    };
+
     pub const InitError = Header.DecodeError;
 
     /// Errors detected after a payload decoder returns.
@@ -278,6 +290,21 @@ pub const Reader = struct {
     ) InitError!void {
         self.* = undefined;
         self.header = try Header.decode(source);
+
+        // The complete payload is already sitting in the source buffer:
+        // borrow it in place. Payload decoders read from a fixed reader
+        // over the borrowed bytes and `finish` checksums them in one pass.
+        if (source.bufferedLen() >= self.header.payload_len) {
+            self.borrowed = .{
+                .source = source,
+                .payload = .fixed(
+                    source.buffered()[0..self.header.payload_len],
+                ),
+            };
+            return;
+        }
+
+        self.borrowed = null;
         self.limited = .init(
             source,
             .limited(self.header.payload_len),
@@ -297,11 +324,34 @@ pub const Reader = struct {
 
     /// Return the length-limited, checksum-updating payload reader.
     pub fn payloadReader(self: *Reader) *std.Io.Reader {
+        if (self.borrowed) |*borrowed| return &borrowed.payload;
         return &self.hashing.reader;
     }
 
     /// Require exact payload exhaustion and validate its CRC32C.
     pub fn finish(self: *Reader) FinishError!void {
+        if (self.borrowed) |*borrowed| {
+            if (borrowed.payload.bufferedLen() != 0) {
+                return error.PayloadNotExhausted;
+            }
+
+            var checksum: Checksum = .init(
+                self.header.tag,
+                self.header.payload_len,
+            );
+            checksum.writer().writeAll(
+                borrowed.payload.buffer[0..borrowed.payload.end],
+            ) catch unreachable;
+            if (checksum.final() != self.header.crc32c) {
+                return error.InvalidChecksum;
+            }
+
+            // The borrowed bytes validated, so consume them from the
+            // source only now, leaving it positioned at the next record.
+            borrowed.source.toss(self.header.payload_len);
+            return;
+        }
+
         if (self.hashing.reader.bufferedLen() != 0 or
             self.limited.remaining != .nothing)
         {

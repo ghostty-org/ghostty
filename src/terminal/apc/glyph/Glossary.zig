@@ -20,6 +20,11 @@ const Constraint = FontGlyph.RenderOptions.Constraint;
 /// Defined by the specification.
 pub const max_entries = 1024;
 
+/// Maximum size of any allocation made while decoding a glyf registration.
+/// This is limited by the dynamic allocations not the struct size so the
+/// actual size allowed is slightly larger, but worst case only by 10KB.
+pub const max_glyf_allocation = 64 * 1024; // 64 KiB
+
 /// An empty glossary with no registered glyphs.
 pub const empty: Glossary = .{ .entries = .empty };
 
@@ -170,7 +175,7 @@ pub const Entry = struct {
         // Decode the payload into some usable glyph format for
         // future rasterization.
         const glyph: Glyph = switch (fmt) {
-            .glyf => .{ .glyf = try req.decodeGlyfPayload(alloc) },
+            .glyf => .{ .glyf = try req.decodeGlyfPayload(alloc, max_glyf_allocation) },
             .colrv0, .colrv1 => return error.UnsupportedFormat,
         };
 
@@ -273,6 +278,47 @@ fn testParseRegister(alloc: Allocator, data: []const u8) !RegisterReq {
 // and three on-curve points.
 const test_triangle_glyf_payload = "AAEAZABkA4QDhAACAAABAQEB9P5wAyADhPzgAAA=";
 
+fn testRepeatedPointRegisterReq(
+    alloc: Allocator,
+    end_points: []const u16,
+) !RegisterReq {
+    assert(end_points.len > 0);
+
+    var decoded: std.ArrayList(u8) = .empty;
+    defer decoded.deinit(alloc);
+
+    // Simple glyph header with zero bounds.
+    const contour_count: u16 = @intCast(end_points.len);
+    try decoded.appendSlice(alloc, &.{ @truncate(contour_count >> 8), @truncate(contour_count) });
+    try decoded.appendNTimes(alloc, 0, 8);
+    for (end_points) |end_point| try decoded.appendSlice(
+        alloc,
+        &.{ @truncate(end_point >> 8), @truncate(end_point) },
+    );
+    try decoded.appendSlice(alloc, &.{ 0x00, 0x00 }); // No instructions.
+
+    // Maximum-length runs describe on-curve, zero-delta points compactly.
+    var remaining: usize = @as(usize, end_points[end_points.len - 1]) + 1;
+    while (remaining > 0) {
+        const run = @min(remaining, 256);
+        if (run == 1) {
+            try decoded.append(alloc, 0x31);
+        } else {
+            try decoded.appendSlice(alloc, &.{ 0x39, @intCast(run - 1) });
+        }
+        remaining -= run;
+    }
+
+    const Encoder = std.base64.standard.Encoder;
+    const payload = try alloc.alloc(u8, Encoder.calcSize(decoded.items.len));
+    defer alloc.free(payload);
+    const encoded = Encoder.encode(payload, decoded.items);
+
+    const command = try std.fmt.allocPrint(alloc, "r;cp=e000;{s}", .{encoded});
+    defer alloc.free(command);
+    return try testParseRegister(alloc, command);
+}
+
 fn testRegisterReq(alloc: Allocator, cp: u21) !RegisterReq {
     const data = try std.fmt.allocPrint(
         alloc,
@@ -328,6 +374,31 @@ test "Entry init rejects invalid register payload" {
     defer alloc.free(req.raw);
 
     try testing.expectError(error.MalformedPayload, Entry.init(alloc, req));
+}
+
+test "Entry init rejects glyf allocation over limit" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // 5,462 points require a 65,544-byte points allocation.
+    const req = try testRepeatedPointRegisterReq(alloc, &.{5461});
+    defer alloc.free(req.raw);
+
+    try testing.expectError(error.PayloadTooLarge, Entry.init(alloc, req));
+}
+
+test "Entry init accepts largest glyf points allocation under limit" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // 5,461 points require a 65,532-byte points allocation.
+    const req = try testRepeatedPointRegisterReq(alloc, &.{ 0, 5460 });
+    defer alloc.free(req.raw);
+
+    var entry = try Entry.init(alloc, req);
+    defer entry.deinit(alloc);
+    try testing.expectEqual(@as(usize, 5461), entry.glyph.glyf.points.len);
+    try testing.expectEqual(@as(usize, 2), entry.glyph.glyf.contours.len);
 }
 
 test "Glossary register overwrites and moves entry to newest position" {

@@ -36,7 +36,7 @@
   },
   "gobject-0.3.2-Skun7F6HogCMynX2JqeSHS7xr-8pK4ob-qRFIcEasVi3": {
     "name": "gobject",
-    "url": "https://github.com/ghostty-org/zig-gobject/releases/download/0.10.0-2026-07-28-36-1/ghostty-gobject-0.10.0-2026-07-28-36-1.tar.zst",
+    "url": "https://deps.files.ghostty.org/gobject-2026-07-28-36-1.tar.zst",
     "hash": "sha256-dyCfm2XjiAk30zccjD6AgKFBdE7IRsJuoqnscfvnWSQ="
   },
   "N-V-__8AALiNBAA-_0gprYr92CjrMj1I5bqNu0TSJOnjFNSr": {
@@ -59,10 +59,10 @@
     "url": "https://deps.files.ghostty.org/N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI.tar.gz",
     "hash": "sha256-yBbCDox18+Fa6Gc1DnmSVQLRpqhZOLsac7iSfl8x+cs="
   },
-  "N-V-__8AAPpcBAD4_75xLBbLiYqdojOwQP74eoWmpL3jPrBl": {
+  "N-V-__8AAGZkBACH0haGC9R-hfNPYWxu16hr-ydEsolad9GV": {
     "name": "iterm2_themes",
-    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260803-155300-875a82f.tgz",
-    "hash": "sha256-/qxLa9S8bSg2NAbJzwEtZhGvOxaPTAVFNWnBCs/MFBs="
+    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260824-153547-75c93ee.tgz",
+    "hash": "sha256-sf0fMQV/l8EnTbA8bORJYIN6GkH1InXLxkruLm40654="
   },
   "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x": {
     "name": "jetbrains_mono",
@@ -149,10 +149,10 @@
     "url": "https://deps.files.ghostty.org/wayland-protocols-258d8f88f2c8c25a830c6316f87d23ce1a0f12d9.tar.gz",
     "hash": "sha256-XO3K3egbdeYPI+XoO13SuOtO+5+Peb16NH0UiusFMPg="
   },
-  "N-V-__8AAAzZywE3s51XfsLbP9eyEw57ae9swYB9aGB6fCMs": {
+  "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": {
     "name": "wuffs",
-    "url": "https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd.tar.gz",
-    "hash": "sha256-nkzSCr6W5sTG7enDBXEIhgEm574uLD41UVR2wlC+HBM="
+    "url": "https://deps.files.ghostty.org/wuffs-7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz",
+    "hash": "sha256-F4d9NG95iGUdbGLkWy47BchoCaZELF40YSN0sqlxmhw="
   },
   "z2d-0.12.1-j5P_Hsw8EQAKyZTQICCQnAH2xYkLDW8k9uefbsYdfPZ-": {
     "name": "z2d",

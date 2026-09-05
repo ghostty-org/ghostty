@@ -8,6 +8,8 @@
 //! to ensure all our various types and logic remain in sync.
 
 const std = @import("std");
+const builtin = @import("builtin");
+const build_options = @import("terminal_options");
 const testing = std.testing;
 
 /// A struct that maintains the state of all the settable modes.
@@ -327,6 +329,17 @@ const entries: []const ModeEntry = &.{
     .{ .name = "report_color_scheme", .value = 2031 },
     .{ .name = "report_visibility", .value = 2033, .default_configurable = false },
     .{ .name = "in_band_size_reports", .value = 2048 },
+    // Kitty clipboard protocol paste events. When set, a user-initiated
+    // paste sends an unsolicited OSC 5522 targets listing with a
+    // one-time password instead of pasting the text.
+    // See https://sw.kovidgoyal.net/kitty/clipboard/
+    .{
+        .name = "kitty_paste_events",
+        .value = 5522,
+        // The macOS app and libghostty-vt can both serve the follow-up
+        // Kitty clipboard read that a paste event grants.
+        .disabled = build_options.artifact != .lib and builtin.os.tag != .macos,
+    },
 };
 
 test {

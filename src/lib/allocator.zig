@@ -2,8 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 
-/// Convenience functions
-pub const convenience = @import("allocator/convenience.zig");
+/// Wasm-specific allocation helpers.
+pub const wasm = @import("allocator/wasm.zig");
 
 /// Useful alias since they're required to create Zig allocators
 pub const ZigVTable = std.mem.Allocator.VTable;
@@ -33,6 +33,10 @@ pub fn default(c_alloc_: ?*const Allocator) std.mem.Allocator {
 
     // Wasm
     if (comptime builtin.target.cpu.arch.isWasm()) return std.heap.wasm_allocator;
+
+    // Freestanding targets don't have a default heap. Using the failing
+    // allocator makes a missing allocator show up as out-of-memory.
+    if (comptime builtin.os.tag == .freestanding) return std.mem.Allocator.failing;
 
     // No libc, use the preferred allocator for releases which is the
     // Zig SMP allocator.

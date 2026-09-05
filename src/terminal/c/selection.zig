@@ -38,6 +38,18 @@ pub const CSelection = extern struct {
     }
 };
 
+/// C: GhosttySelectionBuffer
+///
+/// A caller-provided buffer of selections. This follows the same
+/// conventions as GhosttyBuffer: ptr may be NULL with cap 0 to query
+/// the required capacity, and len is set to the entries written on
+/// success or to the required capacity on GHOSTTY_OUT_OF_SPACE.
+pub const CSelectionBuffer = extern struct {
+    ptr: ?[*]CSelection = null,
+    cap: usize = 0,
+    len: usize = 0,
+};
+
 /// C: GhosttyTerminalSelectWordOptions
 pub const SelectWordOptions = extern struct {
     size: usize = @sizeOf(SelectWordOptions),

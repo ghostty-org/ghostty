@@ -5,12 +5,43 @@
 # directory, and updates the build.zig.zon files (the root one as well as
 # every pkg/*/build.zig.zon) to point to the new mirror URLs.
 #
-# The downloaded files are unmodified so their checksums and content hashes
-# will match the originals.
+# HTTP files are downloaded unmodified. Git dependencies use Zig's normalized
+# cache archive so their content hashes match the originals.
 #
 # After running this script, the files in the output directory can be uploaded
 # to blob storage, and the build.zig.zon files will already be updated with
 # the new URLs.
+def download-git-package [url: string, expected_hash: string, destination: string] {
+  let cache_dir = (mktemp --directory)
+  let result = (do { ^zig fetch --global-cache-dir $cache_dir $url } | complete)
+
+  if $result.exit_code != 0 {
+    rm --recursive $cache_dir
+    error make {
+      msg: $"zig fetch failed for ($url): ($result.stderr | str trim)"
+    }
+  }
+
+  let actual_hash = ($result.stdout | str trim)
+  if $actual_hash != $expected_hash {
+    rm --recursive $cache_dir
+    error make {
+      msg: $"zig fetch hash mismatch for ($url): expected ($expected_hash), got ($actual_hash)"
+    }
+  }
+
+  let archive = ($cache_dir | path join "p" $"($actual_hash).tar.gz")
+  if not ($archive | path exists) {
+    rm --recursive $cache_dir
+    error make {
+      msg: $"zig fetch did not produce a cache archive for ($url)"
+    }
+  }
+
+  cp $archive $destination
+  rm --recursive $cache_dir
+}
+
 def main [
   --output: string = "tmp-mirror", # Output directory for the mirrored files
   --prefix: string = "https://deps.files.ghostty.org/", # Final URL prefix to ignore
@@ -45,8 +76,11 @@ def main [
     let name = $entry.value.name
     let url = $entry.value.url
 
-    # Skip URLs that don't start with http(s)
-    if not ($url | str starts-with "http") {
+    let is_git_url = ($url | str starts-with "git+http")
+    let is_http_url = ($url | str starts-with "http")
+
+    # Skip URLs that aren't HTTP downloads or HTTP-backed Git repositories.
+    if not ($is_http_url or $is_git_url) {
       continue
     }
 
@@ -55,8 +89,13 @@ def main [
       continue
     }
 
-    # Extract the file extension from the URL
-    let extension = ($url | parse -r '(\.[a-z0-9]+(?:\.[a-z0-9]+)?)$' | get -o capture0.0 | default "")
+    # Git dependencies are mirrored using an archive of the normalized package
+    # tree produced by Zig. Fetching it over HTTP produces the same package hash.
+    let extension = if $is_git_url {
+      ".tar.gz"
+    } else {
+      $url | parse -r '(\.[a-z0-9]+(?:\.[a-z0-9]+)?)$' | get -o capture0.0 | default ""
+    }
 
     # Try to extract commit hash (40 hex chars) from URL
     let commit_hash = ($url | parse -r '([a-f0-9]{40})' | get -o capture0.0 | default "")
@@ -80,7 +119,12 @@ def main [
     
     # Download the file
     if not $dry_run {
-      http get $url | save -f ($output_dir | path join $filename)
+      let destination = ($output_dir | path join $filename)
+      if $is_git_url {
+        download-git-package $url $key $destination
+      } else {
+        http get $url | save -f $destination
+      }
     }
   }
 

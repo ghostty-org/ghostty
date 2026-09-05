@@ -5,6 +5,7 @@ const args = @import("args.zig");
 const global = @import("../global.zig");
 const Action = @import("ghostty.zig").Action;
 const Duration = @import("../config.zig").Config.Duration;
+const terminfopkg = @import("../terminfo/main.zig");
 pub const Entry = @import("ssh-cache/Entry.zig");
 pub const DiskCache = @import("ssh-cache/DiskCache.zig");
 
@@ -49,13 +50,14 @@ pub const Options = struct {
 /// `--prune=6h`, `--prune=1y`.
 ///
 /// Examples:
-///   ghostty +ssh-cache                           # List all cached destinations
-///   ghostty +ssh-cache user@example.com          # Show that destination
-///   ghostty +ssh-cache example.com               # Show all users on that host
-///   ghostty +ssh-cache --add=user@example.com    # Manually add a destination
-///   ghostty +ssh-cache --remove=user@example.com # Remove a destination
-///   ghostty +ssh-cache --prune=30d               # Remove entries older than 30 days
-///   ghostty +ssh-cache --clear                   # Clear entire cache
+///
+///     ghostty +ssh-cache                           # List all cached destinations
+///     ghostty +ssh-cache user@example.com          # Show that destination
+///     ghostty +ssh-cache example.com               # Show all users on that host
+///     ghostty +ssh-cache --add=user@example.com    # Manually add a destination
+///     ghostty +ssh-cache --remove=user@example.com # Remove a destination
+///     ghostty +ssh-cache --prune=30d               # Remove entries older than 30 days
+///     ghostty +ssh-cache --clear                   # Clear entire cache
 pub fn run(alloc_gpa: Allocator) !u8 {
     var arena = std.heap.ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
@@ -198,6 +200,7 @@ pub fn runInner(
         cache.add(
             alloc,
             dest,
+            terminfopkg.version,
             std.Io.Timestamp.now(global.io(), .real).toSeconds(),
         ) catch |err| switch (err) {
             error.InvalidCacheKey => {

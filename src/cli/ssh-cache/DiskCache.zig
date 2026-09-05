@@ -58,6 +58,7 @@ pub fn add(
     self: DiskCache,
     alloc: Allocator,
     key: []const u8,
+    version: []const u8,
     timestamp: i64,
 ) !void {
     if (!isValidCacheKey(key)) return error.InvalidCacheKey;
@@ -111,16 +112,19 @@ pub fn add(
     // `deinitEntries` defer to walk.
     if (entries.getPtr(key)) |existing| {
         existing.timestamp = timestamp;
+        const version_copy = try alloc.dupe(u8, version);
+        alloc.free(existing.terminfo_version);
+        existing.terminfo_version = version_copy;
     } else {
         const key_copy = try alloc.dupe(u8, key);
         errdefer alloc.free(key_copy);
-        const terminfo_copy = try alloc.dupe(u8, "xterm-ghostty");
-        errdefer alloc.free(terminfo_copy);
+        const version_copy = try alloc.dupe(u8, version);
+        errdefer alloc.free(version_copy);
 
         try entries.put(key_copy, .{
             .hostname = key_copy,
             .timestamp = timestamp,
-            .terminfo_version = terminfo_copy,
+            .terminfo_version = version_copy,
         });
     }
 
@@ -225,12 +229,13 @@ pub fn prune(
     return expired.items.len;
 }
 
-/// Check if a key exists in the cache.
-/// Returns false if the cache file doesn't exist.
+/// Check if a key with `version` exists in the cache.
+/// Returns false if the cache file doesn't exist or the version doesn't match.
 pub fn contains(
     self: DiskCache,
     alloc: Allocator,
     key: []const u8,
+    version: []const u8,
 ) !bool {
     if (!isValidCacheKey(key)) return error.InvalidCacheKey;
 
@@ -249,7 +254,8 @@ pub fn contains(
     var entries = try readEntries(alloc, file);
     defer deinitEntries(alloc, &entries);
 
-    return entries.contains(key);
+    const entry = entries.get(key) orelse return false;
+    return std.mem.eql(u8, entry.terminfo_version, version);
 }
 
 fn fixupPermissions(file: std.Io.File) !void {
@@ -506,20 +512,25 @@ test "disk cache operations" {
     // Setup our cache. Adding the same key twice exercises both the new
     // and existing-entry paths.
     const cache: DiskCache = .{ .path = path };
-    try cache.add(alloc, "example.com", std.Io.Timestamp.now(testing.io, .real).toSeconds());
-    try cache.add(alloc, "example.com", std.Io.Timestamp.now(testing.io, .real).toSeconds());
-    try testing.expect(try cache.contains(alloc, "example.com"));
+    try cache.add(alloc, "example.com", "v1", std.Io.Timestamp.now(testing.io, .real).toSeconds());
+    try testing.expect(!try cache.contains(alloc, "example.com", "v2"));
+    try cache.add(alloc, "example.com", "v2", std.Io.Timestamp.now(testing.io, .real).toSeconds());
+    try testing.expect(try cache.contains(alloc, "example.com", "v2"));
 
     // List
     var entries = try cache.list(alloc);
-    deinitEntries(alloc, &entries);
+    defer deinitEntries(alloc, &entries);
+    try testing.expectEqualStrings(
+        "v2",
+        entries.get("example.com").?.terminfo_version,
+    );
 
     // Remove reports that it removed the entry, and a second remove of the
     // same key reports nothing to remove.
     try testing.expect(try cache.remove(alloc, "example.com"));
     try testing.expect(!try cache.remove(alloc, "example.com"));
-    try testing.expect(!(try cache.contains(alloc, "example.com")));
-    try cache.add(alloc, "example.com", std.Io.Timestamp.now(testing.io, .real).toSeconds());
+    try testing.expect(!(try cache.contains(alloc, "example.com", "v2")));
+    try cache.add(alloc, "example.com", "v2", std.Io.Timestamp.now(testing.io, .real).toSeconds());
 }
 
 test "disk cache cleans up temp files" {
@@ -535,8 +546,8 @@ test "disk cache cleans up temp files" {
     defer alloc.free(cache_path);
 
     const cache: DiskCache = .{ .path = cache_path };
-    try cache.add(alloc, "example.com", std.Io.Timestamp.now(testing.io, .real).toSeconds());
-    try cache.add(alloc, "example.org", std.Io.Timestamp.now(testing.io, .real).toSeconds());
+    try cache.add(alloc, "example.com", "v1", std.Io.Timestamp.now(testing.io, .real).toSeconds());
+    try cache.add(alloc, "example.org", "v1", std.Io.Timestamp.now(testing.io, .real).toSeconds());
 
     // Verify only the cache file exists and no temp files left behind
     var count: usize = 0;
@@ -566,20 +577,20 @@ test "disk cache prune" {
     const day = std.time.s_per_day;
     const hour = std.time.s_per_hour;
     const now = std.Io.Timestamp.now(testing.io, .real).toSeconds();
-    try cache.add(alloc, "recent.com", now - hour);
-    try cache.add(alloc, "old.com", now - 100 * day);
+    try cache.add(alloc, "recent.com", "v1", now - hour);
+    try cache.add(alloc, "old.com", "v1", now - 100 * day);
 
     // Prune entries older than 90 days: only old.com goes.
     try testing.expectEqual(@as(usize, 1), try cache.prune(alloc, 90 * day));
-    try testing.expect(try cache.contains(alloc, "recent.com"));
-    try testing.expect(!try cache.contains(alloc, "old.com"));
+    try testing.expect(try cache.contains(alloc, "recent.com", "v1"));
+    try testing.expect(!try cache.contains(alloc, "old.com", "v1"));
 
     // Pruning again removes nothing.
     try testing.expectEqual(@as(usize, 0), try cache.prune(alloc, 90 * day));
 
     // Sub-day granularity: a 30-minute max age prunes the hour-old entry.
     try testing.expectEqual(@as(usize, 1), try cache.prune(alloc, 30 * std.time.s_per_min));
-    try testing.expect(!try cache.contains(alloc, "recent.com"));
+    try testing.expect(!try cache.contains(alloc, "recent.com", "v1"));
 }
 
 test "disk cache prune missing file" {
@@ -707,7 +718,7 @@ test "disk cache add survives allocation failure" {
         );
         const alloc = failing.allocator();
 
-        if (cache.add(alloc, "user@example.com", 100)) |_| {
+        if (cache.add(alloc, "user@example.com", "v1", 100)) |_| {
             if (!failing.has_induced_failure) break;
         } else |err| {
             try testing.expectEqual(error.OutOfMemory, err);

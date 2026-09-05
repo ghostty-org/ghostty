@@ -335,6 +335,12 @@ pub fn presentLastTarget(self: *OpenGL) !void {
     if (self.last_target) |target| try self.present(target);
 }
 
+/// Called when the renderer released its GPU resources; the last
+/// presented target is deinited with them so we must drop our copy.
+pub fn gpuResourcesReleased(self: *OpenGL) void {
+    self.last_target = null;
+}
+
 /// Returns the options to use when constructing buffers.
 pub inline fn bufferOptions(self: OpenGL) bufferpkg.Options {
     _ = self;

@@ -485,7 +485,6 @@ pub const TerminalFormatter = struct {
 
         var screen_formatter: ScreenFormatter = .init(self.terminal.screens.active, self.opts);
         screen_formatter.content = self.content;
-        screen_formatter.extra = self.extra.screen;
         screen_formatter.pin_map = self.pin_map;
         try screen_formatter.format(writer);
 
@@ -543,6 +542,13 @@ pub const TerminalFormatter = struct {
                 ) catch return error.WriteFailed;
             }
         }
+
+        // Emit extra screen state last because terminal state such
+        // as scrolling regions can move the cursor, so we have to set
+        // cursor last.
+        screen_formatter.content = .none;
+        screen_formatter.extra = self.extra.screen;
+        try screen_formatter.format(writer);
     }
 };
 
@@ -689,6 +695,43 @@ pub const ScreenFormatter = struct {
             .html => return,
         }
 
+        // Emit cursor position before the other extras because restoring a
+        // pending wrap requires reprinting the cell at the right edge. That
+        // print uses and changes active screen state, so the requested style,
+        // hyperlink, protection, and charset must be restored afterwards.
+        if (self.extra.cursor) cursor: {
+            const cursor = &self.screen.cursor;
+
+            // If we don't have pending wrap, then we can just use CUP.
+            if (!cursor.pending_wrap or cursor.x != self.screen.pages.cols - 1) {
+                try writer.print("\x1b[{d};{d}H", .{ cursor.y + 1, cursor.x + 1 });
+                break :cursor;
+            }
+
+            // Pending wrap, we can't use CUP because it resets pending wrap.
+            const start_x = switch (cursor.page_cell.wide) {
+                .spacer_tail => cursor.x - 1,
+                .narrow, .wide, .spacer_head => cursor.x,
+            };
+
+            // Move cursor to the edge.
+            try writer.print(
+                "\x1b[{d};{d}H",
+                .{ cursor.y + 1, start_x + 1 },
+            );
+
+            // Reformat the cell which sets the proper pending wrap state.
+            var cell_formatter: PageFormatter = .init(
+                cursor.page_pin.node.page(),
+                self.opts,
+            );
+            cell_formatter.start_x = cursor.x;
+            cell_formatter.end_x = cursor.x;
+            cell_formatter.start_y = cursor.page_pin.y;
+            cell_formatter.end_y = cursor.page_pin.y;
+            try cell_formatter.format(writer);
+        }
+
         // Emit current SGR style state
         if (self.extra.style) {
             const cursor = &self.screen.cursor;
@@ -776,13 +819,6 @@ pub const ScreenFormatter = struct {
                 };
                 try writer.print("{s}", .{seq});
             }
-        }
-
-        // Emit cursor position using CUP (CSI H)
-        if (self.extra.cursor) {
-            const cursor = &self.screen.cursor;
-            // CUP is 1-indexed
-            try writer.print("\x1b[{d};{d}H", .{ cursor.y + 1, cursor.x + 1 });
         }
 
         // If we have a pin_map, we need to count how many bytes the extras
@@ -1268,32 +1304,17 @@ pub const PageFormatter = struct {
                         if (style_id == invalid_style_id) break :fast;
                     }
 
-                    // Specialized on point tracking so that the common
-                    // non-tracking case has zero per-cell overhead.
-                    const consumed = if (self.point_map == null)
-                        try self.writeCellRun(
-                            emit,
-                            false,
-                            writer,
-                            cells_subset[cell_i..],
-                            x,
-                            y,
-                            style_id,
-                            current_hyperlink_id,
-                            &blank_cells,
-                        )
-                    else
-                        try self.writeCellRun(
-                            emit,
-                            true,
-                            writer,
-                            cells_subset[cell_i..],
-                            x,
-                            y,
-                            style_id,
-                            current_hyperlink_id,
-                            &blank_cells,
-                        );
+                    const consumed = try self.writeCellRun(
+                        emit,
+                        self.point_map != null,
+                        writer,
+                        cells_subset[cell_i..],
+                        x,
+                        y,
+                        style_id,
+                        current_hyperlink_id,
+                        &blank_cells,
+                    );
 
                     // Zero cells consumed means the first cell isn't
                     // eligible for the fast path; handle it below.
@@ -1579,10 +1600,15 @@ pub const PageFormatter = struct {
     /// Blank cell accounting matches the slow path: accumulated blanks
     /// are only materialized once a non-blank cell is found, and any
     /// remainder is written back to `blank_cells`.
-    fn writeCellRun(
+    // Deliberately not inlined: this is instantiated per emit format and
+    // inlining every copy into formatWithStateEmit's row loop bloats the
+    // binary. track_points is a runtime bool for the same reason: a
+    // comptime bool doubles the instantiation count for one predictable
+    // branch per emitted cell.
+    noinline fn writeCellRun(
         self: *const PageFormatter,
         comptime emit: Format,
-        comptime track_points: bool,
+        track_points: bool,
         writer: *std.Io.Writer,
         cells: []const Cell,
         run_x: size.CellCountInt,
@@ -1666,7 +1692,7 @@ pub const PageFormatter = struct {
 
             // This cell produces output: materialize accumulated blanks.
             if (pending > 0) {
-                if (comptime track_points) try self.appendBlankPoints(
+                if (track_points) try self.appendBlankPoints(
                     &self.point_map.?,
                     pending,
                     x,
@@ -1718,7 +1744,7 @@ pub const PageFormatter = struct {
             }
 
             // All of the cell's bytes map to the cell's coordinate.
-            if (comptime track_points) {
+            if (track_points) {
                 const map = &self.point_map.?;
                 map.map.appendNTimes(
                     map.alloc,
@@ -5224,6 +5250,65 @@ test "Screen vt with cursor position" {
     for (content_len..output.len) |i| {
         try testing.expectEqual(node, pin_map.get(i).?.node);
     }
+}
+
+test "Terminal vt cursor preserves pending wrap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var source = try Terminal.init(io, alloc, .{
+        .cols = 4,
+        .rows = 2,
+    });
+    defer source.deinit(alloc);
+
+    var source_stream = source.vtStream();
+    defer source_stream.deinit();
+    source_stream.nextSlice("abcd");
+    try testing.expect(source.screens.active.cursor.pending_wrap);
+
+    var pin_map: PinMap.Map = .empty;
+    defer pin_map.deinit(alloc);
+
+    var formatter: TerminalFormatter = .init(&source, .vt);
+    formatter.extra = .none;
+    formatter.extra.screen.cursor = true;
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
+    try formatter.format(&builder.writer);
+    try testing.expectEqual(builder.writer.buffered().len, pin_map.count());
+
+    var target = try Terminal.init(io, alloc, .{
+        .cols = 4,
+        .rows = 2,
+    });
+    defer target.deinit(alloc);
+
+    var target_stream = target.vtStream();
+    defer target_stream.deinit();
+    target_stream.nextSlice(builder.writer.buffered());
+
+    try testing.expectEqual(
+        source.screens.active.cursor.pending_wrap,
+        target.screens.active.cursor.pending_wrap,
+    );
+
+    source_stream.nextSlice("X");
+    target_stream.nextSlice("X");
+    const source_contents = try source.screens.active.dumpStringAlloc(
+        alloc,
+        .{ .screen = .{} },
+    );
+    defer alloc.free(source_contents);
+    const target_contents = try target.screens.active.dumpStringAlloc(
+        alloc,
+        .{ .screen = .{} },
+    );
+    defer alloc.free(target_contents);
+    try testing.expectEqualStrings(source_contents, target_contents);
 }
 
 test "Screen vt with style" {

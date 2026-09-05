@@ -51,6 +51,10 @@ pub const StreamHandler = struct {
     /// The clipboard write access configuration.
     clipboard_write: configpkg.ClipboardAccess,
 
+    /// Maximum total decoded bytes per Kitty clipboard protocol
+    /// (OSC 5522) write transaction; exceeding it aborts with EFBIG.
+    clipboard_write_limit: usize,
+
     //---------------------------------------------------------------
     // Internal state
 
@@ -67,6 +71,14 @@ pub const StreamHandler = struct {
 
     /// The tmux control mode viewer state.
     tmux_viewer: if (tmux_enabled) ?*terminal.tmux.Viewer else void = if (tmux_enabled) null else {},
+
+    /// Session password grants for the Kitty clipboard protocol.
+    /// Requests carrying a granted password skip the permission prompt.
+    kitty_clipboard_grants: terminal.kitty.clipboard.Grants = .{},
+
+    /// The in-flight Kitty clipboard protocol (OSC 5522) write
+    /// transaction, if any.
+    kitty_clipboard_write: ?*terminal.kitty.clipboard.WriteState = null,
 
     /// This is set to true when a message was written to the termio
     /// mailbox. This can be used by callers to determine if they need
@@ -85,6 +97,8 @@ pub const StreamHandler = struct {
     pub fn deinit(self: *StreamHandler) void {
         self.apc.deinit();
         self.dcs.deinit();
+        self.kittyClipboardWriteAbort();
+        self.kitty_clipboard_grants.deinit(self.alloc);
         if (comptime tmux_enabled) tmux: {
             const viewer = self.tmux_viewer orelse break :tmux;
             viewer.deinit();
@@ -104,6 +118,7 @@ pub const StreamHandler = struct {
     pub fn changeConfig(self: *StreamHandler, config: *termio.DerivedConfig) void {
         self.osc_color_report_format = config.osc_color_report_format;
         self.clipboard_write = config.clipboard_write;
+        self.clipboard_write_limit = config.clipboard_write_limit;
         self.enquiry_response = config.enquiry_response;
         self.terminal.setDefaultCursorStyle(config.cursor_style);
         self.terminal.setDefaultCursorBlink(config.cursor_blink);
@@ -352,10 +367,12 @@ pub const StreamHandler = struct {
             .apc_end => try self.apcEnd(),
             .apc_put => self.apc.feed(self.alloc, value),
             .apc_put_slice => self.apc.feedSlice(self.alloc, value.bytes),
+            .kitty_clipboard => try self.kittyClipboard(value),
 
             // Unimplemented
             .title_push,
             .title_pop,
+            .kitty_dnd,
             => {},
         }
     }
@@ -867,11 +884,25 @@ pub const StreamHandler = struct {
         self.terminal.fullReset();
         try self.setMouseShape(.text);
 
+        // Full reset clears Kitty clipboard session grants.
+        self.kitty_clipboard_grants.deinit(self.alloc);
+        self.kitty_clipboard_grants = .{};
+
         // Reset resets our palette so we report it for mode 2031.
         self.messageWriter(.{ .color_scheme_report = .{ .force = false } });
 
         // Clear the progress bar
         self.progressReport(.{ .state = .remove });
+    }
+
+    /// Record a Kitty clipboard protocol session grant so future
+    /// requests with this password skip the permission prompt.
+    pub fn kittyClipboardGrant(
+        self: *StreamHandler,
+        pw: []const u8,
+        dir: terminal.kitty.clipboard.Grants.Direction,
+    ) error{OutOfMemory}!void {
+        try self.kitty_clipboard_grants.grant(self.alloc, pw, dir, false);
     }
 
     pub fn queryKittyKeyboard(self: *StreamHandler) !void {
@@ -986,6 +1017,410 @@ pub const StreamHandler = struct {
                 .clipboard_type = clipboard_type,
             },
         });
+    }
+
+    /// Handle one Kitty clipboard protocol (OSC 5522) packet.
+    fn kittyClipboard(
+        self: *StreamHandler,
+        v: terminal.osc.Command.KittyClipboardProtocol,
+    ) error{ OutOfMemory, WriteFailed }!void {
+        const kitty_clipboard = terminal.kitty.clipboard;
+
+        // Decode and validate the metadata. Malformed structure drops
+        // the packet without a response. Invalid decoded text on a write
+        // data or alias packet aborts an in-flight transaction.
+        var arena: std.heap.ArenaAllocator = .init(self.alloc);
+        defer arena.deinit();
+        const meta = (kitty_clipboard.Metadata.parse(
+            arena.allocator(),
+            v.metadata,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.InvalidValue => {
+                const state = self.kitty_clipboard_write orelse return;
+                switch (kitty_clipboard.Metadata.operation(v.metadata) orelse return) {
+                    .wdata, .walias => try self.kittyClipboardWriteFinish(
+                        state,
+                        .EINVAL,
+                        v.terminator,
+                    ),
+                    .read, .write => {},
+                }
+                return;
+            },
+        }) orelse return;
+
+        switch (meta.op) {
+            .read => try self.kittyClipboardRead(
+                &meta,
+                v.payload orelse "",
+                v.terminator,
+            ),
+
+            .write => try self.kittyClipboardWriteBegin(
+                &meta,
+                v.terminator,
+            ),
+
+            .wdata => try self.kittyClipboardWriteData(
+                &meta,
+                v.payload orelse "",
+                v.terminator,
+            ),
+
+            .walias => try self.kittyClipboardWriteAlias(
+                &meta,
+                v.payload orelse "",
+                v.terminator,
+            ),
+        }
+    }
+
+    fn kittyClipboardRead(
+        self: *StreamHandler,
+        meta: *const terminal.kitty.clipboard.Metadata,
+        payload: []const u8,
+        terminator: terminal.osc.Terminator,
+    ) !void {
+        const kitty_clipboard = terminal.kitty.clipboard;
+
+        // Everything about the request, including the request struct
+        // itself, lives in a single arena that crosses to the surface
+        // thread, which owns it from the moment the message is sent.
+        var arena: std.heap.ArenaAllocator = .init(self.alloc);
+        errdefer arena.deinit();
+        const alloc = arena.allocator();
+
+        // The payload is the requested MIME list. A read request with
+        // an undecodable payload is dropped without any response,
+        // matching kitty.
+        const decoded = kitty_clipboard.Payload.init(
+            alloc,
+            payload,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.Invalid => {
+                arena.deinit();
+                return;
+            },
+        };
+        if (!decoded.isValidUtf8()) {
+            arena.deinit();
+            return;
+        }
+
+        // The targets type ('.') asks for the listing of available
+        // types rather than data. Requested types beyond the cap are
+        // dropped and simply never served, which is how the protocol
+        // reports an unavailable type anyway.
+        var mimes_buf: [kitty_clipboard.max_read_mimes][]const u8 = undefined;
+        var mimes_len: usize = 0;
+        var list = false;
+        var it = decoded.mimeIterator();
+        while (it.next()) |mime| {
+            if (std.mem.eql(u8, mime, kitty_clipboard.targets_mime)) {
+                list = true;
+                continue;
+            }
+            if (mimes_len == mimes_buf.len) continue;
+            mimes_buf[mimes_len] = mime;
+            mimes_len += 1;
+        }
+
+        // Per the spec a password without a name is no password. A
+        // stored session grant for it lets the surface skip its
+        // permission prompt.
+        const pw: []const u8 = if (meta.name.len > 0) meta.pw else "";
+        const granted = self.kittyClipboardReadGranted(pw, mimes_len);
+
+        const req = try alloc.create(apprt.ClipboardRequest.KittyRead);
+        const mimes = try alloc.alloc([:0]const u8, mimes_len);
+        for (mimes_buf[0..mimes_len], mimes) |src, *dst| {
+            dst.* = try alloc.dupeZ(u8, src);
+        }
+        const id = try alloc.dupe(u8, meta.id);
+        const pw_owned = try alloc.dupe(u8, pw);
+        const name_owned = try alloc.dupeZ(u8, meta.name);
+        req.* = .{
+            // The arena must be copied in last so it tracks every
+            // allocation above.
+            .arena = arena,
+            .location = switch (meta.loc) {
+                .primary => .primary,
+                else => .standard,
+            },
+            .mimes = mimes,
+            .list = list,
+            .id = id,
+            .pw = pw_owned,
+            .name = name_owned,
+            .granted = granted,
+            .terminator = terminator,
+        };
+
+        self.surfaceMessageWriter(.{ .kitty_clipboard_read = req });
+    }
+
+    /// Whether a session grant covers a read request, consuming
+    /// one-time grants. A prompt-exempt request never consults the
+    /// grants: consuming a one-time paste password on a listing would
+    /// burn the grant before the follow-up data read.
+    fn kittyClipboardReadGranted(
+        self: *StreamHandler,
+        pw: []const u8,
+        mimes_len: usize,
+    ) bool {
+        if (terminal.kitty.clipboard.readPromptExempt(mimes_len)) return false;
+        return self.kitty_clipboard_grants.use(self.alloc, pw, .read);
+    }
+
+    /// Begin a Kitty clipboard write transaction (type=write).
+    fn kittyClipboardWriteBegin(
+        self: *StreamHandler,
+        meta: *const terminal.kitty.clipboard.Metadata,
+        terminator: terminal.osc.Terminator,
+    ) error{ OutOfMemory, WriteFailed }!void {
+        // A new write silently replaces any in-flight transaction.
+        self.kittyClipboardWriteAbort();
+
+        // A write denied by policy can never succeed, so fail the
+        // transaction up front instead of spooling data we'd only
+        // throw away. Later wdata packets are ignored.
+        if (self.clipboard_write == .deny) {
+            log.info("application attempted to write clipboard, but 'clipboard-write' is set to deny", .{});
+            try self.kittyClipboardWriteStatus(
+                .EPERM,
+                meta.id,
+                terminator,
+            );
+            return;
+        }
+
+        const state = try self.alloc.create(terminal.kitty.clipboard.WriteState);
+        errdefer self.alloc.destroy(state);
+        state.* = try .init(self.alloc, meta, .{
+            .max_size = self.clipboard_write_limit,
+        });
+        self.kitty_clipboard_write = state;
+    }
+
+    /// Accumulate one wdata chunk, or commit the transaction when the
+    /// chunk carries no MIME type.
+    fn kittyClipboardWriteData(
+        self: *StreamHandler,
+        meta: *const terminal.kitty.clipboard.Metadata,
+        payload: []const u8,
+        terminator: terminal.osc.Terminator,
+    ) error{ OutOfMemory, WriteFailed }!void {
+        // Data without a transaction is silently ignored, matching
+        // kitty.
+        const state = self.kitty_clipboard_write orelse return;
+
+        // A wdata packet without a MIME type commits the transaction.
+        if (meta.mime.len == 0) return self.kittyClipboardWriteCommit(
+            state,
+            terminator,
+        );
+
+        state.data(
+            self.alloc,
+            meta,
+            payload,
+        ) catch |err| switch (err) {
+            // Failing to spool matches kitty's EIO for a failed buffer write.
+            error.OutOfMemory => {
+                try self.kittyClipboardWriteFinish(
+                    state,
+                    .EIO,
+                    terminator,
+                );
+                return error.OutOfMemory;
+            },
+
+            // Data over the write limit aborts the transaction and is
+            // reported to the client.
+            error.TooLarge => try self.kittyClipboardWriteFinish(
+                state,
+                .EFBIG,
+                terminator,
+            ),
+
+            // An invalid base64 payload stream aborts the transaction.
+            error.Invalid => try self.kittyClipboardWriteFinish(
+                state,
+                .EINVAL,
+                terminator,
+            ),
+        };
+    }
+
+    /// Register aliases from a walias packet.
+    fn kittyClipboardWriteAlias(
+        self: *StreamHandler,
+        meta: *const terminal.kitty.clipboard.Metadata,
+        payload: []const u8,
+        terminator: terminal.osc.Terminator,
+    ) error{ OutOfMemory, WriteFailed }!void {
+        // Aliases without a transaction are silently ignored. Once a
+        // transaction exists, a missing target MIME type is invalid and
+        // aborts the transaction.
+        const state = self.kitty_clipboard_write orelse return;
+        if (meta.mime.len == 0) return self.kittyClipboardWriteFinish(
+            state,
+            .EINVAL,
+            terminator,
+        );
+
+        state.alias(
+            self.alloc,
+            meta,
+            payload,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => {
+                try self.kittyClipboardWriteFinish(
+                    state,
+                    .EIO,
+                    terminator,
+                );
+                return error.OutOfMemory;
+            },
+
+            // An undecodable alias payload aborts the transaction.
+            error.Invalid => try self.kittyClipboardWriteFinish(
+                state,
+                .EINVAL,
+                terminator,
+            ),
+        };
+    }
+
+    /// Commit the transaction: resolve the final contents and forward
+    /// them to the surface thread, which owns policy, any permission
+    /// prompt, the clipboard write itself, and the final reply.
+    fn kittyClipboardWriteCommit(
+        self: *StreamHandler,
+        state: *terminal.kitty.clipboard.WriteState,
+        terminator: terminal.osc.Terminator,
+    ) error{ OutOfMemory, WriteFailed }!void {
+        self.kittyClipboardWriteSend(
+            state,
+            terminator,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => {
+                try self.kittyClipboardWriteFinish(
+                    state,
+                    .EIO,
+                    terminator,
+                );
+                return error.OutOfMemory;
+            },
+
+            // The last MIME type's payload stream was not correctly
+            // padded, which aborts the transaction.
+            error.Invalid => return try self.kittyClipboardWriteFinish(
+                state,
+                .EINVAL,
+                terminator,
+            ),
+        };
+
+        // The transaction is complete; the surface owns the reply.
+        self.kittyClipboardWriteAbort();
+    }
+
+    fn kittyClipboardWriteSend(
+        self: *StreamHandler,
+        state: *terminal.kitty.clipboard.WriteState,
+        terminator: terminal.osc.Terminator,
+    ) error{ OutOfMemory, Invalid }!void {
+        const committed = try state.commit(self.alloc);
+        defer committed.deinit(self.alloc);
+
+        // Per the spec a password without a name is no password. A
+        // stored session grant for it lets the surface skip its
+        // permission prompt.
+        const pw: []const u8 = if (committed.name.len > 0) committed.pw else "";
+        const granted = self.kitty_clipboard_grants.use(self.alloc, pw, .write);
+
+        // Everything about the request, including the request struct
+        // itself, lives in a single arena that crosses to the surface
+        // thread, which owns it from the moment the message is sent.
+        var arena: std.heap.ArenaAllocator = .init(self.alloc);
+        errdefer arena.deinit();
+        const alloc = arena.allocator();
+
+        const req = try alloc.create(apprt.ClipboardRequest.KittyWrite);
+        const contents = try alloc.alloc(
+            apprt.ClipboardContent,
+            committed.contents.len,
+        );
+        for (committed.contents, contents) |src, *dst| dst.* = .{
+            .mime = try alloc.dupeZ(u8, src.mime),
+            .data = try alloc.dupeZ(u8, src.data),
+        };
+        const id = try alloc.dupe(u8, committed.id);
+        const pw_owned = try alloc.dupe(u8, pw);
+        const name_owned = try alloc.dupeZ(u8, committed.name);
+        req.* = .{
+            // The arena must be copied in last so it tracks every
+            // allocation above.
+            .arena = arena,
+            .location = switch (committed.loc) {
+                .primary => .primary,
+                else => .standard,
+            },
+            .contents = contents,
+            .id = id,
+            .pw = pw_owned,
+            .name = name_owned,
+            .granted = granted,
+            .terminator = terminator,
+        };
+
+        self.surfaceMessageWriter(.{ .kitty_clipboard_write = req });
+    }
+
+    /// Answer the write transaction with its final status and drop it.
+    /// The id echoed is the one from the transaction's opening write
+    /// packet, matching kitty.
+    fn kittyClipboardWriteFinish(
+        self: *StreamHandler,
+        state: *const terminal.kitty.clipboard.WriteState,
+        status: terminal.kitty.clipboard.Status,
+        terminator: terminal.osc.Terminator,
+    ) error{ OutOfMemory, WriteFailed }!void {
+        defer self.kittyClipboardWriteAbort();
+        try self.kittyClipboardWriteStatus(status, state.id, terminator);
+    }
+
+    /// Reply to a write transaction with a single status packet.
+    fn kittyClipboardWriteStatus(
+        self: *StreamHandler,
+        status: terminal.kitty.clipboard.Status,
+        id: []const u8,
+        terminator: terminal.osc.Terminator,
+    ) error{ OutOfMemory, WriteFailed }!void {
+        var stream: std.Io.Writer.Allocating = .init(self.alloc);
+        defer stream.deinit();
+        try (terminal.kitty.clipboard.Response{
+            .op = .write,
+            .status = status,
+            .id = id,
+            .terminator = terminator,
+        }).encode(&stream.writer);
+        self.messageWriter(.{ .write_alloc = .{
+            .alloc = self.alloc,
+            .data = try stream.toOwnedSlice(),
+        } });
+    }
+
+    /// Drop any in-flight write transaction without responding.
+    fn kittyClipboardWriteAbort(self: *StreamHandler) void {
+        if (self.kitty_clipboard_write) |state| {
+            state.deinit(self.alloc);
+            self.alloc.destroy(state);
+            self.kitty_clipboard_write = null;
+        }
     }
 
     fn semanticPrompt(
@@ -1346,17 +1781,9 @@ pub const StreamHandler = struct {
         title: []const u8,
         body: []const u8,
     ) !void {
-        var message = apprt.surface.Message{ .desktop_notification = undefined };
-
-        const title_len = @min(title.len, message.desktop_notification.title.len);
-        @memcpy(message.desktop_notification.title[0..title_len], title[0..title_len]);
-        message.desktop_notification.title[title_len] = 0;
-
-        const body_len = @min(body.len, message.desktop_notification.body.len);
-        @memcpy(message.desktop_notification.body[0..body_len], body[0..body_len]);
-        message.desktop_notification.body[body_len] = 0;
-
-        self.surfaceMessageWriter(message);
+        self.surfaceMessageWriter(.{
+            .desktop_notification = .init(title, body),
+        });
     }
 
     /// Send a report to the pty.
@@ -1466,3 +1893,78 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.{ .progress_report = report });
     }
 };
+
+test "kitty clipboard read: targets-only never consumes a one-time grant" {
+    const testing = std.testing;
+
+    var handler: StreamHandler = undefined;
+    handler.alloc = testing.allocator;
+    handler.kitty_clipboard_grants = .{};
+    defer handler.kitty_clipboard_grants.deinit(testing.allocator);
+    try handler.kitty_clipboard_grants.grant(testing.allocator, "otp", .read, true);
+
+    // A listing request must not burn the one-time paste password...
+    try testing.expect(!handler.kittyClipboardReadGranted("otp", 0));
+    // ...so the follow-up data read is still granted, exactly once.
+    try testing.expect(handler.kittyClipboardReadGranted("otp", 1));
+    try testing.expect(!handler.kittyClipboardReadGranted("otp", 1));
+}
+
+test "kitty clipboard write: oversized text replies EFBIG" {
+    const testing = std.testing;
+
+    var mailbox = try termio.Mailbox.initSPSC(testing.allocator);
+    defer mailbox.deinit(testing.allocator);
+
+    var mutex: std.Io.Mutex = .init;
+    mutex.lockUncancelable(global.io());
+    defer mutex.unlock(global.io());
+
+    var renderer_state: renderer.State = .{
+        .mutex = &mutex,
+        .terminal = undefined,
+    };
+    var handler: StreamHandler = undefined;
+    handler.alloc = testing.allocator;
+    handler.termio_mailbox = &mailbox;
+    handler.renderer_state = &renderer_state;
+    handler.clipboard_write = .allow;
+    handler.clipboard_write_limit = 4;
+    handler.kitty_clipboard_write = null;
+    defer handler.kittyClipboardWriteAbort();
+
+    const begin: terminal.kitty.clipboard.Metadata = .{
+        .op = .write,
+        .id = "macos",
+    };
+    try handler.kittyClipboardWriteBegin(&begin, .st);
+    const state = handler.kitty_clipboard_write.?;
+    try state.data(
+        testing.allocator,
+        &.{ .op = .wdata, .mime = "text/plain" },
+        "SGVsbA==", // "Hell"
+    );
+    try testing.expectError(error.TooLarge, state.data(
+        testing.allocator,
+        &.{ .op = .wdata, .mime = "text/plain" },
+        "bw==", // "o"
+    ));
+    try handler.kittyClipboardWriteFinish(state, .EFBIG, .st);
+    try testing.expect(handler.kitty_clipboard_write == null);
+
+    const response = mailbox.spsc.queue.pop(global.io());
+    try testing.expect(response != null);
+    const msg = response.?;
+    defer msg.deinit();
+    switch (msg) {
+        .write_alloc => |v| try testing.expectEqualStrings(
+            "\x1B]5522;type=write:status=EFBIG:id=macos\x1B\\",
+            v.data,
+        ),
+        else => try testing.expect(false),
+    }
+
+    // Teardown leaves no transaction that could be committed and
+    // forwarded to the macOS clipboard path.
+    try testing.expect(mailbox.spsc.queue.pop(global.io()) == null);
+}

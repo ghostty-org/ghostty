@@ -161,7 +161,7 @@ const vtable: Io.VTable = if (!supported) std.Io.failing.vtable.* else .{
     .progressParentFile = Io.failingProgressParentFile,
 
     .random = Io.noRandom,
-    .randomSecure = Io.failingRandomSecure,
+    .randomSecure = randomSecure,
 
     .now = Io.noNow,
     .clockResolution = Io.failingClockResolution,
@@ -211,6 +211,35 @@ fn swapCancelProtection(
 }
 
 fn checkCancel(_: ?*anyopaque) Io.Cancelable!void {}
+
+fn randomSecure(_: ?*anyopaque, buffer: []u8) Io.RandomSecureError!void {
+    if (buffer.len == 0) return;
+
+    // The same sources as `std.Io.Threaded.randomSecure` minus
+    // cancelation and the /dev/urandom fallback: arc4random_buf where
+    // libc provides it (all the BSDs and Darwin, glibc 2.36+), otherwise
+    // the getrandom syscall on Linux. Anything else has no entropy.
+    if (builtin.link_libc and @TypeOf(posix.system.arc4random_buf) != void) {
+        posix.system.arc4random_buf(buffer.ptr, buffer.len);
+        return;
+    }
+
+    if (builtin.os.tag == .linux) {
+        const linux = std.os.linux;
+        var i: usize = 0;
+        while (i < buffer.len) {
+            const rc = linux.getrandom(buffer[i..].ptr, buffer.len - i, 0);
+            switch (linux.errno(rc)) {
+                .SUCCESS => i += rc,
+                .INTR => continue,
+                else => return error.EntropyUnavailable,
+            }
+        }
+        return;
+    }
+
+    return error.EntropyUnavailable;
+}
 
 fn closeFd(fd: posix.fd_t) void {
     // Never retry close on EINTR: POSIX leaves the fd state unspecified
@@ -963,6 +992,28 @@ test "Io.Mutex through TinyIo" {
 
     // Wait with a non-matching expected value must return immediately.
     test_io.vtable.futexWaitUncancelable(test_io.userdata, &word, 1);
+}
+
+test "randomSecure fills with fresh entropy" {
+    if (comptime !supported) return error.SkipZigTest;
+    const tio: TinyIo = .init;
+    const test_io = tio.io();
+    const testing = std.testing;
+
+    var a: [32]u8 = @splat(0);
+    var b: [32]u8 = @splat(0);
+    try test_io.randomSecure(&a);
+    try test_io.randomSecure(&b);
+
+    // Non-zero and non-repeating. A zero fill is what `random` does
+    // without a source, which would make every one-time password the
+    // same; identical draws would mean the same thing.
+    try testing.expect(!std.mem.allEqual(u8, &a, 0));
+    try testing.expect(!std.mem.allEqual(u8, &b, 0));
+    try testing.expect(!std.mem.eql(u8, &a, &b));
+
+    // Zero-length is a no-op.
+    try test_io.randomSecure(a[0..0]);
 }
 
 test "unused operations fail gracefully" {

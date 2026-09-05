@@ -1,7 +1,10 @@
 const colorpkg = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
+const Allocator = std.mem.Allocator;
 const assert = @import("../quirks.zig").inlineAssert;
+const fraction = @import("fraction.zig");
 const x11_color = @import("x11_color.zig");
 
 /// The default palette.
@@ -128,8 +131,57 @@ pub const PaletteC = [256]RGB.C;
 /// Convert a Palette to a PaletteC.
 pub fn paletteCval(palette: *const Palette) PaletteC {
     var result: PaletteC = undefined;
-    for (&result, palette) |*dst, src| dst.* = src.cval();
+    paletteCvalSlice(palette[0..], result[0..]);
     return result;
+}
+
+/// Convert a slice of palette entries to their C representation.
+/// Asserts that both slices are the same length.
+pub fn paletteCvalSlice(src: []const RGB, dst: []RGB.C) void {
+    assert(src.len == dst.len);
+
+    var i: usize = 0;
+
+    // For CPUs that are LE, we can do some clever byte shuffling
+    // with vectorization to do a 4-to-3 conversion.
+    if (comptime builtin.cpu.arch.endian() == .little) {
+        // Process 4 entries at a time: one 16-byte load, one byte
+        // shuffle dropping the padding byte of each entry, and one
+        // 16-byte store. The store intentionally overlaps the next
+        // group by 4 (garbage) bytes so that it stays a single
+        // vector store; the loop bound guarantees the overlap stays
+        // in bounds and every overlapped byte is rewritten by the
+        // next iteration or the scalar tail.
+        //
+        // Note the input load is a memory-level reinterpretation
+        // (pointer cast) because a value-level @bitCast of packed
+        // structs operates on the 24-bit value bits, not the 4-byte
+        // in-memory representation.
+        const V = @Vector(16, u8);
+        const dst_bytes: [*]u8 = @ptrCast(dst.ptr);
+        while (i + 6 <= src.len) : (i += 4) {
+            // All intermediaries have to also go through a Vector type
+            // to ensure LLVM lowers as vectorized ops. In Zig 0.16 the
+            // LLVM auto-vectorizer is disabled so this is required.
+            const in: V = @as(*align(4) const V, @ptrCast(src[i..][0..4])).*;
+            const out: V = @shuffle(u8, in, undefined, [16]i32{
+                0,  1,  2,
+                4,  5,  6,
+                8,  9,  10,
+                12, 13, 14,
+
+                // Overflow we don't care about
+                3,  7,  11,
+                15,
+            });
+
+            // Scary looking but safe, mapping a byte pointer to the full
+            // vector type (hence align 1).
+            @as(*align(1) V, @ptrCast(dst_bytes[i * 3 ..][0..16])).* = out;
+        }
+    }
+
+    for (src[i..], dst[i..]) |entry, *out| out.* = entry.cval();
 }
 
 /// Convert a PaletteC to a Palette.
@@ -271,22 +323,37 @@ pub const DynamicPalette = struct {
     /// The current palette including any user modifications.
     current: Palette,
 
-    /// The original/default palette values.
-    original: Palette,
+    /// The original/default palette values. This points at the shared
+    /// built-in default palette unless a different default was given
+    /// (see `changeDefault`), in which case it points at an
+    /// allocator-owned copy that `deinit` frees. Sharing the built-in
+    /// default saves a full palette copy for every terminal.
+    original: *const Palette,
 
     /// A bitset where each bit represents whether the corresponding
     /// palette index has been modified from its default value.
     mask: PaletteMask,
 
-    pub const default: DynamicPalette = .init(colorpkg.default);
+    /// A dynamic palette using the built-in default palette. This owns
+    /// no memory, but `deinit` is still safe to call on it.
+    pub const default: DynamicPalette = .{
+        .current = colorpkg.default,
+        .original = &colorpkg.default,
+        .mask = .initEmpty(),
+    };
 
-    /// Initialize a dynamic palette with a default palette.
-    pub fn init(def: Palette) DynamicPalette {
-        return .{
-            .current = def,
-            .original = def,
-            .mask = .initEmpty(),
-        };
+    /// Initialize a dynamic palette with a default palette. The result
+    /// must be released with `deinit`. No memory is allocated if `def`
+    /// is the built-in default palette.
+    pub fn init(alloc: Allocator, def: Palette) Allocator.Error!DynamicPalette {
+        var result: DynamicPalette = .default;
+        try result.changeDefault(alloc, def);
+        return result;
+    }
+
+    pub fn deinit(self: *DynamicPalette, alloc: Allocator) void {
+        if (self.ownedOriginal()) |owned| alloc.destroy(owned);
+        self.* = undefined;
     }
 
     /// Set a custom color at the given palette index.
@@ -303,16 +370,46 @@ pub const DynamicPalette = struct {
 
     /// Reset all colors to their original values.
     pub fn resetAll(self: *DynamicPalette) void {
-        self.* = .init(self.original);
+        self.current = self.original.*;
+        self.mask = .initEmpty();
     }
 
     /// Change the default palette, but preserve the changed values.
-    pub fn changeDefault(self: *DynamicPalette, def: Palette) void {
-        self.original = def;
+    ///
+    /// The built-in default palette is shared rather than copied, so
+    /// changing back to it releases any owned copy (see `resetDefault`).
+    /// Any other default is copied into memory owned by this palette,
+    /// allocated on the first change and reused after that. On allocation
+    /// failure nothing changes.
+    pub fn changeDefault(
+        self: *DynamicPalette,
+        alloc: Allocator,
+        def: Palette,
+    ) Allocator.Error!void {
+        if (std.meta.eql(def, colorpkg.default)) return self.resetDefault(alloc);
 
+        const owned = self.ownedOriginal() orelse try alloc.create(Palette);
+        owned.* = def;
+        self.original = owned;
+        self.applyDefault(def);
+    }
+
+    /// Change the default palette back to the built-in default palette,
+    /// preserving the changed values. This releases any owned copy and
+    /// never allocates, so it is safe to use as the fallback when
+    /// `changeDefault` fails.
+    pub fn resetDefault(self: *DynamicPalette, alloc: Allocator) void {
+        if (self.ownedOriginal()) |owned| alloc.destroy(owned);
+        self.original = &colorpkg.default;
+        self.applyDefault(colorpkg.default);
+    }
+
+    /// Rebuild the current palette from a new default, preserving the
+    /// changed values.
+    fn applyDefault(self: *DynamicPalette, def: Palette) void {
         // Fast path, the palette is usually not changed.
         if (self.mask.count() == 0) {
-            self.current = self.original;
+            self.current = def;
             return;
         }
 
@@ -322,6 +419,16 @@ pub const DynamicPalette = struct {
         var it = self.mask.iterator(.{});
         while (it.next()) |idx| current[idx] = self.current[idx];
         self.current = current;
+    }
+
+    /// The allocator-owned copy of the original palette, or null if the
+    /// original is the shared built-in default.
+    fn ownedOriginal(self: *const DynamicPalette) ?*Palette {
+        if (self.original == &colorpkg.default) return null;
+
+        // Only the shared built-in default is ever const; anything else
+        // is a copy that we allocated ourselves.
+        return @constCast(self.original);
     }
 };
 
@@ -591,14 +698,10 @@ pub const RGB = packed struct(u24) {
     ///
     /// The value should be between 0.0 and 1.0, inclusive.
     fn fromIntensity(value: []const u8) error{InvalidFormat}!u8 {
-        const i = std.fmt.parseFloat(f64, value) catch {
+        const i = fraction.parse(value) orelse {
             @branchHint(.cold);
             return error.InvalidFormat;
         };
-        if (i < 0.0 or i > 1.0) {
-            @branchHint(.cold);
-            return error.InvalidFormat;
-        }
 
         return @intFromFloat(i * std.math.maxInt(u8));
     }
@@ -944,16 +1047,18 @@ test "RGB: encode" {
 test "DynamicPalette: init" {
     const testing = std.testing;
 
-    var p: DynamicPalette = .init(default);
+    var p: DynamicPalette = .default;
+    defer p.deinit(testing.allocator);
     try testing.expectEqual(default, p.current);
-    try testing.expectEqual(default, p.original);
+    try testing.expectEqual(default, p.original.*);
+    try testing.expectEqual(&default, p.original);
     try testing.expectEqual(@as(usize, 0), p.mask.count());
 }
 
 test "DynamicPalette: set" {
     const testing = std.testing;
 
-    var p: DynamicPalette = .init(default);
+    var p: DynamicPalette = .default;
     const new_color = RGB{ .r = 255, .g = 0, .b = 0 };
 
     p.set(0, new_color);
@@ -967,7 +1072,7 @@ test "DynamicPalette: set" {
 test "DynamicPalette: reset" {
     const testing = std.testing;
 
-    var p: DynamicPalette = .init(default);
+    var p: DynamicPalette = .default;
     const new_color = RGB{ .r = 255, .g = 0, .b = 0 };
 
     p.set(0, new_color);
@@ -982,7 +1087,7 @@ test "DynamicPalette: reset" {
 test "DynamicPalette: resetAll" {
     const testing = std.testing;
 
-    var p: DynamicPalette = .init(default);
+    var p: DynamicPalette = .default;
     const new_color = RGB{ .r = 255, .g = 0, .b = 0 };
 
     p.set(0, new_color);
@@ -992,27 +1097,79 @@ test "DynamicPalette: resetAll" {
 
     p.resetAll();
     try testing.expectEqual(default, p.current);
-    try testing.expectEqual(default, p.original);
+    try testing.expectEqual(default, p.original.*);
     try testing.expectEqual(@as(usize, 0), p.mask.count());
 }
 
 test "DynamicPalette: changeDefault with no changes" {
     const testing = std.testing;
 
-    var p: DynamicPalette = .init(default);
+    var p: DynamicPalette = .default;
+    defer p.deinit(testing.allocator);
     var new_palette = default;
     new_palette[0] = RGB{ .r = 100, .g = 100, .b = 100 };
 
-    p.changeDefault(new_palette);
-    try testing.expectEqual(new_palette, p.original);
+    try p.changeDefault(testing.allocator, new_palette);
+    try testing.expectEqual(new_palette, p.original.*);
     try testing.expectEqual(new_palette, p.current);
     try testing.expectEqual(@as(usize, 0), p.mask.count());
+}
+
+test "DynamicPalette: changeDefault shares the built-in default" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var new_palette = default;
+    new_palette[0] = RGB{ .r = 100, .g = 100, .b = 100 };
+
+    // A custom default is an owned copy.
+    var p: DynamicPalette = try .init(alloc, new_palette);
+    defer p.deinit(alloc);
+    try testing.expect(p.original != &default);
+    try testing.expectEqual(new_palette, p.original.*);
+
+    // Changing the custom default reuses the copy.
+    const owned = p.original;
+    new_palette[1] = RGB{ .r = 101, .g = 101, .b = 101 };
+    try p.changeDefault(alloc, new_palette);
+    try testing.expectEqual(owned, p.original);
+    try testing.expectEqual(new_palette, p.original.*);
+
+    // Changing back to the built-in default releases the copy (the
+    // testing allocator would report the leak) and shares it again.
+    try p.changeDefault(alloc, default);
+    try testing.expectEqual(&default, p.original);
+    try testing.expectEqual(default, p.current);
+
+    // resetDefault does the same directly, preserving changed values,
+    // and never allocates.
+    try p.changeDefault(alloc, new_palette);
+    p.set(2, RGB{ .r = 1, .g = 2, .b = 3 });
+    var reset_failing: std.testing.FailingAllocator = .init(alloc, .{
+        .fail_index = 0,
+    });
+    p.resetDefault(reset_failing.allocator());
+    try testing.expect(!reset_failing.has_induced_failure);
+    try testing.expectEqual(&default, p.original);
+    try testing.expectEqual(default[0], p.current[0]);
+    try testing.expectEqual(RGB{ .r = 1, .g = 2, .b = 3 }, p.current[2]);
+    try testing.expect(p.mask.isSet(2));
+
+    // The built-in default never allocates.
+    var failing: std.testing.FailingAllocator = .init(alloc, .{
+        .fail_index = 0,
+    });
+    var q: DynamicPalette = try .init(failing.allocator(), default);
+    defer q.deinit(failing.allocator());
+    try testing.expectEqual(&default, q.original);
+    try testing.expect(!failing.has_induced_failure);
 }
 
 test "DynamicPalette: changeDefault preserves changes" {
     const testing = std.testing;
 
-    var p: DynamicPalette = .init(default);
+    var p: DynamicPalette = .default;
+    defer p.deinit(testing.allocator);
     const custom_color = RGB{ .r = 255, .g = 0, .b = 0 };
 
     p.set(5, custom_color);
@@ -1022,9 +1179,9 @@ test "DynamicPalette: changeDefault preserves changes" {
     new_palette[0] = RGB{ .r = 100, .g = 100, .b = 100 };
     new_palette[5] = RGB{ .r = 50, .g = 50, .b = 50 };
 
-    p.changeDefault(new_palette);
+    try p.changeDefault(testing.allocator, new_palette);
 
-    try testing.expectEqual(new_palette, p.original);
+    try testing.expectEqual(new_palette, p.original.*);
     try testing.expectEqual(new_palette[0], p.current[0]);
     try testing.expectEqual(custom_color, p.current[5]);
     try testing.expect(p.mask.isSet(5));
@@ -1034,7 +1191,8 @@ test "DynamicPalette: changeDefault preserves changes" {
 test "DynamicPalette: changeDefault with multiple changes" {
     const testing = std.testing;
 
-    var p: DynamicPalette = .init(default);
+    var p: DynamicPalette = .default;
+    defer p.deinit(testing.allocator);
     const red = RGB{ .r = 255, .g = 0, .b = 0 };
     const green = RGB{ .r = 0, .g = 255, .b = 0 };
     const blue = RGB{ .r = 0, .g = 0, .b = 255 };
@@ -1047,7 +1205,7 @@ test "DynamicPalette: changeDefault with multiple changes" {
     new_palette[0] = RGB{ .r = 50, .g = 50, .b = 50 };
     new_palette[1] = RGB{ .r = 60, .g = 60, .b = 60 };
 
-    p.changeDefault(new_palette);
+    try p.changeDefault(testing.allocator, new_palette);
 
     try testing.expectEqual(new_palette[0], p.current[0]);
     try testing.expectEqual(red, p.current[1]);
@@ -1274,5 +1432,37 @@ test "LAB.toRgb" {
         try testing.expectEqual(expected.r, actual.r);
         try testing.expectEqual(expected.g, actual.g);
         try testing.expectEqual(expected.b, actual.b);
+    }
+}
+
+test paletteCvalSlice {
+    const testing = std.testing;
+
+    // Every length from empty through a full palette, so that the
+    // vectorized groups, the overlapping store bound, and the scalar
+    // tail are all exercised at their edges.
+    var src: Palette = undefined;
+    for (&src, 0..) |*rgb, i| rgb.* = .{
+        .r = @intCast(i % 256),
+        .g = @intCast((i * 7 + 1) % 256),
+        .b = @intCast((i * 13 + 2) % 256),
+    };
+
+    var dst: PaletteC = undefined;
+    for (0..src.len + 1) |len| {
+        // Poison the destination so unwritten bytes are detected.
+        @memset(std.mem.asBytes(&dst), 0xAA);
+
+        paletteCvalSlice(src[0..len], dst[0..len]);
+        for (src[0..len], dst[0..len]) |rgb, c| {
+            try testing.expectEqual(rgb.r, c.r);
+            try testing.expectEqual(rgb.g, c.g);
+            try testing.expectEqual(rgb.b, c.b);
+        }
+
+        // Nothing beyond the requested length may be written.
+        for (std.mem.asBytes(&dst)[len * 3 ..]) |b| {
+            try testing.expectEqual(@as(u8, 0xAA), b);
+        }
     }
 }

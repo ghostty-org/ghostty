@@ -5,8 +5,9 @@ const font = @import("../font/main.zig");
 const terminal = @import("../terminal/main.zig");
 const renderer = @import("../renderer.zig");
 const shaderpkg = renderer.Renderer.API.shaders;
-const ArrayListCollection = @import("../datastruct/array_list_collection.zig").ArrayListCollection;
 const symbols = @import("../unicode/symbols_table.zig").table;
+
+const CellTextRow = std.ArrayListUnmanaged(shaderpkg.CellText);
 
 /// The possible cell content keys that exist.
 pub const Key = enum {
@@ -47,11 +48,11 @@ pub const Contents = struct {
     ///
     /// Prefer accessing with `Contents.bgCell(row, col).*` instead
     /// of directly indexing in order to avoid integer size bugs.
-    bg_cells: []shaderpkg.CellBg = undefined,
+    bg_cells: []shaderpkg.CellBg = &.{},
 
-    /// The ArrayListCollection which holds all of the foreground cells. When
-    /// sized with Contents.resize the individual ArrayLists are given enough
-    /// room that they can hold a single row with #cols glyphs, underlines, and
+    /// The lists which hold all of the foreground cells. When sized with
+    /// Contents.resize the individual ArrayLists are given enough room that
+    /// they can hold a single row with #cols glyphs, underlines, and
     /// strikethroughs; however, appendAssumeCapacity MUST NOT be used since
     /// it is possible to exceed this with combining glyphs that add a glyph
     /// but take up no column since they combine with the previous one, as
@@ -70,11 +71,12 @@ pub const Contents = struct {
     ///
     /// Must be initialized by calling resize on the Contents struct before
     /// calling any operations.
-    fg_rows: ArrayListCollection(shaderpkg.CellText) = .{ .lists = &.{} },
+    fg_rows: []CellTextRow = &.{},
 
     pub fn deinit(self: *Contents, alloc: Allocator) void {
         alloc.free(self.bg_cells);
-        self.fg_rows.deinit(alloc);
+        for (self.fg_rows) |*row| row.deinit(alloc);
+        alloc.free(self.fg_rows);
     }
 
     /// Resize the cell contents for the given grid size. This will
@@ -84,55 +86,50 @@ pub const Contents = struct {
         alloc: Allocator,
         size: renderer.GridSize,
     ) Allocator.Error!void {
-        self.size = size;
+        const row_count: usize = size.rows;
 
-        const cell_count = @as(usize, size.columns) * @as(usize, size.rows);
+        // The two extra lists hold cursor cells: index 0 is drawn before the
+        // row contents, and index row_count + 1 is drawn after them.
+        const fg_rows = try alloc.alloc(CellTextRow, row_count + 2);
+        @memset(fg_rows, .empty);
+        errdefer {
+            for (fg_rows) |*row| row.deinit(alloc);
+            alloc.free(fg_rows);
+        }
 
-        const bg_cells = try alloc.alloc(shaderpkg.CellBg, cell_count);
-        errdefer alloc.free(bg_cells);
-        @memset(bg_cells, .{ 0, 0, 0, 0 });
+        // Foreground rows hold glyphs plus underlines, overlines, and
+        // strikethroughs. Three entries per column cover the common cases
+        // without reserving space for every decoration combination. We can't
+        // assume this capacity because combining glyphs and font substitutions
+        // can produce arbitrarily many glyphs in one column.
+        const fg_row_capacity = @as(usize, size.columns) * 3;
 
-        // The foreground lists can hold 3 types of items:
-        // - Glyphs
-        // - Underlines
-        // - Strikethroughs
-        // So we give them an initial capacity of size.columns * 3, which will
-        // avoid any further allocations in the vast majority of cases. Sadly
-        // we can not assume capacity though, since with combining glyphs that
-        // form a single grapheme, and multi-substitutions in fonts, the number
-        // of glyphs in a row is theoretically unlimited.
-        //
-        // We have size.rows + 2 lists because indexes 0 and size.rows - 1 are
-        // used for special lists containing the cursor cell which need to
-        // be first and last in the buffer, respectively.
-        var fg_rows: ArrayListCollection(shaderpkg.CellText) = try .init(
-            alloc,
-            size.rows + 2,
-            size.columns * 3,
+        // The cursor lists need just one cell. The rest get the full capacity.
+        fg_rows[0] = try .initCapacity(alloc, 1);
+        fg_rows[row_count + 1] = try .initCapacity(alloc, 1);
+        for (fg_rows[1 .. row_count + 1]) |*row| {
+            row.* = try .initCapacity(alloc, fg_row_capacity);
+        }
+
+        const bg_cells = try alloc.realloc(
+            self.bg_cells,
+            row_count * @as(usize, size.columns),
         );
-        errdefer fg_rows.deinit(alloc);
-
-        // We don't need 3*cols worth of cells for the cursor lists, so we can
-        // replace them with smaller lists. This is technically a tiny bit of
-        // extra work but resize is not a hot function so it's worth it to not
-        // waste the memory.
-        fg_rows.lists[0].deinit(alloc);
-        fg_rows.lists[0] = try .initCapacity(alloc, 1);
-        fg_rows.lists[size.rows + 1].deinit(alloc);
-        fg_rows.lists[size.rows + 1] = try .initCapacity(alloc, 1);
 
         // Perform the swap, no going back from here.
         errdefer comptime unreachable;
-        alloc.free(self.bg_cells);
-        self.fg_rows.deinit(alloc);
+        for (self.fg_rows) |*row| row.deinit(alloc);
+        alloc.free(self.fg_rows);
+        self.size = size;
         self.bg_cells = bg_cells;
         self.fg_rows = fg_rows;
+        self.reset();
     }
 
     /// Reset the cell contents to an empty state without resizing.
     pub fn reset(self: *Contents) void {
         @memset(self.bg_cells, .{ 0, 0, 0, 0 });
-        self.fg_rows.reset();
+        for (self.fg_rows) |*row| row.clearRetainingCapacity();
     }
 
     /// Set the cursor value. If the value is null then the cursor is hidden.
@@ -142,28 +139,28 @@ pub const Contents = struct {
         cursor_style: ?renderer.CursorStyle,
     ) void {
         if (self.size.rows == 0) return;
-        self.fg_rows.lists[0].clearRetainingCapacity();
-        self.fg_rows.lists[self.size.rows + 1].clearRetainingCapacity();
+        self.fg_rows[0].clearRetainingCapacity();
+        self.fg_rows[self.size.rows + 1].clearRetainingCapacity();
 
         const cell = v orelse return;
         const style = cursor_style orelse return;
 
         switch (style) {
             // Block cursors should be drawn first
-            .block => self.fg_rows.lists[0].appendAssumeCapacity(cell),
+            .block => self.fg_rows[0].appendAssumeCapacity(cell),
             // Other cursor styles should be drawn last
-            .block_hollow, .bar, .underline, .lock => self.fg_rows.lists[self.size.rows + 1].appendAssumeCapacity(cell),
+            .block_hollow, .bar, .underline, .lock => self.fg_rows[self.size.rows + 1].appendAssumeCapacity(cell),
         }
     }
 
     /// Returns the current cursor glyph if present, checking both cursor lists.
     pub fn getCursorGlyph(self: *Contents) ?shaderpkg.CellText {
         if (self.size.rows == 0) return null;
-        if (self.fg_rows.lists[0].items.len > 0) {
-            return self.fg_rows.lists[0].items[0];
+        if (self.fg_rows[0].items.len > 0) {
+            return self.fg_rows[0].items[0];
         }
-        if (self.fg_rows.lists[self.size.rows + 1].items.len > 0) {
-            return self.fg_rows.lists[self.size.rows + 1].items[0];
+        if (self.fg_rows[self.size.rows + 1].items.len > 0) {
+            return self.fg_rows[self.size.rows + 1].items[0];
         }
         return null;
     }
@@ -201,7 +198,7 @@ pub const Contents = struct {
             // We have a special list containing the cursor cell at the start
             // of our fg row collection, so we need to add 1 to the y to get
             // the correct index.
-            => try self.fg_rows.lists[y + 1].append(alloc, cell),
+            => try self.fg_rows[y + 1].append(alloc, cell),
         }
     }
 
@@ -214,7 +211,7 @@ pub const Contents = struct {
         // We have a special list containing the cursor cell at the start
         // of our fg row collection, so we need to add 1 to the y to get
         // the correct index.
-        self.fg_rows.lists[y + 1].clearRetainingCapacity();
+        self.fg_rows[y + 1].clearRetainingCapacity();
     }
 };
 
@@ -362,14 +359,14 @@ test Contents {
 
     // We should start off empty after resizing.
     for (0..rows) |y| {
-        try testing.expect(c.fg_rows.lists[y + 1].items.len == 0);
+        try testing.expect(c.fg_rows[y + 1].items.len == 0);
         for (0..cols) |x| {
             try testing.expectEqual(.{ 0, 0, 0, 0 }, c.bgCell(y, x).*);
         }
     }
     // And the cursor row should have a capacity of 1 and also be empty.
-    try testing.expect(c.fg_rows.lists[0].capacity == 1);
-    try testing.expect(c.fg_rows.lists[0].items.len == 0);
+    try testing.expect(c.fg_rows[0].capacity == 1);
+    try testing.expect(c.fg_rows[0].items.len == 0);
 
     // Add some contents.
     const bg_cell: shaderpkg.CellBg = .{ 0, 0, 0, 1 };
@@ -382,12 +379,12 @@ test Contents {
     try c.add(alloc, .text, fg_cell);
     try testing.expectEqual(bg_cell, c.bgCell(1, 4).*);
     // The fg row index is offset by 1 because of the cursor list.
-    try testing.expectEqual(fg_cell, c.fg_rows.lists[2].items[0]);
+    try testing.expectEqual(fg_cell, c.fg_rows[2].items[0]);
 
     // And we should be able to clear it.
     c.clear(1);
     for (0..rows) |y| {
-        try testing.expect(c.fg_rows.lists[y + 1].items.len == 0);
+        try testing.expect(c.fg_rows[y + 1].items.len == 0);
         for (0..cols) |x| {
             try testing.expectEqual(.{ 0, 0, 0, 0 }, c.bgCell(y, x).*);
         }
@@ -401,18 +398,47 @@ test Contents {
         .color = .{ 0, 0, 0, 1 },
     };
     c.setCursor(cursor_cell, .block);
-    try testing.expectEqual(cursor_cell, c.fg_rows.lists[0].items[0]);
+    try testing.expectEqual(cursor_cell, c.fg_rows[0].items[0]);
     try testing.expectEqual(cursor_cell, c.getCursorGlyph().?);
 
     // And remove it.
     c.setCursor(null, null);
-    try testing.expectEqual(0, c.fg_rows.lists[0].items.len);
+    try testing.expectEqual(0, c.fg_rows[0].items.len);
     try testing.expect(c.getCursorGlyph() == null);
 
     // Add a hollow cursor.
     c.setCursor(cursor_cell, .block_hollow);
-    try testing.expectEqual(cursor_cell, c.fg_rows.lists[rows + 1].items[0]);
+    try testing.expectEqual(cursor_cell, c.fg_rows[rows + 1].items[0]);
     try testing.expectEqual(cursor_cell, c.getCursorGlyph().?);
+}
+
+test "Contents resize grows and shrinks" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Contents = .{};
+    defer c.deinit(alloc);
+
+    try c.resize(alloc, .{ .rows = 2, .columns = 2 });
+    var cell: shaderpkg.CellText = .{
+        .atlas = .grayscale,
+        .grid_pos = .{ 1, 1 },
+        .color = .{ 0, 0, 0, 1 },
+    };
+    try c.add(alloc, .text, cell);
+    c.bgCell(1, 1).* = .{ 0, 0, 0, 1 };
+    c.setCursor(cell, .bar);
+
+    try c.resize(alloc, .{ .rows = 3, .columns = 4 });
+    try testing.expectEqual(.{ 0, 0, 0, 0 }, c.bgCell(1, 1).*);
+    try testing.expectEqual(@as(usize, 0), c.fg_rows[2].items.len);
+    try testing.expectEqual(@as(?shaderpkg.CellText, null), c.getCursorGlyph());
+    cell.grid_pos = .{ 3, 2 };
+    try c.add(alloc, .text, cell);
+
+    try c.resize(alloc, .{ .rows = 1, .columns = 1 });
+    cell.grid_pos = .{ 0, 0 };
+    try c.add(alloc, .text, cell);
 }
 
 test "Contents clear retains other content" {
@@ -452,7 +478,7 @@ test "Contents clear retains other content" {
     // Row 2 should still contain its cells.
     try testing.expectEqual(bg_cell_2, c.bgCell(2, 4).*);
     // Fg row index is +1 because of cursor list at start
-    try testing.expectEqual(fg_cell_2, c.fg_rows.lists[3].items[0]);
+    try testing.expectEqual(fg_cell_2, c.fg_rows[3].items[0]);
 }
 
 test "Contents clear last added content" {
@@ -492,7 +518,7 @@ test "Contents clear last added content" {
     // Row 1 should still contain its cells.
     try testing.expectEqual(bg_cell_1, c.bgCell(1, 4).*);
     // Fg row index is +1 because of cursor list at start
-    try testing.expectEqual(fg_cell_1, c.fg_rows.lists[2].items[0]);
+    try testing.expectEqual(fg_cell_1, c.fg_rows[2].items[0]);
 }
 
 test "Contents with zero-sized screen" {

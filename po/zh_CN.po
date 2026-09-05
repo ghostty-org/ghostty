@@ -218,11 +218,11 @@ msgstr "配置"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
-msgstr ""
+msgstr "在系统编辑器内打开配置"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
-msgstr ""
+msgstr "在新窗口内打开配置"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
@@ -266,23 +266,23 @@ msgstr "选择要执行的命令…"
 
 #: src/apprt/gtk/class/application.zig:1767
 msgid "The keybind was revoked by the system."
-msgstr ""
+msgstr "系统撤销了该快捷键。"
 
 #: src/apprt/gtk/class/application.zig:1769
 msgid "The keybind was denied by the system."
-msgstr ""
+msgstr "系统拒绝绑定该快捷键。"
 
 #: src/apprt/gtk/class/application.zig:1780
 msgid "Global keybind unavailable"
-msgstr ""
+msgstr "全局快捷键不可用"
 
 #: src/apprt/gtk/class/application.zig:2259
 msgid "Export Terminal IO Events"
-msgstr ""
+msgstr "导出终端输入输出事件"
 
 #: src/apprt/gtk/class/application.zig:2262
 msgid "Export"
-msgstr ""
+msgstr "导出"
 
 #: src/apprt/gtk/class/application.zig:2783
 msgid "Editing configuration file"
@@ -386,393 +386,393 @@ msgstr "Ghostty 开发团队"
 
 #: src/input/command.zig:149
 msgid "Reset Terminal"
-msgstr ""
+msgstr "重置终端"
 
 #: src/input/command.zig:150
 msgid "Reset the terminal to a clean state."
-msgstr ""
+msgstr "将终端重置回初始状态。"
 
 #: src/input/command.zig:155
 msgid "Copy to Clipboard"
-msgstr ""
+msgstr "复制到剪贴板"
 
 #: src/input/command.zig:156
 msgid ""
 "Copy the selected text to the clipboard in both plain and styled formats."
-msgstr ""
+msgstr "同时以纯文本与样式文本两种格式，将选中的文本复制到剪贴板。"
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
-msgstr ""
+msgstr "将选区以纯文本格式复制到剪贴板"
 
 #: src/input/command.zig:160
 msgid "Copy the selected text as plain text to the clipboard."
-msgstr ""
+msgstr "以纯文本格式，将选中的文本复制到剪贴板。"
 
 #: src/input/command.zig:163
 msgid "Copy Selection as ANSI Sequences to Clipboard"
-msgstr ""
+msgstr "将选区以 ANSI 序列格式复制到剪贴板"
 
 #: src/input/command.zig:164
 msgid "Copy the selected text as ANSI escape sequences to the clipboard."
-msgstr ""
+msgstr "以 ANSI 转义序列格式，将选中的文本复制到剪贴板。"
 
 #: src/input/command.zig:167
 msgid "Copy Selection as HTML to Clipboard"
-msgstr ""
+msgstr "将选区以 HTML 格式复制到剪贴板"
 
 #: src/input/command.zig:168
 msgid "Copy the selected text as HTML to the clipboard."
-msgstr ""
+msgstr "以 HTML 格式，将选中的文本复制到剪贴板。"
 
 #: src/input/command.zig:173
 msgid "Copy URL to Clipboard"
-msgstr ""
+msgstr "复制 URL 到剪贴板"
 
 #: src/input/command.zig:174
 msgid "Copy the URL under the cursor to the clipboard."
-msgstr ""
+msgstr "将光标下的 URL 复制到剪贴板。"
 
 #: src/input/command.zig:179
 msgid "Copy Terminal Title to Clipboard"
-msgstr ""
+msgstr "复制终端标题到剪贴板"
 
 #: src/input/command.zig:180
 msgid ""
 "Copy the terminal title to the clipboard. If the terminal title is not set "
 "this has no effect."
-msgstr ""
+msgstr "将终端标题复制到剪贴板。没有设置终端标题时没有任何效果。"
 
 #: src/input/command.zig:185
 msgid "Paste from Clipboard"
-msgstr ""
+msgstr "粘贴剪贴板内容"
 
 #: src/input/command.zig:186
 msgid "Paste the contents of the main clipboard."
-msgstr ""
+msgstr "将主剪贴板的内容粘贴进终端。"
 
 #: src/input/command.zig:191
 msgid "Paste from Selection"
-msgstr ""
+msgstr "粘贴主选区内容"
 
 #: src/input/command.zig:192
 msgid "Paste the contents of the selection clipboard."
-msgstr ""
+msgstr "将主选区的内容粘贴进终端。"
 
 #: src/input/command.zig:197
 msgid "Start Search"
-msgstr ""
+msgstr "开始查找"
 
 #: src/input/command.zig:198
 msgid "Start a search if one isn't already active."
-msgstr ""
+msgstr "未在进行查找时，可开始新一次查找。"
 
 #: src/input/command.zig:203
 msgid "Search Selection"
-msgstr ""
+msgstr "在选区内查找"
 
 #: src/input/command.zig:204
 msgid "Start a search for the current text selection."
-msgstr ""
+msgstr "在选中的文本当中开始查找。"
 
 #: src/input/command.zig:209
 msgid "End Search"
-msgstr ""
+msgstr "结束查找"
 
 #: src/input/command.zig:210
 msgid "End the current search if any and hide any GUI elements."
-msgstr ""
+msgstr "结束当前进行中的查找，并隐藏相关界面。"
 
 #: src/input/command.zig:215
 msgid "Next Search Result"
-msgstr ""
+msgstr "下一个匹配项"
 
 #: src/input/command.zig:216
 msgid "Navigate to the next search result, if any."
-msgstr ""
+msgstr "如果可能，移动到下一个匹配项。"
 
 #: src/input/command.zig:219
 msgid "Previous Search Result"
-msgstr ""
+msgstr "上一个匹配项"
 
 #: src/input/command.zig:220
 msgid "Navigate to the previous search result, if any."
-msgstr ""
+msgstr "如果可能，移动到上一个匹配项。"
 
 #: src/input/command.zig:225
 msgid "Increase Font Size"
-msgstr ""
+msgstr "放大字号"
 
 #: src/input/command.zig:226
 msgid "Increase the font size by 1 point."
-msgstr ""
+msgstr "将字体大小增大 1pt。"
 
 #: src/input/command.zig:231
 msgid "Decrease Font Size"
-msgstr ""
+msgstr "缩小字号"
 
 #: src/input/command.zig:232
 msgid "Decrease the font size by 1 point."
-msgstr ""
+msgstr "将字体大小缩小 1pt。"
 
 #: src/input/command.zig:237
 msgid "Reset Font Size"
-msgstr ""
+msgstr "重置字号"
 
 #: src/input/command.zig:238
 msgid "Reset the font size to the default."
-msgstr ""
+msgstr "将字体大小重置到默认值。"
 
 #: src/input/command.zig:243
 msgid "Clear Screen"
-msgstr ""
+msgstr "清除屏幕"
 
 #: src/input/command.zig:244
 msgid "Clear the screen and scrollback."
-msgstr ""
+msgstr "清除屏幕和回滚内容。"
 
 #: src/input/command.zig:249
 msgid "Select All"
-msgstr ""
+msgstr "全选"
 
 #: src/input/command.zig:250
 msgid "Select all text on the screen."
-msgstr ""
+msgstr "选择屏幕上所有文本。"
 
 #: src/input/command.zig:255
 msgid "Scroll to Top"
-msgstr ""
+msgstr "滚动到顶部"
 
 #: src/input/command.zig:256
 msgid "Scroll to the top of the screen."
-msgstr ""
+msgstr "滚动到屏幕顶部。"
 
 #: src/input/command.zig:261
 msgid "Scroll to Bottom"
-msgstr ""
+msgstr "滚动到底部"
 
 #: src/input/command.zig:262
 msgid "Scroll to the bottom of the screen."
-msgstr ""
+msgstr "滚动到屏幕底部。"
 
 #: src/input/command.zig:267
 msgid "Scroll to Selection"
-msgstr ""
+msgstr "滚动到选区"
 
 #: src/input/command.zig:268
 msgid "Scroll to the selected text."
-msgstr ""
+msgstr "滚动到选中的文本。"
 
 #: src/input/command.zig:273
 msgid "Scroll Page Up"
-msgstr ""
+msgstr "向上滚动一页"
 
 #: src/input/command.zig:274
 msgid "Scroll the screen up by a page."
-msgstr ""
+msgstr "将屏幕向上滚动一页。"
 
 #: src/input/command.zig:279
 msgid "Scroll Page Down"
-msgstr ""
+msgstr "向下滚动一页"
 
 #: src/input/command.zig:280
 msgid "Scroll the screen down by a page."
-msgstr ""
+msgstr "将屏幕向下滚动一页。"
 
 #: src/input/command.zig:286
 msgid "Copy Screen to Temporary File and Copy Path"
-msgstr ""
+msgstr "复制屏幕内容到临时文件并复制路径"
 
 #: src/input/command.zig:287
 msgid ""
 "Copy the screen contents to a temporary file and copy the path to the "
 "clipboard."
-msgstr ""
+msgstr "将屏幕内容复制到一个临时文件，并将其路径复制到剪贴板。"
 
 #: src/input/command.zig:291
 msgid "Copy Screen to Temporary File and Paste Path"
-msgstr ""
+msgstr "复制屏幕内容到临时文件并粘贴路径"
 
 #: src/input/command.zig:292
 msgid ""
 "Copy the screen contents to a temporary file and paste the path to the file."
-msgstr ""
+msgstr "将屏幕内容复制到一个临时文件，并将其路径粘贴进终端。"
 
 #: src/input/command.zig:296
 msgid "Copy Screen to Temporary File and Open"
-msgstr ""
+msgstr "复制屏幕内容到临时文件并打开"
 
 #: src/input/command.zig:297
 msgid "Copy the screen contents to a temporary file and open it."
-msgstr ""
+msgstr "将屏幕内容复制到一个临时文件，并打开。"
 
 #: src/input/command.zig:305
 msgid "Copy Screen as HTML to Temporary File and Copy Path"
-msgstr ""
+msgstr "以 HTML 格式复制屏幕内容到临时文件并复制路径"
 
 #: src/input/command.zig:306
 msgid ""
 "Copy the screen contents as HTML to a temporary file and copy the path to "
 "the clipboard."
-msgstr ""
+msgstr "将屏幕内容以 HTML 格式复制到一个临时文件，并将其路径复制到剪贴板。"
 
 #: src/input/command.zig:313
 msgid "Copy Screen as HTML to Temporary File and Paste Path"
-msgstr ""
+msgstr "以 HTML 格式复制屏幕内容到临时文件并粘贴路径"
 
 #: src/input/command.zig:314
 msgid ""
 "Copy the screen contents as HTML to a temporary file and paste the path to "
 "the file."
-msgstr ""
+msgstr "将屏幕内容以 HTML 格式复制到一个临时文件，并将其路径粘贴进终端。"
 
 #: src/input/command.zig:321
 msgid "Copy Screen as HTML to Temporary File and Open"
-msgstr ""
+msgstr "以 HTML 格式复制屏幕内容到临时文件并打开"
 
 #: src/input/command.zig:322
 msgid "Copy the screen contents as HTML to a temporary file and open it."
-msgstr ""
+msgstr "将屏幕内容以 HTML 格式复制到一个临时文件，并打开。"
 
 #: src/input/command.zig:330
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
-msgstr ""
+msgstr "以 ANSI 序列格式复制屏幕内容到临时文件并复制路径"
 
 #: src/input/command.zig:331
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
-msgstr ""
+msgstr "将屏幕内容以 ANSI 转义序列格式复制到一个临时文件，并将其路径复制到剪贴板。"
 
 #: src/input/command.zig:338
 msgid "Copy Screen as ANSI Sequences to Temporary File and Paste Path"
-msgstr ""
+msgstr "以 ANSI 序列格式复制屏幕内容到临时文件并粘贴路径"
 
 #: src/input/command.zig:339
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
-msgstr ""
+msgstr "将屏幕内容以 ANSI 转义序列格式复制到一个临时文件，并将其路径粘贴进终端。"
 
 #: src/input/command.zig:346
 msgid "Copy Screen as ANSI Sequences to Temporary File and Open"
-msgstr ""
+msgstr "以 ANSI 序列格式复制屏幕内容到临时文件并打开"
 
 #: src/input/command.zig:347
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "open it."
-msgstr ""
+msgstr "将屏幕内容以 ANSI 转义序列格式复制到一个临时文件，并打开。"
 
 #: src/input/command.zig:354
 msgid "Copy Selection to Temporary File and Copy Path"
-msgstr ""
+msgstr "将选区复制到临时文件并复制路径"
 
 #: src/input/command.zig:355
 msgid ""
 "Copy the selection contents to a temporary file and copy the path to the "
 "clipboard."
-msgstr ""
+msgstr "将选中文本复制到临时文件，并将其路径复制到剪贴板。"
 
 #: src/input/command.zig:359
 msgid "Copy Selection to Temporary File and Paste Path"
-msgstr ""
+msgstr "复制选区到临时文件并粘贴路径"
 
 #: src/input/command.zig:360
 msgid ""
 "Copy the selection contents to a temporary file and paste the path to the "
 "file."
-msgstr ""
+msgstr "将选中文本复制到临时文件，并将其路径粘贴进终端。"
 
 #: src/input/command.zig:364
 msgid "Copy Selection to Temporary File and Open"
-msgstr ""
+msgstr "复制选区到临时文件并打开"
 
 #: src/input/command.zig:365
 msgid "Copy the selection contents to a temporary file and open it."
-msgstr ""
+msgstr "将选中文本复制到临时文件，并打开。"
 
 #: src/input/command.zig:373
 msgid "Copy Selection as HTML to Temporary File and Copy Path"
-msgstr ""
+msgstr "以 HTML 格式复制选区到临时文件并复制路径"
 
 #: src/input/command.zig:374
 msgid ""
 "Copy the selection contents as HTML to a temporary file and copy the path to "
 "the clipboard."
-msgstr ""
+msgstr "将选中文本以 HTML 格式复制到临时文件，并将其路径复制到剪贴板。"
 
 #: src/input/command.zig:381
 msgid "Copy Selection as HTML to Temporary File and Paste Path"
-msgstr ""
+msgstr "以 HTML 格式复制选区到临时文件并粘贴路径"
 
 #: src/input/command.zig:382
 msgid ""
 "Copy the selection contents as HTML to a temporary file and paste the path "
 "to the file."
-msgstr ""
+msgstr "将选中文本以 HTML 格式复制到临时文件，并将其路径粘贴进终端。"
 
 #: src/input/command.zig:389
 msgid "Copy Selection as HTML to Temporary File and Open"
-msgstr ""
+msgstr "以 HTML 格式复制选区到临时文件并打开"
 
 #: src/input/command.zig:390
 msgid "Copy the selection contents as HTML to a temporary file and open it."
-msgstr ""
+msgstr "将选中文本以 HTML 格式复制到临时文件，并打开。"
 
 #: src/input/command.zig:398
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
-msgstr ""
+msgstr "以 ANSI 序列格式复制选区到临时文件并复制路径"
 
 #: src/input/command.zig:399
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
-msgstr ""
+msgstr "将选中文本以 ANSI 转义序列格式复制到临时文件，并将其路径复制到剪贴板。"
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
-msgstr ""
+msgstr "以 ANSI 序列格式复制选区到临时文件并粘贴路径"
 
 #: src/input/command.zig:407
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
-msgstr ""
+msgstr "将选中文本以 ANSI 转义序列格式复制到临时文件，并将其路径粘贴进终端。"
 
 #: src/input/command.zig:414
 msgid "Copy Selection as ANSI Sequences to Temporary File and Open"
-msgstr ""
+msgstr "以 ANSI 序列格式复制选区到临时文件并打开"
 
 #: src/input/command.zig:415
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "open it."
-msgstr ""
+msgstr "将选中文本以 ANSI 转义序列格式复制到临时文件，并打开。"
 
 #: src/input/command.zig:422
 msgid "Open a new window."
-msgstr ""
+msgstr "新建一个窗口。"
 
 #: src/input/command.zig:428
 msgid "Open a new tab."
-msgstr ""
+msgstr "新建一个标签页。"
 
 #: src/input/command.zig:434
 msgid "Move Tab Left"
-msgstr ""
+msgstr "标签页左移"
 
 #: src/input/command.zig:435
 msgid "Move the current tab to the left."
-msgstr ""
+msgstr "将当前标签页向左移动。"
 
 #: src/input/command.zig:439
 msgid "Move Tab Right"
-msgstr ""
+msgstr "标签页右移"
 
 #: src/input/command.zig:440
 msgid "Move the current tab to the right."
-msgstr ""
+msgstr "将当前标签页向右移动。"
 
 #: src/input/command.zig:446
 msgid "Move Tab to New Window"
@@ -784,312 +784,313 @@ msgstr ""
 
 #: src/input/command.zig:452
 msgid "Toggle Tab Overview"
-msgstr ""
+msgstr "切换标签页预览"
 
 #: src/input/command.zig:453
 msgid "Toggle the tab overview."
-msgstr ""
+msgstr "切换标签页预览。"
 
 #: src/input/command.zig:458
 msgid "Change Terminal Title…"
-msgstr ""
+msgstr "更改终端标题…"
 
 #: src/input/command.zig:459
 msgid "Prompt for a new title for the current terminal."
-msgstr ""
+msgstr "更改当前终端的标题。"
 
 #: src/input/command.zig:465
 msgid "Prompt for a new title for the current tab."
-msgstr ""
+msgstr "更改当前标签页的标题。"
 
 #: src/input/command.zig:478
 msgid "Split the terminal to the left."
-msgstr ""
+msgstr "向左创建新分屏。"
 
 #: src/input/command.zig:483
 msgid "Split the terminal to the right."
-msgstr ""
+msgstr "向右创建新分屏。"
 
 #: src/input/command.zig:488
 msgid "Split the terminal up."
-msgstr ""
+msgstr "向上创建新分屏。"
 
 #: src/input/command.zig:493
 msgid "Split the terminal down."
-msgstr ""
+msgstr "向下创建新分屏。"
 
 #: src/input/command.zig:500
 msgid "Focus Split: Previous"
-msgstr ""
+msgstr "聚焦上一个分屏"
 
 #: src/input/command.zig:501
 msgid "Focus the previous split, if any."
-msgstr ""
+msgstr "如果存在，将焦点移动到上一个分屏。"
 
 #: src/input/command.zig:505
 msgid "Focus Split: Next"
-msgstr ""
+msgstr "聚焦下一个分屏"
 
 #: src/input/command.zig:506
 msgid "Focus the next split, if any."
-msgstr ""
+msgstr "如果存在，将焦点移动到下一个分屏。"
 
 #: src/input/command.zig:510
 msgid "Focus Split: Left"
-msgstr ""
+msgstr "聚焦左侧分屏"
 
 #: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
-msgstr ""
+msgstr "如果存在，将焦点移动到左侧的分屏。"
 
 #: src/input/command.zig:515
 msgid "Focus Split: Right"
-msgstr ""
+msgstr "聚焦右侧分屏"
 
 #: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
-msgstr ""
+msgstr "如果存在，将焦点移动到右侧的分屏。"
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
-msgstr ""
+msgstr "聚焦上方分屏"
 
 #: src/input/command.zig:521
 msgid "Focus the split above, if it exists."
-msgstr ""
+msgstr "如果存在，将焦点移动到上方的分屏。"
 
 #: src/input/command.zig:525
 msgid "Focus Split: Down"
-msgstr ""
+msgstr "聚焦下方分屏"
 
 #: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
-msgstr ""
+msgstr "如果存在，将焦点移动到下方的分屏。"
 
 #: src/input/command.zig:533
 msgid "Focus Window: Previous"
-msgstr ""
+msgstr "聚焦上一个窗口"
 
 #: src/input/command.zig:534
 msgid "Focus the previous window, if any."
-msgstr ""
+msgstr "如果可能，将焦点移动到上一个窗口。"
 
 #: src/input/command.zig:538
 msgid "Focus Window: Next"
-msgstr ""
+msgstr "聚焦下一个窗口"
 
 #: src/input/command.zig:539
 msgid "Focus the next window, if any."
-msgstr ""
+msgstr "如果可能，将焦点移动到下一个窗口。"
 
 #: src/input/command.zig:545
 msgid "Toggle Split Zoom"
-msgstr ""
+msgstr "切换分屏放大"
 
 #: src/input/command.zig:546
 msgid "Toggle the zoom state of the current split."
-msgstr ""
+msgstr "切换当前分屏的放大状态。"
 
 #: src/input/command.zig:551
 msgid "Toggle Read-Only Mode"
-msgstr ""
+msgstr "切换只读模式"
 
 #: src/input/command.zig:552
 msgid "Toggle read-only mode for the current surface."
-msgstr ""
+msgstr "切换当前分屏的只读状态。"
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
-msgstr ""
+msgstr "均分分屏大小"
 
 #: src/input/command.zig:558
 msgid "Equalize the size of all splits."
-msgstr ""
+msgstr "使所有分屏大小相等。"
 
 #: src/input/command.zig:563
 msgid "Reset Window Size"
-msgstr ""
+msgstr "重置窗口大小"
 
 #: src/input/command.zig:564
 msgid "Reset the window size to the default."
-msgstr ""
+msgstr "将窗口重置到默认大小。"
 
 #: src/input/command.zig:569
 msgid "Toggle Inspector"
-msgstr ""
+msgstr "切换调试器"
 
 #: src/input/command.zig:570
 msgid "Toggle the inspector."
-msgstr ""
+msgstr "切换终端调试器。"
 
 #: src/input/command.zig:575
 msgid "Show the GTK Inspector"
-msgstr ""
+msgstr "显示 GTK 调试器"
 
 #: src/input/command.zig:576
 msgid "Show the GTK inspector."
-msgstr ""
+msgstr "显示 GTK 调试器。"
 
 #: src/input/command.zig:581
 msgid "Show On-Screen Keyboard"
-msgstr ""
+msgstr "显示屏幕键盘"
 
 #: src/input/command.zig:582
 msgid "Show the on-screen keyboard if present."
-msgstr ""
+msgstr "如果可能，显示屏幕键盘。"
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
-msgstr ""
+msgstr "用系统编辑器打开配置"
 
 #: src/input/command.zig:589
 msgid "Open the config file with the OS's default editor."
-msgstr ""
+msgstr "用系统默认的编辑器打开配置文件。"
 
 #: src/input/command.zig:593
 msgid "Open Config in New Terminal Window"
-msgstr ""
+msgstr "在新终端窗口打开配置"
 
 #: src/input/command.zig:594
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
-msgstr ""
+msgstr "在新终端窗口内用 $EDITOR 或 $VISUAL 程序打开配置文件。"
 
 #: src/input/command.zig:600
 msgid "Reload Config"
-msgstr ""
+msgstr "重新加载配置"
 
 #: src/input/command.zig:601
 msgid "Reload the config file."
-msgstr ""
+msgstr "重新加载配置文件。"
 
 #: src/input/command.zig:606
 msgid "Close Terminal"
-msgstr ""
+msgstr "关闭终端"
 
 #: src/input/command.zig:607
 msgid "Close the current terminal."
-msgstr ""
+msgstr "关闭当前终端。"
 
 #: src/input/command.zig:614
 msgid "Close the current tab."
-msgstr ""
+msgstr "关闭当前标签页。"
 
 #: src/input/command.zig:618
 msgid "Close Other Tabs"
-msgstr ""
+msgstr "关闭其他标签页"
 
 #: src/input/command.zig:619
 msgid "Close all tabs in this window except the current one."
-msgstr ""
+msgstr "关闭当前窗口内除了当前标签页以外的所有标签页。"
 
 #: src/input/command.zig:623
 msgid "Close Tabs to the Right"
-msgstr ""
+msgstr "关闭右侧标签页"
 
 #: src/input/command.zig:624
 msgid "Close all tabs to the right of the current one."
-msgstr ""
+msgstr "关闭当前标签页右侧的所有标签页。"
 
 #: src/input/command.zig:631
 msgid "Close the current window."
-msgstr ""
+msgstr "关闭当前窗口。"
 
 #: src/input/command.zig:636
 msgid "Close All Windows"
-msgstr ""
+msgstr "关闭所有窗口"
 
 #: src/input/command.zig:637
 msgid "Close all windows."
-msgstr ""
+msgstr "关闭所有窗口。"
 
 #: src/input/command.zig:642
 msgid "Toggle Maximize"
-msgstr ""
+msgstr "切换最大化"
 
 #: src/input/command.zig:643
 msgid "Toggle the maximized state of the current window."
-msgstr ""
+msgstr "切换当前窗口的最大化状态。"
 
 #: src/input/command.zig:648
 msgid "Toggle Fullscreen"
-msgstr ""
+msgstr "切换全屏"
 
 #: src/input/command.zig:649
 msgid "Toggle the fullscreen state of the current window."
-msgstr ""
+msgstr "切换当前窗口的全屏状态。"
 
 #: src/input/command.zig:654
 msgid "Toggle Window Decorations"
-msgstr ""
+msgstr "切换窗口装饰"
 
 #: src/input/command.zig:655
 msgid "Toggle the window decorations."
-msgstr ""
+msgstr "切换是否显示窗口装饰，如标题栏、边框等。"
 
 #: src/input/command.zig:660
 msgid "Toggle Float on Top"
-msgstr ""
+msgstr "切换窗口置顶"
 
 #: src/input/command.zig:661
 msgid "Toggle the float on top state of the current window."
-msgstr ""
+msgstr "切换当前窗口的置顶状态。"
 
 #: src/input/command.zig:666
 msgid "Toggle Secure Input"
-msgstr ""
+msgstr "切换安全输入"
 
 #: src/input/command.zig:667
 msgid "Toggle secure input mode."
-msgstr ""
+msgstr "切换安全输入模式。"
 
 #: src/input/command.zig:672
 msgid "Toggle Mouse Reporting"
-msgstr ""
+msgstr "切换鼠标事件上报"
 
 #: src/input/command.zig:673
 msgid "Toggle whether mouse events are reported to terminal applications."
-msgstr ""
+msgstr "切换是否向终端应用上报鼠标事件。"
 
 #: src/input/command.zig:678
+# Opacity 实际指不透明度，但是这样表述太拗口了
 msgid "Toggle Background Opacity"
-msgstr ""
+msgstr "切换背景透明度"
 
 #: src/input/command.zig:679
 msgid "Toggle the background opacity of a window that started transparent."
-msgstr ""
+msgstr "切换最初透明的窗口的背景透明度。"
 
 #: src/input/command.zig:684
 msgid "Check for Updates"
-msgstr ""
+msgstr "检查更新"
 
 #: src/input/command.zig:685
 msgid "Check for updates to the application."
-msgstr ""
+msgstr "检查应用是否有版本更新。"
 
 #: src/input/command.zig:690
 msgid "Undo"
-msgstr ""
+msgstr "撤销"
 
 #: src/input/command.zig:691
 msgid "Undo the last action."
-msgstr ""
+msgstr "撤销上一个操作。"
 
 #: src/input/command.zig:696
 msgid "Redo"
-msgstr ""
+msgstr "重做"
 
 #: src/input/command.zig:697
 msgid "Redo the last undone action."
-msgstr ""
+msgstr "重做上一个撤销的操作。"
 
 #: src/input/command.zig:703
 msgid "Quit the application."
-msgstr ""
+msgstr "退出应用。"
 
 #: src/input/command.zig:708
 msgid "Ghostty"
-msgstr ""
+msgstr "Ghostty"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."
-msgstr ""
+msgstr "把一只小 Ghostty 塞进终端里。"

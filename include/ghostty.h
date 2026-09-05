@@ -75,18 +75,55 @@ typedef enum {
 typedef enum {
   GHOSTTY_CLIPBOARD_STANDARD,
   GHOSTTY_CLIPBOARD_SELECTION,
+  GHOSTTY_CLIPBOARD_PRIMARY,
 } ghostty_clipboard_e;
 
+// One representation of clipboard contents. The data is binary-safe with
+// an explicit length; it is not necessarily null-terminated.
 typedef struct {
   const char *mime;
   const char *data;
+  size_t len;
 } ghostty_clipboard_content_s;
+
+// The payload for completing a clipboard read request. See
+// ghostty_surface_complete_clipboard_request.
+typedef struct {
+  const ghostty_clipboard_content_s *contents;
+  size_t contents_len;
+  const char *const *available;
+  size_t available_len;
+  bool confirmed;
+  bool remember;
+} ghostty_clipboard_complete_s;
+
+// The payload of a clipboard read confirmation request: the would-be
+// completion contents plus the information shown in the permission
+// prompt. See ghostty_runtime_confirm_read_clipboard_cb.
+typedef struct {
+  const ghostty_clipboard_content_s *contents;
+  size_t contents_len;
+  const char *const *available;
+  size_t available_len;
+  const char *name;
+  bool can_remember;
+} ghostty_clipboard_confirm_s;
 
 typedef enum {
   GHOSTTY_CLIPBOARD_REQUEST_PASTE,
   GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ,
   GHOSTTY_CLIPBOARD_REQUEST_OSC_52_WRITE,
+  GHOSTTY_CLIPBOARD_REQUEST_KITTY_READ,
+  GHOSTTY_CLIPBOARD_REQUEST_KITTY_WRITE,
+  GHOSTTY_CLIPBOARD_REQUEST_LIST,
 } ghostty_clipboard_request_e;
+
+// apprt.ClipboardReadResult
+typedef enum {
+  GHOSTTY_CLIPBOARD_READ_STARTED,
+  GHOSTTY_CLIPBOARD_READ_UNAVAILABLE,
+  GHOSTTY_CLIPBOARD_READ_UNSUPPORTED,
+} ghostty_clipboard_read_result_e;
 
 typedef enum {
   GHOSTTY_MOUSE_RELEASE,
@@ -1025,12 +1062,16 @@ typedef struct {
 } ghostty_action_s;
 
 typedef void (*ghostty_runtime_wakeup_cb)(void*);
-typedef bool (*ghostty_runtime_read_clipboard_cb)(void*,
-                                                  ghostty_clipboard_e,
-                                                  void*);
+typedef ghostty_clipboard_read_result_e (*ghostty_runtime_read_clipboard_cb)(
+    void*,
+    ghostty_clipboard_e,
+    void*,
+    const char* const*,
+    size_t,
+    bool);
 typedef void (*ghostty_runtime_confirm_read_clipboard_cb)(
     void*,
-    const char*,
+    const ghostty_clipboard_confirm_s*,
     void*,
     ghostty_clipboard_request_e);
 typedef void (*ghostty_runtime_write_clipboard_cb)(void*,
@@ -1180,10 +1221,12 @@ GHOSTTY_API void ghostty_surface_split_resize(ghostty_surface_t,
                                                  uint16_t);
 GHOSTTY_API void ghostty_surface_split_equalize(ghostty_surface_t);
 GHOSTTY_API bool ghostty_surface_binding_action(ghostty_surface_t, const char*, uintptr_t);
-GHOSTTY_API void ghostty_surface_complete_clipboard_request(ghostty_surface_t,
-                                                               const char*,
-                                                               void*,
-                                                               bool);
+GHOSTTY_API void ghostty_surface_complete_clipboard_request(
+    ghostty_surface_t,
+    const ghostty_clipboard_complete_s*,
+    void*);
+GHOSTTY_API void ghostty_surface_deny_clipboard_request(ghostty_surface_t,
+                                                           void*);
 GHOSTTY_API bool ghostty_surface_has_selection(ghostty_surface_t);
 GHOSTTY_API bool ghostty_surface_read_selection(ghostty_surface_t, ghostty_text_s*);
 GHOSTTY_API bool ghostty_surface_read_text(ghostty_surface_t,

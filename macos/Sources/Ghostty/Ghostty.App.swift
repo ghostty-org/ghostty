@@ -60,8 +60,20 @@ extension Ghostty {
                 supports_selection_clipboard: true,
                 wakeup_cb: { userdata in App.wakeup(userdata) },
                 action_cb: { app, target, action in App.action(app!, target: target, action: action) },
-                read_clipboard_cb: { userdata, loc, state in App.readClipboard(userdata, location: loc, state: state) },
-                confirm_read_clipboard_cb: { userdata, str, state, request in App.confirmReadClipboard(userdata, string: str, state: state, request: request ) },
+                read_clipboard_cb: { userdata, loc, state, mimes, mimesLen, list in
+                    App.readClipboard(
+                        userdata,
+                        location: loc,
+                        state: state,
+                        mimes: mimes,
+                        mimesLen: mimesLen,
+                        list: list) },
+                confirm_read_clipboard_cb: { userdata, confirm, state, request in
+                    App.confirmReadClipboard(
+                        userdata,
+                        confirm: confirm,
+                        state: state,
+                        request: request) },
                 write_clipboard_cb: { userdata, loc, content, len, confirm in
                     App.writeClipboard(userdata, location: loc, content: content, len: len, confirm: confirm) },
                 close_surface_cb: { userdata, processAlive in App.closeSurface(userdata, processAlive: processAlive) }
@@ -286,60 +298,186 @@ extension Ghostty {
         static func readClipboard(
             _ userdata: UnsafeMutableRawPointer?,
             location: ghostty_clipboard_e,
-            state: UnsafeMutableRawPointer?
-        ) -> Bool {
+            state: UnsafeMutableRawPointer?,
+            mimes: UnsafePointer<UnsafePointer<CChar>?>?,
+            mimesLen: Int,
+            list: Bool
+        ) -> ghostty_clipboard_read_result_e {
             let surfaceView = self.surfaceUserdata(from: userdata)
-            guard let surface = surfaceView.surface else { return false }
+            guard let surface = surfaceView.surface else {
+                return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED
+            }
 
             // Get our pasteboard
-            guard let pasteboard = NSPasteboard.ghostty(location) else { return false }
+            guard let pasteboard = NSPasteboard.ghostty(location) else {
+                return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED
+            }
 
-            // Return false if there is no text-like clipboard content so
-            // performable paste bindings can pass through to the terminal.
-            guard let str = pasteboard.getOpinionatedStringContents() else { return false }
+            // Gather the representation for each requested MIME type that
+            // the pasteboard can serve. We only ever read the requested
+            // representations so unrelated (potentially large) clipboard
+            // contents are never loaded.
+            var contents: [Ghostty.ClipboardContent] = []
+            var seen = Set<String>()
+            if let mimes {
+                for i in 0..<mimesLen {
+                    guard let ptr = mimes[i] else { continue }
+                    let mime = String(cString: ptr)
+                    guard !seen.contains(mime) else { continue }
+                    seen.insert(mime)
+                    guard let data = pasteboard.ghosttyData(forMime: mime) else { continue }
+                    contents.append(.init(mime: mime, data: data))
+                }
+            }
 
-            completeClipboardRequest(surface, data: str, state: state)
-            return true
+            // The listing of available types, only gathered when requested.
+            let available: [String] = list ? pasteboard.ghosttyAvailableMimes() : []
+
+            // With nothing to serve and no listing requested there is
+            // nothing to complete the read with.
+            if contents.isEmpty && !list {
+                return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE
+            }
+
+            completeClipboardRequest(
+                surface,
+                contents: contents,
+                available: available,
+                state: state)
+            return GHOSTTY_CLIPBOARD_READ_STARTED
         }
 
         static func confirmReadClipboard(
             _ userdata: UnsafeMutableRawPointer?,
-            string: UnsafePointer<CChar>?,
+            confirm: UnsafePointer<ghostty_clipboard_confirm_s>?,
             state: UnsafeMutableRawPointer?,
             request: ghostty_clipboard_request_e
         ) {
             let surfaceView = self.surfaceUserdata(from: userdata)
-            guard surfaceView.surface != nil,
-                  let string,
-                  let valueStr = String(cString: string, encoding: .utf8),
-                  let kind = Ghostty.ClipboardRequest.from(request: request) else { return }
+            guard let surface = surfaceView.surface else { return }
+            guard let confirm,
+                  let kind = Ghostty.ClipboardRequest.from(request: request) else {
+                ghostty_surface_deny_clipboard_request(surface, state)
+                return
+            }
+            let c = confirm.pointee
+
+            // Copy the borrowed C representations: the confirmation is
+            // asynchronous and completes with exactly what the user
+            // approved, so the clipboard is never re-read.
+            var reps: [Ghostty.ClipboardContent] = []
+            if let contents = c.contents {
+                for i in 0..<c.contents_len {
+                    let content = contents[i]
+                    let data: Data = if content.len > 0 {
+                        Data(bytes: content.data, count: content.len)
+                    } else {
+                        Data()
+                    }
+                    reps.append(.init(mime: String(cString: content.mime), data: data))
+                }
+            }
+            var avail: [String] = []
+            if let available = c.available {
+                for i in 0..<c.available_len {
+                    guard let ptr = available[i] else { continue }
+                    avail.append(String(cString: ptr))
+                }
+            }
+
+            // The dialog can only display text: show the text
+            // representation when there is one and summarize the rest.
+            let display = reps.first(where: { $0.mime == "text/plain" })
+                .flatMap { String(data: $0.data, encoding: .utf8) }
+                ?? reps.map { "\($0.mime) (\($0.data.count) bytes)" }.joined(separator: "\n")
+
+            // Decode an image representation so the dialog can preview
+            // exactly what would be disclosed rather than a byte count.
+            let previewImage: NSImage? = reps.lazy
+                .filter { $0.mime.hasPrefix("image/") }
+                .compactMap { NSImage(data: $0.data) }
+                .first
 
             // libghostty reaches this callback only when the request attempted
             // by readClipboard requires confirmation. Reads allowed by policy
             // complete immediately and never become pending Swift state.
             let request = Ghostty.ClipboardConfirmationRequest(
                 surface: surfaceView,
-                contents: valueStr,
-                kind: kind
-            ) { surfaceView, contents in
+                contents: display,
+                kind: kind,
+                programName: c.name.map { String(cString: $0) },
+                canRemember: c.can_remember,
+                previewImage: previewImage
+            ) { surfaceView, confirmed, remember in
                 guard let surface = surfaceView.surface else { return }
-                completeClipboardRequest(
-                    surface,
-                    data: contents ?? "",
-                    state: state,
-                    confirmed: true)
+                if confirmed {
+                    completeClipboardRequest(
+                        surface,
+                        contents: reps,
+                        available: avail,
+                        state: state,
+                        confirmed: true,
+                        remember: remember)
+                } else {
+                    ghostty_surface_deny_clipboard_request(surface, state)
+                }
             }
             surfaceView.pendingClipboardConfirmation = request
         }
 
         private static func completeClipboardRequest(
             _ surface: ghostty_surface_t,
-            data: String,
+            contents: [Ghostty.ClipboardContent],
+            available: [String],
             state: UnsafeMutableRawPointer?,
-            confirmed: Bool = false
+            confirmed: Bool = false,
+            remember: Bool = false
         ) {
-            data.withCString { ptr in
-                ghostty_surface_complete_clipboard_request(surface, ptr, state, confirmed)
+            // Copy everything into C memory for the duration of the call.
+            var cStrings: [UnsafeMutablePointer<CChar>] = []
+            var cDatas: [UnsafeMutableRawPointer] = []
+            defer {
+                cStrings.forEach { free($0) }
+                cDatas.forEach { $0.deallocate() }
+            }
+
+            var cContents: [ghostty_clipboard_content_s] = []
+            for entry in contents {
+                guard let mime = strdup(entry.mime) else { continue }
+                cStrings.append(mime)
+                let buf = UnsafeMutableRawPointer.allocate(
+                    byteCount: max(entry.data.count, 1),
+                    alignment: 1)
+                cDatas.append(buf)
+                entry.data.withUnsafeBytes { src in
+                    if let base = src.baseAddress {
+                        buf.copyMemory(from: base, byteCount: src.count)
+                    }
+                }
+                cContents.append(ghostty_clipboard_content_s(
+                    mime: mime,
+                    data: buf.assumingMemoryBound(to: CChar.self),
+                    len: entry.data.count))
+            }
+
+            var cAvailable: [UnsafePointer<CChar>?] = []
+            for mime in available {
+                guard let str = strdup(mime) else { continue }
+                cStrings.append(str)
+                cAvailable.append(UnsafePointer(str))
+            }
+
+            cContents.withUnsafeBufferPointer { contentsBuf in
+                cAvailable.withUnsafeBufferPointer { availableBuf in
+                    var complete = ghostty_clipboard_complete_s(
+                        contents: contentsBuf.baseAddress,
+                        contents_len: contentsBuf.count,
+                        available: availableBuf.baseAddress,
+                        available_len: availableBuf.count,
+                        confirmed: confirmed,
+                        remember: remember)
+                    ghostty_surface_complete_clipboard_request(surface, &complete, state)
+                }
             }
         }
 
@@ -376,24 +514,25 @@ extension Ghostty {
                 // Set data for each type
                 for item in contentArray {
                     guard let type = NSPasteboard.PasteboardType(mimeType: item.mime) else { continue }
-                    pasteboard.setString(item.data, forType: type)
+                    pasteboard.setData(item.data, forType: type)
                 }
                 return
             }
 
             // For confirmation, use the text/plain content if it exists
-            guard let textPlainContent = contentArray.first(where: { $0.mime == "text/plain" }) else {
+            guard let textPlainContent = contentArray.first(where: { $0.mime == "text/plain" }),
+                  let textPlainString = textPlainContent.string else {
                 return
             }
 
             let request = Ghostty.ClipboardConfirmationRequest(
                 surface: surfaceView,
-                contents: textPlainContent.data,
+                contents: textPlainString,
                 kind: .osc_52_write
-            ) { _, contents in
-                guard let contents else { return }
+            ) { _, confirmed, _ in
+                guard confirmed else { return }
                 pasteboard.declareTypes([.string], owner: nil)
-                pasteboard.setString(contents, forType: .string)
+                pasteboard.setString(textPlainString, forType: .string)
             }
             surfaceView.pendingClipboardConfirmation = request
         }
@@ -1985,19 +2124,21 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
-                if v.active {
-                    NotificationCenter.default.post(
-                        name: Notification.didContinueKeySequence,
-                        object: surfaceView,
-                        userInfo: [
-                            Notification.KeySequenceKey: keyboardShortcut(for: v.trigger) as Any
-                        ]
-                    )
-                } else {
-                    NotificationCenter.default.post(
-                        name: Notification.didEndKeySequence,
-                        object: surfaceView
-                    )
+                DispatchQueue.main.async {
+                    if v.active {
+                        NotificationCenter.default.post(
+                            name: Notification.didContinueKeySequence,
+                            object: surfaceView,
+                            userInfo: [
+                                Notification.KeySequenceKey: keyboardShortcut(for: v.trigger) as Any
+                            ]
+                        )
+                    } else {
+                        NotificationCenter.default.post(
+                            name: Notification.didEndKeySequence,
+                            object: surfaceView
+                        )
+                    }
                 }
 
             default:

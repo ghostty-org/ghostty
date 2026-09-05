@@ -12,6 +12,9 @@ pub const Parser = ?*osc.Parser;
 /// C: GhosttyOscCommand
 pub const Command = ?*osc.Command;
 
+/// C: GhosttyOscCommandType
+pub const CommandType = osc.Command.Key;
+
 pub fn new(
     alloc_: ?*const CAllocator,
     result: *Parser,
@@ -44,7 +47,7 @@ pub fn end(parser_: Parser, terminator: u8) callconv(lib.calling_conv) Command {
     return parser_.?.end(terminator);
 }
 
-pub fn commandType(command_: Command) callconv(lib.calling_conv) osc.Command.Key {
+pub fn commandType(command_: Command) callconv(lib.calling_conv) CommandType {
     const command = command_ orelse return .invalid;
     return command.*;
 }

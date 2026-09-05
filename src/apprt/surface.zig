@@ -16,6 +16,47 @@ pub const Message = union(enum) {
     /// we want this union to be.
     pub const WriteReq = MessageData(u8, 255);
 
+    /// A fixed-size desktop notification payload sent to the app thread.
+    pub const DesktopNotification = struct {
+        /// Desktop notification title.
+        title: [63:0]u8,
+
+        /// Desktop notification body.
+        body: [255:0]u8,
+
+        pub fn init(title: []const u8, body: []const u8) DesktopNotification {
+            var result: DesktopNotification = undefined;
+            copyUtf8Z(result.title.len, &result.title, title);
+            copyUtf8Z(result.body.len, &result.body, body);
+            return result;
+        }
+
+        /// UTF-8 continuation bytes occupy the range 0x80 through 0xBF.
+        fn isUtf8ContinuationByte(byte: u8) bool {
+            return switch (byte) {
+                0x80...0xBF => true,
+                else => false,
+            };
+        }
+
+        /// Copy as much of `src` as fits, backing up from a UTF-8 continuation
+        /// byte so valid input is never truncated in the middle of a codepoint.
+        fn copyUtf8Z(
+            comptime capacity: usize,
+            dst: *[capacity:0]u8,
+            src: []const u8,
+        ) void {
+            var len = @min(src.len, capacity);
+            while (len > 0 and
+                len < src.len and
+                isUtf8ContinuationByte(src[len])) : (len -= 1)
+            {}
+
+            @memcpy(dst[0..len], src[0..len]);
+            dst[len] = 0;
+        }
+    };
+
     /// Set the title of the surface.
     /// TODO: we should change this to a "WriteReq" style structure in
     /// the termio message so that we can more efficiently send strings
@@ -30,6 +71,16 @@ pub const Message = union(enum) {
 
     /// Read the clipboard and write to the pty.
     clipboard_read: apprt.Clipboard,
+
+    /// A Kitty clipboard protocol (OSC 5522) read request. The receiver
+    /// takes ownership of the request state and must eventually destroy
+    /// it.
+    kitty_clipboard_read: *apprt.ClipboardRequest.KittyRead,
+
+    /// A committed Kitty clipboard protocol (OSC 5522) write
+    /// transaction. The receiver takes ownership of the request state
+    /// and must eventually destroy it.
+    kitty_clipboard_write: *apprt.ClipboardRequest.KittyWrite,
 
     /// Write the clipboard contents.
     clipboard_write: struct {
@@ -52,13 +103,7 @@ pub const Message = union(enum) {
     child_exited: ChildExited,
 
     /// Show a desktop notification.
-    desktop_notification: struct {
-        /// Desktop notification title.
-        title: [63:0]u8,
-
-        /// Desktop notification body.
-        body: [255:0]u8,
-    },
+    desktop_notification: DesktopNotification,
 
     /// Health status change for the renderer.
     renderer_health: renderer.Health,
@@ -194,4 +239,79 @@ pub fn newConfig(
     }
 
     return copy;
+}
+
+test "DesktopNotification init" {
+    const notification = Message.DesktopNotification.init("Title", "Body");
+
+    try std.testing.expectEqualStrings("Title", std.mem.sliceTo(&notification.title, 0));
+    try std.testing.expectEqualStrings("Body", std.mem.sliceTo(&notification.body, 0));
+}
+
+test "copyUtf8Z handles len at the final byte of every UTF-8 sequence length" {
+    const DesktopNotification = Message.DesktopNotification;
+
+    var dst_1_byte: [1:0]u8 = undefined;
+    const src_ending_in_1_byte_codepoint = "ab";
+    try std.testing.expect(!DesktopNotification.isUtf8ContinuationByte(
+        src_ending_in_1_byte_codepoint[dst_1_byte.len],
+    ));
+    DesktopNotification.copyUtf8Z(
+        dst_1_byte.len,
+        &dst_1_byte,
+        src_ending_in_1_byte_codepoint,
+    );
+    try std.testing.expectEqualStrings("a", std.mem.sliceTo(&dst_1_byte, 0));
+
+    var dst_2_bytes: [2:0]u8 = undefined;
+    const src_ending_in_2_byte_codepoint = "aЯ";
+    try std.testing.expect(DesktopNotification.isUtf8ContinuationByte(
+        src_ending_in_2_byte_codepoint[dst_2_bytes.len],
+    ));
+    DesktopNotification.copyUtf8Z(
+        dst_2_bytes.len,
+        &dst_2_bytes,
+        src_ending_in_2_byte_codepoint,
+    );
+    try std.testing.expectEqualStrings("a", std.mem.sliceTo(&dst_2_bytes, 0));
+
+    var dst_3_bytes: [3:0]u8 = undefined;
+    const src_ending_in_3_byte_codepoint = "a€";
+    try std.testing.expect(DesktopNotification.isUtf8ContinuationByte(
+        src_ending_in_3_byte_codepoint[dst_3_bytes.len],
+    ));
+    DesktopNotification.copyUtf8Z(
+        dst_3_bytes.len,
+        &dst_3_bytes,
+        src_ending_in_3_byte_codepoint,
+    );
+    try std.testing.expectEqualStrings("a", std.mem.sliceTo(&dst_3_bytes, 0));
+
+    var dst_4_bytes: [4:0]u8 = undefined;
+    const src_ending_in_4_byte_codepoint = "a😀";
+    try std.testing.expect(DesktopNotification.isUtf8ContinuationByte(
+        src_ending_in_4_byte_codepoint[dst_4_bytes.len],
+    ));
+    DesktopNotification.copyUtf8Z(
+        dst_4_bytes.len,
+        &dst_4_bytes,
+        src_ending_in_4_byte_codepoint,
+    );
+    try std.testing.expectEqualStrings("a", std.mem.sliceTo(&dst_4_bytes, 0));
+}
+
+test "copyUtf8Z keeps a complete codepoint at the truncation boundary" {
+    var dst: [5:0]u8 = undefined;
+
+    Message.DesktopNotification.copyUtf8Z(dst.len, &dst, "abcЯz");
+
+    try std.testing.expectEqualStrings("abcЯ", std.mem.sliceTo(&dst, 0));
+}
+
+test "copyUtf8Z preserves UTF-8 that fits" {
+    var dst: [5:0]u8 = undefined;
+
+    Message.DesktopNotification.copyUtf8Z(dst.len, &dst, "abcЯ");
+
+    try std.testing.expectEqualStrings("abcЯ", std.mem.sliceTo(&dst, 0));
 }

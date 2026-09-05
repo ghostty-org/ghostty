@@ -126,17 +126,6 @@ pub fn attribute_value(
     return &attr.value;
 }
 
-pub fn wasm_alloc_attribute() callconv(lib.calling_conv) *sgr.Attribute.C {
-    const alloc = std.heap.wasm_allocator;
-    const ptr = alloc.create(sgr.Attribute.C) catch @panic("out of memory");
-    return ptr;
-}
-
-pub fn wasm_free_attribute(attr: *sgr.Attribute.C) callconv(lib.calling_conv) void {
-    const alloc = std.heap.wasm_allocator;
-    alloc.destroy(attr);
-}
-
 test "alloc" {
     var p: Parser = undefined;
     try testing.expectEqual(Result.success, new(

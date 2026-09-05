@@ -41,7 +41,7 @@ pub const FileFormatter = struct {
             if (field.name[0] == '_') continue;
 
             const value = @field(self.config, field.name);
-            const do_format = if (default) |d| format: {
+            const do_format = if (default) |*d| format: {
                 const key = @field(Key, field.name);
                 break :format d.changed(self.config, key);
             } else true;

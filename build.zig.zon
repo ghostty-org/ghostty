@@ -66,7 +66,7 @@
         .gobject = .{
             // https://github.com/ghostty-org/zig-gobject based on zig_gobject
             // Temporary until we generate them at build time automatically.
-            .url = "https://github.com/ghostty-org/zig-gobject/releases/download/0.10.0-2026-07-28-36-1/ghostty-gobject-0.10.0-2026-07-28-36-1.tar.zst",
+            .url = "https://deps.files.ghostty.org/gobject-2026-07-28-36-1.tar.zst",
             .hash = "gobject-0.3.2-Skun7F6HogCMynX2JqeSHS7xr-8pK4ob-qRFIcEasVi3",
             .lazy = true,
         },
@@ -125,8 +125,8 @@
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
         .android_ndk = .{ .path = "./pkg/android-ndk" },
         .iterm2_themes = .{
-            .url = "https://deps.files.ghostty.org/ghostty-themes-release-20260803-155300-875a82f.tgz",
-            .hash = "N-V-__8AAPpcBAD4_75xLBbLiYqdojOwQP74eoWmpL3jPrBl",
+            .url = "https://deps.files.ghostty.org/ghostty-themes-release-20260824-153547-75c93ee.tgz",
+            .hash = "N-V-__8AAGZkBACH0haGC9R-hfNPYWxu16hr-ydEsolad9GV",
             .lazy = true,
         },
     },

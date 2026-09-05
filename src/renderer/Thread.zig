@@ -18,19 +18,10 @@ const App = @import("../App.zig");
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.renderer_thread);
 
-const DRAW_INTERVAL = 8; // 120 FPS
 const CURSOR_BLINK_INTERVAL = 600;
 
 /// Whether calls to `drawFrame` must be done from the app thread.
 ///
-/// If this is `true` then we send a `redraw_surface` message to the apprt
-/// whenever we need to draw instead of calling `drawFrame` directly.
-const must_draw_from_app_thread =
-    if (@hasDecl(apprt.App, "must_draw_from_app_thread"))
-        apprt.App.must_draw_from_app_thread
-    else
-        false;
-
 /// The type used for sending messages to the IO thread. For now this is
 /// hardcoded with a capacity. We can make this a comptime parameter in
 /// the future if we want it configurable.
@@ -53,16 +44,15 @@ wakeup_c: xev.Completion = .{},
 stop: xev.Async,
 stop_c: xev.Completion = .{},
 
-/// The timer used for rendering
+/// The timer used for animations (custom shaders, Kitty graphics).
+/// Normal rendering is driven by wakeup messages instead.
 render_h: xev.Timer,
 render_c: xev.Completion = .{},
+render_c_cancel: xev.Completion = .{},
 
-/// The timer used for draw calls. Draw calls don't update from the
-/// terminal state so they're much cheaper. They're used for animation
-/// and are paused when the terminal is not focused.
-draw_h: xev.Timer,
-draw_c: xev.Completion = .{},
-draw_active: bool = false,
+/// The kind of work the currently scheduled animation wake needs,
+/// stored when the timer is armed.
+animation_wake: rendererpkg.Renderer.AnimationWake.Kind = .draw,
 
 /// This async is used to force a draw immediately. This does not
 /// coalesce like the wakeup does.
@@ -115,12 +105,10 @@ flags: packed struct {
 } = .{},
 
 pub const DerivedConfig = struct {
-    custom_shader_animation: configpkg.CustomShaderAnimation,
     scrollback_compression: bool,
 
     pub fn init(config: *const configpkg.Config) DerivedConfig {
         return .{
-            .custom_shader_animation = config.@"custom-shader-animation",
             .scrollback_compression = config.@"scrollback-compression",
         };
     }
@@ -153,10 +141,6 @@ pub fn init(
     var render_h = try xev.Timer.init();
     errdefer render_h.deinit();
 
-    // Draw timer, see comments.
-    var draw_h = try xev.Timer.init();
-    errdefer draw_h.deinit();
-
     // Draw now async, see comments.
     var draw_now = try xev.Async.init();
     errdefer draw_now.deinit();
@@ -176,7 +160,6 @@ pub fn init(
         .wakeup = wakeup_h,
         .stop = stop_h,
         .render_h = render_h,
-        .draw_h = draw_h,
         .draw_now = draw_now,
         .cursor_h = cursor_timer,
         .surface = surface,
@@ -201,7 +184,6 @@ pub fn deinit(self: *Thread) void {
     self.stop.deinit();
     self.wakeup.deinit();
     self.render_h.deinit();
-    self.draw_h.deinit();
     self.draw_now.deinit();
     self.cursor_h.deinit();
     if (comptime terminalpkg.compression_enabled)
@@ -270,8 +252,9 @@ fn threadMain_(self: *Thread) !void {
         cursorTimerCallback,
     );
 
-    // Start the draw timer
-    self.syncDrawTimer();
+    // Arm the animation timer in case the renderer already needs
+    // animation wakes (e.g. custom shaders loaded at startup).
+    self.armAnimationTimer();
 
     // Run
     log.debug("starting renderer thread", .{});
@@ -309,47 +292,6 @@ fn setQosClass(self: *const Thread) void {
     }
 }
 
-fn syncDrawTimer(self: *Thread) void {
-    skip: {
-        // If our renderer supports animations and has them, then we
-        // can apply draw timer based on custom shader animation configuration.
-        if (@hasDecl(rendererpkg.Renderer, "hasAnimations") and
-            self.renderer.hasAnimations())
-        {
-            // If our config says to always animate, we do so.
-            switch (self.config.custom_shader_animation) {
-                // Always animate
-                .always => break :skip,
-                // Only when focused
-                .true => if (self.flags.focused) break :skip,
-                // Never animate
-                .false => {},
-            }
-        }
-
-        // We're skipping the draw timer. Stop it on the next iteration.
-        self.draw_active = false;
-        return;
-    }
-
-    // Set our active state so it knows we're running. We set this before
-    // even checking the active state in case we have a pending shutdown.
-    self.draw_active = true;
-
-    // If our draw timer is already active, then we don't have to do anything.
-    if (self.draw_c.state() == .active) return;
-
-    // Start the timer which loops
-    self.draw_h.run(
-        &self.loop,
-        &self.draw_c,
-        DRAW_INTERVAL,
-        Thread,
-        self,
-        drawCallback,
-    );
-}
-
 /// Drain the mailbox.
 fn drainMailbox(self: *Thread) !void {
     // There's probably a more elegant way to do this...
@@ -378,15 +320,11 @@ fn drainMailbox(self: *Thread) !void {
                 self.setQosClass();
 
                 // If we became visible then we immediately rebuild cells
-                // (renderCallback skips updateFrame while invisible) and draw.
-                if (v) {
-                    self.renderer.updateFrame(
-                        self.state,
-                        self.flags.cursor_blink_visible,
-                    ) catch |err|
-                        log.warn("error rendering on visibility regain err={}", .{err});
-                    self.drawFrame(false);
-                }
+                // (renderCallback skips updateFrame while invisible) and
+                // draw. Going through renderCallback also reschedules
+                // any Kitty graphics animation wakeup that lapsed
+                // while we were invisible.
+                if (v) _ = renderCallback(self, undefined, undefined, {});
 
                 // Notify the renderer so it can update any state.
                 self.renderer.setVisible(v);
@@ -412,8 +350,9 @@ fn drainMailbox(self: *Thread) !void {
                 // Set it on the renderer
                 try self.renderer.setFocus(v);
 
-                // We always resync our draw timer (may disable it)
-                self.syncDrawTimer();
+                // Focus gates custom shader animation, so re-arm
+                // the animation timer for the new state.
+                self.armAnimationTimer();
 
                 if (!v) {
                     // If we're not focused, then we stop the cursor blink
@@ -474,9 +413,9 @@ fn drainMailbox(self: *Thread) !void {
                 try self.changeConfig(config.thread);
                 try self.renderer.changeConfig(config.impl);
 
-                // Stop and start the draw timer to capture the new
-                // hasAnimations value.
-                self.syncDrawTimer();
+                // The config affects what animation wakes the
+                // renderer needs (custom shaders, animation mode).
+                self.armAnimationTimer();
             },
 
             .search_viewport_matches => |v| {
@@ -532,7 +471,7 @@ fn drawFrame(self: *Thread, now: bool) void {
     // when we're forced to via `now`.
     if (!now and self.renderer.hasVsync()) return;
 
-    if (must_draw_from_app_thread) {
+    if (apprt.must_draw_from_app_thread) {
         _ = self.app_mailbox.push(
             .{ .redraw_surface = self.surface },
             .{ .instant = {} },
@@ -606,37 +545,19 @@ fn drawNowCallback(
     return .rearm;
 }
 
-fn drawCallback(
-    self_: ?*Thread,
-    _: *xev.Loop,
-    _: *xev.Completion,
-    r: xev.Timer.RunError!void,
-) xev.CallbackAction {
-    _ = r catch unreachable;
-    const t: *Thread = self_ orelse {
-        // This shouldn't happen so we log it.
-        log.warn("render callback fired without data set", .{});
-        return .disarm;
-    };
-
-    // Draw
-    t.drawFrame(false);
-
-    // Only continue if we're still active
-    if (t.draw_active) {
-        t.draw_h.run(&t.loop, &t.draw_c, DRAW_INTERVAL, Thread, t, drawCallback);
-    }
-
-    return .disarm;
-}
-
 fn renderCallback(
     self_: ?*Thread,
     _: *xev.Loop,
     _: *xev.Completion,
     r: xev.Timer.RunError!void,
 ) xev.CallbackAction {
-    _ = r catch unreachable;
+    _ = r catch |err| switch (err) {
+        // Sent when a scheduled animation wakeup is superseded by a
+        // newer one (Timer.reset cancels the pending run). Nothing to
+        // do; the replacement timer carries on.
+        error.Canceled => return .disarm,
+        else => unreachable,
+    };
     const t: *Thread = self_ orelse {
         // This shouldn't happen so we log it.
         log.warn("render callback fired without data set", .{});
@@ -645,6 +566,7 @@ fn renderCallback(
 
     // If we're not visible there's no point spending CPU rebuilding cells —
     // we'll catch up when the .visible mailbox message flips us back on.
+    // Kitty graphics animations pause with us and resume on visibility.
     if (!t.flags.visible) return .disarm;
 
     // Update our frame data
@@ -657,7 +579,76 @@ fn renderCallback(
     // Draw
     t.drawFrame(false);
 
+    // Schedule the next animation wake, if the renderer needs one.
+    t.armAnimationTimer();
+
     return .disarm;
+}
+
+/// Schedule the animation timer for the renderer's next animation
+/// wake, if it needs one.
+///
+/// This is called after every frame update or animation draw and
+/// whenever the wake inputs change (focus, config, visibility
+/// regain). Resetting a pending timer is always safe: every call
+/// recomputes the wake, so the deadline only ever moves toward the
+/// actual next wake.
+fn armAnimationTimer(self: *Thread) void {
+    const wake = self.renderer.animationWake() orelse return;
+    self.animation_wake = wake.kind;
+    self.render_h.reset(
+        &self.loop,
+        &self.render_c,
+        &self.render_c_cancel,
+        wake.delay_ms,
+        Thread,
+        self,
+        animationTimerCallback,
+    );
+}
+
+fn animationTimerCallback(
+    self_: ?*Thread,
+    _: *xev.Loop,
+    _: *xev.Completion,
+    r: xev.Timer.RunError!void,
+) xev.CallbackAction {
+    _ = r catch |err| switch (err) {
+        // Sent when a scheduled animation wake is superseded by a
+        // newer one (Timer.reset cancels the pending run). Nothing to
+        // do; the replacement timer carries on.
+        error.Canceled => return .disarm,
+        else => unreachable,
+    };
+    const t: *Thread = self_ orelse {
+        // This shouldn't happen so we log it.
+        log.warn("animation callback fired without data set", .{});
+        return .disarm;
+    };
+
+    // Animations pause entirely while we're invisible; the .visible
+    // mailbox message re-arms us when we can be seen again.
+    if (!t.flags.visible) return .disarm;
+
+    switch (t.animation_wake) {
+        // Frame data must be updated (a Kitty animation frame is
+        // due). renderCallback updates, draws, and re-arms us.
+        .update => return renderCallback(
+            t,
+            undefined,
+            undefined,
+            {},
+        ),
+
+        // A redraw alone suffices (custom shader time uniform).
+        // Draw calls don't update from the terminal state so they
+        // are much cheaper than a frame update.
+        .draw => {
+            t.drawFrame(false);
+            t.armAnimationTimer();
+            return .disarm;
+        },
+    }
 }
 
 fn cursorTimerCallback(

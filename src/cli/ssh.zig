@@ -7,7 +7,7 @@ const diagnostics = @import("diagnostics.zig");
 const Action = @import("ghostty.zig").Action;
 const DiskCache = @import("ssh_cache.zig").DiskCache;
 const internal_os = @import("../os/main.zig");
-const ghostty_terminfo = @import("../terminfo/main.zig").ghostty;
+const terminfopkg = @import("../terminfo/main.zig");
 const global = @import("../global.zig");
 
 const log = std.log.scoped(.ssh);
@@ -128,9 +128,9 @@ pub const Options = struct {
 ///      forwarding to succeed.
 ///
 ///   2. **Terminfo install** (`--terminfo`). On the first connection to a
-///      given destination, installs Ghostty's terminfo entry on the remote
-///      host using `infocmp -x xterm-ghostty | ssh tic -x -` over a
-///      shared `ControlMaster` connection. Successful installs are cached
+///      given destination, installs Ghostty's embedded terminfo entry on the
+///      remote host using `ssh tic -x -` over a shared `ControlMaster`
+///      connection. Successful installs are cached
 ///      (see `ghostty +ssh-cache`) so subsequent connections skip this
 ///      step. When terminfo is successfully installed or already cached,
 ///      `TERM` is set to `xterm-ghostty` instead of `xterm-256color`.
@@ -162,17 +162,17 @@ pub const Options = struct {
 ///
 /// Examples:
 ///
-///   # Basic invocation using defaults:
-///   ghostty +ssh user@example.com
+///     # Basic invocation using defaults:
+///     ghostty +ssh user@example.com
 ///
-///   # Forward Ghostty env vars but skip the terminfo install:
-///   ghostty +ssh --terminfo=false user@example.com
+///     # Forward Ghostty env vars but skip the terminfo install:
+///     ghostty +ssh --terminfo=false user@example.com
 ///
-///   # `ssh` flags (short-form `-p`, etc.) pass through unchanged:
-///   ghostty +ssh -p 2222 -i ~/.ssh/id_ed25519 user@example.com
+///     # `ssh` flags (short-form `-p`, etc.) pass through unchanged:
+///     ghostty +ssh -p 2222 -i ~/.ssh/id_ed25519 user@example.com
 ///
-///   # Use `--` explicitly if your ssh args might collide with our flags:
-///   ghostty +ssh -- --some-rare-ssh-arg user@example.com
+///     # Use `--` explicitly if your ssh args might collide with our flags:
+///     ghostty +ssh -- --some-rare-ssh-arg user@example.com
 ///
 /// Pass `--verbose` to see what `+ssh` is doing. For cache inspection
 /// and management, see `ghostty +ssh-cache`.
@@ -252,7 +252,11 @@ fn runInner(
         } else null;
 
         if (cache) |c| {
-            const cached = c.contains(alloc, dest) catch |err| cached: {
+            const cached = c.contains(
+                alloc,
+                dest,
+                terminfopkg.version,
+            ) catch |err| cached: {
                 if (DiskCache.isFailure(err)) warnPrint(
                     stderr,
                     "unable to read the cache '{s}': {t}",
@@ -313,10 +317,12 @@ fn runInner(
 
     // Attempt to cache (if needed) on a successful ssh execution.
     if (exit_code == 0) if (session.to_cache) |entry| {
-        if (entry.cache.add(alloc, entry.dest, std.Io.Timestamp.now(
-            global.io(),
-            .real,
-        ).toSeconds())) |_| {
+        if (entry.cache.add(
+            alloc,
+            entry.dest,
+            terminfopkg.version,
+            std.Io.Timestamp.now(global.io(), .real).toSeconds(),
+        )) |_| {
             verbosePrint(opts, stderr, "cache: wrote {s}", .{entry.dest});
         } else |err| {
             if (DiskCache.isFailure(err)) {
@@ -473,7 +479,7 @@ fn installRemoteTerminfo(
 ) !void {
     var buf: std.Io.Writer.Allocating = .init(alloc);
     defer buf.deinit();
-    try ghostty_terminfo.encode(&buf.writer);
+    try terminfopkg.ghostty.encode(&buf.writer);
     const terminfo = buf.written();
 
     // ControlPath is in TMPDIR with a short, random basename. ssh uses
@@ -491,20 +497,17 @@ fn installRemoteTerminfo(
     // the most common failure source) and inherit ssh's stderr so it
     // reaches the user's terminal. Other steps stay quiet either way.
     const remote_script = if (opts.verbose)
-        \\infocmp xterm-ghostty >/dev/null 2>&1 && exit 0
         \\command -v tic >/dev/null 2>&1 || exit 1
         \\mkdir -p ~/.terminfo 2>/dev/null && tic -x - && exit 0
         \\exit 1
     else
-        \\infocmp xterm-ghostty >/dev/null 2>&1 && exit 0
         \\command -v tic >/dev/null 2>&1 || exit 1
         \\mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && exit 0
         \\exit 1
     ;
 
     // Set up an SSH ControlMaster scoped to this single install:
-    //   - ControlMaster=yes makes our client also act as the master,
-    //     so `infocmp | ssh tic` runs over a single connection.
+    //   - ControlMaster=yes makes our client also act as the master.
     //   - ControlPersist=no tears the master down when our client
     //     exits; no socket lingers on the remote side.
     const argv = try std.mem.concat(alloc, []const u8, &.{

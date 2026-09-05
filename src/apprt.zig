@@ -27,6 +27,7 @@ pub const Target = action.Target;
 pub const ContentScale = structs.ContentScale;
 pub const Clipboard = structs.Clipboard;
 pub const ClipboardContent = structs.ClipboardContent;
+pub const ClipboardReadResult = structs.ClipboardReadResult;
 pub const ClipboardRequest = structs.ClipboardRequest;
 pub const ClipboardRequestType = structs.ClipboardRequestType;
 pub const ColorScheme = structs.ColorScheme;
@@ -50,6 +51,15 @@ pub const runtime = switch (build_config.artifact) {
 
 pub const App = runtime.App;
 pub const Surface = runtime.Surface;
+
+/// True if all GPU operations (drawing, resource creation and
+/// destruction) must happen on the app thread. This is the case
+/// when the graphics context is owned by the app thread (GTK's
+/// GLArea). When false, the render thread performs GPU operations
+/// itself.
+pub const must_draw_from_app_thread =
+    @hasDecl(App, "must_draw_from_app_thread") and
+    App.must_draw_from_app_thread;
 
 test {
     _ = Runtime;

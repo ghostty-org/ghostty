@@ -31,14 +31,17 @@
  * function that accepts one,** and libghostty will use a default allocator.
  * The default allocator will be libc malloc/free if libc is linked. 
  * Otherwise, a custom allocator is used (currently Zig's SMP allocator)
- * that doesn't require any external dependencies.
+ * that doesn't require any external dependencies. On native freestanding
+ * targets, the default allocator always fails instead.
  *
  * ## Basic Usage
  *
  * For simple use cases, you can ignore this interface entirely by passing NULL
  * as the allocator parameter to functions that accept one. This will use the
  * default allocator (typically libc malloc/free, if libc is linked, but
- * we provide our own default allocator if libc isn't linked).
+ * we provide our own default allocator if libc isn't linked). Native
+ * freestanding builds must provide a custom allocator for operations that
+ * allocate memory.
  *
  * To use a custom allocator:
  * 1. Implement the GhosttyAllocatorVtable function pointers
@@ -76,7 +79,8 @@
  *
  * If you're not going to use a custom allocator, you can ignore all of
  * this. All functions that take an allocator pointer allow NULL to use a
- * default allocator.
+ * default allocator. Native freestanding builds must provide an allocator
+ * for operations that allocate memory.
  *
  * The interface is based on the Zig allocator interface. I'll say up front
  * that it is easy to look at this interface and think "wow, this is really
@@ -183,7 +187,8 @@ typedef struct {
  * For functions that take an allocator pointer, a NULL pointer indicates
  * that the default allocator should be used. The default allocator will 
  * be libc malloc/free if we're linking to libc. If libc isn't linked,
- * a custom allocator is used (currently Zig's SMP allocator).
+ * a custom allocator is used (currently Zig's SMP allocator). On native
+ * freestanding targets, the default allocator always fails instead.
  *
  * @ingroup allocator
  *

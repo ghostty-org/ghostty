@@ -6,6 +6,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const posix = std.posix;
 
 const fastmem = @import("../../fastmem.zig");
+const animation = @import("graphics_animation.zig");
 const command = @import("graphics_command.zig");
 const PageList = @import("../PageList.zig");
 const sys = @import("../sys.zig");
@@ -35,13 +36,37 @@ pub const LoadingImage = struct {
     /// so that we display the image after it is fully loaded.
     display: ?command.Display = null,
 
+    /// This is non-null when this load is an animation frame
+    /// transmission (a=f) rather than a new image. On completion the
+    /// data is composed into the target image's animation instead of
+    /// being stored as an image.
+    frame: ?FrameContext = null,
+
     /// Quiet is the quiet settings for the initial load command. This is
     /// used if q isn't set on subsequent chunks.
     quiet: command.Command.Quiet,
 
+    /// Response identifiers from the initial load command. Subsequent chunks
+    /// omit these, so completion responses must use the saved values.
+    response: command.Response = .{},
+
     /// The temporary directory for file transmission (null means that
     /// temporary directory transmission is disabled).
     temporary_directory: ?[]const u8,
+
+    pub const FrameContext = struct {
+        /// The frame parameters from the initial a=f command. Chunked
+        /// continuations only contribute payload bytes; all parameters
+        /// come from the command that started the load, matching the
+        /// protocol's requirement that chunks repeat a=f.
+        cmd: command.AnimationFrameLoading,
+
+        /// The generation of the target image when the load began.
+        /// A different generation at completion means the image was
+        /// replaced or evicted mid-transmission and the frame must be
+        /// discarded rather than composed onto the wrong image.
+        image_generation: u64,
+    };
 
     /// The limits of the Kitty Graphics protocol we should allow.
     ///
@@ -91,6 +116,10 @@ pub const LoadingImage = struct {
         // These can be overwritten by the data loading process. For example,
         // PNG loading sets the width/height from the data.
         const t = cmd.transmission().?;
+
+        // Validated here rather than while parsing so the response can
+        // carry the image id, matching Kitty's initialize_load_data.
+        if (t.format_unknown) return error.UnsupportedFormat;
         var result: LoadingImage = .{
             .image = .{
                 .id = t.image_id,
@@ -104,6 +133,11 @@ pub const LoadingImage = struct {
 
             .display = cmd.display(),
             .quiet = cmd.quiet,
+            .response = .{
+                .id = t.image_id,
+                .image_number = t.image_number,
+                .placement_id = t.placement_id,
+            },
             .temporary_directory = switch (limits.temporary_file) {
                 .enabled => |d| d.directory,
                 .disabled => null,
@@ -174,6 +208,15 @@ pub const LoadingImage = struct {
         // libc is required for shm_open
         if (comptime !builtin.link_libc) {
             return error.UnsupportedMedium;
+        }
+
+        // POSIX shared memory names must begin with a slash, contain at
+        // least one character after it, contain no other slashes, and fit
+        // within NAME_MAX. Some shm_open implementations accept names
+        // without the leading slash, but the Kitty protocol does not.
+        if (!validSharedMemoryName(path, posix.NAME_MAX)) {
+            log.warn("invalid shared memory name", .{});
+            return error.InvalidData;
         }
 
         // Since we're only supporting posix then max_path_bytes should
@@ -377,11 +420,28 @@ pub const LoadingImage = struct {
         // Read the file
         var managed: std.ArrayList(u8) = .empty;
         errdefer managed.deinit(alloc);
-        const size: usize = if (t.size > 0) @min(t.size, max_size) else max_size;
-        reader.appendRemaining(alloc, &managed, .limited(size)) catch {
-            log.warn("failed to read temporary file: {?}", .{buf_reader.err});
-            return error.InvalidData;
-        };
+        if (t.size > 0) {
+            // S is the exact number of bytes to read, not a maximum:
+            // https://sw.kovidgoyal.net/kitty/graphics-protocol/#local-client
+            const size = std.math.cast(usize, t.size) orelse
+                return error.InvalidData;
+            if (size > max_size) return error.InvalidData;
+
+            // Read exact size
+            const data = reader.readAlloc(alloc, size) catch |err| {
+                log.warn("failed to read image file: {}", .{err});
+                return switch (err) {
+                    error.OutOfMemory => error.OutOfMemory,
+                    else => error.InvalidData,
+                };
+            };
+            managed = .{ .items = data, .capacity = data.len };
+        } else {
+            reader.appendRemaining(alloc, &managed, .limited(max_size)) catch {
+                log.warn("failed to read image file: {?}", .{buf_reader.err});
+                return error.InvalidData;
+            };
+        }
 
         // Set our data
         assert(self.data.items.len == 0);
@@ -471,11 +531,23 @@ pub const LoadingImage = struct {
         if (img.width == 0 or img.height == 0) return error.DimensionsRequired;
         if (img.width > max_dimension or img.height > max_dimension) return error.DimensionsTooLarge;
 
-        // Data length must be what we expect
+        // Data length must be what we expect.
         const bpp = command.Transmission.formatBpp(img.format);
         const expected_len = img.width * img.height * bpp;
         const actual_len = self.data.items.len;
-        if (actual_len != expected_len) {
+        if (self.frame != null) {
+            // Kitty allows animation frames to exceed their expected length
+            // and just truncates it. Not sure if thats expected but lets
+            // allow it too.
+            if (actual_len < expected_len) {
+                std.log.warn(
+                    "insufficient frame data image id={} expected_len={} actual_len={}",
+                    .{ img.id, expected_len, actual_len },
+                );
+                return error.InsufficientData;
+            }
+            self.data.items.len = expected_len;
+        } else if (actual_len != expected_len) {
             std.log.warn(
                 "unexpected length image id={} width={} height={} bpp={} expected_len={} actual_len={}",
                 .{ img.id, img.width, img.height, bpp, expected_len, actual_len },
@@ -605,8 +677,12 @@ pub const Image = struct {
         transient: bool = false,
 
         /// Set this if the image was loaded without an ID or number. Such
-        /// images must not receive responses even though they currently get
-        /// IDs in the public range (which is bad!).
+        /// images must not receive responses. Kitty gives these client ID
+        /// 0 (unaddressable); our storage keys everything by one public
+        /// u32 ID, so they get an ID from the upper half of the range
+        /// that is guaranteed unused at assignment time, but a client
+        /// that explicitly transmits that ID later can still replace
+        /// them.
         implicit_id: bool = false,
 
         /// Number of placements referencing this image.
@@ -619,9 +695,25 @@ pub const Image = struct {
     /// have changed, even if the dimensions and byte length are the
     /// same (e.g. a retransmission of the same ID). Stamps order by
     /// transmission time. Zero means "never stored".
+    ///
+    /// For animated images this also changes whenever the frame that
+    /// should be displayed changes (advance, edit, or delete of the
+    /// current frame), since consumers key texture caches off it.
     generation: u64 = 0,
 
+    /// Animation state, non-null once any animation command (a=f,
+    /// a=a) has attached animation state to this image. Owned by the
+    /// image; replaced/retransmitted images drop it, which implements
+    /// the protocol's "retransmission resets the animation" rule.
+    ///
+    /// This is only ever attached to images stored in an ImageStorage
+    /// and must only be mutated through the storage's own pointer
+    /// (Image values are copied around freely; copies share this
+    /// pointer and never own it).
+    animation: ?*animation.Animation = null,
+
     pub const Error = error{
+        InsufficientData,
         InvalidData,
         DecompressionFailed,
         DimensionsRequired,
@@ -671,6 +763,54 @@ pub const Image = struct {
 
     pub fn deinit(self: *Image, alloc: Allocator) void {
         self.data.deinit(alloc);
+        if (self.animation) |anim| {
+            anim.deinit(alloc);
+            alloc.destroy(anim);
+            self.animation = null;
+        }
+    }
+
+    /// The pixel data that should be displayed for this image. For an
+    /// animated image this is the current animation frame; otherwise
+    /// (and for the root frame) it is the image's own data.
+    pub fn renderData(self: *const Image) Data {
+        if (self.animation) |anim| {
+            if (anim.current_index > 0) {
+                return .{ .complete = anim.frames.items[anim.current_index - 1].data };
+            }
+        }
+
+        return self.data;
+    }
+
+    /// The pixel data of the given 1-based animation frame number, or
+    /// null if the frame doesn't exist. Frame 1 (the root frame)
+    /// always exists as long as the image data is complete, even for
+    /// images without animation state.
+    ///
+    /// The returned slice is owned by the image (or its animation)
+    /// and remains valid until the image or frame is mutated.
+    pub fn frameData(self: *const Image, number: u32) ?[]const u8 {
+        switch (number) {
+            0 => return null,
+            1 => return self.data.bytes(),
+            else => {
+                const anim = self.animation orelse return null;
+                // Minus 2 because frame is 1-based and frame 1 is the
+                // image base data, so the animation frames start at frame 2.
+                const idx = number - 2;
+                if (idx >= anim.frames.items.len) return null;
+                return anim.frames.items[idx].data;
+            },
+        }
+    }
+
+    /// Total bytes of pixel data reserved against the storage limit
+    /// for this image: the base data plus any animation frames.
+    pub fn storageSize(self: *const Image) usize {
+        var total: usize = self.data.len();
+        if (self.animation) |anim| total += anim.frameBytes();
+        return total;
     }
 
     /// Mostly for logging
@@ -700,6 +840,16 @@ pub const Rect = struct {
     }
 };
 
+/// Returns whether a name follows the POSIX shared memory name format.
+fn validSharedMemoryName(name: []const u8, name_max: usize) bool {
+    if (name.len < 2 or name.len > name_max or name[0] != '/') return false;
+    for (name[1..]) |c| {
+        if (c == '/' or c == 0) return false;
+    }
+
+    return true;
+}
+
 /// Returns true if `path` is `dir` or is contained within it, requiring a
 /// path-separator boundary so similarly prefixed directories do not match.
 fn isPathInDir(dir: []const u8, path: []const u8) bool {
@@ -719,6 +869,53 @@ test "temporary file path must be inside directory" {
     try testing.expect(!isPathInDir("/tmp", "/tmpX/tty-graphics-protocol-image.data"));
     try testing.expect(!isPathInDir("/dev/shm", "/dev/shm-evil/tty-graphics-protocol-image.data"));
     try testing.expect(!isPathInDir("/custom/tmp", "/custom/tmp-suffix/tty-graphics-protocol-image.data"));
+}
+
+test "shared memory names follow POSIX rules" {
+    const testing = std.testing;
+
+    try testing.expect(validSharedMemoryName("/kitty", 8));
+    try testing.expect(validSharedMemoryName("/1234567", 8));
+
+    try testing.expect(!validSharedMemoryName("", 8));
+    try testing.expect(!validSharedMemoryName("/", 8));
+    try testing.expect(!validSharedMemoryName("kitty", 8));
+    try testing.expect(!validSharedMemoryName("/kitty/image", 16));
+    try testing.expect(!validSharedMemoryName("/kitty\x00image", 16));
+    try testing.expect(!validSharedMemoryName("/12345678", 8));
+}
+
+test "image load rejects invalid POSIX shared memory names" {
+    if (comptime builtin.abi.isAndroid() or
+        builtin.target.os.tag == .windows or
+        !builtin.link_libc)
+    {
+        return error.SkipZigTest;
+    }
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cmd: command.Command = .{
+        .control = .{ .transmit = .{
+            .format = .rgb,
+            .medium = .shared_memory,
+            .width = 1,
+            .height = 1,
+            .image_id = 31,
+        } },
+        .data = try alloc.dupe(u8, "kitty-without-leading-slash"),
+    };
+    defer cmd.deinit(alloc);
+
+    try testing.expectError(
+        error.InvalidData,
+        LoadingImage.init(testing.io, alloc, &cmd, .{
+            .file = false,
+            .temporary_file = .disabled,
+            .shared_memory = true,
+        }),
+    );
 }
 
 test "shared memory range with offset and size" {
@@ -1149,6 +1346,101 @@ test "image load: rgb, not compressed, regular file" {
     defer img.deinit(alloc);
     try testing.expect(img.compression == .none);
     try tmp_dir.dir.access(testing.io, path, .{});
+}
+
+test "image load: regular file size reads exactly requested bytes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    try tmp_dir.dir.writeFile(io, .{
+        .sub_path = "image.data",
+        .data = &.{ 1, 2, 3, 4, 5, 6 },
+    });
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = path_buf[0..try tmp_dir.dir.realPathFile(
+        io,
+        "image.data",
+        &path_buf,
+    )];
+
+    const cases = [_]struct {
+        offset: u32,
+        expected: [3]u8,
+    }{
+        .{ .offset = 0, .expected = .{ 1, 2, 3 } },
+        .{ .offset = 3, .expected = .{ 4, 5, 6 } },
+    };
+    for (cases) |case| {
+        var cmd: command.Command = .{
+            .control = .{ .transmit = .{
+                .format = .rgb,
+                .medium = .file,
+                .width = 1,
+                .height = 1,
+                .size = 3,
+                .offset = case.offset,
+                .image_id = 31,
+            } },
+            .data = try alloc.dupe(u8, path),
+        };
+        defer cmd.deinit(alloc);
+
+        var loading = try LoadingImage.init(io, alloc, &cmd, .{
+            .file = true,
+            .temporary_file = .disabled,
+            .shared_memory = false,
+        });
+        defer loading.deinit(alloc);
+        var img = try loading.complete(alloc);
+        defer img.deinit(alloc);
+
+        try testing.expectEqualSlices(u8, &case.expected, img.data.complete);
+    }
+}
+
+test "image load: regular file size rejects short data" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    try tmp_dir.dir.writeFile(io, .{
+        .sub_path = "image.data",
+        .data = &.{ 1, 2 },
+    });
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = path_buf[0..try tmp_dir.dir.realPathFile(
+        io,
+        "image.data",
+        &path_buf,
+    )];
+    var cmd: command.Command = .{
+        .control = .{ .transmit = .{
+            .format = .rgb,
+            .medium = .file,
+            .width = 1,
+            .height = 1,
+            .size = 3,
+            .image_id = 31,
+        } },
+        .data = try alloc.dupe(u8, path),
+    };
+    defer cmd.deinit(alloc);
+
+    try testing.expectError(
+        error.InvalidData,
+        LoadingImage.init(io, alloc, &cmd, .{
+            .file = true,
+            .temporary_file = .disabled,
+            .shared_memory = false,
+        }),
+    );
 }
 
 test "image load: rgb, not compressed, relative regular file" {

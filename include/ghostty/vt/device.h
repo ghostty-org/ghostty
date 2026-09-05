@@ -11,6 +11,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <ghostty/vt/types.h>
+
 /* DA1 conformance levels (Pp parameter). */
 #define GHOSTTY_DA_CONFORMANCE_VT100  1
 #define GHOSTTY_DA_CONFORMANCE_VT101  1

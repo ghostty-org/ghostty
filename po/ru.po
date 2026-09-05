@@ -4,20 +4,21 @@
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # blackzeshi <sergey_zhuzhgov@mail.ru>, 2025.
 # Ivan Bastrakov <bastaynav@proton.me>, 2025.
+# derVedro и зайчатки разума <dervedro@googlemail.com>, 2026.
+#
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-08-10 10:06-0500\n"
-"PO-Revision-Date: 2025-02-18 10:20+0100\n"
-"Last-Translator: Ivan Bastrakov <bastaynav@proton.me>\n"
-"Language-Team: Russian <gnu@d07.ru>\n"
+"PO-Revision-Date: 2026-08-23 12:00+0200\n"
+"Last-Translator: derVedro <dervedro@googlemail.com>\n"
+"Language-Team: Russian\n"
 "Language: ru\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
-"n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
 #: dist/linux/ghostty_nautilus.py:53
 msgid "Open in Ghostty"
@@ -42,7 +43,7 @@ msgstr "Разрешить"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
 msgid "Remember choice for this split"
-msgstr "Запомнить выбор для этого сплита"
+msgstr "Запомнить выбор для этой области"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
 msgid "Reload configuration to show this prompt again"
@@ -91,7 +92,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
 msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: инспектор терминала"
+msgstr "Ghostty: Инспектор терминала"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
@@ -129,7 +130,7 @@ msgstr "Режим только для чтения"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:316 src/apprt/gtk/ui/1.5/window.blp:203
 msgid "Copy"
-msgstr "Копировать"
+msgstr "Скопировать"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:321 src/apprt/gtk/ui/1.5/window.blp:208
 msgid "Paste"
@@ -137,7 +138,7 @@ msgstr "Вставить"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:326
 msgid "Notify on Next Command Finish"
-msgstr "Сообщить о завершении следующей команды"
+msgstr "Сообщить о завершении команды"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
@@ -145,39 +146,39 @@ msgstr "Очистить"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:338 src/apprt/gtk/ui/1.5/window.blp:286
 msgid "Reset"
-msgstr "Сброс"
+msgstr "Сбросить"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split"
-msgstr "Сплит"
+msgstr "Область"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:348 src/apprt/gtk/ui/1.5/window.blp:253
 msgid "Change Title…"
-msgstr "Переименовать…"
+msgstr "Переименовать область…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:353 src/apprt/gtk/ui/1.5/window.blp:180
 #: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:487
 msgid "Split Up"
-msgstr "Сплит вверх"
+msgstr "Разделить вверх"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:359 src/apprt/gtk/ui/1.5/window.blp:185
 #: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:492
 msgid "Split Down"
-msgstr "Сплит вниз"
+msgstr "Разделить вниз"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:365 src/apprt/gtk/ui/1.5/window.blp:190
 #: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
 msgid "Split Left"
-msgstr "Сплит влево"
+msgstr "Разделить влево"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:195
 #: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
 msgid "Split Right"
-msgstr "Сплит вправо"
+msgstr "Разделить вправо"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:377
 msgid "Close Split"
-msgstr ""
+msgstr "Закрыть область"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:383
 msgid "Tab"
@@ -205,7 +206,7 @@ msgstr "Окно"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:215
 msgid "Change Window Title…"
-msgstr ""
+msgstr "Переименовать окно…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:220
 #: src/input/command.zig:421
@@ -223,15 +224,15 @@ msgstr "Конфигурация"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
-msgstr ""
+msgstr "Открыть конфигурацию в системном редакторе"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
-msgstr ""
+msgstr "Открыть конфигурацию в новом окне"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
-msgstr "Оставьте поле пустым, чтобы вернуть название по умолчанию."
+msgstr "Оставьте поле пустым, чтобы вернуть заголовок по умолчанию."
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:9
 msgid "OK"
@@ -239,7 +240,7 @@ msgstr "ОК"
 
 #: src/apprt/gtk/ui/1.5/window.blp:61 src/apprt/gtk/ui/1.5/window.blp:111
 msgid "New Split"
-msgstr "Новый сплит"
+msgstr "Новая область"
 
 #: src/apprt/gtk/ui/1.5/window.blp:71 src/apprt/gtk/ui/1.5/window.blp:129
 msgid "View Open Tabs"
@@ -271,27 +272,27 @@ msgstr "Выполнить команду…"
 
 #: src/apprt/gtk/class/application.zig:1767
 msgid "The keybind was revoked by the system."
-msgstr ""
+msgstr "Сочетание клавиш было отозвано системой."
 
 #: src/apprt/gtk/class/application.zig:1769
 msgid "The keybind was denied by the system."
-msgstr ""
+msgstr "Сочетание клавиш было отклонено системой."
 
 #: src/apprt/gtk/class/application.zig:1780
 msgid "Global keybind unavailable"
-msgstr ""
+msgstr "Глобальное сочетание клавиш недоступно"
 
 #: src/apprt/gtk/class/application.zig:2259
 msgid "Export Terminal IO Events"
-msgstr ""
+msgstr "Экспортировать события ввода-вывода терминала"
 
 #: src/apprt/gtk/class/application.zig:2262
 msgid "Export"
-msgstr ""
+msgstr "Экспортировать"
 
 #: src/apprt/gtk/class/application.zig:2783
 msgid "Editing configuration file"
-msgstr ""
+msgstr "Редактирование файла конфигурации"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
 msgid ""
@@ -311,14 +312,14 @@ msgstr ""
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
 msgid "Warning: Potentially Unsafe Paste"
-msgstr "Внимание! Вставляемые данные могут нанести вред вашей системе"
+msgstr "Внимание! Потенциально небезопасная вставка"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:206
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
-"Этот текст может быть опасен: его вставка в терминал приведёт к выполнению "
+"Опасно вставлять этот текст в терминал: есть риск автоматического выполнения "
 "команд."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
@@ -335,7 +336,7 @@ msgstr "Закрыть окно?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:187
 msgid "Close Split?"
-msgstr "Закрыть сплит-режим?"
+msgstr "Закрыть область?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions will be terminated."
@@ -351,7 +352,7 @@ msgstr "Все сессии терминала в этом окне будут �
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:196
 msgid "The currently running process in this split will be terminated."
-msgstr "Процесс, работающий в этой сплит-области, будет остановлен."
+msgstr "Процесс, работающий в этой области, будет остановлен."
 
 #: src/apprt/gtk/class/surface.zig:1181
 msgid "Command Finished"
@@ -377,7 +378,7 @@ msgstr "Переименовать вкладку"
 
 #: src/apprt/gtk/class/title_dialog.zig:229
 msgid "Change Window Title"
-msgstr ""
+msgstr "Переименовать окно"
 
 #: src/apprt/gtk/class/window.zig:1153
 msgid "Reloaded the configuration"
@@ -397,710 +398,736 @@ msgstr "Разработчики Ghostty"
 
 #: src/input/command.zig:149
 msgid "Reset Terminal"
-msgstr ""
+msgstr "Сбросить терминал"
 
 #: src/input/command.zig:150
 msgid "Reset the terminal to a clean state."
-msgstr ""
+msgstr "Вернуть терминал в исходное состояние."
 
 #: src/input/command.zig:155
 msgid "Copy to Clipboard"
-msgstr ""
+msgstr "Скопировать в буфер обмена"
 
 #: src/input/command.zig:156
 msgid ""
 "Copy the selected text to the clipboard in both plain and styled formats."
 msgstr ""
+"Скопировать выделенный текст в буфер обмена в обычном и в форматированном "
+"виде."
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
-msgstr ""
+msgstr "Скопировать выделение как обычный текст в буфер обмена"
 
 #: src/input/command.zig:160
 msgid "Copy the selected text as plain text to the clipboard."
-msgstr ""
+msgstr "Скопировать выделенный текст как обычный текст в буфер обмена."
 
 #: src/input/command.zig:163
 msgid "Copy Selection as ANSI Sequences to Clipboard"
-msgstr ""
+msgstr "Скопировать выделение как ANSI в буфер обмена"
 
 #: src/input/command.zig:164
 msgid "Copy the selected text as ANSI escape sequences to the clipboard."
 msgstr ""
+"Скопировать выделенный текст как управляющие последовательности ANSI в "
+"буфер обмена."
 
 #: src/input/command.zig:167
 msgid "Copy Selection as HTML to Clipboard"
-msgstr ""
+msgstr "Скопировать выделение как HTML в буфер обмена"
 
 #: src/input/command.zig:168
 msgid "Copy the selected text as HTML to the clipboard."
-msgstr ""
+msgstr "Скопировать выделенный текст как HTML в буфер обмена."
 
 #: src/input/command.zig:173
 msgid "Copy URL to Clipboard"
-msgstr ""
+msgstr "Скопировать URL в буфер обмена"
 
 #: src/input/command.zig:174
 msgid "Copy the URL under the cursor to the clipboard."
-msgstr ""
+msgstr "Скопировать URL под курсором в буфер обмена."
 
 #: src/input/command.zig:179
 msgid "Copy Terminal Title to Clipboard"
-msgstr ""
+msgstr "Скопировать заголовок терминала в буфер обмена"
 
 #: src/input/command.zig:180
 msgid ""
 "Copy the terminal title to the clipboard. If the terminal title is not set "
 "this has no effect."
 msgstr ""
+"Скопировать заголовок терминала в буфер обмена. Если заголовок не задан, "
+"ничего не произойдёт."
 
 #: src/input/command.zig:185
 msgid "Paste from Clipboard"
-msgstr ""
+msgstr "Вставить из буфера обмена"
 
 #: src/input/command.zig:186
 msgid "Paste the contents of the main clipboard."
-msgstr ""
+msgstr "Вставить содержимое основного буфера обмена."
 
 #: src/input/command.zig:191
 msgid "Paste from Selection"
-msgstr ""
+msgstr "Вставить выделенное"
 
 #: src/input/command.zig:192
 msgid "Paste the contents of the selection clipboard."
-msgstr ""
+msgstr "Вставить содержимое буфера выделения."
 
 #: src/input/command.zig:197
 msgid "Start Search"
-msgstr ""
+msgstr "Начать поиск"
 
 #: src/input/command.zig:198
 msgid "Start a search if one isn't already active."
-msgstr ""
+msgstr "Начать поиск, если он ещё не активен."
 
 #: src/input/command.zig:203
 msgid "Search Selection"
-msgstr ""
+msgstr "Искать выделенное"
 
 #: src/input/command.zig:204
 msgid "Start a search for the current text selection."
-msgstr ""
+msgstr "Начать поиск выделенного текста."
 
 #: src/input/command.zig:209
 msgid "End Search"
-msgstr ""
+msgstr "Завершить поиск"
 
 #: src/input/command.zig:210
 msgid "End the current search if any and hide any GUI elements."
-msgstr ""
+msgstr "Завершить текущий поиск и скрыть элементы интерфейса."
 
 #: src/input/command.zig:215
 msgid "Next Search Result"
-msgstr ""
+msgstr "Следующий результат поиска"
 
 #: src/input/command.zig:216
 msgid "Navigate to the next search result, if any."
-msgstr ""
+msgstr "Перейти к следующему результату поиска."
 
 #: src/input/command.zig:219
 msgid "Previous Search Result"
-msgstr ""
+msgstr "Предыдущий результат поиска"
 
 #: src/input/command.zig:220
 msgid "Navigate to the previous search result, if any."
-msgstr ""
+msgstr "Перейти к предыдущему результату поиска."
 
 #: src/input/command.zig:225
 msgid "Increase Font Size"
-msgstr ""
+msgstr "Увеличить размер шрифта"
 
 #: src/input/command.zig:226
 msgid "Increase the font size by 1 point."
-msgstr ""
+msgstr "Увеличить размер шрифта на 1 пункт."
 
 #: src/input/command.zig:231
 msgid "Decrease Font Size"
-msgstr ""
+msgstr "Уменьшить размер шрифта"
 
 #: src/input/command.zig:232
 msgid "Decrease the font size by 1 point."
-msgstr ""
+msgstr "Уменьшить размер шрифта на 1 пункт."
 
 #: src/input/command.zig:237
 msgid "Reset Font Size"
-msgstr ""
+msgstr "Сбросить размер шрифта"
 
 #: src/input/command.zig:238
 msgid "Reset the font size to the default."
-msgstr ""
+msgstr "Вернуть размер шрифта по умолчанию."
 
 #: src/input/command.zig:243
 msgid "Clear Screen"
-msgstr ""
+msgstr "Очистить экран"
 
 #: src/input/command.zig:244
 msgid "Clear the screen and scrollback."
-msgstr ""
+msgstr "Очистить экран и историю вывода."
 
 #: src/input/command.zig:249
 msgid "Select All"
-msgstr ""
+msgstr "Выделить всё"
 
 #: src/input/command.zig:250
 msgid "Select all text on the screen."
-msgstr ""
+msgstr "Выделить весь текст вывода."
 
 #: src/input/command.zig:255
 msgid "Scroll to Top"
-msgstr ""
+msgstr "Прокрутить в начало"
 
 #: src/input/command.zig:256
 msgid "Scroll to the top of the screen."
-msgstr ""
+msgstr "Прокрутить в начало вывода."
 
 #: src/input/command.zig:261
 msgid "Scroll to Bottom"
-msgstr ""
+msgstr "Прокрутить в конец"
 
 #: src/input/command.zig:262
 msgid "Scroll to the bottom of the screen."
-msgstr ""
+msgstr "Прокрутить в конец вывода."
 
 #: src/input/command.zig:267
 msgid "Scroll to Selection"
-msgstr ""
+msgstr "Прокрутить к выделению"
 
 #: src/input/command.zig:268
 msgid "Scroll to the selected text."
-msgstr ""
+msgstr "Прокрутить к выделенному тексту."
 
 #: src/input/command.zig:273
 msgid "Scroll Page Up"
-msgstr ""
+msgstr "Прокрутить на страницу вверх"
 
 #: src/input/command.zig:274
 msgid "Scroll the screen up by a page."
-msgstr ""
+msgstr "Прокрутить на одну страницу вверх."
 
 #: src/input/command.zig:279
 msgid "Scroll Page Down"
-msgstr ""
+msgstr "Прокрутить на страницу вниз"
 
 #: src/input/command.zig:280
 msgid "Scroll the screen down by a page."
-msgstr ""
+msgstr "Прокрутить на одну страницу вниз."
 
 #: src/input/command.zig:286
 msgid "Copy Screen to Temporary File and Copy Path"
-msgstr ""
+msgstr "Скопировать вывод во временный файл и скопировать путь"
 
 #: src/input/command.zig:287
 msgid ""
 "Copy the screen contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
+"Скопировать весь вывод во временный файл и скопировать путь к нему в буфер "
+"обмена."
 
 #: src/input/command.zig:291
 msgid "Copy Screen to Temporary File and Paste Path"
-msgstr ""
+msgstr "Скопировать вывод во временный файл и вставить путь"
 
 #: src/input/command.zig:292
 msgid ""
 "Copy the screen contents to a temporary file and paste the path to the file."
-msgstr ""
+msgstr "Скопировать весь вывод во временный файл и вставить путь к файлу."
 
 #: src/input/command.zig:296
 msgid "Copy Screen to Temporary File and Open"
-msgstr ""
+msgstr "Скопировать вывод во временный файл и открыть"
 
 #: src/input/command.zig:297
 msgid "Copy the screen contents to a temporary file and open it."
-msgstr ""
+msgstr "Скопировать весь вывод во временный файл и открыть его."
 
 #: src/input/command.zig:305
 msgid "Copy Screen as HTML to Temporary File and Copy Path"
-msgstr ""
+msgstr "Скопировать вывод как HTML во временный файл и скопировать путь"
 
 #: src/input/command.zig:306
 msgid ""
 "Copy the screen contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
+"Скопировать весь вывод как HTML во временный файл и скопировать путь к нему "
+"в буфер обмена."
 
 #: src/input/command.zig:313
 msgid "Copy Screen as HTML to Temporary File and Paste Path"
-msgstr ""
+msgstr "Скопировать вывод как HTML во временный файл и вставить путь"
 
 #: src/input/command.zig:314
 msgid ""
 "Copy the screen contents as HTML to a temporary file and paste the path to "
 "the file."
-msgstr ""
+msgstr "Скопировать весь вывод как HTML во временный файл и вставить путь к файлу."
 
 #: src/input/command.zig:321
 msgid "Copy Screen as HTML to Temporary File and Open"
-msgstr ""
+msgstr "Скопировать вывод как HTML во временный файл и открыть"
 
 #: src/input/command.zig:322
 msgid "Copy the screen contents as HTML to a temporary file and open it."
-msgstr ""
+msgstr "Скопировать весь вывод как HTML во временный файл и открыть его."
 
 #: src/input/command.zig:330
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
-msgstr ""
+msgstr "Скопировать вывод как ANSI во временный файл и скопировать путь"
 
 #: src/input/command.zig:331
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
+"Скопировать весь вывод как управляющие последовательности ANSI во временный "
+"файл и скопировать путь к нему в буфер обмена."
 
 #: src/input/command.zig:338
 msgid "Copy Screen as ANSI Sequences to Temporary File and Paste Path"
-msgstr ""
+msgstr "Скопировать вывод как ANSI во временный файл и вставить путь"
 
 #: src/input/command.zig:339
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
+"Скопировать весь вывод как управляющие последовательности ANSI во временный "
+"файл и вставить путь к файлу."
 
 #: src/input/command.zig:346
 msgid "Copy Screen as ANSI Sequences to Temporary File and Open"
-msgstr ""
+msgstr "Скопировать вывод как ANSI во временный файл и открыть"
 
 #: src/input/command.zig:347
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
+"Скопировать весь вывод как управляющие последовательности ANSI во временный "
+"файл и открыть его."
 
 #: src/input/command.zig:354
 msgid "Copy Selection to Temporary File and Copy Path"
-msgstr ""
+msgstr "Скопировать выделение во временный файл и скопировать путь"
 
 #: src/input/command.zig:355
 msgid ""
 "Copy the selection contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
+"Скопировать выделение во временный файл и скопировать путь к нему в буфер обмена."
 
 #: src/input/command.zig:359
 msgid "Copy Selection to Temporary File and Paste Path"
-msgstr ""
+msgstr "Скопировать выделение во временный файл и вставить путь"
 
 #: src/input/command.zig:360
 msgid ""
 "Copy the selection contents to a temporary file and paste the path to the "
 "file."
-msgstr ""
+msgstr "Скопировать выделение во временный файл и вставить путь к файлу."
 
 #: src/input/command.zig:364
 msgid "Copy Selection to Temporary File and Open"
-msgstr ""
+msgstr "Скопировать выделение во временный файл и открыть"
 
 #: src/input/command.zig:365
 msgid "Copy the selection contents to a temporary file and open it."
-msgstr ""
+msgstr "Скопировать выделение во временный файл и открыть его."
 
 #: src/input/command.zig:373
 msgid "Copy Selection as HTML to Temporary File and Copy Path"
-msgstr ""
+msgstr "Скопировать выделение как HTML во временный файл и скопировать путь"
 
 #: src/input/command.zig:374
 msgid ""
 "Copy the selection contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
+"Скопировать выделение как HTML во временный файл и скопировать путь к нему "
+"в буфер обмена."
 
 #: src/input/command.zig:381
 msgid "Copy Selection as HTML to Temporary File and Paste Path"
-msgstr ""
+msgstr "Скопировать выделение как HTML во временный файл и вставить путь"
 
 #: src/input/command.zig:382
 msgid ""
 "Copy the selection contents as HTML to a temporary file and paste the path "
 "to the file."
 msgstr ""
+"Скопировать выделение как HTML во временный файл и вставить путь к файлу."
 
 #: src/input/command.zig:389
 msgid "Copy Selection as HTML to Temporary File and Open"
-msgstr ""
+msgstr "Скопировать выделение как HTML во временный файл и открыть"
 
 #: src/input/command.zig:390
 msgid "Copy the selection contents as HTML to a temporary file and open it."
-msgstr ""
+msgstr "Скопировать выделение как HTML во временный файл и открыть его."
 
 #: src/input/command.zig:398
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
-msgstr ""
+msgstr "Скопировать выделение как ANSI во временный файл и скопировать путь"
 
 #: src/input/command.zig:399
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
+"Скопировать выделение как управляющие последовательности ANSI во временный "
+"файл и скопировать путь к нему в буфер обмена."
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
-msgstr ""
+msgstr "Скопировать выделение как ANSI во временный файл и вставить путь"
 
 #: src/input/command.zig:407
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
+"Скопировать выделение как управляющие последовательности ANSI во временный "
+"файл и вставить путь к файлу."
 
 #: src/input/command.zig:414
 msgid "Copy Selection as ANSI Sequences to Temporary File and Open"
-msgstr ""
+msgstr "Скопировать выделение как ANSI во временный файл и открыть"
 
 #: src/input/command.zig:415
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
+"Скопировать выделение как управляющие последовательности ANSI во временный "
+"файл и открыть его."
 
 #: src/input/command.zig:422
 msgid "Open a new window."
-msgstr ""
+msgstr "Открыть новое окно."
 
 #: src/input/command.zig:428
 msgid "Open a new tab."
-msgstr ""
+msgstr "Открыть новую вкладку."
 
 #: src/input/command.zig:434
 msgid "Move Tab Left"
-msgstr ""
+msgstr "Переместить вкладку влево"
 
 #: src/input/command.zig:435
 msgid "Move the current tab to the left."
-msgstr ""
+msgstr "Переместить текущую вкладку влево."
 
 #: src/input/command.zig:439
 msgid "Move Tab Right"
-msgstr ""
+msgstr "Переместить вкладку вправо"
 
 #: src/input/command.zig:440
 msgid "Move the current tab to the right."
-msgstr ""
+msgstr "Переместить текущую вкладку вправо."
 
 #: src/input/command.zig:446
 msgid "Move Tab to New Window"
-msgstr ""
+msgstr "Переместить вкладку в новое окно"
 
 #: src/input/command.zig:447
 msgid "Move the current tab to a new window."
-msgstr ""
+msgstr "Переместить текущую вкладку в новое окно."
 
 #: src/input/command.zig:452
 msgid "Toggle Tab Overview"
-msgstr ""
+msgstr "Переключить обзор вкладок"
 
 #: src/input/command.zig:453
 msgid "Toggle the tab overview."
-msgstr ""
+msgstr "Показать или скрыть обзор вкладок."
 
 #: src/input/command.zig:458
 msgid "Change Terminal Title…"
-msgstr ""
+msgstr "Переименовать терминал…"
 
 #: src/input/command.zig:459
 msgid "Prompt for a new title for the current terminal."
-msgstr ""
+msgstr "Изменить заголовок текущего терминала."
 
 #: src/input/command.zig:465
 msgid "Prompt for a new title for the current tab."
-msgstr ""
+msgstr "Изменить заголовок текущей вкладки."
 
 #: src/input/command.zig:478
 msgid "Split the terminal to the left."
-msgstr ""
+msgstr "Разделить терминал влево."
 
 #: src/input/command.zig:483
 msgid "Split the terminal to the right."
-msgstr ""
+msgstr "Разделить терминал вправо."
 
 #: src/input/command.zig:488
 msgid "Split the terminal up."
-msgstr ""
+msgstr "Разделить терминал вверх."
 
 #: src/input/command.zig:493
 msgid "Split the terminal down."
-msgstr ""
+msgstr "Разделить терминал вниз."
 
 #: src/input/command.zig:500
 msgid "Focus Split: Previous"
-msgstr ""
+msgstr "Перейти к предыдущей области"
 
 #: src/input/command.zig:501
 msgid "Focus the previous split, if any."
-msgstr ""
+msgstr "Перейти к предыдущей области."
 
 #: src/input/command.zig:505
 msgid "Focus Split: Next"
-msgstr ""
+msgstr "Перейти к следующей области"
 
 #: src/input/command.zig:506
 msgid "Focus the next split, if any."
-msgstr ""
+msgstr "Перейти к следующей области."
 
 #: src/input/command.zig:510
 msgid "Focus Split: Left"
-msgstr ""
+msgstr "Перейти к области слева"
 
 #: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
-msgstr ""
+msgstr "Перейти к области слева."
 
 #: src/input/command.zig:515
 msgid "Focus Split: Right"
-msgstr ""
+msgstr "Перейти к области справа"
 
 #: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
-msgstr ""
+msgstr "Перейти к области справа."
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
-msgstr ""
+msgstr "Перейти к области сверху"
 
 #: src/input/command.zig:521
 msgid "Focus the split above, if it exists."
-msgstr ""
+msgstr "Перейти к области сверху."
 
 #: src/input/command.zig:525
 msgid "Focus Split: Down"
-msgstr ""
+msgstr "Перейти к области снизу"
 
 #: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
-msgstr ""
+msgstr "Перейти к области снизу."
 
 #: src/input/command.zig:533
 msgid "Focus Window: Previous"
-msgstr ""
+msgstr "Перейти к предыдущему окну"
 
 #: src/input/command.zig:534
 msgid "Focus the previous window, if any."
-msgstr ""
+msgstr "Перейти к предыдущему окну."
 
 #: src/input/command.zig:538
 msgid "Focus Window: Next"
-msgstr ""
+msgstr "Перейти к следующему окну"
 
 #: src/input/command.zig:539
 msgid "Focus the next window, if any."
-msgstr ""
+msgstr "Перейти к следующему окну."
 
 #: src/input/command.zig:545
 msgid "Toggle Split Zoom"
-msgstr ""
+msgstr "Переключить полнооконный режим области"
 
 #: src/input/command.zig:546
 msgid "Toggle the zoom state of the current split."
-msgstr ""
+msgstr "Развернуть область на всё окно или вернуть её прежний размер."
 
 #: src/input/command.zig:551
 msgid "Toggle Read-Only Mode"
-msgstr ""
+msgstr "Переключить режим только для чтения"
 
 #: src/input/command.zig:552
 msgid "Toggle read-only mode for the current surface."
-msgstr ""
+msgstr "Включить или отключить режим только для чтения для текущей области."
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
-msgstr ""
+msgstr "Выровнять области"
 
 #: src/input/command.zig:558
 msgid "Equalize the size of all splits."
-msgstr ""
+msgstr "Выровнять размеры всех областей по сетке."
 
 #: src/input/command.zig:563
 msgid "Reset Window Size"
-msgstr ""
+msgstr "Сбросить размер окна"
 
 #: src/input/command.zig:564
 msgid "Reset the window size to the default."
-msgstr ""
+msgstr "Вернуть размер окна по умолчанию."
 
 #: src/input/command.zig:569
 msgid "Toggle Inspector"
-msgstr ""
+msgstr "Переключить инспектор"
 
 #: src/input/command.zig:570
 msgid "Toggle the inspector."
-msgstr ""
+msgstr "Показать или скрыть инспектор."
 
 #: src/input/command.zig:575
 msgid "Show the GTK Inspector"
-msgstr ""
+msgstr "Показать инспектор GTK"
 
 #: src/input/command.zig:576
 msgid "Show the GTK inspector."
-msgstr ""
+msgstr "Показать инспектор GTK."
 
 #: src/input/command.zig:581
 msgid "Show On-Screen Keyboard"
-msgstr ""
+msgstr "Показать экранную клавиатуру"
 
 #: src/input/command.zig:582
 msgid "Show the on-screen keyboard if present."
-msgstr ""
+msgstr "Показать экранную клавиатуру, если она доступна."
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
-msgstr ""
+msgstr "Открыть конфигурацию в системном редакторе"
 
 #: src/input/command.zig:589
 msgid "Open the config file with the OS's default editor."
-msgstr ""
+msgstr "Открыть файл конфигурации в редакторе по умолчанию."
 
 #: src/input/command.zig:593
 msgid "Open Config in New Terminal Window"
-msgstr ""
+msgstr "Открыть конфигурацию в новом окне терминала"
 
 #: src/input/command.zig:594
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
-msgstr ""
+msgstr "Открыть файл конфигурации в новом окне с помощью $EDITOR или $VISUAL."
 
 #: src/input/command.zig:600
 msgid "Reload Config"
-msgstr ""
+msgstr "Перезагрузить конфигурацию"
 
 #: src/input/command.zig:601
 msgid "Reload the config file."
-msgstr ""
+msgstr "Перезагрузить файл конфигурации."
 
 #: src/input/command.zig:606
 msgid "Close Terminal"
-msgstr ""
+msgstr "Закрыть терминал"
 
 #: src/input/command.zig:607
 msgid "Close the current terminal."
-msgstr ""
+msgstr "Закрыть текущий терминал."
 
 #: src/input/command.zig:614
 msgid "Close the current tab."
-msgstr ""
+msgstr "Закрыть текущую вкладку."
 
 #: src/input/command.zig:618
 msgid "Close Other Tabs"
-msgstr ""
+msgstr "Закрыть другие вкладки"
 
 #: src/input/command.zig:619
 msgid "Close all tabs in this window except the current one."
-msgstr ""
+msgstr "Закрыть все остальные вкладки в этом окне."
 
 #: src/input/command.zig:623
 msgid "Close Tabs to the Right"
-msgstr ""
+msgstr "Закрыть вкладки справа"
 
 #: src/input/command.zig:624
 msgid "Close all tabs to the right of the current one."
-msgstr ""
+msgstr "Закрыть все вкладки справа от текущей."
 
 #: src/input/command.zig:631
 msgid "Close the current window."
-msgstr ""
+msgstr "Закрыть текущее окно."
 
 #: src/input/command.zig:636
 msgid "Close All Windows"
-msgstr ""
+msgstr "Закрыть все окна"
 
 #: src/input/command.zig:637
 msgid "Close all windows."
-msgstr ""
+msgstr "Закрыть все окна."
 
 #: src/input/command.zig:642
 msgid "Toggle Maximize"
-msgstr ""
+msgstr "Переключить развёрнутый режим окна"
 
 #: src/input/command.zig:643
 msgid "Toggle the maximized state of the current window."
-msgstr ""
+msgstr "Развернуть текущее окно или вернуть прежний размер."
 
 #: src/input/command.zig:648
 msgid "Toggle Fullscreen"
-msgstr ""
+msgstr "Переключить полноэкранный режим"
 
 #: src/input/command.zig:649
 msgid "Toggle the fullscreen state of the current window."
-msgstr ""
+msgstr "Показать текущее окно во весь экран или вернуть прежний размер."
 
 #: src/input/command.zig:654
 msgid "Toggle Window Decorations"
-msgstr ""
+msgstr "Переключить оформление окна"
 
 #: src/input/command.zig:655
 msgid "Toggle the window decorations."
-msgstr ""
+msgstr "Показать или скрыть оформление окна."
 
 #: src/input/command.zig:660
 msgid "Toggle Float on Top"
-msgstr ""
+msgstr "Переключить режим поверх всех окон"
 
 #: src/input/command.zig:661
 msgid "Toggle the float on top state of the current window."
-msgstr ""
+msgstr "Закрепить окно поверх остальных или снять закрепление."
 
 #: src/input/command.zig:666
 msgid "Toggle Secure Input"
-msgstr ""
+msgstr "Переключить защищённый ввод"
 
 #: src/input/command.zig:667
 msgid "Toggle secure input mode."
-msgstr ""
+msgstr "Включить или отключить режим защищённого ввода."
 
 #: src/input/command.zig:672
 msgid "Toggle Mouse Reporting"
-msgstr ""
+msgstr "Переключить передачу событий мыши"
 
 #: src/input/command.zig:673
 msgid "Toggle whether mouse events are reported to terminal applications."
-msgstr ""
+msgstr "Разрешить или запретить передачу событий мыши терминальным приложениям."
 
 #: src/input/command.zig:678
 msgid "Toggle Background Opacity"
-msgstr ""
+msgstr "Переключить прозрачность фона"
 
 #: src/input/command.zig:679
 msgid "Toggle the background opacity of a window that started transparent."
-msgstr ""
+msgstr "Изменить прозрачность у изначально прозрачного окна."
 
 #: src/input/command.zig:684
 msgid "Check for Updates"
-msgstr ""
+msgstr "Проверить обновления"
 
 #: src/input/command.zig:685
 msgid "Check for updates to the application."
-msgstr ""
+msgstr "Проверить наличие обновлений приложения."
 
 #: src/input/command.zig:690
 msgid "Undo"
-msgstr ""
+msgstr "Отменить"
 
 #: src/input/command.zig:691
 msgid "Undo the last action."
-msgstr ""
+msgstr "Отменить последнее действие."
 
 #: src/input/command.zig:696
 msgid "Redo"
-msgstr ""
+msgstr "Повторить"
 
 #: src/input/command.zig:697
 msgid "Redo the last undone action."
-msgstr ""
+msgstr "Повторить последнее отменённое действие."
 
 #: src/input/command.zig:703
 msgid "Quit the application."
-msgstr ""
+msgstr "Выйти из приложения."
 
 #: src/input/command.zig:708
 msgid "Ghostty"
-msgstr ""
+msgstr "Ghostty"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."
-msgstr ""
+msgstr "Вставить в терминал маленького Ghostty."
