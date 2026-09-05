@@ -2959,6 +2959,13 @@ keybind: Keybinds = .{},
 ///
 ///   * `title` - Set the window title via shell integration.
 ///
+///   * `ssh-mouse-cleanup` - Reset supported mouse tracking and encoding modes
+///     after integrated SSH exits when standard output is a terminal. This is a
+///     recovery reset, not state restoration: intentionally active same-terminal
+///     mouse state will also be disabled.
+///
+///     Example: `shell-integration-features = ssh-mouse-cleanup`
+///
 ///   * `ssh-env` - Enable SSH environment variable compatibility. Automatically
 ///     converts TERM from `xterm-ghostty` to `xterm-256color` when connecting to
 ///     remote hosts and propagates COLORTERM, TERM_PROGRAM, and TERM_PROGRAM_VERSION.
@@ -8825,6 +8832,7 @@ pub const ShellIntegrationFeatures = packed struct {
     cursor: bool = true,
     sudo: bool = false,
     title: bool = true,
+    @"ssh-mouse-cleanup": bool = false,
     @"ssh-env": bool = false,
     @"ssh-terminfo": bool = false,
     path: bool = true,
@@ -10549,6 +10557,21 @@ const TestIterator = struct {
         return result;
     }
 };
+
+test "parse shell integration feature: ssh-mouse-cleanup" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    try testing.expect(!cfg.@"shell-integration-features".@"ssh-mouse-cleanup");
+
+    var it: TestIterator = .{
+        .data = &.{"--shell-integration-features=ssh-mouse-cleanup"},
+    };
+    try cfg.loadIter(alloc, &it);
+    try testing.expect(cfg.@"shell-integration-features".@"ssh-mouse-cleanup");
+}
 
 test "parse hook: invalid command" {
     const testing = std.testing;
