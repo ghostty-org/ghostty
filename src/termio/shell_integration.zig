@@ -248,8 +248,20 @@ test "setup features" {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, .{ .cursor = true, .sudo = true, .title = true, .@"ssh-env" = true, .@"ssh-terminfo" = true, .path = true }, true);
-        try testing.expectEqualStrings("cursor:blink,path,ssh-env,ssh-terminfo,sudo,title", env.get("GHOSTTY_SHELL_FEATURES").?);
+        try setupFeatures(
+            &env,
+            .{
+                .cursor = true,
+                .sudo = true,
+                .title = true,
+                .@"ssh-mouse-cleanup" = true,
+                .@"ssh-env" = true,
+                .@"ssh-terminfo" = true,
+                .path = true,
+            },
+            true,
+        );
+        try testing.expectEqualStrings("cursor:blink,path,ssh-env,ssh-mouse-cleanup,ssh-terminfo,sudo,title", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
 
     // Test: all features disabled
@@ -268,6 +280,15 @@ test "setup features" {
 
         try setupFeatures(&env, .{ .cursor = false, .sudo = true, .title = false, .@"ssh-env" = true, .@"ssh-terminfo" = false, .path = false }, true);
         try testing.expectEqualStrings("ssh-env,sudo", env.get("GHOSTTY_SHELL_FEATURES").?);
+    }
+
+    // Test: SSH cleanup with default features
+    {
+        var env = EnvMap.init(alloc);
+        defer env.deinit();
+
+        try setupFeatures(&env, .{ .@"ssh-mouse-cleanup" = true }, true);
+        try testing.expectEqualStrings("cursor:blink,path,ssh-mouse-cleanup,title", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
 
     // Test: blinking cursor
