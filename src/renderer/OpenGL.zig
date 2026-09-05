@@ -3,14 +3,15 @@ pub const OpenGL = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const builtin = @import("builtin");
 const gl = @import("opengl");
+const egl = gl.egl;
 const shadertoy = @import("shadertoy.zig");
 const apprt = @import("../apprt.zig");
 const font = @import("../font/main.zig");
 const configpkg = @import("../config.zig");
 const rendererpkg = @import("../renderer.zig");
 const Renderer = rendererpkg.GenericRenderer(OpenGL);
+const Dmabuf = @import("Dmabuf.zig");
 
 pub const GraphicsAPI = OpenGL;
 pub const Target = @import("opengl/Target.zig");
@@ -27,9 +28,9 @@ pub const custom_shader_target: shadertoy.Target = .glsl;
 // The fragCoord for OpenGL shaders is +Y = up.
 pub const custom_shader_y_is_down = false;
 
-/// Because OpenGL's frame completion is always
-/// sync, we have no need for multi-buffering.
-pub const swap_chain_count = 1;
+/// Triple-buffering gives the GPU room to pipeline renders without
+/// having to wait on the apprt consuming previous frames.
+pub const swap_chain_count = 3;
 
 const log = std.log.scoped(.opengl);
 
@@ -42,20 +43,69 @@ alloc: std.mem.Allocator,
 /// Alpha blending mode
 blending: configpkg.Config.AlphaBlending,
 
-/// The most recently presented target, in case we need to present it again.
-last_target: ?Target = null,
+egl_display: *gl.egl.Display,
+egl_context: *gl.egl.Context,
 
-/// NOTE: This is an error{}!OpenGL instead of just OpenGL for parity with
-///       Metal, since it needs to be fallible so does this, even though it
-///       can't actually fail.
-pub fn init(alloc: Allocator, opts: rendererpkg.Options) error{}!OpenGL {
+pub fn init(alloc: Allocator, opts: rendererpkg.Options) !OpenGL {
+    try egl.load();
+
+    const display: *egl.Display = try .init(egl.c.EGL_DEFAULT_DISPLAY);
+
+    log.info("EGL vendor={s}", .{display.queryString(.vendor) orelse "(unknown)"});
+    log.info("EGL extensions={s}", .{display.queryString(.extensions) orelse "(unknown)"});
+
+    try egl.bindApi(egl.c.EGL_OPENGL_API);
+
+    // Choose a config. We need a config that is renderable with
+    // OpenGL and a RGBA8 color buffer.
+    const config = egl.Config.choose(display, &.{
+        egl.c.EGL_RENDERABLE_TYPE, egl.c.EGL_OPENGL_BIT,
+        egl.c.EGL_RED_SIZE,        8,
+        egl.c.EGL_GREEN_SIZE,      8,
+        egl.c.EGL_BLUE_SIZE,       8,
+        egl.c.EGL_ALPHA_SIZE,      8,
+        egl.c.EGL_NONE,
+    }) catch |err| {
+        log.warn("failed to choose config err={}", .{err});
+        return err;
+    };
+
+    // Create our context.
+    const context = egl.Context.create(display, config, null, &.{
+        egl.c.EGL_CONTEXT_MAJOR_VERSION,       MIN_VERSION_MAJOR,
+        egl.c.EGL_CONTEXT_MINOR_VERSION,       MIN_VERSION_MINOR,
+        egl.c.EGL_CONTEXT_OPENGL_PROFILE_MASK, egl.c.EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+        egl.c.EGL_NONE,
+    }) catch |err| {
+        log.warn("failed to create EGL context err={}", .{err});
+        return err;
+    };
+    errdefer context.destroy(display) catch {};
+
+    display.makeCurrent(null, null, context) catch |err| {
+        log.warn("failed to make EGL context current err={}", .{err});
+        return err;
+    };
+
+    // Release current so that the main thread
+    // doesn't hold onto the GL context forever.
+    defer display.releaseCurrent();
+
     return .{
         .alloc = alloc,
         .blending = opts.config.blending,
+        .egl_display = display,
+        .egl_context = context,
     };
 }
 
 pub fn deinit(self: *OpenGL) void {
+    self.egl_display.releaseCurrent();
+    self.egl_context.destroy(self.egl_display) catch {};
+
+    // Do not destroy the EGL display here as
+    // it is shared across the entire process.
+    // It will get automatically torn down by the OS.
     self.* = undefined;
 }
 
@@ -158,95 +208,45 @@ fn prepareContext(getProcAddress: anytype) !void {
     try gl.enable(gl.c.GL_FRAMEBUFFER_SRGB);
 }
 
-/// This is called early right after surface creation.
-pub fn surfaceInit(surface: *apprt.Surface) !void {
+/// Callback called by renderer.Thread when it begins. Called on the render
+/// thread. The EGL context was created at `init` time on the main thread;
+/// here we (re)bind it to this thread and load the thread-local glad
+/// function pointers so all subsequent GL work on this thread is valid.
+pub fn threadEnter(self: *OpenGL, surface: *apprt.Surface) !void {
     _ = surface;
-
-    switch (apprt.runtime) {
-        else => @compileError("unsupported app runtime for OpenGL"),
-
-        // GTK uses global OpenGL context so we load from null.
-        apprt.gtk,
-        => try prepareContext(null),
-
-        apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
-        },
-    }
-
-    // These are very noisy so this is commented, but easy to uncomment
-    // whenever we need to check the OpenGL extension list
-    // if (builtin.mode == .Debug) {
-    //     var ext_iter = try gl.ext.iterator();
-    //     while (try ext_iter.next()) |ext| {
-    //         log.debug("OpenGL extension available name={s}", .{ext});
-    //     }
-    // }
+    try self.egl_display.makeCurrent(null, null, self.egl_context);
+    // Load our function pointers for this thread's threadlocal.
+    try prepareContext(&gl.egl.getProcAddress);
 }
 
-/// This is called just prior to spinning up the renderer
-/// thread for final main thread setup requirements.
-pub fn finalizeSurfaceInit(self: *const OpenGL, surface: *apprt.Surface) !void {
-    _ = self;
-    _ = surface;
+/// Callback called by renderer.Thread when it exits. Called on the render
+/// thread; unbinds the context from this thread so it can be destroyed on
+/// the main thread.
+pub fn threadExit(self: *OpenGL) void {
+    self.egl_display.releaseCurrent();
+    gl.glad.unload();
 }
 
-/// Callback called by renderer.Thread when it begins.
-pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
+/// Get the current size of the runtime surface.
+pub fn surfaceSize(self: *const OpenGL) !struct { width: u32, height: u32 } {
     _ = self;
-    _ = surface;
-
-    switch (apprt.runtime) {
-        else => @compileError("unsupported app runtime for OpenGL"),
-
-        apprt.gtk => {
-            // GTK doesn't support threaded OpenGL operations as far as I can
-            // tell, so we use the renderer thread to setup all the state
-            // but then do the actual draws and texture syncs and all that
-            // on the main thread. As such, we don't do anything here.
-        },
-
-        apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
-        },
-    }
+    var viewport: [4]gl.c.GLint = undefined;
+    gl.glad.context.GetIntegerv.?(gl.c.GL_VIEWPORT, &viewport);
+    return .{
+        .width = @intCast(viewport[2]),
+        .height = @intCast(viewport[3]),
+    };
 }
 
-/// Callback called by renderer.Thread when it exits.
-pub fn threadExit(self: *const OpenGL) void {
+/// Set the GL viewport to cover the given size in device pixels.
+///
+/// This used to be automatically called by the GtkGLArea upon resizing,
+/// but now we need to do this manually.
+pub fn setViewport(self: *const OpenGL, width: u32, height: u32) void {
     _ = self;
-
-    switch (apprt.runtime) {
-        else => @compileError("unsupported app runtime for OpenGL"),
-
-        apprt.gtk => {
-            // We don't need to do any unloading for GTK because we may
-            // be sharing the global bindings with other windows.
-        },
-
-        apprt.embedded => {
-            // TODO: see threadEnter
-        },
-    }
-}
-
-pub fn displayRealized(self: *const OpenGL) void {
-    _ = self;
-
-    switch (apprt.runtime) {
-        apprt.gtk => prepareContext(null) catch |err| {
-            log.warn(
-                "Error preparing GL context in displayRealized, err={}",
-                .{err},
-            );
-        },
-
-        else => @compileError("only GTK should be calling displayRealized"),
-    }
+    gl.viewport(0, 0, @intCast(width), @intCast(height)) catch |err| {
+        log.warn("failed to set OpenGL viewport err={}", .{err});
+    };
 }
 
 /// Actions taken before doing anything in `drawFrame`.
@@ -275,71 +275,58 @@ pub fn initShaders(
     );
 }
 
-/// Get the current size of the runtime surface.
-pub fn surfaceSize(self: *const OpenGL) !struct { width: u32, height: u32 } {
-    _ = self;
-    var viewport: [4]gl.c.GLint = undefined;
-    gl.glad.context.GetIntegerv.?(gl.c.GL_VIEWPORT, &viewport);
-    return .{
-        .width = @intCast(viewport[2]),
-        .height = @intCast(viewport[3]),
-    };
-}
-
 /// Initialize a new render target which can be presented by this API.
 pub fn initTarget(self: *const OpenGL, width: usize, height: usize) !Target {
+    _ = self;
     return Target.init(.{
-        .internal_format = if (self.blending.isLinear()) .srgba else .rgba,
         .width = width,
         .height = height,
     });
 }
 
-/// Present the provided target.
-pub fn present(self: *OpenGL, target: Target) !void {
-    // In order to present a target we blit it to the default framebuffer.
+/// Export a rendered target. Caller takes ownership
+/// of the frame and is responsible for freeing it.
+///
+/// This runs on the render thread.
+pub fn present(self: *OpenGL, target: Target) !ExportedFrame {
+    if (target.exportDmabuf(self.egl_display, self.egl_context)) |dmabuf| {
+        return .{ .dmabuf = dmabuf };
+    } else |_| {
+        // If DMABUFs fail, then use CPU buffers
+        return .{ .memory = .{
+            .width = @intCast(target.width),
+            .height = @intCast(target.height),
+            .pixels = try target.readPixelsAlloc(self.alloc),
+            .alloc = self.alloc,
+        } };
+    }
+}
 
-    // We disable GL_FRAMEBUFFER_SRGB while doing this blit, otherwise the
-    // values may be linearized as they're copied, but even though the draw
-    // framebuffer has a linear internal format, the values in it should be
-    // sRGB, not linear!
-    try gl.disable(gl.c.GL_FRAMEBUFFER_SRGB);
-    defer gl.enable(gl.c.GL_FRAMEBUFFER_SRGB) catch |err| {
-        log.err("Error re-enabling GL_FRAMEBUFFER_SRGB, err={}", .{err});
+/// A finished frame exported for presentation by the apprt.
+pub const ExportedFrame = union(enum) {
+    dmabuf: Dmabuf,
+    memory: Memory,
+
+    /// RGBA8 pixel data with premultiplied alpha, tightly packed
+    /// (`width * 4` bytes per row), in CPU memory.
+    pub const Memory = struct {
+        width: u32,
+        height: u32,
+        pixels: []u8,
+        alloc: Allocator,
+
+        pub fn deinit(self: Memory) void {
+            self.alloc.free(self.pixels);
+        }
     };
 
-    // Bind the target for reading.
-    const fbobind = try target.framebuffer.bind(.read);
-    defer fbobind.unbind();
-
-    // Blit
-    gl.glad.context.BlitFramebuffer.?(
-        0,
-        0,
-        @intCast(target.width),
-        @intCast(target.height),
-        0,
-        0,
-        @intCast(target.width),
-        @intCast(target.height),
-        gl.c.GL_COLOR_BUFFER_BIT,
-        gl.c.GL_NEAREST,
-    );
-
-    // Keep track of this target in case we need to repeat it.
-    self.last_target = target;
-}
-
-/// Present the last presented target again.
-pub fn presentLastTarget(self: *OpenGL) !void {
-    if (self.last_target) |target| try self.present(target);
-}
-
-/// Called when the renderer released its GPU resources; the last
-/// presented target is deinited with them so we must drop our copy.
-pub fn gpuResourcesReleased(self: *OpenGL) void {
-    self.last_target = null;
-}
+    pub fn deinit(self: ExportedFrame) void {
+        switch (self) {
+            .dmabuf => |v| v.deinit(),
+            .memory => |v| v.deinit(),
+        }
+    }
+};
 
 /// Returns the options to use when constructing buffers.
 pub inline fn bufferOptions(self: OpenGL) bufferpkg.Options {
@@ -363,7 +350,7 @@ pub inline fn textureOptions(self: OpenGL) Texture.Options {
     return .{
         .format = .rgba,
         .internal_format = .srgba,
-        .target = .@"2D",
+        .target = .@"2d",
         .min_filter = .linear,
         .mag_filter = .linear,
         .wrap_s = .clamp_to_edge,
@@ -410,7 +397,7 @@ pub inline fn imageTextureOptions(
     return .{
         .format = format.toPixelFormat(),
         .internal_format = if (srgb) .srgba else .rgba,
-        .target = .@"2D",
+        .target = .@"2d",
         // TODO: Generate mipmaps for image textures and use
         //       linear_mipmap_linear filtering so that they
         //       look good even when scaled way down.
@@ -441,7 +428,7 @@ pub fn initAtlasTexture(
         .{
             .format = format,
             .internal_format = internal_format,
-            .target = .Rectangle,
+            .target = .rectangle,
             .min_filter = .nearest,
             .mag_filter = .nearest,
             .wrap_s = .clamp_to_edge,

@@ -660,6 +660,15 @@ pub fn add(
             .flags = &.{},
         });
 
+        // Link EGL for GTK.
+        if (self.config.app_runtime == .gtk) {
+            step.root_module.addCSourceFile(.{
+                .file = b.path("vendor/glad/src/glad_egl.c"),
+                .flags = &.{},
+            });
+            step.root_module.linkSystemLibrary("egl", dynamic_link_opts);
+        }
+
         // When we're targeting flatpak we ALWAYS link GTK so we
         // get access to glib for dbus.
         if (self.config.flatpak) {

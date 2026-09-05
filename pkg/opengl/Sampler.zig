@@ -1,7 +1,7 @@
 const Sampler = @This();
 
 const std = @import("std");
-const c = @import("c.zig").c;
+const c = @import("c");
 const errors = @import("errors.zig");
 const glad = @import("glad.zig");
 const Texture = @import("Texture.zig");
@@ -24,8 +24,8 @@ pub fn bind(v: Sampler, index: c_uint) !void {
 
 pub fn parameter(
     self: Sampler,
-    name: Texture.Parameter,
-    value: anytype,
+    comptime name: Texture.Parameter,
+    value: name.Type(),
 ) errors.Error!void {
     switch (@TypeOf(value)) {
         c.GLint => glad.context.SamplerParameteri.?(

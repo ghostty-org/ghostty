@@ -21,20 +21,16 @@ Overlay terminal_page {
     hexpand: true;
     vexpand: true;
 
-    GLArea gl_area {
-      realize => $gl_realize();
-      unrealize => $gl_unrealize();
-      map => $gl_map();
-      unmap => $gl_unmap();
-      render => $gl_render();
-      resize => $gl_resize();
+    $GhosttyRenderSurface render_surface {
+      realize => $render_surface_realize();
+      unrealize => $render_surface_unrealize();
+      map => $render_surface_map();
+      unmap => $render_surface_unmap();
+      resize => $render_surface_resize();
       hexpand: true;
       vexpand: true;
       focusable: true;
       focus-on-click: true;
-      has-stencil-buffer: false;
-      has-depth-buffer: false;
-      allowed-apis: gl;
     }
 
     PopoverMenu context_menu {
