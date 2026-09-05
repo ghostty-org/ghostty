@@ -16,6 +16,7 @@ const gtk = @import("gtk");
 const a11y = @import("../../../a11y/main.zig");
 const global = @import("../../../global.zig");
 const terminal = @import("../../../terminal/main.zig");
+const unicode = @import("../../../unicode/main.zig");
 const gtk_version = @import("../gtk_version.zig");
 const Application = @import("application.zig").Application;
 const Surface = @import("surface.zig").Surface;
@@ -568,10 +569,10 @@ fn bytesNulTerm(slice: []const u8) *glib.Bytes {
     return glib.Bytes.new(buf.ptr, slice.len + 1);
 }
 
-// UTF-8 codepoint offset helpers; `a11y.offsets` owns the arithmetic
+// UTF-8 codepoint offset helpers; `unicode.utf8` owns the arithmetic
 // and the tests that pin it down.
-const utf8CpCount = a11y.offsets.utf8CpCount;
-const utf8CpToByte = a11y.offsets.utf8CpToByte;
+const utf8CpCount = unicode.utf8.cpCount;
+const utf8CpToByte = unicode.utf8.cpToByte;
 
 fn getContentsAt(
     accessible: *gtk.AccessibleText,
