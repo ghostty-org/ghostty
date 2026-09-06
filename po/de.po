@@ -1076,7 +1076,7 @@ msgstr "Immer im Vordergrund umschalten"
 
 #: src/input/command.zig:661
 msgid "Toggle the float on top state of the current window."
-msgstr "Status Immer-im-Vordergrund des aktuellen Fensters umschalten."
+msgstr "Das aktuelle Fenster im Vordergrund fixieren oder lösen."
 
 #: src/input/command.zig:666
 msgid "Toggle Secure Input"
