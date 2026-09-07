@@ -2269,7 +2269,7 @@ pub fn Stream(comptime H: type) type {
                     },
 
                     else => log.warn(
-                        "ignoring unimplemented CSI p with intermediates: {s}",
+                        "ignoring unimplemented CSI q with intermediates: {s}",
                         .{input.intermediates},
                     ),
                 },
