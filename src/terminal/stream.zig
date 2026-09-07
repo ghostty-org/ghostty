@@ -1312,15 +1312,9 @@ pub fn Stream(comptime H: type) type {
                 .final = c,
             };
 
-            // Only SGR defines colon-joined subparameters. Reading them
-            // positionally elsewhere would turn `CSI 1:2 H` into a
-            // cursor move to (1, 2), so the sequence is dropped.
-            if (p.params.colons and c != 'm') {
+            if (p.params.colons and !action.allowsSubparams()) {
                 @branchHint(.cold);
-                log.warn(
-                    "CSI colon or mixed separators only allowed for 'm' command, got: {f}",
-                    .{action},
-                );
+                Parser.warnCsiSepMismatch(action);
                 return;
             }
 

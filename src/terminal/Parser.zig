@@ -103,6 +103,26 @@ pub const Action = union(enum) {
         /// The separator used for CSI params.
         pub const Sep = enum(u1) { semicolon = 0, colon = 1 };
 
+        /// Whether this command defines colon-joined subparameters.
+        ///
+        /// A colon introduces a subparameter (ECMA-48 5.4.2). Only the
+        /// commands that define one can read it. The rest have to drop
+        /// the whole sequence: reading the subparameters positionally
+        /// would turn `CSI 1:2 H` into a cursor move to (1, 2).
+        pub fn allowsSubparams(self: CSI) bool {
+            return switch (self.final) {
+                // SGR: direct colors and underline styles.
+                'm' => true,
+
+                // Kitty multiple cursors: coordinate and color groups.
+                // DECSCUSR shares the 'q' final but has no '>', so it
+                // falls through to false.
+                'q' => std.mem.eql(u8, self.intermediates, "> "),
+
+                else => false,
+            };
+        }
+
         // Implement formatter for logging
         pub fn format(
             self: CSI,
@@ -436,13 +456,24 @@ pub fn deinit(self: *Parser) void {
 /// Log a CSI dispatch dropped for parameters we could not keep: past
 /// `MAX_PARAMS`, or a failed spill allocation.
 ///
-/// This is noinline on purpose. It is cold, and inlining it into the hot
-/// dispatch path has been measured to cost binary size and performance
-/// through icache pressure. It is public so the stream's own CSI fast
-/// path, which bypasses the state machine, reports drops identically.
+/// This and `warnCsiSepMismatch` are noinline on purpose. Both are cold,
+/// and inlining them into the hot dispatch path has been measured to
+/// cost binary size and performance through icache pressure. Both are
+/// public so the stream's own CSI fast path, which bypasses the state
+/// machine, reports drops identically.
 pub noinline fn warnCsiParams() void {
     @branchHint(.cold);
     log.warn("unable to retain CSI parameters, dropping sequence", .{});
+}
+
+/// Log a CSI dispatch dropped for using subparameters its final byte
+/// does not define. See `Action.CSI.allowsSubparams`.
+pub noinline fn warnCsiSepMismatch(csi: Action.CSI) void {
+    @branchHint(.cold);
+    log.warn(
+        "CSI subparameters are not defined for this command, got: {f}",
+        .{csi},
+    );
 }
 
 /// Next consumes the next character c and returns the actions to execute.
@@ -557,15 +588,11 @@ inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
                 },
             };
 
-            // Only SGR defines colon-joined subparameters. Reading them
-            // positionally elsewhere would turn `CSI 1:2 H` into a
-            // cursor move to (1, 2), so the sequence is dropped.
-            if (self.params.colons and c != 'm') {
+            if (self.params.colons and
+                !result.csi_dispatch.allowsSubparams())
+            {
                 @branchHint(.cold);
-                log.warn(
-                    "CSI colon or mixed separators only allowed for 'm' command, got: {f}",
-                    .{result.csi_dispatch},
-                );
+                warnCsiSepMismatch(result.csi_dispatch);
                 break :csi_dispatch null;
             }
 
