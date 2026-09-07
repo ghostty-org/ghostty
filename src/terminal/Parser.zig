@@ -454,6 +454,46 @@ pub const Params = struct {
     }
 };
 
+test "Params: spills only after inline capacity" {
+    var params: Params = .empty;
+    params.alloc = testing.allocator;
+    defer params.deinit();
+
+    // Exactly `INLINE_PARAMS` still fits inline.
+    for (0..INLINE_PARAMS) |i| params.push(@intCast(i), false);
+    try testing.expectEqual(0, params.spill.items.len);
+
+    // One more moves the whole sequence to the heap, separators and all.
+    // `take` still hands back a single contiguous slice.
+    params.push(INLINE_PARAMS, true);
+    const values = params.take().?;
+    try testing.expectEqual(INLINE_PARAMS + 1, values.len);
+    for (values, 0..) |value, i| try testing.expectEqual(i, value);
+    try testing.expect(params.seps.isSet(INLINE_PARAMS));
+
+    // A reset keeps the spill capacity but not its contents. The next
+    // short sequence is served inline again.
+    params.reset();
+    params.push(1, false);
+    try testing.expectEqualSlices(u16, &.{1}, params.take().?);
+    try testing.expectEqual(0, params.spill.items.len);
+}
+
+test "Params: allocation failure drops the sequence" {
+    var failing: testing.FailingAllocator = .init(testing.allocator, .{
+        .fail_index = 0,
+    });
+    var params: Params = .empty;
+    params.alloc = failing.allocator();
+    defer params.deinit();
+
+    // A failed spill discards everything. Half a sequence is worse than
+    // none of it.
+    for (0..INLINE_PARAMS + 1) |i| params.push(@intCast(i), false);
+    try testing.expect(params.take() == null);
+    try testing.expect(failing.has_induced_failure);
+}
+
 pub fn init() Parser {
     var result: Parser = .{
         .state = .ground,
@@ -1008,6 +1048,16 @@ test "csi: SGR mixed colon and semicolon setting underline, bg, fg" {
     }
 }
 
+test "csi: colon for a final that defines no subparameters" {
+    // Read positionally, "38:2" would make this a set-mode for mode 2.
+    // The whole sequence is dropped instead.
+    var p = init();
+    _ = p.next(0x1B);
+    for ("[38:2") |c| _ = p.next(c);
+    try testing.expect(p.next('h')[1] == null);
+    try testing.expect(p.state == .ground);
+}
+
 test "csi: request mode decrqm" {
     var p = init();
     _ = p.next(0x1B);
@@ -1059,6 +1109,132 @@ test "csi: change cursor" {
         try testing.expectEqual(@as(u16, ' '), d.intermediates[0]);
         try testing.expectEqual(@as(u16, 3), d.params[0]);
     }
+}
+
+test "csi: kitty multiple cursors keeps colon separators" {
+    var p = init();
+    _ = p.next(0x1B);
+    for ("[>29;2:4:5 ") |c| _ = p.next(c);
+
+    const d = p.next('q')[1].?.csi_dispatch;
+    try testing.expect(p.state == .ground);
+    try testing.expectEqual(@as(u8, 'q'), d.final);
+    try testing.expectEqualSlices(u8, "> ", d.intermediates);
+    try testing.expectEqualSlices(u16, &.{ 29, 2, 4, 5 }, d.params);
+
+    // A bit is set for each parameter followed by ':', so the ';' after
+    // the operation is the only one clear.
+    try testing.expectEqual(@as(usize, 2), d.params_sep.count());
+    try testing.expect(!d.params_sep.isSet(0));
+    try testing.expect(d.params_sep.isSet(1));
+    try testing.expect(d.params_sep.isSet(2));
+}
+
+test "csi: subparameters only reach the finals that define them" {
+    // SGR and the kitty multiple cursors protocol define subparameters.
+    // DECSCUSR shares the 'q' final but not the '>' marker, and CUP
+    // defines none at all. Both of those get dropped.
+    const cases = .{
+        .{ "[38:2:1:2:3", 'm', true },
+        .{ "[>29;2:4:5 ", 'q', true },
+        .{ "[2:3 ", 'q', false },
+        .{ "[1;2:3", 'H', false },
+    };
+
+    inline for (cases) |case| {
+        var p = init();
+        _ = p.next(0x1B);
+        for (case[0]) |c| _ = p.next(c);
+        const action = p.next(case[1])[1];
+        if (comptime case[2]) {
+            try testing.expect(action.?.csi_dispatch.params_sep.count() > 0);
+        } else {
+            try testing.expect(action == null);
+        }
+    }
+}
+
+test "csi: a colon after the last parameter is not a separator" {
+    // Nothing follows the final parameter, so its separator bit is
+    // meaningless. Consumers that walk the bits must stop at the last
+    // parameter rather than reading off the end of the set.
+    var p = init();
+    p.setAllocator(testing.allocator);
+    defer p.deinit();
+    _ = p.next(0x1B);
+    _ = p.next('[');
+    for (0..MAX_PARAMS) |_| {
+        _ = p.next('1');
+        _ = p.next(':');
+    }
+
+    const csi = p.next('m')[1].?.csi_dispatch;
+    try testing.expectEqual(@as(usize, MAX_PARAMS), csi.params.len);
+
+    var sgr_parser: sgr.Parser = .{
+        .params = csi.params,
+        .params_sep = csi.params_sep,
+    };
+    while (sgr_parser.next()) |_| {}
+}
+
+test "csi: one parameter too many drops the sequence" {
+    // Both the state machine and the stream's own CSI loop must drop an
+    // overflowing sequence whole rather than act on a truncated one.
+    var p = init();
+    p.setAllocator(testing.allocator);
+    defer p.deinit();
+    _ = p.next(0x1B);
+    _ = p.next('[');
+    for (0..MAX_PARAMS) |_| {
+        _ = p.next('1');
+        _ = p.next(';');
+    }
+    _ = p.next('1');
+    try testing.expect(p.next('m')[1] == null);
+}
+
+test "csi: kitty multiple cursors accepts a full parameter batch" {
+    // One operation plus three parameters per point, filling the limit
+    // that kitty's own parser imposes on a single sequence.
+    var p = init();
+    p.setAllocator(testing.allocator);
+    defer p.deinit();
+    _ = p.next(0x1B);
+    _ = p.next('[');
+
+    const points = (MAX_PARAMS - 1) / 3;
+    var buf: [MAX_PARAMS * 8]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try writer.writeAll(">1");
+    for (1..points + 1) |col| try writer.print(";2:1:{d}", .{col});
+    try writer.writeByte(' ');
+    for (writer.buffered()) |byte| _ = p.next(byte);
+
+    const csi = p.next('q')[1].?.csi_dispatch;
+    try testing.expectEqual(@as(usize, 1 + points * 3), csi.params.len);
+    try testing.expectEqual(@as(usize, points * 2), csi.params_sep.count());
+    try testing.expectEqualSlices(u16, &.{ 1, 2, 1, 1 }, csi.params[0..4]);
+    try testing.expectEqualSlices(
+        u16,
+        &.{ 2, 1, points },
+        csi.params[csi.params.len - 3 ..],
+    );
+}
+
+test "csi: separators do not leak into the next sequence" {
+    // `reset` only clears the separator bits below `len`, so a sequence
+    // that used colons must not leave them set for the next one, which
+    // would get dropped as a subparameter mismatch.
+    var p = init();
+    _ = p.next(0x1B);
+    for ("[38:2:1:2:3") |c| _ = p.next(c);
+    try testing.expect(p.next('m')[1] != null);
+
+    _ = p.next(0x1B);
+    for ("[1;2") |c| _ = p.next(c);
+    const csi = p.next('m')[1].?.csi_dispatch;
+    try testing.expectEqual(@as(usize, 0), csi.params_sep.count());
 }
 
 test "osc: change window title" {
