@@ -123,6 +123,39 @@ pub const Action = union(enum) {
             };
         }
 
+        /// Iterates the parameters as semicolon-separated groups, where
+        /// a group is the maximal run of parameters joined by colons.
+        /// `1;2:3:4;5` yields `{1}`, `{2,3,4}`, and `{5}`.
+        ///
+        /// This saves protocols that structure their parameters with
+        /// colons, such as the kitty multiple cursors protocol, from
+        /// walking the separator bits themselves.
+        pub const GroupIterator = struct {
+            params: []const u16,
+            params_sep: *const SepList,
+
+            /// The parameter the next group starts at. Set this past a
+            /// leading parameter you have already consumed, such as an
+            /// operation code.
+            index: usize = 0,
+
+            pub fn next(self: *GroupIterator) ?[]const u16 {
+                if (self.index >= self.params.len) return null;
+
+                // A set bit at i means parameter i is followed by ':',
+                // so the group continues past it. The bound keeps a
+                // trailing bit from running off the end.
+                const start = self.index;
+                var end = start;
+                while (end + 1 < self.params.len and
+                    self.params_sep.isSet(end)) : (end += 1)
+                {}
+
+                self.index = end + 1;
+                return self.params[start .. end + 1];
+            }
+        };
+
         // Implement formatter for logging
         pub fn format(
             self: CSI,
