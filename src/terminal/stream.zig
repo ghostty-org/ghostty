@@ -4081,6 +4081,29 @@ test "stream: too many csi params" {
     s.nextSlice("1C");
 }
 
+test "stream: CSI subparameters only reach the finals that define them" {
+    const H = struct {
+        pos: ?Action.CursorPos = null,
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) void {
+            switch (action) {
+                .cursor_pos => self.pos = value,
+                else => {},
+            }
+        }
+    };
+
+    // CUP defines no subparameters. The colon drops the sequence; it
+    // does not move the cursor to (1, 2).
+    var s: Stream(H) = .init(.{ .handler = .{} });
+    s.nextSlice("\x1B[1:2H");
+    try testing.expect(s.handler.pos == null);
+}
+
 test "stream: csi param too long" {
     const H = struct {
         pub fn vt(
