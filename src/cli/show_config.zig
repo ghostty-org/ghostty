@@ -4,10 +4,14 @@ const Allocator = std.mem.Allocator;
 const Action = @import("ghostty.zig").Action;
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
+const Key = Config.Key;
 const Pager = @import("Pager.zig");
 const global = @import("../global.zig");
 
 pub const Options = struct {
+    /// Only include this options in the output.
+    _filter: ?std.EnumSet(Key) = null,
+
     /// If true, do not load the user configuration, only load the defaults.
     default: bool = false,
 
@@ -31,6 +35,37 @@ pub const Options = struct {
         _ = self;
         return Action.help_error;
     }
+
+    pub const ParseManuallyHookError = error{};
+
+    /// Manual parse hook. For each argument:
+    ///   - If it's a literal `--`, consume everything after it as
+    ///     option name filter entries and stop parsing.
+    ///   - Otherwise, return true for the generic parser to handle.
+    pub fn parseManuallyHook(
+        self: *Options,
+        alloc: Allocator,
+        arg: []const u8,
+        iter: anytype,
+    ) ParseManuallyHookError!bool {
+        _ = alloc;
+
+        if (!std.mem.eql(u8, arg, "--")) return true;
+
+        var empty = true;
+        var filter: std.EnumSet(Key) = .empty;
+        while (iter.next()) |next| {
+            // Ignore entries that are empty or whitespace-only.
+            const trimmed = std.mem.trim(u8, next, " \t");
+            if (trimmed.len == 0) continue;
+
+            empty = false;
+            const key = std.meta.stringToEnum(Key, trimmed) orelse continue;
+            filter.insert(key);
+        }
+        self._filter = if (empty) null else filter;
+        return false;
+    }
 };
 
 /// The `show-config` command shows the current configuration in a valid Ghostty
@@ -42,6 +77,10 @@ pub const Options = struct {
 ///
 /// If you are a new user and want to see all available options with
 /// documentation, run `ghostty +show-config --default --docs`.
+///
+/// You can filter the output by passing a list of option names after `--`.
+/// Invalid option names are silently ignored; if none of the given names
+/// match, nothing is printed.
 ///
 /// The output is not in any specific order, but the order should be consistent
 /// between runs. The output is not guaranteed to be exactly match the input
@@ -72,12 +111,16 @@ pub fn run(alloc: Allocator) !u8 {
         try args.parse(Options, alloc, &opts, &iter);
     }
 
+    // Fast path in case of no matching options.
+    if (opts._filter) |f| if (f.count() == 0) return 0;
+
     var config = if (opts.default) try Config.default(alloc) else try Config.load(alloc);
     defer config.deinit();
 
     const configfmt: configpkg.FileFormatter = .{
         .alloc = alloc,
         .config = &config,
+        .filter = opts._filter,
         .changed = !opts.default and opts.@"changes-only",
         .docs = opts.docs,
     };
