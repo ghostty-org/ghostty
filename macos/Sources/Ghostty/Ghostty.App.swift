@@ -621,6 +621,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_MOVE_TAB:
                 return moveTab(app, target: target, move: action.action.move_tab)
 
+            case GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW:
+                return moveTabToNewWindow(app, target: target)
+
             case GHOSTTY_ACTION_GOTO_TAB:
                 return gotoTab(app, target: target, tab: action.action.goto_tab)
 
@@ -1270,6 +1273,31 @@ extension Ghostty {
                             SwiftUI.Notification.Name.GhosttyMoveTabKey: Action.MoveTab(c: move),
                         ]
                     )
+
+                default:
+                    assertionFailure()
+                }
+
+                return true
+        }
+
+        private static func moveTabToNewWindow(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) -> Bool {
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("move tab to new window does nothing with an app target")
+                    return false
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+
+                    // See gotoTab for notes on this check. A lone tab is already
+                    // a window of its own, so there is nothing to move.
+                    guard (surfaceView.window?.tabGroup?.windows.count ?? 0) > 1 else { return false }
+
+                    surfaceView.window?.moveTabToNewWindow(nil)
 
                 default:
                     assertionFailure()
