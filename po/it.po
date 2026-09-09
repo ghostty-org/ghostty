@@ -41,7 +41,7 @@ msgstr "Consenti"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
 msgid "Remember choice for this split"
-msgstr "Ricorda scelta per questa divisione"
+msgstr "Ricorda scelta per questo riquadro"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
 msgid "Reload configuration to show this prompt again"
@@ -148,7 +148,7 @@ msgstr "Reimposta"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split"
-msgstr "Divisione"
+msgstr "Riquadro"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:348 src/apprt/gtk/ui/1.5/window.blp:253
 msgid "Change Title…"
@@ -176,7 +176,7 @@ msgstr "Dividi a destra"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:377
 msgid "Close Split"
-msgstr "Chiudi divisione"
+msgstr "Chiudi riquadro"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:383
 msgid "Tab"
@@ -238,7 +238,7 @@ msgstr "OK"
 
 #: src/apprt/gtk/ui/1.5/window.blp:61 src/apprt/gtk/ui/1.5/window.blp:111
 msgid "New Split"
-msgstr "Nuova divisione"
+msgstr "Nuovo riquadro"
 
 #: src/apprt/gtk/ui/1.5/window.blp:71 src/apprt/gtk/ui/1.5/window.blp:129
 msgid "View Open Tabs"
@@ -326,15 +326,15 @@ msgstr "Chiudere Ghostty?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
-msgstr "Chiudere la scheda?"
+msgstr "Chiudere scheda?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:186
 msgid "Close Window?"
-msgstr "Chiudere la finestra?"
+msgstr "Chiudere finestra?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:187
 msgid "Close Split?"
-msgstr "Chiudere la divisione?"
+msgstr "Chiudere riquadro?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions will be terminated."
@@ -351,7 +351,7 @@ msgstr "Tutte le sessioni del terminale in questa finestra saranno terminate."
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:196
 msgid "The currently running process in this split will be terminated."
 msgstr ""
-"Il processo attualmente in esecuzione in questa divisione sarà terminato."
+"Il processo attualmente in esecuzione in questo riquadro sarà terminato."
 
 #: src/apprt/gtk/class/surface.zig:1181
 msgid "Command Finished"
@@ -868,51 +868,51 @@ msgstr "Dividi il terminale in basso."
 
 #: src/input/command.zig:500
 msgid "Focus Split: Previous"
-msgstr "Metti a fuoco divisione: precedente"
+msgstr "Metti a fuoco riquadro: precedente"
 
 #: src/input/command.zig:501
 msgid "Focus the previous split, if any."
-msgstr "Metti a fuoco la divisione precedente, se presente"
+msgstr "Metti a fuoco il riquadro precedente, se presente"
 
 #: src/input/command.zig:505
 msgid "Focus Split: Next"
-msgstr "Metti a fuoco divisione: prossima"
+msgstr "Metti a fuoco riquadro: prossima"
 
 #: src/input/command.zig:506
 msgid "Focus the next split, if any."
-msgstr "Metti a fuoco la prossima divisione, se presente"
+msgstr "Metti a fuoco il prossimo riquadro, se presente"
 
 #: src/input/command.zig:510
 msgid "Focus Split: Left"
-msgstr "Metti a fuoco divisione: sinistra"
+msgstr "Metti a fuoco riquadro: sinistra"
 
 #: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
-msgstr "Metti a fuoco la divisione a sinistra, se presente."
+msgstr "Metti a fuoco il riquadro a sinistra, se presente."
 
 #: src/input/command.zig:515
 msgid "Focus Split: Right"
-msgstr "Metti a fuoco divisione: destra"
+msgstr "Metti a fuoco riquadro: destra"
 
 #: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
-msgstr "Metti a fuoco la divisione a destra, se presente."
+msgstr "Metti a fuoco il riquadro a destra, se presente."
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
-msgstr "Metti a fuoco divisione: sopra"
+msgstr "Metti a fuoco riquadro: sopra"
 
 #: src/input/command.zig:521
 msgid "Focus the split above, if it exists."
-msgstr "Metti a fuoco la divisione sopra, se presente."
+msgstr "Metti a fuoco il riquadro sopra, se presente."
 
 #: src/input/command.zig:525
 msgid "Focus Split: Down"
-msgstr "Metti a fuoco divisione: sotto"
+msgstr "Metti a fuoco riquadro: sotto"
 
 #: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
-msgstr "Metti a fuoco la divisione sotto, se presente."
+msgstr "Metti a fuoco il riquadro sotto, se presente."
 
 #: src/input/command.zig:533
 msgid "Focus Window: Previous"
@@ -932,11 +932,11 @@ msgstr "Metti a fuoco la prossima finestra, se presente"
 
 #: src/input/command.zig:545
 msgid "Toggle Split Zoom"
-msgstr "Attiva/disattiva zoom divisione"
+msgstr "Attiva/disattiva zoom riquadro"
 
 #: src/input/command.zig:546
 msgid "Toggle the zoom state of the current split."
-msgstr "Attiva/disattiva lo zoom della divisione corrente."
+msgstr "Attiva/disattiva lo zoom del riquadro corrente."
 
 #: src/input/command.zig:551
 msgid "Toggle Read-Only Mode"
@@ -948,11 +948,11 @@ msgstr "Attiva/disattiva la modalità di sola lettura per la superficie corrente
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
-msgstr "Distribuisci divisioni"
+msgstr "Distribuisci riquadri"
 
 #: src/input/command.zig:558
 msgid "Equalize the size of all splits."
-msgstr "Distribuisci uniformemente le dimensioni di tutte le divisioni."
+msgstr "Distribuisci uniformemente le dimensioni di tutti i riquadri."
 
 #: src/input/command.zig:563
 msgid "Reset Window Size"
