@@ -234,7 +234,9 @@ pub fn format_alloc(
     }
 
     const buf = aw.toOwnedSlice() catch return .out_of_memory;
-    out_ptr.* = buf.ptr;
+    // Empty Zig slices may contain sentinel pointers that foreign runtimes
+    // reject even when the length is zero (for example Go's stack scanner).
+    out_ptr.* = if (buf.len == 0) null else buf.ptr;
     out_len.* = buf.len;
     return .success;
 }
@@ -279,6 +281,47 @@ test "terminal_new invalid_value on null terminal" {
 
 test "free null" {
     free(null);
+}
+
+test "format_alloc empty output" {
+    const failing: CAllocator = .fromZig(&std.mem.Allocator.failing);
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        100,
+        40,
+    ));
+    defer terminal_c.free(t);
+
+    // Match a zero-initialized C options struct, including trim = false.
+    const opts: TerminalOptions = std.mem.zeroInit(TerminalOptions, .{});
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+        opts,
+    ));
+    defer free(f);
+
+    for ([_]?*const CAllocator{ null, &failing }) |allocator| {
+        var sentinel: u8 = 0;
+        var ptr: ?[*]u8 = @ptrCast(&sentinel);
+        var len: usize = 123;
+        try testing.expectEqual(Result.success, format_alloc(f, allocator, &ptr, &len));
+        defer @import("allocator.zig").free(allocator, ptr, len);
+        try testing.expectEqual(@as(usize, 0), len);
+        try testing.expectEqual(null, ptr);
+    }
+
+    // Reusing the same formatter must still allocate and return real output.
+    terminal_c.vt_write(t, "hello", 5);
+    var ptr: ?[*]u8 = null;
+    var len: usize = 0;
+    try testing.expectEqual(Result.success, format_alloc(f, null, &ptr, &len));
+    defer @import("allocator.zig").free(null, ptr, len);
+    try testing.expectEqualStrings("hello", ptr.?[0..len]);
 }
 
 test "format plain" {

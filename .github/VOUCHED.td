@@ -303,6 +303,7 @@ sghng
 shorsher
 silveirapf
 simonbcn
+slowdub
 slsrepo
 steven-tk
 sunshine-syz

@@ -8918,9 +8918,19 @@ pub const RepeatableCommand = struct {
             item.* = try item.clone(alloc);
         }
 
+        // Cloning value_c directly would copy Command.C structs
+        // whose string pointers still reference the source config's
+        // memory — the clone must stay valid after the source is
+        // freed.
+        var value_c: std.ArrayListUnmanaged(inputpkg.Command.C) = .empty;
+        try value_c.ensureTotalCapacityPrecise(alloc, value.items.len);
+        for (value.items) |item| {
+            value_c.appendAssumeCapacity(try item.cval(alloc));
+        }
+
         return .{
             .value = value,
-            .value_c = try self.value_c.clone(alloc),
+            .value_c = value_c,
         };
     }
 
@@ -9007,6 +9017,26 @@ pub const RepeatableCommand = struct {
 
         try list.parseCLI(alloc, "");
         try testing.expectEqual(inputpkg.command.defaults.len, list.value.items.len);
+    }
+
+    test "RepeatableCommand clone rebuilds the C mirror" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: RepeatableCommand = .{};
+        try list.parseCLI(alloc, "title:Foo,description:bar,action:new_tab");
+
+        const copy = try list.clone(alloc);
+        try testing.expectEqual(list.value_c.items.len, copy.value_c.items.len);
+        // The clone's C strings must not alias the source's — the
+        // source config can be freed while the clone lives on.
+        try testing.expect(list.value_c.items[0].title != copy.value_c.items[0].title);
+        try testing.expectEqualStrings(
+            std.mem.span(list.value_c.items[0].title),
+            std.mem.span(copy.value_c.items[0].title),
+        );
     }
 
     test "RepeatableCommand formatConfig empty" {

@@ -98,11 +98,11 @@
 in
   linkFarm name [
     {
-      name = "aro-0.0.0-JSD1Qk8rOQDnuVcD4jAwMpHitA6pADRKzQ7M7hKRwxvD";
+      name = "aro-0.0.0-JSD1Qk6lNgDdcDV4Vh7Sfy-34m2TluIVOdPzMmj_0BjX";
       path = fetchZigArtifact {
         name = "aro";
-        url = "https://github.com/vancluever/arocc/archive/ecbc5c799574e0da2758a961b12efa586007f03c.tar.gz";
-        hash = "sha256-rjNfhWjmA/1WR/xuHo4ls4fnDCbsI1VZSvb8SFRvwso=";
+        url = "https://github.com/vancluever/arocc/archive/f97cdfc3779aec4b242299e2fc9a1c828c3547c6.tar.gz";
+        hash = "sha256-G/NNgk7KhJSLdy17ip1igIzpYhAUlzO7ef8r3/iCv/s=";
         unpack = true;
       };
     }
@@ -125,11 +125,11 @@ in
       };
     }
     {
-      name = "N-V-__8AAIrfdwARSa-zMmxWwFuwpXf1T3asIN7s5jqi9c1v";
+      name = "N-V-__8AAOgqbADacob-q2_DMQlmgaG4xKHRuW-6PJ4oJzMZ";
       path = fetchZigArtifact {
         name = "fontconfig";
-        url = "https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz";
-        hash = "sha256-O6LdkhWHGKzsXKrxpxYEO1qgVcJ7CB2RSvPMtA3OilU=";
+        url = "https://gitlab.freedesktop.org/api/v4/projects/890/packages/generic/fontconfig/2.18.3/fontconfig-2.18.3.tar.xz";
+        hash = "sha256-T3tVSjjN94wDP2ZsiHHzdJ4UoJT2Wgf2MMke0LQ9NeM=";
         unpack = false;
       };
     }
@@ -206,11 +206,11 @@ in
       };
     }
     {
-      name = "N-V-__8AAGZkBACH0haGC9R-hfNPYWxu16hr-ydEsolad9GV";
+      name = "N-V-__8AAEFmBABuDGOKxAI6VMg41b9euMZ-z7HS9EcUdaor";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://deps.files.ghostty.org/ghostty-themes-release-20260824-153547-75c93ee.tgz";
-        hash = "sha256-sf0fMQV/l8EnTbA8bORJYIN6GkH1InXLxkruLm40654=";
+        url = "https://deps.files.ghostty.org/ghostty-themes-release-20260831-151010-752a9c0.tgz";
+        hash = "sha256-g2U+uDe661v8fVDJG31EdyeW4IwcJDE04Rxe32yNFcU=";
         unpack = false;
       };
     }
@@ -305,11 +305,11 @@ in
       };
     }
     {
-      name = "translate_c-0.0.0-Q_BUWmU6BwB_9JKG2l2W7i_mhmYWeRseTGBEHi_YlV5f";
+      name = "translate_c-0.0.0-Q_BUWhVNBwDOEcIqub4VFPJPB6D9dgwzUMHTX5KWr8Xr";
       path = fetchZigArtifact {
         name = "translate_c";
-        url = "https://deps.files.ghostty.org/translate_c-80f8b6e4f45a303268717d8e5f4f91d7837138bb.tar.gz";
-        hash = "sha256-fB7OsZ2PIijMzVMYg8SzDBtTKX7IZHbEvPuBTdyGtWk=";
+        url = "https://codeberg.org/vancluever/translate-c/archive/4e879eb8aba615de112eabd1231ea6e01920cead.tar.gz";
+        hash = "sha256-/sT7W8Kp+O11xaFBgpb/kDiWzfQ0MuXk/d/TuGq1Am8=";
         unpack = true;
       };
     }

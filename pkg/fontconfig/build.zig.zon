@@ -5,8 +5,8 @@
     .paths = .{""},
     .dependencies = .{
         .fontconfig = .{
-            .url = "https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz",
-            .hash = "N-V-__8AAIrfdwARSa-zMmxWwFuwpXf1T3asIN7s5jqi9c1v",
+            .url = "https://gitlab.freedesktop.org/api/v4/projects/890/packages/generic/fontconfig/2.18.3/fontconfig-2.18.3.tar.xz",
+            .hash = "N-V-__8AAOgqbADacob-q2_DMQlmgaG4xKHRuW-6PJ4oJzMZ",
             .lazy = true,
         },
 

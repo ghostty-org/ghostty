@@ -1,9 +1,9 @@
 [
   {
     "type": "archive",
-    "url": "https://github.com/vancluever/arocc/archive/ecbc5c799574e0da2758a961b12efa586007f03c.tar.gz",
-    "dest": "vendor/p/aro-0.0.0-JSD1Qk8rOQDnuVcD4jAwMpHitA6pADRKzQ7M7hKRwxvD",
-    "sha256": "aa54487bd727e8fa36744ff0a824dedb2f4ca45f4c2d4d9d2437cf5fd3d0ad1a"
+    "url": "https://github.com/vancluever/arocc/archive/f97cdfc3779aec4b242299e2fc9a1c828c3547c6.tar.gz",
+    "dest": "vendor/p/aro-0.0.0-JSD1Qk6lNgDdcDV4Vh7Sfy-34m2TluIVOdPzMmj_0BjX",
+    "sha256": "42c8cab9135b12518e6af7dc5e461f055c78b863adca8ed7774f2fb7fe9a7784"
   },
   {
     "type": "archive",
@@ -19,9 +19,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz",
-    "dest": "vendor/p/N-V-__8AAIrfdwARSa-zMmxWwFuwpXf1T3asIN7s5jqi9c1v",
-    "sha256": "3ba2dd92158718acec5caaf1a716043b5aa055c27b081d914af3ccb40dce8a55"
+    "url": "https://gitlab.freedesktop.org/api/v4/projects/890/packages/generic/fontconfig/2.18.3/fontconfig-2.18.3.tar.xz",
+    "dest": "vendor/p/N-V-__8AAOgqbADacob-q2_DMQlmgaG4xKHRuW-6PJ4oJzMZ",
+    "sha256": "4f7b554a38cdf78c033f666c8871f3749e14a094f65a07f630c91ed0b43d35e3"
   },
   {
     "type": "archive",
@@ -73,9 +73,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260824-153547-75c93ee.tgz",
-    "dest": "vendor/p/N-V-__8AAGZkBACH0haGC9R-hfNPYWxu16hr-ydEsolad9GV",
-    "sha256": "b1fd1f31057f97c1274db03c6ce44960837a1a41f52275cbc64aee2e6e34eb9e"
+    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260831-151010-752a9c0.tgz",
+    "dest": "vendor/p/N-V-__8AAEFmBABuDGOKxAI6VMg41b9euMZ-z7HS9EcUdaor",
+    "sha256": "83653eb837baeb5bfc7d50c91b7d44772796e08c1c243134e11c5edf6c8d15c5"
   },
   {
     "type": "archive",
@@ -139,9 +139,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/translate_c-80f8b6e4f45a303268717d8e5f4f91d7837138bb.tar.gz",
-    "dest": "vendor/p/translate_c-0.0.0-Q_BUWmU6BwB_9JKG2l2W7i_mhmYWeRseTGBEHi_YlV5f",
-    "sha256": "38c9e59d58f36e3481f6fa38f11fe59c63c12492fccf399ca56f3dfcce17b53e"
+    "url": "https://codeberg.org/vancluever/translate-c/archive/4e879eb8aba615de112eabd1231ea6e01920cead.tar.gz",
+    "dest": "vendor/p/translate_c-0.0.0-Q_BUWhVNBwDOEcIqub4VFPJPB6D9dgwzUMHTX5KWr8Xr",
+    "sha256": "8fb0f5c6a3e8b3bf0e35225d3abc1230bcf6f1fdf162467f1f747ec2fa5eda07"
   },
   {
     "type": "archive",

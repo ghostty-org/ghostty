@@ -224,7 +224,8 @@ typedef struct GhosttyAllocator {
  *
  * @param allocator Pointer to the allocator to use, or NULL for the default
  * @param len Number of bytes to allocate
- * @return Pointer to the allocated buffer, or NULL if allocation failed
+ * @return Pointer to the allocated buffer, or NULL if len is zero or
+ *         allocation failed
  *
  * @ingroup allocator
  */

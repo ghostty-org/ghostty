@@ -907,6 +907,8 @@ GHOSTTY_API GhosttyResult ghostty_terminal_selection_format_buf(
  * The returned buffer is allocated using allocator, or the default allocator
  * if NULL is passed. The caller owns the returned buffer and must free it with
  * ghostty_free(), passing the same allocator and returned length.
+ * Empty output returns GHOSTTY_SUCCESS with *out_ptr set to NULL and
+ * *out_len set to zero. This result can be passed to ghostty_free().
  *
  * The returned bytes are not NUL-terminated. This supports plain text, VT, and
  * HTML uniformly as byte output.

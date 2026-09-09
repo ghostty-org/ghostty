@@ -310,7 +310,7 @@ jobs:
           mkdir -p blob/${GHOSTTY_COMMIT_LONG}
           cp libghostty-vt-source.tar.gz blob/${GHOSTTY_COMMIT_LONG}/libghostty-vt-source.tar.gz
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -395,7 +395,7 @@ jobs:
           mkdir -p blob/${GHOSTTY_COMMIT_LONG}
           cp ghostty-vt.xcframework.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-vt.xcframework.zip
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -523,7 +523,7 @@ jobs:
           cp ghostty-vt.wasm blob/${GHOSTTY_COMMIT_LONG}/ghostty-vt.wasm
           cp ghostty-vt-small.wasm blob/${GHOSTTY_COMMIT_LONG}/ghostty-vt-small.wasm
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -745,7 +745,7 @@ jobs:
           cp Ghostty.dmg blob/${GHOSTTY_COMMIT_LONG}/Ghostty.dmg
 
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -769,7 +769,7 @@ jobs:
         if: |
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -976,7 +976,7 @@ jobs:
           cp ghostty-macos-universal-debug-slow.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-slow.zip
           cp ghostty-macos-universal-debug-slow-dsym.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-slow-dsym.zip
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -1173,7 +1173,7 @@ jobs:
           cp ghostty-macos-universal-debug-fast.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-fast.zip
           cp ghostty-macos-universal-debug-fast-dsym.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-fast-dsym.zip
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}

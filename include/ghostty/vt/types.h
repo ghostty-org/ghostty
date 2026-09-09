@@ -262,6 +262,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  *
  * The memory is not owned by this struct. The pointer is only valid
  * for the lifetime documented by the API that produces or consumes it.
+ * Empty strings produced by the library have a non-NULL pointer to valid
+ * storage.
  */
 typedef struct {
   /** Pointer to the string bytes. */

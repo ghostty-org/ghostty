@@ -1152,6 +1152,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// Create or update the display link and match it to the current
         /// surface state.
+        ///
+        /// Must be called on the render thread and must NOT be called
+        /// while holding `draw_mutex`. Stopping a CVDisplayLink is a
+        /// blocking join on CoreVideo's IO thread, and the apprt calls
+        /// `drawFrame` (which takes `draw_mutex`) from the CoreAnimation
+        /// layer display path on the main thread.
         fn syncDisplayLink(
             self: *Self,
             display_id: ?u32,
@@ -1611,11 +1617,30 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             sync: bool,
         ) !void {
-            // We hold a the draw mutex to prevent changes to any
-            // data we access while we're in the middle of drawing.
-            self.draw_mutex.lockUncancelable(global.io());
-            defer self.draw_mutex.unlock(global.io());
+            // Everything that touches draw state happens under the draw
+            // mutex. The display link is synced only after the mutex is
+            // released; see `syncDisplayLink` for why it must never be
+            // called with the draw mutex held.
+            const sync_display_link = locked: {
+                self.draw_mutex.lockUncancelable(global.io());
+                defer self.draw_mutex.unlock(global.io());
+                break :locked try self.drawFrameLocked(sync);
+            };
 
+            if (sync_display_link) self.syncDisplayLink(null, null);
+        }
+
+        /// The body of `drawFrame`. Must be called with `draw_mutex` held.
+        ///
+        /// Returns true if the display link should be resynced once the
+        /// draw mutex is released. This is only ever true on the no-redraw
+        /// path, which a sync draw never takes, so the main thread's sync
+        /// draws never touch the display link and `syncDisplayLink` stays
+        /// on the render thread.
+        fn drawFrameLocked(
+            self: *Self,
+            sync: bool,
+        ) !bool {
             // After the graphics API is complete (so we defer) we want to
             // update our scrollbar state.
             defer if (self.scrollbar_dirty) {
@@ -1636,12 +1661,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // If either of our surface dimensions is zero
             // then drawing is absurd, so we just return.
-            if (surface_size.width == 0 or surface_size.height == 0) return;
+            if (surface_size.width == 0 or surface_size.height == 0) return false;
 
             // If we have no graphics context we can't draw. This is
             // only the case while unrealized (GTK); displayRealized
             // rebuilds the swap chain.
-            if (!self.display_realized) return;
+            if (!self.display_realized) return false;
 
             // Get our swap chain, rebuilding it if it was released
             // while we were hidden. Rebuilding is deferred to draw
@@ -1679,10 +1704,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // if we don't draw something new.
                 try self.api.presentLastTarget();
 
-                // Resync the display link because we can probably pause
-                // the display link at this point.
-                self.syncDisplayLink(null, null);
-                return;
+                // Ask our caller to resync the display link once the draw
+                // mutex is released, because we can probably pause the
+                // display link at this point.
+                return true;
             }
             self.cells_rebuilt = false;
 
@@ -1915,6 +1940,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     });
                 }
             }
+
+            return false;
         }
 
         // Callback from the graphics API when a frame is completed.

@@ -2176,7 +2176,8 @@ GHOSTTY_API GhosttyResult ghostty_terminal_continuation_buf(
  * The returned bytes are allocated with allocator, or the default allocator
  * when allocator is NULL. The caller must release them with ghostty_free(),
  * passing the same allocator and returned length. An empty continuation is a
- * successful zero-length allocation.
+ * successful result with *out_ptr set to NULL and *out_len set to zero,
+ * which can also be passed to ghostty_free().
  * Continuation tracking must have been enabled by setting
  * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to a nonzero value before the
  * input that produced the continuation was written.

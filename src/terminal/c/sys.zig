@@ -97,7 +97,7 @@ fn decodePngWrapper(
 
     const c_alloc = CAllocator.fromZig(&alloc);
     var out: Image = undefined;
-    if (!func(global.userdata, &c_alloc, data.ptr, data.len, &out)) return error.InvalidData;
+    if (!func(global.userdata, &c_alloc, lib.String.init(data).ptr, data.len, &out)) return error.InvalidData;
 
     const result_data = out.data orelse return error.InvalidData;
 
