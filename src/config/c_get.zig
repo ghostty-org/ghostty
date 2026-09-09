@@ -238,3 +238,19 @@ test "c_get: split-preserve-zoom" {
     try testing.expect(get(&c, .@"split-preserve-zoom", @ptrCast(&bits)));
     try testing.expectEqual(@as(c_uint, 1), bits);
 }
+
+test "QuickCommand C configuration list" {
+    const testing = std.testing;
+    var config = try Config.default(testing.allocator);
+    defer config.deinit();
+    var value: @import("QuickCommand.zig").C = undefined;
+    try testing.expect(get(&config, .@"quick-command", &value));
+    try testing.expectEqual(@as(usize, 0), value.len);
+    try config.@"quick-command".parseCLI(config._arena.?.allocator(), "title:Pruebas,command:zig build test,action:execute,group:Linux");
+    try testing.expect(get(&config, .@"quick-command", &value));
+    try testing.expectEqual(@as(usize, 1), value.len);
+    try testing.expectEqualStrings("Pruebas", std.mem.span(value.commands[0].title));
+    try testing.expectEqualStrings("zig build test", std.mem.span(value.commands[0].command));
+    try testing.expectEqualStrings("Linux", std.mem.span(value.commands[0].group.?));
+    try testing.expect(value.commands[0].execute);
+}

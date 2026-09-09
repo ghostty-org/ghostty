@@ -5465,6 +5465,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             log.debug("mouse reporting toggled: {}", .{self.config.mouse_reporting});
         },
 
+        .toggle_quick_commands => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_quick_commands,
+            {},
+        ),
+
         .toggle_command_palette => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_command_palette,

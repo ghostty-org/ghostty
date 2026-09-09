@@ -38,6 +38,33 @@ for smaller examples of using `libghostty` in C and Zig.
 
 For more details, see [About Ghostty](https://ghostty.org/docs/about).
 
+### Fork Enhancements (macOS)
+
+This fork ([`skyones-0/ghostty`](https://github.com/skyones-0/ghostty)) introduces powerful native macOS productivity extensions:
+
+- **⚡ Quick Commands Sidebar (`⌘⇧B`)**:
+  - 1-click execute (`▶`) and insert (`✎`) modes.
+  - Interactive parameter placeholder modal (`<host>`, `{branch}`).
+  - Dynamic auto-injection (`{clipboard}`, `{selection}`).
+  - SecureCRT-style Broadcast mode (send to all splits simultaneously).
+  - Categorized group tabs and instant search.
+  - Full native keyboard navigation (`↑`/`↓` circular navigation, `Return` to execute, `⌥ Return` to insert, `Escape` to focus terminal).
+  - Auto-scrolling centered item tracking (`ScrollViewReader`).
+  - Synced atomic dotfiles storage (`~/.config/ghostty/quick-commands.json`) with live Darwin file watching.
+- **🤖 Intelligent AI Agent Process Monitor**:
+  - Real-time Darwin CPU delta tracking via `proc_pidinfo(PROC_PIDTASKINFO)` for `agy`, `claude`, `codex`, and `ollama`.
+  - Smart **Thinking** vs **Idle / Waiting for prompt** detection with 2.5s smoothing window.
+  - Animated Unicode Braille Equalizer (`⣀⣄⣤⣦`) and Spinners (`⠋⠙⠹...`) that pause on idle (0.0% CPU overhead).
+- **📦 Background Jobs Pill & Popover**:
+  - Live pill indicator (`[⠋ N bg]`) in the top bar and sidebar header.
+  - Interactive popover displaying active processes with 1-click `SIGTERM` kill buttons.
+- **🧭 Balanced Terminal Top Bar**:
+  - Live Current Working Directory badge (`pwd`, click to copy).
+  - Quick Tab & Split controls (`2x1`, `1x2`).
+  - Active split counter badge.
+
+For full configuration and usage details, see [QUICK_COMMANDS.md](macos/QUICK_COMMANDS.md).
+
 ## Download
 
 See the [download page](https://ghostty.org/download) on the Ghostty website.

@@ -693,6 +693,13 @@ extension Ghostty {
             case GHOSTTY_ACTION_RENDERER_HEALTH:
                 rendererHealth(app, target: target, v: action.action.renderer_health)
 
+            case GHOSTTY_ACTION_TOGGLE_QUICK_COMMANDS:
+                if target.tag == GHOSTTY_TARGET_SURFACE,
+                   let surface = target.target.surface,
+                   let surfaceView = self.surfaceView(from: surface) {
+                    NotificationCenter.default.post(name: .ghosttyQuickCommandsDidToggle, object: surfaceView)
+                }
+
             case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE:
                 toggleCommandPalette(app, target: target)
 

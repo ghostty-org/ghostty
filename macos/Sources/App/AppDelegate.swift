@@ -74,6 +74,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuReadonly: NSMenuItem?
     @IBOutlet private var menuQuickTerminal: NSMenuItem?
     @IBOutlet private var menuTerminalInspector: NSMenuItem?
+    @IBOutlet private var menuQuickCommands: NSMenuItem?
     @IBOutlet private var menuCommandPalette: NSMenuItem?
 
     @IBOutlet private var menuEqualizeSplits: NSMenuItem?
@@ -1211,6 +1212,7 @@ extension AppDelegate {
         syncMenuShortcut(config, action: "toggle_visibility", menuItem: self.menuToggleVisibility)
         syncMenuShortcut(config, action: "toggle_window_float_on_top", menuItem: self.menuFloatOnTop)
         syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)
+        syncMenuShortcut(config, action: "toggle_quick_commands", menuItem: self.menuQuickCommands)
         syncMenuShortcut(config, action: "toggle_command_palette", menuItem: self.menuCommandPalette)
 
         syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)

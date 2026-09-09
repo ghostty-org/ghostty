@@ -556,6 +556,18 @@ typedef struct {
   size_t len;
 } ghostty_config_command_list_s;
 
+typedef struct {
+  const char* title;
+  const char* command;
+  const char* group;
+  bool execute;
+} ghostty_quick_command_s;
+
+typedef struct {
+  const ghostty_quick_command_s* commands;
+  size_t len;
+} ghostty_config_quick_command_list_s;
+
 // config.Palette
 typedef struct {
   ghostty_config_color_s colors[256];
@@ -1009,6 +1021,7 @@ typedef enum {
   GHOSTTY_ACTION_READONLY,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
   GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
+  GHOSTTY_ACTION_TOGGLE_QUICK_COMMANDS,
 } ghostty_action_tag_e;
 
 typedef union {

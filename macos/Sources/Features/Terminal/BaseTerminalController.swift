@@ -55,6 +55,8 @@ class BaseTerminalController: NSWindowController,
 
     /// This can be set to show/hide the command palette.
     @Published var commandPaletteIsShowing: Bool = false
+    @Published var quickCommandsIsShowing: Bool = false
+    @Published var quickCommandsWidth: CGFloat = 300
 
     /// Set if the terminal view should show the update overlay.
     @Published var updateOverlayIsVisible: Bool = false
@@ -168,6 +170,11 @@ class BaseTerminalController: NSWindowController,
             self,
             selector: #selector(ghosttyConfigDidChangeBase(_:)),
             name: .ghosttyConfigDidChange,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttyQuickCommandsDidToggle(_:)),
+            name: .ghosttyQuickCommandsDidToggle,
             object: nil)
         center.addObserver(
             self,
@@ -640,6 +647,37 @@ class BaseTerminalController: NSWindowController,
 
         // Update our derived config
         self.derivedConfig = DerivedConfig(config)
+    }
+
+    @objc private func ghosttyQuickCommandsDidToggle(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
+              surfaceTree.contains(surfaceView) else { return }
+        toggleQuickCommands(nil)
+    }
+
+    @IBAction func toggleQuickCommands(_ sender: Any?) {
+        quickCommandsIsShowing.toggle()
+        if !quickCommandsIsShowing, let focusedSurface, surfaceTree.contains(focusedSurface) {
+            Ghostty.moveFocus(to: focusedSurface)
+        }
+    }
+
+    func sendQuickCommand(_ command: QuickCommand, customText: String? = nil, execute: Bool, broadcast: Bool = false) {
+        guard let action = command.bindingAction(customText: customText, execute: execute, force: true) else { return }
+        if broadcast {
+            let targets = Array(surfaceTree).filter { $0.surface != nil && !$0.readonly }
+            for target in targets {
+                performAction(action, on: target)
+            }
+            if let focusedSurface, surfaceTree.contains(focusedSurface) {
+                Ghostty.moveFocus(to: focusedSurface)
+            }
+        } else {
+            guard let target = focusedSurface, surfaceTree.contains(target),
+                  target.surface != nil, !target.readonly else { return }
+            performAction(action, on: target)
+            Ghostty.moveFocus(to: target)
+        }
     }
 
     @objc private func ghosttyCommandPaletteDidToggle(_ notification: Notification) {
@@ -1498,6 +1536,10 @@ class BaseTerminalController: NSWindowController,
 
 extension BaseTerminalController: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(toggleQuickCommands(_:)) {
+            item.state = quickCommandsIsShowing ? .on : .off
+            return true
+        }
         switch item.action {
         case #selector(findHide):
             return focusedSurface?.searchState != nil

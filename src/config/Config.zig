@@ -34,6 +34,7 @@ const MetricModifier = fontpkg.Metrics.Modifier;
 const help_strings = @import("help_strings");
 pub const Command = @import("command.zig").Command;
 const RepeatableReadableIO = @import("io.zig").RepeatableReadableIO;
+const QuickCommand = @import("QuickCommand.zig");
 const RepeatableStringMap = @import("RepeatableStringMap.zig");
 pub const Path = @import("path.zig").Path;
 pub const RepeatablePath = @import("path.zig").RepeatablePath;
@@ -3028,6 +3029,24 @@ keybind: Keybinds = .{},
 /// Available since: 1.2.0
 @"command-palette-entry": RepeatableCommand = .{},
 
+/// Commands shown in the macOS quick commands sidebar (Cmd+Shift+B).
+/// Repeat this option to add entries; an empty value clears the list.
+/// Required fields are `title` and `command`. `action` defaults to `insert`;
+/// `execute` also enables a button that sends the command followed by Enter.
+/// Values use the same quoting and escaping as `command-palette-entry`.
+/// Commands must be nonempty, single-line UTF-8 without control characters.
+///
+/// ```ini
+/// quick-command = title:"Run project",command:"zig build run",action:execute
+/// quick-command = title:"Tests",command:"zig build test"
+/// ```
+///
+/// Entries from configuration are read-only in the sidebar and can be
+/// duplicated into its editable local library. The library is independent
+/// of this option. Commands are sent to the focused split's existing PTY.
+/// This option is accepted on all platforms; its UI is macOS-only.
+@"quick-command": QuickCommand = .{},
+
 /// Sets the reporting format for OSC sequences that request color information.
 /// Ghostty currently supports OSC 10 (foreground), OSC 11 (background), and
 /// OSC 4 (256 color palette) queries, and by default the reported values
@@ -3462,6 +3481,12 @@ keybind: Keybinds = .{},
 /// With some window managers and window transparency settings, you may
 /// find false more visually appealing.
 @"macos-window-shadow": bool = true,
+
+/// Whether to show the top bar in the macOS terminal window.
+@"macos-topbar": bool = true,
+
+/// Whether to show the Command Palette button in the macOS top bar.
+@"macos-topbar-palette": bool = true,
 
 /// If true, the macOS icon in the dock and app switcher will be hidden. This is
 /// mainly intended for those primarily using the quick-terminal mode.
@@ -7057,6 +7082,11 @@ pub const Keybinds = struct {
 
         // Mac-specific keyboard bindings.
         if (comptime builtin.target.os.tag.isDarwin()) {
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = 'b' }, .mods = .{ .super = true, .shift = true } },
+                .toggle_quick_commands,
+            );
             try self.set.put(
                 alloc,
                 .{ .key = .{ .unicode = 'q' }, .mods = .{ .super = true } },

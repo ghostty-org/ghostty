@@ -901,6 +901,9 @@ extension Ghostty {
         }
 
         override func mouseDown(with event: NSEvent) {
+            if let window, window.firstResponder !== self {
+                window.makeFirstResponder(self)
+            }
             guard let surface = self.surface else { return }
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
             ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
@@ -927,6 +930,9 @@ extension Ghostty {
         }
 
         override func otherMouseDown(with event: NSEvent) {
+            if let window, window.firstResponder !== self {
+                window.makeFirstResponder(self)
+            }
             guard let surface = self.surface else { return }
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
             let button = Ghostty.Input.MouseButton(fromNSEventButtonNumber: event.buttonNumber)
@@ -941,6 +947,9 @@ extension Ghostty {
         }
 
         override func rightMouseDown(with event: NSEvent) {
+            if let window, window.firstResponder !== self {
+                window.makeFirstResponder(self)
+            }
             guard let surface = self.surface else { return super.rightMouseDown(with: event) }
 
             let mods = Ghostty.ghosttyMods(event.modifierFlags)

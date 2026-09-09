@@ -135,6 +135,22 @@ extension Ghostty {
             return .init(rawValue: v)
         }
 
+        var quickCommands: [QuickCommand] {
+            guard let config else { return [] }
+            var value = ghostty_config_quick_command_list_s()
+            let key = "quick-command"
+            guard ghostty_config_get(config, &value, key, UInt(key.utf8.count)), value.len > 0 else { return [] }
+            return UnsafeBufferPointer(start: value.commands, count: value.len).map { (cmd: ghostty_quick_command_s) in
+                let group = cmd.group != nil ? String(cString: cmd.group!) : nil
+                return QuickCommand(
+                    title: String(cString: cmd.title),
+                    command: String(cString: cmd.command),
+                    action: cmd.execute ? .execute : .insert,
+                    group: group
+                )
+            }
+        }
+
         var bellAudioPath: ConfigPath? {
             guard let config = self.config else { return nil }
             var v = ghostty_config_path_s()
@@ -667,6 +683,22 @@ extension Ghostty {
             guard let config = self.config else { return true }
             var v = false
             let key = "macos-applescript"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
+        var macosTopbar: Bool {
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "macos-topbar"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
+        var macosTopbarPalette: Bool {
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "macos-topbar-palette"
             _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
             return v
         }

@@ -323,6 +323,7 @@ extension Notification.Name {
     /// Readonly mode changed
     static let ghosttyDidChangeReadonly = Notification.Name("com.mitchellh.ghostty.didChangeReadonly")
     static let ReadonlyKey = ghosttyDidChangeReadonly.rawValue + ".readonly"
+    static let ghosttyQuickCommandsDidToggle = Notification.Name("com.mitchellh.ghostty.quickCommandsDidToggle")
     static let ghosttyCommandPaletteDidToggle = Notification.Name("com.mitchellh.ghostty.commandPaletteDidToggle")
 
     /// Toggle maximize of current window
