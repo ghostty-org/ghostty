@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-08-10 10:06-0500\n"
+"POT-Creation-Date: 2026-09-10 10:50-0400\n"
 "PO-Revision-Date: 2026-08-12 21:34+0200\n"
 "Last-Translator: Uzair Aftab <u@uzaaft.me>\n"
 "Language-Team: Norwegian Bokmal <l10n-no@lister.huftis.org>\n"
@@ -51,7 +51,7 @@ msgstr "Last inn konfigurasjonen på nytt for å vise denne meldingen igjen"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2263
+#: src/apprt/gtk/class/application.zig:2296
 msgid "Cancel"
 msgstr "Avbryt"
 
@@ -194,7 +194,7 @@ msgid "New Tab"
 msgstr "Ny fane"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:396 src/apprt/gtk/ui/1.5/window.blp:242
-#: src/input/command.zig:613
+#: src/input/command.zig:631
 msgid "Close Tab"
 msgstr "Lukk fane"
 
@@ -212,7 +212,7 @@ msgid "New Window"
 msgstr "Nytt vindu"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:416 src/apprt/gtk/ui/1.5/window.blp:225
-#: src/input/command.zig:630
+#: src/input/command.zig:648
 msgid "Close Window"
 msgstr "Lukk vindu"
 
@@ -256,11 +256,11 @@ msgstr "Kommandopalett"
 msgid "Terminal Inspector"
 msgstr "Terminalinspektør"
 
-#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1991
+#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1997
 msgid "About Ghostty"
 msgstr "Om Ghostty"
 
-#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:720
 msgid "Quit"
 msgstr "Avslutt"
 
@@ -268,27 +268,27 @@ msgstr "Avslutt"
 msgid "Execute a command…"
 msgstr "Kjør en kommando…"
 
-#: src/apprt/gtk/class/application.zig:1767
+#: src/apprt/gtk/class/application.zig:1779
 msgid "The keybind was revoked by the system."
 msgstr "Tastatursnarveien ble tilbakekalt av systemet."
 
-#: src/apprt/gtk/class/application.zig:1769
+#: src/apprt/gtk/class/application.zig:1781
 msgid "The keybind was denied by the system."
 msgstr "Tastatursnarveien ble avvist av systemet."
 
-#: src/apprt/gtk/class/application.zig:1780
+#: src/apprt/gtk/class/application.zig:1792
 msgid "Global keybind unavailable"
 msgstr "Global tastatursnarvei er utilgjengelig"
 
-#: src/apprt/gtk/class/application.zig:2259
+#: src/apprt/gtk/class/application.zig:2292
 msgid "Export Terminal IO Events"
 msgstr "Eksporter terminalens IO-hendelser"
 
-#: src/apprt/gtk/class/application.zig:2262
+#: src/apprt/gtk/class/application.zig:2295
 msgid "Export"
 msgstr "Eksporter"
 
-#: src/apprt/gtk/class/application.zig:2783
+#: src/apprt/gtk/class/application.zig:2827
 msgid "Editing configuration file"
 msgstr "Redigerer konfigurasjonsfilen"
 
@@ -352,16 +352,16 @@ msgstr "Alle terminaløkter i dette vinduet vil bli avsluttet."
 msgid "The currently running process in this split will be terminated."
 msgstr "Den kjørende prosessen for denne splitten vil bli avsluttet."
 
-#: src/apprt/gtk/class/surface.zig:1181
+#: src/apprt/gtk/class/surface.zig:1194
 msgid "Command Finished"
 msgstr "Kommandoen fullført"
 
-#: src/apprt/gtk/class/surface.zig:1182
+#: src/apprt/gtk/class/surface.zig:1195
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
 msgstr "Kommandoen lyktes"
 
-#: src/apprt/gtk/class/surface.zig:1183
+#: src/apprt/gtk/class/surface.zig:1196
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
 msgstr "Kommandoen mislyktes"
@@ -378,19 +378,19 @@ msgstr "Endre fanetittel"
 msgid "Change Window Title"
 msgstr "Endre vindustittel"
 
-#: src/apprt/gtk/class/window.zig:1153
+#: src/apprt/gtk/class/window.zig:1159
 msgid "Reloaded the configuration"
 msgstr "Konfigurasjonen ble lastet på nytt"
 
-#: src/apprt/gtk/class/window.zig:1830
+#: src/apprt/gtk/class/window.zig:1836
 msgid "Copied to clipboard"
 msgstr "Kopiert til utklippstavlen"
 
-#: src/apprt/gtk/class/window.zig:1832
+#: src/apprt/gtk/class/window.zig:1838
 msgid "Cleared clipboard"
 msgstr "Utklippstavle tømt"
 
-#: src/apprt/gtk/class/window.zig:1972
+#: src/apprt/gtk/class/window.zig:1978
 msgid "Ghostty Developers"
 msgstr "Ghostty-utviklere"
 
@@ -409,8 +409,7 @@ msgstr "Kopier til utklippstavlen"
 #: src/input/command.zig:156
 msgid ""
 "Copy the selected text to the clipboard in both plain and styled formats."
-msgstr ""
-"Kopier merket tekst til utklippstavlen som formatert- og ren tekst."
+msgstr "Kopier merket tekst til utklippstavlen som formatert- og ren tekst."
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
@@ -426,7 +425,8 @@ msgstr "Kopier markeringen som ANSI-skiftesekvenser til utklippstavlen"
 
 #: src/input/command.zig:164
 msgid "Copy the selected text as ANSI escape sequences to the clipboard."
-msgstr "Kopier den merkede teksten som ANSI-skiftesekvenser til utklippstavlen."
+msgstr ""
+"Kopier den merkede teksten som ANSI-skiftesekvenser til utklippstavlen."
 
 #: src/input/command.zig:167
 msgid "Copy Selection as HTML to Clipboard"
@@ -600,7 +600,9 @@ msgstr "Kopier skjerminnhold til en midlertidig fil og kopier filstien"
 msgid ""
 "Copy the screen contents to a temporary file and copy the path to the "
 "clipboard."
-msgstr "Kopier skjerminnholdet til en midlertidig fil og kopier filstien til utklippstavlen."
+msgstr ""
+"Kopier skjerminnholdet til en midlertidig fil og kopier filstien til "
+"utklippstavlen."
 
 #: src/input/command.zig:291
 msgid "Copy Screen to Temporary File and Paste Path"
@@ -621,23 +623,28 @@ msgstr "Kopier skjerminnholdet til en midlertidig fil og åpne filen."
 
 #: src/input/command.zig:305
 msgid "Copy Screen as HTML to Temporary File and Copy Path"
-msgstr "Kopier skjerminnhold som HTML til en midlertidig fil og kopier filstien"
+msgstr ""
+"Kopier skjerminnhold som HTML til en midlertidig fil og kopier filstien"
 
 #: src/input/command.zig:306
 msgid ""
 "Copy the screen contents as HTML to a temporary file and copy the path to "
 "the clipboard."
-msgstr "Kopier skjerminnholdet som HTML til en midlertidig fil og kopier filstien til utklippstavlen."
+msgstr ""
+"Kopier skjerminnholdet som HTML til en midlertidig fil og kopier filstien "
+"til utklippstavlen."
 
 #: src/input/command.zig:313
 msgid "Copy Screen as HTML to Temporary File and Paste Path"
-msgstr "Kopier skjerminnhold som HTML til en midlertidig fil og lim inn filstien"
+msgstr ""
+"Kopier skjerminnhold som HTML til en midlertidig fil og lim inn filstien"
 
 #: src/input/command.zig:314
 msgid ""
 "Copy the screen contents as HTML to a temporary file and paste the path to "
 "the file."
-msgstr "Kopier skjerminnholdet som HTML til en midlertidig fil og lim inn filstien."
+msgstr ""
+"Kopier skjerminnholdet som HTML til en midlertidig fil og lim inn filstien."
 
 #: src/input/command.zig:321
 msgid "Copy Screen as HTML to Temporary File and Open"
@@ -678,8 +685,8 @@ msgstr ""
 #: src/input/command.zig:346
 msgid "Copy Screen as ANSI Sequences to Temporary File and Open"
 msgstr ""
-"Kopier skjerminnhold som ANSI-skiftesekvenser til en midlertidig fil og "
-"åpne filen"
+"Kopier skjerminnhold som ANSI-skiftesekvenser til en midlertidig fil og åpne "
+"filen"
 
 #: src/input/command.zig:347
 msgid ""
@@ -739,7 +746,8 @@ msgstr "Kopier markeringen som HTML til en midlertidig fil og lim inn filstien"
 msgid ""
 "Copy the selection contents as HTML to a temporary file and paste the path "
 "to the file."
-msgstr "Kopier markeringen som HTML til en midlertidig fil og lim inn filstien."
+msgstr ""
+"Kopier markeringen som HTML til en midlertidig fil og lim inn filstien."
 
 #: src/input/command.zig:389
 msgid "Copy Selection as HTML to Temporary File and Open"
@@ -760,14 +768,14 @@ msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
-"Kopier markeringen som ANSI-skiftesekvenser til en midlertidig fil og "
-"kopier filstien til utklippstavlen."
+"Kopier markeringen som ANSI-skiftesekvenser til en midlertidig fil og kopier "
+"filstien til utklippstavlen."
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
 msgstr ""
-"Kopier markeringen som ANSI-skiftesekvenser til en midlertidig fil og lim inn "
-"filstien"
+"Kopier markeringen som ANSI-skiftesekvenser til en midlertidig fil og lim "
+"inn filstien"
 
 #: src/input/command.zig:407
 msgid ""
@@ -1003,135 +1011,158 @@ msgstr "Last konfigurasjonen på nytt"
 msgid "Reload the config file."
 msgstr "Last konfigurasjonsfilen på nytt."
 
-#: src/input/command.zig:606
+#: src/input/command.zig:607
+msgid "Switch to Dark Appearance"
+msgstr ""
+
+#: src/input/command.zig:608
+msgid "Use a dark application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:612
+msgid "Switch to Light Appearance"
+msgstr ""
+
+#: src/input/command.zig:613
+msgid "Use a light application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:617
+msgid "Switch to System Appearance"
+msgstr ""
+
+#: src/input/command.zig:618
+msgid "Use the system application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:624
 msgid "Close Terminal"
 msgstr "Lukk terminal"
 
-#: src/input/command.zig:607
+#: src/input/command.zig:625
 msgid "Close the current terminal."
 msgstr "Lukk den aktive terminalen."
 
-#: src/input/command.zig:614
+#: src/input/command.zig:632
 msgid "Close the current tab."
 msgstr "Lukk den aktive fanen."
 
-#: src/input/command.zig:618
+#: src/input/command.zig:636
 msgid "Close Other Tabs"
 msgstr "Lukk andre faner"
 
-#: src/input/command.zig:619
+#: src/input/command.zig:637
 msgid "Close all tabs in this window except the current one."
 msgstr "Lukk alle fanene i dette vinduet unntatt den aktive."
 
-#: src/input/command.zig:623
+#: src/input/command.zig:641
 msgid "Close Tabs to the Right"
 msgstr "Lukk faner til høyre"
 
-#: src/input/command.zig:624
+#: src/input/command.zig:642
 msgid "Close all tabs to the right of the current one."
 msgstr "Lukk alle fanene til høyre for den aktive."
 
-#: src/input/command.zig:631
+#: src/input/command.zig:649
 msgid "Close the current window."
 msgstr "Lukk det aktive vinduet."
 
-#: src/input/command.zig:636
+#: src/input/command.zig:654
 msgid "Close All Windows"
 msgstr "Lukk alle vinduer"
 
-#: src/input/command.zig:637
+#: src/input/command.zig:655
 msgid "Close all windows."
 msgstr "Lukk alle vinduer."
 
-#: src/input/command.zig:642
+#: src/input/command.zig:660
 msgid "Toggle Maximize"
 msgstr "Maksimer/gjenopprett vinduet"
 
-#: src/input/command.zig:643
+#: src/input/command.zig:661
 msgid "Toggle the maximized state of the current window."
 msgstr "Maksimer eller gjenopprett det aktive vinduet."
 
-#: src/input/command.zig:648
+#: src/input/command.zig:666
 msgid "Toggle Fullscreen"
 msgstr "Slå fullskjermmodus av/på"
 
-#: src/input/command.zig:649
+#: src/input/command.zig:667
 msgid "Toggle the fullscreen state of the current window."
 msgstr "Slå fullskjermmodus av eller på for det aktive vinduet."
 
-#: src/input/command.zig:654
+#: src/input/command.zig:672
 msgid "Toggle Window Decorations"
 msgstr "Vis/skjul vindusdekorasjoner"
 
-#: src/input/command.zig:655
+#: src/input/command.zig:673
 msgid "Toggle the window decorations."
 msgstr "Vis/skjul vindusdekorasjoner."
 
-#: src/input/command.zig:660
+#: src/input/command.zig:678
 msgid "Toggle Float on Top"
 msgstr "Slå «alltid øverst» av/på"
 
-#: src/input/command.zig:661
+#: src/input/command.zig:679
 msgid "Toggle the float on top state of the current window."
 msgstr "Slå «alltid øverst» av/på for det aktive vinduet."
 
-#: src/input/command.zig:666
+#: src/input/command.zig:684
 msgid "Toggle Secure Input"
 msgstr "Slå sikker tastaturskriving av/på"
 
-#: src/input/command.zig:667
+#: src/input/command.zig:685
 msgid "Toggle secure input mode."
 msgstr "Slå sikker tastaturskriving av/på."
 
-#: src/input/command.zig:672
+#: src/input/command.zig:690
 msgid "Toggle Mouse Reporting"
 msgstr "Aktiver/deaktiver sending av musehendelser"
 
-#: src/input/command.zig:673
+#: src/input/command.zig:691
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr "Aktiver/deaktiver sending av musehendelser til terminalprogrammer."
 
-#: src/input/command.zig:678
+#: src/input/command.zig:696
 msgid "Toggle Background Opacity"
 msgstr "Veksle bakgrunnens opasitet"
 
-#: src/input/command.zig:679
+#: src/input/command.zig:697
 msgid "Toggle the background opacity of a window that started transparent."
-msgstr ""
-"Veksle bakgrunnens opasitet for et vindu som startet gjennomsiktig."
+msgstr "Veksle bakgrunnens opasitet for et vindu som startet gjennomsiktig."
 
-#: src/input/command.zig:684
+#: src/input/command.zig:702
 msgid "Check for Updates"
 msgstr "Se etter oppdateringer"
 
-#: src/input/command.zig:685
+#: src/input/command.zig:703
 msgid "Check for updates to the application."
 msgstr "Se etter programoppdateringer."
 
-#: src/input/command.zig:690
+#: src/input/command.zig:708
 msgid "Undo"
 msgstr "Angre"
 
-#: src/input/command.zig:691
+#: src/input/command.zig:709
 msgid "Undo the last action."
 msgstr "Angre siste handling."
 
-#: src/input/command.zig:696
+#: src/input/command.zig:714
 msgid "Redo"
 msgstr "Gjør om"
 
-#: src/input/command.zig:697
+#: src/input/command.zig:715
 msgid "Redo the last undone action."
 msgstr "Gjør om den siste angrede handlingen."
 
-#: src/input/command.zig:703
+#: src/input/command.zig:721
 msgid "Quit the application."
 msgstr "Avslutt programmet."
 
-#: src/input/command.zig:708
+#: src/input/command.zig:726
 msgid "Ghostty"
 msgstr "Ghostty"
 
-#: src/input/command.zig:709
+#: src/input/command.zig:727
 msgid "Put a little Ghostty in your terminal."
 msgstr "Legg en liten Ghostty i terminalen din."

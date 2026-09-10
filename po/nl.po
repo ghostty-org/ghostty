@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-08-10 10:06-0500\n"
+"POT-Creation-Date: 2026-09-10 10:50-0400\n"
 "PO-Revision-Date: 2026-08-14 18:30+0200\n"
 "Last-Translator: Kris van der Ven <306806+kjvdven@users.noreply.github.com>\n"
 "Language-Team: Dutch <vertaling@vrijschrift.org>\n"
@@ -50,7 +50,7 @@ msgstr "Herlaad de configuratie om deze prompt opnieuw weer te geven"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2263
+#: src/apprt/gtk/class/application.zig:2296
 msgid "Cancel"
 msgstr "Annuleren"
 
@@ -195,7 +195,7 @@ msgid "New Tab"
 msgstr "Nieuw tabblad"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:396 src/apprt/gtk/ui/1.5/window.blp:242
-#: src/input/command.zig:613
+#: src/input/command.zig:631
 msgid "Close Tab"
 msgstr "Sluit tabblad"
 
@@ -213,7 +213,7 @@ msgid "New Window"
 msgstr "Nieuw venster"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:416 src/apprt/gtk/ui/1.5/window.blp:225
-#: src/input/command.zig:630
+#: src/input/command.zig:648
 msgid "Close Window"
 msgstr "Sluit venster"
 
@@ -257,11 +257,11 @@ msgstr "Opdrachtpalet"
 msgid "Terminal Inspector"
 msgstr "Terminalinspecteur"
 
-#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1991
+#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1997
 msgid "About Ghostty"
 msgstr "Over Ghostty"
 
-#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:720
 msgid "Quit"
 msgstr "Afsluiten"
 
@@ -269,27 +269,27 @@ msgstr "Afsluiten"
 msgid "Execute a command…"
 msgstr "Voer een commando uit…"
 
-#: src/apprt/gtk/class/application.zig:1767
+#: src/apprt/gtk/class/application.zig:1779
 msgid "The keybind was revoked by the system."
 msgstr "De sneltoets is door het systeem ingetrokken."
 
-#: src/apprt/gtk/class/application.zig:1769
+#: src/apprt/gtk/class/application.zig:1781
 msgid "The keybind was denied by the system."
 msgstr "De sneltoets is door het systeem geweigerd."
 
-#: src/apprt/gtk/class/application.zig:1780
+#: src/apprt/gtk/class/application.zig:1792
 msgid "Global keybind unavailable"
 msgstr "Globale sneltoets niet beschikbaar"
 
-#: src/apprt/gtk/class/application.zig:2259
+#: src/apprt/gtk/class/application.zig:2292
 msgid "Export Terminal IO Events"
 msgstr "Terminal-IO-gebeurtenissen exporteren"
 
-#: src/apprt/gtk/class/application.zig:2262
+#: src/apprt/gtk/class/application.zig:2295
 msgid "Export"
 msgstr "Exporteren"
 
-#: src/apprt/gtk/class/application.zig:2783
+#: src/apprt/gtk/class/application.zig:2827
 msgid "Editing configuration file"
 msgstr "Configuratiebestand bewerken"
 
@@ -353,16 +353,16 @@ msgstr "Alle terminalsessies binnen dit venster zullen worden beëindigd."
 msgid "The currently running process in this split will be terminated."
 msgstr "Alle processen in deze splitsing zullen worden beëindigd."
 
-#: src/apprt/gtk/class/surface.zig:1181
+#: src/apprt/gtk/class/surface.zig:1194
 msgid "Command Finished"
 msgstr "Commando afgerond"
 
-#: src/apprt/gtk/class/surface.zig:1182
+#: src/apprt/gtk/class/surface.zig:1195
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
 msgstr "Commando succesvol afgerond"
 
-#: src/apprt/gtk/class/surface.zig:1183
+#: src/apprt/gtk/class/surface.zig:1196
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
 msgstr "Commando onsuccesvol afgerond"
@@ -379,19 +379,19 @@ msgstr "Wijzig tabbladtitel"
 msgid "Change Window Title"
 msgstr "Venstertitel wijzigen"
 
-#: src/apprt/gtk/class/window.zig:1153
+#: src/apprt/gtk/class/window.zig:1159
 msgid "Reloaded the configuration"
 msgstr "De configuratie is herladen"
 
-#: src/apprt/gtk/class/window.zig:1830
+#: src/apprt/gtk/class/window.zig:1836
 msgid "Copied to clipboard"
 msgstr "Gekopieerd naar klembord"
 
-#: src/apprt/gtk/class/window.zig:1832
+#: src/apprt/gtk/class/window.zig:1838
 msgid "Cleared clipboard"
 msgstr "Klembord geleegd"
 
-#: src/apprt/gtk/class/window.zig:1972
+#: src/apprt/gtk/class/window.zig:1978
 msgid "Ghostty Developers"
 msgstr "Ghostty-ontwikkelaars"
 
@@ -1016,138 +1016,162 @@ msgstr "Herlaad configuratie"
 msgid "Reload the config file."
 msgstr "Herlaad het configuratiebestand."
 
-#: src/input/command.zig:606
+#: src/input/command.zig:607
+msgid "Switch to Dark Appearance"
+msgstr ""
+
+#: src/input/command.zig:608
+msgid "Use a dark application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:612
+msgid "Switch to Light Appearance"
+msgstr ""
+
+#: src/input/command.zig:613
+msgid "Use a light application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:617
+msgid "Switch to System Appearance"
+msgstr ""
+
+#: src/input/command.zig:618
+msgid "Use the system application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:624
 msgid "Close Terminal"
 msgstr "Sluit terminal"
 
-#: src/input/command.zig:607
+#: src/input/command.zig:625
 msgid "Close the current terminal."
 msgstr "Sluit de huidige terminal."
 
-#: src/input/command.zig:614
+#: src/input/command.zig:632
 msgid "Close the current tab."
 msgstr "Sluit het huidige tabblad."
 
-#: src/input/command.zig:618
+#: src/input/command.zig:636
 msgid "Close Other Tabs"
 msgstr "Sluit andere tabbladen"
 
-#: src/input/command.zig:619
+#: src/input/command.zig:637
 msgid "Close all tabs in this window except the current one."
 msgstr "Sluit alle tabbladen in dit venster behalve het huidige."
 
-#: src/input/command.zig:623
+#: src/input/command.zig:641
 msgid "Close Tabs to the Right"
 msgstr "Sluit tabbladen aan de rechterkant"
 
-#: src/input/command.zig:624
+#: src/input/command.zig:642
 msgid "Close all tabs to the right of the current one."
 msgstr "Sluit alle tabbladen rechts van het huidige."
 
-#: src/input/command.zig:631
+#: src/input/command.zig:649
 msgid "Close the current window."
 msgstr "Sluit het huidige venster."
 
-#: src/input/command.zig:636
+#: src/input/command.zig:654
 msgid "Close All Windows"
 msgstr "Sluit alle vensters"
 
-#: src/input/command.zig:637
+#: src/input/command.zig:655
 msgid "Close all windows."
 msgstr "Sluit alle vensters."
 
-#: src/input/command.zig:642
+#: src/input/command.zig:660
 msgid "Toggle Maximize"
 msgstr "Maximaliseren aan/uit"
 
-#: src/input/command.zig:643
+#: src/input/command.zig:661
 msgid "Toggle the maximized state of the current window."
 msgstr "Schakel het maximaliseren van het huidige venster in of uit."
 
-#: src/input/command.zig:648
+#: src/input/command.zig:666
 msgid "Toggle Fullscreen"
 msgstr "Volledig scherm aan/uit"
 
-#: src/input/command.zig:649
+#: src/input/command.zig:667
 msgid "Toggle the fullscreen state of the current window."
 msgstr "Schakel volledig scherm voor het huidige venster in of uit."
 
-#: src/input/command.zig:654
+#: src/input/command.zig:672
 msgid "Toggle Window Decorations"
 msgstr "Vensterdecoraties aan/uit"
 
-#: src/input/command.zig:655
+#: src/input/command.zig:673
 msgid "Toggle the window decorations."
 msgstr "Schakel de vensterdecoraties in of uit."
 
-#: src/input/command.zig:660
+#: src/input/command.zig:678
 msgid "Toggle Float on Top"
 msgstr "Altijd op voorgrond aan/uit"
 
-#: src/input/command.zig:661
+#: src/input/command.zig:679
 msgid "Toggle the float on top state of the current window."
 msgstr "Schakel altijd-op-voorgrond voor het huidige venster in of uit."
 
-#: src/input/command.zig:666
+#: src/input/command.zig:684
 msgid "Toggle Secure Input"
 msgstr "Veilige invoer aan/uit"
 
-#: src/input/command.zig:667
+#: src/input/command.zig:685
 msgid "Toggle secure input mode."
 msgstr "Schakel de veilige-invoermodus in of uit."
 
-#: src/input/command.zig:672
+#: src/input/command.zig:690
 msgid "Toggle Mouse Reporting"
 msgstr "Muisrapportage aan/uit"
 
-#: src/input/command.zig:673
+#: src/input/command.zig:691
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr ""
 "Schakel het doorgeven van muisgebeurtenissen aan terminalapplicaties in of "
 "uit."
 
-#: src/input/command.zig:678
+#: src/input/command.zig:696
 msgid "Toggle Background Opacity"
 msgstr "Achtergrondtransparantie aan/uit"
 
-#: src/input/command.zig:679
+#: src/input/command.zig:697
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr ""
 "Schakel de achtergrondtransparantie in of uit voor een venster dat "
 "transparant is gestart."
 
-#: src/input/command.zig:684
+#: src/input/command.zig:702
 msgid "Check for Updates"
 msgstr "Controleer op updates"
 
-#: src/input/command.zig:685
+#: src/input/command.zig:703
 msgid "Check for updates to the application."
 msgstr "Controleer of er updates voor de applicatie zijn."
 
-#: src/input/command.zig:690
+#: src/input/command.zig:708
 msgid "Undo"
 msgstr "Ongedaan maken"
 
-#: src/input/command.zig:691
+#: src/input/command.zig:709
 msgid "Undo the last action."
 msgstr "Maak de laatste actie ongedaan."
 
-#: src/input/command.zig:696
+#: src/input/command.zig:714
 msgid "Redo"
 msgstr "Opnieuw uitvoeren"
 
-#: src/input/command.zig:697
+#: src/input/command.zig:715
 msgid "Redo the last undone action."
 msgstr "Voer de laatst ongedaan gemaakte actie opnieuw uit."
 
-#: src/input/command.zig:703
+#: src/input/command.zig:721
 msgid "Quit the application."
 msgstr "Sluit de applicatie af."
 
-#: src/input/command.zig:708
+#: src/input/command.zig:726
 msgid "Ghostty"
 msgstr "Ghostty"
 
-#: src/input/command.zig:709
+#: src/input/command.zig:727
 msgid "Put a little Ghostty in your terminal."
 msgstr "Een beetje Ghostty in je terminal."

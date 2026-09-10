@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-08-10 10:06-0500\n"
+"POT-Creation-Date: 2026-09-10 10:50-0400\n"
 "PO-Revision-Date: 2026-08-25 21:00+0200\n"
 "Last-Translator: Filip7 <filipm7@protonmail.com>\n"
 "Language-Team: Croatian <lokalizacija@linux.hr>\n"
@@ -50,7 +50,7 @@ msgstr "Ponovno učitaj postavke za prikaz ovog upita"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2263
+#: src/apprt/gtk/class/application.zig:2296
 msgid "Cancel"
 msgstr "Otkaži"
 
@@ -193,7 +193,7 @@ msgid "New Tab"
 msgstr "Nova kartica"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:396 src/apprt/gtk/ui/1.5/window.blp:242
-#: src/input/command.zig:613
+#: src/input/command.zig:631
 msgid "Close Tab"
 msgstr "Zatvori karticu"
 
@@ -211,7 +211,7 @@ msgid "New Window"
 msgstr "Novi prozor"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:416 src/apprt/gtk/ui/1.5/window.blp:225
-#: src/input/command.zig:630
+#: src/input/command.zig:648
 msgid "Close Window"
 msgstr "Zatvori prozor"
 
@@ -255,11 +255,11 @@ msgstr "Paleta naredbi"
 msgid "Terminal Inspector"
 msgstr "Inspektor terminala"
 
-#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1991
+#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1997
 msgid "About Ghostty"
 msgstr "O Ghosttyju"
 
-#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:720
 msgid "Quit"
 msgstr "Izađi"
 
@@ -267,27 +267,27 @@ msgstr "Izađi"
 msgid "Execute a command…"
 msgstr "Izvrši naredbu…"
 
-#: src/apprt/gtk/class/application.zig:1767
+#: src/apprt/gtk/class/application.zig:1779
 msgid "The keybind was revoked by the system."
 msgstr "Sustav je opozvao tipkovni prečac."
 
-#: src/apprt/gtk/class/application.zig:1769
+#: src/apprt/gtk/class/application.zig:1781
 msgid "The keybind was denied by the system."
 msgstr "Sustav je odbio tipkovni prečac."
 
-#: src/apprt/gtk/class/application.zig:1780
+#: src/apprt/gtk/class/application.zig:1792
 msgid "Global keybind unavailable"
 msgstr "Globalni tipkovni prečac nije dostupan"
 
-#: src/apprt/gtk/class/application.zig:2259
+#: src/apprt/gtk/class/application.zig:2292
 msgid "Export Terminal IO Events"
 msgstr "Izvezi ulazno-izlazne događaje terminala"
 
-#: src/apprt/gtk/class/application.zig:2262
+#: src/apprt/gtk/class/application.zig:2295
 msgid "Export"
 msgstr "Izvezi"
 
-#: src/apprt/gtk/class/application.zig:2783
+#: src/apprt/gtk/class/application.zig:2827
 msgid "Editing configuration file"
 msgstr "Uređivanje datoteke postavki"
 
@@ -351,16 +351,16 @@ msgstr "Sve sesije terminala u ovom prozoru će biti prekinute."
 msgid "The currently running process in this split will be terminated."
 msgstr "Pokrenuti procesi u ovoj podjeli će biti prekinuti."
 
-#: src/apprt/gtk/class/surface.zig:1181
+#: src/apprt/gtk/class/surface.zig:1194
 msgid "Command Finished"
 msgstr "Naredba je završena"
 
-#: src/apprt/gtk/class/surface.zig:1182
+#: src/apprt/gtk/class/surface.zig:1195
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
 msgstr "Naredba je uspjela"
 
-#: src/apprt/gtk/class/surface.zig:1183
+#: src/apprt/gtk/class/surface.zig:1196
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
 msgstr "Naredba nije uspjela"
@@ -377,19 +377,19 @@ msgstr "Promijeni naslov kartice"
 msgid "Change Window Title"
 msgstr "Promijeni naslov prozora"
 
-#: src/apprt/gtk/class/window.zig:1153
+#: src/apprt/gtk/class/window.zig:1159
 msgid "Reloaded the configuration"
 msgstr "Ponovno učitane postavke"
 
-#: src/apprt/gtk/class/window.zig:1830
+#: src/apprt/gtk/class/window.zig:1836
 msgid "Copied to clipboard"
 msgstr "Kopirano u međuspremnik"
 
-#: src/apprt/gtk/class/window.zig:1832
+#: src/apprt/gtk/class/window.zig:1838
 msgid "Cleared clipboard"
 msgstr "Očišćen međuspremnik"
 
-#: src/apprt/gtk/class/window.zig:1972
+#: src/apprt/gtk/class/window.zig:1978
 msgid "Ghostty Developers"
 msgstr "Razvijatelji Ghosttyja"
 
@@ -408,8 +408,7 @@ msgstr "Kopiraj u međuspremnik"
 #: src/input/command.zig:156
 msgid ""
 "Copy the selected text to the clipboard in both plain and styled formats."
-msgstr ""
-"Kopiraj odabrani sadržaj u međuspremnik kao običan i oblikovani tekst."
+msgstr "Kopiraj odabrani sadržaj u međuspremnik kao običan i oblikovani tekst."
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
@@ -452,8 +451,8 @@ msgid ""
 "Copy the terminal title to the clipboard. If the terminal title is not set "
 "this has no effect."
 msgstr ""
-"Kopiraj naslov terminala u međuspremnik. Nema nikakvog učinka ako "
-"naslov terminala nije postavljen."
+"Kopiraj naslov terminala u međuspremnik. Nema nikakvog učinka ako naslov "
+"terminala nije postavljen."
 
 #: src/input/command.zig:185
 msgid "Paste from Clipboard"
@@ -655,7 +654,8 @@ msgstr "Kopiraj sadržaj zaslona u privremenu datoteku kao HTML i otvori je."
 
 #: src/input/command.zig:330
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
-msgstr "Kopiraj zaslon u privremenu datoteku kao ANSI nizove i kopiraj putanju."
+msgstr ""
+"Kopiraj zaslon u privremenu datoteku kao ANSI nizove i kopiraj putanju."
 
 #: src/input/command.zig:331
 msgid ""
@@ -667,7 +667,8 @@ msgstr ""
 
 #: src/input/command.zig:338
 msgid "Copy Screen as ANSI Sequences to Temporary File and Paste Path"
-msgstr "Kopiraj zaslon u privremenu datoteku kao ANSI nizove i zalijepi putanju."
+msgstr ""
+"Kopiraj zaslon u privremenu datoteku kao ANSI nizove i zalijepi putanju."
 
 #: src/input/command.zig:339
 msgid ""
@@ -710,8 +711,7 @@ msgid ""
 "Copy the selection contents to a temporary file and paste the path to the "
 "file."
 msgstr ""
-"Kopiraj sadržaj odabira u privremenu datoteku i zalijepi putanju "
-"datoteke."
+"Kopiraj sadržaj odabira u privremenu datoteku i zalijepi putanju datoteke."
 
 #: src/input/command.zig:364
 msgid "Copy Selection to Temporary File and Open"
@@ -755,7 +755,8 @@ msgstr "Kopiraj sadržaj odabira u privremenu datoteku kao HTML i otvori je."
 
 #: src/input/command.zig:398
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
-msgstr "Kopiraj odabir u privremenu datoteku kao ANSI nizove i kopiraj putanju."
+msgstr ""
+"Kopiraj odabir u privremenu datoteku kao ANSI nizove i kopiraj putanju."
 
 #: src/input/command.zig:399
 msgid ""
@@ -767,7 +768,8 @@ msgstr ""
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
-msgstr "Kopiraj odabir u privremenu datoteku kao ANSI nizove i zalijepi putanju."
+msgstr ""
+"Kopiraj odabir u privremenu datoteku kao ANSI nizove i zalijepi putanju."
 
 #: src/input/command.zig:407
 msgid ""
@@ -991,7 +993,8 @@ msgstr "Otvori postavke u novom prozoru terminala"
 
 #: src/input/command.zig:594
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
-msgstr "Otvori datoteku postavki u novom prozoru koristeći $EDITOR ili $VISUAL."
+msgstr ""
+"Otvori datoteku postavki u novom prozoru koristeći $EDITOR ili $VISUAL."
 
 #: src/input/command.zig:600
 msgid "Reload Config"
@@ -1001,134 +1004,160 @@ msgstr "Ponovno učitaj postavke"
 msgid "Reload the config file."
 msgstr "Ponovno učitaj datoteku postavki."
 
-#: src/input/command.zig:606
+#: src/input/command.zig:607
+msgid "Switch to Dark Appearance"
+msgstr ""
+
+#: src/input/command.zig:608
+msgid "Use a dark application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:612
+msgid "Switch to Light Appearance"
+msgstr ""
+
+#: src/input/command.zig:613
+msgid "Use a light application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:617
+msgid "Switch to System Appearance"
+msgstr ""
+
+#: src/input/command.zig:618
+msgid "Use the system application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:624
 msgid "Close Terminal"
 msgstr "Zatvori terminal"
 
-#: src/input/command.zig:607
+#: src/input/command.zig:625
 msgid "Close the current terminal."
 msgstr "Zatvori trenutni terminal."
 
-#: src/input/command.zig:614
+#: src/input/command.zig:632
 msgid "Close the current tab."
 msgstr "Zatvori trenutnu karticu."
 
-#: src/input/command.zig:618
+#: src/input/command.zig:636
 msgid "Close Other Tabs"
 msgstr "Zatvori ostale kartice"
 
-#: src/input/command.zig:619
+#: src/input/command.zig:637
 msgid "Close all tabs in this window except the current one."
 msgstr "Zatvori sve kartice u ovom prozoru osim trenutne."
 
-#: src/input/command.zig:623
+#: src/input/command.zig:641
 msgid "Close Tabs to the Right"
 msgstr "Zatvori sve kartice na desno"
 
-#: src/input/command.zig:624
+#: src/input/command.zig:642
 msgid "Close all tabs to the right of the current one."
 msgstr "Zatvori sve kartice desno od trenutne."
 
-#: src/input/command.zig:631
+#: src/input/command.zig:649
 msgid "Close the current window."
 msgstr "Zatvori trenutni prozor."
 
-#: src/input/command.zig:636
+#: src/input/command.zig:654
 msgid "Close All Windows"
 msgstr "Zatvori sve prozore"
 
-#: src/input/command.zig:637
+#: src/input/command.zig:655
 msgid "Close all windows."
 msgstr "Zatvori sve prozore."
 
-#: src/input/command.zig:642
+#: src/input/command.zig:660
 msgid "Toggle Maximize"
 msgstr "Uključi/isključi maksimiziranje"
 
-#: src/input/command.zig:643
+#: src/input/command.zig:661
 msgid "Toggle the maximized state of the current window."
 msgstr "Uključi ili isključi maksimiziranje trenutnog prozora."
 
-#: src/input/command.zig:648
+#: src/input/command.zig:666
 msgid "Toggle Fullscreen"
 msgstr "Uključi/isključi puni zaslon"
 
-#: src/input/command.zig:649
+#: src/input/command.zig:667
 msgid "Toggle the fullscreen state of the current window."
 msgstr "Uključi ili isključi puni zaslon trenutnog prozora."
 
-#: src/input/command.zig:654
+#: src/input/command.zig:672
 msgid "Toggle Window Decorations"
 msgstr "Uključi/isključi dekoracije prozora"
 
-#: src/input/command.zig:655
+#: src/input/command.zig:673
 msgid "Toggle the window decorations."
 msgstr "Uključi ili isključi dekoracije prozora."
 
-#: src/input/command.zig:660
+#: src/input/command.zig:678
 msgid "Toggle Float on Top"
 msgstr "Uključi/isključi plutanje na vrhu"
 
-#: src/input/command.zig:661
+#: src/input/command.zig:679
 msgid "Toggle the float on top state of the current window."
 msgstr "Uključi ili isključi plutanje na vrhu trenutnog prozora."
 
-#: src/input/command.zig:666
+#: src/input/command.zig:684
 msgid "Toggle Secure Input"
 msgstr "Uključi/isključi sigurni unos"
 
-#: src/input/command.zig:667
+#: src/input/command.zig:685
 msgid "Toggle secure input mode."
 msgstr "Uključi ili isključi način sigurnog unosa."
 
-#: src/input/command.zig:672
+#: src/input/command.zig:690
 msgid "Toggle Mouse Reporting"
 msgstr "Uključi/isključi obavještavanje miša"
 
-#: src/input/command.zig:673
+#: src/input/command.zig:691
 msgid "Toggle whether mouse events are reported to terminal applications."
-msgstr "Uključi ili isključi obavještava li terminal aplikacije o događajima miša."
+msgstr ""
+"Uključi ili isključi obavještava li terminal aplikacije o događajima miša."
 
-#: src/input/command.zig:678
+#: src/input/command.zig:696
 msgid "Toggle Background Opacity"
 msgstr "Uključi/isključi prozirnost pozadine"
 
-#: src/input/command.zig:679
+#: src/input/command.zig:697
 msgid "Toggle the background opacity of a window that started transparent."
-msgstr "Uključi ili isključi prozirnost pozadine prozora koji je započeo prozirno."
+msgstr ""
+"Uključi ili isključi prozirnost pozadine prozora koji je započeo prozirno."
 
-#: src/input/command.zig:684
+#: src/input/command.zig:702
 msgid "Check for Updates"
 msgstr "Provjeri ažuriranja"
 
-#: src/input/command.zig:685
+#: src/input/command.zig:703
 msgid "Check for updates to the application."
 msgstr "Provjeri ažuriranja aplikacije."
 
-#: src/input/command.zig:690
+#: src/input/command.zig:708
 msgid "Undo"
 msgstr "Poništi"
 
-#: src/input/command.zig:691
+#: src/input/command.zig:709
 msgid "Undo the last action."
 msgstr "Poništi zadnju radnju."
 
-#: src/input/command.zig:696
+#: src/input/command.zig:714
 msgid "Redo"
 msgstr "Ponovno odradi"
 
-#: src/input/command.zig:697
+#: src/input/command.zig:715
 msgid "Redo the last undone action."
 msgstr "Ponovi zadnju poništenu radnju."
 
-#: src/input/command.zig:703
+#: src/input/command.zig:721
 msgid "Quit the application."
 msgstr "Izađi iz aplikacije."
 
-#: src/input/command.zig:708
+#: src/input/command.zig:726
 msgid "Ghostty"
 msgstr "Ghostty"
 
-#: src/input/command.zig:709
+#: src/input/command.zig:727
 msgid "Put a little Ghostty in your terminal."
 msgstr "Stavi maloga Ghosttyja u svoj terminal."
