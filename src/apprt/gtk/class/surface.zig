@@ -38,19 +38,12 @@ const SplitTree = @import("split_tree.zig").SplitTree;
 const i18n = @import("../../../os/i18n.zig");
 const global = @import("../../../global.zig");
 const gtk_version = @import("../gtk_version.zig");
-const NotificationTracker = @import("../notification_tracker.zig");
+const DesktopNotifications = @import("../desktop_notifications.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
 pub const Surface = extern struct {
     const Self = @This();
-    const DesktopNotificationTimeout = struct {
-        alloc: Allocator,
-        surface: *Self,
-        key: NotificationTracker.Key,
-    };
-    const focused_notification_timeout_ms = 3 * std.time.ms_per_s;
-
     parent_instance: Parent,
     pub const Parent = adw.Bin;
     pub const Implements = [_]type{gtk.Scrollable};
@@ -679,9 +672,8 @@ pub const Surface = extern struct {
         // Progress bar
         progress_bar_timer: ?c_uint = null,
 
-        // Desktop notifications associated with this surface. GNotification
-        // requires the original ID to withdraw a delivered notification.
-        desktop_notifications: NotificationTracker,
+        // Desktop notifications and timers owned by this surface.
+        desktop_notifications: DesktopNotifications,
 
         // True while the bell is ringing. This will be set to false (after
         // true) under various scenarios, but can also manually be set to
@@ -1789,146 +1781,22 @@ pub const Surface = extern struct {
             return;
         };
 
-        const t = switch (title.len) {
-            0 => "Ghostty",
-            else => title,
-        };
-
-        const notification = gio.Notification.new(t);
-        defer notification.unref();
-        notification.setBody(body);
-
-        const icon = gio.ThemedIcon.new("com.mitchellh.ghostty");
-        defer icon.unref();
-        notification.setIcon(icon.as(gio.Icon));
-
-        const pointer = glib.Variant.newUint64(core_surface.id);
-        notification.setDefaultActionAndTargetValue(
-            "app.present-surface",
-            pointer,
-        );
-
-        const alloc = app.allocator();
-
-        // Keep tracking bounded. GNOME may discard notifications without
-        // telling us, so the tracker evicts the oldest notification when the
-        // per-surface limit is reached.
-        const tracked = priv.desktop_notifications.track(alloc, title, body) catch |err| {
-            log.warn("unable to track desktop notification err={}", .{err});
-            return;
-        };
-        cancelDesktopNotificationTimeout(tracked.replaced_timeout);
-        if (tracked.evicted) |evicted| {
-            self.clearDesktopNotification(evicted);
-        }
-
-        var notification_id_buf: [64]u8 = undefined;
-        const notification_id = NotificationTracker.formatId(
-            &notification_id_buf,
+        priv.desktop_notifications.send(
+            app.allocator(),
+            app.as(gio.Application),
             core_surface.id,
-            tracked.key,
-        ) catch |err| {
-            log.warn("unable to format desktop notification ID err={}", .{err});
-            self.removeDesktopNotification(tracked.key);
-            return;
-        };
-
-        const gio_app = app.as(gio.Application);
-        gio_app.sendNotification(notification_id, notification);
-
-        // Match macOS behavior by removing notifications after a few seconds
-        // when they are sent while their surface is already focused.
-        if (priv.focused) self.scheduleDesktopNotificationTimeout(tracked.key);
-    }
-
-    /// Withdraw and forget all desktop notifications associated with this
-    /// surface. Withdrawing an already dismissed notification is a no-op.
-    fn clearDesktopNotifications(self: *Self) void {
-        const priv = self.private();
-        if (priv.desktop_notifications.count() == 0) return;
-
-        const app = Application.default();
-        const alloc = app.allocator();
-        while (priv.desktop_notifications.pop()) |removed| {
-            self.clearDesktopNotification(removed);
-        }
-        priv.desktop_notifications.clearAndFree(alloc);
-    }
-
-    fn removeDesktopNotification(self: *Self, key: NotificationTracker.Key) void {
-        const priv = self.private();
-        const removed = priv.desktop_notifications.remove(key) orelse return;
-        self.clearDesktopNotification(removed);
-    }
-
-    fn clearDesktopNotification(self: *Self, removed: NotificationTracker.Removed) void {
-        cancelDesktopNotificationTimeout(removed.notification.timeout_source);
-        self.withdrawDesktopNotification(removed.key);
-        removed.deinit(Application.default().allocator());
-    }
-
-    fn withdrawDesktopNotification(self: *Self, key: NotificationTracker.Key) void {
-        const surface = self.private().core_surface orelse return;
-        var notification_id_buf: [64]u8 = undefined;
-        const notification_id = NotificationTracker.formatId(
-            &notification_id_buf,
-            surface.id,
-            key,
-        ) catch |err| {
-            log.warn("unable to format desktop notification ID err={}", .{err});
-            return;
-        };
-
-        Application.default().as(gio.Application).withdrawNotification(notification_id);
-    }
-
-    fn cancelDesktopNotificationTimeout(source_: ?c_uint) void {
-        const source = source_ orelse return;
-        if (glib.Source.remove(source) == 0) {
-            log.warn("unable to remove desktop notification timer", .{});
-        }
-    }
-
-    fn scheduleDesktopNotificationTimeout(self: *Self, key: NotificationTracker.Key) void {
-        const priv = self.private();
-        const notification = priv.desktop_notifications.getPtr(key) orelse return;
-        cancelDesktopNotificationTimeout(notification.timeout_source);
-        notification.timeout_source = null;
-
-        const alloc = Application.default().allocator();
-        const timeout = alloc.create(DesktopNotificationTimeout) catch |err| {
-            log.warn("unable to allocate desktop notification timer err={}", .{err});
-            return;
-        };
-        timeout.* = .{
-            .alloc = alloc,
-            .surface = self,
-            .key = key,
-        };
-        notification.timeout_source = glib.timeoutAddFull(
-            glib.PRIORITY_DEFAULT,
-            focused_notification_timeout_ms,
-            desktopNotificationTimeout,
-            timeout,
-            desktopNotificationTimeoutDestroy,
+            priv.focused,
+            title,
+            body,
         );
     }
 
-    fn desktopNotificationTimeout(ud: ?*anyopaque) callconv(.c) c_int {
-        const timeout: *DesktopNotificationTimeout = @ptrCast(@alignCast(ud orelse
-            return @intFromBool(glib.SOURCE_REMOVE)));
-        const self = timeout.surface;
-        const removed = self.private().desktop_notifications.remove(timeout.key) orelse
-            return @intFromBool(glib.SOURCE_REMOVE);
-        assert(removed.notification.timeout_source != null);
-        self.withdrawDesktopNotification(removed.key);
-        removed.deinit(timeout.alloc);
-        return @intFromBool(glib.SOURCE_REMOVE);
-    }
-
-    fn desktopNotificationTimeoutDestroy(ud: ?*anyopaque) callconv(.c) void {
-        const timeout: *DesktopNotificationTimeout = @ptrCast(@alignCast(ud orelse return));
-        timeout.alloc.destroy(timeout);
+    fn clearDesktopNotifications(self: *Self) void {
+        const app = Application.default();
+        self.private().desktop_notifications.clear(
+            app.allocator(),
+            app.as(gio.Application),
+        );
     }
 
     //---------------------------------------------------------------
@@ -1952,7 +1820,7 @@ pub const Surface = extern struct {
         priv.mapped = false;
         priv.size = .{ .width = 0, .height = 0 };
         priv.vadj_signal_group = null;
-        priv.desktop_notifications = .init(NotificationTracker.default_limit);
+        priv.desktop_notifications = .init();
 
         // If our configuration is null then we get the configuration
         // from the application.
@@ -2149,10 +2017,7 @@ pub const Surface = extern struct {
         for (priv.key_tables.items) |s| alloc.free(s);
         priv.key_tables.deinit(alloc);
 
-        // dispose withdraws all notifications and cancels their timers before
-        // finalize releases the map storage.
-        assert(priv.desktop_notifications.count() == 0);
-        priv.desktop_notifications.deinit(alloc);
+        priv.desktop_notifications.deinit(alloc, Application.default().as(gio.Application));
 
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,
