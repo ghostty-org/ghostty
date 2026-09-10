@@ -1998,6 +1998,46 @@ pub const Capacity = struct {
         return adjusted;
     }
 
+    /// Reduce the row capacity, but never below `min_rows`, until the
+    /// page layout fits within `max_size` bytes. Returns the capacity
+    /// unchanged if it already fits, and null if it can't fit even at
+    /// `min_rows` rows.
+    pub fn fitRows(
+        self: Capacity,
+        max_size: usize,
+        min_rows: size.CellCountInt,
+    ) ?Capacity {
+        assert(min_rows > 0);
+        var adjusted = self;
+        const total = Page.layout(adjusted).total_size;
+        if (total <= max_size) return adjusted;
+        if (adjusted.rows <= min_rows) return null;
+
+        // Jump most of the way with the per-row byte cost. `total` is
+        // rounded up to whole OS pages so this can overshoot by up to a
+        // page worth of rows, and alignment padding between rows, cells
+        // and metadata can make it undershoot by a few rows. Step down
+        // until it fits, then back up to the largest row count that
+        // still fits, so that the shed is minimal.
+        const bytes_per_row: usize = @sizeOf(Row) + @sizeOf(Cell) * @as(usize, self.cols);
+        const shed = std.math.divCeil(usize, total - max_size, bytes_per_row) catch unreachable;
+        adjusted.rows = @intCast(@max(
+            @as(usize, min_rows),
+            @as(usize, adjusted.rows) -| shed,
+        ));
+        while (Page.layout(adjusted).total_size > max_size) {
+            if (adjusted.rows <= min_rows) return null;
+            adjusted.rows -= 1;
+        }
+        while (adjusted.rows < self.rows) {
+            var more = adjusted;
+            more.rows += 1;
+            if (Page.layout(more).total_size > max_size) break;
+            adjusted = more;
+        }
+        return adjusted;
+    }
+
     /// Computes the number of bytes available for the row headers and
     /// cells in the page: the page size minus the metadata block.
     fn availableBytesForGrid(self: Capacity) usize {
@@ -2788,6 +2828,51 @@ test "Cell is zero by default" {
     // The zero value should be output type for semantic content.
     // This is very important for our assumptions elsewhere.
     try std.testing.expectEqual(Cell.SemanticContent.output, cell.semantic_content);
+}
+
+test "Capacity fitRows keeps a fitting capacity" {
+    const budget = Page.layout(std_capacity).total_size;
+    const cap = std_capacity.fitRows(budget, 1).?;
+    try testing.expectEqual(std_capacity, cap);
+}
+
+test "Capacity fitRows sheds only the rows needed" {
+    const budget = Page.layout(std_capacity).total_size;
+
+    var grown = std_capacity;
+    grown.styles *= 8;
+    try testing.expect(Page.layout(grown).total_size > budget);
+
+    const fit = grown.fitRows(budget, 1).?;
+    try testing.expectEqual(grown.cols, fit.cols);
+    try testing.expectEqual(grown.styles, fit.styles);
+    try testing.expectEqual(grown.grapheme_bytes, fit.grapheme_bytes);
+    try testing.expectEqual(grown.hyperlink_bytes, fit.hyperlink_bytes);
+    try testing.expectEqual(grown.string_bytes, fit.string_bytes);
+    try testing.expect(fit.rows < grown.rows);
+    try testing.expect(Page.layout(fit).total_size <= budget);
+
+    // One more row would not fit: the shed is minimal.
+    var one_more = fit;
+    one_more.rows += 1;
+    try testing.expect(Page.layout(one_more).total_size > budget);
+}
+
+test "Capacity fitRows respects the row floor" {
+    const budget = Page.layout(std_capacity).total_size;
+
+    var grown = std_capacity;
+    grown.styles *= 8;
+    const fit = grown.fitRows(budget, 1).?;
+
+    // A floor above what fits means it can't fit.
+    try testing.expect(grown.fitRows(budget, fit.rows + 1) == null);
+    // A floor exactly at what fits is honored.
+    try testing.expectEqual(fit.rows, grown.fitRows(budget, fit.rows).?.rows);
+    // Even a single row can't absorb an absurd managed dimension.
+    var huge = std_capacity;
+    huge.grapheme_bytes = @intCast(budget * 2);
+    try testing.expect(huge.fitRows(budget, 1) == null);
 }
 
 test "Page capacity adjust cols down" {

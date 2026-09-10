@@ -4165,6 +4165,13 @@ pub const IncreaseCapacityError = error{
 /// (we currently double every time) but callers shouldn't depend on that.
 /// The only guarantee is some amount of growth.
 ///
+/// Growing a managed dimension can push the layout past the standard
+/// page size, which would move the page out of the memory pool onto
+/// its own heap mapping. Before that happens, unused row capacity is
+/// traded for the requested memory: the new page keeps every row the
+/// page currently uses (`size.rows`) but its row capacity may shrink.
+/// Callers must not assume row capacity never decreases.
+///
 /// Adjustment can be null if you want to recreate, reclone the page
 /// with the same capacity. This is a special case used for rehashing since
 /// the logic is otherwise the same. In this case, OutOfMemory is the
@@ -4283,6 +4290,15 @@ pub fn increaseCapacity(
                     break :project;
                 cap = proj_cap;
             }
+
+            // Trade unused row capacity for the requested managed memory so
+            // that the page stays a standard size and therefore pooled (see
+            // the doc comment). If it doesn't fit even with every unused row
+            // gone, the page goes non-standard with its rows intact, as before.
+            if (cap.fitRows(
+                std_size,
+                @max(page.size.rows, 1),
+            )) |fit| cap = fit;
         },
     };
 
@@ -4292,7 +4308,8 @@ pub fn increaseCapacity(
     const new_node = try self.createPage(.{ .cap = cap });
     errdefer self.destroyNode(new_node);
     const new_page: *Page = new_node.page();
-    assert(new_page.capacity.rows >= page.capacity.rows);
+    assert(new_page.capacity.rows >= page.size.rows);
+    assert(new_page.capacity.rows >= 1);
     assert(new_page.capacity.cols >= page.capacity.cols);
     new_page.size.rows = page.size.rows;
     new_page.size.cols = page.size.cols;
@@ -19224,6 +19241,78 @@ test "PageList grow reuses non-standard page without leak" {
     try testing.expectEqual(0, tracked_pin.x);
     try testing.expectEqual(0, tracked_pin.y);
     try testing.expect(tracked_pin.garbage);
+}
+
+test "PageList increaseCapacity sheds unused rows to stay standard" {
+    const testing = std.testing;
+
+    var s = try init(testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer s.deinit();
+
+    // Grow styles repeatedly on a page that uses only its active rows.
+    // Each step gives up unused row capacity instead of leaving the pool.
+    var node = s.pages.first.?;
+    const old_rows = node.capacity().rows;
+    const old_styles = node.capacity().styles;
+    for (0..4) |_| node = try s.increaseCapacity(node, .styles);
+
+    try testing.expect(node.capacity().styles > old_styles);
+    try testing.expect(node.capacity().rows < old_rows);
+    try testing.expect(node.capacity().rows >= node.rows());
+    try testing.expectEqual(@as(usize, 24), node.rows());
+    try testing.expectEqual(Node.Owned.pool, node.owned);
+    try testing.expect(node.page().memory.len <= std_size);
+    try testing.expectEqual(std_size, s.page_size);
+
+    // The page still serves the active area and grows normally into
+    // a fresh standard page once its (smaller) row capacity is used up.
+    while (node.rows() < node.capacity().rows) _ = try s.grow();
+    const fresh = (try s.grow()).?;
+    try testing.expect(fresh != node);
+    try testing.expectEqual(Node.Owned.pool, fresh.owned);
+    try testing.expectEqual(old_rows, fresh.capacity().rows);
+}
+
+test "PageList increaseCapacity keeps rows when none can be shed" {
+    const testing = std.testing;
+
+    var s = try init(testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer s.deinit();
+
+    // Fill the page completely so there is no unused row capacity.
+    var node = s.pages.first.?;
+    while (node.rows() < node.capacity().rows) _ = try s.grow();
+    const full_rows = node.capacity().rows;
+
+    // Growth now has nothing to trade and goes non-standard as before,
+    // with every row intact.
+    node = try s.increaseCapacity(node, .styles);
+    try testing.expectEqual(full_rows, node.capacity().rows);
+    try testing.expectEqual(full_rows, node.rows());
+    try testing.expect(node.page().memory.len > std_size);
+    try testing.expectEqual(Node.Owned.heap, node.owned);
+}
+
+test "PageList increaseCapacity sheds rows down to the used rows" {
+    const testing = std.testing;
+
+    var s = try init(testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer s.deinit();
+
+    // Keep doubling graphemes. Rows are shed as needed until only the
+    // used rows remain, after which the page must leave the pool.
+    var node = s.pages.first.?;
+    var saw_shed = false;
+    while (node.page().memory.len <= std_size) {
+        const before = node.capacity().rows;
+        node = try s.increaseCapacity(node, .grapheme_bytes);
+        try testing.expect(node.capacity().rows >= node.rows());
+        if (node.capacity().rows < before) saw_shed = true;
+    }
+    try testing.expect(saw_shed);
+    try testing.expectEqual(@as(usize, 24), node.rows());
+    try testing.expectEqual(Node.Owned.heap, node.owned);
+    s.assertIntegrity();
 }
 
 test "PageList grow non-standard page prune protection" {
