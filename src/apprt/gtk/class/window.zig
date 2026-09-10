@@ -1601,18 +1601,45 @@ pub const Window = extern struct {
         self.as(gtk.Window).destroy();
     }
 
+    /// Finish closing a tab page, honoring the `window-close-tab-focus`
+    /// config. When closing the currently-selected page with `previous`,
+    /// select the left neighbor first so AdwTabView doesn't advance focus
+    /// to the right neighbor.
+    fn finishCloseTab(self: *Self, page: *adw.TabPage, confirm: bool) void {
+        const priv = self.private();
+        const tab_view = priv.tab_view;
+
+        if (confirm) select_prev: {
+            const config = if (priv.config) |v| v.get() else break :select_prev;
+            if (config.@"window-close-tab-focus" != .previous) break :select_prev;
+
+            // Only reroute focus when we're closing the selected page.
+            const selected = tab_view.getSelectedPage() orelse break :select_prev;
+            if (selected != page) break :select_prev;
+
+            // Far-left tab has no left neighbor; fall back to default.
+            const pos = tab_view.getPagePosition(page);
+            if (pos <= 0) break :select_prev;
+
+            const prev_page = tab_view.getNthPage(pos - 1);
+            tab_view.setSelectedPage(prev_page);
+        }
+
+        tab_view.closePageFinish(page, @intFromBool(confirm));
+    }
+
     fn closeConfirmationCloseTab(
         _: *CloseConfirmationDialog,
         page: *adw.TabPage,
     ) callconv(.c) void {
-        const tab_view = ext.getAncestor(
-            adw.TabView,
+        const window = ext.getAncestor(
+            Self,
             page.getChild().as(gtk.Widget),
         ) orelse {
             log.warn("close confirmation called for non-existent page", .{});
             return;
         };
-        tab_view.closePageFinish(page, @intFromBool(true));
+        window.finishCloseTab(page, true);
     }
 
     fn closeConfirmationCancelTab(
@@ -1634,7 +1661,6 @@ pub const Window = extern struct {
         page: *adw.TabPage,
         self: *Self,
     ) callconv(.c) c_int {
-        const priv = self.private();
         const child = page.getChild();
         const tab = gobject.ext.cast(Tab, child) orelse
             return @intFromBool(false);
@@ -1642,7 +1668,7 @@ pub const Window = extern struct {
         // If the tab says it doesn't need confirmation then we go ahead
         // and close immediately.
         if (!tab.getNeedsConfirmQuit()) {
-            priv.tab_view.closePageFinish(page, @intFromBool(true));
+            self.finishCloseTab(page, true);
             return @intFromBool(true);
         }
 
