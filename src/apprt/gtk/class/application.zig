@@ -179,6 +179,9 @@ pub const Application = extern struct {
         /// The configuration for the application.
         config: *Config,
 
+        /// The application window theme selected for this session.
+        window_theme_override: ?apprt.action.WindowTheme = null,
+
         /// State and logic for the underlying windowing protocol.
         winproto: winprotopkg.App,
 
@@ -764,6 +767,8 @@ pub const Application = extern struct {
 
             .reload_config => try Action.reloadConfig(self, target, value),
 
+            .set_window_theme => Action.setWindowTheme(self, value),
+
             .render => Action.render(target),
 
             .resize_split => return Action.resizeSplit(target, value),
@@ -996,7 +1001,7 @@ pub const Application = extern struct {
             \\
         );
 
-        switch (window_theme) {
+        if (priv.window_theme_override == null) switch (window_theme) {
             .ghostty => try writer.print(
                 \\:root {{
                 \\  --ghostty-fg: rgb({d},{d},{d});
@@ -1031,7 +1036,7 @@ pub const Application = extern struct {
                 headerbar_background.b,
             }),
             else => {},
-        }
+        };
 
         const unfocused_fill: CoreConfig.Color = config.@"unfocused-split-fill" orelse config.background;
 
@@ -1400,19 +1405,8 @@ pub const Application = extern struct {
         const config = priv.config.get();
 
         // Setup our initial light/dark
+        self.syncStyleManager(config);
         const style = self.as(adw.Application).getStyleManager();
-        style.setColorScheme(switch (config.@"window-theme") {
-            .auto, .ghostty => auto: {
-                const lum = config.background.toTerminalRGB().perceivedLuminance();
-                break :auto if (lum > 0.5)
-                    .prefer_light
-                else
-                    .prefer_dark;
-            },
-            .system => .prefer_light,
-            .dark => .force_dark,
-            .light => .force_light,
-        });
 
         // Setup color change notifications
         _ = gobject.Object.signals.notify.connect(
@@ -1427,6 +1421,23 @@ pub const Application = extern struct {
         // if our current theme matches what libghostty has so its safe to
         // call.
         handleStyleManagerDark(style, undefined, self);
+    }
+
+    fn syncStyleManager(self: *Self, config: *const CoreConfig) void {
+        self.as(adw.Application).getStyleManager().setColorScheme(
+            switch (config.@"window-theme") {
+                .auto, .ghostty => auto: {
+                    const lum = config.background.toTerminalRGB().perceivedLuminance();
+                    break :auto if (lum > 0.5)
+                        .prefer_light
+                    else
+                        .prefer_dark;
+                },
+                .system => .prefer_light,
+                .dark => .force_dark,
+                .light => .force_light,
+            },
+        );
     }
 
     /// Setup signal handlers
@@ -2227,7 +2238,12 @@ const Action = struct {
 
         switch (target) {
             .surface => |core| core.rt_surface.surface.setConfig(config_obj),
-            .app => self.setConfig(config_obj),
+            .app => {
+                self.setConfig(config_obj);
+                if (self.private().window_theme_override == null) {
+                    self.syncStyleManager(new_config);
+                }
+            },
         }
     }
 
@@ -2778,6 +2794,27 @@ const Action = struct {
                 }
             },
         }
+    }
+
+    pub fn setWindowTheme(
+        self: *Application,
+        theme: apprt.action.WindowTheme,
+    ) void {
+        self.private().window_theme_override = theme;
+        self.as(adw.Application).getStyleManager().setColorScheme(switch (theme) {
+            .system => .prefer_light,
+            .light => .force_light,
+            .dark => .force_dark,
+        });
+
+        // The style manager only notifies on an effective scheme change, so
+        // the runtime CSS must be reloaded directly.
+        self.loadRuntimeCss() catch |err| switch (err) {
+            error.WriteFailed, error.OutOfMemory => log.warn(
+                "out of memory loading runtime CSS, no runtime CSS applied",
+                .{},
+            ),
+        };
     }
 
     /// Reload the configuration for the application and propagate it
