@@ -38,130 +38,16 @@ const SplitTree = @import("split_tree.zig").SplitTree;
 const i18n = @import("../../../os/i18n.zig");
 const global = @import("../../../global.zig");
 const gtk_version = @import("../gtk_version.zig");
+const NotificationTracker = @import("../notification_tracker.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
-
-/// Display-independent bookkeeping for notifications associated with one
-/// surface. The GTK integration is responsible for acting on returned timer
-/// sources and notification digests.
-const DesktopNotificationTracker = struct {
-    const Notification = struct {
-        sequence: u64,
-        timeout_source: ?c_uint = null,
-    };
-
-    const Removed = struct {
-        digest: u64,
-        notification: Notification,
-    };
-
-    const TrackResult = struct {
-        notification: *Notification,
-        replaced: bool = false,
-        replaced_timeout: ?c_uint = null,
-        evicted: ?Removed = null,
-    };
-
-    const Notifications = std.AutoHashMapUnmanaged(u64, Notification);
-    const default_limit = 64;
-
-    notifications: Notifications = .empty,
-    sequence: u64 = 0,
-    limit: usize,
-
-    fn init(limit: usize) DesktopNotificationTracker {
-        assert(limit > 0);
-        return .{ .limit = limit };
-    }
-
-    fn track(
-        self: *DesktopNotificationTracker,
-        alloc: Allocator,
-        digest: u64,
-    ) Allocator.Error!TrackResult {
-        if (self.notifications.getPtr(digest)) |notification| {
-            const replaced_timeout = notification.timeout_source;
-            notification.* = .{ .sequence = self.nextSequence() };
-            return .{
-                .notification = notification,
-                .replaced = true,
-                .replaced_timeout = replaced_timeout,
-            };
-        }
-
-        assert(self.limit > 0);
-        try self.notifications.ensureUnusedCapacity(alloc, 1);
-
-        const evicted = if (self.notifications.count() >= self.limit)
-            self.remove(self.oldestDigest().?)
-        else
-            null;
-
-        self.notifications.putAssumeCapacity(
-            digest,
-            .{ .sequence = self.nextSequence() },
-        );
-        return .{
-            .notification = self.notifications.getPtr(digest).?,
-            .evicted = evicted,
-        };
-    }
-
-    fn getPtr(self: *DesktopNotificationTracker, digest: u64) ?*Notification {
-        return self.notifications.getPtr(digest);
-    }
-
-    fn remove(self: *DesktopNotificationTracker, digest: u64) ?Removed {
-        const removed = self.notifications.fetchRemove(digest) orelse return null;
-        return .{
-            .digest = removed.key,
-            .notification = removed.value,
-        };
-    }
-
-    fn pop(self: *DesktopNotificationTracker) ?Removed {
-        var it = self.notifications.iterator();
-        const entry = it.next() orelse return null;
-        return self.remove(entry.key_ptr.*);
-    }
-
-    fn count(self: *const DesktopNotificationTracker) usize {
-        return self.notifications.count();
-    }
-
-    fn clearAndFree(self: *DesktopNotificationTracker, alloc: Allocator) void {
-        self.notifications.clearAndFree(alloc);
-    }
-
-    fn deinit(self: *DesktopNotificationTracker, alloc: Allocator) void {
-        self.notifications.deinit(alloc);
-    }
-
-    fn nextSequence(self: *DesktopNotificationTracker) u64 {
-        const result = self.sequence;
-        self.sequence +%= 1;
-        return result;
-    }
-
-    fn oldestDigest(self: *const DesktopNotificationTracker) ?u64 {
-        var result: ?struct { digest: u64, sequence: u64 } = null;
-        var it = self.notifications.iterator();
-        while (it.next()) |entry| {
-            const sequence = entry.value_ptr.sequence;
-            if (result == null or sequence < result.?.sequence) {
-                result = .{ .digest = entry.key_ptr.*, .sequence = sequence };
-            }
-        }
-        return if (result) |value| value.digest else null;
-    }
-};
 
 pub const Surface = extern struct {
     const Self = @This();
     const DesktopNotificationTimeout = struct {
         alloc: Allocator,
         surface: *Self,
-        digest: u64,
+        key: NotificationTracker.Key,
     };
     const focused_notification_timeout_ms = 3 * std.time.ms_per_s;
 
@@ -795,7 +681,7 @@ pub const Surface = extern struct {
 
         // Desktop notifications associated with this surface. GNotification
         // requires the original ID to withdraw a delivered notification.
-        desktop_notifications: DesktopNotificationTracker,
+        desktop_notifications: NotificationTracker,
 
         // True while the bell is ringing. This will be set to false (after
         // true) under various scenarios, but can also manually be set to
@@ -1922,38 +1808,37 @@ pub const Surface = extern struct {
             pointer,
         );
 
-        const digest = desktopNotificationDigest(title, body);
-        var notification_id_buf: [64]u8 = undefined;
-        const notification_id = formatNotificationId(
-            &notification_id_buf,
-            core_surface.id,
-            digest,
-        ) catch |err| {
-            log.warn("unable to format desktop notification ID err={}", .{err});
-            return;
-        };
-
         const alloc = app.allocator();
 
         // Keep tracking bounded. GNOME may discard notifications without
         // telling us, so the tracker evicts the oldest notification when the
         // per-surface limit is reached.
-        const tracked = priv.desktop_notifications.track(alloc, digest) catch |err| {
+        const tracked = priv.desktop_notifications.track(alloc, title, body) catch |err| {
             log.warn("unable to track desktop notification err={}", .{err});
             return;
         };
         cancelDesktopNotificationTimeout(tracked.replaced_timeout);
         if (tracked.evicted) |evicted| {
-            cancelDesktopNotificationTimeout(evicted.notification.timeout_source);
-            self.withdrawDesktopNotification(evicted.digest);
+            self.clearDesktopNotification(evicted);
         }
+
+        var notification_id_buf: [64]u8 = undefined;
+        const notification_id = NotificationTracker.formatId(
+            &notification_id_buf,
+            core_surface.id,
+            tracked.key,
+        ) catch |err| {
+            log.warn("unable to format desktop notification ID err={}", .{err});
+            self.removeDesktopNotification(tracked.key);
+            return;
+        };
 
         const gio_app = app.as(gio.Application);
         gio_app.sendNotification(notification_id, notification);
 
         // Match macOS behavior by removing notifications after a few seconds
         // when they are sent while their surface is already focused.
-        if (priv.focused) self.scheduleDesktopNotificationTimeout(digest);
+        if (priv.focused) self.scheduleDesktopNotificationTimeout(tracked.key);
     }
 
     /// Withdraw and forget all desktop notifications associated with this
@@ -1965,26 +1850,30 @@ pub const Surface = extern struct {
         const app = Application.default();
         const alloc = app.allocator();
         while (priv.desktop_notifications.pop()) |removed| {
-            cancelDesktopNotificationTimeout(removed.notification.timeout_source);
-            self.withdrawDesktopNotification(removed.digest);
+            self.clearDesktopNotification(removed);
         }
         priv.desktop_notifications.clearAndFree(alloc);
     }
 
-    fn removeDesktopNotification(self: *Self, digest: u64) void {
+    fn removeDesktopNotification(self: *Self, key: NotificationTracker.Key) void {
         const priv = self.private();
-        const removed = priv.desktop_notifications.remove(digest) orelse return;
-        cancelDesktopNotificationTimeout(removed.notification.timeout_source);
-        self.withdrawDesktopNotification(digest);
+        const removed = priv.desktop_notifications.remove(key) orelse return;
+        self.clearDesktopNotification(removed);
     }
 
-    fn withdrawDesktopNotification(self: *Self, digest: u64) void {
+    fn clearDesktopNotification(self: *Self, removed: NotificationTracker.Removed) void {
+        cancelDesktopNotificationTimeout(removed.notification.timeout_source);
+        self.withdrawDesktopNotification(removed.key);
+        removed.deinit(Application.default().allocator());
+    }
+
+    fn withdrawDesktopNotification(self: *Self, key: NotificationTracker.Key) void {
         const surface = self.private().core_surface orelse return;
         var notification_id_buf: [64]u8 = undefined;
-        const notification_id = formatNotificationId(
+        const notification_id = NotificationTracker.formatId(
             &notification_id_buf,
             surface.id,
-            digest,
+            key,
         ) catch |err| {
             log.warn("unable to format desktop notification ID err={}", .{err});
             return;
@@ -2000,9 +1889,9 @@ pub const Surface = extern struct {
         }
     }
 
-    fn scheduleDesktopNotificationTimeout(self: *Self, digest: u64) void {
+    fn scheduleDesktopNotificationTimeout(self: *Self, key: NotificationTracker.Key) void {
         const priv = self.private();
-        const notification = priv.desktop_notifications.getPtr(digest) orelse return;
+        const notification = priv.desktop_notifications.getPtr(key) orelse return;
         cancelDesktopNotificationTimeout(notification.timeout_source);
         notification.timeout_source = null;
 
@@ -2014,7 +1903,7 @@ pub const Surface = extern struct {
         timeout.* = .{
             .alloc = alloc,
             .surface = self,
-            .digest = digest,
+            .key = key,
         };
         notification.timeout_source = glib.timeoutAddFull(
             glib.PRIORITY_DEFAULT,
@@ -2029,10 +1918,11 @@ pub const Surface = extern struct {
         const timeout: *DesktopNotificationTimeout = @ptrCast(@alignCast(ud orelse
             return @intFromBool(glib.SOURCE_REMOVE)));
         const self = timeout.surface;
-        const removed = self.private().desktop_notifications.remove(timeout.digest) orelse
+        const removed = self.private().desktop_notifications.remove(timeout.key) orelse
             return @intFromBool(glib.SOURCE_REMOVE);
         assert(removed.notification.timeout_source != null);
-        self.withdrawDesktopNotification(timeout.digest);
+        self.withdrawDesktopNotification(removed.key);
+        removed.deinit(timeout.alloc);
         return @intFromBool(glib.SOURCE_REMOVE);
     }
 
@@ -2062,7 +1952,7 @@ pub const Surface = extern struct {
         priv.mapped = false;
         priv.size = .{ .width = 0, .height = 0 };
         priv.vadj_signal_group = null;
-        priv.desktop_notifications = .init(DesktopNotificationTracker.default_limit);
+        priv.desktop_notifications = .init(NotificationTracker.default_limit);
 
         // If our configuration is null then we get the configuration
         // from the application.
@@ -4654,114 +4544,11 @@ fn computeFraction(progress: u8) f64 {
     return @as(f64, @floatFromInt(std.math.clamp(progress, 0, 100))) / 100.0;
 }
 
-/// Hash the visible notification content. The separator keeps title/body
-/// boundaries distinct.
-fn desktopNotificationDigest(title: []const u8, body: []const u8) u64 {
-    var hash = std.hash.Wyhash.init(0);
-    hash.update(title);
-    hash.update("\x00");
-    hash.update(body);
-    return hash.final();
-}
-
-/// Format a notification ID from its surface and content digest. Surface IDs
-/// are random non-zero values assigned by the core.
-fn formatNotificationId(
-    buf: []u8,
-    surface_id: u64,
-    digest: u64,
-) std.fmt.BufPrintError![:0]u8 {
-    return std.fmt.bufPrintZ(
-        buf,
-        "ghostty-surface-{x}-{x}",
-        .{ surface_id, digest },
-    );
-}
-
 test "computeFraction" {
     try std.testing.expectEqual(1.0, computeFraction(100));
     try std.testing.expectEqual(1.0, computeFraction(255));
     try std.testing.expectEqual(0.0, computeFraction(0));
     try std.testing.expectEqual(0.5, computeFraction(50));
-}
-
-test "desktop notification IDs are stable per surface and content" {
-    const testing = std.testing;
-
-    const first_digest = desktopNotificationDigest("Title", "Body");
-    const repeated_digest = desktopNotificationDigest("Title", "Body");
-    const other_title_digest = desktopNotificationDigest("Other", "Body");
-    const other_body_digest = desktopNotificationDigest("Title", "Other");
-
-    var first_buf: [64]u8 = undefined;
-    const first = try formatNotificationId(&first_buf, 1, first_digest);
-    var repeated_buf: [64]u8 = undefined;
-    const repeated = try formatNotificationId(&repeated_buf, 1, repeated_digest);
-    var other_surface_buf: [64]u8 = undefined;
-    const other_surface = try formatNotificationId(&other_surface_buf, 2, first_digest);
-    var other_title_buf: [64]u8 = undefined;
-    const other_title = try formatNotificationId(&other_title_buf, 1, other_title_digest);
-    var other_body_buf: [64]u8 = undefined;
-    const other_body = try formatNotificationId(&other_body_buf, 1, other_body_digest);
-
-    try testing.expectEqualStrings(first, repeated);
-    try testing.expect(!std.mem.eql(u8, first, other_surface));
-    try testing.expect(!std.mem.eql(u8, first, other_title));
-    try testing.expect(!std.mem.eql(u8, first, other_body));
-}
-
-test "desktop notification tracker replaces and evicts oldest" {
-    const testing = std.testing;
-
-    var tracker: DesktopNotificationTracker = .init(3);
-    defer tracker.deinit(testing.allocator);
-
-    const first = try tracker.track(testing.allocator, 11);
-    first.notification.timeout_source = 101;
-    const second = try tracker.track(testing.allocator, 22);
-    second.notification.timeout_source = 202;
-    const third = try tracker.track(testing.allocator, 33);
-    third.notification.timeout_source = 303;
-
-    const repeated = try tracker.track(testing.allocator, 11);
-    try testing.expect(repeated.replaced);
-    try testing.expectEqual(@as(?c_uint, 101), repeated.replaced_timeout);
-    try testing.expectEqual(@as(?c_uint, null), repeated.notification.timeout_source);
-    try testing.expectEqual(@as(?DesktopNotificationTracker.Removed, null), repeated.evicted);
-
-    const fourth = try tracker.track(testing.allocator, 44);
-    try testing.expect(!fourth.replaced);
-    try testing.expectEqual(@as(?c_uint, null), fourth.replaced_timeout);
-    const evicted = fourth.evicted.?;
-    try testing.expectEqual(@as(u64, 22), evicted.digest);
-    try testing.expectEqual(@as(?c_uint, 202), evicted.notification.timeout_source);
-    try testing.expectEqual(@as(usize, 3), tracker.count());
-}
-
-test "desktop notification tracker removes and drains independently" {
-    const testing = std.testing;
-
-    var first: DesktopNotificationTracker = .init(DesktopNotificationTracker.default_limit);
-    defer first.deinit(testing.allocator);
-    var second: DesktopNotificationTracker = .init(DesktopNotificationTracker.default_limit);
-    defer second.deinit(testing.allocator);
-
-    const first_notification = try first.track(testing.allocator, 11);
-    first_notification.notification.timeout_source = 101;
-    _ = try first.track(testing.allocator, 22);
-    _ = try second.track(testing.allocator, 11);
-
-    const removed = first.remove(11).?;
-    try testing.expectEqual(@as(u64, 11), removed.digest);
-    try testing.expectEqual(@as(?c_uint, 101), removed.notification.timeout_source);
-    try testing.expectEqual(@as(usize, 1), first.count());
-    try testing.expectEqual(@as(usize, 1), second.count());
-
-    const drained = first.pop().?;
-    try testing.expectEqual(@as(u64, 22), drained.digest);
-    try testing.expectEqual(@as(usize, 0), first.count());
-    try testing.expect(first.pop() == null);
-    try testing.expectEqual(@as(usize, 1), second.count());
 }
 
 /// Apply command and shell integration overrides received from the CLI.
