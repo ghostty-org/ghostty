@@ -2191,8 +2191,8 @@ pub const Surface = extern struct {
 
         const font_size: font.face.DesiredSize = .{
             .points = config.@"font-size",
-            .xdpi = @intFromFloat(x_dpi),
-            .ydpi = @intFromFloat(y_dpi),
+            .xdpi = @intFromFloat(@round(x_dpi)),
+            .ydpi = @intFromFloat(@round(y_dpi)),
         };
 
         // Get font grid for cell metrics

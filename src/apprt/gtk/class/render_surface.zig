@@ -122,6 +122,7 @@ pub const RenderSurface = extern struct {
         height: c_int,
         baseline: c_int,
     ) callconv(.c) void {
+        self.connectScaleNotify();
         self.emitDeviceResize(width, height);
 
         gtk.Widget.virtual_methods.size_allocate.call(
@@ -157,6 +158,7 @@ pub const RenderSurface = extern struct {
         // Map one texture texel to one device pixel. Widget CSS size would
         // stretch a fractionally scaled buffer.
         const surface_scale = scale_util.widgetSurfaceScale(widget);
+        if (!(surface_scale > 0)) return;
         const css_w: f32 = @as(f32, @floatFromInt(texture.getWidth())) / @as(f32, @floatCast(surface_scale));
         const css_h: f32 = @as(f32, @floatFromInt(texture.getHeight())) / @as(f32, @floatCast(surface_scale));
 
@@ -195,10 +197,16 @@ pub const RenderSurface = extern struct {
         if (comptime !gtk_version.atLeast(4, 12, 0)) return;
         if (!gtk_version.runtimeAtLeast(4, 12, 0)) return;
 
-        const priv = self.private();
-        if (priv.scale_notify_id != 0) return;
         const native = self.as(gtk.Widget).getNative() orelse return;
         const surface = native.getSurface() orelse return;
+
+        const priv = self.private();
+        if (priv.scale_notify_id != 0) {
+            if (priv.scale_surface == surface) return;
+            self.disconnectScaleNotify();
+        }
+
+        _ = surface.as(gobject.Object).ref();
         priv.scale_surface = surface;
         priv.scale_notify_id = gobject.Object.signals.notify.connect(
             surface,
@@ -217,6 +225,7 @@ pub const RenderSurface = extern struct {
                 surface.as(gobject.Object),
                 priv.scale_notify_id,
             );
+            surface.as(gobject.Object).unref();
         }
         priv.scale_notify_id = 0;
         priv.scale_surface = null;
