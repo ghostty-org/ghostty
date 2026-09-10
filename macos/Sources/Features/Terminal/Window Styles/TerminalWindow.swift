@@ -472,7 +472,11 @@ class TerminalWindow: NSWindow {
         defer { updateColorSchemeForSurfaceTree() }
 
         // Basic properties
-        appearance = surfaceConfig.windowAppearance
+        appearance = if let appearanceOverride = (NSApp.delegate as? AppDelegate)?.appearanceOverride {
+            appearanceOverride.nsAppearance
+        } else {
+            surfaceConfig.windowAppearance
+        }
         hasShadow = surfaceConfig.macosWindowShadow
 
         // Window transparency only takes effect if our window is not native fullscreen.

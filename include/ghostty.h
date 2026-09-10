@@ -863,6 +863,13 @@ typedef struct {
   bool soft;
 } ghostty_action_reload_config_s;
 
+// apprt.action.WindowTheme
+typedef enum {
+  GHOSTTY_ACTION_WINDOW_THEME_DARK,
+  GHOSTTY_ACTION_WINDOW_THEME_LIGHT,
+  GHOSTTY_ACTION_WINDOW_THEME_SYSTEM,
+} ghostty_action_window_theme_e;
+
 // apprt.action.OpenUrlKind
 typedef enum {
   GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
@@ -1009,6 +1016,7 @@ typedef enum {
   GHOSTTY_ACTION_READONLY,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
   GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
+  GHOSTTY_ACTION_SET_WINDOW_THEME,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -1052,6 +1060,7 @@ typedef union {
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;
   ghostty_action_open_config_e open_config;
+  ghostty_action_window_theme_e set_window_theme;
 } ghostty_action_u;
 
 typedef struct {

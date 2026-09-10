@@ -17,6 +17,20 @@ class AppDelegate: NSObject,
         category: String(describing: AppDelegate.self)
     )
 
+    enum Appearance {
+        case dark
+        case light
+        case system
+
+        var nsAppearance: NSAppearance? {
+            switch self {
+            case .dark: NSAppearance(named: .darkAqua)
+            case .light: NSAppearance(named: .aqua)
+            case .system: nil
+            }
+        }
+    }
+
     /// Various menu items so that we can programmatically sync the keyboard shortcut with the Ghostty config
     @IBOutlet private var menuAbout: NSMenuItem?
     @IBOutlet private var menuServices: NSMenu?
@@ -103,6 +117,9 @@ class AppDelegate: NSObject,
 
     /// This is the current configuration from the Ghostty configuration that we need.
     private var derivedConfig: DerivedConfig = DerivedConfig()
+
+    /// The application appearance selected for this session.
+    private(set) var appearanceOverride: Appearance?
 
     /// The ghostty global state. Only one per process.
     let ghostty: Ghostty.App
@@ -852,9 +869,23 @@ class AppDelegate: NSObject,
         updateAppIcon(from: config)
     }
 
+    /// Temporarily override the configured application appearance for this session.
+    func setAppearance(_ appearance: Appearance) {
+        appearanceOverride = appearance
+        syncAppearance(config: ghostty.config)
+
+        NSApplication.shared.windows
+            .compactMap { $0.windowController as? BaseTerminalController }
+            .forEach { $0.syncAppearance() }
+    }
+
     /// Sync the appearance of our app with the theme specified in the config.
     private func syncAppearance(config: Ghostty.Config) {
-        NSApplication.shared.appearance = .init(ghosttyConfig: config)
+        NSApplication.shared.appearance = if let appearanceOverride {
+            appearanceOverride.nsAppearance
+        } else {
+            .init(ghosttyConfig: config)
+        }
     }
 
     private func updateAppIcon(from config: Ghostty.Config) {

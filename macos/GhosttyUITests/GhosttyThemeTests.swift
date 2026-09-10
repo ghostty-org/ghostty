@@ -144,6 +144,54 @@ final class GhosttyThemeTests: GhosttyCustomConfigCase {
     }
 
     @MainActor
+    func testSwitchingAppearanceFromCommandPalette() async throws {
+        try updateConfig("""
+        title=\(windowTitle)
+        window-theme=dark
+        macos-titlebar-style=native
+        keybind=cmd+shift+l=set_window_theme:light
+        """)
+        XCUIDevice.shared.appearance = .dark
+
+        let app = try ghosttyApplication()
+        app.launch()
+        try assertTitlebarAppearance(.dark, for: app)
+
+        app.menuItems["Command Palette"].firstMatch.click()
+        app.buttons
+            .containing(NSPredicate(format: "label CONTAINS[c] 'Switch to Light Appearance'"))
+            .firstMatch.click()
+        try await Task.sleep(for: .seconds(0.5))
+        try assertTitlebarAppearance(.light, for: app)
+
+        // Reloading without changing window-theme preserves the override.
+        app.typeKey(",", modifierFlags: [.command, .shift])
+        try await Task.sleep(for: .seconds(0.5))
+        try assertTitlebarAppearance(.light, for: app)
+
+        app.menuItems["Command Palette"].firstMatch.click()
+        app.buttons
+            .containing(NSPredicate(format: "label CONTAINS[c] 'Switch to System Appearance'"))
+            .firstMatch.click()
+        try await Task.sleep(for: .seconds(0.5))
+        try assertTitlebarAppearance(.dark, for: app)
+
+        app.typeKey("l", modifierFlags: [.command, .shift])
+        try await Task.sleep(for: .seconds(0.5))
+        try assertTitlebarAppearance(.light, for: app)
+
+        // Changing window-theme also preserves the session override.
+        try updateConfig("""
+        title=\(windowTitle)
+        window-theme=system
+        macos-titlebar-style=native
+        """)
+        app.typeKey(",", modifierFlags: [.command, .shift])
+        try await Task.sleep(for: .seconds(0.5))
+        try assertTitlebarAppearance(.light, for: app)
+    }
+
+    @MainActor
     func testQuickTerminalThemeChange() async throws {
         try updateConfig("title=\(windowTitle) \n theme=light:3024 Day,dark:3024 Night \n confirm-close-surface=false")
         XCUIDevice.shared.appearance = .light

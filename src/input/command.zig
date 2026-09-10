@@ -601,6 +601,24 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Reload the config file."),
         }},
 
+        .set_window_theme => comptime &.{
+            .{
+                .action = .{ .set_window_theme = .dark },
+                .title = i18n.N_("Switch to Dark Appearance"),
+                .description = i18n.N_("Use a dark application appearance for this session."),
+            },
+            .{
+                .action = .{ .set_window_theme = .light },
+                .title = i18n.N_("Switch to Light Appearance"),
+                .description = i18n.N_("Use a light application appearance for this session."),
+            },
+            .{
+                .action = .{ .set_window_theme = .system },
+                .title = i18n.N_("Switch to System Appearance"),
+                .description = i18n.N_("Use the system application appearance for this session."),
+            },
+        },
+
         .close_surface => comptime &.{.{
             .action = .close_surface,
             .title = i18n.N_("Close Terminal"),

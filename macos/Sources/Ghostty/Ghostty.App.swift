@@ -723,6 +723,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_RELOAD_CONFIG:
                 configReload(app, target: target, v: action.action.reload_config)
 
+            case GHOSTTY_ACTION_SET_WINDOW_THEME:
+                setWindowTheme(action.action.set_window_theme)
+
             case GHOSTTY_ACTION_COLOR_CHANGE:
                 colorChange(app, target: target, change: action.action.color_change)
 
@@ -2330,6 +2333,21 @@ extension Ghostty {
 
             default:
                 assertionFailure()
+            }
+        }
+
+        private static func setWindowTheme(_ theme: ghostty_action_window_theme_e) {
+            guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
+
+            switch theme {
+            case GHOSTTY_ACTION_WINDOW_THEME_DARK:
+                appDelegate.setAppearance(.dark)
+            case GHOSTTY_ACTION_WINDOW_THEME_LIGHT:
+                appDelegate.setAppearance(.light)
+            case GHOSTTY_ACTION_WINDOW_THEME_SYSTEM:
+                appDelegate.setAppearance(.system)
+            default:
+                Ghostty.logger.warning("unknown window theme=\(theme.rawValue, privacy: .public)")
             }
         }
 
