@@ -3,7 +3,11 @@ import AppIntents
 import GhosttyKit
 
 struct FocusTerminalIntent: AppIntent {
+#if DEBUG
+    static var title: LocalizedStringResource = "[DEBUG] Focus Terminal"
+#else
     static var title: LocalizedStringResource = "Focus Terminal"
+#endif
     static var description = IntentDescription("Move focus to an existing terminal.")
 
     @Parameter(

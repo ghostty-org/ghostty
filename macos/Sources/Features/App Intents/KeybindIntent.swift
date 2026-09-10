@@ -2,7 +2,11 @@ import AppKit
 import AppIntents
 
 struct KeybindIntent: AppIntent {
+#if DEBUG
+    static var title: LocalizedStringResource = "[DEBUG] Invoke a Keybind Action"
+#else
     static var title: LocalizedStringResource = "Invoke a Keybind Action"
+#endif
 
     @Parameter(
         title: "Terminal",
