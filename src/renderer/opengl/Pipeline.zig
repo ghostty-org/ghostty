@@ -20,11 +20,25 @@ pub const Options = struct {
     /// Whether to enable blending.
     blending_enabled: bool = true,
 
+    /// Texture buffer binding for `buffers[1]`.
+    buffer_texture: ?BufferTexture = null,
+
+    pub const BufferTexture = struct {
+        unit: gl.c.GLuint,
+        internal_format: gl.Texture.InternalFormat,
+    };
+
     pub const StepFunction = enum {
         constant,
         per_vertex,
         per_instance,
     };
+};
+
+const BufferTextureBinding = struct {
+    texture: gl.Texture,
+    unit: gl.c.GLuint,
+    internal_format: gl.Texture.InternalFormat,
 };
 
 program: gl.Program,
@@ -36,6 +50,8 @@ vao: gl.VertexArray,
 stride: usize,
 
 blending_enabled: bool,
+
+buffer_texture: ?BufferTextureBinding = null,
 
 pub fn init(comptime VertexAttributes: ?type, opts: Options) !Self {
     // Load and compile our shaders.
@@ -60,16 +76,32 @@ pub fn init(comptime VertexAttributes: ?type, opts: Options) !Self {
 
     if (VertexAttributes) |VA| try autoAttribute(VA, vaobind, opts.step_fn);
 
+    const buffer_texture: ?BufferTextureBinding = if (opts.buffer_texture) |cfg| texture: {
+        const texture = try gl.Texture.create();
+        errdefer texture.destroy();
+
+        break :texture .{
+            .texture = texture,
+            .unit = cfg.unit,
+            .internal_format = cfg.internal_format,
+        };
+    } else null;
+
     return .{
         .program = program,
         .fbo = fbo,
         .vao = vao,
         .stride = if (VertexAttributes) |VA| @sizeOf(VA) else 0,
         .blending_enabled = opts.blending_enabled,
+        .buffer_texture = buffer_texture,
     };
 }
 
 pub fn deinit(self: *const Self) void {
+    if (self.buffer_texture) |tbo| {
+        tbo.texture.destroy();
+    }
+
     self.program.destroy();
 }
 
