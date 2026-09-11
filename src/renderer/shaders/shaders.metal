@@ -524,13 +524,13 @@ enum CellTextBools : uint8_t {
 
 struct CellTextVertexIn {
   // The position of the glyph in the texture (x, y)
-  uint2 glyph_pos [[attribute(0)]];
+  ushort2 glyph_pos [[attribute(0)]];
 
   // The size of the glyph in the texture (w, h)
-  uint2 glyph_size [[attribute(1)]];
+  ushort2 glyph_size [[attribute(1)]];
 
   // The left and top bearings for the glyph (x, y)
-  int2 bearings [[attribute(2)]];
+  short2 bearings [[attribute(2)]];
 
   // The grid coordinates (x, y) where x < columns and y < rows
   ushort2 grid_pos [[attribute(3)]];
