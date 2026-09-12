@@ -1278,6 +1278,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Whenever we resize save our last position and size for the next start.
         LastWindowPosition.shared.save(window)
+
+        if let window = self.window as? TerminalWindow {
+            // Expand the title frame to new width.
+            // This is needed because when the new window size becomes bigger,
+            // window's title will be clipped again.
+            window.syncWindowTitleAppearance()
+        }
     }
 
     func windowDidBecomeMain(_ notification: Notification) {
