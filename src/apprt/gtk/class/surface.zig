@@ -38,6 +38,7 @@ const SplitTree = @import("split_tree.zig").SplitTree;
 const i18n = @import("../../../os/i18n.zig");
 const global = @import("../../../global.zig");
 const gtk_version = @import("../gtk_version.zig");
+const DesktopNotifications = @import("../desktop_notifications.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
@@ -670,6 +671,9 @@ pub const Surface = extern struct {
 
         // Progress bar
         progress_bar_timer: ?c_uint = null,
+
+        // Desktop notifications and timers owned by this surface.
+        desktop_notifications: DesktopNotifications,
 
         // True while the bell is ringing. This will be set to false (after
         // true) under various scenarios, but can also manually be set to
@@ -1777,29 +1781,22 @@ pub const Surface = extern struct {
             return;
         };
 
-        const t = switch (title.len) {
-            0 => "Ghostty",
-            else => title,
-        };
-
-        const notification = gio.Notification.new(t);
-        defer notification.unref();
-        notification.setBody(body);
-
-        const icon = gio.ThemedIcon.new("com.mitchellh.ghostty");
-        defer icon.unref();
-        notification.setIcon(icon.as(gio.Icon));
-
-        const pointer = glib.Variant.newUint64(core_surface.id);
-        notification.setDefaultActionAndTargetValue(
-            "app.present-surface",
-            pointer,
+        priv.desktop_notifications.send(
+            app.allocator(),
+            app.as(gio.Application),
+            core_surface.id,
+            priv.focused,
+            title,
+            body,
         );
+    }
 
-        // We set the notification ID to the body content. If the content is the
-        // same, this notification may replace a previous notification
-        const gio_app = app.as(gio.Application);
-        gio_app.sendNotification(body, notification);
+    fn clearDesktopNotifications(self: *Self) void {
+        const app = Application.default();
+        self.private().desktop_notifications.clear(
+            app.allocator(),
+            app.as(gio.Application),
+        );
     }
 
     //---------------------------------------------------------------
@@ -1823,6 +1820,7 @@ pub const Surface = extern struct {
         priv.mapped = false;
         priv.size = .{ .width = 0, .height = 0 };
         priv.vadj_signal_group = null;
+        priv.desktop_notifications = .init();
 
         // If our configuration is null then we get the configuration
         // from the application.
@@ -1889,6 +1887,8 @@ pub const Surface = extern struct {
 
     fn dispose(self: *Self) callconv(.c) void {
         const priv = self.private();
+
+        self.clearDesktopNotifications();
 
         if (priv.config) |v| {
             v.unref();
@@ -2016,6 +2016,8 @@ pub const Surface = extern struct {
         priv.key_sequence.deinit(alloc);
         for (priv.key_tables.items) |s| alloc.free(s);
         priv.key_tables.deinit(alloc);
+
+        priv.desktop_notifications.deinit(alloc, Application.default().as(gio.Application));
 
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,
@@ -2826,8 +2828,11 @@ pub const Surface = extern struct {
         _ = glib.idleAddOnce(idleFocus, self.ref());
         self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
 
-        // Bell stops ringing as soon as we gain focus
-        if (focused) self.setBellRinging(false);
+        // Bell state and desktop notifications clear when we gain focus.
+        if (focused) {
+            self.setBellRinging(false);
+            self.clearDesktopNotifications();
+        }
     }
 
     /// The focus callback must be triggered on an idle loop source because
