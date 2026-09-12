@@ -4,7 +4,7 @@ import Testing
 @testable import Ghostty
 
 @MainActor struct SurfaceView_SearchStateTests {
-    typealias SearchState = Ghostty.OSSurfaceView.SearchState
+    typealias SearchState = Ghostty.SurfaceView.SearchState
     typealias StartSearch = Ghostty.Action.StartSearch
 
     /// A unique pasteboard for each test case prevents flakiness.
