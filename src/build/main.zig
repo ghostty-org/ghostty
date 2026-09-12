@@ -25,6 +25,7 @@ pub const SharedDeps = @import("SharedDeps.zig");
 pub const UnicodeTables = @import("UnicodeTables.zig");
 
 // Steps
+pub const CollectDirStep = @import("CollectDirStep.zig");
 pub const LibtoolStep = @import("LibtoolStep.zig");
 pub const LipoStep = @import("LipoStep.zig");
 pub const MetallibStep = @import("MetallibStep.zig");
