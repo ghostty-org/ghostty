@@ -174,7 +174,7 @@ msgstr "右に分割"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:377
 msgid "Close Split"
-msgstr ""
+msgstr "分割ウィンドウを閉じる"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:383
 msgid "Tab"
@@ -202,7 +202,7 @@ msgstr "ウィンドウ"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:215
 msgid "Change Window Title…"
-msgstr ""
+msgstr "ウィンドウのタイトルを変更…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:220
 #: src/input/command.zig:421
@@ -220,11 +220,11 @@ msgstr "設定"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
-msgstr ""
+msgstr "OS標準のエディターで設定ファイルを開く"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
-msgstr ""
+msgstr "新しいウィンドウで設定ファイルを開く"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
@@ -268,27 +268,27 @@ msgstr "コマンドを実行…"
 
 #: src/apprt/gtk/class/application.zig:1767
 msgid "The keybind was revoked by the system."
-msgstr ""
+msgstr "キーバインドがシステムによって解除されました。"
 
 #: src/apprt/gtk/class/application.zig:1769
 msgid "The keybind was denied by the system."
-msgstr ""
+msgstr "キーバインドがシステムによって拒否されました。"
 
 #: src/apprt/gtk/class/application.zig:1780
 msgid "Global keybind unavailable"
-msgstr ""
+msgstr "グローバルキーバインドが利用できません"
 
 #: src/apprt/gtk/class/application.zig:2259
 msgid "Export Terminal IO Events"
-msgstr ""
+msgstr "ターミナルI/Oイベントをエクスポート"
 
 #: src/apprt/gtk/class/application.zig:2262
 msgid "Export"
-msgstr ""
+msgstr "エクスポート"
 
 #: src/apprt/gtk/class/application.zig:2783
 msgid "Editing configuration file"
-msgstr ""
+msgstr "設定ファイルの編集中"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
 msgid ""
@@ -374,7 +374,7 @@ msgstr "タブのタイトルを変更する"
 
 #: src/apprt/gtk/class/title_dialog.zig:229
 msgid "Change Window Title"
-msgstr ""
+msgstr "ウィンドウのタイトルを変更する"
 
 #: src/apprt/gtk/class/window.zig:1153
 msgid "Reloaded the configuration"
@@ -394,78 +394,80 @@ msgstr "Ghostty 開発者"
 
 #: src/input/command.zig:149
 msgid "Reset Terminal"
-msgstr ""
+msgstr "ターミナルをリセット"
 
 #: src/input/command.zig:150
 msgid "Reset the terminal to a clean state."
-msgstr ""
+msgstr "ターミナルの状態をリセットします。"
 
 #: src/input/command.zig:155
 msgid "Copy to Clipboard"
-msgstr ""
+msgstr "クリップボードにコピー"
 
 #: src/input/command.zig:156
 msgid ""
 "Copy the selected text to the clipboard in both plain and styled formats."
-msgstr ""
+msgstr "選択されたテキストを、リッチテキストとプレーンテキストとしてクリップボードにコピーします。"
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
-msgstr ""
+msgstr "選択をプレーンテキストでコピー"
 
 #: src/input/command.zig:160
 msgid "Copy the selected text as plain text to the clipboard."
-msgstr ""
+msgstr "選択されたテキストを、プレーンテキストでクリップボードにコピーします。"
 
 #: src/input/command.zig:163
 msgid "Copy Selection as ANSI Sequences to Clipboard"
-msgstr ""
+msgstr "選択をANSIシーケンスとしてコピー"
 
 #: src/input/command.zig:164
 msgid "Copy the selected text as ANSI escape sequences to the clipboard."
-msgstr ""
+msgstr "選択されたテキストを、ANSIエスケープシーケンスとしてクリップボードにコピーします。"
 
 #: src/input/command.zig:167
 msgid "Copy Selection as HTML to Clipboard"
-msgstr ""
+msgstr "選択をHTMLとしてコピー"
 
 #: src/input/command.zig:168
 msgid "Copy the selected text as HTML to the clipboard."
-msgstr ""
+msgstr "選択されたテキストを、HTMLとしてクリップボードにコピーします。"
 
 #: src/input/command.zig:173
 msgid "Copy URL to Clipboard"
-msgstr ""
+msgstr "URLをコピー"
 
 #: src/input/command.zig:174
 msgid "Copy the URL under the cursor to the clipboard."
-msgstr ""
+msgstr "カーソルの下にあるURLをクリップボードにコピーします。"
 
 #: src/input/command.zig:179
 msgid "Copy Terminal Title to Clipboard"
-msgstr ""
+msgstr "ターミナルのタイトルをコピー"
 
 #: src/input/command.zig:180
 msgid ""
 "Copy the terminal title to the clipboard. If the terminal title is not set "
 "this has no effect."
 msgstr ""
+"ターミナルのタイトルをクリップボードにコピーします。"
+"ターミナルのタイトルが設定されていない場合、何も起こりません。"
 
 #: src/input/command.zig:185
 msgid "Paste from Clipboard"
-msgstr ""
+msgstr "クリップボードからペースト"
 
 #: src/input/command.zig:186
 msgid "Paste the contents of the main clipboard."
-msgstr ""
+msgstr "クリップボードの内容をペーストします。"
 
 #: src/input/command.zig:191
 msgid "Paste from Selection"
-msgstr ""
+msgstr "選択からペースト"
 
 #: src/input/command.zig:192
 msgid "Paste the contents of the selection clipboard."
-msgstr ""
+msgstr "選択クリップボードの内容をペーストします。"
 
 #: src/input/command.zig:197
 msgid "Start Search"
