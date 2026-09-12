@@ -283,7 +283,16 @@ pub const StreamHandler = struct {
                 // always have to call setMode because setting some modes have
                 // side effects and we want to make sure we process those.
                 const v = self.terminal.modes.restore(value.mode);
-                try self.setMode(value.mode, v);
+
+                // XTRESTORE only switches screens for these; setMode would
+                // apply DECSET side effects and erase on `?1049r`.
+                if (terminal.Terminal.isAltScreenMode(value.mode)) {
+                    _ = try self.terminal.switchScreen(
+                        if (v) .alternate else .primary,
+                    );
+                } else {
+                    try self.setMode(value.mode, v);
+                }
             },
             .request_mode => try self.requestMode(value.mode),
             .request_mode_unknown => try self.requestModeUnknown(value.mode, value.ansi),
