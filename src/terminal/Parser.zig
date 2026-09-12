@@ -6,6 +6,7 @@ const Parser = @This();
 
 const std = @import("std");
 const testing = std.testing;
+const sgr = @import("sgr.zig");
 const table = @import("parse_table.zig").table;
 const osc = @import("osc.zig");
 
@@ -78,19 +79,82 @@ pub const Action = union(enum) {
     apc_end: void,
 
     pub const CSI = struct {
-        intermediates: []u8,
-        params: []u16,
-        params_sep: SepList,
+        intermediates: []const u8,
+        params: []const u16,
+
+        /// The separator that follows each parameter.
+        ///
+        /// Borrowed from the parser like `params` and `intermediates`,
+        /// so it dies on the next byte fed to the parser. It is a
+        /// pointer because the bit set covers every possible parameter
+        /// and copying it into a hot dispatch costs more than it saves.
+        /// Only bits below `params.len` mean anything; the last
+        /// parameter has nothing after it.
+        params_sep: *const SepList,
+
         final: u8,
 
         /// The list of separators used for CSI params. The value of the
         /// bit can be mapped to Sep. The index of this bit set specifies
         /// the separator AFTER that param. For example: 0;4:3 would have
         /// index 1 set.
-        pub const SepList = std.StaticBitSet(MAX_PARAMS);
+        pub const SepList = Params.SepList;
 
         /// The separator used for CSI params.
         pub const Sep = enum(u1) { semicolon = 0, colon = 1 };
+
+        /// Whether this command defines colon-joined subparameters.
+        ///
+        /// A colon introduces a subparameter (ECMA-48 5.4.2). Only the
+        /// commands that define one can read it. The rest have to drop
+        /// the whole sequence: reading the subparameters positionally
+        /// would turn `CSI 1:2 H` into a cursor move to (1, 2).
+        pub fn allowsSubparams(self: CSI) bool {
+            return switch (self.final) {
+                // SGR: direct colors and underline styles.
+                'm' => true,
+
+                // Kitty multiple cursors: coordinate and color groups.
+                // DECSCUSR shares the 'q' final but has no '>', so it
+                // falls through to false.
+                'q' => std.mem.eql(u8, self.intermediates, "> "),
+
+                else => false,
+            };
+        }
+
+        /// Iterates the parameters as semicolon-separated groups, where
+        /// a group is the maximal run of parameters joined by colons.
+        /// `1;2:3:4;5` yields `{1}`, `{2,3,4}`, and `{5}`.
+        ///
+        /// This saves protocols that structure their parameters with
+        /// colons, such as the kitty multiple cursors protocol, from
+        /// walking the separator bits themselves.
+        pub const GroupIterator = struct {
+            params: []const u16,
+            params_sep: *const SepList,
+
+            /// The parameter the next group starts at. Set this past a
+            /// leading parameter you have already consumed, such as an
+            /// operation code.
+            index: usize = 0,
+
+            pub fn next(self: *GroupIterator) ?[]const u16 {
+                if (self.index >= self.params.len) return null;
+
+                // A set bit at i means parameter i is followed by ':',
+                // so the group continues past it. The bound keeps a
+                // trailing bit from running off the end.
+                const start = self.index;
+                var end = start;
+                while (end + 1 < self.params.len and
+                    self.params_sep.isSet(end)) : (end += 1)
+                {}
+
+                self.index = end + 1;
+                return self.params[start .. end + 1];
+            }
+        };
 
         // Implement formatter for logging
         pub fn format(
@@ -195,18 +259,25 @@ pub const Action = union(enum) {
 /// can be at most 4 bytes.
 pub const MAX_INTERMEDIATE = 4;
 
-/// Maximum number of CSI parameters. This is arbitrary. Practically, the
-/// only CSI command that uses more than 3 parameters is the SGR command
-/// which can be infinitely long. 24 is a reasonable limit based on empirical
-/// data. This used to be 16 but Kakoune has a SGR command that uses 17
-/// parameters.
+/// Maximum number of CSI parameters.
 ///
-/// We could in the future make this the static limit and then allocate after
-/// but that's a lot more work and practically its so rare to exceed this
-/// number. I implore TUI authors to not use more than this number of CSI
-/// params, but I suspect we'll introduce a slow path with heap allocation
-/// one day.
-pub const MAX_PARAMS = 24;
+/// Only two CSI commands use more than three parameters: SGR, which has
+/// no bound at all, and the kitty multiple cursors protocol, which packs
+/// a batch of cursor coordinates into one sequence. This was 16 until
+/// Kakoune turned up with an SGR command that uses 17, then 24 on
+/// empirical data, and is now 256 to match kitty's own limit, which the
+/// cursors protocol is written against.
+///
+/// A longer sequence is dropped whole. Acting on one with parameters
+/// silently missing from the middle is worse than not acting at all.
+pub const MAX_PARAMS = 256;
+
+/// Parameters retained without allocating.
+///
+/// Nearly every sequence fits here; longer ones spill to the heap. On a
+/// parser with no allocator, which a freestanding target may well be,
+/// this is the hard limit.
+pub const INLINE_PARAMS = 24;
 
 /// Current state of the state machine
 state: State,
@@ -215,40 +286,267 @@ state: State,
 intermediates: [MAX_INTERMEDIATE]u8,
 intermediates_idx: u8,
 
-/// Param tracking, building
-params: [MAX_PARAMS]u16,
-params_sep: Action.CSI.SepList,
-params_idx: u8,
-param_acc: u16,
-param_acc_idx: u8,
+/// The parameters of the CSI or DCS sequence being parsed.
+params: Params,
 
 /// Parser for OSC sequences
 osc_parser: osc.Parser,
+
+/// The parameters of one control sequence, under construction.
+///
+/// Parameters arrive from the state machine one digit and one separator
+/// at a time, and are consumed all at once at dispatch. This type owns
+/// that whole lifecycle, so the byte-at-a-time state machine in `next`
+/// and the bulk loop in `Stream` share one copy of the limit and
+/// separator policy.
+pub const Params = struct {
+    /// The first `INLINE_PARAMS` completed parameters. Past that
+    /// everything moves to `spill`, so the two are never read together.
+    values: [INLINE_PARAMS]u16,
+
+    /// Parameters past `INLINE_PARAMS`, preceded by a copy of `values`
+    /// so `take` can return one contiguous slice. Empty until a sequence
+    /// outgrows the inline storage.
+    spill: std.ArrayListUnmanaged(u16),
+
+    /// The separator that follows each parameter. See `SepList`.
+    seps: SepList,
+
+    /// Set by `Parser.setAllocator`. Null on a parser that cannot
+    /// allocate, which caps a sequence at `INLINE_PARAMS`.
+    alloc: ?std.mem.Allocator,
+
+    /// The number of completed parameters.
+    len: u16,
+
+    /// Set once a parameter has been dropped, either past `MAX_PARAMS`
+    /// or on a failed spill. Dispatch then discards the whole sequence.
+    failed: bool,
+
+    /// Whether any parameter is colon-joined to the next. Colons are
+    /// rare, and this lets `reset` and the subparameter policy check
+    /// skip `seps` for almost every sequence the parser sees.
+    colons: bool,
+
+    /// The parameter currently being accumulated, and whether any digit
+    /// has fed it. The flag separates a trailing separator (`1;`, one
+    /// parameter) from a trailing value (`1;2`, two).
+    acc: u16,
+    acc_set: bool,
+
+    /// One bit per parameter, set when a ':' follows that parameter
+    /// instead of a ';'. See `Action.CSI.SepList`.
+    pub const SepList = std.StaticBitSet(MAX_PARAMS);
+
+    pub const empty: Params = .{
+        .values = undefined,
+        .spill = .empty,
+        .seps = .initEmpty(),
+        .alloc = null,
+        .len = 0,
+        .failed = false,
+        .colons = false,
+        .acc = 0,
+        .acc_set = false,
+    };
+
+    pub fn deinit(self: *Params) void {
+        if (self.alloc) |alloc| self.spill.deinit(alloc);
+        self.* = undefined;
+    }
+
+    /// Discard the sequence under construction, keeping any spill
+    /// capacity for the next one.
+    pub inline fn reset(self: *Params) void {
+        // Only bits below `len` can ever be set, and only if a colon
+        // was seen at all. `initEmpty` would zero the whole 32-byte mask
+        // on every escape sequence, and this is the parser's hot path.
+        if (self.colons) {
+            @branchHint(.unlikely);
+            self.seps.setRangeValue(.{ .start = 0, .end = self.len }, false);
+            self.colons = false;
+        }
+
+        self.spill.clearRetainingCapacity();
+        self.len = 0;
+        self.failed = false;
+        self.acc = 0;
+        self.acc_set = false;
+    }
+
+    /// Accumulate one digit into the parameter being built. Values
+    /// saturate: a parameter that large is nonsense already, and every
+    /// consumer clamps it.
+    ///
+    /// There is no limit check here. A digit past the limit only feeds a
+    /// parameter `push` refuses anyway, and this is the hottest step in
+    /// CSI parsing.
+    pub inline fn digit(self: *Params, value: u8) void {
+        self.acc = (self.acc *| 10) +| value;
+        self.acc_set = true;
+    }
+
+    /// Finish the parameter being built because a separator was reached.
+    pub fn separator(self: *Params, colon: bool) void {
+        self.push(self.acc, colon);
+        self.acc = 0;
+        self.acc_set = false;
+    }
+
+    /// Append a completed parameter and the separator that follows it.
+    /// Once the inline storage is full this moves the whole sequence to
+    /// the heap, and sets `failed` if it cannot.
+    pub fn push(self: *Params, value: u16, colon: bool) void {
+        if (self.failed) return;
+        if (self.len >= MAX_PARAMS) {
+            @branchHint(.cold);
+            self.failed = true;
+            return;
+        }
+
+        if (self.len < INLINE_PARAMS) {
+            self.values[self.len] = value;
+        } else {
+            const alloc = self.alloc orelse {
+                self.failed = true;
+                return;
+            };
+            if (self.spill.items.len == 0) {
+                self.spill.ensureTotalCapacity(
+                    alloc,
+                    @as(usize, self.len) + 1,
+                ) catch {
+                    self.failed = true;
+                    return;
+                };
+                self.spill.appendSliceAssumeCapacity(
+                    self.values[0..INLINE_PARAMS],
+                );
+            } else self.spill.ensureUnusedCapacity(alloc, 1) catch {
+                self.failed = true;
+                return;
+            };
+            self.spill.appendAssumeCapacity(value);
+        }
+
+        if (colon) {
+            self.seps.set(self.len);
+            self.colons = true;
+        }
+        self.len += 1;
+    }
+
+    /// Consume the pending parameter and return the whole sequence, or
+    /// null if it overflowed and must be dropped.
+    pub fn take(self: *Params) ?[]const u16 {
+        if (self.acc_set) {
+            self.push(self.acc, false);
+            self.acc_set = false;
+        }
+        if (self.failed) {
+            @branchHint(.cold);
+            return null;
+        }
+        return if (self.spill.items.len > 0)
+            self.spill.items
+        else
+            self.values[0..self.len];
+    }
+};
+
+test "Params: spills only after inline capacity" {
+    var params: Params = .empty;
+    params.alloc = testing.allocator;
+    defer params.deinit();
+
+    // Exactly `INLINE_PARAMS` still fits inline.
+    for (0..INLINE_PARAMS) |i| params.push(@intCast(i), false);
+    try testing.expectEqual(0, params.spill.items.len);
+
+    // One more moves the whole sequence to the heap, separators and all.
+    // `take` still hands back a single contiguous slice.
+    params.push(INLINE_PARAMS, true);
+    const values = params.take().?;
+    try testing.expectEqual(INLINE_PARAMS + 1, values.len);
+    for (values, 0..) |value, i| try testing.expectEqual(i, value);
+    try testing.expect(params.seps.isSet(INLINE_PARAMS));
+
+    // A reset keeps the spill capacity but not its contents. The next
+    // short sequence is served inline again.
+    params.reset();
+    params.push(1, false);
+    try testing.expectEqualSlices(u16, &.{1}, params.take().?);
+    try testing.expectEqual(0, params.spill.items.len);
+}
+
+test "Params: allocation failure drops the sequence" {
+    var failing: testing.FailingAllocator = .init(testing.allocator, .{
+        .fail_index = 0,
+    });
+    var params: Params = .empty;
+    params.alloc = failing.allocator();
+    defer params.deinit();
+
+    // A failed spill discards everything. Half a sequence is worse than
+    // none of it.
+    for (0..INLINE_PARAMS + 1) |i| params.push(@intCast(i), false);
+    try testing.expect(params.take() == null);
+    try testing.expect(failing.has_induced_failure);
+}
 
 pub fn init() Parser {
     var result: Parser = .{
         .state = .ground,
         .intermediates_idx = 0,
-        .params_sep = .initEmpty(),
-        .params_idx = 0,
-        .param_acc = 0,
-        .param_acc_idx = 0,
+        .params = .empty,
         .osc_parser = .init(null),
 
         .intermediates = undefined,
-        .params = undefined,
     };
     if (std.valgrind.runningOnValgrind() > 0) {
         // Initialize our undefined fields so Valgrind can catch it.
         // https://github.com/ziglang/zig/issues/19148
         result.intermediates = undefined;
-        result.params = undefined;
+        result.params.values = undefined;
     }
     return result;
 }
 
+/// Let the parser allocate for the two features a sequence can outgrow
+/// the inline storage of: CSI parameters and OSC strings. A parser with
+/// no allocator still works and drops those sequences instead.
+pub fn setAllocator(self: *Parser, alloc: std.mem.Allocator) void {
+    std.debug.assert(self.params.alloc == null);
+    self.params.alloc = alloc;
+    self.osc_parser.alloc = alloc;
+}
+
 pub fn deinit(self: *Parser) void {
+    self.params.deinit();
     self.osc_parser.deinit();
+}
+
+/// Log a CSI dispatch dropped for parameters we could not keep: past
+/// `MAX_PARAMS`, or a failed spill allocation.
+///
+/// This and `warnCsiSepMismatch` are noinline on purpose. Both are cold,
+/// and inlining them into the hot dispatch path has been measured to
+/// cost binary size and performance through icache pressure. Both are
+/// public so the stream's own CSI fast path, which bypasses the state
+/// machine, reports drops identically.
+pub noinline fn warnCsiParams() void {
+    @branchHint(.cold);
+    log.warn("unable to retain CSI parameters, dropping sequence", .{});
+}
+
+/// Log a CSI dispatch dropped for using subparameters its final byte
+/// does not define. See `Action.CSI.allowsSubparams`.
+pub noinline fn warnCsiSepMismatch(csi: Action.CSI) void {
+    @branchHint(.cold);
+    log.warn(
+        "CSI subparameters are not defined for this command, got: {f}",
+        .{csi},
+    );
 }
 
 /// Next consumes the next character c and returns the actions to execute.
@@ -295,17 +593,11 @@ pub fn next(self: *Parser, c: u8) [3]?Action {
                 break :osc_string null;
             },
             .dcs_passthrough => dcs_hook: {
-                // Ignore too many parameters
-                if (self.params_idx >= MAX_PARAMS) break :dcs_hook null;
-                // Finalize parameters
-                if (self.param_acc_idx > 0) {
-                    self.params[self.params_idx] = self.param_acc;
-                    self.params_idx += 1;
-                }
+                const params = self.params.take() orelse break :dcs_hook null;
                 break :dcs_hook .{
                     .dcs_hook = .{
                         .intermediates = self.intermediates[0..self.intermediates_idx],
-                        .params = self.params[0..self.params_idx],
+                        .params = params,
                         .final = c,
                     },
                 };
@@ -340,28 +632,12 @@ inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
             // Semicolon separates parameters. If we encounter a semicolon
             // we need to store and move on to the next parameter.
             if (c == ';' or c == ':') {
-                // Ignore too many parameters
-                if (self.params_idx >= MAX_PARAMS) break :param null;
-
-                // Set param final value
-                self.params[self.params_idx] = self.param_acc;
-                if (c == ':') self.params_sep.set(self.params_idx);
-                self.params_idx += 1;
-
-                // Reset current param value to 0
-                self.param_acc = 0;
-                self.param_acc_idx = 0;
+                self.params.separator(c == ':');
                 break :param null;
             }
 
             // A numeric value. Add it to our accumulator.
-            self.param_acc *|= 10;
-            self.param_acc +|= c - '0';
-
-            // Increment our accumulator index. If we overflow then
-            // we're out of bounds and we exit immediately.
-            self.param_acc_idx, const overflow = @addWithOverflow(self.param_acc_idx, 1);
-            if (overflow > 0) break :param null;
+            self.params.digit(c - '0');
 
             // The client is expected to perform no action.
             break :param null;
@@ -371,26 +647,23 @@ inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
             break :osc_put null;
         },
         .csi_dispatch => csi_dispatch: {
-            // Ignore too many parameters
-            if (self.params_idx >= MAX_PARAMS) break :csi_dispatch null;
-
-            // Finalize parameters if we have one
-            if (self.param_acc_idx > 0) {
-                self.params[self.params_idx] = self.param_acc;
-                self.params_idx += 1;
-            }
+            const params = self.params.take() orelse {
+                warnCsiParams();
+                break :csi_dispatch null;
+            };
 
             const result: Action = .{
                 .csi_dispatch = .{
                     .intermediates = self.intermediates[0..self.intermediates_idx],
-                    .params = self.params[0..self.params_idx],
-                    .params_sep = self.params_sep,
+                    .params = params,
+                    .params_sep = &self.params.seps,
                     .final = c,
                 },
             };
 
-            // We only allow colon or mixed separators for the 'm' command.
-            if (c != 'm' and self.params_sep.count() > 0) {
+            if (self.params.colons and
+                !result.csi_dispatch.allowsSubparams())
+            {
                 @branchHint(.cold);
                 warnCsiSepMismatch(result.csi_dispatch);
                 break :csi_dispatch null;
@@ -409,26 +682,9 @@ inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
     };
 }
 
-/// Log a warning for a CSI dispatch with colon/mixed separators on a
-/// non-'m' command.
-///
-/// This is noinline on purpose so that this unlikely (cold) behavior
-/// doesn't bloat the hot dispatch path which has been measured to actually
-/// affect both binary size and performance due to icache busts.
-noinline fn warnCsiSepMismatch(csi: Action.CSI) void {
-    @branchHint(.cold);
-    log.warn(
-        "CSI colon or mixed separators only allowed for 'm' command, got: {f}",
-        .{csi},
-    );
-}
-
 pub inline fn clear(self: *Parser) void {
     self.intermediates_idx = 0;
-    self.params_idx = 0;
-    self.params_sep = .initEmpty();
-    self.param_acc = 0;
-    self.param_acc_idx = 0;
+    self.params.reset();
 }
 
 test {
@@ -792,16 +1048,13 @@ test "csi: SGR mixed colon and semicolon setting underline, bg, fg" {
     }
 }
 
-test "csi: colon for non-m final" {
+test "csi: colon for a final that defines no subparameters" {
+    // Read positionally, "38:2" would make this a set-mode for mode 2.
+    // The whole sequence is dropped instead.
     var p = init();
     _ = p.next(0x1B);
-    for ("[38:2h") |c| {
-        const a = p.next(c);
-        try testing.expect(a[0] == null);
-        try testing.expect(a[1] == null);
-        try testing.expect(a[2] == null);
-    }
-
+    for ("[38:2") |c| _ = p.next(c);
+    try testing.expect(p.next('h')[1] == null);
     try testing.expect(p.state == .ground);
 }
 
@@ -858,6 +1111,132 @@ test "csi: change cursor" {
     }
 }
 
+test "csi: kitty multiple cursors keeps colon separators" {
+    var p = init();
+    _ = p.next(0x1B);
+    for ("[>29;2:4:5 ") |c| _ = p.next(c);
+
+    const d = p.next('q')[1].?.csi_dispatch;
+    try testing.expect(p.state == .ground);
+    try testing.expectEqual(@as(u8, 'q'), d.final);
+    try testing.expectEqualSlices(u8, "> ", d.intermediates);
+    try testing.expectEqualSlices(u16, &.{ 29, 2, 4, 5 }, d.params);
+
+    // A bit is set for each parameter followed by ':', so the ';' after
+    // the operation is the only one clear.
+    try testing.expectEqual(@as(usize, 2), d.params_sep.count());
+    try testing.expect(!d.params_sep.isSet(0));
+    try testing.expect(d.params_sep.isSet(1));
+    try testing.expect(d.params_sep.isSet(2));
+}
+
+test "csi: subparameters only reach the finals that define them" {
+    // SGR and the kitty multiple cursors protocol define subparameters.
+    // DECSCUSR shares the 'q' final but not the '>' marker, and CUP
+    // defines none at all. Both of those get dropped.
+    const cases = .{
+        .{ "[38:2:1:2:3", 'm', true },
+        .{ "[>29;2:4:5 ", 'q', true },
+        .{ "[2:3 ", 'q', false },
+        .{ "[1;2:3", 'H', false },
+    };
+
+    inline for (cases) |case| {
+        var p = init();
+        _ = p.next(0x1B);
+        for (case[0]) |c| _ = p.next(c);
+        const action = p.next(case[1])[1];
+        if (comptime case[2]) {
+            try testing.expect(action.?.csi_dispatch.params_sep.count() > 0);
+        } else {
+            try testing.expect(action == null);
+        }
+    }
+}
+
+test "csi: a colon after the last parameter is not a separator" {
+    // Nothing follows the final parameter, so its separator bit is
+    // meaningless. Consumers that walk the bits must stop at the last
+    // parameter rather than reading off the end of the set.
+    var p = init();
+    p.setAllocator(testing.allocator);
+    defer p.deinit();
+    _ = p.next(0x1B);
+    _ = p.next('[');
+    for (0..MAX_PARAMS) |_| {
+        _ = p.next('1');
+        _ = p.next(':');
+    }
+
+    const csi = p.next('m')[1].?.csi_dispatch;
+    try testing.expectEqual(@as(usize, MAX_PARAMS), csi.params.len);
+
+    var sgr_parser: sgr.Parser = .{
+        .params = csi.params,
+        .params_sep = csi.params_sep,
+    };
+    while (sgr_parser.next()) |_| {}
+}
+
+test "csi: one parameter too many drops the sequence" {
+    // Both the state machine and the stream's own CSI loop must drop an
+    // overflowing sequence whole rather than act on a truncated one.
+    var p = init();
+    p.setAllocator(testing.allocator);
+    defer p.deinit();
+    _ = p.next(0x1B);
+    _ = p.next('[');
+    for (0..MAX_PARAMS) |_| {
+        _ = p.next('1');
+        _ = p.next(';');
+    }
+    _ = p.next('1');
+    try testing.expect(p.next('m')[1] == null);
+}
+
+test "csi: kitty multiple cursors accepts a full parameter batch" {
+    // One operation plus three parameters per point, filling the limit
+    // that kitty's own parser imposes on a single sequence.
+    var p = init();
+    p.setAllocator(testing.allocator);
+    defer p.deinit();
+    _ = p.next(0x1B);
+    _ = p.next('[');
+
+    const points = (MAX_PARAMS - 1) / 3;
+    var buf: [MAX_PARAMS * 8]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try writer.writeAll(">1");
+    for (1..points + 1) |col| try writer.print(";2:1:{d}", .{col});
+    try writer.writeByte(' ');
+    for (writer.buffered()) |byte| _ = p.next(byte);
+
+    const csi = p.next('q')[1].?.csi_dispatch;
+    try testing.expectEqual(@as(usize, 1 + points * 3), csi.params.len);
+    try testing.expectEqual(@as(usize, points * 2), csi.params_sep.count());
+    try testing.expectEqualSlices(u16, &.{ 1, 2, 1, 1 }, csi.params[0..4]);
+    try testing.expectEqualSlices(
+        u16,
+        &.{ 2, 1, points },
+        csi.params[csi.params.len - 3 ..],
+    );
+}
+
+test "csi: separators do not leak into the next sequence" {
+    // `reset` only clears the separator bits below `len`, so a sequence
+    // that used colons must not leave them set for the next one, which
+    // would get dropped as a subparameter mismatch.
+    var p = init();
+    _ = p.next(0x1B);
+    for ("[38:2:1:2:3") |c| _ = p.next(c);
+    try testing.expect(p.next('m')[1] != null);
+
+    _ = p.next(0x1B);
+    for ("[1;2") |c| _ = p.next(c);
+    const csi = p.next('m')[1].?.csi_dispatch;
+    try testing.expectEqual(@as(usize, 0), csi.params_sep.count());
+}
+
 test "osc: change window title" {
     var p = init();
     _ = p.next(0x1B);
@@ -910,7 +1289,7 @@ test "osc: change window title (end in esc)" {
 test "osc: 112 incomplete sequence" {
     var p: Parser = init();
     defer p.deinit();
-    p.osc_parser.alloc = std.testing.allocator;
+    p.setAllocator(std.testing.allocator);
 
     _ = p.next(0x1B);
     _ = p.next(']');
@@ -946,7 +1325,7 @@ test "osc: 112 incomplete sequence" {
 test "osc: 104 empty" {
     var p: Parser = init();
     defer p.deinit();
-    p.osc_parser.alloc = std.testing.allocator;
+    p.setAllocator(std.testing.allocator);
 
     _ = p.next(0x1B);
     _ = p.next(']');
@@ -977,9 +1356,11 @@ test "osc: 104 empty" {
 
 test "csi: too many params" {
     var p = init();
+    p.setAllocator(testing.allocator);
+    defer p.deinit();
     _ = p.next(0x1B);
     _ = p.next('[');
-    for (0..100) |_| {
+    for (0..MAX_PARAMS) |_| {
         _ = p.next('1');
         _ = p.next(';');
     }
@@ -997,6 +1378,8 @@ test "csi: too many params" {
 test "csi: sgr with up to our max parameters" {
     for (1..MAX_PARAMS + 1) |max| {
         var p = init();
+        p.setAllocator(testing.allocator);
+        defer p.deinit();
         _ = p.next(0x1B);
         _ = p.next('[');
 
@@ -1025,6 +1408,8 @@ test "csi: sgr beyond our max drops it" {
     const max = MAX_PARAMS + 2;
 
     var p = init();
+    p.setAllocator(testing.allocator);
+    defer p.deinit();
     _ = p.next(0x1B);
     _ = p.next('[');
 
@@ -1092,10 +1477,12 @@ test "dcs: params" {
 
 test "dcs: too many params" {
     // Regression test for a crash found by fuzzing (afl). When a DCS
-    // sequence has more than MAX_PARAMS parameters and param_acc_idx > 0,
-    // entering dcs_passthrough wrote to params[params_idx] without a
+    // sequence has more than MAX_PARAMS parameters and param_acc_set is
+    // true, entering dcs_passthrough wrote to params[len] without a
     // bounds check, causing an out-of-bounds access.
     var p = init();
+    p.setAllocator(testing.allocator);
+    defer p.deinit();
     _ = p.next(0x1B); // ESC
     _ = p.next('P'); // DCS entry
 
@@ -1104,7 +1491,7 @@ test "dcs: too many params" {
     for (0..MAX_PARAMS) |_| {
         _ = p.next(';');
     }
-    // Feed another digit so param_acc_idx > 0 while params_idx == MAX_PARAMS.
+    // Feed another digit so param_acc_set is true while len == MAX_PARAMS.
     _ = p.next('7');
 
     // A final byte triggers entry to dcs_passthrough. The DCS should

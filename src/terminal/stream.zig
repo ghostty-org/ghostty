@@ -525,7 +525,7 @@ pub fn Stream(comptime H: type) type {
         pub fn init(options: Options) Self {
             // Initialize the parser
             var parser: Parser = .init();
-            if (options.allocator) |alloc| parser.osc_parser.alloc = alloc;
+            if (options.allocator) |alloc| parser.setAllocator(alloc);
 
             // Initialize the continuation tracker if one is requested.
             var tracker: ?continuationpkg.Tracker = null;
@@ -942,16 +942,12 @@ pub fn Stream(comptime H: type) type {
                 // First parameter digit.
                 '0'...'9' => {
                     self.parser.state = .csi_param;
-                    // param_acc is zero (cleared on escape entry)
-                    // so accumulating is just the digit value.
-                    self.parser.param_acc = c - '0';
-                    self.parser.param_acc_idx = 1;
+                    self.parser.params.digit(c - '0');
                 },
                 // An empty first parameter.
                 ';' => {
                     self.parser.state = .csi_param;
-                    self.parser.params[0] = 0;
-                    self.parser.params_idx = 1;
+                    self.parser.params.push(0, false);
                 },
                 // Private marker (e.g. '?' in "ESC [ ? 2004 h").
                 0x3C...0x3F => {
@@ -976,42 +972,36 @@ pub fn Stream(comptime H: type) type {
             const p = &self.parser;
             assert(p.state == .csi_param);
 
-            // Accumulate parser state in locals for the hot loop.
-            var acc = p.param_acc;
-            var acc_idx = p.param_acc_idx;
-            var idx = p.params_idx;
-
+            // Accumulate the in-progress parameter in locals and write
+            // it back when the loop exits.
+            const params = &p.params;
+            var acc = params.acc;
+            var acc_set = params.acc_set;
             var offset: usize = 0;
             while (offset < input.len) {
                 const c = input[offset];
                 switch (c) {
-                    // A parameter digit.
+                    // A parameter digit. Inlined here, not routed through
+                    // `Params.digit`, so the accumulator stays in
+                    // registers across the whole run of digits.
                     '0'...'9' => {
-                        if (idx < Parser.MAX_PARAMS) {
-                            acc *|= 10;
-                            acc +|= c - '0';
-                            acc_idx |= 1;
-                        }
+                        acc = (acc *| 10) +| (c - '0');
+                        acc_set = true;
                         offset += 1;
                     },
 
                     // A parameter separator.
                     ':', ';' => {
-                        if (idx < Parser.MAX_PARAMS) {
-                            p.params[idx] = acc;
-                            if (c == ':') p.params_sep.set(idx);
-                            idx += 1;
-                            acc = 0;
-                            acc_idx = 0;
-                        }
+                        params.push(acc, c == ':');
+                        acc = 0;
+                        acc_set = false;
                         offset += 1;
                     },
 
                     // A final byte: dispatch the CSI.
                     0x40...0x7E => {
-                        p.param_acc = acc;
-                        p.param_acc_idx = acc_idx;
-                        p.params_idx = idx;
+                        params.acc = acc;
+                        params.acc_set = acc_set;
                         self.csiDispatchFinal(c);
                         return offset + 1;
                     },
@@ -1022,9 +1012,8 @@ pub fn Stream(comptime H: type) type {
                 }
             }
 
-            p.param_acc = acc;
-            p.param_acc_idx = acc_idx;
-            p.params_idx = idx;
+            params.acc = acc;
+            params.acc_set = acc_set;
             return offset;
         }
 
@@ -1233,24 +1222,9 @@ pub fn Stream(comptime H: type) type {
                     // the parser state to ground.
                     0x18, 0x1A => self.parser.state = .ground,
                     // A parameter digit:
-                    '0'...'9' => if (self.parser.params_idx < Parser.MAX_PARAMS) {
-                        self.parser.param_acc *|= 10;
-                        self.parser.param_acc +|= c - '0';
-                        // The parser's CSI param action uses param_acc_idx
-                        // to decide if there's a final param that needs to
-                        // be consumed or not, but it doesn't matter really
-                        // what it is as long as it's not 0.
-                        self.parser.param_acc_idx |= 1;
-                    },
+                    '0'...'9' => self.parser.params.digit(c - '0'),
                     // A parameter separator:
-                    ':', ';' => if (self.parser.params_idx < Parser.MAX_PARAMS) {
-                        self.parser.params[self.parser.params_idx] = self.parser.param_acc;
-                        if (c == ':') self.parser.params_sep.set(self.parser.params_idx);
-                        self.parser.params_idx += 1;
-
-                        self.parser.param_acc = 0;
-                        self.parser.param_acc_idx = 0;
-                    },
+                    ':', ';' => self.parser.params.separator(c == ':'),
                     // A final byte: dispatch the CSI directly.
                     0x40...0x7E => if (comptime !has_vt_raw) {
                         self.csiDispatchFinal(c);
@@ -1326,33 +1300,21 @@ pub fn Stream(comptime H: type) type {
             const p = &self.parser;
             p.state = .ground;
 
-            // Ignore sequences with too many parameters, matching the
-            // parser's behavior of dropping the dispatch entirely.
-            if (p.params_idx >= Parser.MAX_PARAMS) {
-                @branchHint(.unlikely);
+            const params = p.params.take() orelse {
+                Parser.warnCsiParams();
                 return;
-            }
-
-            // Finalize the last parameter if we have one.
-            if (p.param_acc_idx > 0) {
-                p.params[p.params_idx] = p.param_acc;
-                p.params_idx += 1;
-            }
+            };
 
             const action: Parser.Action.CSI = .{
                 .intermediates = p.intermediates[0..p.intermediates_idx],
-                .params = p.params[0..p.params_idx],
-                .params_sep = p.params_sep,
+                .params = params,
+                .params_sep = &p.params.seps,
                 .final = c,
             };
 
-            // We only allow colon or mixed separators for the 'm' command.
-            if (c != 'm' and p.params_sep.count() > 0) {
+            if (p.params.colons and !action.allowsSubparams()) {
                 @branchHint(.cold);
-                log.warn(
-                    "CSI colon or mixed separators only allowed for 'm' command, got: {f}",
-                    .{action},
-                );
+                Parser.warnCsiSepMismatch(action);
                 return;
             }
 
@@ -2269,7 +2231,7 @@ pub fn Stream(comptime H: type) type {
                     },
 
                     else => log.warn(
-                        "ignoring unimplemented CSI p with intermediates: {s}",
+                        "ignoring unimplemented CSI q with intermediates: {s}",
                         .{input.intermediates},
                     ),
                 },
@@ -4091,6 +4053,10 @@ test "stream: SCORC" {
 
 test "stream: too many csi params" {
     const H = struct {
+        pub fn deinit(self: *@This()) void {
+            _ = self;
+        }
+
         pub fn vt(
             self: *@This(),
             comptime action: anytype,
@@ -4105,8 +4071,37 @@ test "stream: too many csi params" {
         }
     };
 
+    var s: Stream(H) = .init(.{
+        .handler = .{},
+        .allocator = testing.allocator,
+    });
+    defer s.deinit();
+    s.nextSlice("\x1B[");
+    for (0..Parser.MAX_PARAMS) |_| s.nextSlice("1;");
+    s.nextSlice("1C");
+}
+
+test "stream: CSI subparameters only reach the finals that define them" {
+    const H = struct {
+        pos: ?Action.CursorPos = null,
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) void {
+            switch (action) {
+                .cursor_pos => self.pos = value,
+                else => {},
+            }
+        }
+    };
+
+    // CUP defines no subparameters. The colon drops the sequence; it
+    // does not move the cursor to (1, 2).
     var s: Stream(H) = .init(.{ .handler = .{} });
-    s.nextSlice("\x1B[1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1C");
+    s.nextSlice("\x1B[1:2H");
+    try testing.expect(s.handler.pos == null);
 }
 
 test "stream: csi param too long" {
