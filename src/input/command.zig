@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const Action = @import("Binding.zig").Action;
+const apprt_command = @import("../apprt/command.zig");
 const i18n = @import("../os/i18n.zig");
 
 /// A command is a named binding action that can be executed from
@@ -27,6 +28,10 @@ pub const Command = struct {
         action: [*:0]const u8,
         title: [*:0]const u8,
         description: [*:0]const u8,
+
+        /// False if this build's apprt doesn't implement the action, so
+        /// performing it would do nothing. Palettes should hide these.
+        supported: bool,
     };
 
     pub fn clone(self: *const Command, alloc: Allocator) Allocator.Error!Command {
@@ -53,6 +58,7 @@ pub const Command = struct {
             .action = std.fmt.comptimePrint("{f}", .{self.action}),
             .title = self.title,
             .description = self.description,
+            .supported = apprt_command.supported(self.action),
         };
     }
 
@@ -74,6 +80,7 @@ pub const Command = struct {
             .action = action.ptr,
             .title = self.title,
             .description = self.description,
+            .supported = apprt_command.supported(self.action),
         };
     }
 
