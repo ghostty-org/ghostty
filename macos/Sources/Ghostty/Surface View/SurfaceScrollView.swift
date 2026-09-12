@@ -12,10 +12,12 @@ import Combine
 /// - `scrollView`: The outermost NSScrollView that manages scrollbar rendering and behavior
 /// - `documentView`: A blank NSView whose height represents total scrollback (in pixels)
 /// - `surfaceView`: The actual Ghostty renderer, positioned to fill the visible rect
+/// - `progressBar`: 2px OSC 9;4 hairline, a sibling of `scrollView` (SurfaceView is layer-hosting)
 class SurfaceScrollView: NSView {
     private let scrollView: NSScrollView
     private let documentView: NSView
     private let surfaceView: Ghostty.SurfaceView
+    private let progressBar: SurfaceProgressBar
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
     private var isLiveScrolling = false
@@ -56,10 +58,15 @@ class SurfaceScrollView: NSView {
         // so that our primary Ghostty renderer only needs to render the viewport.
         documentView.addSubview(surfaceView)
 
+        progressBar = SurfaceProgressBar()
+
         super.init(frame: .zero)
 
-        // Our scroll view is our only view
+        // SurfaceView is layer-hosting (IOSurfaceLayer), so the progress
+        // bar is a sibling of the scroll view rather than a subview of it.
         addSubview(scrollView)
+        addSubview(progressBar)
+        progressBar.setReport(surfaceView.progressReport)
 
         // Apply initial scrollbar settings
         synchronizeAppearance()
@@ -149,6 +156,12 @@ class SurfaceScrollView: NSView {
                 self?.scrollView.documentCursor = newStyle.cursor
             }
             .store(in: &cancellables)
+        surfaceView.$progressReport
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] report in
+                self?.progressBar.setReport(report)
+            }
+            .store(in: &cancellables)
     }
 
     required init?(coder: NSCoder) {
@@ -170,6 +183,7 @@ class SurfaceScrollView: NSView {
         // Fill entire bounds with scroll view
         scrollView.frame = bounds
         surfaceView.frame.size = scrollView.bounds.size
+        progressBar.layoutHairline(in: bounds)
 
         // We only set the width of the documentView here, as the height depends
         // on the scrollbar state and is updated in synchronizeScrollView
