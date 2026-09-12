@@ -53,3 +53,6 @@ pub const terminus_ttf = @embedFile("res/TerminusTTF-Regular.ttf");
 pub const spleen_bdf = @embedFile("res/spleen-8x16.bdf");
 pub const spleen_pcf = @embedFile("res/spleen-8x16.pcf");
 pub const spleen_otb = @embedFile("res/spleen-8x16.otb");
+
+/// Spleen as an Apple bitmap-only SFNT ('bhed'), for testing CoreText bitmap fonts.
+pub const spleen_apple = @embedFile("res/spleen-8x16-apple.ttf");
