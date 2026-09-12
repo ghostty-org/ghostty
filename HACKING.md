@@ -235,6 +235,54 @@ that can then be committed and pushed to fix the builds.
 
 See the [Contributor's Guide](po/README_CONTRIBUTORS.md) for more details.
 
+## macOS Help Book
+
+The macOS app bundles an Apple Help Book (`Ghostty.help`) that backs the
+Help menu and is generated at build time. The content comes from the same
+sources as the man pages and website docs: the config option and keybind
+action doc comments (via `help_strings`) and the markdown in
+`src/build/mdgen/`.
+
+The generator is `src/extra/help_book.zig`. All markup lives as plain
+HTML/CSS/JS files in `src/extra/help_book/`: pages with dynamic content are
+`{{placeholder}}` templates filled in by `template.zig`, and markdown is
+rendered to HTML by `markdown.zig`. The build (`src/build/GhosttyResources.zig`)
+runs the generator, indexes the pages with `hiutil`, and installs the bundle
+to `zig-out/help/Ghostty.help`, which the Xcode project copies into the app
+bundle.
+
+The book's `CFBundleVersion` is set to the app version (the `ghostty
++version` string), which is how Help Viewer's cache daemon (`helpd`) knows
+to pick up new content after an update.
+
+When iterating on the help book locally, `helpd` will happily keep serving
+stale state: the content cache is only refreshed when the book version
+changes, and the Core Spotlight search donations are only updated
+incrementally, so search results for removed pages stick around (and open
+as "content not available"). After building, run the reset script to purge
+Help Viewer state (via `hiutil -P`, which also quits the Help Viewer app
+"Tips" and `helpd`) so everything is rebuilt from the fresh content:
+
+```shell-session
+zig build -Demit-macos-app=false
+macos/build.nu help-book-reset
+```
+
+Afterwards rebuild and relaunch the app; the book is re-registered with
+`helpd` at app launch. For content-only iteration you can skip Help Viewer
+entirely and open the generated pages in a browser:
+
+```shell-session
+open zig-out/help/Ghostty.help/Contents/Resources/en.lproj/index.html
+```
+
+The generator has tests covering the bundle structure, the markdown
+renderer, and the templates:
+
+```shell-session
+zig build test -Dtest-filter="help book" -Dtest-filter=markdown -Dtest-filter=template
+```
+
 ## Checking for Memory Leaks
 
 While Zig does an amazing job of finding and preventing memory leaks,
