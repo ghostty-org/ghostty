@@ -10,9 +10,9 @@
 //!
 //! WARNING: Lots of performance improvements that we can make with Zig
 //! comptime help. I'm deferring this until later but have some fun ideas.
-
-pub const c = @import("c.zig").c;
+pub const c = @import("c");
 pub const glad = @import("glad.zig");
+pub const egl = @import("egl.zig");
 pub const ext = @import("extensions.zig");
 pub const Buffer = @import("Buffer.zig");
 pub const Framebuffer = @import("Framebuffer.zig");
@@ -39,7 +39,9 @@ pub const drawElementsInstanced = draw.drawElementsInstanced;
 pub const enable = draw.enable;
 pub const disable = draw.disable;
 pub const frontFace = draw.frontFace;
+pub const readPixels = draw.readPixels;
 pub const pixelStore = draw.pixelStore;
 pub const viewport = draw.viewport;
+pub const blitFramebuffer = draw.blitFramebuffer;
 pub const flush = draw.flush;
 pub const finish = draw.finish;

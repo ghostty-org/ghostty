@@ -3379,14 +3379,8 @@ fn setGtkEnv(config: *const CoreConfig) std.Io.Writer.Error!void {
     var gdk_debug: struct {
         /// output OpenGL debug information
         opengl: bool = false,
-        /// disable GLES, Ghostty can't use GLES
-        @"gl-disable-gles": bool = false,
         // GTK's new renderer can cause blurry font when using fractional scaling.
         @"gl-no-fractional": bool = false,
-        /// Disabling Vulkan can improve startup times by hundreds of
-        /// milliseconds on some systems. We don't use Vulkan so we can just
-        /// disable it.
-        @"vulkan-disable": bool = false,
     } = .{
         // `gtk-opengl-debug` dumps logs directly to stderr so both must be true
         // to enable OpenGL debugging.
@@ -3394,50 +3388,18 @@ fn setGtkEnv(config: *const CoreConfig) std.Io.Writer.Error!void {
     };
 
     var gdk_disable: struct {
-        @"gles-api": bool = false,
         /// current gtk implementation for color management is not good enough.
         /// see: https://bugs.kde.org/show_bug.cgi?id=495647
         /// gtk issue: https://gitlab.gnome.org/GNOME/gtk/-/issues/6864
         @"color-mgmt": bool = true,
-        /// Disabling Vulkan can improve startup times by hundreds of
-        /// milliseconds on some systems. We don't use Vulkan so we can just
-        /// disable it.
-        vulkan: bool = false,
     } = .{};
 
-    environment: {
-        if (gtk_version.runtimeAtLeast(4, 18, 0)) {
-            gdk_disable.@"color-mgmt" = false;
-        }
-
-        if (gtk_version.runtimeAtLeast(4, 16, 0)) {
-            // From gtk 4.16, GDK_DEBUG is split into GDK_DEBUG and GDK_DISABLE.
-            // For the remainder of "why" see the 4.14 comment below.
-            gdk_disable.@"gles-api" = true;
-            gdk_disable.vulkan = true;
-            break :environment;
-        }
-        if (gtk_version.runtimeAtLeast(4, 14, 0)) {
-            // We need to export GDK_DEBUG to run on Wayland after GTK 4.14.
-            // Older versions of GTK do not support these values so it is safe
-            // to always set this. Forwards versions are uncertain so we'll have
-            // to reassess...
-            //
-            // Upstream issue: https://gitlab.gnome.org/GNOME/gtk/-/issues/6589
-            gdk_debug.@"gl-disable-gles" = true;
-            gdk_debug.@"vulkan-disable" = true;
-
-            if (gtk_version.runtimeUntil(4, 17, 5)) {
-                // Removed at GTK v4.17.5
-                gdk_debug.@"gl-no-fractional" = true;
-            }
-            break :environment;
-        }
-
-        // Versions prior to 4.14 are a bit of an unknown for Ghostty. It
-        // is an environment that isn't tested well and we don't have a
-        // good understanding of what we may need to do.
-        gdk_debug.@"vulkan-disable" = true;
+    if (gtk_version.runtimeAtLeast(4, 18, 0)) {
+        gdk_disable.@"color-mgmt" = false;
+    }
+    if (gtk_version.runtimeUntil(4, 17, 5)) {
+        // Removed at GTK v4.17.5
+        gdk_debug.@"gl-no-fractional" = true;
     }
 
     {
