@@ -448,60 +448,78 @@ fragment float4 bg_image_fragment(
 //-------------------------------------------------------------------
 #pragma mark - Cell BG Shader
 
-fragment float4 cell_bg_fragment(
-  FullScreenVertexOut in [[stage_in]],
+struct CellBgVertexOut {
+  float4 position [[position]];
+  float4 color [[flat]];
+};
+
+vertex CellBgVertexOut cell_bg_vertex(
+  uint vid [[vertex_id]],
+  uint iid [[instance_id]],
   constant Uniforms& uniforms [[buffer(1)]],
   constant uchar4 *cells [[buffer(2)]]
 ) {
-  int2 grid_pos = int2(floor((in.position.xy - uniforms.grid_padding.wx) / uniforms.cell_size));
+  CellBgVertexOut out;
 
-  float4 bg = float4(0.0);
+  uint cols = uniforms.grid_size.x;
+  uint rows = uniforms.grid_size.y;
+  uint x = iid % cols;
+  uint y = iid / cols;
+  uchar4 cell_color = cells[iid];
 
-  // Clamp x position, extends edge bg colors in to padding on sides.
-  if (grid_pos.x < 0) {
-    if (uniforms.padding_extend & EXTEND_LEFT) {
-      grid_pos.x = 0;
-    } else {
-      return bg;
-    }
-  } else if (grid_pos.x > uniforms.grid_size.x - 1) {
-    if (uniforms.padding_extend & EXTEND_RIGHT) {
-      grid_pos.x = uniforms.grid_size.x - 1;
-    } else {
-      return bg;
-    }
+  // Default-bg cells are alpha 0. Degenerate so they are not rasterized;
+  // the GPU bg_color pass, background image, or kitty-below-bg shows through.
+  if (cell_color.a == 0 || y >= rows) {
+    out.position = float4(2.0, 2.0, 0.0, 1.0);
+    out.color = float4(0.0);
+    return out;
   }
 
-  // Clamp y position if we should extend, otherwise discard if out of bounds.
-  if (grid_pos.y < 0) {
-    if (uniforms.padding_extend & EXTEND_UP) {
-      grid_pos.y = 0;
-    } else {
-      return bg;
-    }
-  } else if (grid_pos.y > uniforms.grid_size.y - 1) {
-    if (uniforms.padding_extend & EXTEND_DOWN) {
-      grid_pos.y = uniforms.grid_size.y - 1;
-    } else {
-      return bg;
-    }
+  // Same triangle strip corners as cell_text:
+  //   0 --> 1
+  //   |   .'|
+  //   |  /  |
+  //   | L   |
+  //   2 --> 3
+  float2 corner;
+  corner.x = float(vid == 1 || vid == 3);
+  corner.y = float(vid == 2 || vid == 3);
+
+  float2 origin = uniforms.cell_size * float2(x, y);
+  float2 size = uniforms.cell_size;
+
+  // Extend edge cells into window padding when padding_extend is set.
+  // grid_padding is (top, right, bottom, left).
+  if (x == 0 && (uniforms.padding_extend & EXTEND_LEFT)) {
+    origin.x -= uniforms.grid_padding.w;
+    size.x += uniforms.grid_padding.w;
+  }
+  if (x == cols - 1 && (uniforms.padding_extend & EXTEND_RIGHT)) {
+    size.x += uniforms.grid_padding.y;
+  }
+  if (y == 0 && (uniforms.padding_extend & EXTEND_UP)) {
+    origin.y -= uniforms.grid_padding.x;
+    size.y += uniforms.grid_padding.x;
+  }
+  if (y == rows - 1 && (uniforms.padding_extend & EXTEND_DOWN)) {
+    size.y += uniforms.grid_padding.z;
   }
 
-  // Load the color for the cell.
-  uchar4 cell_color = cells[grid_pos.y * uniforms.grid_size.x + grid_pos.x];
-
-  // Convert the color and return it.
-  //
-  // TODO: It might be a good idea to do a pass before this
-  //       to convert all of the bg colors, so we don't waste
-  //       a bunch of work converting the cell color in every
-  //       fragment of each cell. It's not the most epxensive
-  //       operation, but it is still wasted work.
-  return load_color(
+  float2 pos = origin + size * corner;
+  out.position =
+      uniforms.projection_matrix * float4(pos.x, pos.y, 0.0f, 1.0f);
+  out.color = load_color(
     cell_color,
     uniforms.use_display_p3,
     uniforms.use_linear_blending
   );
+  return out;
+}
+
+fragment float4 cell_bg_fragment(
+  CellBgVertexOut in [[stage_in]]
+) {
+  return in.color;
 }
 
 //-------------------------------------------------------------------

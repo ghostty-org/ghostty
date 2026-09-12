@@ -18,9 +18,14 @@ const pipeline_descs: []const struct { [:0]const u8, PipelineDescription } =
             .blending_enabled = false,
         } },
         .{ "cell_bg", .{
-            .vertex_fn = "full_screen_vertex",
+            .vertex_fn = "cell_bg_vertex",
             .fragment_fn = "cell_bg_fragment",
             .blending_enabled = true,
+        } },
+        .{ "cell_bg_opaque", .{
+            .vertex_fn = "cell_bg_vertex",
+            .fragment_fn = "cell_bg_fragment",
+            .blending_enabled = false,
         } },
         .{ "cell_text", .{
             .vertex_attributes = CellText,
