@@ -492,6 +492,55 @@ pub const Parser = struct {
     }
 };
 
+/// Decode tmux control mode octal escaping in place. tmux encodes
+/// bytes less than ASCII 32 and `\` itself as `\ooo` (backslash +
+/// three octal digits). The decoded output is always <= the input
+/// length, so this can safely write back into the same buffer.
+fn decodeEscapedOutput(data: []u8) []const u8 {
+    var read_idx: usize = 0;
+    var write_idx: usize = 0;
+
+    while (read_idx < data.len) {
+        // Pass through non escape bytes as is.
+        if (data[read_idx] != '\\') {
+            data[write_idx] = data[read_idx];
+            read_idx += 1;
+            write_idx += 1;
+            continue;
+        }
+
+        read_idx += 1; // consume '\'
+
+        // Try to decode three octal digits following the backslash.
+        // If fewer than 3 bytes remain or any digit is non-octal,
+        // emit '?' as a visible replacement rather than silently
+        // dropping %output payload
+        var value: u8 = 0;
+        var ok = false;
+
+        // after consuming '\' read_idx is at the first potential octal digit, we need +2 after it.
+        if (read_idx + 2 < data.len) {
+            var i: usize = 0;
+            while (i < 3) : (i += 1) {
+                const digit = data[read_idx];
+                if (digit < '0' or digit > '7') break;
+
+                // tmux encodes bytes < 32 and '\' (92 = \134),
+                // so the max decoded value is 92. No overflow.
+                value = value * 8 + (digit - '0');
+                read_idx += 1;
+            }
+
+            ok = i == 3;
+        }
+
+        data[write_idx] = if (ok) value else '?';
+        write_idx += 1;
+    }
+
+    return data[0..write_idx];
+}
+
 /// Possible notification types from tmux control mode. These are documented
 /// in tmux(1). A lot of the simple documentation was copied from that man
 /// page here.
@@ -517,10 +566,7 @@ pub const Notification = union(enum) {
     block_err: []const u8,
 
     /// Raw output from a pane.
-    output: struct {
-        pane_id: usize,
-        data: []const u8, // unescaped
-    },
+    output: Output,
 
     /// The client is now attached to the session with ID session-id, which is
     /// named name.
@@ -570,6 +616,28 @@ pub const Notification = union(enum) {
         session_id: usize,
         name: []const u8,
     },
+
+    pub const Output = struct {
+        pane_id: usize,
+        data: []u8,
+        /// Tracks whether `data` has been decoded for this Output copy.
+        ///
+        /// `data` points into the parser buffer and is mutated in place, while this
+        /// flag belongs to this Output copy. A copy made before `decoded()` runs
+        /// keeps the flag false even after another copy decodes the buffer in place,
+        /// so only one copy of an Output may call `decoded()`.
+        is_decoded: bool = false,
+
+        pub fn decoded(self: *Output) []const u8 {
+            if (!self.is_decoded) {
+                const data = decodeEscapedOutput(self.data);
+                self.data = self.data[0..data.len];
+                self.is_decoded = true;
+            }
+
+            return self.data;
+        }
+    };
 
     pub fn format(self: Notification, writer: *std.Io.Writer) !void {
         const T = Notification;
@@ -722,6 +790,61 @@ test "tmux output" {
     try testing.expect(n == .output);
     try testing.expectEqual(42, n.output.pane_id);
     try testing.expectEqualStrings("foo bar baz", n.output.data);
+}
+
+test "tmux decode octal escape" {
+    const testing = std.testing;
+
+    var input = [_]u8{ '\\', '0', '3', '3', '[', '?', '2', '0', '0', '4', 'h' };
+    const got = decodeEscapedOutput(input[0..]);
+    const expected = [_]u8{ 0x1b, '[', '?', '2', '0', '0', '4', 'h' };
+
+    try testing.expectEqualSlices(u8, expected[0..], got);
+}
+
+test "tmux decode malformed escape" {
+    const testing = std.testing;
+
+    var input = [_]u8{ '\\', '0', 'x', '3' };
+    const got = decodeEscapedOutput(input[0..]);
+    const expected = [_]u8{ '?', 'x', '3' };
+
+    try testing.expectEqualSlices(u8, expected[0..], got);
+}
+
+test "tmux output decodes escapes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%output %42 \\033ktitle\\033\\134") |byte| try testing.expect(try c.put(byte) == null);
+    var n = (try c.put('\n')).?;
+    const expected = [_]u8{ 0x1b, 'k', 't', 'i', 't', 'l', 'e', 0x1b, '\\' };
+
+    try testing.expect(n == .output);
+    try testing.expectEqual(42, n.output.pane_id);
+    try testing.expectEqualStrings("\\033ktitle\\033\\134", n.output.data);
+    try testing.expectEqualSlices(u8, expected[0..], n.output.decoded());
+}
+
+test "tmux output decoded is idempotent" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%output %42 \\033ktitle\\033\\134") |byte| try testing.expect(try c.put(byte) == null);
+    var n = (try c.put('\n')).?;
+
+    try testing.expect(n == .output);
+
+    const first = n.output.decoded();
+    const second = n.output.decoded();
+
+    try testing.expectEqual(@intFromPtr(first.ptr), @intFromPtr(second.ptr));
+    try testing.expectEqual(first.len, second.len);
+    try testing.expectEqualSlices(u8, first, second);
 }
 
 test "tmux session-changed" {
