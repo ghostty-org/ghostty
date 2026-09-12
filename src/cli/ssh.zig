@@ -19,6 +19,7 @@ const usage =
     \\  --forward-env[=bool]  Enable TERM / SendEnv forwarding. Default: true.
     \\  --terminfo[=bool]     Install Ghostty terminfo on first connect. Default: true.
     \\  --cache[=bool]        Use the terminfo install cache. Default: true.
+    \\  --mouse-cleanup[=bool]  Reset mouse modes after SSH exits. Default: false.
     \\  --ssh=<path>          Path to the ssh binary. Default: first `ssh` on PATH.
     \\  --verbose             Print +ssh status lines to stderr.
     \\  --help                Show full help.
@@ -39,6 +40,9 @@ pub const Options = struct {
 
     /// When false, both cache read and write are bypassed.
     cache: bool = true,
+
+    /// Reset mouse tracking modes after SSH exits if stdout is a TTY.
+    @"mouse-cleanup": bool = false,
 
     /// The wrapped `ssh` binary.
     /// `/`-containing values are treated as paths; otherwise resolved via PATH.
@@ -109,7 +113,8 @@ pub const Options = struct {
 /// nothing to collide.
 ///
 /// This is typically called via Ghostty's shell integration. When
-/// `shell-integration-features` includes `ssh-env` or `ssh-terminfo`,
+/// `shell-integration-features` includes `ssh-env`, `ssh-terminfo`, or
+/// `ssh-mouse-cleanup`,
 /// each shell defines an `ssh` function that runs:
 ///
 ///     ghostty +ssh <flags> -- "$@"
@@ -139,6 +144,12 @@ pub const Options = struct {
 /// remote, filesystem permissions), a warning is logged and the
 /// connection continues with `TERM=xterm-256color`.
 ///
+/// After `ssh` exits, `--mouse-cleanup` resets supported mouse tracking
+/// and encoding modes when standard output is a terminal. This is a
+/// best-effort recovery reset, not state restoration: intentionally active
+/// same-terminal mouse state will also be disabled. Cleanup does not change
+/// the `ssh` exit status.
+///
 /// Flags:
 ///
 ///   * `--forward-env=<bool>`: Enable `TERM` / `SendEnv` environment
@@ -153,6 +164,10 @@ pub const Options = struct {
 ///     connection performs the install. To one-shot reinstall a single
 ///     host while keeping the cache in use, prefer `ghostty +ssh-cache
 ///     --remove=<host>` followed by a normal connection.
+///
+///   * `--mouse-cleanup=<bool>`: Reset supported mouse tracking and encoding
+///     modes after SSH exits when standard output is a terminal. Default:
+///     `false`.
 ///
 ///   * `--ssh=<path>`: Path to the `ssh` binary to execute. Default: the
 ///     first `ssh` found on `PATH`.
@@ -314,6 +329,8 @@ fn runInner(
         return 1;
     };
     verbosePrint(opts, stderr, "exit: {d}", .{exit_code});
+
+    if (opts.@"mouse-cleanup") cleanupMouseReporting();
 
     // Attempt to cache (if needed) on a successful ssh execution.
     if (exit_code == 0) if (session.to_cache) |entry| {
@@ -562,6 +579,48 @@ fn childExec(argv: []const []const u8) !u8 {
     };
 }
 
+test "childExec returns conventional exit status" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(
+        @as(u8, 73),
+        try childExec(&.{ "/bin/sh", "-c", "exit 73" }),
+    );
+}
+
+test "childExec returns 128 plus signal" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(
+        @as(u8, 143),
+        try childExec(&.{ "/bin/sh", "-c", "kill -TERM $$" }),
+    );
+}
+
+const mouse_cleanup_sequence = "\x1b[?9;1000;1002;1003;1005;1006;1015;1016l";
+
+fn cleanupMouseReporting() void {
+    const stdout_file: std.Io.File = .stdout();
+    const is_tty = stdout_file.isTty(global.io()) catch |err| {
+        log.warn("unable to determine whether stdout is a TTY: {t}", .{err});
+        return;
+    };
+    var buffer: [mouse_cleanup_sequence.len]u8 = undefined;
+    var stdout_writer = stdout_file.writer(global.io(), &buffer);
+    writeMouseCleanup(&stdout_writer.interface, is_tty) catch |err| {
+        log.warn("unable to reset mouse tracking after SSH exit: {t}", .{err});
+    };
+}
+
+fn writeMouseCleanup(
+    writer: *std.Io.Writer,
+    is_tty: bool,
+) std.Io.Writer.Error!void {
+    if (!is_tty) return;
+    try writer.writeAll(mouse_cleanup_sequence);
+    try writer.flush();
+}
+
 fn parseTestArgs(alloc: Allocator, opts: *Options, line: []const u8) !void {
     var iter = try std.process.Args.IteratorGeneral(.{}).init(alloc, line);
     defer iter.deinit();
@@ -603,6 +662,34 @@ test "parseManuallyHook: explicit -- separator" {
     try testing.expectEqual(@as(usize, 2), opts._ssh_args.items.len);
     try testing.expectEqualStrings("--some-rare-ssh-arg", opts._ssh_args.items[0]);
     try testing.expectEqualStrings("user@example.com", opts._ssh_args.items[1]);
+}
+
+test "mouse cleanup flag" {
+    const testing = std.testing;
+    var opts: Options = .{};
+    defer opts.deinit();
+    try parseTestArgs(testing.allocator, &opts, "--mouse-cleanup user@example.com");
+    try testing.expect(opts.@"mouse-cleanup");
+    try testing.expectEqual(@as(usize, 1), opts._ssh_args.items.len);
+    try testing.expectEqualStrings("user@example.com", opts._ssh_args.items[0]);
+}
+
+test "mouse cleanup emission requires a TTY" {
+    const testing = std.testing;
+
+    {
+        var buffer: [mouse_cleanup_sequence.len]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buffer);
+        try writeMouseCleanup(&writer, true);
+        try testing.expectEqualStrings(mouse_cleanup_sequence, writer.buffered());
+    }
+
+    {
+        var buffer: [mouse_cleanup_sequence.len]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buffer);
+        try writeMouseCleanup(&writer, false);
+        try testing.expectEqualStrings("", writer.buffered());
+    }
 }
 
 test "parseDestination: typical ssh -G output" {

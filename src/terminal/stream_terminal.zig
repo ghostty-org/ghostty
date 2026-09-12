@@ -2277,6 +2277,35 @@ test "modes" {
     try testing.expect(t.modes.get(.wraparound));
 }
 
+test "mouse cleanup sequence resets supported modes" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+    defer s.deinit();
+
+    const mouse_modes = [_]modes.Mode{
+        .mouse_event_x10,
+        .mouse_event_normal,
+        .mouse_event_button,
+        .mouse_event_any,
+        .mouse_format_utf8,
+        .mouse_format_sgr,
+        .mouse_format_urxvt,
+        .mouse_format_sgr_pixels,
+    };
+
+    s.nextSlice("\x1b[?9;1000;1002;1003;1005;1006;1015;1016h");
+    for (mouse_modes) |mode| try testing.expect(t.modes.get(mode));
+    try testing.expectEqual(.any, t.flags.mouse_event);
+    try testing.expectEqual(.sgr_pixels, t.flags.mouse_format);
+
+    s.nextSlice("\x1b[?9;1000;1002;1003;1005;1006;1015;1016l");
+    for (mouse_modes) |mode| try testing.expect(!t.modes.get(mode));
+    try testing.expectEqual(.none, t.flags.mouse_event);
+    try testing.expectEqual(.x10, t.flags.mouse_format);
+}
+
 test "scrolling regions" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
