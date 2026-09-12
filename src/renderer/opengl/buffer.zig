@@ -73,7 +73,7 @@ pub fn Buffer(comptime T: type) type {
         ///
         /// If the amount of data is smaller than the buffer length, the
         /// remaining data in the buffer is left untouched.
-        pub fn sync(self: *Self, data: []const T) !void {
+        pub fn syncRetainCapacity(self: *Self, data: []const T) !void {
             const binding = try self.buffer.bind(self.opts.target);
             defer binding.unbind();
 
@@ -91,9 +91,36 @@ pub fn Buffer(comptime T: type) type {
             try binding.setSubData(0, data);
         }
 
-        /// Like Buffer.sync but takes data from an array of ArrayLists,
+        /// Exact-fit sync new contents to the buffer. The data is expected
+        /// to be the complete contents of the buffer. If the amount of data
+        /// is not equal to the buffer length, the buffer will be reallocated.
+        pub fn sync(self: *Self, data: []const T) !void {
+            const binding = try self.buffer.bind(self.opts.target);
+            defer binding.unbind();
+
+            // Prevent zero-length allocations, not strictly necessary
+            // for OpenGL, but it is a good idea to avoid them in general.
+            const alloc_len = @max(data.len, 1);
+
+            // If the buffer size does not match our data size, we need to reallocate.
+            if (alloc_len != self.len) {
+                // Reallocate the buffer to hold exactly what we require.
+                self.len = alloc_len;
+                try binding.setDataNullManual(
+                    self.len * @sizeOf(T),
+                    self.opts.usage,
+                );
+            }
+
+            // We can fit within the buffer so we can just replace bytes.
+            if (data.len > 0) {
+                try binding.setSubData(0, data);
+            }
+        }
+
+        /// Like Buffer.syncRetainCapacity but takes data from an array of ArrayLists,
         /// rather than a single array. Returns the number of items synced.
-        pub fn syncFromArrayLists(self: *Self, lists: []const std.ArrayListUnmanaged(T)) !usize {
+        pub fn syncFromArrayListsRetainCapacity(self: *Self, lists: []const std.ArrayListUnmanaged(T)) !usize {
             const binding = try self.buffer.bind(self.opts.target);
             defer binding.unbind();
 
@@ -106,6 +133,42 @@ pub fn Buffer(comptime T: type) type {
             if (total_len > self.len) {
                 // Reallocate the buffer to hold double what we require.
                 self.len = total_len * 2;
+                try binding.setDataNullManual(
+                    self.len * @sizeOf(T),
+                    self.opts.usage,
+                );
+            }
+
+            // We can fit within the buffer so we can just replace bytes.
+            var i: usize = 0;
+
+            for (lists) |list| {
+                try binding.setSubData(i, list.items);
+                i += list.items.len * @sizeOf(T);
+            }
+
+            return total_len;
+        }
+
+        /// Like Buffer.sync but takes data from an array of ArrayLists,
+        /// rather than a single array. Returns the number of items synced.
+        pub fn syncFromArrayLists(self: *Self, lists: []const std.ArrayListUnmanaged(T)) !usize {
+            const binding = try self.buffer.bind(self.opts.target);
+            defer binding.unbind();
+
+            var total_len: usize = 0;
+            for (lists) |list| {
+                total_len += list.items.len;
+            }
+
+            // Prevent zero-length allocations, not strictly necessary
+            // for OpenGL, but it is a good idea to avoid them in general.
+            const alloc_len = @max(total_len, 1);
+
+            // If the buffer size does not match our data size, reallocate.
+            if (alloc_len != self.len) {
+                // Reallocate the buffer to hold exactly what we require.
+                self.len = alloc_len;
                 try binding.setDataNullManual(
                     self.len * @sizeOf(T),
                     self.opts.usage,
