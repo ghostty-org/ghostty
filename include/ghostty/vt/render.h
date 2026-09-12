@@ -210,6 +210,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /** All render-state colors in one sized struct (GhosttyRenderStateColors).
    *  Initialize the output with GHOSTTY_INIT_SIZED before querying. */
   GHOSTTY_RENDER_STATE_DATA_COLORS = 19,
+
+  /** Fractional part of the scroll row (double).
+   *  When non-zero, the row iterator yields one extra row below the viewport. */
+  GHOSTTY_RENDER_STATE_DATA_SCROLL_ROW_FRAC = 20,
   GHOSTTY_RENDER_STATE_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyRenderStateData;
 

@@ -82,13 +82,20 @@ pub const RenderState = struct {
     rows: size.CellCountInt,
     cols: size.CellCountInt,
 
+    /// Fractional part of the scroll row copied from the screen on update.
+    /// `0` is row-aligned. When this is non-zero, `row_data` includes one
+    /// extra document row below the viewport (if it exists) so a renderer
+    /// can fill the gap from a sub-row shift.
+    scroll_row_frac: f64 = 0,
+
     /// The color state for the terminal.
     colors: Colors,
 
     /// Cursor state within the viewport.
     cursor: Cursor,
 
-    /// The rows (y=0 is top) of the viewport. Guaranteed to be `rows` length.
+    /// The rows (y=0 is top) of the viewport. Guaranteed to be `rows` length
+    /// when `scroll_row_frac` is 0.
     ///
     /// This is a MultiArrayList because only the update cares about
     /// the allocators. Callers care about all the other properties, and
@@ -377,6 +384,11 @@ pub const RenderState = struct {
     ) Allocator.Error!void {
         const s: *Screen = t.screens.active;
         const viewport_pin = s.pages.getTopLeft(.viewport);
+        const frac = s.scrollRowFrac();
+        const paint_rows: usize = if (frac == 0)
+            s.pages.rows
+        else
+            s.pages.rows + 1;
         const redraw = redraw: {
             // If our screen key changed, we need to do a full rebuild
             // because our render state is viewport-specific.
@@ -400,7 +412,8 @@ pub const RenderState = struct {
 
             // If our dimensions changed, we do a full rebuild.
             if (self.rows != s.pages.rows or
-                self.cols != s.pages.cols)
+                self.cols != s.pages.cols or
+                self.row_data.len != paint_rows)
             {
                 break :redraw true;
             }
@@ -416,6 +429,7 @@ pub const RenderState = struct {
         // Always set our cheap fields, its more expensive to compare
         self.rows = s.pages.rows;
         self.cols = s.pages.cols;
+        self.scroll_row_frac = frac;
         self.viewport_pin = viewport_pin;
         self.cursor.active = .{ .x = s.cursor.x, .y = s.cursor.y };
         self.cursor.cell = s.cursor.page_cell.*;
@@ -459,19 +473,22 @@ pub const RenderState = struct {
         // Ensure our row length is exactly our height, freeing or allocating
         // data as necessary. In most cases we'll have a perfectly matching
         // size.
-        if (self.row_data.len != self.rows) {
+        //
+        // Height here is the viewport plus the extra row when
+        // `scroll_row_frac` is non-zero.
+        if (self.row_data.len != paint_rows) {
             @branchHint(.unlikely);
 
-            if (self.row_data.len < self.rows) {
+            if (self.row_data.len < paint_rows) {
                 // Resize our rows to the desired length, marking any added
                 // values undefined.
                 const old_len = self.row_data.len;
-                try self.row_data.resize(alloc, self.rows);
+                try self.row_data.resize(alloc, paint_rows);
 
                 // Initialize all our values. Its faster to use slice() + set()
                 // because appendAssumeCapacity does this multiple times.
                 var row_data = self.row_data.slice();
-                for (old_len..self.rows) |y| {
+                for (old_len..paint_rows) |y| {
                     row_data.set(y, .{
                         .arena = .{},
                         .pin = undefined,
@@ -487,16 +504,16 @@ pub const RenderState = struct {
             } else {
                 const row_data = self.row_data.slice();
                 for (
-                    row_data.items(.arena)[self.rows..],
-                    row_data.items(.cells)[self.rows..],
-                    row_data.items(.applied_styles)[self.rows..],
+                    row_data.items(.arena)[paint_rows..],
+                    row_data.items(.cells)[paint_rows..],
+                    row_data.items(.applied_styles)[paint_rows..],
                 ) |state, *cell, *applied| {
                     var arena: ArenaAllocator = state.promote(alloc);
                     arena.deinit();
                     cell.deinit(alloc);
                     applied.deinit(alloc);
                 }
-                self.row_data.shrinkRetainingCapacity(self.rows);
+                self.row_data.shrinkRetainingCapacity(paint_rows);
             }
         }
 
@@ -538,7 +555,7 @@ pub const RenderState = struct {
         var y: usize = 0;
         var any_dirty: bool = false;
         var page_it = viewport_pin.pageIterator(.right_down, null);
-        while (y < self.rows) {
+        while (y < paint_rows) {
             const chunk = page_it.next() orelse break;
             const node = chunk.node;
             const node_serial = node.serial;
@@ -549,7 +566,7 @@ pub const RenderState = struct {
             // exactly `rows` tall) so we clamp.
             const take: usize = @min(
                 @as(usize, chunk.end - chunk.start),
-                self.rows - y,
+                paint_rows - y,
             );
 
             // Find our cursor if we haven't found it yet. We do this even
@@ -650,7 +667,7 @@ pub const RenderState = struct {
 
             y += take;
         }
-        assert(y == self.rows);
+        assert(y == paint_rows);
 
         // If our screen has a selection, then mark the rows with the
         // selection. We do this outside of the loop above because its unlikely
@@ -2393,5 +2410,92 @@ test "dirty row resets highlights" {
         const row_data = state.row_data.slice();
         const row_highlights = row_data.items(.highlights);
         try testing.expectEqual(0, row_highlights[0].items.len);
+    }
+}
+
+test "scroll row frac collects extra row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("A\r\nB\r\nC\r\nD\r\nE");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+
+    try state.update(alloc, &t);
+    try testing.expectEqual(3, state.rows);
+    try testing.expectEqual(3, state.row_data.len);
+    try testing.expectEqual(@as(f64, 0), state.scroll_row_frac);
+
+    // At the bottom a fraction is ignored: no extra row.
+    t.setScrollRowFrac(0.25);
+    try state.update(alloc, &t);
+    try testing.expectEqual(3, state.row_data.len);
+    try testing.expectEqual(@as(f64, 0), state.scroll_row_frac);
+
+    t.scrollViewport(.top);
+    t.setScrollRowFrac(0.25);
+    try state.update(alloc, &t);
+    try testing.expectEqual(3, state.rows);
+    try testing.expectEqual(4, state.row_data.len);
+    try testing.expectEqual(@as(f64, 0.25), state.scroll_row_frac);
+
+    const cells = state.row_data.items(.cells);
+    try testing.expectEqual('A', cells[0].get(0).raw.codepoint());
+    try testing.expectEqual('D', cells[3].get(0).raw.codepoint());
+
+    t.setScrollRowFrac(0);
+    try state.update(alloc, &t);
+    try testing.expectEqual(3, state.row_data.len);
+    try testing.expectEqual(@as(f64, 0), state.scroll_row_frac);
+}
+
+test "scroll row frac extra row dirties independently" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("A\r\nB\r\nC\r\nD\r\nE");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+
+    t.scrollViewport(.{ .delta = -1 });
+    t.setScrollRowFrac(0.5);
+    try state.update(alloc, &t);
+    try testing.expectEqual(4, state.row_data.len);
+    try testing.expectEqual('B', state.row_data.items(.cells)[0].get(0).raw.codepoint());
+    try testing.expectEqual('E', state.row_data.items(.cells)[3].get(0).raw.codepoint());
+    try testing.expectEqual(3, state.cursor.viewport.?.y);
+
+    state.dirty = .false;
+    @memset(state.row_data.items(.dirty), false);
+
+    s.nextSlice("X");
+    try state.update(alloc, &t);
+    try testing.expectEqual(.partial, state.dirty);
+    {
+        const dirty = state.row_data.items(.dirty);
+        try testing.expect(!dirty[0]);
+        try testing.expect(!dirty[1]);
+        try testing.expect(!dirty[2]);
+        try testing.expect(dirty[3]);
     }
 }

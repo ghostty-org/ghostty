@@ -2753,11 +2753,15 @@ pub const ScrollViewport = union(Tag) {
     /// This is the same row space as PageList.Scrollbar offset.
     row: usize,
 
+    /// Scroll by a fractional number of rows, up is negative.
+    delta_f: f64,
+
     pub const Tag = lib.Enum(lib.target, &.{
         "top",
         "bottom",
         "delta",
         "row",
+        "delta_f",
     });
 
     const c_union = lib.TaggedUnion(
@@ -2778,8 +2782,19 @@ pub fn scrollViewport(self: *Terminal, behavior: ScrollViewport) void {
         .top => .{ .top = {} },
         .bottom => .{ .active = {} },
         .delta => |delta| .{ .delta_row = delta },
+        .delta_f => |delta| .{ .delta_f = delta },
         .row => |row| .{ .row = row },
     });
+}
+
+/// Fractional part of the scroll row.
+pub fn scrollRowFrac(self: *const Terminal) f64 {
+    return self.screens.active.scrollRowFrac();
+}
+
+/// Set the fractional part of the scroll row.
+pub fn setScrollRowFrac(self: *Terminal, frac: f64) void {
+    self.screens.active.setScrollRowFrac(frac);
 }
 
 /// Return the current compression activity value.

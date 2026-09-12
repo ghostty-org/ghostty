@@ -199,6 +199,10 @@ pub const Uniforms = extern struct {
     /// Size of a single cell in pixels, unscaled.
     cell_size: [2]f32 align(8),
 
+    /// Pixel offset applied to the grid for a sub-row scroll.
+    /// `(0, -frac * cell_height)` when `scroll_row_frac` is set.
+    content_offset: [2]f32 align(8) = .{ 0, 0 },
+
     /// Size of the grid in columns and rows.
     grid_size: [2]u16 align(4),
 

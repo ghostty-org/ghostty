@@ -727,6 +727,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .grid_size = undefined,
                     .grid_padding = undefined,
                     .screen_size = undefined,
+                    .content_offset = .{ 0, 0 },
                     .padding_extend = .{},
                     .min_contrast = options.config.min_contrast,
                     .cursor_pos = .{ std.math.maxInt(u16), std.math.maxInt(u16) },
@@ -1603,6 +1604,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 // Update custom shader uniforms that depend on terminal state.
                 self.updateCustomShaderUniformsFromState();
+
+                // Sub-row scroll: shift the grid up by frac * cell height.
+                // Set every frame so a frac-only change still draws.
+                const px: f32 = @floatCast(
+                    -self.terminal_state.scroll_row_frac *
+                        @as(f64, @floatFromInt(self.grid_metrics.cell_height)),
+                );
+                if (self.uniforms.content_offset[1] != px) {
+                    self.uniforms.content_offset = .{ 0, px };
+                    self.cells_rebuilt = true;
+                }
             }
 
             // Start the display link now that the rebuilt frame is ready.
@@ -2175,7 +2187,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.size.padding,
                 .{
                     .columns = self.cells.size.columns,
-                    .rows = self.cells.size.rows,
+                    .rows = self.terminal_state.rows,
                 },
                 .{
                     .width = self.grid_metrics.cell_width,
@@ -2534,13 +2546,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         ) Allocator.Error!void {
             const state: *terminal.RenderState = &self.terminal_state;
 
+            const paint_rows: u16 = @intCast(state.row_data.len);
             const grid_size_diff =
-                self.cells.size.rows != state.rows or
+                self.cells.size.rows != paint_rows or
                 self.cells.size.columns != state.cols;
 
             if (grid_size_diff) {
                 var new_size = self.cells.size;
-                new_size.rows = state.rows;
+                new_size.rows = paint_rows;
                 new_size.columns = state.cols;
                 try self.cells.resize(self.alloc, new_size);
 
@@ -2588,7 +2601,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // the viewport is shorter than the cell contents buffer, we align
             // the top of the viewport with the top of the contents buffer.
             const row_len: usize = @min(
-                state.rows,
+                state.row_data.len,
                 self.cells.size.rows,
             );
 
@@ -2600,6 +2613,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // don't show it.
                 const cursor_vp = state.cursor.viewport orelse
                     break :preedit null;
+                if (cursor_vp.y >= row_dirty.len) break :preedit null;
 
                 // If our preedit row isn't dirty then we don't need the
                 // preedit range. This also avoids an issue later where we
@@ -2669,6 +2683,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // a cursor. Otherwise, get our cursor cell, because we may
                 // need it for styling.
                 const cursor_vp = state.cursor.viewport orelse break :cursor;
+                if (cursor_vp.y >= state.row_data.len) break :cursor;
                 const cursor_style: terminal.Style = cursor_style: {
                     const cells = state.row_data.items(.cells);
                     const cell = cells[cursor_vp.y].get(cursor_vp.x);
