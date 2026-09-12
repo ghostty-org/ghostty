@@ -9,7 +9,7 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-08-10 10:06-0500\n"
-"PO-Revision-Date: 2025-09-06 19:40+0200\n"
+"PO-Revision-Date: 2026-09-12 18:00+0200\n"
 "Last-Translator: Giacomo Bettini <giaco.bettini@gmail.com>\n"
 "Language-Team: Italian <tp@lists.linux.it>\n"
 "Language: it\n"
@@ -1053,87 +1053,93 @@ msgstr "Chiudi tutte le finestre."
 
 #: src/input/command.zig:642
 msgid "Toggle Maximize"
-msgstr ""
+msgstr "Attiva/disattiva massimizzazione"
 
 #: src/input/command.zig:643
 msgid "Toggle the maximized state of the current window."
-msgstr ""
+msgstr "Attiva/disattiva la massimizzazione della finestra corrente."
 
 #: src/input/command.zig:648
 msgid "Toggle Fullscreen"
-msgstr ""
+msgstr "Attiva/disattiva schermo intero"
 
 #: src/input/command.zig:649
 msgid "Toggle the fullscreen state of the current window."
 msgstr ""
+"Attiva/disattiva la modalità a schermo intero della finestra corrente."
 
 #: src/input/command.zig:654
 msgid "Toggle Window Decorations"
-msgstr ""
+msgstr "Attiva/disattiva decorazioni finestra"
 
 #: src/input/command.zig:655
 msgid "Toggle the window decorations."
-msgstr ""
+msgstr "Attiva/disattiva le decorazioni della finestra."
 
 #: src/input/command.zig:660
 msgid "Toggle Float on Top"
-msgstr ""
+msgstr "Attiva/disattiva sempre in primo piano"
 
 #: src/input/command.zig:661
 msgid "Toggle the float on top state of the current window."
 msgstr ""
+"Attiva/disattiva la modalità sempre in primo piano per la finestra corrente."
 
 #: src/input/command.zig:666
 msgid "Toggle Secure Input"
-msgstr ""
+msgstr "Attiva/disattiva input sicuro"
 
 #: src/input/command.zig:667
 msgid "Toggle secure input mode."
-msgstr ""
+msgstr "Attiva/disattiva la modalità di input sicuro."
 
 #: src/input/command.zig:672
 msgid "Toggle Mouse Reporting"
-msgstr ""
+msgstr "Attiva/disattiva segnalazione mouse"
 
 #: src/input/command.zig:673
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr ""
+"Attiva/disattiva l'invio degli eventi del mouse alle applicazioni "
+"del terminale."
 
 #: src/input/command.zig:678
 msgid "Toggle Background Opacity"
-msgstr ""
+msgstr "Attiva/disattiva opacità sfondo"
 
 #: src/input/command.zig:679
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr ""
+"Attiva/disattiva l'opacità dello sfondo di una finestra avviata "
+"come trasparente."
 
 #: src/input/command.zig:684
 msgid "Check for Updates"
-msgstr ""
+msgstr "Controlla aggiornamenti"
 
 #: src/input/command.zig:685
 msgid "Check for updates to the application."
-msgstr ""
+msgstr "Controlla la disponibilità di aggiornamenti dell'applicazione."
 
 #: src/input/command.zig:690
 msgid "Undo"
-msgstr ""
+msgstr "Annulla"
 
 #: src/input/command.zig:691
 msgid "Undo the last action."
-msgstr ""
+msgstr "Annulla l'ultima azione."
 
 #: src/input/command.zig:696
 msgid "Redo"
-msgstr ""
+msgstr "Ripeti"
 
 #: src/input/command.zig:697
 msgid "Redo the last undone action."
-msgstr ""
+msgstr "Ripeti l'ultima azione annullata."
 
 #: src/input/command.zig:703
 msgid "Quit the application."
-msgstr ""
+msgstr "Chiudi l'applicazione."
 
 #: src/input/command.zig:708
 msgid "Ghostty"
@@ -1141,4 +1147,4 @@ msgstr "Ghostty"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."
-msgstr "Aggiungi un po' di Ghostty al tuo terminale."
+msgstr "Metti un piccolo Ghostty nel tuo terminale."
