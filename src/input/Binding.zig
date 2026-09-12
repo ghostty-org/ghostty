@@ -722,6 +722,13 @@ pub const Action = union(enum) {
     /// Note that not all changes can be applied at runtime.
     reload_config,
 
+    /// Set the application window theme for this session.
+    ///
+    /// This does not modify the configuration and remains in effect until
+    /// another `set_window_theme` action or the application restarts.
+    /// Valid values are `dark`, `light`, and `system`.
+    set_window_theme: WindowTheme,
+
     /// Close the current "surface", whether that is a window, tab, split, etc.
     ///
     /// This might trigger a close confirmation popup, depending on the value
@@ -1218,6 +1225,12 @@ pub const Action = union(enum) {
         pub const default: OpenConfig = .os_open;
     };
 
+    pub const WindowTheme = enum {
+        dark,
+        light,
+        system,
+    };
+
     fn parseEnum(comptime T: type, value: []const u8) !T {
         return std.meta.stringToEnum(T, value) orelse return Error.InvalidFormat;
     }
@@ -1366,6 +1379,7 @@ pub const Action = union(enum) {
             // Obviously app actions.
             .open_config,
             .reload_config,
+            .set_window_theme,
             .close_all_windows,
             .quit,
             .toggle_quick_terminal,

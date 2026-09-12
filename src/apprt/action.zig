@@ -357,6 +357,9 @@ pub const Action = union(Key) {
     /// Move a tab to a new window.
     move_tab_to_new_window,
 
+    /// Set the application window theme for this session.
+    set_window_theme: WindowTheme,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -428,6 +431,7 @@ pub const Action = union(Key) {
         readonly,
         copy_title_to_clipboard,
         move_tab_to_new_window,
+        set_window_theme,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -610,6 +614,16 @@ pub const SecureInput = enum(c_int) {
 
     test "ghostty.h SecureInput" {
         try lib.checkGhosttyHEnum(SecureInput, "GHOSTTY_SECURE_INPUT_");
+    }
+};
+
+pub const WindowTheme = enum(c_int) {
+    dark,
+    light,
+    system,
+
+    test "ghostty.h WindowTheme" {
+        try lib.checkGhosttyHEnum(WindowTheme, "GHOSTTY_ACTION_WINDOW_THEME_");
     }
 };
 

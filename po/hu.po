@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-08-10 10:06-0500\n"
+"POT-Creation-Date: 2026-09-10 10:50-0400\n"
 "PO-Revision-Date: 2026-08-13 21:23+0200\n"
 "Last-Translator: Balázs Szücs <bszucs1209@gmail.com>\n"
 "Language-Team: Hungarian <translation-team-hu@lists.sourceforge.net>\n"
@@ -48,7 +48,7 @@ msgstr "Konfiguráció frissítése a kérdés újbóli megjelenítéséhez"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2263
+#: src/apprt/gtk/class/application.zig:2296
 msgid "Cancel"
 msgstr "Mégse"
 
@@ -193,7 +193,7 @@ msgid "New Tab"
 msgstr "Új fül"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:396 src/apprt/gtk/ui/1.5/window.blp:242
-#: src/input/command.zig:613
+#: src/input/command.zig:631
 msgid "Close Tab"
 msgstr "Fül bezárása"
 
@@ -211,7 +211,7 @@ msgid "New Window"
 msgstr "Új ablak"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:416 src/apprt/gtk/ui/1.5/window.blp:225
-#: src/input/command.zig:630
+#: src/input/command.zig:648
 msgid "Close Window"
 msgstr "Ablak bezárása"
 
@@ -255,11 +255,11 @@ msgstr "Parancspaletta"
 msgid "Terminal Inspector"
 msgstr "Terminálvizsgáló"
 
-#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1991
+#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1997
 msgid "About Ghostty"
 msgstr "A Ghostty névjegye"
 
-#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:720
 msgid "Quit"
 msgstr "Kilépés"
 
@@ -267,27 +267,27 @@ msgstr "Kilépés"
 msgid "Execute a command…"
 msgstr "Parancs végrehajtása…"
 
-#: src/apprt/gtk/class/application.zig:1767
+#: src/apprt/gtk/class/application.zig:1779
 msgid "The keybind was revoked by the system."
 msgstr "A billentyűparancsot a rendszer visszavonta."
 
-#: src/apprt/gtk/class/application.zig:1769
+#: src/apprt/gtk/class/application.zig:1781
 msgid "The keybind was denied by the system."
 msgstr "A billentyűparancsot a rendszer megtagadta."
 
-#: src/apprt/gtk/class/application.zig:1780
+#: src/apprt/gtk/class/application.zig:1792
 msgid "Global keybind unavailable"
 msgstr "A globális billentyűparancs nem áll rendelkezésre"
 
-#: src/apprt/gtk/class/application.zig:2259
+#: src/apprt/gtk/class/application.zig:2292
 msgid "Export Terminal IO Events"
 msgstr "Terminál I/O események exportálása"
 
-#: src/apprt/gtk/class/application.zig:2262
+#: src/apprt/gtk/class/application.zig:2295
 msgid "Export"
 msgstr "Exportálás"
 
-#: src/apprt/gtk/class/application.zig:2783
+#: src/apprt/gtk/class/application.zig:2827
 msgid "Editing configuration file"
 msgstr "Konfigurációs fájl szerkesztése"
 
@@ -351,16 +351,16 @@ msgstr "Ebben az ablakban minden terminál munkamenet lezárul."
 msgid "The currently running process in this split will be terminated."
 msgstr "Ebben a felosztásban a jelenleg futó folyamat lezárul."
 
-#: src/apprt/gtk/class/surface.zig:1181
+#: src/apprt/gtk/class/surface.zig:1194
 msgid "Command Finished"
 msgstr "Parancs befejeződött"
 
-#: src/apprt/gtk/class/surface.zig:1182
+#: src/apprt/gtk/class/surface.zig:1195
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
 msgstr "Parancs sikeres"
 
-#: src/apprt/gtk/class/surface.zig:1183
+#: src/apprt/gtk/class/surface.zig:1196
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
 msgstr "Parancs sikertelen"
@@ -377,19 +377,19 @@ msgstr "Fül címének módosítása"
 msgid "Change Window Title"
 msgstr "Ablak címének módosítása"
 
-#: src/apprt/gtk/class/window.zig:1153
+#: src/apprt/gtk/class/window.zig:1159
 msgid "Reloaded the configuration"
 msgstr "Konfiguráció frissítve"
 
-#: src/apprt/gtk/class/window.zig:1830
+#: src/apprt/gtk/class/window.zig:1836
 msgid "Copied to clipboard"
 msgstr "Vágólapra másolva"
 
-#: src/apprt/gtk/class/window.zig:1832
+#: src/apprt/gtk/class/window.zig:1838
 msgid "Cleared clipboard"
 msgstr "Vágólap törölve"
 
-#: src/apprt/gtk/class/window.zig:1972
+#: src/apprt/gtk/class/window.zig:1978
 msgid "Ghostty Developers"
 msgstr "Ghostty fejlesztők"
 
@@ -611,8 +611,8 @@ msgstr "Képernyő másolása ideiglenes fájlba és útvonal beillesztése"
 msgid ""
 "Copy the screen contents to a temporary file and paste the path to the file."
 msgstr ""
-"A képernyő tartalmának másolása egy ideiglenes fájlba, és a fájl "
-"útvonalának beillesztése."
+"A képernyő tartalmának másolása egy ideiglenes fájlba, és a fájl útvonalának "
+"beillesztése."
 
 #: src/input/command.zig:296
 msgid "Copy Screen to Temporary File and Open"
@@ -659,8 +659,7 @@ msgstr ""
 #: src/input/command.zig:330
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
 msgstr ""
-"Képernyő másolása ANSI szekvenciákként ideiglenes fájlba és útvonal "
-"másolása"
+"Képernyő másolása ANSI szekvenciákként ideiglenes fájlba és útvonal másolása"
 
 #: src/input/command.zig:331
 msgid ""
@@ -726,8 +725,7 @@ msgstr "Kijelölés másolása ideiglenes fájlba és megnyitás"
 
 #: src/input/command.zig:365
 msgid "Copy the selection contents to a temporary file and open it."
-msgstr ""
-"A kijelölés tartalmának másolása egy ideiglenes fájlba, és megnyitása."
+msgstr "A kijelölés tartalmának másolása egy ideiglenes fájlba, és megnyitása."
 
 #: src/input/command.zig:373
 msgid "Copy Selection as HTML to Temporary File and Copy Path"
@@ -743,16 +741,15 @@ msgstr ""
 
 #: src/input/command.zig:381
 msgid "Copy Selection as HTML to Temporary File and Paste Path"
-msgstr ""
-"Kijelölés másolása HTML-ként ideiglenes fájlba és útvonal beillesztése"
+msgstr "Kijelölés másolása HTML-ként ideiglenes fájlba és útvonal beillesztése"
 
 #: src/input/command.zig:382
 msgid ""
 "Copy the selection contents as HTML to a temporary file and paste the path "
 "to the file."
 msgstr ""
-"A kijelölés tartalmának HTML-ként másolása egy ideiglenes fájlba, és a "
-"fájl útvonalának beillesztése."
+"A kijelölés tartalmának HTML-ként másolása egy ideiglenes fájlba, és a fájl "
+"útvonalának beillesztése."
 
 #: src/input/command.zig:389
 msgid "Copy Selection as HTML to Temporary File and Open"
@@ -767,16 +764,15 @@ msgstr ""
 #: src/input/command.zig:398
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
 msgstr ""
-"Kijelölés másolása ANSI szekvenciákként ideiglenes fájlba és útvonal "
-"másolása"
+"Kijelölés másolása ANSI szekvenciákként ideiglenes fájlba és útvonal másolása"
 
 #: src/input/command.zig:399
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
-"A kijelölés tartalmának ANSI escape szekvenciákként másolása egy "
-"ideiglenes fájlba, és az útvonal vágólapra másolása."
+"A kijelölés tartalmának ANSI escape szekvenciákként másolása egy ideiglenes "
+"fájlba, és az útvonal vágólapra másolása."
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
@@ -789,21 +785,20 @@ msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
-"A kijelölés tartalmának ANSI escape szekvenciákként másolása egy "
-"ideiglenes fájlba, és a fájl útvonalának beillesztése."
+"A kijelölés tartalmának ANSI escape szekvenciákként másolása egy ideiglenes "
+"fájlba, és a fájl útvonalának beillesztése."
 
 #: src/input/command.zig:414
 msgid "Copy Selection as ANSI Sequences to Temporary File and Open"
-msgstr ""
-"Kijelölés másolása ANSI szekvenciákként ideiglenes fájlba és megnyitás"
+msgstr "Kijelölés másolása ANSI szekvenciákként ideiglenes fájlba és megnyitás"
 
 #: src/input/command.zig:415
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
-"A kijelölés tartalmának ANSI escape szekvenciákként másolása egy "
-"ideiglenes fájlba, és megnyitása."
+"A kijelölés tartalmának ANSI escape szekvenciákként másolása egy ideiglenes "
+"fájlba, és megnyitása."
 
 #: src/input/command.zig:422
 msgid "Open a new window."
@@ -1021,137 +1016,159 @@ msgstr "Konfiguráció frissítése"
 msgid "Reload the config file."
 msgstr "A konfigurációs fájl frissítése."
 
-#: src/input/command.zig:606
+#: src/input/command.zig:607
+msgid "Switch to Dark Appearance"
+msgstr ""
+
+#: src/input/command.zig:608
+msgid "Use a dark application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:612
+msgid "Switch to Light Appearance"
+msgstr ""
+
+#: src/input/command.zig:613
+msgid "Use a light application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:617
+msgid "Switch to System Appearance"
+msgstr ""
+
+#: src/input/command.zig:618
+msgid "Use the system application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:624
 msgid "Close Terminal"
 msgstr "Terminál bezárása"
 
-#: src/input/command.zig:607
+#: src/input/command.zig:625
 msgid "Close the current terminal."
 msgstr "A jelenlegi terminál bezárása."
 
-#: src/input/command.zig:614
+#: src/input/command.zig:632
 msgid "Close the current tab."
 msgstr "A jelenlegi fül bezárása."
 
-#: src/input/command.zig:618
+#: src/input/command.zig:636
 msgid "Close Other Tabs"
 msgstr "Egyéb fülek bezárása"
 
-#: src/input/command.zig:619
+#: src/input/command.zig:637
 msgid "Close all tabs in this window except the current one."
 msgstr "Az ebben az ablakban lévő összes fül bezárása a jelenlegi kivételével."
 
-#: src/input/command.zig:623
+#: src/input/command.zig:641
 msgid "Close Tabs to the Right"
 msgstr "Jobb oldali fülek bezárása"
 
-#: src/input/command.zig:624
+#: src/input/command.zig:642
 msgid "Close all tabs to the right of the current one."
 msgstr "A jelenlegi fültől jobbra lévő összes fül bezárása."
 
-#: src/input/command.zig:631
+#: src/input/command.zig:649
 msgid "Close the current window."
 msgstr "A jelenlegi ablak bezárása."
 
-#: src/input/command.zig:636
+#: src/input/command.zig:654
 msgid "Close All Windows"
 msgstr "Összes ablak bezárása"
 
-#: src/input/command.zig:637
+#: src/input/command.zig:655
 msgid "Close all windows."
 msgstr "Az összes ablak bezárása."
 
-#: src/input/command.zig:642
+#: src/input/command.zig:660
 msgid "Toggle Maximize"
 msgstr "Maximalizálás váltása"
 
-#: src/input/command.zig:643
+#: src/input/command.zig:661
 msgid "Toggle the maximized state of the current window."
 msgstr "A jelenlegi ablak maximalizált állapotának váltása."
 
-#: src/input/command.zig:648
+#: src/input/command.zig:666
 msgid "Toggle Fullscreen"
 msgstr "Teljes képernyő váltása"
 
-#: src/input/command.zig:649
+#: src/input/command.zig:667
 msgid "Toggle the fullscreen state of the current window."
 msgstr "A jelenlegi ablak teljes képernyős állapotának váltása."
 
-#: src/input/command.zig:654
+#: src/input/command.zig:672
 msgid "Toggle Window Decorations"
 msgstr "Ablakdíszítések váltása"
 
-#: src/input/command.zig:655
+#: src/input/command.zig:673
 msgid "Toggle the window decorations."
 msgstr "Az ablakdíszítések váltása."
 
-#: src/input/command.zig:660
+#: src/input/command.zig:678
 msgid "Toggle Float on Top"
 msgstr "Mindig felül váltása"
 
-#: src/input/command.zig:661
+#: src/input/command.zig:679
 msgid "Toggle the float on top state of the current window."
 msgstr "A jelenlegi ablak mindig felül állapotának váltása."
 
-#: src/input/command.zig:666
+#: src/input/command.zig:684
 msgid "Toggle Secure Input"
 msgstr "Biztonságos beviteli mód váltása"
 
-#: src/input/command.zig:667
+#: src/input/command.zig:685
 msgid "Toggle secure input mode."
 msgstr "A biztonságos beviteli mód váltása."
 
-#: src/input/command.zig:672
+#: src/input/command.zig:690
 msgid "Toggle Mouse Reporting"
 msgstr "Egérjelentés váltása"
 
-#: src/input/command.zig:673
+#: src/input/command.zig:691
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr ""
-"Annak váltása, hogy az egéresemények eljutnak-e a "
-"terminálalkalmazásokhoz."
+"Annak váltása, hogy az egéresemények eljutnak-e a terminálalkalmazásokhoz."
 
-#: src/input/command.zig:678
+#: src/input/command.zig:696
 msgid "Toggle Background Opacity"
 msgstr "Háttér átlátszóságának váltása"
 
-#: src/input/command.zig:679
+#: src/input/command.zig:697
 msgid "Toggle the background opacity of a window that started transparent."
-msgstr ""
-"A háttér átlátszóságának váltása egy átlátszóként indított ablaknál."
+msgstr "A háttér átlátszóságának váltása egy átlátszóként indított ablaknál."
 
-#: src/input/command.zig:684
+#: src/input/command.zig:702
 msgid "Check for Updates"
 msgstr "Frissítések keresése"
 
-#: src/input/command.zig:685
+#: src/input/command.zig:703
 msgid "Check for updates to the application."
 msgstr "Az alkalmazás frissítéseinek keresése."
 
-#: src/input/command.zig:690
+#: src/input/command.zig:708
 msgid "Undo"
 msgstr "Visszavonás"
 
-#: src/input/command.zig:691
+#: src/input/command.zig:709
 msgid "Undo the last action."
 msgstr "Az utolsó művelet visszavonása."
 
-#: src/input/command.zig:696
+#: src/input/command.zig:714
 msgid "Redo"
 msgstr "Ismétlés"
 
-#: src/input/command.zig:697
+#: src/input/command.zig:715
 msgid "Redo the last undone action."
 msgstr "Az utolsó visszavont művelet ismétlése."
 
-#: src/input/command.zig:703
+#: src/input/command.zig:721
 msgid "Quit the application."
 msgstr "Az alkalmazásból kilépés."
 
-#: src/input/command.zig:708
+#: src/input/command.zig:726
 msgid "Ghostty"
 msgstr "Ghostty"
 
-#: src/input/command.zig:709
+#: src/input/command.zig:727
 msgid "Put a little Ghostty in your terminal."
 msgstr "Egy kis Ghostty a terminálban."
