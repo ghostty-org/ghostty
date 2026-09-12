@@ -99,15 +99,26 @@ int main() {
    *   a=T   — transmit and display
    *   f=100 — PNG format
    *   q=1   — request a response (q=0 would suppress it)
+   *   i=1   — image ID encoded by the placeholder foreground color
+   *   U=1   — create a Unicode virtual-placement definition
+   *   C=1   — keep the cursor in place after the transmission
    */
   printf("Sending Kitty graphics PNG image:\n");
   const char* kitty_cmd =
-    "\x1b_Ga=T,f=100,q=1;"
+    "\x1b_Ga=T,f=100,q=1,i=1,U=1,C=1;"
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAA"
     "DUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="
     "\x1b\\";
   ghostty_terminal_vt_write(terminal, (const uint8_t*)kitty_cmd,
                             strlen(kitty_cmd));
+
+  const char* unicode_placeholder =
+    "\x1b[38;2;0;0;1m"
+    "\xF4\x8E\xBB\xAE\xCC\x85\xCC\x85"
+    "\x1b[39m";
+  ghostty_terminal_vt_write(terminal,
+                            (const uint8_t*)unicode_placeholder,
+                            strlen(unicode_placeholder));
 
   printf("PNG decode calls: %d\n", decode_count);
 
@@ -214,6 +225,46 @@ int main() {
   }
   printf("Total placements: %d\n", placement_count);
   ghostty_kitty_graphics_placement_iterator_free(iter);
+
+  //! [kitty-graphics-unicode-placements]
+  /*
+   * Unicode placements are decoded from placeholder cells in the active
+   * viewport. Populate the iterator again after any terminal mutation.
+   */
+  GhosttyKittyGraphicsUnicodePlacementIterator unicode_iter = NULL;
+  if (ghostty_kitty_graphics_unicode_placement_iterator_new(
+          NULL, &unicode_iter) == GHOSTTY_SUCCESS &&
+      ghostty_terminal_get(
+          terminal,
+          GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS_UNICODE_PLACEMENT_ITERATOR,
+          &unicode_iter) == GHOSTTY_SUCCESS) {
+    while (ghostty_kitty_graphics_unicode_placement_next(unicode_iter)) {
+      uint32_t image_id = 0;
+      ghostty_kitty_graphics_unicode_placement_get(
+          unicode_iter,
+          GHOSTTY_KITTY_GRAPHICS_UNICODE_PLACEMENT_DATA_IMAGE_ID,
+          &image_id);
+
+      GhosttyKittyGraphicsUnicodePlacementRenderInfo info =
+          GHOSTTY_INIT_SIZED(
+              GhosttyKittyGraphicsUnicodePlacementRenderInfo);
+      GhosttyResult render_result =
+          ghostty_kitty_graphics_unicode_placement_render_info(
+              unicode_iter, terminal, &info);
+      if (render_result == GHOSTTY_SUCCESS) {
+        printf("  unicode placement: image_id=%u viewport=(%d,%d) "
+               "size=%ux%u\n",
+               image_id, info.viewport_col, info.viewport_row,
+               info.pixel_width, info.pixel_height);
+      } else if (render_result == GHOSTTY_NO_VALUE) {
+        printf("  unicode placement: image_id=%u unresolved\n", image_id);
+      } else {
+        fprintf(stderr, "Failed to resolve Unicode placement %u\n", image_id);
+      }
+    }
+  }
+  ghostty_kitty_graphics_unicode_placement_iterator_free(unicode_iter);
+  //! [kitty-graphics-unicode-placements]
 
   /* Clean up. */
   ghostty_terminal_free(terminal);
