@@ -562,6 +562,17 @@ fn sizeReportLocked(self: *Termio, td: *ThreadData, style: termio.Message.SizeRe
     try self.queueWrite(td, writer.buffered(), false);
 }
 
+/// True if the terminal is currently attached to a tmux control mode
+/// session. When this is true the pty carries the tmux control protocol,
+/// so anything we want to send to the running program has to be wrapped
+/// in a tmux command.
+///
+/// Safe to call from any thread.
+pub fn inTmuxControlMode(self: *const Termio) bool {
+    if (comptime !StreamHandler.tmux_enabled) return false;
+    return self.terminal_stream.handler.tmux_control_mode.load(.acquire);
+}
+
 /// Reset the synchronized output mode. This is usually called by timer
 /// expiration from the termio thread.
 pub fn resetSynchronizedOutput(self: *Termio) void {

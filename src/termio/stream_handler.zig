@@ -72,6 +72,12 @@ pub const StreamHandler = struct {
     /// The tmux control mode viewer state.
     tmux_viewer: if (tmux_enabled) ?*terminal.tmux.Viewer else void = if (tmux_enabled) null else {},
 
+    /// True while tmux control mode is active. Unlike `tmux_viewer` this
+    /// is read from other threads (the GUI thread queries it through
+    /// `Termio.inTmuxControlMode`) so that input can be routed to tmux
+    /// instead of being written to the pty as raw bytes.
+    tmux_control_mode: std.atomic.Value(bool) = .init(false),
+
     /// Session password grants for the Kitty clipboard protocol.
     /// Requests carrying a granted password skip the permission prompt.
     kitty_clipboard_grants: terminal.kitty.clipboard.Grants = .{},
@@ -100,6 +106,7 @@ pub const StreamHandler = struct {
         self.kittyClipboardWriteAbort();
         self.kitty_clipboard_grants.deinit(self.alloc);
         if (comptime tmux_enabled) tmux: {
+            self.tmux_control_mode.store(false, .release);
             const viewer = self.tmux_viewer orelse break :tmux;
             viewer.deinit();
             self.alloc.destroy(viewer);
@@ -413,10 +420,13 @@ pub const StreamHandler = struct {
                         viewer.* = try .init(global.io(), self.alloc);
                         errdefer viewer.deinit();
                         self.tmux_viewer = viewer;
+                        self.tmux_control_mode.store(true, .release);
                         break :tmux;
                     },
 
                     .exit => {
+                        self.tmux_control_mode.store(false, .release);
+
                         // Free our viewer state if we have one
                         if (self.tmux_viewer) |viewer| {
                             viewer.deinit();

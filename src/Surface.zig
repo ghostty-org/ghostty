@@ -2820,11 +2820,7 @@ pub fn keyCallback(
             return .closed;
         }
 
-        self.queueIo(switch (write_req) {
-            .small => |v| .{ .write_small = v },
-            .stable => |v| .{ .write_stable = v },
-            .alloc => |v| .{ .write_alloc = v },
-        }, .unlocked);
+        self.queueKeyWrite(write_req);
     } else {
         // No valid request means that we didn't encode anything.
         return .ignored;
@@ -3174,11 +3170,7 @@ fn endKeySequence(
     // Run the proper action first
     switch (action) {
         .flush => for (self.keyboard.sequence_queued.items) |write_req| {
-            self.queueIo(switch (write_req) {
-                .small => |v| .{ .write_small = v },
-                .stable => |v| .{ .write_stable = v },
-                .alloc => |v| .{ .write_alloc = v },
-            }, .unlocked);
+            self.queueKeyWrite(write_req);
         },
 
         .drop => for (self.keyboard.sequence_queued.items) |req| req.deinit(),
@@ -4780,6 +4772,128 @@ fn showMouse(self: *Surface) void {
     };
 }
 
+/// Handle a binding action that tmux owns while we're attached to a
+/// control mode session. Returns true if the action was forwarded to tmux
+/// and should not be handled natively.
+///
+/// The panes and windows of a tmux session live in the tmux server, so
+/// creating a native split or tab for them would leave the two views out
+/// of sync. Instead we send tmux the equivalent command and let the
+/// resulting notifications drive our state.
+fn tmuxBindingAction(self: *Surface, action: input.Binding.Action) !bool {
+    if (!self.io.inTmuxControlMode()) return false;
+
+    const command: []const u8 = switch (action) {
+        .new_split => |direction| switch (direction) {
+            .right, .left => "split-window -h\n",
+            .down, .up => "split-window -v\n",
+            .auto => if (self.size.screen.width > self.size.screen.height)
+                "split-window -h\n"
+            else
+                "split-window -v\n",
+        },
+
+        .goto_split => |direction| switch (direction) {
+            // ":.-" and ":.+" are the previous/next pane of the current
+            // window, which is how tmux spells pane cycling.
+            .previous => "select-pane -t :.-\n",
+            .next => "select-pane -t :.+\n",
+            .up => "select-pane -U\n",
+            .down => "select-pane -D\n",
+            .left => "select-pane -L\n",
+            .right => "select-pane -R\n",
+        },
+
+        .new_tab => "new-window\n",
+        .previous_tab => "previous-window\n",
+        .next_tab => "next-window\n",
+
+        .close_surface,
+        .close_tab,
+        .close_window,
+        => "kill-pane\n",
+
+        else => return false,
+    };
+
+    self.queueIo(try termio.Message.writeReq(self.alloc, command), .unlocked);
+    return true;
+}
+
+/// Send raw terminal input to tmux as a series of `send-keys` commands.
+///
+/// This is only used for input that originates from the GUI (typing,
+/// pasting, keybind-generated sequences). Commands the tmux viewer itself
+/// generates are written from the IO thread and stay raw.
+fn tmuxSendKeys(self: *Surface, data: []const u8) !void {
+    var i: usize = 0;
+    while (i < data.len) {
+        const c = data[i];
+        i += 1;
+
+        // Named keys for common controls. Everything else (including
+        // printable ASCII) goes out as hex: tmux's command parser treats
+        // `;`, `$`, `#`, quotes, etc. as syntax, so `send-keys -l -- ;`
+        // never delivers a semicolon to the pane.
+        var buf: [4]u8 = undefined;
+        const key: ?[]const u8 = switch (c) {
+            0x09 => "Tab",
+            0x0d => "Enter",
+            0x1b => "Escape",
+
+            0x01...0x08,
+            0x0a...0x0c,
+            0x0e...0x1a,
+            => key: {
+                buf[0..3].* = .{ 'C', '-', c - 0x01 + 'a' };
+                break :key buf[0..3];
+            },
+
+            else => null,
+        };
+
+        if (key) |name| {
+            try self.tmuxCommand("send-keys {s}\n", .{name});
+        } else {
+            try self.tmuxCommand("send-keys -H 0x{x:0>2}\n", .{c});
+        }
+    }
+}
+
+/// Format a single tmux command and queue it for the pty. The command
+/// must include its trailing newline.
+fn tmuxCommand(
+    self: *Surface,
+    comptime fmt: []const u8,
+    args: anytype,
+) !void {
+    var stack = std.heap.stackFallback(256, self.alloc);
+    const alloc = stack.get();
+    const command = try std.fmt.allocPrint(alloc, fmt, args);
+    defer alloc.free(command);
+    self.queueIo(try termio.Message.writeReq(self.alloc, command), .unlocked);
+}
+
+/// Queue an encoded key write request, taking ownership of `write_req`.
+///
+/// In tmux control mode the pty speaks the control protocol, so the
+/// encoded bytes are wrapped in `send-keys` rather than written directly.
+fn queueKeyWrite(self: *Surface, write_req: termio.Message.WriteReq) void {
+    if (self.io.inTmuxControlMode()) {
+        defer write_req.deinit();
+        self.tmuxSendKeys(write_req.slice()) catch |err| {
+            log.warn("error sending keys to tmux err={}", .{err});
+        };
+        return;
+    }
+
+    self.queueIo(switch (write_req) {
+        .small => |v| .{ .write_small = v },
+        .stable => |v| .{ .write_stable = v },
+        .alloc => |v| .{ .write_alloc = v },
+    }, .unlocked);
+}
+
 /// Perform a binding action. A binding is a keybinding. This function
 /// must be called from the GUI thread.
 ///
@@ -4791,6 +4905,10 @@ fn showMouse(self: *Surface) void {
 /// will ever return false. We can expand this in the future if it becomes
 /// useful. We did previous/next tab so we could implement #498.
 pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool {
+    // While attached to a tmux control mode session, split and tab
+    // management belongs to tmux rather than to us.
+    if (try self.tmuxBindingAction(action)) return true;
+
     // Forward app-scoped actions to the app. Some app-scoped actions are
     // special-cased here because they do some special things when performed
     // from the surface.
