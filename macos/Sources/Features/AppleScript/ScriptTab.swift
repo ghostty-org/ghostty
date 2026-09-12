@@ -67,6 +67,23 @@ final class ScriptTab: NSObject {
         return window?.tabIsSelected(controller) ?? false
     }
 
+    /// Exposed as the AppleScript `color` property.
+    ///
+    /// The value is a `tab color` enumeration constant defined in `Ghostty.sdef`.
+    /// Cocoa scripting passes enumerator FourCharCodes as `UInt32` via KVC.
+    @objc(color)
+    var color: UInt32 {
+        get {
+            guard NSApp.isAppleScriptEnabled else { return TerminalTabColor.none.appleScriptCode }
+            return ((controller?.window as? TerminalWindow)?.tabColor ?? .none).appleScriptCode
+        }
+        set {
+            guard NSApp.isAppleScriptEnabled else { return }
+            guard let terminalWindow = controller?.window as? TerminalWindow else { return }
+            terminalWindow.tabColor = TerminalTabColor(appleScriptCode: newValue)
+        }
+    }
+
     /// Exposed as the AppleScript `focused terminal` property.
     ///
     /// Uses the currently focused surface for this tab.
@@ -182,5 +199,28 @@ extension ScriptTab {
     /// lookups in `ScriptWindow` call this helper.
     static func stableID(controller: BaseTerminalController) -> String {
         "tab-\(ObjectIdentifier(controller).hexString)"
+    }
+}
+
+/// Maps `TerminalTabColor` to and from the `tab color` enumeration in `Ghostty.sdef`.
+/// See `Ghostty.sdef` for how the codes are derived.
+private extension TerminalTabColor {
+    var appleScriptCode: UInt32 {
+        switch self {
+        case .none:     "none".fourCharCode
+        case .blue:     "08FF".fourCharCode
+        case .purple:   "C3DF".fourCharCode
+        case .pink:     "F35F".fourCharCode
+        case .red:      "F34F".fourCharCode
+        case .orange:   "F82F".fourCharCode
+        case .yellow:   "FC0F".fourCharCode
+        case .green:    "3C5F".fourCharCode
+        case .teal:     "0CBF".fourCharCode
+        case .graphite: "889F".fourCharCode
+        }
+    }
+
+    init(appleScriptCode: UInt32) {
+        self = Self.allCases.first(where: { $0.appleScriptCode == appleScriptCode }) ?? .none
     }
 }
