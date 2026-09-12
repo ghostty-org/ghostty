@@ -639,6 +639,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
                 return toggleSplitZoom(app, target: target)
 
+            case GHOSTTY_ACTION_DETACH_SPLIT:
+                return detachSplit(app, target: target)
+
             case GHOSTTY_ACTION_INSPECTOR:
                 controlInspector(app, target: target, mode: action.action.inspector)
 
@@ -1490,6 +1493,43 @@ extension Ghostty {
                 NotificationCenter.default.post(
                     name: Notification.didToggleSplitZoom,
                     object: surfaceView
+                )
+                return true
+
+            default:
+                assertionFailure()
+                return false
+            }
+        }
+
+        private static func detachSplit(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("detach split does nothing with an app target")
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard
+                    let surface = target.target.surface,
+                    let surfaceView = self.surfaceView(from: surface),
+                    let controller = BaseTerminalController.controller(owning: surfaceView),
+                    // If the window has no splits, there is nothing to detach.
+                    controller.surfaceTree.isSplit,
+                    let window = controller.window
+                else {
+                    return false
+                }
+
+                let surfaceFrameInWindow = surfaceView.convert(surfaceView.frame, to: nil)
+                let windowTopLeft = NSPoint(x: surfaceFrameInWindow.minX, y: surfaceFrameInWindow.maxY)
+                NotificationCenter.default.post(
+                    name: .ghosttySurfaceDragEndedNoTarget,
+                    object: surfaceView,
+                    userInfo: [
+                        Foundation.Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey: window.convertPoint(toScreen: windowTopLeft)
+                    ]
                 )
                 return true
 
