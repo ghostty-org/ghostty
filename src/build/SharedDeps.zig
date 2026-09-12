@@ -8,6 +8,7 @@ const HelpStrings = @import("HelpStrings.zig");
 const MetallibStep = @import("MetallibStep.zig");
 const UnicodeTables = @import("UnicodeTables.zig");
 const GhosttyFrameData = @import("GhosttyFrameData.zig");
+const CollectDirStep = @import("CollectDirStep.zig");
 const DistResource = @import("GhosttyDist.zig").Resource;
 const gtk_helpers = @import("gtk.zig");
 const translate_c = @import("translate_c");
@@ -983,25 +984,47 @@ pub fn addSimd(
     }
 }
 
-/// Creates the resources that can be prebuilt for our dist build.
-pub fn gtkNgDistResources(
-    b: *std.Build,
-) struct {
+pub const GtkNgResources = struct {
     resources_c: DistResource,
     resources_h: DistResource,
-} {
-    const gresource = @import("../apprt/gtk/build/gresource.zig");
-    const gresource_xml = gresource_xml: {
-        const xml_exe = b.addExecutable(.{
-            .name = "generate_gresource_xml",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("src/apprt/gtk/build/gresource.zig"),
-                .target = b.graph.host,
-            }),
-        });
-        const xml_run = b.addRunArtifact(xml_exe);
+};
 
-        // Run our blueprint compiler across all of our blueprint files.
+/// Memoized result of `gtkNgDistResources`, keyed on the `*std.Build` it
+/// was built for. A build script is a single-threaded configure pass in one
+/// process, so a file scope map is enough to hold this.
+var gtk_ng_resources: std.AutoHashMapUnmanaged(*std.Build, GtkNgResources) = .empty;
+
+/// Creates the resources that can be prebuilt for our dist build.
+///
+/// The result is memoized because this is called many times over: `add`
+/// runs it once per artifact that links GTK (the exe, the test binary, each
+/// benchmark, each library) and `GhosttyDist` calls it as well. Every call
+/// used to build a complete, independent copy of this pipeline -- its own
+/// blueprint compiler, its own Adwaita `translate-c`, one run per blueprint
+/// and two `glib-compile-resources` runs. `zig build install test` carried
+/// two of everything.
+///
+/// Duplicating it is not just wasted configure time. Zig's cache manifest
+/// hashes the *path* of every input a step reads, not only its contents
+/// (`Build.Cache.Manifest.addFileInner`), so two subgraphs that compute
+/// identical bytes in different cache directories do not share a single
+/// result downstream -- each one drags its own rebuild along behind it.
+pub fn gtkNgDistResources(b: *std.Build) GtkNgResources {
+    if (gtk_ng_resources.get(b)) |cached| return cached;
+    const resources = gtkNgDistResourcesUncached(b);
+    gtk_ng_resources.put(b.allocator, b, resources) catch @panic("OOM");
+    return resources;
+}
+
+fn gtkNgDistResourcesUncached(b: *std.Build) GtkNgResources {
+    const gresource = @import("../apprt/gtk/build/gresource.zig");
+    const gresource_file_inputs = gresource.file_inputs;
+
+    // Compile every blueprint and collect the results into a single
+    // directory laid out as `{major}.{minor}/{name}.ui`. One directory is
+    // what lets us hand `glib-compile-resources` a single `--sourcedir` and
+    // keep the gresource XML free of absolute paths.
+    const ui_dir = ui_dir: {
         const blueprint_exe = b.addExecutable(.{
             .name = "gtk_blueprint_compiler",
             .root_module = b.createModule(.{
@@ -1019,20 +1042,25 @@ pub fn gtkNgDistResources(
             .link_system_libs = &.{"libadwaita-1"},
         }) catch unreachable;
 
+        // Content addressed, not `b.addWriteFiles()`. A WriteFile hashes
+        // the source path of everything it copies, so its directory would
+        // move every time the blueprint compiler relinked and take the
+        // `--sourcedir` below -- and the whole app build behind it -- along
+        // for the ride. See `CollectDirStep` for the details.
+        const collected = CollectDirStep.create(b, "collect compiled blueprints");
         for (gresource.blueprints) |bp| {
+            const sub_path = b.fmt("{d}.{d}/{s}.ui", .{
+                bp.major,
+                bp.minor,
+                bp.name,
+            });
+
             const blueprint_run = b.addRunArtifact(blueprint_exe);
             blueprint_run.addArgs(&.{
                 b.fmt("{d}", .{bp.major}),
                 b.fmt("{d}", .{bp.minor}),
             });
-            const ui_file = blueprint_run.addOutputFileArg(b.fmt(
-                "{d}.{d}/{s}.ui",
-                .{
-                    bp.major,
-                    bp.minor,
-                    bp.name,
-                },
-            ));
+            const ui_file = blueprint_run.addOutputFileArg(sub_path);
             blueprint_run.addFileArg(b.path(b.fmt(
                 "{s}/{d}.{d}/{s}.blp",
                 .{
@@ -1043,46 +1071,87 @@ pub fn gtkNgDistResources(
                 },
             )));
 
-            xml_run.addFileArg(ui_file);
+            collected.addCopyFile(ui_file, sub_path);
         }
+
+        break :ui_dir collected.getDirectory();
+    };
+
+    // The gresource XML. Its only inputs are files in the source tree --
+    // the blueprints, the icons and the CSS -- so it lands at a stable
+    // cache path and holds stable contents. It deliberately does not take
+    // the compiled `.ui` files: they live at cache paths that move whenever
+    // the blueprint compiler relinks, and naming them here would put that
+    // churn straight into this file and everything built from it.
+    const gresource_xml = gresource_xml: {
+        const xml_exe = b.addExecutable(.{
+            .name = "generate_gresource_xml",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/apprt/gtk/build/gresource.zig"),
+                .target = b.graph.host,
+            }),
+        });
+        const xml_run = b.addRunArtifact(xml_exe);
+
+        // The XML names these by relative path, so they are what it has to
+        // be re-run for. The program itself only `access`es them.
+        for (gresource.file_inputs) |path| xml_run.addFileInput(b.path(path));
 
         break :gresource_xml xml_run.captureStdOut(.{});
     };
 
-    const generate_c = b.addSystemCommand(&.{
-        "glib-compile-resources",
-        "--c-name",
-        "ghostty",
-        "--generate-source",
-        "--target",
-    });
-    const resources_c = generate_c.addOutputFileArg("ghostty_resources.c");
-    generate_c.addFileArg(gresource_xml);
-    for (gresource.file_inputs) |path| {
-        generate_c.addFileInput(b.path(path));
-    }
+    const generate = struct {
+        fn step(
+            bb: *std.Build,
+            dir: std.Build.LazyPath,
+            xml: std.Build.LazyPath,
+            mode: []const u8,
+            name: []const u8,
+        ) std.Build.LazyPath {
+            const run = bb.addSystemCommand(&.{"glib-compile-resources"});
 
-    const generate_h = b.addSystemCommand(&.{
-        "glib-compile-resources",
-        "--c-name",
-        "ghostty",
-        "--generate-header",
-        "--target",
-    });
-    const resources_h = generate_h.addOutputFileArg("ghostty_resources.h");
-    generate_h.addFileArg(gresource_xml);
-    for (gresource.file_inputs) |path| {
-        generate_h.addFileInput(b.path(path));
-    }
+            // The build root, where the XML looks for the icons and the
+            // CSS, and the collected directory, where it looks for the
+            // compiled blueprints. Run steps already use the build root as
+            // their working directory, but passing any `--sourcedir` at all
+            // replaces that default, so it has to be named.
+            run.addArgs(&.{ "--sourcedir", "." });
+            run.addArg("--sourcedir");
+            run.addDirectoryArg(dir);
+
+            run.addArgs(&.{ "--c-name", "ghostty", mode, "--target" });
+            const out = run.addOutputFileArg(name);
+            run.addFileArg(xml);
+
+            // The files the XML names by relative path. `glib-compile-resources`
+            // reads them itself, so they have to be declared here rather
+            // than left to the step that wrote the XML.
+            for (gresource_file_inputs) |path| run.addFileInput(bb.path(path));
+
+            return out;
+        }
+    }.step;
 
     return .{
         .resources_c = .{
             .dist = "src/apprt/gtk/ghostty_resources.c",
-            .generated = resources_c,
+            .generated = generate(
+                b,
+                ui_dir,
+                gresource_xml,
+                "--generate-source",
+                "ghostty_resources.c",
+            ),
         },
         .resources_h = .{
             .dist = "src/apprt/gtk/ghostty_resources.h",
-            .generated = resources_h,
+            .generated = generate(
+                b,
+                ui_dir,
+                gresource_xml,
+                "--generate-header",
+                "ghostty_resources.h",
+            ),
         },
     };
 }

@@ -5,7 +5,6 @@
 //! Litmus test: `src/apprt/gtk` should exist relative to the pwd.
 
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 
 const build_info = @import("info.zig");
 
@@ -123,25 +122,6 @@ pub fn blueprint(comptime bp: Blueprint) [:0]const u8 {
 }
 
 pub fn main(init: std.process.Init) !void {
-    const alloc = init.arena.allocator();
-
-    // Collect the UI files that are passed in as arguments.
-    var ui_files: std.ArrayList([]const u8) = .empty;
-    defer {
-        for (ui_files.items) |item| alloc.free(item);
-        ui_files.deinit(alloc);
-    }
-
-    var it = try init.minimal.args.iterateAllocator(alloc);
-    defer it.deinit();
-    while (it.next()) |arg| {
-        if (!std.mem.endsWith(u8, arg, ".ui")) continue;
-        try ui_files.append(
-            alloc,
-            try alloc.dupe(u8, arg),
-        );
-    }
-
     var buf: [4096]u8 = undefined;
     var stdout = std.Io.File.stdout().writer(init.io, &buf);
     const writer = &stdout.interface;
@@ -153,7 +133,7 @@ pub fn main(init: std.process.Init) !void {
 
     try genRoot(init.io, writer);
     try genIcons(init.io, writer);
-    try genUi(alloc, writer, &ui_files);
+    try genUi(init.io, writer);
 
     try writer.writeAll(
         \\</gresources>
@@ -235,38 +215,50 @@ fn genRoot(io: std.Io, writer: *std.Io.Writer) !void {
     );
 }
 
-/// Generate all the UI resources. This works by looking up all the
-/// blueprint files in `${ui_path}/{major}.{minor}/{name}.blp` and
-/// assuming these will be
-fn genUi(
-    alloc: Allocator,
-    writer: *std.Io.Writer,
-    files: *const std.ArrayList([]const u8),
-) !void {
+/// Generate all the UI resources.
+///
+/// The path written for each file is *relative*: `{major}.{minor}/{name}.ui`,
+/// resolved by `glib-compile-resources` against the `--sourcedir` the build
+/// system hands it. It must not be the absolute path of the compiled `.ui`
+/// in the Zig cache. That path carries a content hash of the blueprint
+/// compiler, so it moved every time that compiler relinked -- which changed
+/// this XML, which re-ran `glib-compile-resources`, re-ran `translate-c` and
+/// recompiled the whole app, all for a `.ui` that was byte for byte
+/// identical.
+///
+/// For the same reason the compiled `.ui` files are not inputs here. We
+/// assert the blueprint *sources* exist instead, the way `genRoot` and
+/// `genIcons` check the CSS and the icons, so this program depends only on
+/// files in the source tree and lands at a stable cache path.
+fn genUi(io: std.Io, writer: *std.Io.Writer) !void {
+    // Two `comptimePrint` calls per blueprint is more than the default
+    // allowance once the list gets to this length.
+    @setEvalBranchQuota(100_000);
+
     try writer.print(
         \\  <gresource prefix="{s}/ui">
         \\
     , .{build_info.resource_path});
 
-    for (files.items) |ui_file| {
-        for (blueprints) |bp| {
-            const expected = try std.fmt.allocPrint(
-                alloc,
-                "/{d}.{d}/{s}.ui",
-                .{ bp.major, bp.minor, bp.name },
-            );
-            defer alloc.free(expected);
-            if (!std.mem.endsWith(u8, ui_file, expected)) continue;
-            try writer.print(
-                "    <file compressed=\"true\" preprocess=\"xml-stripblanks\" alias=\"{d}.{d}/{s}.ui\">{s}</file>\n",
-                .{ bp.major, bp.minor, bp.name, ui_file },
-            );
-            break;
-        } else {
-            // The for loop never broke which means it didn't find
-            // a matching blueprint for this input.
-            return error.BlueprintNotFound;
-        }
+    const cwd: std.Io.Dir = .cwd();
+    inline for (blueprints) |bp| {
+        const source = std.fmt.comptimePrint("{s}/{d}.{d}/{s}.blp", .{
+            ui_path,
+            bp.major,
+            bp.minor,
+            bp.name,
+        });
+        try cwd.access(io, source, .{});
+
+        const alias = std.fmt.comptimePrint("{d}.{d}/{s}.ui", .{
+            bp.major,
+            bp.minor,
+            bp.name,
+        });
+        try writer.print(
+            \\    <file compressed="true" preprocess="xml-stripblanks" alias="{s}">{s}</file>
+            \\
+        , .{ alias, alias });
     }
 
     try writer.writeAll(
