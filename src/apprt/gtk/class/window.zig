@@ -1818,7 +1818,8 @@ pub const Window = extern struct {
     fn surfaceClipboardWrite(
         _: *Surface,
         clipboard_type: apprt.Clipboard,
-        text: [*:0]const u8,
+        _: [*:0]const u8,
+        cleared: bool,
         self: *Self,
     ) callconv(.c) void {
         // We only toast for the standard clipboard.
@@ -1832,7 +1833,7 @@ pub const Window = extern struct {
             return;
         }
 
-        if (text[0] != 0)
+        if (!cleared)
             self.addToast(i18n._("Copied to clipboard"))
         else
             self.addToast(i18n._("Cleared clipboard"));
