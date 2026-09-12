@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import GhosttyKit
 
@@ -23,6 +24,9 @@ class TerminalWindow: NSWindow {
 
     /// Update notification UI in titlebar
     private let updateAccessory = NSTitlebarAccessoryViewController()
+
+    /// Bell in titlebar
+    private let titlebarBellAccessory = NSTitlebarAccessoryViewController()
 
     /// Visual indicator that mirrors the selected tab color.
     private lazy var tabColorIndicator: NSHostingView<TabColorIndicatorView> = {
@@ -153,6 +157,13 @@ class TerminalWindow: NSWindow {
                 addTitlebarAccessoryViewController(updateAccessory)
                 updateAccessory.view.translatesAutoresizingMaskIntoConstraints = false
             }
+
+            titlebarBellAccessory.layoutAttribute = .right
+            // See `TitlebarBellAccessoryView` on why we don't use
+            // the same NSButton here.
+            titlebarBellAccessory.view = NSHostingView(rootView: TitlebarBellAccessoryView(viewModel: viewModel))
+            addTitlebarAccessoryViewController(titlebarBellAccessory)
+            titlebarBellAccessory.view.translatesAutoresizingMaskIntoConstraints = false
         }
 
         // Setup the accessory view for tabs that shows our keyboard shortcuts,
@@ -167,6 +178,7 @@ class TerminalWindow: NSWindow {
         stackView.alignment = .centerY
         stackView.addArrangedSubview(tabColorIndicator)
         stackView.addArrangedSubview(keyEquivalentLabel)
+        stackView.addArrangedSubview(bellTabButton)
         stackView.addArrangedSubview(resetZoomTabButton)
         tab.accessoryView = stackView
 
@@ -314,6 +326,9 @@ class TerminalWindow: NSWindow {
         if let idx = titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory) {
             removeTitlebarAccessoryViewController(at: idx)
         }
+        if let idx = titlebarAccessoryViewControllers.firstIndex(of: titlebarBellAccessory) {
+            removeTitlebarAccessoryViewController(at: idx)
+        }
 
         // We don't need to do this with the update accessory. I don't know why but
         // everything works fine.
@@ -323,6 +338,9 @@ class TerminalWindow: NSWindow {
         if styleMask.contains(.titled) {
             if titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory) == nil {
                 addTitlebarAccessoryViewController(resetZoomAccessory)
+            }
+            if titlebarAccessoryViewControllers.firstIndex(of: titlebarBellAccessory) == nil {
+                addTitlebarAccessoryViewController(titlebarBellAccessory)
             }
         }
     }
@@ -461,6 +479,15 @@ class TerminalWindow: NSWindow {
         return nil
     }
 
+    // MARK: - Bell Button
+
+    private lazy var bellTabButton = BellAccessoryButton(viewModel: viewModel)
+
+    @MainActor func updateAlertedSurfaces(_ surfaceIDs: [Ghostty.SurfaceView.ID], delegate bellAccessoryDelegate: BellAccessoryButtonDelegate?) {
+        viewModel.alertedSurfaceIDs = surfaceIDs
+        viewModel.bellAccessoryDelegate = bellAccessoryDelegate
+    }
+
     // MARK: Positioning And Styling
 
     /// This is called by the controller when there is a need to reset the window appearance.
@@ -470,6 +497,9 @@ class TerminalWindow: NSWindow {
         // at some point when a surface becomes focused.
         guard isVisible else { return }
         defer { updateColorSchemeForSurfaceTree() }
+
+        // Bells
+        viewModel.isBellSupported = surfaceConfig.bellFeatures.contains(.title)
 
         // Basic properties
         appearance = surfaceConfig.windowAppearance
@@ -629,6 +659,17 @@ extension TerminalWindow {
         @Published var hasToolbar: Bool = false
         @Published var isMainWindow: Bool = true
 
+        // MARK: - Bell
+
+        @MainActor @Published var isBellSupported = false
+        @MainActor @Published var alertedSurfaceIDs: [Ghostty.SurfaceView.ID] = []
+
+        fileprivate weak var bellAccessoryDelegate: BellAccessoryButtonDelegate?
+
+        @MainActor var isBellVisible: Bool {
+            isBellSupported && alertedSurfaceIDs.count > 0
+        }
+
         /// Calculates the top padding based on toolbar visibility and macOS version
         fileprivate var accessoryTopPadding: CGFloat {
             if #available(macOS 26.0, *) {
@@ -637,7 +678,20 @@ extension TerminalWindow {
                 return hasToolbar ? 9 : 4
             }
         }
+
+        /// Slightly adjust the bottom space to align them in the center.
+        fileprivate var accessoryTopMinBottomSpace: CGFloat {
+            if #available(macOS 26.0, *) {
+                return hasToolbar ? 10 : 6
+            } else {
+                return hasToolbar ? 9 : 4
+            }
+        }
     }
+
+    // TODO: In the future, we should be able to merge all these
+    // accessory views in to one SwiftUI group, and display them
+    // conditionally. But you'll need to test them thoroughly.
 
     struct ResetZoomAccessoryView: View {
         @ObservedObject var viewModel: ViewModel
@@ -653,7 +707,8 @@ extension TerminalWindow {
                     .buttonStyle(.plain)
                     .help("Reset Split Zoom")
                     .frame(width: 20, height: 20)
-                    Spacer()
+
+                    Spacer(minLength: viewModel.accessoryTopMinBottomSpace)
                 }
                 // With a toolbar, the window title is taller, so we need more padding
                 // to properly align.
@@ -664,19 +719,221 @@ extension TerminalWindow {
         }
     }
 
+    /// BellAccessoryButton in the titlebar
+    ///
+    /// - Note: Tried with unifying with both AppKit/SwiftUI so we don't need duplicate it.
+    ///   But there's always some problems on macOS 15.
+    struct TitlebarBellAccessoryView: View {
+        @ObservedObject var viewModel: ViewModel
+
+        var body: some View {
+            // Always visible for the sake of wiggle animation on appear.
+            VStack {
+                RepresentableView { _ in
+                    BellAccessoryButton(viewModel: viewModel)
+                } update: { _, _ in }
+                // Align with the reset zoom button
+                .padding(.top, viewModel.accessoryTopPadding)
+                .padding(.trailing, 10)
+
+                Spacer(minLength: viewModel.accessoryTopMinBottomSpace)
+            }
+        }
+    }
+
     /// A pill-shaped button that displays update status and provides access to update actions.
     struct UpdateAccessoryView: View {
         @ObservedObject var viewModel: ViewModel
         @ObservedObject var model: UpdateViewModel
 
         var body: some View {
-            // We use the same top/trailing padding so that it hugs the same.
-            UpdatePill(model: model)
+            VStack {
+                UpdatePill(model: model)
+                // We use the same top/trailing padding so that it hugs the same in the corner.
                 .padding(.top, viewModel.accessoryTopPadding)
-                .padding(.trailing, viewModel.accessoryTopPadding)
+                .padding(.trailing, isResetZoomButtonAvailable ? 10 : viewModel.accessoryTopPadding)
+
+                // Slightly up to align with other buttons
+                Spacer(minLength: viewModel.accessoryTopMinBottomSpace - 2)
+            }
+        }
+
+        /// When reset zoom button is on the right we use fixed padding to distribute buttons evenly
+        var isResetZoomButtonAvailable: Bool {
+            viewModel.isSurfaceZoomed && viewModel.hasToolbar
         }
     }
+}
 
+protocol BellAccessoryButtonDelegate: AnyObject {
+    func alertedSurfaceTitle(id: Ghostty.SurfaceView.ID) -> String?
+    @MainActor func highlightAlertedSurface(id: Ghostty.SurfaceView.ID)
+    /// Focus first surface with bell if `id` is nil
+    @MainActor func focusAlertedSurface(id: Ghostty.SurfaceView.ID?)
+}
+
+private class BellAccessoryButton: NSButton, NSMenuDelegate {
+    private let viewModel: TerminalWindow.ViewModel
+    private let symbolImageView: NSImageView
+    private var cancellables: Set<AnyCancellable> = []
+    private var alertedSurfaceCount: Int = 0
+
+    init(viewModel: TerminalWindow.ViewModel) {
+        self.viewModel = viewModel
+        self.symbolImageView = NSImageView(frame: .zero)
+        super.init(frame: CGRect(x: 0, y: 0, width: 20, height: 20))
+
+        title = ""
+        isBordered = false
+        setButtonType(.momentaryChange)
+        target = self
+        action = #selector(focusFirstAlertedSurface(_:))
+        toolTip = "Focus First Terminal With Bell"
+        isHidden = !viewModel.isBellVisible
+
+        setAccessibilityLabel("Bell")
+
+        symbolImageView.image = NSImage(systemSymbolName: "bell.badge.fill", accessibilityDescription: "Bell")
+        symbolImageView.frame = bounds
+        symbolImageView.autoresizingMask = [.width, .height]
+        addSubview(symbolImageView)
+
+        // Simulate NSButton's tracking
+        (cell as? HighlightTrackingButtonCell)?.onHighlightChanged = { [weak self] highlighted in
+            self?.isPressed = highlighted
+        }
+
+        viewModel.$isMainWindow
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isMainWindow in
+                self?.baseTint = isMainWindow ? .systemYellow : .secondaryLabelColor
+            }
+            .store(in: &cancellables)
+
+        viewModel.$isBellSupported
+            .combineLatest(viewModel.$alertedSurfaceIDs)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateVisibility()
+            }
+            .store(in: &cancellables)
+
+        viewModel.$alertedSurfaceIDs
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] surfaces in
+                guard let self else { return }
+                if surfaces.count > alertedSurfaceCount {
+                    wiggle()
+                }
+                alertedSurfaceCount = surfaces.count
+            }
+            .store(in: &cancellables)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    /// Note: isHighlighted doesn't get reset when mouse button is up,
+    /// so adding a custom cell to track changes.
+    override class var cellClass: AnyClass? {
+        get { HighlightTrackingButtonCell.self }
+        set {}
+    }
+
+    override var intrinsicContentSize: NSSize {
+        .init(width: 20, height: 20)
+    }
+
+    // Just to be safe on every OS, making sure clicks are always for the button.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        super.hitTest(point) != nil ? self : nil
+    }
+
+    // MARK: Highlight
+
+    private var isPressed = false {
+        didSet { updateTint() }
+    }
+
+    private var baseTint: NSColor = .systemYellow {
+        didSet { updateTint() }
+    }
+
+    private func updateTint() {
+        symbolImageView.contentTintColor = isPressed
+            ? baseTint.withSystemEffect(.pressed)
+            : baseTint
+    }
+
+    private func updateVisibility() {
+        let newIsHidden = !viewModel.isBellVisible
+        guard newIsHidden != isHidden else { return }
+        // Using a simple animation here
+        animator().isHidden = newIsHidden
+    }
+
+    private func wiggle() {
+        // We only animate when the view is actually visible
+        guard window != nil else { return }
+        guard #available(macOS 15.0, *) else { return }
+        // Cancel previously incomplete wiggle during fast bell change.
+        symbolImageView.removeSymbolEffect(ofType: .wiggle)
+        symbolImageView.addSymbolEffect(.wiggle, options: .nonRepeating)
+    }
+
+    @objc private func focusFirstAlertedSurface(_ sender: Any?) {
+        viewModel.bellAccessoryDelegate?.focusAlertedSurface(id: nil)
+    }
+
+    @objc private func focusAlertedSurface(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? Ghostty.SurfaceView.ID else { return }
+        viewModel.bellAccessoryDelegate?.focusAlertedSurface(id: id)
+    }
+
+    // MARK: Context Menu
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let delegate = viewModel.bellAccessoryDelegate else { return nil }
+
+        let menu = NSMenu()
+        menu.delegate = self
+
+        let headerTitle = "Select a terminal you want to focus"
+        if #available(macOS 14.0, *) {
+            menu.addItem(.sectionHeader(title: headerTitle))
+        } else {
+            menu.addItem(NSMenuItem(title: headerTitle, action: nil, keyEquivalent: ""))
+        }
+
+        for id in viewModel.alertedSurfaceIDs {
+            guard let title = delegate.alertedSurfaceTitle(id: id), !title.isEmpty else { continue }
+            let item = NSMenuItem(title: title, action: #selector(focusAlertedSurface(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = id
+            menu.addItem(item)
+        }
+
+        return menu
+    }
+
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        guard viewModel.isMainWindow,
+              let id = item?.representedObject as? Ghostty.SurfaceView.ID else { return }
+        viewModel.bellAccessoryDelegate?.highlightAlertedSurface(id: id)
+    }
+}
+
+/// An NSButtonCell that reports highlight (pressed) state changes so the
+/// owning button can mirror the pressed effect onto content the cell doesn't
+/// draw itself, such as a nested NSImageView used for symbol effects.
+private class HighlightTrackingButtonCell: NSButtonCell {
+    var onHighlightChanged: ((Bool) -> Void)?
+
+    override func highlight(_ flag: Bool, withFrame cellFrame: NSRect, in controlView: NSView) {
+        super.highlight(flag, withFrame: cellFrame, in: controlView)
+        onHighlightChanged?(flag)
+    }
 }
 
 /// A small circle indicator displayed in the tab accessory view that shows
