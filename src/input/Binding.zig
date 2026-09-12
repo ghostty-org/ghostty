@@ -965,6 +965,9 @@ pub const Action = union(enum) {
     /// this will report performable as false.
     deactivate_all_key_tables,
 
+    /// Notify every terminal that the system color scheme changed.
+    system_color_scheme_changed,
+
     /// Quit Ghostty.
     quit,
 
@@ -1391,6 +1394,7 @@ pub const Action = union(enum) {
             .start_search,
             .end_search,
             .reset,
+            .system_color_scheme_changed,
             .copy_to_clipboard,
             .copy_url_to_clipboard,
             .copy_title_to_clipboard,
