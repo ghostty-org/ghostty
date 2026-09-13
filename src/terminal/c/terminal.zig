@@ -49,50 +49,20 @@ pub const default_continuation_max_bytes: usize = 0;
 ///
 /// Snapshot decoding creates this before the native terminal exists and
 /// transfers it into the final C wrapper after READY.
+///
+/// This is TinyIo on every target: it is stateless and supports exactly
+/// the operations the terminal needs at a fraction of the code size of
+/// `std.Io.Threaded` (see lib/TinyIo.zig), on POSIX and Windows alike.
+/// On the remaining targets (e.g. freestanding wasm) TinyIo degrades to
+/// `std.Io.failing`, which is correct: they have no filesystem.
 pub const Io = struct {
-    impl: Impl,
+    impl: lib.TinyIo,
 
-    /// Platform-specific storage backing the public `std.Io` value.
-    ///
-    /// Where supported (POSIX) we use TinyIo, which is stateless and
-    /// supports exactly the operations the terminal needs at a fraction
-    /// of the code size (see lib/TinyIo.zig). On Windows we use
-    /// `std.Io.Threaded` since TinyIo doesn't implement the NT
-    /// operations. On the remaining targets (e.g. freestanding wasm)
-    /// TinyIo degrades to `std.Io.failing`, which is correct: they have
-    /// no filesystem.
-    const Impl = if (builtin.os.tag == .windows)
-        *std.Io.Threaded
-    else
-        lib.TinyIo;
-
-    /// Allocation failures possible while constructing an I/O owner.
-    pub const Error = error{OutOfMemory};
-
-    /// Allocate the native I/O implementation when the platform requires it.
-    pub fn init(alloc: std.mem.Allocator) Error!Io {
-        if (comptime Impl == lib.TinyIo) return .{ .impl = .init };
-
-        const ptr = alloc.create(std.Io.Threaded) catch
-            return error.OutOfMemory;
-        ptr.* = .init_single_threaded;
-        return .{ .impl = ptr };
-    }
+    pub const init: Io = .{ .impl = .init };
 
     /// Return the value passed to native terminal construction and decoding.
     pub fn io(self: Io) std.Io {
         return self.impl.io();
-    }
-
-    /// Release an I/O implementation that has not already been transferred.
-    pub fn deinit(self: Io, alloc: std.mem.Allocator) void {
-        // Note: this must not name `std.Io.Threaded` in the condition
-        // because resolving that type trips its container-level comptime
-        // checks on targets it doesn't support (e.g. wasm32-freestanding).
-        if (comptime Impl != lib.TinyIo) {
-            self.impl.deinit();
-            alloc.destroy(self.impl);
-        }
     }
 };
 
@@ -103,7 +73,6 @@ const TerminalWrapper = struct {
     terminal: *ZigTerminal,
     /// C construction has no I/O argument, so the wrapper retains the owner
     /// created by `new` or transferred from snapshot decoding until `free`.
-    /// Freestanding owners contain no native allocation and expose failing I/O.
     io: Io,
     /// Allocator-owned copy of the temporary directory path for some
     /// operations (e.g. kitty graphics). This is only allocated once the
@@ -760,8 +729,9 @@ pub const FromDecodedError = error{
 
 /// Transfer a core snapshot result into a caller-owned C terminal.
 ///
-/// This function consumes `io` on every path. The decoded terminal is
-/// transferred only after its final heap address has been allocated; its
+/// `io` is the owner the decoded terminal was built with and is retained
+/// by the returned wrapper. The decoded terminal is transferred only
+/// after its final heap address has been allocated; its
 /// continuation remains in `decoded` and is replayed before returning.
 /// `continuation_max_bytes` selects the returned terminal's tracking policy:
 /// zero uses a temporary exact-size tracker and restores the ordinary C
@@ -773,10 +743,8 @@ pub fn fromDecoded(
     decoded: *snapshot_core.Decoded,
     continuation_max_bytes: usize,
 ) FromDecodedError!Terminal {
-    const native = alloc.create(ZigTerminal) catch {
-        io.deinit(alloc);
+    const native = alloc.create(ZigTerminal) catch
         return error.OutOfMemory;
-    };
     native.* = decoded.toOwned();
 
     const continuation = switch (decoded.continuation) {
@@ -797,7 +765,6 @@ pub fn fromDecoded(
     const terminal = wrap(alloc, native, io, tracker_max_bytes) catch |err| {
         native.deinit(alloc);
         alloc.destroy(native);
-        io.deinit(alloc);
         return err;
     };
     errdefer free(terminal);
@@ -858,8 +825,7 @@ fn new_(
         return error.OutOfMemory;
     errdefer alloc.destroy(t);
 
-    const io = try Io.init(alloc);
-    errdefer io.deinit(alloc);
+    const io: Io = .init;
 
     // Setup our terminal
     t.* = try .init(
@@ -1859,7 +1825,6 @@ pub fn free(terminal_: Terminal) callconv(lib.calling_conv) void {
     wrapper.stream.deinit();
     t.deinit(alloc);
     if (wrapper.tmp_dir_path) |path| alloc.free(path);
-    wrapper.io.deinit(alloc);
     alloc.destroy(t);
     alloc.destroy(wrapper);
 }

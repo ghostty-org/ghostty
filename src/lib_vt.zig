@@ -45,8 +45,9 @@ pub const sys = terminal.sys;
 /// don't have their own `Io` can use `TinyIo` (e.g.
 /// `(TinyIo.init).io()`) instead of `std.Io.Threaded` to avoid linking
 /// Threaded's full vtable (networking, process spawning, async
-/// machinery, etc.), which is worth roughly 110KB of binary size. See
-/// the TinyIo docs for the exact tradeoffs.
+/// machinery, etc.), which is worth roughly 110KB of binary size on
+/// macOS and 370KB on Windows. See the TinyIo docs for the exact
+/// tradeoffs.
 pub const TinyIo = @import("lib/TinyIo.zig");
 
 pub const apc = terminal.apc;

@@ -447,20 +447,14 @@ const ReadyTerminal = struct {
     metadata: DecoderWrapper.Metadata,
 };
 
-/// Decode READY, create terminal-owned I/O, and construct the C terminal.
+/// Decode READY with terminal-owned I/O and construct the C terminal.
 fn decoderReadyTerminal(decoder: *DecoderWrapper) anyerror!ReadyTerminal {
-    // Terminal I/O is intentionally allocated only when decoding begins.
-    const io = try terminal_c.Io.init(decoder.alloc);
-
-    // Decode READY while the fresh I/O implementation is still locally owned.
-    var decoded = decoder.decoder.ready(
+    const io: terminal_c.Io = .init;
+    var decoded = try decoder.decoder.ready(
         decoder.alloc,
         io.io(),
         .{ .max_continuation_bytes = decoder.max_continuation_bytes },
-    ) catch |err| {
-        io.deinit(decoder.alloc);
-        return err;
-    };
+    );
     defer decoded.deinit(decoder.alloc);
 
     // Copy small query metadata before `fromDecoded` consumes the core result.

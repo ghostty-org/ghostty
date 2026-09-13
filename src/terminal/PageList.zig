@@ -4587,6 +4587,10 @@ inline fn createPageExt(
 /// Standard-sized output borrows a page-pool item so repeated compression can
 /// reuse the same virtual mapping. Oversized pages use a temporary allocation
 /// from the page allocator and release it immediately after compression.
+///
+/// A borrowed item goes back to the pool through zero-mode decommit, which
+/// only has to clear the bytes the encoder wrote. Callers therefore pass the
+/// dirty length to `deinit` rather than paying to clear the whole item.
 const CompressionScratch = union(enum) {
     pooled: *align(std.heap.page_size_min) [std_size]u8,
     allocated: []align(std.heap.page_size_min) u8,
@@ -4619,10 +4623,14 @@ const CompressionScratch = union(enum) {
         };
     }
 
-    fn deinit(self: *CompressionScratch, pool: *MemoryPool) void {
+    fn deinit(
+        self: *CompressionScratch,
+        pool: *MemoryPool,
+        dirty_len: usize,
+    ) void {
         switch (self.*) {
             .pooled => |memory| {
-                _ = terminal_mem.decommit(.zero, memory, memory.len);
+                _ = terminal_mem.decommit(.zero, memory, dirty_len);
                 pool.pages.destroy(memory);
             },
             .allocated => |memory| {
@@ -4942,10 +4950,15 @@ fn compressPage(self: *PageList, node: *List.Node) bool {
         ) catch |err| switch (err) {
             error.OutOfMemory => return false,
         };
-        defer scratch.deinit(&self.pool);
+
+        // The encoder writes at most `required` bytes and reports exactly
+        // how many on success. Track that so returning the scratch only
+        // clears the prefix it dirtied instead of the whole item.
+        var dirty_len: usize = required;
+        defer scratch.deinit(&self.pool, dirty_len);
 
         var table: compression.lz4.HashTable = undefined;
-        break :candidate compression.Page.init(
+        const result = compression.Page.init(
             self.pool.alloc,
             page,
             scratch.bytes()[0..required],
@@ -4956,6 +4969,8 @@ fn compressPage(self: *PageList, node: *List.Node) bool {
             error.OutputTooSmall,
             => return false,
         };
+        if (result) |compressed| dirty_len = compressed.encoded.len;
+        break :candidate result;
     };
 
     // Null means compression crossed the break-even point. The node and its

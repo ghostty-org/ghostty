@@ -10,6 +10,7 @@ const UnicodeTables = @import("UnicodeTables.zig");
 const GhosttyFrameData = @import("GhosttyFrameData.zig");
 const DistResource = @import("GhosttyDist.zig").Resource;
 const gtk_helpers = @import("gtk.zig");
+const translate_c = @import("translate_c");
 
 config: *const Config,
 
@@ -75,6 +76,12 @@ pub fn init(b: *std.Build, cfg: *const Config) !SharedDeps {
         .tables_path = uucode_tables,
         .build_config_path = b.path("src/build/uucode_config.zig"),
     }).module("uucode");
+
+    // Re-export the uucode module so that Zig programs that embed libgtostty-vt
+    // can use it. This is necessary to use libraries like libvaxis in
+    // the embedding program that need uucode as well (libvaxis provides
+    // -Dexternal_uucode for this).
+    try b.modules.put(b.allocator, b.dupe("uucode"), uucode_mod);
 
     var result: SharedDeps = .{
         .config = cfg,
@@ -666,25 +673,15 @@ pub fn add(
             step.root_module.linkSystemLibrary("gtk4", dynamic_link_opts);
 
             // We need to translate gio headers too
-            gio_translate: {
-                // translate-c stuff
-                const translate_c = b.lazyImport(@import("../../build.zig"), "translate_c") orelse
-                    break :gio_translate;
-                const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse
-                    break :gio_translate;
-                const translated: translate_c.Translator = .init(translate_c_dep, .{
-                    .c_source_file = b.addWriteFiles().add("gio_c.h",
-                        \\#include <gio/gio.h>
-                        \\#include <gio/gunixfdlist.h>
-                    ),
-                    .target = target,
-                    .optimize = optimize,
-                    .link_system_libs = &.{
-                        .{ .name = "gio-2.0", .options = dynamic_link_opts },
-                    },
-                });
-                step.root_module.addImport("gio_c", translated.mod);
-            }
+            try translate_c.addImportToModule(b, "gio_c", step.root_module, .{
+                .source = .{ .includes = .{ .files = &.{
+                    .{ .path = "gio/gio.h" },
+                    .{ .path = "gio/gunixfdlist.h" },
+                } } },
+                .target = target,
+                .optimize = optimize,
+                .link_system_libs = &.{"gio-2.0"},
+            });
         }
 
         switch (self.config.app_runtime) {
@@ -729,41 +726,22 @@ fn addGtkNg(
             step.root_module.addImport(name, gobject.module(module));
         }
     }
-    gtk_adw_translate: {
-        // translate-c stuff
-        const translate_c = b.lazyImport(@import("../../build.zig"), "translate_c") orelse break :gtk_adw_translate;
-        const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse break :gtk_adw_translate;
-        const Translator = translate_c.Translator;
 
-        {
-            // GTK headers
-            const translated: Translator = .init(translate_c_dep, .{
-                .c_source_file = b.addWriteFiles().add("gtk_c.h",
-                    \\#include <gtk/gtk.h>
-                ),
-                .target = target,
-                .optimize = optimize,
-                .link_system_libs = &.{
-                    .{ .name = "gtk4", .options = dynamic_link_opts },
-                },
-            });
-            step.root_module.addImport("gtk_c", translated.mod);
-        }
-        {
-            // Adwaita headers
-            const translated: Translator = .init(translate_c_dep, .{
-                .c_source_file = b.addWriteFiles().add("adw_c.h",
-                    \\#include <adwaita.h>
-                ),
-                .target = target,
-                .optimize = optimize,
-                .link_system_libs = &.{
-                    .{ .name = "libadwaita-1", .options = dynamic_link_opts },
-                },
-            });
-            step.root_module.addImport("adw_c", translated.mod);
-        }
-    }
+    // GTK C translation
+    try translate_c.addImportToModule(b, "gtk_c", step.root_module, .{
+        .source = .{ .includes = .{ .files = &.{.{ .path = "gtk/gtk.h" }} } },
+        .target = target,
+        .optimize = optimize,
+        .link_system_libs = &.{"gtk4"},
+    });
+
+    // Adwaita C translation
+    try translate_c.addImportToModule(b, "adw_c", step.root_module, .{
+        .source = .{ .includes = .{ .files = &.{.{ .path = "adwaita.h" }} } },
+        .target = target,
+        .optimize = optimize,
+        .link_system_libs = &.{"libadwaita-1"},
+    });
 
     if (self.config.x11) {
         step.root_module.linkSystemLibrary("X11", dynamic_link_opts);
@@ -869,24 +847,19 @@ fn addGtkNg(
         step.root_module.linkSystemLibrary("wayland-client", dynamic_link_opts);
     }
 
-    ghostty_resources_translate: {
+    {
         // Get our gresource c/h files and add them to our build.
         const dist = gtkNgDistResources(b);
-        const translate_c = b.lazyImport(@import("../../build.zig"), "translate_c") orelse
-            break :ghostty_resources_translate;
-        const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse
-            break :ghostty_resources_translate;
-        const translated: translate_c.Translator = .init(translate_c_dep, .{
-            .c_source_file = b.addWriteFiles().add("c.h",
-                \\#include <ghostty_resources.h>
-            ),
+        const translated = try translate_c.init(b, .{
+            .source = .{ .includes = .{
+                .generated_name = "ghostty_gtk_resources_c.h",
+                .files = &.{.{ .path = "ghostty_resources.h" }},
+            } },
             .target = target,
             .optimize = optimize,
-            .link_system_libs = &.{
-                .{ .name = "glib-2.0", .options = dynamic_link_opts },
-            },
+            .link_system_libs = &.{"glib-2.0"},
+            .include_paths = &.{dist.resources_h.path(b).dirname()},
         });
-        translated.addIncludePath(dist.resources_h.path(b).dirname());
         translated.mod.addCSourceFile(.{ .file = dist.resources_c.path(b), .flags = &.{} });
         step.root_module.addImport("ghostty_gtk_resources", translated.mod);
     }
@@ -1037,22 +1010,14 @@ pub fn gtkNgDistResources(
                 .link_libc = true,
             }),
         });
-        adw_translate: {
-            // Adwaita headers
-            const translate_c = b.lazyImport(@import("../../build.zig"), "translate_c") orelse break :adw_translate;
-            const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse break :adw_translate;
-            const translated: translate_c.Translator = .init(translate_c_dep, .{
-                .c_source_file = b.addWriteFiles().add("adw_c.h",
-                    \\#include <adwaita.h>
-                ),
-                .target = b.graph.host,
-                .optimize = .Debug,
-                .link_system_libs = &.{
-                    .{ .name = "libadwaita-1", .options = dynamic_link_opts },
-                },
-            });
-            blueprint_exe.root_module.addImport("adw_c", translated.mod);
-        }
+
+        // Adwaita headers
+        translate_c.addImportToModule(b, "adw_c", blueprint_exe.root_module, .{
+            .source = .{ .includes = .{ .files = &.{.{ .path = "adwaita.h" }} } },
+            .target = b.graph.host,
+            .optimize = .Debug,
+            .link_system_libs = &.{"libadwaita-1"},
+        }) catch unreachable;
 
         for (gresource.blueprints) |bp| {
             const blueprint_run = b.addRunArtifact(blueprint_exe);

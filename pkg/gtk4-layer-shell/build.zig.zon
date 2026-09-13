@@ -4,6 +4,8 @@
     .fingerprint = 0x4b96f9483c6feeb1,
     .paths = .{""},
     .dependencies = .{
+        .translate_c = .{ .path = "../translate-c" },
+
         .gtk4_layer_shell = .{
             .url = "https://deps.files.ghostty.org/gtk4-layer-shell-1.1.0.tar.gz",
             .hash = "N-V-__8AALiNBAA-_0gprYr92CjrMj1I5bqNu0TSJOnjFNSr",
@@ -12,11 +14,6 @@
         .wayland_protocols = .{
             .url = "https://deps.files.ghostty.org/wayland-protocols-258d8f88f2c8c25a830c6316f87d23ce1a0f12d9.tar.gz",
             .hash = "N-V-__8AAKw-DAAaV8bOAAGqA0-oD7o-HNIlPFYKRXSPT03S",
-            .lazy = true,
-        },
-        .translate_c = .{
-            .url = "https://codeberg.org/vancluever/translate-c/archive/4e879eb8aba615de112eabd1231ea6e01920cead.tar.gz",
-            .hash = "translate_c-0.0.0-Q_BUWhVNBwDOEcIqub4VFPJPB6D9dgwzUMHTX5KWr8Xr",
             .lazy = true,
         },
     },

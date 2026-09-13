@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const buildpkg = @import("src/build/main.zig");
+const translate_c = @import("translate_c");
 
 /// App version from build.zig.zon.
 const app_zon_version = @import("build.zig.zon").version;
@@ -437,21 +438,12 @@ fn addGhosttyH(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) void {
-    const translate_c = b.lazyImport(@This(), "translate_c") orelse return;
-    const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse return;
-
-    const translated: translate_c.Translator = .init(translate_c_dep, .{
-        .c_source_file = b.addWriteFiles().add(
-            "hb_c.h",
-            \\#include <ghostty.h>
-            ,
-        ),
+    translate_c.addImportToModule(b, "ghostty.h", module, .{
+        .source = .{ .includes = .{ .files = &.{
+            .{ .path = "ghostty.h" },
+        } } },
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
-    });
-
-    translated.addSystemIncludePath(b.path("include"));
-
-    module.addImport("ghostty.h", translated.mod);
+        .system_include_paths = &.{b.path("include")},
+    }) catch unreachable;
 }

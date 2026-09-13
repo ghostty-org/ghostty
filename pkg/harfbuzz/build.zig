@@ -1,5 +1,6 @@
 const std = @import("std");
 const apple_sdk = @import("apple_sdk");
+const translate_c = @import("translate_c");
 
 const root_build_container = @This();
 
@@ -18,11 +19,34 @@ pub fn build(b: *std.Build) !void {
         .search_strategy = .mode_first,
     };
 
-    const freetype = b.dependency("freetype", .{
+    const freetype_dep = b.dependency("freetype", .{
         .target = target,
         .optimize = optimize,
         .@"enable-libpng" = true,
     });
+
+    const harfbuzz_c_builder: HarfBuzzC = .{
+        .builder = b,
+        .options = .{
+            .target = target,
+            .optimize = optimize,
+            .harfbuzz = if (b.systemIntegrationOption("harfbuzz", .{}))
+                .{ .dynamic = dynamic_link_opts }
+            else
+                .static,
+            .coretext = coretext_enabled,
+            .freetype = if (freetype_enabled)
+                .{
+                    .dependency = freetype_dep,
+                    .link_mode = if (b.systemIntegrationOption("freetype", .{}))
+                        .{ .dynamic = dynamic_link_opts }
+                    else
+                        .static,
+                }
+            else
+                null,
+        },
+    };
 
     const module = harfbuzz: {
         const module = b.addModule("harfbuzz", .{
@@ -31,7 +55,7 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
             .imports = if (target.result.os.tag.isDarwin())
                 &.{
-                    .{ .name = "freetype", .module = freetype.module("freetype") },
+                    .{ .name = "freetype", .module = freetype_dep.module("freetype") },
                     .{
                         .name = "macos",
                         .module = b.dependency("macos", .{ .target = target, .optimize = optimize })
@@ -40,22 +64,11 @@ pub fn build(b: *std.Build) !void {
                 }
             else
                 &.{
-                    .{ .name = "freetype", .module = freetype.module("freetype") },
+                    .{ .name = "freetype", .module = freetype_dep.module("freetype") },
                 },
         });
 
-        try HarfBuzzC.addImportToModule(b, module, .{
-            .target = target,
-            .optimize = optimize,
-            .harfbuzz = if (b.systemIntegrationOption("harfbuzz", .{})) .{ .dynamic = dynamic_link_opts } else .static,
-            .coretext = coretext_enabled,
-            .freetype = if (freetype_enabled) ft: {
-                break :ft if (b.systemIntegrationOption("freetype", .{}))
-                    .{ .dynamic = dynamic_link_opts }
-                else
-                    .static;
-            } else null,
-        });
+        try harfbuzz_c_builder.addImportToModule(module);
 
         const options = b.addOptions();
         options.addOption(bool, "coretext", coretext_enabled);
@@ -74,118 +87,9 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(&tests_run.step);
 
     if (!b.systemIntegrationOption("harfbuzz", .{})) {
-        const lib = try buildLib(b, .{
-            .target = target,
-            .optimize = optimize,
-
-            .coretext_enabled = coretext_enabled,
-            .freetype_enabled = freetype_enabled,
-
-            .dynamic_link_opts = dynamic_link_opts,
-        });
-
+        const lib = try harfbuzz_c_builder.buildLib();
         test_exe.root_module.linkLibrary(lib);
     }
-}
-
-fn buildLib(b: *std.Build, options: anytype) !*std.Build.Step.Compile {
-    const target = options.target;
-    const optimize = options.optimize;
-
-    const coretext_enabled = options.coretext_enabled;
-    const freetype_enabled = options.freetype_enabled;
-
-    const freetype = b.dependency("freetype", .{
-        .target = target,
-        .optimize = optimize,
-        .@"enable-libpng" = true,
-    });
-
-    const lib = b.addLibrary(.{
-        .name = "harfbuzz",
-        .root_module = b.createModule(.{
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-            // On MSVC, we must not use linkLibCpp because Zig unconditionally
-            // passes -nostdinc++ and then adds its bundled libc++/libc++abi
-            // include paths, which conflict with MSVC's own C++ runtime
-            // headers. The MSVC SDK include directories (added via linkLibC)
-            // contain both C and C++ headers, so linkLibCpp is not needed.
-            .link_libcpp = target.result.abi != .msvc,
-        }),
-        .linkage = .static,
-    });
-
-    if (target.result.os.tag.isDarwin()) {
-        try apple_sdk.addPaths(b, lib);
-    }
-
-    const dynamic_link_opts = options.dynamic_link_opts;
-
-    var flags: std.ArrayList([]const u8) = .empty;
-    defer flags.deinit(b.allocator);
-    try flags.appendSlice(b.allocator, &.{
-        "-DHAVE_STDBOOL_H",
-    });
-    // Disable ubsan for MSVC: Zig's ubsan runtime cannot be bundled
-    // on Windows (LNK4229), leaving __ubsan_handle_* unresolved when
-    // the static archive is consumed by an external linker.
-    if (target.result.abi == .msvc) {
-        try flags.appendSlice(b.allocator, &.{
-            "-fno-sanitize=undefined",
-            "-fno-sanitize-trap=undefined",
-        });
-    }
-    if (target.result.os.tag != .windows) {
-        try flags.appendSlice(b.allocator, &.{
-            "-DHAVE_UNISTD_H",
-            "-DHAVE_SYS_MMAN_H",
-            "-DHAVE_PTHREAD=1",
-        });
-    }
-
-    // Freetype
-    _ = b.systemIntegrationOption("freetype", .{}); // So it shows up in help
-    if (freetype_enabled) {
-        try flags.appendSlice(b.allocator, &.{
-            "-DHAVE_FREETYPE=1",
-
-            // Let's just assume a new freetype
-            "-DHAVE_FT_GET_VAR_BLEND_COORDINATES=1",
-            "-DHAVE_FT_SET_VAR_BLEND_COORDINATES=1",
-            "-DHAVE_FT_DONE_MM_VAR=1",
-            "-DHAVE_FT_GET_TRANSFORM=1",
-        });
-
-        if (b.systemIntegrationOption("freetype", .{})) {
-            lib.root_module.linkSystemLibrary("freetype2", dynamic_link_opts);
-        } else {
-            lib.root_module.linkLibrary(freetype.artifact("freetype"));
-        }
-    }
-
-    if (coretext_enabled) {
-        try flags.appendSlice(b.allocator, &.{"-DHAVE_CORETEXT=1"});
-        lib.root_module.linkFramework("CoreText", .{});
-    }
-
-    if (b.lazyDependency("harfbuzz", .{})) |upstream| {
-        lib.root_module.addIncludePath(upstream.path("src"));
-        lib.root_module.addCSourceFile(.{
-            .file = upstream.path("src/harfbuzz.cc"),
-            .flags = flags.items,
-        });
-        lib.installHeadersDirectory(
-            upstream.path("src"),
-            "",
-            .{ .include_extensions = &.{".h"} },
-        );
-    }
-
-    b.installArtifact(lib);
-
-    return lib;
 }
 
 const HarfBuzzC = struct {
@@ -199,161 +103,193 @@ const HarfBuzzC = struct {
         optimize: std.builtin.OptimizeMode,
         harfbuzz: LinkMode,
         coretext: bool,
-        freetype: ?LinkMode,
+        freetype: ?struct {
+            dependency: *std.Build.Dependency,
+            link_mode: LinkMode,
+        },
     };
 
-    fn fmtInclude(w: *std.Io.Writer, name: []const u8, mode: AddImportToModuleOptions.LinkMode) !void {
-        if (mode == .dynamic) {
-            try w.print("#include <{s}>\n", .{name});
-        } else {
-            try w.print("#include \"{s}\"\n", .{name});
-        }
+    builder: *std.Build,
+    options: AddImportToModuleOptions,
+
+    fn appendInclude(
+        list: *std.ArrayList(translate_c.Options.IncludeFile),
+        name: []const u8,
+        mode: AddImportToModuleOptions.LinkMode,
+    ) void {
+        list.appendAssumeCapacity(.{
+            .path = name,
+            .type = switch (mode) {
+                .static => .user,
+                .dynamic => .system,
+            },
+        });
     }
 
-    fn addImportToModule(
-        b: *std.Build,
-        module: *std.Build.Module,
-        options: AddImportToModuleOptions,
-    ) !void {
-        // TODO: There's a decent amount of duplication here right now.
-        // Basically we want to mirror what we're passing in buildLib to make
-        // sure that the translation is generated as correct as possible.
-        // Eventually, we want to try and unravel this as much as we can, to
-        // the point that ultimately all C flags and even link options are
-        // self-contained in the translation artifact.
-        //
-        // This is a bit tricky right now as there are situations where we
-        // provide a static library built straight off of the C file, hence the
-        // duplication.
-        //
-        // NOTE: This function de-allocates nothing as b.allocator is an arena
-        // (unfortunately not documented, but a cursory search in various
-        // communities or the issue trackers should turn up confirmation).
+    fn includeFiles(self: *const HarfBuzzC) ![]translate_c.Options.IncludeFile {
+        var len: usize = 1;
+        if (self.options.coretext) len += 1;
+        if (self.options.freetype != null) len += 1;
+        var includes_builder: std.ArrayList(translate_c.Options.IncludeFile) =
+            try .initCapacity(self.builder.allocator, len);
 
-        const translate_c = b.lazyImport(root_build_container, "translate_c") orelse return;
-        const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse return;
+        appendInclude(&includes_builder, "hb.h", self.options.harfbuzz);
+        if (self.options.coretext) appendInclude(&includes_builder, "hb-coretext.h", self.options.harfbuzz);
+        if (self.options.freetype != null) appendInclude(&includes_builder, "hb-ft.h", self.options.harfbuzz);
 
-        const c_source = c_source: {
-            var source_builder: std.Io.Writer.Allocating = .init(b.allocator);
-            try fmtInclude(&source_builder.writer, "hb.h", options.harfbuzz);
+        return includes_builder.items;
+    }
 
-            if (options.coretext) {
-                try fmtInclude(&source_builder.writer, "hb-coretext.h", options.harfbuzz);
-            }
+    fn systemLibs(self: *const HarfBuzzC) ![][]const u8 {
+        var len: usize = 1;
+        if (self.options.harfbuzz == .dynamic) len += 1;
+        if (self.options.freetype != null and self.options.freetype.?.link_mode == .dynamic) len += 1;
+        var libs_builder: std.ArrayList([]const u8) = try .initCapacity(self.builder.allocator, len);
 
-            if (options.freetype != null) {
-                try fmtInclude(&source_builder.writer, "hb-ft.h", options.harfbuzz);
-            }
+        if (self.options.harfbuzz == .dynamic)
+            libs_builder.appendAssumeCapacity("harfbuzz");
+        if (self.options.freetype != null and self.options.freetype.?.link_mode == .dynamic)
+            libs_builder.appendAssumeCapacity("freetype2");
 
-            break :c_source source_builder.written();
-        };
+        return libs_builder.items;
+    }
 
-        // Assemble system libs
-        const system_libs = libs: {
-            var libs_builder: std.ArrayList(translate_c.Translator.LinkSystemLib) = .empty;
-            if (options.harfbuzz == .dynamic)
-                try libs_builder.append(b.allocator, .{ .name = "harfbuzz", .options = options.harfbuzz.dynamic });
-            if (options.freetype) |ft| {
-                if (ft == .dynamic)
-                    try libs_builder.append(b.allocator, .{ .name = "freetype2", .options = ft.dynamic });
-            }
+    fn includePaths(self: *const HarfBuzzC) ![]std.Build.LazyPath {
+        const hb_upstream: ?*std.Build.Dependency = if (self.options.harfbuzz == .static)
+            self.builder.lazyDependency("harfbuzz", .{})
+        else
+            null;
 
-            break :libs libs_builder.items;
-        };
+        const ft_upstream: ?*std.Build.Dependency =
+            if (self.options.freetype) |ft| ft: {
+                if (ft.link_mode == .static) break :ft ft.dependency.builder.lazyDependency("freetype", .{});
+                break :ft null;
+            } else null;
 
-        // Assemble flags
-        const flags = flags: {
-            var flag_builder: std.ArrayList([]const u8) = .empty;
-            try flag_builder.appendSlice(b.allocator, &.{
-                "-DHAVE_STDBOOL_H",
-            });
-            // Disable ubsan for MSVC: Zig's ubsan runtime cannot be bundled
-            // on Windows (LNK4229), leaving __ubsan_handle_* unresolved when
-            // the static archive is consumed by an external linker.
-            if (options.target.result.abi == .msvc) {
-                try flag_builder.appendSlice(b.allocator, &.{
-                    "-fno-sanitize=undefined",
-                    "-fno-sanitize-trap=undefined",
-                });
-            }
-            if (options.target.result.os.tag != .windows) {
-                try flag_builder.appendSlice(b.allocator, &.{
-                    "-DHAVE_UNISTD_H",
-                    "-DHAVE_SYS_MMAN_H",
-                    "-DHAVE_PTHREAD=1",
-                });
-            }
+        var len: usize = 0;
+        if (hb_upstream != null) len += 1;
+        if (ft_upstream != null) len += 1;
+        var paths_builder: std.ArrayList(std.Build.LazyPath) = try .initCapacity(self.builder.allocator, len);
 
-            // Freetype flags/non-system include paths
-            if (options.freetype != null) {
-                try flag_builder.appendSlice(b.allocator, &.{
-                    "-DHAVE_FREETYPE=1",
+        if (hb_upstream) |upstream| paths_builder.appendAssumeCapacity(upstream.path("src"));
+        if (ft_upstream) |upstream| paths_builder.appendAssumeCapacity(upstream.path("include"));
 
-                    // Let's just assume a new freetype
-                    "-DHAVE_FT_GET_VAR_BLEND_COORDINATES=1",
-                    "-DHAVE_FT_SET_VAR_BLEND_COORDINATES=1",
-                    "-DHAVE_FT_DONE_MM_VAR=1",
-                    "-DHAVE_FT_GET_TRANSFORM=1",
-                });
-            }
+        return paths_builder.items;
+    }
 
-            // Coretext
-            if (options.coretext) {
-                try flag_builder.appendSlice(b.allocator, &.{"-DHAVE_CORETEXT=1"});
-                try flag_builder.appendSlice(b.allocator, &.{"-fblocks"});
-            }
+    fn frameworks(self: *const HarfBuzzC) []const []const u8 {
+        return if (self.options.coretext) &.{"CoreText"} else &.{};
+    }
 
-            break :flags flag_builder.items;
-        };
-
-        const hb_c: translate_c.Translator = .init(translate_c_dep, .{
-            .c_source_file = b.addWriteFiles().add(
-                "hb_c.h",
-                c_source,
-            ),
-            .target = options.target,
-            .optimize = options.optimize,
-            .link_libc = true,
-            .link_system_libs = system_libs,
-            .libc_file = if (options.target.result.os.tag.isDarwin()) libc_file: {
-                switch (try @import("apple_sdk").pathsForTarget(b, options.target.result)) {
-                    inline else => |paths| break :libc_file paths.libc,
-                }
-            } else null,
-            .extra_args = flags,
+    fn flags(self: *const HarfBuzzC) ![][]const u8 {
+        var flag_builder: std.ArrayList([]const u8) = .empty;
+        try flag_builder.appendSlice(self.builder.allocator, &.{
+            "-DHAVE_STDBOOL_H",
         });
-
-        if (options.harfbuzz == .static) {
-            if (b.lazyDependency("harfbuzz", .{})) |upstream| {
-                hb_c.addIncludePath(upstream.path("src"));
-            }
+        // Disable ubsan for MSVC: Zig's ubsan runtime cannot be bundled
+        // on Windows (LNK4229), leaving __ubsan_handle_* unresolved when
+        // the static archive is consumed by an external linker.
+        if (self.options.target.result.abi == .msvc) {
+            try flag_builder.appendSlice(self.builder.allocator, &.{
+                "-fno-sanitize=undefined",
+                "-fno-sanitize-trap=undefined",
+            });
+        }
+        if (self.options.target.result.os.tag != .windows) {
+            try flag_builder.appendSlice(self.builder.allocator, &.{
+                "-DHAVE_UNISTD_H",
+                "-DHAVE_SYS_MMAN_H",
+                "-DHAVE_PTHREAD=1",
+            });
         }
 
-        // Freetype non-system include paths
-        if (options.freetype) |freetype_enabled| {
-            if (freetype_enabled == .static) {
-                const ft_dep = b.dependency("freetype", .{
-                    .target = options.target,
-                    .optimize = options.optimize,
-                    .@"enable-libpng" = true,
-                });
+        // Freetype flags/non-system include paths
+        if (self.options.freetype != null) {
+            try flag_builder.appendSlice(self.builder.allocator, &.{
+                "-DHAVE_FREETYPE=1",
 
-                if (ft_dep.builder.lazyDependency(
-                    "freetype",
-                    .{},
-                )) |freetype_lazy_dep| {
-                    hb_c.addIncludePath(freetype_lazy_dep.path("include"));
-                }
-            }
+                // Let's just assume a new freetype
+                "-DHAVE_FT_GET_VAR_BLEND_COORDINATES=1",
+                "-DHAVE_FT_SET_VAR_BLEND_COORDINATES=1",
+                "-DHAVE_FT_DONE_MM_VAR=1",
+                "-DHAVE_FT_GET_TRANSFORM=1",
+            });
         }
 
         // Coretext
-        if (options.coretext) {
-            // NOTE: We should not necessarily need to add this directly to C
-            // translation, so we just add it to the module.
-            hb_c.mod.linkFramework("CoreText", .{});
+        if (self.options.coretext) {
+            try flag_builder.appendSlice(self.builder.allocator, &.{"-DHAVE_CORETEXT=1"});
         }
 
-        module.addImport("hb_c", hb_c.mod);
+        return flag_builder.items;
+    }
+
+    fn addImportToModule(
+        self: *const HarfBuzzC,
+        module: *std.Build.Module,
+    ) !void {
+        try translate_c.addImportToModule(self.builder, "hb_c", module, .{
+            .source = .{ .includes = .{ .files = try self.includeFiles() } },
+            .target = self.options.target,
+            .optimize = self.options.optimize,
+            .link_system_libs = try self.systemLibs(),
+            .include_paths = try self.includePaths(),
+            .link_frameworks = self.frameworks(),
+            .extra_args = try self.flags(),
+        });
+    }
+
+    fn buildLib(self: *const HarfBuzzC) !*std.Build.Step.Compile {
+        const target = self.options.target;
+        const optimize = self.options.optimize;
+
+        const lib = self.builder.addLibrary(.{
+            .name = "harfbuzz",
+            .root_module = self.builder.createModule(.{
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+                // On MSVC, we must not use linkLibCpp because Zig unconditionally
+                // passes -nostdinc++ and then adds its bundled libc++/libc++abi
+                // include paths, which conflict with MSVC's own C++ runtime
+                // headers. The MSVC SDK include directories (added via linkLibC)
+                // contain both C and C++ headers, so linkLibCpp is not needed.
+                .link_libcpp = target.result.abi != .msvc,
+            }),
+            .linkage = .static,
+        });
+
+        // Freetype
+        if (self.options.freetype) |ft| {
+            switch (ft.link_mode) {
+                .dynamic => |opts| lib.root_module.linkSystemLibrary("freetype2", opts),
+                .static => {
+                    lib.root_module.linkLibrary(ft.dependency.artifact("freetype"));
+                },
+            }
+        }
+
+        // CoreText stuff
+        for (self.frameworks()) |framework| lib.root_module.linkFramework(framework, .{});
+        if (target.result.os.tag.isDarwin()) {
+            try apple_sdk.addPaths(self.builder, lib);
+        }
+
+        if (self.builder.lazyDependency("harfbuzz", .{})) |upstream| {
+            lib.root_module.addIncludePath(upstream.path("src"));
+            lib.root_module.addCSourceFile(.{
+                .file = upstream.path("src/harfbuzz.cc"),
+                .flags = try self.flags(),
+            });
+            lib.installHeadersDirectory(
+                upstream.path("src"),
+                "",
+                .{ .include_extensions = &.{".h"} },
+            );
+        }
+
+        self.builder.installArtifact(lib);
+
+        return lib;
     }
 };
