@@ -10,6 +10,57 @@ const oni = @import("oniguruma");
 
 const log = std.log.scoped(.terminal_tmux);
 
+/// Undo tmux's escaping of bytes that can't travel in the control
+/// stream, in place. The result is never longer than the input so we
+/// just compact the slice and return the shorter view of it.
+///
+/// tmux writes a byte it can't send as a three digit octal escape. It
+/// uses this for `%output` (where the backslash itself is `\134`) and
+/// for `capture-pane -C` (where the backslash is doubled instead), so
+/// both forms are accepted here.
+pub fn unescape(data: []u8) []u8 {
+    var w: usize = 0;
+    var r: usize = 0;
+    while (r < data.len) {
+        escape: {
+            if (data[r] != '\\') break :escape;
+            if (r + 1 >= data.len) break :escape;
+
+            if (data[r + 1] == '\\') {
+                data[w] = '\\';
+                w += 1;
+                r += 2;
+                continue;
+            }
+
+            if (r + 3 >= data.len) break :escape;
+            var value: u16 = 0;
+            for (data[r + 1 ..][0..3]) |digit| {
+                if (digit < '0' or digit > '7') break :escape;
+                value = value * 8 + (digit - '0');
+            }
+            if (value > std.math.maxInt(u8)) break :escape;
+
+            data[w] = @intCast(value);
+            w += 1;
+            r += 4;
+            continue;
+        }
+
+        data[w] = data[r];
+        w += 1;
+        r += 1;
+    }
+
+    return data[0..w];
+}
+
+/// Copy and unescape, for callers that only have a const view of the
+/// data. See unescape.
+pub fn unescapeAlloc(alloc: Allocator, data: []const u8) Allocator.Error![]u8 {
+    return unescape(try alloc.dupe(u8, data));
+}
+
 /// A tmux control mode parser. This takes in output from tmux control
 /// mode and parses it into a structured notifications.
 ///
@@ -582,7 +633,11 @@ pub const Notification = union(enum) {
     /// Raw output from a pane.
     output: struct {
         pane_id: usize,
-        data: []const u8, // unescaped
+
+        /// Still escaped as tmux sent it. Decoding is left to the
+        /// consumers (see `unescape`) so that a client that ignores
+        /// pane output doesn't pay for it.
+        data: []const u8,
     },
 
     /// The client is now attached to the session with ID session-id, which is
@@ -899,6 +954,45 @@ test "tmux output rejects malformed lines" {
         try testing.expect(try c.put('\n') == null);
         try testing.expect(c.state == .idle);
     }
+}
+
+test "tmux output octal escapes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // The parser hands the data on still escaped. \033 is ESC, \015 is CR,
+    // \134 is the backslash itself. Anything that isn't a complete octal
+    // escape has to survive decoding untouched.
+    const escaped = "\\033[1mbold\\033[0m\\015\\134n \\9 \\77";
+    for ("%output %1 " ++ escaped) |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(1, n.output.pane_id);
+    try testing.expectEqualStrings(escaped, n.output.data);
+
+    const copy = try alloc.dupe(u8, n.output.data);
+    defer alloc.free(copy);
+    try testing.expectEqualStrings("\x1b[1mbold\x1b[0m\r\\n \\9 \\77", unescape(copy));
+}
+
+test "tmux unescape" {
+    const testing = std.testing;
+
+    // `capture-pane -C` doubles the backslash instead of escaping it as
+    // \134, so both spellings have to work.
+    var buf: [64]u8 = undefined;
+    const data = try std.fmt.bufPrint(
+        &buf,
+        "{s}",
+        .{"\\033[1mA\\033[0m b\\\\c\\134d"},
+    );
+    try testing.expectEqualStrings(
+        "\x1b[1mA\x1b[0m b\\c\\d",
+        unescape(data),
+    );
 }
 
 test "tmux session-changed" {
