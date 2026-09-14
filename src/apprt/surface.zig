@@ -153,6 +153,33 @@ pub const Message = union(enum) {
     /// Selected search index change
     search_selected: ?usize,
 
+    /// This surface saw DCS 1000p and is now the tmux control mode
+    /// gateway.
+    tmux_enter: void,
+
+    /// The tmux window/pane layout changed. The receiver takes ownership
+    /// of the snapshot.
+    tmux_windows: *terminal.tmux.Snapshot,
+
+    /// Tmux's active window id changed (``%window-pane-changed``).
+    tmux_active_window: usize,
+
+    /// Output for a tmux pane. The payload is the pane id as a
+    /// little-endian u64 followed by the raw bytes. The receiver owns the
+    /// WriteReq memory.
+    tmux_output: WriteReq,
+
+    /// Control mode ended, so the follower surfaces have to go away.
+    tmux_exit: void,
+
+    /// Terminal input from a follower surface that has to be turned into
+    /// `send-keys` for its pane. The receiver owns the WriteReq memory.
+    tmux_send_keys: WriteReq,
+
+    /// A follower surface's grid size changed, so its tmux pane should
+    /// follow.
+    tmux_resize: renderer.GridSize,
+
     pub const ReportTitleStyle = enum {
         csi_21_t,
 

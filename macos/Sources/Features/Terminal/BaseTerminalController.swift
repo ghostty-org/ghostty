@@ -1267,6 +1267,9 @@ class BaseTerminalController: NSWindowController,
 
         // Becoming key can race with responder updates when activating a window.
         // Sync on the next runloop so split focus has settled first.
+        // Avoid forcing ghostty_surface_set_focus(true) when already focused:
+        // that used to re-send select-pane and overwrite Cmd+T affinity that
+        // had been set by an external select-window.
         DispatchQueue.main.async {
             self.syncFocusToSurfaceTree()
         }
