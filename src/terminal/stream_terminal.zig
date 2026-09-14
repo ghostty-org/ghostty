@@ -413,7 +413,16 @@ pub const Handler = struct {
             .save_mode => self.terminal.modes.save(value.mode),
             .restore_mode => {
                 const v = self.terminal.modes.restore(value.mode);
-                try self.setMode(value.mode, v);
+
+                // XTRESTORE only switches screens for these; setMode would
+                // apply DECSET side effects and erase on `?1049r`.
+                if (Terminal.isAltScreenMode(value.mode)) {
+                    _ = try self.terminal.switchScreen(
+                        if (v) .alternate else .primary,
+                    );
+                } else {
+                    try self.setMode(value.mode, v);
+                }
             },
             .top_and_bottom_margin => self.terminal.setTopAndBottomMargin(value.top_left, value.bottom_right),
             .left_and_right_margin => self.terminal.setLeftAndRightMargin(value.top_left, value.bottom_right),
@@ -2333,6 +2342,27 @@ test "alt screen" {
     const str = try t.plainString(testing.allocator);
     defer testing.allocator.free(str);
     try testing.expectEqualStrings("Primary", str);
+}
+
+test "alt screen XTRESTORE only switches screens" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+    defer s.deinit();
+
+    s.nextSlice("\x1B[?47h");
+    try testing.expectEqual(.alternate, t.screens.active_key);
+    s.nextSlice("Alt");
+
+    // Restoring must not erase the alternate screen.
+    s.nextSlice("\x1B[?1049s");
+    s.nextSlice("\x1B[?1049r");
+    try testing.expectEqual(.alternate, t.screens.active_key);
+
+    const str = try t.plainString(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("Alt", str);
 }
 
 test "cursor save and restore" {
@@ -4613,6 +4643,52 @@ test "request mode DECRQM with write_pty callback" {
         s.nextSlice("\x1B[?117$p");
         try testing.expectEqualStrings("\x1B[?117;4$y", S.last_response.?);
     }
+}
+
+test "request mode DECRQM alt screen modes report the active screen" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var last_response: ?[:0]const u8 = null;
+        fn writePty(_: *Handler, data: []const u8) void {
+            if (last_response) |old| testing.allocator.free(old);
+            last_response = testing.allocator.dupeZ(u8, data) catch @panic("OOM");
+        }
+    };
+    S.last_response = null;
+    defer if (S.last_response) |old| testing.allocator.free(old);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    s.nextSlice("\x1B[?47$p");
+    try testing.expectEqualStrings("\x1B[?47;2$y", S.last_response.?);
+    s.nextSlice("\x1B[?1047$p");
+    try testing.expectEqualStrings("\x1B[?1047;2$y", S.last_response.?);
+    s.nextSlice("\x1B[?1049$p");
+    try testing.expectEqualStrings("\x1B[?1049;2$y", S.last_response.?);
+
+    s.nextSlice("\x1B[?47h");
+    try testing.expectEqual(.alternate, t.screens.active_key);
+    s.nextSlice("\x1B[?47$p");
+    try testing.expectEqualStrings("\x1B[?47;1$y", S.last_response.?);
+    s.nextSlice("\x1B[?1047$p");
+    try testing.expectEqualStrings("\x1B[?1047;1$y", S.last_response.?);
+    s.nextSlice("\x1B[?1049$p");
+    try testing.expectEqualStrings("\x1B[?1049;1$y", S.last_response.?);
+
+    s.nextSlice("\x1B[?1049l");
+    try testing.expectEqual(.primary, t.screens.active_key);
+    s.nextSlice("\x1B[?47$p");
+    try testing.expectEqualStrings("\x1B[?47;2$y", S.last_response.?);
+    s.nextSlice("\x1B[?1047$p");
+    try testing.expectEqualStrings("\x1B[?1047;2$y", S.last_response.?);
+    s.nextSlice("\x1B[?1049$p");
+    try testing.expectEqualStrings("\x1B[?1049;2$y", S.last_response.?);
 }
 
 test "stream: CSI W with intermediate but no params" {

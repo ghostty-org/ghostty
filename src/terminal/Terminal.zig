@@ -4785,7 +4785,25 @@ pub fn switchScreen(self: *Terminal, key: ScreenSet.Key) !?*Screen {
     // Finalize the switch
     self.screens.switchTo(key);
 
+    // These modes report the active screen, not values of their own.
+    const alternate = key == .alternate;
+    self.modes.set(.alt_screen_legacy, alternate);
+    self.modes.set(.alt_screen, alternate);
+    self.modes.set(.alt_screen_save_cursor_clear_enter, alternate);
+
     return old;
+}
+
+/// The alternate screen modes, which report the active screen rather than
+/// values of their own.
+pub fn isAltScreenMode(mode: modespkg.Mode) bool {
+    return switch (mode) {
+        .alt_screen_legacy,
+        .alt_screen,
+        .alt_screen_save_cursor_clear_enter,
+        => true,
+        else => false,
+    };
 }
 
 /// Switch screen via a mode switch (e.g. mode 47, 1047, 1049).
@@ -16280,6 +16298,60 @@ test "Terminal: mode 1049 alt screen plain" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("", str);
     }
+}
+
+test "Terminal: alt screen modes 47/1047/1049 all report the active screen" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    for ([_]SwitchScreenMode{ .@"47", .@"1047", .@"1049" }) |mode| {
+        try t.switchScreenMode(mode, true);
+        try testing.expectEqual(.alternate, t.screens.active_key);
+        try testing.expect(t.modes.get(.alt_screen_legacy));
+        try testing.expect(t.modes.get(.alt_screen));
+        try testing.expect(t.modes.get(.alt_screen_save_cursor_clear_enter));
+
+        try t.switchScreenMode(mode, false);
+        try testing.expectEqual(.primary, t.screens.active_key);
+        try testing.expect(!t.modes.get(.alt_screen_legacy));
+        try testing.expect(!t.modes.get(.alt_screen));
+        try testing.expect(!t.modes.get(.alt_screen_save_cursor_clear_enter));
+    }
+}
+
+test "Terminal: alt screen mode 47 set then 1049 reset clears mode 47" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    // Enter the alternate screen with 47, leave it with 1049.
+    try t.switchScreenMode(.@"47", true);
+    try testing.expectEqual(.alternate, t.screens.active_key);
+    try testing.expect(t.modes.get(.alt_screen_legacy));
+
+    try t.switchScreenMode(.@"1049", false);
+    try testing.expectEqual(.primary, t.screens.active_key);
+    try testing.expect(!t.modes.get(.alt_screen_legacy));
+}
+
+test "Terminal: switchScreen syncs alt screen modes" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    _ = try t.switchScreen(.alternate);
+    try testing.expect(t.modes.get(.alt_screen_legacy));
+    try testing.expect(t.modes.get(.alt_screen));
+    try testing.expect(t.modes.get(.alt_screen_save_cursor_clear_enter));
+
+    _ = try t.switchScreen(.primary);
+    try testing.expect(!t.modes.get(.alt_screen_legacy));
+    try testing.expect(!t.modes.get(.alt_screen));
+    try testing.expect(!t.modes.get(.alt_screen_save_cursor_clear_enter));
 }
 
 // Reproduces a crash found by AFL++ fuzzer (afl-out/stream/default/crashes/
