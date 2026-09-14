@@ -66,7 +66,7 @@ pub const Shaper = struct {
 
     /// The grid that our cached fonts correspond to.
     /// If the grid changes then we need to reset our cache.
-    cached_font_grid: usize,
+    cached_font_grid: u64,
 
     /// The list of CoreFoundation objects to release on the dedicated
     /// release thread. This is built up over the course of shaping and
@@ -552,9 +552,10 @@ pub const Shaper = struct {
     ) !*macos.foundation.Dictionary {
         // If this grid doesn't match the one we've cached fonts for,
         // then we reset the cache list since it's no longer valid.
-        // We use an intFromPtr rather than direct pointer comparison
-        // because we don't want anyone to inadvertently use the pointer.
-        const grid_id: usize = @intFromPtr(grid);
+        // An allocator can reuse a previous grid's address, including when
+        // intermediate grids were never shaped (e.g. in a hidden pane).
+        // Font indexes only identify faces within one grid lifetime.
+        const grid_id = grid.generation;
         if (grid_id != self.cached_font_grid) {
             if (self.cached_font_grid > 0) {
                 // Put all the currently cached fonts in to
@@ -2676,4 +2677,30 @@ fn testShaperWithDiscoveredFont(alloc: Allocator, font_req: [:0]const u8) !TestS
         .grid = grid_ptr,
         .lib = lib,
     };
+}
+
+test "font cache invalidates when grid storage is reused" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var first = try testShaperWithFont(alloc, .inconsolata);
+    defer first.deinit();
+    var second = try testShaperWithFont(alloc, .geist_mono);
+    defer second.deinit();
+
+    const index = (try first.grid.getIndex(alloc, 'W', .regular, null)).?;
+    const other_index = (try second.grid.getIndex(alloc, 'W', .regular, null)).?;
+    try testing.expectEqual(index, other_index);
+    const original = try first.shaper.getFont(first.grid, index);
+    const expected = try second.shaper.getFont(second.grid, other_index);
+    const key = macos.text.StringAttribute.font.key();
+    const original_font = original.getValue(macos.text.Font, key).?;
+    const expected_font = expected.getValue(macos.text.Font, key).?;
+    try testing.expect(original_font.getGlyphCount() != expected_font.getGlyphCount());
+
+    // Deterministically model a newly allocated grid reusing a freed address.
+    // Swap ownership so both grids are still cleaned up by their test helpers.
+    std.mem.swap(SharedGrid, first.grid, second.grid);
+    const actual = try first.shaper.getFont(first.grid, index);
+    const actual_font = actual.getValue(macos.text.Font, key).?;
+    try testing.expectEqual(expected_font.getGlyphCount(), actual_font.getGlyphCount());
 }

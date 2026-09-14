@@ -38,6 +38,12 @@ const global = @import("../global.zig");
 
 const log = std.log.scoped(.font_shared_grid);
 
+// A grid address can be reused while a shaper still caches its old fonts.
+var next_generation = std.atomic.Value(u64).init(1);
+
+/// Identity of this grid lifetime, independent of its allocation address.
+generation: u64,
+
 /// Cache for codepoints to font indexes in a group.
 codepoints: std.AutoHashMapUnmanaged(CodepointKey, ?Collection.Index) = .{},
 
@@ -95,6 +101,7 @@ pub fn init(
     errdefer atlas_color.deinit(alloc);
 
     var result: SharedGrid = .{
+        .generation = next_generation.fetchAdd(1, .monotonic),
         .resolver = resolver,
         .atlas_grayscale = atlas_grayscale,
         .atlas_color = atlas_color,
