@@ -471,9 +471,14 @@ class TerminalWindow: NSWindow {
         guard isVisible else { return }
         defer { updateColorSchemeForSurfaceTree() }
 
-        // Basic properties
         appearance = surfaceConfig.windowAppearance
-        hasShadow = surfaceConfig.macosWindowShadow
+
+        // In non-native fullscreen we force shadow off to avoid the 1px gray window border on macOS 26.
+        if let fs = terminalController?.fullscreenStyle, fs.isFullscreen, !styleMask.contains(.fullScreen) {
+            hasShadow = false
+        } else {
+            hasShadow = surfaceConfig.macosWindowShadow
+        }
 
         // Window transparency only takes effect if our window is not native fullscreen.
         // In native fullscreen we disable transparency/opacity because the background
