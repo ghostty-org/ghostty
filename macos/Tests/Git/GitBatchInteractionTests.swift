@@ -67,6 +67,48 @@ struct GitBatchInteractionTests {
         #expect(table.selectedRowIndexes.isEmpty)
     }
 
+    @Test(arguments: GitCollectionMode.allCases, [false, true])
+    func shiftSelectionContextMenuUsesWholeBatch(mode: GitCollectionMode, staged: Bool) async throws {
+        let files = ["a", "b", "c", "outside"].map { GitDiffFile(path: $0, status: "M") }
+        var actions: [InspectorGitAction] = []
+        var root = GitCollectionView(source: .changes(staged: staged ? files : [], unstaged: staged ? [] : files,
+            stagedError: nil, unstagedError: nil), mode: mode, perform: { actions.append($0) })
+        let host = NSHostingView(rootView: root); host.sizingOptions = []
+        let win = window(host); defer { win.contentView = nil; win.close() }
+        try await Task.sleep(for: .milliseconds(80))
+        let table = try #require(find(GitCollectionTableView.self, in: host).first)
+        let coordinator = try #require(table.target as? GitCollectionView.Coordinator)
+        let section: GitChangeSection = staged ? .staged : .unstaged
+        func row(_ file: GitDiffFile) throws -> Int {
+            try #require(coordinator.rows.firstIndex { $0.id == section.rowID(path: file.path) })
+        }
+        try click(row(files[0]), table: table)
+        try click(row(files[2]), table: table, modifiers: .shift)
+        #expect(table.selectedRowIndexes.count == 3)
+        #expect(coordinator.contextBatch(row: try row(files[3]))?.files == [files[3]])
+        let menu = NSMenu()
+        coordinator.menuNeedsUpdate(menu)
+        for title in [staged ? "Unstage Selected Files" : "Stage Selected Files", "Discard Selected Changes…"] {
+            let item = try #require(menu.items.first { $0.title == GitL10n.text(title) })
+            #expect(item.isEnabled)
+            #expect(NSApp.sendAction(try #require(item.action), to: item.target, from: item))
+        }
+        #expect(actions.suffix(2) == [
+            .setFilesStaged(Array(files.prefix(3)), !staged),
+            .discardSelectedChanges(.init(entries: files.prefix(3).map { .init(file: $0, section: section) }))
+        ])
+        root.pending = [files[2].path]
+        host.rootView = root
+        try await Task.sleep(for: .milliseconds(60))
+        coordinator.menuNeedsUpdate(menu)
+        #expect(menu.items.prefix(2).allSatisfy { !$0.isEnabled })
+        root.pending = []; root.canWrite = false
+        host.rootView = root
+        try await Task.sleep(for: .milliseconds(60))
+        coordinator.menuNeedsUpdate(menu)
+        #expect(menu.items.prefix(2).allSatisfy { !$0.isEnabled })
+    }
+
     @Test func shiftUsesVisibleFilesAndFolderCheckboxHasIndependentHitTarget() async throws {
         let a = GitDiffFile(path: "src/a.cpp", status: "M")
         let files = [a, .init(path: "src/b.cpp", status: "M"), .init(path: "hidden/c.cpp", status: "M"), .init(path: "hidden/d.cpp", status: "M"), .init(path: "z.cpp", status: "M")]

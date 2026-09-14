@@ -291,8 +291,15 @@ final class EditorWorkspaceStore {
 
     func withGitFileRestore(_ file: GitDiffFile, repository: GitRepositoryIdentity,
                             operation: () async throws -> Void) async throws {
+        try await withGitFilesRestore([file], repository: repository, operation: operation)
+    }
+
+    func withGitFilesRestore(_ files: [GitDiffFile], repository: GitRepositoryIdentity,
+                             operation: () async throws -> Void) async throws {
         let endpoint: EditorDocumentID.Endpoint = repository.sshConnection.map { .ssh(workspaceID: $0.workspaceID) } ?? .local
-        let paths = [file.path] + (file.kind == .renamed ? file.oldPath.map { [$0] } ?? [] : [])
+        let paths = files.flatMap { file in
+            [file.path] + (file.kind == .renamed ? file.oldPath.map { [$0] } ?? [] : [])
+        }
         let absolute = paths.map { (repository.worktreePath as NSString).appendingPathComponent($0) }
         let resolved = Set(absolute.map { endpoint == .local ? URL(fileURLWithPath: $0).resolvingSymlinksInPath().path : $0 })
         let affected = workspaces.values.flatMap { workspace in
@@ -309,11 +316,16 @@ final class EditorWorkspaceStore {
         defer {
             for (_, document) in affected { document.isRestoringFromGit = false; document.resumeAutoSave() }
         }
-        try await operation()
-        for (workspace, document) in affected {
+        func reload(_ workspace: EditorWorkspace, _ document: EditorDocument) async throws {
             // A restore may remove an added file or the destination of a rename.
             if try await document.filesystem.itemType(at: document.path) == nil { workspace.remove(document) } else { try await document.reload() }
         }
+        do { try await operation() } catch {
+            // A batch can fail after restoring earlier files. Reconcile those editors too.
+            for (workspace, document) in affected { try? await reload(workspace, document) }
+            throw error
+        }
+        for (workspace, document) in affected { try await reload(workspace, document) }
     }
 
     func containsOpenDocument(path: String, descriptor: WorkspaceDescriptor) -> Bool {

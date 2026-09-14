@@ -27,6 +27,32 @@ struct GitMutationServiceTests {
         try Data(text.utf8).write(to: URL(fileURLWithPath: repo.worktreePath).appendingPathComponent(name))
     }
 
+    @Test func batchDiscardHandlesMixedSectionsAndDuplicatePaths() async throws {
+        let repo = try await repository()
+        defer { try? FileManager.default.removeItem(atPath: repo.worktreePath) }
+        let service = GitMutationService()
+        for name in ["a", "b", "outside"] { try write("base", name, repo) }
+        try await service.perform(.stage(["a", "b", "outside"]), in: repo)
+        try await service.perform(.commit("base"), in: repo)
+        for name in ["a", "b"] { try write("index", name, repo) }
+        try await service.perform(.stage(["a", "b"]), in: repo)
+        for name in ["a", "b", "outside", "new"] { try write("worktree", name, repo) }
+        let staged = try await GitDiffService().listFiles(for: repo, target: .staged).files
+        let unstaged = try await GitDiffService().listFiles(for: repo, target: .unstaged).files
+        let entries = GitStageBatch.entries(staged: staged.filter { $0.path == "a" }, unstaged: unstaged.filter { $0.path != "outside" })
+        // A stale later target must prevent earlier files from being discarded.
+        await #expect(throws: (any Error).self) {
+            try await service.perform(.discardBatch(.init(entries: entries + [.init(file: .init(path: "missing", status: "M"), section: .unstaged)])), in: repo)
+        }
+        #expect(try String(contentsOfFile: repo.worktreePath + "/a", encoding: .utf8) == "worktree")
+        try await service.perform(.discardBatch(.init(entries: entries)), in: repo)
+        #expect(try String(contentsOfFile: repo.worktreePath + "/a", encoding: .utf8) == "base")
+        #expect(try String(contentsOfFile: repo.worktreePath + "/b", encoding: .utf8) == "index")
+        #expect(try await git(["show", ":b"], repo) == "index")
+        #expect(try String(contentsOfFile: repo.worktreePath + "/outside", encoding: .utf8) == "worktree")
+        #expect(!FileManager.default.fileExists(atPath: repo.worktreePath + "/new"))
+    }
+
     @Test func discardSeparatesIndexAndWorktreeAndLeavesOtherFilesUntouched() async throws {
         let repo = try await repository()
         defer { try? FileManager.default.removeItem(atPath: repo.worktreePath) }

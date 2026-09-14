@@ -501,6 +501,11 @@ struct GitCollectionView: NSViewRepresentable {
             }.joined(separator: "\n")
         }
 
+        func contextBatch(row: Int) -> GitStageBatch? {
+            guard rows.indices.contains(row) else { return nil }
+            return selectedRows.contains(rows[row].id) ? selectedBatch : rows[row].item.stageBatch
+        }
+
         private enum MenuCommand { case action(InspectorGitAction), copy(String) }
         func menuNeedsUpdate(_ menu: NSMenu) {
             menu.removeAllItems()
@@ -536,9 +541,24 @@ struct GitCollectionView: NSViewRepresentable {
                 add(GitL10n.text("Copy Worktree Path"), .copy(tree.path))
                 add(GitL10n.text("Remove Worktree…"), .action(.removeWorktree(tree.path)), enabled: input.canWrite && item.enabled && tree.canRemove)
             case .file(let file, let section):
-                add(section == .staged ? GitL10n.text("Unstage File") : GitL10n.text("Stage File"), .action(.setFileStaged(file, section != .staged)), enabled: item.enabled)
-                add(GitL10n.text("Discard Changes…"), .action(.discardChanges(file, staged: section == .staged)),
-                    enabled: input.canWrite && item.enabled && file.kind != .unmerged)
+                if let batch = contextBatch(row: index) {
+                    let enabledIDs = Set(rows.filter { $0.item.enabled }.map(\.id))
+                    let enabled = input.canWrite && batch.paths.isDisjoint(with: input.pending)
+                        && batch.entries.allSatisfy { entry in
+                            enabledIDs.contains(entry.section.rowID(path: entry.file.path))
+                        }
+                    let multiple = batch.entries.count > 1
+                    let title = multiple ? (batch.shouldStage ? "Stage Selected Files" : "Unstage Selected Files")
+                        : (batch.shouldStage ? "Stage File" : "Unstage File")
+                    let stageAction: InspectorGitAction = multiple ? .setFilesStaged(batch.files, batch.shouldStage)
+                        : .setFileStaged(file, batch.shouldStage)
+                    let discardAction: InspectorGitAction = multiple ? .discardSelectedChanges(batch)
+                        : .discardChanges(file, staged: section == .staged)
+                    add(GitL10n.text(title), .action(stageAction), enabled: enabled)
+                    add(GitL10n.text(multiple ? "Discard Selected Changes…" : "Discard Changes…"),
+                        .action(discardAction),
+                        enabled: enabled && batch.entries.allSatisfy { $0.file.kind != .unmerged })
+                }
                 menu.addItem(.separator())
                 add(GitL10n.text("Open Diff"), .action(.openDiff(file, section.target)))
                 add(GitL10n.text("Open in Editor"), .action(.openGitFile(file, directory: false)), enabled: file.kind != .deleted)

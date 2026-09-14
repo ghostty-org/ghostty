@@ -959,6 +959,13 @@ Typed `openGitFile(file, directory:)` actions open the working-tree file in the
 current editor pane or its parent directory in a new terminal tab, using the
 source session's local/SSH destination. Changes, History file rows and the diff
 file-name context menu expose these actions with Files-style names.
+Changes context menus apply stage/unstage and `discardSelectedChanges(batch)` to
+all selected rows when the clicked file belongs to the selection; clicking outside
+the selection targets only that file. Mixed index/worktree selections stage the
+whole selection. Batch discard confirms every target once, validates all targets
+and protects all affected editor documents before the first mutation. Duplicate
+paths selected in both sections restore from HEAD once. The batch shares one
+worktree mutation gate; a failure stops remaining operations and refreshes status.
 `discardChanges(file, staged:)` requires a file-specific confirmation and a fresh
 Git file-list check. Unstaged tracked files restore from the index; staged files
 restore both index and working tree from HEAD (or the empty tree before the first

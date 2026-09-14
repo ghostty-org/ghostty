@@ -1,12 +1,12 @@
 import Foundation
 
-struct GitStageEntry: Equatable {
+struct GitStageEntry: Equatable, Sendable {
     let file: GitDiffFile
     let section: GitChangeSection
 }
 
 /// Selection membership and index state are deliberately separate.
-struct GitStageBatch: Equatable {
+struct GitStageBatch: Equatable, Sendable {
     let entries: [GitStageEntry]
     var isEmpty: Bool { entries.isEmpty }
     var allStaged: Bool { !entries.isEmpty && entries.allSatisfy { $0.section == .staged } }
@@ -17,6 +17,15 @@ struct GitStageBatch: Equatable {
         return entries.compactMap { seen.insert($0.file.path).inserted ? $0.file : nil }
     }
     var paths: Set<String> { Set(entries.flatMap { [$0.file.path] + ($0.file.oldPath.map { [$0] } ?? []) }) }
+
+    /// A staged selection already discards both versions of the same path.
+    var discardEntries: [GitStageEntry] {
+        let stagedPaths = Set(entries.filter { $0.section == .staged }.map { $0.file.path })
+        var seen = Set<String>()
+        return entries.filter {
+            ($0.section == .staged || !stagedPaths.contains($0.file.path)) && seen.insert($0.file.path).inserted
+        }
+    }
 
     static func entries(staged: [GitDiffFile], unstaged: [GitDiffFile]) -> [GitStageEntry] {
         staged.map { .init(file: $0, section: .staged) } + unstaged.map { .init(file: $0, section: .unstaged) }

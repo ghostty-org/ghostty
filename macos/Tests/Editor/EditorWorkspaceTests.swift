@@ -115,6 +115,45 @@ struct EditorWorkspaceTests {
         #expect(workspace.documents.isEmpty)
     }
 
+    @Test @MainActor func batchRestoreChecksEveryEditorBeforeWritingAndReloadsPartialFailure() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = EditorWorkspaceStore()
+        let surface = UUID()
+        defer { store.remove(surfaceIDs: [surface]) }
+        let workspace = store.workspace(for: UUID(), surfaceID: surface)
+        let filesystem = LocalWorkspaceFilesystem(workingDirectory: root.path)
+        var documents: [EditorDocument] = []
+        for name in ["a.swift", "b.swift"] {
+            let url = root.appendingPathComponent(name)
+            try Data("disk".utf8).write(to: url)
+            workspace.open(path: url.path, filesystem: filesystem)
+            await waitUntil { !workspace.isLoading }
+            let document = try #require(workspace.selectedDocument)
+            document.suspendAutoSave()
+            documents.append(document)
+        }
+        let repo = GitRepositoryIdentity(worktreePath: root.path, gitDirPath: root.path + "/.git", commonGitDirPath: root.path + "/.git")
+        let files = ["a.swift", "b.swift"].map { GitDiffFile(path: $0, status: "M") }
+        documents[1].text = "unsaved"
+        var called = false
+        await #expect(throws: (any Error).self) {
+            try await store.withGitFilesRestore(files, repository: repo) { called = true }
+        }
+        #expect(!called && documents[1].text == "unsaved")
+        documents[1].text = "disk"
+        await #expect(throws: (any Error).self) {
+            try await store.withGitFilesRestore(files, repository: repo) {
+                #expect(documents.allSatisfy { $0.isRestoringFromGit })
+                try Data("restored".utf8).write(to: root.appendingPathComponent("a.swift"))
+                throw CocoaError(.fileWriteUnknown)
+            }
+        }
+        #expect(documents[0].text == "restored" && documents[1].text == "disk")
+        #expect(documents.allSatisfy { !$0.isRestoringFromGit && !$0.isDirty })
+    }
+
     @Test @MainActor func renameGuardFindsOpenDocumentsThroughLocalSymlinks() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let real = root.appendingPathComponent("real", isDirectory: true)

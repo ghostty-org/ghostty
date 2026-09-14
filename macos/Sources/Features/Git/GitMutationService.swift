@@ -13,6 +13,7 @@ enum GitMutation: Equatable, Sendable {
     case addWorktree(path: String, start: String, branch: String?, detached: Bool)
     case removeWorktree(String)
     case discard(GitDiffFile, staged: Bool)
+    case discardBatch(GitStageBatch)
     case stage([String])
     case unstage([String])
     case commit(String)
@@ -41,7 +42,7 @@ enum GitMutation: Equatable, Sendable {
         case .applyCommit(let operation, _, _): return operation == .cherryPick ? GitL10n.text("Cherry-picking…") : GitL10n.text("Reverting…")
         case .addWorktree: return GitL10n.text("Creating worktree…")
         case .removeWorktree: return GitL10n.text("Removing worktree…")
-        case .discard: return GitL10n.text("Discarding changes…")
+        case .discard, .discardBatch: return GitL10n.text("Discarding changes…")
         case .stage: return GitL10n.text("Staging files…")
         case .unstage: return GitL10n.text("Unstaging files…")
         case .commit: return GitL10n.text("Committing…")
@@ -56,6 +57,27 @@ enum GitMutation: Equatable, Sendable {
 struct GitMutationService: Sendable {
     let executor: (any GitExecutor)?
     init(executor: (any GitExecutor)? = nil) { self.executor = executor }
+
+    private func discard(_ file: GitDiffFile, staged: Bool, in repository: GitRepositoryIdentity) async throws {
+        let paths = [file.path] + (file.kind == .renamed ? file.oldPath.map { [$0] } ?? [] : [])
+        if file.isUntracked {
+            // No directory recursion or ignored-file removal. Literal pathspecs keep wildcards inert.
+            _ = try await run(["--literal-pathspecs", "clean", "-f", "--"] + paths, in: repository)
+        } else {
+            var arguments = ["--literal-pathspecs", "restore", "--worktree"]
+            if staged {
+                let head = try await (executor ?? repository.executor).execute(arguments: ["rev-parse", "--verify", "--quiet", "HEAD"],
+                    workingDirectory: repository.worktreePath, stdin: nil, maxOutputBytes: 1024)
+                let source: String
+                if head.isSuccess { source = head.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines) } else if head.exitCode == 1 {
+                    source = try await run(["hash-object", "-w", "-t", "tree", "--stdin"], in: repository, stdin: Data())
+                        .stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+                } else { throw GitExecutionError.processFailed(exitCode: head.exitCode, stderr: head.stderrString) }
+                arguments += ["--staged", "--source=" + source]
+            }
+            _ = try await run(arguments + ["--"] + paths, in: repository)
+        }
+    }
 
     func remotes(in repository: GitRepositoryIdentity) async throws -> [String] {
         let result = try await run(["remote"], in: repository)
@@ -95,6 +117,26 @@ struct GitMutationService: Sendable {
                 throw GitDiffServiceError.gitFailed(GitL10n.text("Cannot remove this worktree: it is current, main, locked, dirty, unavailable, or its status could not be checked."))
             }
             _ = try await run(["worktree", "remove", "--", path], in: repository)
+        case .discardBatch(let batch):
+            let entries = batch.discardEntries
+            // Validate every target before the first destructive operation.
+            for section in [GitChangeSection.staged, .unstaged] {
+                let selected = entries.filter { $0.section == section }
+                guard !selected.isEmpty else { continue }
+                let current = try await GitDiffService(executor: executor).listFiles(for: repository, target: section.target)
+                for entry in selected {
+                    try validate([entry.file.path] + (entry.file.oldPath.map { [$0] } ?? []))
+                    guard entry.file.kind != .unmerged else {
+                        throw GitDiffServiceError.gitFailed(GitL10n.text("Resolve merge conflicts before discarding changes."))
+                    }
+                    guard current.files.contains(entry.file) else {
+                        throw GitDiffServiceError.gitFailed(GitL10n.text("The file changed. Refresh and try again."))
+                    }
+                }
+            }
+            for entry in entries {
+                try await discard(entry.file, staged: entry.section == .staged, in: repository)
+            }
         case .discard(let file, let staged):
             let paths = [file.path] + (file.kind == .renamed ? file.oldPath.map { [$0] } ?? [] : [])
             try validate(paths)
@@ -105,23 +147,7 @@ struct GitMutationService: Sendable {
             guard current.files.contains(file) else {
                 throw GitDiffServiceError.gitFailed(GitL10n.text("The file changed. Refresh and try again."))
             }
-            if file.isUntracked {
-                // No directory recursion or ignored-file removal. Literal pathspecs keep wildcards inert.
-                _ = try await run(["--literal-pathspecs", "clean", "-f", "--"] + paths, in: repository)
-            } else {
-                var arguments = ["--literal-pathspecs", "restore", "--worktree"]
-                if staged {
-                    let head = try await (executor ?? repository.executor).execute(arguments: ["rev-parse", "--verify", "--quiet", "HEAD"],
-                        workingDirectory: repository.worktreePath, stdin: nil, maxOutputBytes: 1024)
-                    let source: String
-                    if head.isSuccess { source = head.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines) } else if head.exitCode == 1 {
-                        source = try await run(["hash-object", "-w", "-t", "tree", "--stdin"], in: repository, stdin: Data())
-                            .stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
-                    } else { throw GitExecutionError.processFailed(exitCode: head.exitCode, stderr: head.stderrString) }
-                    arguments += ["--staged", "--source=" + source]
-                }
-                _ = try await run(arguments + ["--"] + paths, in: repository)
-            }
+            try await discard(file, staged: staged, in: repository)
         case .stage(let paths):
             try validate(paths)
             if paths.count > 1 {

@@ -1191,5 +1191,21 @@
   "Save unsaved editor changes before discarding this file's Git changes.": {
     "en": "Save unsaved editor changes before discarding this file's Git changes.",
     "zh-Hans": "请先保存编辑器中未保存的内容，再丢弃此文件的 Git 更改。"
+  },
+  "Stage Selected Files": {
+    "en": "Stage Selected Files",
+    "zh-Hans": "暂存所选文件"
+  },
+  "Unstage Selected Files": {
+    "en": "Unstage Selected Files",
+    "zh-Hans": "取消暂存所选文件"
+  },
+  "Discard Selected Changes…": {
+    "en": "Discard Selected Changes…",
+    "zh-Hans": "丢弃所选更改…"
+  },
+  "Discard changes in {0} selected files? Review the files below. This cannot be undone.": {
+    "en": "Discard changes in {0} selected files? Review the files below. This cannot be undone.",
+    "zh-Hans": "丢弃所选 {0} 个文件的更改？请核对下方文件。此操作无法撤销。"
   }
 }

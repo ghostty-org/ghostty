@@ -103,6 +103,7 @@ enum InspectorGitAction: Equatable, Sendable {
     case openDiff(GitDiffFile, GitDiffTarget)
     case openGitFile(GitDiffFile, directory: Bool)
     case discardChanges(GitDiffFile, staged: Bool)
+    case discardSelectedChanges(GitStageBatch)
     case browseBranch(String)
     case browseRef(String)
     case browseWorktree(String)
