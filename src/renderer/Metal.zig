@@ -275,7 +275,6 @@ pub inline fn bufferOptions(self: Metal) bufferpkg.Options {
     };
 }
 
-pub const instanceBufferOptions = bufferOptions;
 pub const uniformBufferOptions = bufferOptions;
 pub const fgBufferOptions = bufferOptions;
 pub const bgBufferOptions = bufferOptions;
