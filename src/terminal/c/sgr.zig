@@ -11,6 +11,12 @@ const log = std.log.scoped(.sgr);
 /// Wrapper around parser that tracks the allocator for C API usage.
 const ParserWrapper = struct {
     parser: sgr.Parser,
+
+    /// Backing store for `parser.params_sep`, which the parser only
+    /// borrows. The wrapper owns it because it has to outlive any one
+    /// `setParams` call, and a C caller keeps a parser across many.
+    seps: sgr.SepList,
+
     alloc: Allocator,
 };
 
@@ -26,8 +32,10 @@ pub fn new(
         return .out_of_memory;
     ptr.* = .{
         .parser = .empty,
+        .seps = .initEmpty(),
         .alloc = alloc,
     };
+    ptr.parser.params_sep = &ptr.seps;
     result.* = ptr;
     return .success;
 }
@@ -62,19 +70,20 @@ pub fn setParams(
     if (parser.params.len > 0) alloc.free(parser.params);
     parser.params = params_slice;
 
-    // If we have separators, set that state too.
-    parser.params_sep = .initEmpty();
+    // The parser only borrows the separators, so the wrapper's own bit
+    // set is what gets rewritten here.
+    wrapper.seps = .initEmpty();
     if (seps_) |seps| {
-        if (len > @TypeOf(parser.params_sep).bit_length) {
+        if (len > sgr.SepList.bit_length) {
             log.warn("ghostty_sgr_set_params: separators length {} exceeds max supported length {}", .{
                 len,
-                @TypeOf(parser.params_sep).bit_length,
+                sgr.SepList.bit_length,
             });
             return .invalid_value;
         }
 
         for (seps[0..len], 0..) |sep, i| {
-            if (sep == ':') parser.params_sep.set(i);
+            if (sep == ':') wrapper.seps.set(i);
         }
     }
 
