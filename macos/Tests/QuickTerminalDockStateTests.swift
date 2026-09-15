@@ -51,4 +51,38 @@ struct QuickTerminalDockStateTests {
         #expect(state.apply(dockAutoHide: false, fullscreenSpace: false) == .hide)
         #expect(state.managedHidden)
     }
+
+    @Test func managedHiddenDockStaysOnDetectedDisplay() {
+        var state = QuickTerminalDockState()
+
+        #expect(state.screenHasDock(displayID: 1, detected: true) == true)
+        #expect(state.screenHasDock(displayID: 2, detected: false) == false)
+        #expect(state.setShouldHide(true, dockAutoHide: false, fullscreenSpace: false) == .hide)
+
+        // Once hidden, no screen reports the dock through its visible frame.
+        #expect(state.screenHasDock(displayID: 1, detected: false) == true)
+        #expect(state.screenHasDock(displayID: 2, detected: false) == false)
+        #expect(state.screenHasDock(displayID: nil, detected: false) == false)
+    }
+
+    @Test func dockDisplayFollowsDetectionWhileVisible() {
+        var state = QuickTerminalDockState()
+
+        #expect(state.screenHasDock(displayID: 1, detected: true) == true)
+        #expect(state.screenHasDock(displayID: 2, detected: true) == true)
+        #expect(state.setShouldHide(true, dockAutoHide: false, fullscreenSpace: false) == .hide)
+
+        #expect(state.screenHasDock(displayID: 1, detected: false) == false)
+        #expect(state.screenHasDock(displayID: 2, detected: false) == true)
+    }
+
+    @Test func positionDoesNotConflictWithoutDockOnScreen() {
+        for position in [QuickTerminalPosition.top, .bottom, .left, .right, .center] {
+            for orientation in [DockOrientation.top, .bottom, .left, .right] {
+                #expect(!position.conflictsWithDock(orientation: orientation, screenHasDock: false))
+            }
+        }
+
+        #expect(QuickTerminalPosition.bottom.conflictsWithDock(orientation: .bottom, screenHasDock: true))
+    }
 }

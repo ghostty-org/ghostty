@@ -119,15 +119,15 @@ enum QuickTerminalPosition: String {
     }
 
     func conflictsWithDock(on screen: NSScreen) -> Bool {
-        // Screen must have a dock for it to conflict
-        guard screen.hasDock else { return false }
-
-        return conflictsWithDockOrientation
+        conflictsWithDock(orientation: Dock.orientation, screenHasDock: screen.hasDock)
     }
 
-    var conflictsWithDockOrientation: Bool {
+    func conflictsWithDock(orientation: DockOrientation?, screenHasDock: Bool) -> Bool {
+        // Screen must have a dock for it to conflict
+        guard screenHasDock else { return false }
+
         // Get the dock orientation for this screen
-        guard let orientation = Dock.orientation else { return false }
+        guard let orientation else { return false }
 
         // Depending on the orientation of the dock, we conflict if our quick terminal
         // would potentially "hit" the dock. In the future we should probably consider

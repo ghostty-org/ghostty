@@ -178,7 +178,7 @@ class QuickTerminalController: BaseTerminalController {
         guard visible else { return }
 
         // Re-hide the dock if we were hiding it before.
-        hiddenDock.setShouldHide(position.conflictsWithDockOrientation, reason: "windowDidBecomeKey")
+        hiddenDock.setShouldHide(conflictsWithDock(on: window?.screen), reason: "windowDidBecomeKey")
     }
 
     override func windowDidResignKey(_ notification: Notification) {
@@ -479,7 +479,7 @@ class QuickTerminalController: BaseTerminalController {
 
         // If our dock position would conflict with our target location then
         // we autohide the dock.
-        if position.conflictsWithDockOrientation {
+        if conflictsWithDock(on: screen) {
             hiddenDock.setShouldHide(true, reason: "animateWindowIn")
         } else {
             // Ensure we don't have any hidden dock if we don't conflict.
@@ -578,7 +578,7 @@ class QuickTerminalController: BaseTerminalController {
 
         // Keep the dock hidden while we animate out, then restore it once the
         // quick terminal is gone.
-        hiddenDock.setShouldHide(true, reason: "animateWindowOut")
+        hiddenDock.setShouldHide(conflictsWithDock(on: window.screen), reason: "animateWindowOut")
 
         // If the window isn't on our active space then we don't animate, we just
         // hide it.
@@ -742,7 +742,7 @@ class QuickTerminalController: BaseTerminalController {
             pendingActiveSpaceChange = nil
             quickTerminalDebugLog("dock activeSpaceDidChange refocusing quick terminal")
             makeWindowKey(window)
-            hiddenDock.setShouldHide(position.conflictsWithDockOrientation, reason: "activeSpaceDidChange:refocus")
+            hiddenDock.setShouldHide(conflictsWithDock(on: window.screen), reason: "activeSpaceDidChange:refocus")
             return
         }
 
@@ -768,8 +768,16 @@ class QuickTerminalController: BaseTerminalController {
                 return
             }
 
-            self.hiddenDock.setShouldHide(self.position.conflictsWithDockOrientation, reason: "activeSpaceDidChange:keyWindow")
+            self.hiddenDock.setShouldHide(self.conflictsWithDock(on: self.window?.screen), reason: "activeSpaceDidChange:keyWindow")
         }
+    }
+
+    /// Returns true if the quick terminal position conflicts with the dock on the given screen.
+    private func conflictsWithDock(on screen: NSScreen?) -> Bool {
+        guard let screen else { return false }
+        return position.conflictsWithDock(
+            orientation: Dock.orientation,
+            screenHasDock: hiddenDock.screenHasDock(screen))
     }
 
     @objc private func onToggleFullscreen(notification: SwiftUI.Notification) {
@@ -873,6 +881,12 @@ class QuickTerminalController: BaseTerminalController {
             }
         }
 
+        /// Forwards to QuickTerminalDockState, which holds the logic so the
+        /// controller's dock behavior can be unit tested without NSScreen.
+        func screenHasDock(_ screen: NSScreen) -> Bool {
+            state.screenHasDock(displayID: screen.displayID, detected: screen.hasDock)
+        }
+
         func apply(reason: String) {
             apply(reason: reason) { dockAutoHide, fullscreenSpace in
                 state.apply(dockAutoHide: dockAutoHide, fullscreenSpace: fullscreenSpace)
@@ -912,6 +926,8 @@ class QuickTerminalController: BaseTerminalController {
     }
 }
 
+/// Dock decisions for QuickTerminalController, kept free of AppKit so the
+/// controller's dock behavior can be unit tested. HiddenDock applies them.
 struct QuickTerminalDockState {
     enum Transition: Equatable {
         case hide
@@ -921,6 +937,22 @@ struct QuickTerminalDockState {
 
     private(set) var managedHidden: Bool = false
     private(set) var shouldBeHidden: Bool = false
+    private(set) var dockDisplayID: UInt32?
+
+    /// Returns true if the display holds the dock. While we hide the dock, the
+    /// screen's visible frame no longer reveals it, so we use the display where
+    /// the dock was last detected.
+    mutating func screenHasDock(displayID: UInt32?, detected: Bool) -> Bool {
+        if managedHidden {
+            return displayID != nil && displayID == dockDisplayID
+        }
+
+        if detected {
+            dockDisplayID = displayID
+        }
+
+        return detected
+    }
 
     mutating func setShouldHide(
         _ value: Bool,
