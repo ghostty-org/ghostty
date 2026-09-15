@@ -13,6 +13,7 @@
 
         .apple_sdk = .{ .path = "../apple-sdk" },
         .libpng = .{ .path = "../libpng" },
+        .translate_c = .{ .path = "../translate-c" },
         .zlib = .{ .path = "../zlib" },
     },
 }

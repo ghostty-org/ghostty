@@ -8,7 +8,7 @@
 //! Call `load()` once before using any EGL extension functions.
 
 const std = @import("std");
-pub const c = @import("c");
+pub const c = @import("opengl_c");
 
 const log = std.log.scoped(.opengl_egl);
 

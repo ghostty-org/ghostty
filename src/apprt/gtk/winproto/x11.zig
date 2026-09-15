@@ -10,11 +10,7 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 const xlib = @import("xlib");
 
-pub const c = @cImport({
-    @cInclude("X11/Xlib.h");
-    @cInclude("X11/Xatom.h");
-    @cInclude("X11/XKBlib.h");
-});
+pub const c = @import("x11_c");
 
 const input = @import("../../../input.zig");
 const Config = @import("../../../config.zig").Config;

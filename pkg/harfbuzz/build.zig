@@ -11,14 +11,6 @@ pub fn build(b: *std.Build) !void {
     const coretext_enabled = b.option(bool, "enable-coretext", "Build coretext") orelse false;
     const freetype_enabled = b.option(bool, "enable-freetype", "Build freetype") orelse true;
 
-    // For dynamic linking, we prefer dynamic linking and to search by
-    // mode first. Mode first will search all paths for a dynamic library
-    // before falling back to static.
-    const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
-        .preferred_link_mode = .dynamic,
-        .search_strategy = .mode_first,
-    };
-
     const freetype_dep = b.dependency("freetype", .{
         .target = target,
         .optimize = optimize,
@@ -31,17 +23,14 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
             .harfbuzz = if (b.systemIntegrationOption("harfbuzz", .{}))
-                .{ .dynamic = dynamic_link_opts }
+                .dynamic
             else
                 .static,
             .coretext = coretext_enabled,
             .freetype = if (freetype_enabled)
                 .{
                     .dependency = freetype_dep,
-                    .link_mode = if (b.systemIntegrationOption("freetype", .{}))
-                        .{ .dynamic = dynamic_link_opts }
-                    else
-                        .static,
+                    .link_mode = if (b.systemIntegrationOption("freetype", .{})) .dynamic else .static,
                 }
             else
                 null,
@@ -93,10 +82,18 @@ pub fn build(b: *std.Build) !void {
 }
 
 const HarfBuzzC = struct {
+    // For dynamic linking, we prefer dynamic linking and to search by
+    // mode first. Mode first will search all paths for a dynamic library
+    // before falling back to static.
+    const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
+        .preferred_link_mode = .dynamic,
+        .search_strategy = .mode_first,
+    };
+
     const AddImportToModuleOptions = struct {
-        const LinkMode = union(enum) {
+        const LinkMode = enum {
             static,
-            dynamic: std.Build.Module.LinkSystemLibraryOptions,
+            dynamic,
         };
 
         target: std.Build.ResolvedTarget,
@@ -262,7 +259,7 @@ const HarfBuzzC = struct {
         // Freetype
         if (self.options.freetype) |ft| {
             switch (ft.link_mode) {
-                .dynamic => |opts| lib.root_module.linkSystemLibrary("freetype2", opts),
+                .dynamic => lib.root_module.linkSystemLibrary("freetype2", dynamic_link_opts),
                 .static => {
                     lib.root_module.linkLibrary(ft.dependency.artifact("freetype"));
                 },

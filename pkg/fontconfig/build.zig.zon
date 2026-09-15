@@ -12,5 +12,6 @@
 
         .freetype = .{ .path = "../freetype", .lazy = true },
         .libxml2 = .{ .path = "../libxml2", .lazy = true },
+        .translate_c = .{ .path = "../translate-c" },
     },
 }

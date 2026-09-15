@@ -192,26 +192,11 @@ pub fn add(
     step.root_module.addImport("uucode", self.uucode_mod);
 
     // C imports for locale constants and functions
-    {
-        const c = b.addTranslateC(.{
-            .root_source_file = b.path("src/os/locale.c"),
-            .target = target,
-            .optimize = optimize,
-        });
-        if (target.result.os.tag.isDarwin()) {
-            const libc = try std.zig.LibCInstallation.findNative(
-                b.allocator,
-                b.graph.io,
-                .{
-                    .environ_map = &b.graph.environ_map,
-                    .target = &target.result,
-                    .verbose = false,
-                },
-            );
-            c.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
-        }
-        step.root_module.addImport("locale-c", c.createModule());
-    }
+    try translate_c.addImportToModule(b, "locale-c", step.root_module, .{
+        .source = .{ .file = b.path("src/os/locale.c") },
+        .target = target,
+        .optimize = optimize,
+    });
 
     // C imports needed to manage/create PTYs
     switch (target.result.os.tag) {
@@ -219,30 +204,29 @@ pub fn add(
         .linux,
         .macos,
         => {
-            const c = b.addTranslateC(.{
-                .root_source_file = b.path("src/pty.c"),
+            try translate_c.addImportToModule(b, "pty-c", step.root_module, .{
+                .source = .{ .file = b.path("src/pty.c") },
                 .target = target,
                 .optimize = optimize,
             });
-            switch (target.result.os.tag) {
-                .macos => {
-                    const libc = try std.zig.LibCInstallation.findNative(
-                        b.allocator,
-                        b.graph.io,
-                        .{
-                            .environ_map = &b.graph.environ_map,
-                            .target = &target.result,
-                            .verbose = false,
-                        },
-                    );
-                    c.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
-                },
-                else => {},
-            }
-            step.root_module.addImport("pty-c", c.createModule());
         },
         else => {},
     }
+
+    // POSIX C imports that are used throughout Ghostty on a general basis.
+    // (note: errno is C stdlib but we just include it here because that's
+    // where it's generally included otherwise)
+    try translate_c.addImportToModule(b, "posix_c", step.root_module, .{
+        .source = .{ .includes = .{ .files = &.{
+            .{ .path = "errno.h" },
+            .{ .path = "pwd.h" },
+            .{ .path = "signal.h" },
+            .{ .path = "sys/types.h" },
+            .{ .path = "unistd.h" },
+        } } },
+        .target = target,
+        .optimize = optimize,
+    });
 
     // Freetype. We always include this even if our font backend doesn't
     // use it because Dear Imgui uses Freetype.
@@ -472,6 +456,17 @@ pub fn add(
             step.root_module.addLibraryPath(.{ .cwd_relative = path });
         } else |_| {}
     }
+
+    // nothings/stb headers
+    try translate_c.addImportToModule(b, "stb_c", step.root_module, .{
+        .source = .{ .includes = .{ .files = &.{
+            .{ .path = "stb_image.h" },
+            .{ .path = "stb_image_resize.h" },
+        } } },
+        .target = target,
+        .optimize = optimize,
+        .include_paths = &.{b.path("src/stb")},
+    });
 
     // C files
     step.root_module.link_libc = true;
@@ -753,7 +748,18 @@ fn addGtkNg(
     });
 
     if (self.config.x11) {
-        step.root_module.linkSystemLibrary("X11", dynamic_link_opts);
+        // X11 headers
+        try translate_c.addImportToModule(b, "x11_c", step.root_module, .{
+            .source = .{ .includes = .{ .files = &.{
+                .{ .path = "X11/Xlib.h" },
+                .{ .path = "X11/Xatom.h" },
+                .{ .path = "X11/XKBlib.h" },
+            } } },
+            .target = target,
+            .optimize = optimize,
+            .link_system_libs = &.{"X11"},
+        });
+
         if (gobject_) |gobject| {
             step.root_module.addImport(
                 "gdk_x11",
