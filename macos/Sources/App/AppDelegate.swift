@@ -1373,7 +1373,12 @@ extension AppDelegate {
 
                 if [.OK, .alertFirstButtonReturn].contains(response) {
                     // Close this window and until next review is cancelled
-                    await controller.window?.close()
+                    if let terminalController = controller as? TerminalController {
+                        // Undoable close for TerminalController
+                        await terminalController.closeTabImmediately()
+                    } else {
+                        await controller.window?.close()
+                    }
                     continue
                 } else {
                     await NSApp.reply(toApplicationShouldTerminate: false)
