@@ -119,6 +119,13 @@ fn initVt(
         .target = cfg.target,
         .optimize = cfg.optimize,
 
+        // Our linked artifacts hide unstripped objects because the linker
+        // drops the debug info anyway, but the static archive keeps it for
+        // every object we put in there, compilation directories pointing
+        // back at the Zig toolchain and the dependency cache included. So
+        // we honor -Dstrip here too.
+        .strip = cfg.strip,
+
         // SIMD requires libc. Vendored C++ dependencies are built with
         // no-libcxx mode (HWY_NO_LIBCXX / SIMDUTF_NO_LIBCXX) so we
         // don't need libcpp. System-provided simdutf headers still
