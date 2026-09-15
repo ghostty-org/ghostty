@@ -95,6 +95,13 @@ struct PaneSessionContext: Equatable, Sendable {
         presentationTitle(pathDisplay: .fullPath)
     }
 
+    func displaysTerminalTitle(pathDisplay: OhMyGhosttyTabPathDisplay) -> Bool {
+        switch state {
+        case .sshReady: false
+        case .local, .sshConnecting: pathDisplay != .folderName || local.workingDirectory == nil
+        }
+    }
+
     func presentationTitle(
         pathDisplay: OhMyGhosttyTabPathDisplay
     ) -> String {

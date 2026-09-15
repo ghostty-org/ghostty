@@ -1749,6 +1749,11 @@ private struct VerticalTabRow: View {
         )
         .onHover(perform: hoverChanged)
         .onReceive(surface.$title.receive(on: DispatchQueue.main)) { _ in
+            guard controller.titleOverride == nil,
+                  controller.agentActivity(for: surface) == nil,
+                  controller.paneSessionContext(for: surface)?.displaysTerminalTitle(
+                    pathDisplay: settings.tabPathDisplay
+                  ) != false else { return }
             // Read committed session metadata. Folder-name and Agent labels
             // often remain identical while the terminal title animates.
             let nextTitle = livePresentation.title

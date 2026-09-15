@@ -60,6 +60,7 @@ final class BuiltInGitInspectorProvider {
     private var detailTasks: [DetailKey: Task<Void, Never>] = [:]
     private var lastRemotePoll: [UUID: Date] = [:]
     private var resolvedDirectories: [UUID: String] = [:]
+    private var localChangeMonitors: [UUID: (repository: GitRepositoryIdentity, monitor: GitRepositoryChangeMonitor)] = [:]
 
     init(
         registry: InspectorRegistry,
@@ -82,6 +83,7 @@ final class BuiltInGitInspectorProvider {
     }
 
     func forgetTab(_ tabID: UUID) {
+        localChangeMonitors.removeValue(forKey: tabID)
         cancelTask(tabID: tabID)
         for key in detailTasks.keys where key.tabID == tabID { detailTasks.removeValue(forKey: key)?.cancel() }
         presentedContexts.removeValue(forKey: tabID)
@@ -111,7 +113,10 @@ final class BuiltInGitInspectorProvider {
             // rapid pane switches must not launch/cancel full SSH queries.
             if !canReuse { load(context: context) }
             ensurePollingTimer()
-        case .disappeared(let context): cancelTask(tabID: context.tabID); presentedContexts.removeValue(forKey: context.tabID); if presentedContexts.isEmpty { stopPollingTimer() }
+        case .disappeared(let context):
+            localChangeMonitors.removeValue(forKey: context.tabID)
+            cancelTask(tabID: context.tabID); presentedContexts.removeValue(forKey: context.tabID)
+            if presentedContexts.isEmpty { stopPollingTimer() }
         }
     }
 
@@ -323,6 +328,18 @@ final class BuiltInGitInspectorProvider {
             let status = await self.repositoryService.resolveStatus(workingDirectory: directory, session: context.session)
             guard !Task.isCancelled, self.generations[context.tabID] == generation else { return }
             self.resolvedDirectories[context.tabID] = directory
+            if let repository = status.repository, repository.target == .local {
+                if self.localChangeMonitors[context.tabID]?.repository != repository {
+                    let paths = [repository.worktreePath, repository.gitDirPath, repository.commonGitDirPath]
+                    self.localChangeMonitors[context.tabID] = GitRepositoryChangeMonitor(
+                        paths: paths, gitDirectories: [repository.gitDirPath, repository.commonGitDirPath]
+                    ).map {
+                        (repository, $0)
+                    }
+                }
+            } else {
+                self.localChangeMonitors.removeValue(forKey: context.tabID)
+            }
             var workingTree = oldContent?.repository == status.repository
                 ? (oldContent?.workingTree ?? GitWorkingTreeContent()) : GitWorkingTreeContent()
             if let repository = status.repository {
@@ -505,9 +522,16 @@ final class BuiltInGitInspectorProvider {
 
     private func pollActiveTabs() {
         guard NSApp.isActive else { return }
+        pollPresentedTabs()
+    }
+
+    func pollPresentedTabs() {
         for (tabID, context) in presentedContexts {
             guard loadTasks[tabID] == nil, let directory = context.workingDirectory, !directory.isEmpty else { continue }
             if case .sshConnecting = context.session.state { continue }
+            if case .local = context.session.state,
+               let monitor = localChangeMonitors[tabID]?.monitor,
+               !monitor.needsRefresh() { continue }
             if case .sshReady = context.session.state {
                 let now = Date()
                 guard now.timeIntervalSince(lastRemotePoll[tabID] ?? .distantPast) >= 10 else { continue }

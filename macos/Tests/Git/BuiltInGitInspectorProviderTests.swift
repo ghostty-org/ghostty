@@ -5,6 +5,58 @@ import Testing
 
 @MainActor
 struct BuiltInGitInspectorProviderTests {
+    private actor CountingExecutor: GitExecutor {
+        var count = 0
+        func execute(arguments: [String], workingDirectory: String, stdin: Data?,
+                     maxOutputBytes: Int?) async throws -> GitExecutionResult {
+            count += 1
+            return try await LocalGitExecutor().execute(arguments: arguments,
+                workingDirectory: workingDirectory, stdin: stdin, maxOutputBytes: maxOutputBytes)
+        }
+    }
+
+    @Test func unchangedPollingSkipsCommandsAndFileEditsStillRefresh() async throws {
+        let dir = createTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try runCommand(["git", "init", "-b", "main"], in: dir.path)
+        try runCommand(["git", "commit", "--allow-empty", "-m", "initial"], in: dir.path)
+        try runCommand(["git", "config", "core.fsmonitor", "true"], in: dir.path)
+        let executor = CountingExecutor()
+        let registry = InspectorRegistry()
+        let provider = BuiltInGitInspectorProvider(registry: registry, executor: executor)
+        try provider.register()
+        let context = InspectorPaneContext(tabID: UUID(), surfaceID: UUID(), title: "test", workingDirectory: dir.path)
+        registry.presentationDidChange(to: BuiltInGitInspectorProvider.paneID, context: context)
+        defer { registry.presentationDidChange(to: nil, context: context) }
+        try await Task.sleep(for: .seconds(1))
+        provider.pollPresentedTabs() // Consume the initial watch snapshot.
+        try await Task.sleep(for: .seconds(1))
+        let before = await executor.count
+        #expect(before > 0)
+        for _ in 0..<3 {
+            provider.pollPresentedTabs()
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        #expect(await executor.count == before)
+        try Data("new file".utf8).write(to: dir.appendingPathComponent("change.txt"))
+        var found = false
+        for _ in 0..<30 {
+            try await Task.sleep(for: .milliseconds(100))
+            provider.pollPresentedTabs()
+            if case .git(let content) = registry.content(for: BuiltInGitInspectorProvider.paneID, context: context),
+               content.workingTree.unstaged.contains(where: { $0.path == "change.txt" }) {
+                found = true; break
+            }
+        }
+        #expect(found)
+        #expect(await executor.count > before)
+        let refreshed = await executor.count
+        registry.performAction(paneID: BuiltInGitInspectorProvider.paneID,
+                               action: .init(context: context, kind: .gitAction(.refresh)))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(await executor.count > refreshed)
+    }
+
     @Test func commandLaunchProvidesRepositoryContextBeforeAnyShellPrompt() async throws {
         let directory = createTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

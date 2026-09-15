@@ -47,6 +47,19 @@ The Surface's title publisher preserves individual title delivery without
 invalidating terminal content views. Tab rows redraw only when their displayed
 title changes, including path-display and Agent-title normalization.
 
+The local Git Inspector watches its worktree, Git directory and common Git
+directory recursively. File events mark its snapshot dirty; the existing
+three-second timer coalesces changes into a refresh. Unchanged repositories
+receive a full fallback refresh every 30 seconds. If monitoring cannot start,
+the original three-second polling remains active. Manual refresh and Git
+mutations bypass this gate; SSH retains its ten-second polling interval.
+Monitoring ends when a pane disappears or closes, and switches with repository
+identity. Git status reads use `--no-optional-locks` to avoid generating index
+writes merely from observing the repository.
+Git fsmonitor daemon cookies and IPC files inside the Git metadata directories
+are excluded so read-only status queries do not trigger their own next refresh.
+Actual index, HEAD, refs and worktree changes remain observable.
+
 ## Status summary
 
 ### Stable application behavior

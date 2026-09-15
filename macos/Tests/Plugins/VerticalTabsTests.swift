@@ -5,6 +5,25 @@ import Testing
 @testable import Ghostty
 
 struct VerticalTabsTests {
+    @Test @MainActor func sidebarTitlesSkipNativeDecorations() {
+        let sidebar = VerticalTabsTerminalWindow(contentRect: .zero, styleMask: [.titled],
+                                                backing: .buffered, defer: false)
+        let native = TerminalWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+        sidebar.isReleasedWhenClosed = false
+        native.isReleasedWhenClosed = false
+        defer { sidebar.close(); native.close() }
+        sidebar.titlebarFont = .systemFont(ofSize: 13)
+        native.titlebarFont = .systemFont(ofSize: 13)
+        for index in 0..<100 {
+            sidebar.title = "Title \(index)"
+            native.title = "Title \(index)"
+        }
+        #expect(sidebar.title == "Title 99")
+        #expect(sidebar.titleVisibility == .hidden)
+        #expect(sidebar.tab.attributedTitle == nil)
+        #expect(native.tab.attributedTitle?.string == "Title 99")
+    }
+
     @Test func derivedGroupsRejectCrossGroupDrops() {
         let projectA = UUID()
         let projectB = UUID()

@@ -4,6 +4,7 @@ import SwiftUI
 /// A terminal window that keeps AppKit tab grouping but renders tabs in the content sidebar.
 final class VerticalTabsTerminalWindow: TransparentTitlebarTerminalWindow {
     override var supportsUpdateAccessory: Bool { false }
+    override var usesNativeTitleDecorations: Bool { false }
 
     private let sidebarToggleAccessory = NSTitlebarAccessoryViewController()
     private var sidebarToggleWidthConstraint: NSLayoutConstraint?
@@ -16,7 +17,7 @@ final class VerticalTabsTerminalWindow: TransparentTitlebarTerminalWindow {
     }
 
     override var title: String {
-        didSet { titleVisibility = .hidden }
+        didSet { if titleVisibility != .hidden { titleVisibility = .hidden } }
     }
 
     override func becomeMain() {

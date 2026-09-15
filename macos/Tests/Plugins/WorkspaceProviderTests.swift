@@ -4,6 +4,19 @@ import Testing
 @testable import Ghostty
 
 struct WorkspaceProviderTests {
+    @Test func titleDependencyRespectsPathDisplayAndRemoteState() {
+        let local = PaneSessionContext(workingDirectory: "/work/repo", terminalTitle: "title")
+        #expect(local.displaysTerminalTitle(pathDisplay: .fullPath))
+        #expect(!local.displaysTerminalTitle(pathDisplay: .folderName))
+        let unknownDirectory = PaneSessionContext(workingDirectory: nil, terminalTitle: "title")
+        #expect(unknownDirectory.displaysTerminalTitle(pathDisplay: .folderName))
+        var remote = local
+        remote.apply(.init(action: .start, id: "omg-ssh-title",
+                           metadata: "type=remote;targethost=cloud;cwd=/work/repo"),
+                     currentWorkingDirectory: "/work/repo", currentTerminalTitle: "remote")
+        #expect(!remote.displaysTerminalTitle(pathDisplay: .fullPath))
+    }
+
     @Test func locationComparisonIgnoresOnlyTitleRevisions() {
         let initial = PaneSessionContext(workingDirectory: "/repo", terminalTitle: "first")
         var changed = initial

@@ -400,8 +400,13 @@ class TerminalWindow: NSWindow {
 
     // MARK: Title Text
 
+    /// Sidebar tabs provide their own labels; native title decorations are
+    /// useful only for window styles that actually display them.
+    var usesNativeTitleDecorations: Bool { true }
+
     override var title: String {
         didSet {
+            guard usesNativeTitleDecorations else { return }
             // Whenever we change the window title we must also update our
             // tab title if we're using custom fonts.
             tab.attributedTitle = attributedTitle
@@ -417,6 +422,7 @@ class TerminalWindow: NSWindow {
     // Used to set the titlebar font.
     var titlebarFont: NSFont? {
         didSet {
+            guard usesNativeTitleDecorations else { return }
             let font = titlebarFont ?? NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
 
             titlebarTextField?.font = font
