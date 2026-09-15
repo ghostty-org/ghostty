@@ -439,6 +439,18 @@ struct SettingsStrings: Equatable, Sendable {
     var genericPluginCaption: String { t("OMG plugin", "OMG 插件") }
 
     var agentIntegrationSection: String { t("Agent Integration", "Agent 集成") }
+    var agentUpdateSettings: String { t("Update Settings", "更新设置") }
+    var agentManualChecks: String { t("Manual checks", "手动检查") }
+    var agentAutomaticHooksShort: String { t("Auto-update Hooks", "自动更新 Hooks") }
+    var agentCheckOnly: String { t("Check for updates", "检查更新") }
+    var agentWaitingForConnection: String { t("Automatic updates pause until connected in OMG", "未在 OMG 中连接，自动更新已暂停") }
+    var agentActions: String { t("Agent actions", "Agent 操作") }
+    var agentInstallHook: String { t("Install Hook", "安装 Hook") }
+    var agentUpdateHook: String { t("Update Hook", "更新 Hook") }
+    var agentReinstallHook: String { t("Reinstall Hook", "重新安装 Hook") }
+    var agentInstallDetector: String { t("Install Detector", "安装检测器") }
+    var agentUpdateDetector: String { t("Update Detector", "更新检测器") }
+    var agentReinstallDetector: String { t("Reinstall Detector", "重新安装检测器") }
     var agentHostLabel: String { t("Host", "主机") }
     var agentLocalHost: String { t("This Mac", "本机") }
     var agentAutomaticCheck: String { t("Check for Updates Automatically", "自动检测更新") }
@@ -462,8 +474,8 @@ struct SettingsStrings: Equatable, Sendable {
     }
     var agentLocalScopeCaption: String { t("These update settings apply to this Mac only.", "以上更新设置仅适用于本机。") }
     var agentSSHScopeCaption: String {
-        t("These update settings apply to the selected SSH account. Uses system OpenSSH configuration and requires non-interactive SSH access and Python 3. CLI checks use the remote login shell. Offline hosts report an error and retry at the next interval.",
-          "以上更新设置仅适用于所选 SSH 账户。使用系统 OpenSSH 配置，需要免交互 SSH 登录和 Python 3。CLI 检查使用远端登录 Shell。离线主机显示错误并在下个周期重试。")
+        t("Automatic checks and updates run only while this host is connected in OMG. Scheduling stays on this Mac; no remote daemon is installed. Manual checks remain available. Requires non-interactive OpenSSH access and Python 3.",
+          "仅在 OMG 连接此主机时自动检查和更新。定时任务由本机管理，不在远端安装常驻服务。仍可手动检查。需要免交互 OpenSSH 登录和 Python 3。")
     }
     var agentStatusHooksLabel: String {
         t("Enable Normalized Status Events (OMG-wide)", "启用规范化状态事件（OMG 全局）")

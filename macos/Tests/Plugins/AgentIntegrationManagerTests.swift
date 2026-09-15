@@ -5,6 +5,33 @@ import Testing
 
 @MainActor
 struct AgentIntegrationManagerTests {
+    @Test func offlineSSHIsNotScheduledAndDoesNotAdvanceItsDeadline() async throws {
+        let suite = "AgentIntegrationTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var connected: Set<String> = []
+        let manager = AgentIntegrationManager(defaults: defaults, connectionTargets: { connected })
+        var policy = AgentIntegrationPolicy()
+        policy.updateHooksAutomatically = true
+        policy.automaticallyUpdatedAgents = [.codex]
+        manager.setPolicy(policy, for: "ssh:cloud")
+        var localPolicy = manager.policy(for: "local")
+        localPolicy.checkAutomatically = false
+        manager.setPolicy(localPolicy, for: "local")
+        manager.checkDueTargets()
+        await manager.refresh(target: "ssh:cloud", automatic: true)
+        #expect(manager.policy(for: "ssh:cloud").lastAttempt == nil)
+        #expect(manager.snapshots["ssh:cloud"] == nil)
+        #expect(manager.busy.isEmpty)
+        #expect(manager.allowsAutomaticWork("local"))
+        connected = ["ssh:vps-jump"]
+        #expect(!manager.allowsAutomaticWork("ssh:cloud"))
+        connected.insert("ssh:cloud")
+        #expect(manager.allowsAutomaticWork("ssh:cloud"))
+        connected.remove("ssh:cloud")
+        #expect(!manager.allowsAutomaticWork("ssh:cloud"))
+        #expect(manager.policy(for: "ssh:cloud").isDue(at: Date()))
+    }
     @Test func updatePoliciesAreIsolatedPersistedAndRespectIntervals() throws {
         let suite = "AgentIntegrationTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

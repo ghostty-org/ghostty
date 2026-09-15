@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -50,17 +51,28 @@ final class AgentIntegrationManager: ObservableObject {
     @Published private(set) var policies: [String: AgentIntegrationPolicy]
     @Published private(set) var snapshots: [String: AgentIntegrationSnapshot] = [:]
     @Published private(set) var busy: Set<String> = []
+    @Published private(set) var connectedTargets: Set<String> = []
     private let defaults: UserDefaults
     private let homeURL: URL
+    private let connectionTargets: @MainActor () -> Set<String>
     private var timer: AnyCancellable?
+    private var connectionObserver: AnyCancellable?
+    private var closeObserver: AnyCancellable?
+    private var automaticTasks: [String: Task<Void, Never>] = [:]
+    private var automaticTargets: Set<String> = []
     private let storageKey = "OMG.AgentIntegration.Policies.v1"
 
     init(
         defaults: UserDefaults = .standard,
-        homeURL: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        snapshots: [String: AgentIntegrationSnapshot] = [:],
+        connectionTargets: @escaping @MainActor () -> Set<String> = AgentIntegrationManager.liveConnectionTargets
     ) {
         self.defaults = defaults
         self.homeURL = homeURL
+        self.snapshots = snapshots
+        self.connectionTargets = connectionTargets
+        self.connectedTargets = connectionTargets()
         policies = defaults.data(forKey: storageKey)
             .flatMap { try? JSONDecoder().decode([String: AgentIntegrationPolicy].self, from: $0) } ?? [:]
     }
@@ -71,6 +83,12 @@ final class AgentIntegrationManager: ObservableObject {
         guard NSClassFromString("XCTestCase") == nil,
               ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+            .sink { [weak self] _ in self?.checkDueTargets() }
+        connectionObserver = NotificationCenter.default.publisher(for: .terminalPaneSessionContextsDidChange)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.checkDueTargets() }
+        closeObserver = NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)
+            .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.checkDueTargets() }
         checkDueTargets()
     }
@@ -85,17 +103,45 @@ final class AgentIntegrationManager: ObservableObject {
     }
 
     func checkDueTargets(at date: Date = Date()) {
-        let targets = Set(policies.keys).union([Self.localID])
-        for target in targets where policy(for: target).isDue(at: date) && !busy.contains(target) {
-            Task { await refresh(target: target, automatic: true) }
+        let currentConnections = connectionTargets()
+        if currentConnections != connectedTargets { connectedTargets = currentConnections }
+        for (target, task) in automaticTasks where !allowsAutomaticWork(target) {
+            task.cancel()
         }
+        let targets = Set(policies.keys).union([Self.localID])
+        for target in targets where policy(for: target).isDue(at: date) && !busy.contains(target)
+            && automaticTasks[target] == nil && allowsAutomaticWork(target) {
+            automaticTasks[target] = Task { [weak self] in
+                guard let self else { return }
+                await refresh(target: target, automatic: true)
+                automaticTasks[target] = nil
+            }
+        }
+    }
+
+    static func liveConnectionTargets() -> Set<String> {
+        Set(TerminalController.all.flatMap { controller in
+            controller.paneSessionContexts.values.compactMap { context in
+                guard case .sshReady(let ssh, _) = context.state else { return nil }
+                return "ssh:" + ssh.alias
+            }
+        })
+    }
+
+    func allowsAutomaticWork(_ target: String) -> Bool {
+        target == Self.localID || connectionTargets().contains(target)
     }
 
     func refresh(target: String, automatic: Bool = false) async {
         guard !busy.contains(target) else { return }
         guard !automatic || policy(for: target).checkAutomatically else { return }
+        guard !automatic || allowsAutomaticWork(target), !Task.isCancelled else { return }
         busy.insert(target)
-        defer { busy.remove(target) }
+        if automatic { automaticTargets.insert(target) }
+        defer {
+            busy.remove(target)
+            automaticTargets.remove(target)
+        }
         var policy = policy(for: target)
         policy.lastAttempt = Date()
         setPolicy(policy, for: target)
@@ -104,7 +150,7 @@ final class AgentIntegrationManager: ObservableObject {
             snapshot.hooks = try await readHooks(target: target)
             if automatic {
                 for agent in SupportedAgent.allCases where snapshot.hooks[agent] == .updateAvailable {
-                    guard self.policy(for: target).checkAutomatically,
+                    guard !Task.isCancelled, allowsAutomaticWork(target), self.policy(for: target).checkAutomatically,
                           self.policy(for: target).updateHooksAutomatically else { break }
                     do { try await changeHook(agent, target: target, remove: false) } catch { snapshot.error = error.localizedDescription }
                 }
@@ -114,6 +160,7 @@ final class AgentIntegrationManager: ObservableObject {
             current.lastSuccess = Date()
             setPolicy(current, for: target)
         } catch {
+            if Task.isCancelled || (automatic && !allowsAutomaticWork(target)) { return }
             snapshot.error = error.localizedDescription
         }
         snapshots[target] = snapshot
@@ -124,7 +171,7 @@ final class AgentIntegrationManager: ObservableObject {
             if automatic {
                 var updatedCLI = false
                 for agent in SupportedAgent.allCases where snapshot.cli[agent]?.updateAvailable == true {
-                    guard self.policy(for: target).checkAutomatically else { break }
+                    guard !Task.isCancelled, allowsAutomaticWork(target), self.policy(for: target).checkAutomatically else { break }
                     guard self.policy(for: target).automaticallyUpdatedAgents.contains(agent) else { continue }
                     do {
                         try await installCLI(agent, target: target)
@@ -207,6 +254,8 @@ final class AgentIntegrationManager: ObservableObject {
     }
 
     private func runPython(_ script: String, target: String, loginShell: Bool = false) async throws -> Data {
+        try Task.checkCancellation()
+        if automaticTargets.contains(target), !allowsAutomaticWork(target) { throw CancellationError() }
         let executable: String
         let arguments: [String]
         // Feed scripts through stdin, avoiding remote command/ARG_MAX limits.
@@ -224,6 +273,7 @@ final class AgentIntegrationManager: ObservableObject {
                 ? "exec /bin/sh -c " + Ghostty.Shell.quote("exec \"${SHELL:-/bin/sh}\" -lic 'exec python3 -'")
                 : "exec python3 -"
             arguments = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                         "-o", "ControlMaster=no", "-o", "ControlPersist=no",
                          "-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=2",
                          String(target.dropFirst(4)), remote]
         }

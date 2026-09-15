@@ -172,7 +172,7 @@ struct SettingsView: View {
                 Divider()
                 detail
                     .formStyle(.grouped)
-                    .frame(maxWidth: 680, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
         .frame(minWidth: 720, minHeight: 480)
@@ -545,21 +545,10 @@ struct SettingsView: View {
                 }
             }
 
-            Section(strings.agentIntegrationSection) {
-                Toggle(strings.agentStatusHooksLabel, isOn: $settings.agentStatusHooksEnabled)
-                AgentIntegrationSettingsView(strings: strings)
-                Button(strings.exportSSHInstallerButton, systemImage: "square.and.arrow.up") {
-                    exportRemoteAgentInstaller()
-                }
-                Text(strings.agentHooksCaption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if let agentHookError {
-                    Text(agentHookError)
-                        .foregroundStyle(.red)
-                        .textSelection(.enabled)
-                }
-            }
+            AgentIntegrationSettingsView(
+                strings: strings, settings: settings,
+                exportInstaller: exportRemoteAgentInstaller, exportError: agentHookError
+            )
             Section(strings.notificationsSection) {
                 Toggle(strings.notifyTaskCompleteLabel, isOn: $settings.notifyTaskComplete)
                 Toggle(strings.notifyAttentionLabel, isOn: $settings.notifyAttention)

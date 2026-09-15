@@ -296,6 +296,10 @@ Hook state and install/update/remove actions are scoped to that selected account
 changing selection never retargets an in-flight operation. The normalized status
 events master switch remains an OMG-wide presentation setting. Detector-only
 agents are explicitly shown as managed by the local Host, not as remote hooks.
+The host picker sits beside the section title (`Agent Integration · host`).
+Update preferences are grouped in one popover; per-Agent CLI auto-update and
+reinstall/removal actions live in each row's menu. Version guidance uses a help
+indicator instead of repeated instructional text. Rows adapt to narrow forms.
 
 `AgentIntegrationManager` checks installed Hooks while OMG runs, including when
 Settings is closed. Each account has an independent hourly/daily/weekly interval,
@@ -307,6 +311,17 @@ UserDefaults domain under `OMG.AgentIntegration.Policies.v1`, separating Dev and
 release. Errors stay attached to their target; the last successful Hook check is
 displayed separately from a CLI discovery failure. Failed attempts retry at the
 configured interval; per-target operations are serialized.
+
+SSH automatic work additionally requires a matching **ready SSH pane in OMG**.
+The scheduler reads `TerminalController.paneSessionContexts`, observes connection
+changes/window closure, and cancels background transport when the last matching
+connection goes away. Each remote command checks eligibility again before launch.
+Unconnected hosts are skipped without advancing their check deadline, so an
+overdue check can run when a connection becomes ready. A connection to a different
+alias does not qualify. Manual foreground checks remain available without an open
+SSH pane. All scheduling stays in the Mac app: no cron job, timer, or persistent
+Agent updater is installed on the remote host. Auxiliary SSH commands disable
+`ControlMaster` creation and `ControlPersist`, avoiding a new persistent SSH master.
 
 Remote Hook operations reuse the exported Python installer with typed `status`,
 `install`, or `remove` actions and a closed Agent selection. No arguments preserves

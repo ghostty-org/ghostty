@@ -2,22 +2,97 @@ import SwiftUI
 
 struct AgentIntegrationSettingsView: View {
     let strings: SettingsStrings
-    @ObservedObject private var manager = AgentIntegrationManager.shared
+    @ObservedObject var settings: OhMyGhosttySettings
+    @ObservedObject var manager: AgentIntegrationManager = .shared
+    var exportInstaller: () -> Void = {}
+    var exportError: String?
+    var refreshOnAppear = true
     @State private var target = AgentIntegrationManager.localID
     @State private var hosts: [SSHHostConfiguration] = []
+    @State private var showingUpdateSettings = false
 
     private var snapshot: AgentIntegrationSnapshot { manager.snapshots[target] ?? .init() }
     private var busy: Bool { manager.busy.contains(target) }
     private var local: Bool { target == AgentIntegrationManager.localID }
+    private var hostName: String { local ? strings.agentLocalHost : String(target.dropFirst(4)) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker(strings.agentHostLabel, selection: $target) {
-                Text(strings.agentLocalHost).tag(AgentIntegrationManager.localID)
-                ForEach(hosts, id: \.workspaceID) { host in
-                    Text("SSH · \(host.alias)").tag(host.workspaceID)
-                }
+        Section {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) { scheduleSummary; Spacer(minLength: 16); toolbarActions }
+                VStack(alignment: .leading, spacing: 10) { scheduleSummary; toolbarActions }
             }
+            .padding(.vertical, 4)
+            if let error = snapshot.error ?? exportError {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.callout).foregroundStyle(.red).textSelection(.enabled)
+            }
+            ForEach(SupportedAgent.allCases) { agent in row(agent).padding(.vertical, 6) }
+        } header: {
+            HStack(spacing: 6) {
+                Text(strings.agentIntegrationSection)
+                Text("·").foregroundStyle(.tertiary)
+                Menu {
+                    Picker(strings.agentHostLabel, selection: $target) {
+                        Text(strings.agentLocalHost).tag(AgentIntegrationManager.localID)
+                        ForEach(hosts, id: \.workspaceID) { host in Text(host.alias).tag(host.workspaceID) }
+                    }
+                } label: { Text(hostName).textCase(nil) }
+                .menuStyle(.borderlessButton).fixedSize().help(strings.agentHostLabel)
+            }
+        }
+        .task {
+            var seen: Set<String> = []
+            hosts = SSHPlugin.configurations().filter { seen.insert($0.workspaceID).inserted }
+        }
+        .task(id: target) {
+            if refreshOnAppear { await manager.refresh(target: target) }
+        }
+    }
+
+    private var scheduleSummary: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(scheduleText, systemImage: "clock.arrow.circlepath").font(.callout)
+            if !local && !manager.connectedTargets.contains(target) {
+                Text(strings.agentWaitingForConnection).font(.caption).foregroundStyle(.secondary)
+            } else if let date = manager.policy(for: target).lastSuccess {
+                Text(strings.agentLastChecked + " " + date.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var scheduleText: String {
+        let policy = manager.policy(for: target)
+        guard policy.checkAutomatically else { return strings.agentManualChecks }
+        let interval: String = switch policy.intervalHours {
+        case 1: strings.agentEveryHour
+        case 168: strings.agentEveryWeek
+        default: strings.agentEveryDay
+        }
+        return interval + " · " + (policy.updateHooksAutomatically ? strings.agentAutomaticHooksShort : strings.agentCheckOnly)
+    }
+
+    private var toolbarActions: some View {
+        HStack(spacing: 10) {
+            if busy { ProgressView().controlSize(.small) }
+            Button { showingUpdateSettings.toggle() } label: {
+                Label(strings.agentUpdateSettings, systemImage: "slider.horizontal.3")
+            }
+            .popover(isPresented: $showingUpdateSettings, arrowEdge: .bottom) { updateSettings }
+            Button(strings.agentCheckNow, systemImage: "arrow.clockwise") {
+                let capturedTarget = target
+                Task { await manager.refresh(target: capturedTarget) }
+            }
+            .disabled(busy)
+        }
+        .controlSize(.small).fixedSize()
+    }
+
+    private var updateSettings: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(strings.agentUpdateSettings + " · " + hostName).font(.headline)
             Toggle(strings.agentAutomaticCheck, isOn: binding(\.checkAutomatically))
             Picker(strings.agentCheckInterval, selection: binding(\.intervalHours)) {
                 Text(strings.agentEveryHour).tag(1)
@@ -27,40 +102,85 @@ struct AgentIntegrationSettingsView: View {
             .disabled(!manager.policy(for: target).checkAutomatically)
             Toggle(strings.agentAutomaticHooks, isOn: binding(\.updateHooksAutomatically))
                 .disabled(!manager.policy(for: target).checkAutomatically)
-            Text(strings.agentUpdateScopeCaption)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            HStack {
-                Button(strings.agentCheckNow) {
-                    let capturedTarget = target
-                    Task { await manager.refresh(target: capturedTarget) }
-                }
-                .disabled(busy)
-                if busy { ProgressView().controlSize(.small) }
-                if let date = manager.policy(for: target).lastSuccess {
-                    Text(strings.agentLastChecked + " " + date.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            if let error = snapshot.error {
-                Text(error).foregroundStyle(.red).textSelection(.enabled)
-            }
-            ForEach(SupportedAgent.allCases) { agent in
-                row(agent)
-                Divider()
-            }
-            Text(local ? strings.agentLocalScopeCaption : strings.agentSSHScopeCaption)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Text(local ? strings.agentUpdateScopeCaption : strings.agentSSHScopeCaption)
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Divider()
+            Toggle(strings.agentStatusHooksLabel, isOn: $settings.agentStatusHooksEnabled)
+            Button(strings.exportSSHInstallerButton, systemImage: "square.and.arrow.up", action: exportInstaller)
         }
-        .task {
-            var seen: Set<String> = []
-            hosts = SSHPlugin.configurations().filter { seen.insert($0.workspaceID).inserted }
-        }
-        .task(id: target) { await manager.refresh(target: target) }
+        .toggleStyle(.switch).controlSize(.small).padding(20).frame(width: 360)
     }
 
+    private func row(_ agent: SupportedAgent) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 20) {
+                identity(agent).frame(minWidth: 190, alignment: .leading)
+                Spacer(minLength: 12)
+                cliSummary(agent).frame(width: 200, alignment: .leading)
+                actions(agent).frame(width: 180, alignment: .trailing)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack { identity(agent); Spacer(minLength: 12); actions(agent) }
+                cliSummary(agent).padding(.leading, 36)
+            }
+        }
+    }
+
+    private func identity(_ agent: SupportedAgent) -> some View {
+        HStack(spacing: 12) {
+            Image(agent.assetName).resizable().scaledToFit().frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(agent.displayName).fontWeight(.medium)
+                Text(!local && agent.definition.hook.kind == .none ? strings.agentHostDetectorOnly
+                     : hookStatus(snapshot.hooks[agent], detector: agent.definition.hook.kind == .none))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func cliSummary(_ agent: SupportedAgent) -> some View {
+        HStack(spacing: 6) {
+            Text(cliStatus(snapshot.cli[agent])).font(.caption).foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.middle)
+            if let cli = snapshot.cli[agent], cli.path != nil, cli.package == nil {
+                Image(systemName: "info.circle").foregroundStyle(.tertiary)
+                    .help(strings.agentExternalUpdater).accessibilityLabel(strings.agentExternalUpdater)
+            }
+            if manager.policy(for: target).automaticallyUpdatedAgents.contains(agent) {
+                Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(.secondary).help(strings.agentAutomaticCLI)
+            }
+        }
+        .frame(maxWidth: 220, alignment: .leading)
+    }
+
+    private func actions(_ agent: SupportedAgent) -> some View {
+        let hook = snapshot.hooks[agent]
+        let supportsHooks = local || agent.definition.hook.kind != .none
+        return HStack(spacing: 10) {
+            if supportsHooks, let hook, hook != .current {
+                Button(agent.definition.hook.kind == .none
+                       ? (hook.isInstalled ? strings.agentUpdateDetector : strings.agentInstallDetector)
+                       : (hook.isInstalled ? strings.agentUpdateHook : strings.agentInstallHook)) { perform(agent) }
+            }
+            if snapshot.cli[agent]?.updateAvailable == true {
+                Button(strings.agentUpdateCLI) { perform(agent, cli: true) }
+            }
+            Menu {
+                Toggle(strings.agentAutomaticCLI, isOn: automaticCLIBinding(agent))
+                    .disabled(snapshot.cli[agent]?.package == nil && !manager.policy(for: target).automaticallyUpdatedAgents.contains(agent))
+                if snapshot.cli[agent]?.path != nil && snapshot.cli[agent]?.package == nil { Text(strings.agentExternalUpdater) }
+                if supportsHooks, hook?.isInstalled == true {
+                    Divider()
+                    Button(agent.definition.hook.kind == .none ? strings.agentReinstallDetector : strings.agentReinstallHook) { perform(agent) }
+                    Button(strings.agentRemoveButton, role: .destructive) { perform(agent, remove: true) }
+                }
+            } label: { Image(systemName: "ellipsis").frame(width: 18, height: 18) }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help(strings.agentActions).accessibilityLabel(agent.displayName + " · " + strings.agentActions)
+        }
+        .controlSize(.small).disabled(busy).fixedSize()
+    }
     private func binding<Value>(_ keyPath: WritableKeyPath<AgentIntegrationPolicy, Value>) -> Binding<Value> {
         Binding {
             manager.policy(for: target)[keyPath: keyPath]
@@ -68,48 +188,6 @@ struct AgentIntegrationSettingsView: View {
             var policy = manager.policy(for: target)
             policy[keyPath: keyPath] = value
             manager.setPolicy(policy, for: target)
-        }
-    }
-
-    private func row(_ agent: SupportedAgent) -> some View {
-        let hook = snapshot.hooks[agent]
-        let cli = snapshot.cli[agent]
-        let detector = agent.definition.hook.kind == .none
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Image(agent.assetName).resizable().scaledToFit().frame(width: 18, height: 18)
-                Text(agent.displayName).fontWeight(.medium)
-                Spacer()
-                if let cli, cli.updateAvailable {
-                    Button(strings.agentUpdateCLI) { perform(agent, cli: true) }
-                        .disabled(busy)
-                }
-            }
-            HStack {
-                Text(!local && detector ? strings.agentHostDetectorOnly : hookStatus(hook, detector: detector))
-                    .font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                if local || !detector {
-                    Button(hook?.isInstalled == true ? strings.agentUpdateButton : strings.agentInstallButton) {
-                        perform(agent)
-                    }
-                    .disabled(busy || hook == nil)
-                    if hook?.isInstalled == true {
-                        Button(strings.agentRemoveButton) { perform(agent, remove: true) }
-                            .disabled(busy)
-                    }
-                }
-            }
-            HStack {
-                Text(cliStatus(cli)).font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Toggle(strings.agentAutomaticCLI, isOn: automaticCLIBinding(agent))
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .fixedSize()
-                    .disabled(cli?.package == nil && !manager.policy(for: target).automaticallyUpdatedAgents.contains(agent))
-                    .help(cli?.package == nil ? strings.agentExternalUpdater : strings.agentAutomaticCLI)
-            }
         }
     }
 
@@ -137,8 +215,8 @@ struct AgentIntegrationSettingsView: View {
         guard let cli else { return "CLI · " + strings.agentNotChecked }
         guard cli.path != nil else { return "CLI · " + strings.agentCLIMissing }
         let version = cli.version ?? strings.agentVersionUnknown
-        if let latest = cli.latest, cli.updateAvailable { return "CLI · \(version) → \(latest) (npm)" }
-        return "CLI · " + version + " · " + (cli.package == nil ? strings.agentExternalUpdater : "npm")
+        if let latest = cli.latest, cli.updateAvailable { return "CLI · \(version) → \(latest)" }
+        return "CLI · " + version
     }
 
     private func hookStatus(_ state: AgentHookInstallationState?, detector: Bool) -> String {
