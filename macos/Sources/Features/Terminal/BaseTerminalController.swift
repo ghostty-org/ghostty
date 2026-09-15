@@ -402,10 +402,9 @@ class BaseTerminalController: NSWindowController,
             .dropFirst()
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &focusedSurfaceContextCancellables)
-        focusedSurface.$title
-            .dropFirst()
-            .sink { [weak self] _ in self?.objectWillChange.send() }
-            .store(in: &focusedSurfaceContextCancellables)
+        // Title consumers (window title, tab row and title-dependent Inspector
+        // panes) subscribe to the Surface directly. Forwarding each title here
+        // invalidates the entire terminal shell, including unrelated editors.
     }
 
     func syncFocusToSurfaceTree() {
@@ -1051,14 +1050,15 @@ class BaseTerminalController: NSWindowController,
             let status = activitySessionID.flatMap {
                 (NSApp.delegate as? AppDelegate)?.tabActivities.activity(for: $0)
             }
-            window.title = computeTitle(
+            let title = computeTitle(
                 title: titleOverride,
                 bell: focusedSurface?.bell ?? false,
                 status: status)
+            if window.title != title { window.title = title }
             return
         }
 
-        window.title = lastComputedTitle
+        if window.title != lastComputedTitle { window.title = lastComputedTitle }
     }
 
     func pwdDidChange(to: URL?) {

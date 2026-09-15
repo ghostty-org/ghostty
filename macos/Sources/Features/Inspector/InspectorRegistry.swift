@@ -206,6 +206,12 @@ struct InspectorPaneContext: Equatable, Sendable {
     let workspace: WorkspaceDescriptor?
     let session: PaneSessionContext
 
+    func hasSameLocation(as other: Self) -> Bool {
+        tabID == other.tabID && surfaceID == other.surfaceID &&
+            workingDirectory == other.workingDirectory && workspace == other.workspace &&
+            session.hasSameLocation(as: other.session)
+    }
+
     init(
         tabID: UUID,
         surfaceID: UUID?,
@@ -414,6 +420,15 @@ final class InspectorRegistry: ObservableObject {
         guard !closedTabIDs.contains(hostID) else { return }
         let next = paneID.map { PresentedPane(paneID: $0, context: context) }
         guard presentedPanes[hostID] != next else { return }
+        if let previous = presentedPanes[hostID], let next,
+           next.paneID == BuiltInGitInspectorProvider.paneID,
+           previous.paneID == next.paneID,
+           previous.context.hasSameLocation(as: context) {
+            // Retain current metadata for the eventual disappearance without
+            // cancelling repository work when only the terminal title changes.
+            presentedPanes[hostID] = next
+            return
+        }
         if let previous = presentedPanes[hostID] {
             lifecycleHandlers[previous.paneID]?(
                 .disappeared(previous.context)

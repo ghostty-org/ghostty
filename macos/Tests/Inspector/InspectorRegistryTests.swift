@@ -4,6 +4,36 @@ import Testing
 
 @MainActor
 struct InspectorRegistryTests {
+    @Test(arguments: ["builtin.git", "custom.title-pane"])
+    func titleChangesOnlyRestartTitleDependentPanes(paneID: String) throws {
+        let registry = InspectorRegistry()
+        var events: [InspectorPaneLifecycleEvent] = []
+        try registry.registerCorePane(
+            paneDescriptor(id: paneID, source: .coreFeature("test")),
+            content: { _ in .fields([]) }, lifecycle: { events.append($0) }
+        )
+        let tabID = UUID(), surfaceID = UUID()
+        var session = PaneSessionContext(workingDirectory: "/repo", terminalTitle: "first")
+        func context() -> InspectorPaneContext {
+            .init(tabID: tabID, surfaceID: surfaceID, title: session.presentationTitle,
+                  workingDirectory: session.workingDirectory, session: session)
+        }
+        let initial = context()
+        registry.presentationDidChange(to: paneID, context: initial)
+        for index in 0..<100 {
+            session.updateLocalMetadata(workingDirectory: "/repo", terminalTitle: "title \(index)")
+            registry.presentationDidChange(to: paneID, context: context())
+        }
+        #expect(events.count == (paneID == "builtin.git" ? 1 : 201))
+        let latest = context()
+        session.updateLocalMetadata(workingDirectory: "/other", terminalTitle: "title 99")
+        let moved = context()
+        registry.presentationDidChange(to: paneID, context: moved)
+        #expect(Array(events.suffix(2)) == [.disappeared(latest), .appeared(moved)])
+        registry.presentationDidChange(to: nil, context: moved)
+        #expect(events.last == .disappeared(moved))
+    }
+
     @Test func closedTabsReleaseSnapshotsAndRejectLateResults() throws {
         let registry = InspectorRegistry()
         let descriptor = paneDescriptor(id: "cache", source: .plugin("owner"))

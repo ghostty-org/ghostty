@@ -31,6 +31,19 @@ Contributor checklist:
 [ ] Are Experimental/Internal/Planned labels still accurate?
 ```
 
+## Terminal title updates
+
+The built-in Git Inspector follows pane, directory and connection changes.
+Terminal-title-only changes retain its current repository view and do not send
+disappeared/appeared lifecycle events or cancel Git work. The latest context is
+retained for subsequent lifecycle events. Other panes continue to receive title
+changes, including plugins that display the terminal title.
+
+Pane session metadata retains the latest terminal title, but title-only revisions
+do not publish controller-wide view or connection-inventory notifications.
+Title consumers observe their own Surface; directory and SSH state changes still
+notify the controller and connection observers.
+
 ## Status summary
 
 ### Stable application behavior

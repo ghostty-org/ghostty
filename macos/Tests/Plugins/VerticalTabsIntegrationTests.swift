@@ -7,6 +7,29 @@ import Testing
 
 @MainActor
 struct VerticalTabsIntegrationTests {
+    @Test func terminalTitlesDoNotInvalidateWholeController() async throws {
+        let appDelegate = try #require(NSApp.delegate as? AppDelegate)
+        var configuration = Ghostty.SurfaceConfiguration()
+        configuration.command = "sleep 30"
+        let controller = TerminalController(appDelegate.ghostty, withBaseConfig: configuration)
+        let window = try #require(controller.window)
+        defer { window.delegate = nil; window.close() }
+        let surface = try #require(controller.focusedSurface ?? controller.surfaceTree.first)
+        try await Task.sleep(for: .milliseconds(200))
+        var publications = 0
+        let observer = controller.objectWillChange.sink { publications += 1 }
+        defer { observer.cancel() }
+        for index in 0..<10 {
+            surface.setTitle("CPU title test \(index)")
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        #expect(controller.paneSessionContext(for: surface)?.local.terminalTitle == "CPU title test 9")
+        #expect(publications == 0)
+        surface.pwd = "/tmp/omg-title-location-test"
+        #expect(controller.paneSessionContext(for: surface)?.workingDirectory == "/tmp/omg-title-location-test")
+        #expect(publications > 0)
+    }
+
     private let hoverScreenshotPath = "/tmp/oh-my-ghostty-vertical-tabs-hover.png"
     private let hiddenScreenshotPath = "/tmp/oh-my-ghostty-vertical-tabs-hidden.png"
     private let lightScreenshotPath = "/tmp/oh-my-ghostty-vertical-tabs-light.png"

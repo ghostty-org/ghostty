@@ -708,9 +708,14 @@ struct RightInspectorHost: View {
         guard let surface = controller.focusedSurface ?? controller.surfaceTree.first else {
             return Empty().eraseToAnyPublisher()
         }
-        let metadata = Publishers.CombineLatest(surface.$pwd, surface.$title)
-            .dropFirst()
-            .map { _ in () }
+        let metadata: AnyPublisher<Void, Never>
+        if selectedPaneID == BuiltInGitInspectorProvider.paneID {
+            metadata = surface.$pwd.removeDuplicates().dropFirst()
+                .map { _ in () }.eraseToAnyPublisher()
+        } else {
+            metadata = Publishers.CombineLatest(surface.$pwd, surface.$title)
+                .dropFirst().map { _ in () }.eraseToAnyPublisher()
+        }
         let session = surface.$contextSignal
             .dropFirst()
             .map { _ in () }

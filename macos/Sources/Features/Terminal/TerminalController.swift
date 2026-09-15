@@ -282,7 +282,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// Canonical pane session state. Tab title/icon and Inspector/Files all
     /// consume this map rather than independently inferring SSH from titles.
-    @Published private(set) var paneSessionContexts: [UUID: PaneSessionContext] = [:]
+    private(set) var paneSessionContexts: [UUID: PaneSessionContext] = [:] {
+        willSet {
+            guard newValue.count != paneSessionContexts.count || newValue.contains(where: { id, context in
+                paneSessionContexts[id].map { !context.hasSameLocation(as: $0) } ?? true
+            }) else { return }
+            objectWillChange.send()
+        }
+    }
     @Published private(set) var agentActivities: [UUID: TabActivity] = [:]
     @Published private(set) var agentResumeDescriptors: [UUID: AgentResumeDescriptor] = [:]
     let quickInputModel = AgentQuickInputModel()
@@ -1726,13 +1733,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         for surfaceID: UUID
     ) {
         guard paneSessionContexts[surfaceID] != context else { return }
+        let locationChanged = paneSessionContexts[surfaceID].map {
+            !context.hasSameLocation(as: $0)
+        } ?? true
         var next = paneSessionContexts
         next[surfaceID] = context
         paneSessionContexts = next
-        NotificationCenter.default.post(
-            name: .terminalPaneSessionContextsDidChange,
-            object: self
-        )
+        if locationChanged {
+            NotificationCenter.default.post(
+                name: .terminalPaneSessionContextsDidChange,
+                object: self
+            )
+        }
         if (focusedSurface ?? surfaceTree.first)?.id == surfaceID {
             refreshPresentedTerminalTitle()
         }

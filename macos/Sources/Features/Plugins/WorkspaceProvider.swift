@@ -61,6 +61,16 @@ struct PaneSessionContext: Equatable, Sendable {
         }
     }
 
+    /// Title revisions do not change the pane's directory or connection.
+    /// Keep these updates local to title consumers instead of invalidating
+    /// every view and connection observer attached to the controller.
+    func hasSameLocation(as other: Self) -> Bool {
+        var comparable = other
+        comparable.local.terminalTitle = local.terminalTitle
+        comparable.revision = revision
+        return self == comparable
+    }
+
     var workspace: WorkspaceDescriptor? {
         guard case .sshReady(let ssh, let workingDirectory) = state else {
             return nil

@@ -4,6 +4,23 @@ import Testing
 @testable import Ghostty
 
 struct WorkspaceProviderTests {
+    @Test func locationComparisonIgnoresOnlyTitleRevisions() {
+        let initial = PaneSessionContext(workingDirectory: "/repo", terminalTitle: "first")
+        var changed = initial
+        changed.updateLocalMetadata(workingDirectory: "/repo", terminalTitle: "second")
+        #expect(changed != initial)
+        #expect(changed.hasSameLocation(as: initial))
+        #expect(changed.local.terminalTitle == "second")
+        changed.updateLocalMetadata(workingDirectory: "/other", terminalTitle: "second")
+        #expect(!changed.hasSameLocation(as: initial))
+
+        var remote = initial
+        remote.apply(.init(action: .start, id: "omg-ssh-test",
+                           metadata: "type=remote;targethost=cloud;cwd=/repo"),
+                     currentWorkingDirectory: "/repo", currentTerminalTitle: "first")
+        #expect(!remote.hasSameLocation(as: initial))
+    }
+
     @Test func localRenamePreservesContentsAndRefusesConflicts() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
