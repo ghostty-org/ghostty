@@ -5,6 +5,29 @@ import Testing
 
 @MainActor
 struct AgentIntegrationManagerTests {
+    @Test func standaloneCodexUsesItsNativeUpdaterWithoutNpm() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let log = home.appendingPathComponent("updates")
+        try executable(#"""
+#!/usr/bin/python3
+import os, pathlib, sys
+if sys.argv[1:] == ["--version"]: print("codex-cli 0.154.0")
+elif sys.argv[1:] == ["update", "--help"]: print("Usage: codex update [OPTIONS]")
+elif sys.argv[1:] == ["update"]: pathlib.Path(os.environ["UPDATE_LOG"]).write_text("native update")
+else: sys.exit(2)
+"""#, at: home.appendingPathComponent("codex"))
+        let environment = ["HOME": home.path, "PATH": home.path + ":/usr/bin:/bin", "UPDATE_LOG": log.path]
+        let data = try await python(AgentIntegrationManager.cliScript(checkLatest: false), environment: environment)
+        let inventory = try JSONDecoder().decode([String: AgentCLIInstallation].self, from: data)
+        #expect(inventory["codex"]?.package == nil)
+        #expect(inventory["codex"]?.canAutomaticallyUpdate == true)
+        #expect(inventory["codex"]?.needsUpdateCheck == true)
+        #expect(!FileManager.default.fileExists(atPath: log.path))
+        _ = try await python(AgentIntegrationManager.cliScript(update: .codex), environment: environment)
+        #expect(try String(contentsOf: log, encoding: .utf8) == "native update")
+    }
     @Test func offlineSSHIsNotScheduledAndDoesNotAdvanceItsDeadline() async throws {
         let suite = "AgentIntegrationTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

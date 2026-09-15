@@ -440,14 +440,14 @@ struct SettingsStrings: Equatable, Sendable {
 
     var agentIntegrationSection: String { t("Agent Integration", "Agent 集成") }
     var sshAutomaticRegistration: String { t("Register hosts after connecting in OMG", "连接成功后自动注册主机") }
-    var sshRegistrationTarget: String { t("Select a connected host", "选择已连接主机") }
+    var sshRegistrationTarget: String { t("Choose an SSH host to register", "选择要注册的 SSH 主机") }
     var sshRegister: String { t("Register", "注册") }
     var sshUnregister: String { t("Unregister", "取消注册") }
     var sshCached: String { t("Offline · cached", "离线 · 已缓存") }
     var sshConnected: String { t("Connected", "已连接") }
     var sshRegistrationCaption: String {
-        t("Connect in OMG first, then register the connection to cache installed Agent versions and Hook status on this Mac. No remote service is installed. Only registered hosts appear in Agent Integration.",
-          "先在 OMG 中连接主机，再注册该连接，将 Agent 已安装版本和 Hook 状态缓存在本机。不安装远端服务。Agent 集成仅展示已注册主机。")
+        t("Choose a host from SSH config or an active connection. Registration connects on demand and caches Agent versions and Hook status locally. Automatic registration still requires a connection in OMG.",
+          "可从 SSH config 或当前连接中选择主机。点击注册后按需连接，并将 Agent 版本与 Hook 状态缓存在本机；自动注册仍仅在 OMG 建立连接后进行。")
     }
     var agentUpdateSettings: String { t("Update Settings", "更新设置") }
     var agentManualChecks: String { t("Manual checks", "手动检查") }
@@ -473,14 +473,15 @@ struct SettingsStrings: Equatable, Sendable {
     var agentCheckNow: String { t("Check Now", "立即检查") }
     var agentLastChecked: String { t("Last captured:", "上次采集：") }
     var agentUpdateCLI: String { t("Update CLI", "更新 CLI") }
+    var agentCheckAndUpdateCLI: String { t("Check & Update CLI", "检查并更新 CLI") }
     var agentNotChecked: String { t("Not Checked", "尚未检查") }
     var agentCLIMissing: String { t("Not Found in PATH", "未在 PATH 中找到") }
     var agentVersionUnknown: String { t("Version Unknown", "版本未知") }
     var agentExternalUpdater: String { t("Update with Original Installer", "请使用原安装方式更新") }
     var agentHostDetectorOnly: String { t("Detector is managed on this Mac", "检测器由本机管理") }
     var agentUpdateScopeCaption: String {
-        t("Checks run while OMG is open. Automatic installation is off by default and only updates existing installations. CLI updates support verified global npm installations.",
-          "OMG 运行期间定时检查。自动安装默认关闭，只更新已安装的项目。CLI 更新支持已核实来源的 npm 全局安装。")
+        t("Checks run while OMG is open. Automatic installation is off by default and only updates existing installations. CLI updates use verified npm installations or supported native update commands.",
+          "OMG 运行期间定时检查。自动安装默认关闭，只更新已安装的项目。CLI 使用已核实的 npm 安装来源或受支持的原生更新命令。")
     }
     var agentLocalScopeCaption: String { t("These update settings apply to this Mac only.", "以上更新设置仅适用于本机。") }
     var agentSSHScopeCaption: String {

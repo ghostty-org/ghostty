@@ -21,18 +21,20 @@ struct SettingsLayoutTests {
             snapshot.cli[agent] = .init(version: "1.2.3", path: "/usr/local/bin/" + agent.rawValue)
         }
         snapshot.hooks[.claude] = .updateAvailable
-        snapshot.cli[.codex] = .init(version: "1.2.3", latest: "1.3.0", package: "example", path: "/usr/local/bin/codex")
+        snapshot.cli[.codex] = .init(version: "0.154.0", path: "/usr/local/bin/codex", updater: "native")
         let manager = AgentIntegrationManager(defaults: defaults, snapshots: ["local": snapshot], connectionTargets: { [] })
         let connection = try GitSSHConnection(destination: "cloud", options: ["-p", "2222"])
         let cachedInventory = snapshot
         let registry = SSHHostRegistry(defaults: defaults, live: { [connection] }, inventory: { _ in cachedInventory })
         registry.reconcile()
-        await registry.register(connection)
+        await registry.register(connection, endpoint: "chengjisheng@10.0.0.123:2222")
         let registeredManager = AgentIntegrationManager(defaults: defaults,
             connectionTargets: { [RegisteredSSHHost.id(for: connection)] }, registry: registry)
         let registeredRoot = Form {
             Section("SSH") {
-                SSHRegistrationSettingsView(strings: .init(language: .simplifiedChinese), registry: registry, agents: registeredManager)
+                SSHRegistrationSettingsView(strings: .init(language: .simplifiedChinese), registry: registry, agents: registeredManager,
+                    initialChoices: [.init(id: RegisteredSSHHost.id(for: connection), name: "cloud", endpoint: "chengjisheng@10.0.0.123:2222",
+                                           connection: connection, fromConfiguration: true)])
             }
             AgentIntegrationSettingsView(strings: .init(language: .simplifiedChinese), settings: settings,
                 manager: registeredManager, registry: registry, refreshOnAppear: false, target: RegisteredSSHHost.id(for: connection))

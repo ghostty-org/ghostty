@@ -4,6 +4,25 @@ import Testing
 
 @MainActor
 struct SSHHostRegistryTests {
+    @Test func configRegistrationRecognizesLaterSessionsFromOtherWorkingDirectories() async throws {
+        let suite = "SSHRegistryTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let configured = try GitSSHConnection(destination: "cloud", localWorkingDirectory: "/tmp")
+        let active = try GitSSHConnection(destination: "cloud", localWorkingDirectory: "/")
+        var live: [GitSSHConnection] = []
+        let registry = SSHHostRegistry(defaults: defaults, live: { live }, inventory: { _ in .init(hooks: [.codex: .current]) })
+        await registry.register(configured, endpoint: "user@10.0.0.1", fromConfiguration: true)
+        let id = RegisteredSSHHost.id(for: configured)
+        #expect(!registry.isConnected(id))
+        live = [active]
+        #expect(registry.isConnected(id))
+        registry.reconcile()
+        #expect(registry.connections[id] == active)
+        live = [try GitSSHConnection(destination: "cloud", options: ["-p", "2222"])]
+        registry.reconcile()
+        #expect(!registry.isConnected(id))
+    }
     actor Probe {
         var calls = 0
         var fail = false

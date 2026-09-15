@@ -29,18 +29,18 @@ struct AgentIntegrationSettingsView: View {
             }
             ForEach(SupportedAgent.allCases) { agent in row(agent).padding(.vertical, 6) }
         } header: {
-            HStack(spacing: 6) {
-                Text(strings.agentIntegrationSection)
-                Text("·").foregroundStyle(.tertiary)
-                Menu {
-                    hostChoice(strings.agentLocalHost, id: AgentIntegrationManager.localID)
-                    ForEach(registry.hosts) { host in
-                        hostChoice(host.name + (registry.hosts.filter { $0.name == host.name }.count > 1 ? " · " + host.connection.displayEndpoint : ""), id: host.id)
-                    }
-                } label: { Text(hostName).textCase(nil) }
-                .menuStyle(.borderlessButton).fixedSize().help(strings.agentHostLabel)
+            SSHHostPicker(items: [.init(id: AgentIntegrationManager.localID, title: strings.agentLocalHost)] +
+                registry.hosts.map { .init(id: $0.id, title: $0.name + " · " + ($0.endpoint ?? $0.connection.displayEndpoint)) }, selection: $target) {
+                HStack(spacing: 8) {
+                    Text(strings.agentIntegrationSection)
+                    Circle().fill(.secondary).frame(width: 3, height: 3)
+                    Text(hostName).textCase(nil)
+                    Image(systemName: "chevron.down").font(.caption2)
+                }
             }
+            .fixedSize().help(strings.agentHostLabel)
         }
+
         .task(id: target) {
             if local {
                 if refreshOnAppear { await manager.refresh(target: target) }
@@ -51,16 +51,6 @@ struct AgentIntegrationSettingsView: View {
         .onReceive(registry.$hosts.receive(on: RunLoop.main)) { hosts in
             let ids = hosts.map(\.id)
             if !local && !ids.contains(target) { target = AgentIntegrationManager.localID } else if !local { manager.loadCached(target: target) }
-        }
-    }
-
-    private func hostChoice(_ title: String, id: String) -> some View {
-        Button { target = id } label: {
-            if target == id {
-                Label(title, systemImage: "checkmark")
-            } else {
-                Text(title)
-            }
         }
     }
 
@@ -158,7 +148,7 @@ struct AgentIntegrationSettingsView: View {
         HStack(spacing: 6) {
             Text(cliStatus(snapshot.cli[agent])).font(.caption).foregroundStyle(.secondary)
                 .lineLimit(1).truncationMode(.middle)
-            if let cli = snapshot.cli[agent], cli.path != nil, cli.package == nil {
+            if let cli = snapshot.cli[agent], cli.path != nil, !cli.canAutomaticallyUpdate {
                 Image(systemName: "info.circle").foregroundStyle(.tertiary)
                     .help(strings.agentExternalUpdater).accessibilityLabel(strings.agentExternalUpdater)
             }
@@ -178,13 +168,13 @@ struct AgentIntegrationSettingsView: View {
                        ? (hook.isInstalled ? strings.agentUpdateDetector : strings.agentInstallDetector)
                        : (hook.isInstalled ? strings.agentUpdateHook : strings.agentInstallHook)) { perform(agent) }
             }
-            if snapshot.cli[agent]?.updateAvailable == true {
-                Button(strings.agentUpdateCLI) { perform(agent, cli: true) }
+            if snapshot.cli[agent]?.needsUpdateCheck == true {
+                Button(snapshot.cli[agent]?.updater == "native" ? strings.agentCheckAndUpdateCLI : strings.agentUpdateCLI) { perform(agent, cli: true) }
             }
             Menu {
                 Toggle(strings.agentAutomaticCLI, isOn: automaticCLIBinding(agent))
-                    .disabled(snapshot.cli[agent]?.package == nil && !manager.policy(for: target).automaticallyUpdatedAgents.contains(agent))
-                if snapshot.cli[agent]?.path != nil && snapshot.cli[agent]?.package == nil { Text(strings.agentExternalUpdater) }
+                    .disabled(snapshot.cli[agent]?.canAutomaticallyUpdate != true && !manager.policy(for: target).automaticallyUpdatedAgents.contains(agent))
+                if snapshot.cli[agent]?.path != nil && snapshot.cli[agent]?.canAutomaticallyUpdate != true { Text(strings.agentExternalUpdater) }
                 if supportsHooks, hook?.isInstalled == true {
                     Divider()
                     Button(agent.definition.hook.kind == .none ? strings.agentReinstallDetector : strings.agentReinstallHook) { perform(agent) }

@@ -321,15 +321,21 @@ request sequence; failures return a typed `PluginProtocolFailure`.
 
 ### Built-in agent hook bridge (Internal)
 
-Settings → Plugins → SSH registers an existing ready OMG SSH connection manually,
-or opts into registration after successful connections. Registration never scans
-or connects the whole OpenSSH config. It captures the original executable,
+Settings → Plugins → SSH manually registers a concrete Host from OpenSSH config
+or an existing OMG connection, or opts into registration after successful connections.
+The chooser enumerates user/system config and Include files, deduplicates aliases,
+and uses local `ssh -G` output to display `alias · user@hostname[:port]`. Wildcard
+rules participate in OpenSSH resolution but are not invented as concrete targets.
+Listing configuration does not log into any host; only explicit Register connects.
+Automatic registration still requires an existing ready OMG connection. It captures the original executable,
 destination, options (including user, port and ProxyJump) and local launch directory.
 `SSHHostRegistry` persists registered connections and Agent inventory in the app's
 UserDefaults domain under `OMG.SSH.Registry.v1`; identity is derived from the full
 connection, not just the display alias. Different launch parameters remain isolated.
-Manual registration selects an already connected session instead of guessing its
-options from an alias. No remote helper, cron job, or service is deployed.
+Matching live connections are preferred in the chooser. Config-only registrations
+retain their alias and are recognized when a later ordinary alias connection opens
+from another local directory; explicit option changes retain separate identities.
+No remote helper, cron job, or service is deployed.
 
 Registration collects installed CLI versions and Hook state, without npm registry
 queries or install commands. Registered hosts refresh their inventory on reconnect;
@@ -388,10 +394,18 @@ output; it requires Python 3 and existing non-interactive SSH authentication.
 Credentials, host keys and ProxyJump remain owned by OpenSSH. No remote install or
 remove is performed merely by selecting a host or checking its status.
 
-CLI checks use the account's login/interactive shell PATH. Only an executable
-whose resolved path matches a global npm package's declared bin is eligible for
-CLI updates. Other installations show their version and an original-installer
-hint. Before each update, the installation source and npm registry state are
+CLI checks use the account's login/interactive shell PATH. An executable whose
+resolved path matches a global npm package's declared bin uses that npm installation.
+For standalone Codex, Claude, OMP, Qoder and OpenCode, discovery checks the allowlisted
+native update subcommand's `--help` without executing an update. Supported native
+installations expose CLI auto-update independently of npm package metadata. Codex
+uses `codex update` (verified against the installed CLI help); Claude uses
+[`claude update`](https://code.claude.com/docs/en/cli-usage), and OpenCode uses
+[`opencode upgrade`](https://opencode.ai/v2/docs/cli/commands/). Native commands own
+their version/channel checks and run only on an explicit update or enabled schedule;
+the manual button says Check & Update rather than claiming a newer version is known.
+Other installations show their version and an original-installer hint.
+Before each update, the installation source and, for npm, registry state are
 rechecked, then the selected newer stable version is installed explicitly. OMG
 does not downgrade versions, switch prerelease channels, use sudo, or update
 unselected Agents. Hook maintenance runs before CLI discovery so registry errors

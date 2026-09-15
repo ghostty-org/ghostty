@@ -21,6 +21,10 @@ struct AgentCLIInstallation: Codable, Equatable, Sendable {
     var latest: String?
     var package: String?
     var path: String?
+    var updater: String?
+
+    var canAutomaticallyUpdate: Bool { package != nil || updater == "native" }
+    var needsUpdateCheck: Bool { updateAvailable || updater == "native" }
 
     var updateAvailable: Bool {
         guard package != nil, let version, let latest else { return false }
@@ -113,7 +117,7 @@ final class AgentIntegrationManager: ObservableObject {
 
     func checkDueTargets(at date: Date = Date()) {
         registry.reconcile()
-        let currentConnections = connectionTargets()
+        let currentConnections = connectionTargets().union(registry.connections.keys)
         if currentConnections != connectedTargets { connectedTargets = currentConnections }
         for (target, task) in automaticTasks where !allowsAutomaticWork(target) {
             task.cancel()
@@ -134,7 +138,7 @@ final class AgentIntegrationManager: ObservableObject {
     }
 
     func allowsAutomaticWork(_ target: String) -> Bool {
-        target == Self.localID || (registry.host(target) != nil && connectionTargets().contains(target))
+        target == Self.localID || (registry.host(target) != nil && (connectionTargets().contains(target) || registry.isConnected(target)))
     }
 
     func loadCached(target: String) {
@@ -193,7 +197,7 @@ final class AgentIntegrationManager: ObservableObject {
             captured = true
             if automatic {
                 var updatedCLI = false
-                for agent in SupportedAgent.allCases where snapshot.cli[agent]?.updateAvailable == true {
+                for agent in SupportedAgent.allCases where snapshot.cli[agent]?.needsUpdateCheck == true {
                     guard !Task.isCancelled, allowsAutomaticWork(target), self.policy(for: target).checkAutomatically else { break }
                     guard self.policy(for: target).automaticallyUpdatedAgents.contains(agent) else { continue }
                     do {
@@ -292,7 +296,7 @@ final class AgentIntegrationManager: ObservableObject {
             arguments = [loginShell ? "-lic" : "-lc", invocation]
         } else {
             guard let host = registry.host(target) else { throw AgentHistoryRemoteError.unavailable }
-            return try await SSHSessionTransport.python(script, connection: host.connection, loginShell: loginShell)
+            return try await SSHSessionTransport.python(script, connection: registry.connections[target] ?? host.connection, loginShell: loginShell)
         }
 
         // Shell startup output is separated from the actual script output.
@@ -323,6 +327,7 @@ import base64, json, os, pathlib, re, shutil, subprocess
 COMMANDS = json.loads(base64.b64decode("\#(data.base64EncodedString())"))
 UPDATE = "\#(update?.rawValue ?? "")"
 CHECK_LATEST = \#(checkLatest ? "True" : "False")
+NATIVE_UPDATES = {"codex": "update", "claude": "update", "omp": "update", "qoder": "update", "opencode": "upgrade"}
 
 def run(args, timeout=30):
     result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
@@ -372,10 +377,22 @@ for agent, command in COMMANDS.items():
             version = run([path, "--version"], timeout=8)
             if version.returncode == 0: item["version"] = version.stdout.strip()[:160]
         except (subprocess.TimeoutExpired, OSError): pass
+        if agent in NATIVE_UPDATES:
+            subcommand = NATIVE_UPDATES[agent]
+            try:
+                help_result = run([path, subcommand, "--help"], timeout=5)
+                if help_result.returncode == 0 and re.search(
+                    r"(?im)^\s*(?:usage:|\$).*?\b" + re.escape(subcommand) + r"\b", help_result.stdout):
+                    item["updater"] = "native"
+            except (subprocess.TimeoutExpired, OSError, RuntimeError): pass
     installed[agent] = item
 
 if UPDATE:
     item = installed[UPDATE]
+    if item.get("updater") == "native":
+        result = run([item["path"], NATIVE_UPDATES[UPDATE]], timeout=180)
+        if result.returncode != 0: raise RuntimeError(result.stderr.strip()[:2000] or "Native updater failed")
+        raise SystemExit(0)
     if not item.get("package"): raise RuntimeError("Agent is not managed by this npm installation")
     latest = outdated_packages([item["package"]]).get(item["package"], {}).get("latest", item["version"])
     if newer(item["version"], latest):

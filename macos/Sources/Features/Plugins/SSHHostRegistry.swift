@@ -9,6 +9,8 @@ struct RegisteredSSHHost: Codable, Identifiable, Sendable {
     let connection: GitSSHConnection
     var snapshot: AgentIntegrationSnapshot
     var capturedAt: Date
+    var endpoint: String?
+    var fromConfiguration: Bool?
 
     static func id(for connection: GitSSHConnection) -> String {
         "ssh-host:" + SHA256.hash(data: Data(connection.identity.utf8)).prefix(16)
@@ -71,7 +73,11 @@ final class SSHHostRegistry: ObservableObject {
     }
 
     func reconcile() {
-        let current = Dictionary(live().map { (RegisteredSSHHost.id(for: $0), $0) }, uniquingKeysWith: { first, _ in first })
+        let current = Dictionary(live().map { connection in
+            let exact = RegisteredSSHHost.id(for: connection)
+            let configured = hosts.first { matchesConfiguration($0, connection) }
+            return (host(exact)?.id ?? configured?.id ?? exact, connection)
+        }, uniquingKeysWith: { first, _ in first })
         let removed = Set(connections.keys).subtracting(current.keys)
         for id in removed {
             tasks[id]?.cancel()
@@ -86,7 +92,7 @@ final class SSHHostRegistry: ObservableObject {
             && !attempted.contains(id) && !pending.contains(id) {
             attempted.insert(id)
             tasks[id] = Task { [weak self] in
-                await self?.register(connection, automatic: true)
+                await self?.register(connection, automatic: true, targetID: id)
                 self?.tasks[id] = nil
             }
         }
@@ -96,11 +102,20 @@ final class SSHHostRegistry: ObservableObject {
     func isCollecting(_ id: String) -> Bool { pending.contains(id) || tasks[id] != nil }
 
     func isConnected(_ id: String) -> Bool {
-        live().contains { RegisteredSSHHost.id(for: $0) == id }
+        live().contains { connection in
+            RegisteredSSHHost.id(for: connection) == id || host(id).map { matchesConfiguration($0, connection) } == true
+        }
     }
 
-    func register(_ connection: GitSSHConnection, automatic: Bool = false) async {
-        let id = RegisteredSSHHost.id(for: connection)
+    private func matchesConfiguration(_ record: RegisteredSSHHost, _ connection: GitSSHConnection) -> Bool {
+        record.fromConfiguration == true && record.connection.destination == connection.destination &&
+            record.connection.workspaceID == connection.workspaceID && record.connection.options == connection.options &&
+            record.connection.options.isEmpty && record.connection.executablePath == connection.executablePath
+    }
+
+    func register(_ connection: GitSSHConnection, automatic: Bool = false, endpoint: String? = nil,
+                  fromConfiguration: Bool = false, targetID: String? = nil) async {
+        let id = targetID ?? RegisteredSSHHost.id(for: connection)
         guard !pending.contains(id), !automatic || isConnected(id) else { return }
         if !automatic { excluded.remove(id) }
         if isConnected(id) { attempted.insert(id) }
@@ -120,8 +135,13 @@ final class SSHHostRegistry: ObservableObject {
                 if snapshot.cli.isEmpty { snapshot.cli = previous.cli }
             }
             let name = connection.workspaceID.hasPrefix("ssh:") ? String(connection.workspaceID.dropFirst(4)) : connection.destination
-            let record = RegisteredSSHHost(id: id, name: name, connection: connection,
-                                           snapshot: snapshot, capturedAt: Date())
+            let resolvedEndpoint: String?
+            if let endpoint { resolvedEndpoint = endpoint } else { resolvedEndpoint = try? await SSHConfigurationCatalog.resolve(connection) }
+            try Task.checkCancellation()
+            guard !excluded.contains(id), !automatic || isConnected(id) else { return }
+            let record = RegisteredSSHHost(id: id, name: name, connection: host(id)?.connection ?? connection,
+                                           snapshot: snapshot, capturedAt: Date(), endpoint: resolvedEndpoint,
+                                           fromConfiguration: host(id)?.fromConfiguration ?? fromConfiguration)
             hosts.removeAll { $0.id == id }
             hosts.append(record)
             hosts.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
