@@ -439,8 +439,34 @@ struct SettingsStrings: Equatable, Sendable {
     var genericPluginCaption: String { t("OMG plugin", "OMG 插件") }
 
     var agentIntegrationSection: String { t("Agent Integration", "Agent 集成") }
+    var agentHostLabel: String { t("Host", "主机") }
+    var agentLocalHost: String { t("This Mac", "本机") }
+    var agentAutomaticCheck: String { t("Check for Updates Automatically", "自动检测更新") }
+    var agentAutomaticHooks: String { t("Automatically Update Installed Hooks", "自动更新已安装的 Hooks") }
+    var agentAutomaticCLI: String { t("Auto-update CLI", "自动更新 CLI") }
+    var agentCheckInterval: String { t("Check Interval", "检查频率") }
+    var agentEveryHour: String { t("Every Hour", "每小时") }
+    var agentEveryDay: String { t("Every Day", "每天") }
+    var agentEveryWeek: String { t("Every Week", "每周") }
+    var agentCheckNow: String { t("Check Now", "立即检查") }
+    var agentLastChecked: String { t("Hooks last checked:", "Hooks 上次检查成功：") }
+    var agentUpdateCLI: String { t("Update CLI", "更新 CLI") }
+    var agentNotChecked: String { t("Not Checked", "尚未检查") }
+    var agentCLIMissing: String { t("Not Found in PATH", "未在 PATH 中找到") }
+    var agentVersionUnknown: String { t("Version Unknown", "版本未知") }
+    var agentExternalUpdater: String { t("Update with Original Installer", "请使用原安装方式更新") }
+    var agentHostDetectorOnly: String { t("Detector is managed on this Mac", "检测器由本机管理") }
+    var agentUpdateScopeCaption: String {
+        t("Checks run while OMG is open. Automatic installation is off by default and only updates existing installations. CLI updates support verified global npm installations.",
+          "OMG 运行期间定时检查。自动安装默认关闭，只更新已安装的项目。CLI 更新支持已核实来源的 npm 全局安装。")
+    }
+    var agentLocalScopeCaption: String { t("These update settings apply to this Mac only.", "以上更新设置仅适用于本机。") }
+    var agentSSHScopeCaption: String {
+        t("These update settings apply to the selected SSH account. Uses system OpenSSH configuration and requires non-interactive SSH access and Python 3. CLI checks use the remote login shell. Offline hosts report an error and retry at the next interval.",
+          "以上更新设置仅适用于所选 SSH 账户。使用系统 OpenSSH 配置，需要免交互 SSH 登录和 Python 3。CLI 检查使用远端登录 Shell。离线主机显示错误并在下个周期重试。")
+    }
     var agentStatusHooksLabel: String {
-        t("Enable Normalized Status Events", "启用规范化状态事件")
+        t("Enable Normalized Status Events (OMG-wide)", "启用规范化状态事件（OMG 全局）")
     }
     var agentDetectorMissing: String { t("Detector Not Installed", "未安装检测器") }
     var agentDetectorUpdateRequired: String {

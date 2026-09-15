@@ -287,6 +287,7 @@ class AppDelegate: NSObject,
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated { applyMenuLocalization() }
+        AgentIntegrationManager.shared.start()
         do {
             try AgentHookInstaller().migrateImplicitDetectorsIfNeeded()
         } catch {

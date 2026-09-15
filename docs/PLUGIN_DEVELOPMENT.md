@@ -291,6 +291,45 @@ request sequence; failures return a typed `PluginProtocolFailure`.
 
 ### Built-in agent hook bridge (Internal)
 
+Settings → Plugins → Agent Integration selects **This Mac** or an OpenSSH alias.
+Hook state and install/update/remove actions are scoped to that selected account;
+changing selection never retargets an in-flight operation. The normalized status
+events master switch remains an OMG-wide presentation setting. Detector-only
+agents are explicitly shown as managed by the local Host, not as remote hooks.
+
+`AgentIntegrationManager` checks installed Hooks while OMG runs, including when
+Settings is closed. Each account has an independent hourly/daily/weekly interval,
+automatic-check preference, optional automatic Hook updates, and per-Agent CLI
+auto-update switches. Local checks default to daily; SSH background checks and all
+automatic installation default off. Enabling a target does not install missing
+Hooks or Agent executables. Policy and check timestamps are stored in the app's
+UserDefaults domain under `OMG.AgentIntegration.Policies.v1`, separating Dev and
+release. Errors stay attached to their target; the last successful Hook check is
+displayed separately from a CLI discovery failure. Failed attempts retry at the
+configured interval; per-target operations are serialized.
+
+Remote Hook operations reuse the exported Python installer with typed `status`,
+`install`, or `remove` actions and a closed Agent selection. No arguments preserves
+the export's install-all-supported-Hooks behavior. The script travels on stdin
+through system OpenSSH with BatchMode, connection/keepalive deadlines and bounded
+output; it requires Python 3 and existing non-interactive SSH authentication.
+Credentials, host keys and ProxyJump remain owned by OpenSSH. No remote install or
+remove is performed merely by selecting a host or checking its status.
+
+CLI checks use the account's login/interactive shell PATH. Only an executable
+whose resolved path matches a global npm package's declared bin is eligible for
+CLI updates. Other installations show their version and an original-installer
+hint. Before each update, the installation source and npm registry state are
+rechecked, then the selected newer stable version is installed explicitly. OMG
+does not downgrade versions, switch prerelease channels, use sudo, or update
+unselected Agents. Hook maintenance runs before CLI discovery so registry errors
+cannot prevent Hook updates. npm registry semantics follow
+[npm outdated](https://docs.npmjs.com/cli/v11/commands/npm-outdated/).
+
+Tests execute the exported script against temporary homes across every Hook
+dialect, verify scoped removal preserves third-party Hooks, and exercise npm bin
+identity, exact-version updates, downgrade rejection and per-host policy isolation.
+
 `AgentHookInstaller` installs only the closed mechanism selected by each bundled
 manifest: nested JSON, Cursor/Copilot/Reasonix flat JSON, Pi-compatible or
 OpenCode/Amp plugins, marker-delimited Kimi TOML, and event-named Cline scripts.

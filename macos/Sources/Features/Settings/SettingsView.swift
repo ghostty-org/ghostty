@@ -62,6 +62,29 @@ final class OhMyGhosttySettingsWindowController: NSWindowController {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func showWindow(_ sender: Any?) {
+        // Capture the invoking terminal before Settings becomes the key window.
+        let source = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 }
+            .first { $0.windowController is TerminalController }
+        if let screen = source?.screen, let window, window.screen != screen {
+            window.setFrame(Self.frame(window.frame, on: screen.visibleFrame), display: false)
+        }
+        super.showWindow(sender)
+    }
+
+    static func frame(_ frame: NSRect, on visibleFrame: NSRect) -> NSRect {
+        let size = NSSize(
+            width: min(frame.width, visibleFrame.width),
+            height: min(frame.height, visibleFrame.height)
+        )
+        return NSRect(
+            x: visibleFrame.midX - size.width / 2,
+            y: visibleFrame.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+
     private func applyAppearance(_ settings: OhMyGhosttySettings) {
         guard let window else { return }
         let title = SettingsStrings(language: settings.language).windowTitle
@@ -106,8 +129,6 @@ struct SettingsView: View {
     @State private var githubRepository = ""
     @State private var pluginOperation: String?
     @State private var pluginError: String?
-    @State private var agentHookRevision = 0
-    @State private var agentHookOperation: SupportedAgent?
     @State private var agentHookError: String?
 
     private var strings: SettingsStrings {
@@ -526,13 +547,10 @@ struct SettingsView: View {
 
             Section(strings.agentIntegrationSection) {
                 Toggle(strings.agentStatusHooksLabel, isOn: $settings.agentStatusHooksEnabled)
-                ForEach(SupportedAgent.allCases) { agent in
-                    agentHookRow(agent)
-                }
+                AgentIntegrationSettingsView(strings: strings)
                 Button(strings.exportSSHInstallerButton, systemImage: "square.and.arrow.up") {
                     exportRemoteAgentInstaller()
                 }
-                .disabled(agentHookOperation != nil)
                 Text(strings.agentHooksCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -831,72 +849,6 @@ struct SettingsView: View {
         }
         .font(.caption)
         .foregroundStyle(.secondary)
-    }
-
-    @ViewBuilder
-    private func agentHookRow(_ agent: SupportedAgent) -> some View {
-        let revision = agentHookRevision
-        let installationState = AgentHookInstaller().installationState(agent)
-        let detectorOnly = agent.definition.hook.kind == .none
-        let installed = installationState.isInstalled
-        let statusText: String = switch (detectorOnly, installationState) {
-        case (true, .missing): strings.agentDetectorMissing
-        case (true, .updateAvailable): strings.agentDetectorUpdateRequired
-        case (true, .current): strings.agentDetectorCurrent
-        case (false, .missing): strings.agentHooksMissing
-        case (false, .updateAvailable): strings.agentHooksUpdateRequired
-        case (false, .current): strings.agentHooksCurrent
-        }
-        HStack {
-            Image(agent.assetName)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 16, height: 16)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(agent.displayName)
-                Text(statusText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if agentHookOperation == agent {
-                ProgressView()
-                    .controlSize(.small)
-            }
-            Button(installed ? strings.agentUpdateButton : strings.agentInstallButton) {
-                updateAgentHook(agent, remove: false)
-            }
-            .disabled(agentHookOperation != nil)
-            if installed {
-                Button(strings.agentRemoveButton) {
-                    updateAgentHook(agent, remove: true)
-                }
-                .disabled(agentHookOperation != nil)
-            }
-        }
-        .id("\(agent.id)-\(revision)")
-    }
-
-    private func updateAgentHook(
-        _ agent: SupportedAgent,
-        remove: Bool
-    ) {
-        agentHookError = nil
-        agentHookOperation = agent
-        defer {
-            agentHookOperation = nil
-            agentHookRevision &+= 1
-        }
-        do {
-            let installer = AgentHookInstaller()
-            if remove {
-                try installer.uninstall(agent)
-            } else {
-                try installer.install(agent)
-            }
-        } catch {
-            agentHookError = error.localizedDescription
-        }
     }
 
     private func exportRemoteAgentInstaller() {

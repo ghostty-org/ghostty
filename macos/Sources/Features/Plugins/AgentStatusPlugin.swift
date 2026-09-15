@@ -69,6 +69,12 @@ enum AgentHookInstallationState: Equatable, Sendable {
     var isInstalled: Bool { self != .missing }
 }
 
+enum AgentHookRemoteAction: String {
+    case status
+    case install
+    case remove
+}
+
 struct AgentHookInstaller {
     static let marker = "_omg_agent_status"
     static let hookVersion = 8
@@ -164,7 +170,15 @@ struct AgentHookInstaller {
         }
     }
 
-    static func remoteInstallerScript() throws -> String {
+    static func remoteInstallerScript(
+        action: AgentHookRemoteAction = .install,
+        agents: [SupportedAgent]? = nil
+    ) throws -> String {
+        let selected = agents ?? SupportedAgent.allCases.filter { $0.definition.hook.kind != .none }
+        guard selected.allSatisfy({ $0.definition.hook.kind != .none }) else {
+            throw AgentHookInstallerError.invalidConfiguration
+        }
+        let selectionData = try JSONEncoder().encode(selected.map(\.rawValue))
         let jsonAgents = SupportedAgent.allCases.filter {
             $0.definition.hook.kind == .json
         }
@@ -251,6 +265,8 @@ VERSION = \#(hookVersion)
 SPEC = json.loads(base64.b64decode("\#(specBase64)").decode("utf-8"))
 AUXILIARY = json.loads(base64.b64decode("\#(auxiliaryBase64)").decode("utf-8"))
 HOME = Path.home()
+ACTION = "\#(action.rawValue)"
+SELECTED = json.loads(base64.b64decode("\#(selectionData.base64EncodedString())"))
 
 
 def backup(path):
@@ -408,15 +424,86 @@ def expand(raw):
     return HOME / raw[2:] if raw.startswith("~/") else Path(raw)
 
 
-for agent, item in SPEC.items():
-    validate_json(expand(item["path"]), agent)
-for agent, item in SPEC.items():
-    if agent == "codex":
-        enable_codex_hooks(HOME / ".codex" / "config.toml")
-    install_json(expand(item["path"]), agent)
-for item in AUXILIARY.values():
-    install_auxiliary(item)
-print("Installed current OMG agent hooks.")
+def state(agent):
+    if agent in SPEC:
+        item = SPEC[agent]
+        path = expand(item["path"])
+        if not path.exists(): return "missing"
+        root, hooks = load_hooks(path)
+        owned = any(remove_omg(entry) != entry for entries in hooks.values()
+                    if isinstance(entries, list) for entry in entries if isinstance(entry, dict))
+        if not owned: return "missing"
+        current = all(item_entry["entry"] in hooks.get(item_entry["event"], [])
+                      for item_entry in item["entries"])
+        if agent == "codex":
+            config = HOME / ".codex/config.toml"
+            text = config.read_text(encoding="utf-8") if config.exists() else ""
+            section = re.search(r"(?ms)^\s*\[features\]\s*\n(.*?)(?=^\s*\[|\Z)", text)
+            current = current and section is not None and re.search(
+                r"(?m)^\s*hooks\s*=\s*true\s*(?:#.*)?$", section.group(1)) is not None
+        return "current" if current else "updateAvailable"
+    if agent in AUXILIARY:
+        item = AUXILIARY[agent]
+        path = expand(item["path"])
+        if item["kind"] == "scripts":
+            texts = [(path / entry["event"]).read_text(encoding="utf-8")
+                     if (path / entry["event"]).exists() else "" for entry in item["entries"]]
+            if not any(MARKER in text for text in texts): return "missing"
+            return "current" if all("_omg_agent_status_v" + str(VERSION) in text for text in texts) else "updateAvailable"
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        if MARKER not in text and "# >>> OMG agent-status hooks" not in text: return "missing"
+        current = text == item["source"] if item["kind"] == "plugin" else "_omg_agent_status_v" + str(VERSION) in text
+        return "current" if current else "updateAvailable"
+    raise ValueError("No remote hook for this agent")
+
+
+def remove(agent):
+    if agent in SPEC:
+        path = expand(SPEC[agent]["path"])
+        if not path.exists(): return
+        root, hooks = load_hooks(path)
+        for event, entries in hooks.items():
+            if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
+                raise ValueError(str(path) + " invalid hooks")
+            hooks[event] = [entry for entry in (remove_omg(value) for value in entries) if entry is not None]
+        root["hooks"] = hooks
+        backup(path)
+        atomic_write(path, json.dumps(root, indent=2, sort_keys=True) + "\n")
+    elif agent in AUXILIARY:
+        item = AUXILIARY[agent]
+        path = expand(item["path"])
+        if item["kind"] == "scripts":
+            for entry in item["entries"]:
+                target = path / entry["event"]
+                if target.exists() and (": " + MARKER + ";") in target.read_text(encoding="utf-8"):
+                    backup(target)
+                    target.unlink()
+        elif path.exists():
+            text = path.read_text(encoding="utf-8")
+            if item["kind"] == "toml":
+                backup(path)
+                atomic_write(path, strip_toml_block(text))
+            elif "marker: " + MARKER in text:
+                backup(path)
+                path.unlink()
+
+
+if ACTION == "status":
+    print(json.dumps({agent: state(agent) for agent in SELECTED}))
+elif ACTION == "remove":
+    for agent in SELECTED: remove(agent)
+elif ACTION == "install":
+    for agent in SELECTED:
+        if agent in SPEC: validate_json(expand(SPEC[agent]["path"]), agent)
+    for agent in SELECTED:
+        if agent in SPEC:
+            if agent == "codex": enable_codex_hooks(HOME / ".codex/config.toml")
+            install_json(expand(SPEC[agent]["path"]), agent)
+        elif agent in AUXILIARY:
+            install_auxiliary(AUXILIARY[agent])
+    print("Installed current OMG agent hooks.")
+else:
+    raise ValueError("Unknown OMG integration action")
 """#
     }
 

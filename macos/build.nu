@@ -7,6 +7,7 @@ def main [
     --scheme: string = "Ghostty"       # Xcode scheme (Ghostty, DockTilePlugin)
     --configuration: string = "Debug"  # Build configuration (Debug, Release, ReleaseLocal)
     --action: string = "build"         # xcodebuild action (build, test, clean, etc.)
+    --only-testing: string = ""         # Comma-separated test identifiers, e.g. GhosttyTests/AgentIntegrationManagerTests
     --marketing-version: string         # Optional local build version override
 ] {
     let project = ($env.FILE_PWD | path join "Ghostty.xcodeproj")
@@ -24,6 +25,8 @@ def main [
     } else {
         [$"MARKETING_VERSION=($marketing_version)"]
     }
+    let selected_tests = ($only_testing | split row "," | where {|test| $test != "" }
+        | each {|test| ["-only-testing" $test] } | flatten)
 
     (^env -i
         $"HOME=($env.HOME)"
@@ -39,5 +42,6 @@ def main [
         $"SYMROOT=($build_dir)"
         ...$version_override
         ...$skip_testing
+        ...$selected_tests
         $action)
 }
