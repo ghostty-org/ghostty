@@ -10,7 +10,7 @@ extension Ghostty {
     class SurfaceView: OSSurfaceView, Codable, Identifiable {
         // The current title of the surface as defined by the pty. This can be
         // changed with escape codes.
-        @Published private(set) var title: String = "" {
+        @SurfaceTitle private(set) var title: String = "" {
             didSet {
                 if !title.isEmpty {
                     titleFallbackTimer?.invalidate()

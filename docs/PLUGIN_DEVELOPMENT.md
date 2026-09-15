@@ -43,6 +43,9 @@ Pane session metadata retains the latest terminal title, but title-only revision
 do not publish controller-wide view or connection-inventory notifications.
 Title consumers observe their own Surface; directory and SSH state changes still
 notify the controller and connection observers.
+The Surface's title publisher preserves individual title delivery without
+invalidating terminal content views. Tab rows redraw only when their displayed
+title changes, including path-display and Agent-title normalization.
 
 ## Status summary
 

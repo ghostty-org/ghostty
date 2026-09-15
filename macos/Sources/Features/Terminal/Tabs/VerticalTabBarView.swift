@@ -1625,8 +1625,10 @@ private struct VerticalTabRow: View {
     let select: () -> Void
     let close: () -> Void
     let hoverChanged: (Bool) -> Void
+    @State private var observedTitle = ""
 
     private var livePresentation: GhosttyTabPresentation {
+        _ = observedTitle
         let activeSurface = controller.focusedSurface ?? controller.surfaceTree.first ?? surface
         let session = controller.paneSessionContext(for: activeSurface) ?? .init(
             workingDirectory: activeSurface.pwd,
@@ -1746,6 +1748,12 @@ private struct VerticalTabRow: View {
                 )))
         )
         .onHover(perform: hoverChanged)
+        .onReceive(surface.$title.receive(on: DispatchQueue.main)) { _ in
+            // Read committed session metadata. Folder-name and Agent labels
+            // often remain identical while the terminal title animates.
+            let nextTitle = livePresentation.title
+            if observedTitle != nextTitle { observedTitle = nextTitle }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(presentation.title)
     }

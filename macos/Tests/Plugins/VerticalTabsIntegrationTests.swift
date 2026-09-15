@@ -17,14 +17,20 @@ struct VerticalTabsIntegrationTests {
         let surface = try #require(controller.focusedSurface ?? controller.surfaceTree.first)
         try await Task.sleep(for: .milliseconds(200))
         var publications = 0
+        var surfacePublications = 0
+        var titles: [String] = []
         let observer = controller.objectWillChange.sink { publications += 1 }
-        defer { observer.cancel() }
+        let surfaceObserver = surface.objectWillChange.sink { surfacePublications += 1 }
+        let titleObserver = surface.$title.dropFirst().sink { titles.append($0) }
+        defer { observer.cancel(); surfaceObserver.cancel(); titleObserver.cancel() }
         for index in 0..<10 {
             surface.setTitle("CPU title test \(index)")
             try await Task.sleep(for: .milliseconds(100))
         }
         #expect(controller.paneSessionContext(for: surface)?.local.terminalTitle == "CPU title test 9")
         #expect(publications == 0)
+        #expect(surfacePublications == 0)
+        #expect(titles == (0..<10).map { "CPU title test \($0)" })
         surface.pwd = "/tmp/omg-title-location-test"
         #expect(controller.paneSessionContext(for: surface)?.workingDirectory == "/tmp/omg-title-location-test")
         #expect(publications > 0)
