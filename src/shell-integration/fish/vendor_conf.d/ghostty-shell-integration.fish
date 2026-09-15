@@ -124,12 +124,13 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
     # Wrap `ssh` with `ghostty +ssh` and translate the shell-integration
     # feature flags into command options.
     set -l features (string split ',' -- "$GHOSTTY_SHELL_FEATURES")
-    if contains ssh-env $features; or contains ssh-terminfo $features
+    if contains ssh-env $features; or contains ssh-terminfo $features; or contains ssh-mouse-cleanup $features
         function ssh --wraps=ssh --description "SSH wrapper with Ghostty integration"
             set -l features (string split ',' -- "$GHOSTTY_SHELL_FEATURES")
             set -l flags
             contains ssh-env $features; or set -a flags --forward-env=false
             contains ssh-terminfo $features; or set -a flags --terminfo=false
+            contains ssh-mouse-cleanup $features; and set -a flags --mouse-cleanup
             "$GHOSTTY_BIN_DIR/ghostty" +ssh $flags -- $argv
         end
     end
