@@ -47,7 +47,7 @@ void main() {
     bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
 
     // Convert the grid x, y into world space x, y by accounting for cell size
-    vec2 cell_pos = cell_size * vec2(grid_pos);
+    vec2 cell_pos = cell_size * vec2(grid_pos) + content_offset;
 
     int vid = gl_VertexID;
 

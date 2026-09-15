@@ -139,6 +139,7 @@ pub const Data = enum(c_int) {
     cursor_viewport_wide_tail = 17,
     cursor = 18,
     colors = 19,
+    scroll_row_frac = 20,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: Data) type {
@@ -156,6 +157,7 @@ pub const Data = enum(c_int) {
             .cursor_viewport_x, .cursor_viewport_y => size.CellCountInt,
             .cursor => Cursor,
             .colors => Colors,
+            .scroll_row_frac => f64,
         };
     }
 };
@@ -319,6 +321,7 @@ fn getTyped(
         .invalid => return .invalid_value,
         .cols => out.* = state.state.cols,
         .rows => out.* = state.state.rows,
+        .scroll_row_frac => out.* = state.state.scroll_row_frac,
         .dirty => out.* = state.state.dirty,
         .row_iterator => {
             const it = out.* orelse return .invalid_value;
@@ -1259,6 +1262,71 @@ test "render: set null value" {
     defer free(state);
 
     try testing.expectEqual(Result.invalid_value, set(state, .dirty, null));
+}
+
+test "render: scroll row frac extra row" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        10,
+        3,
+    ));
+    defer terminal_c.free(terminal);
+
+    const t = terminal.?.terminal;
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("A\r\nB\r\nC\r\nD\r\nE");
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var rows_val: size.CellCountInt = 0;
+    var frac: f64 = 1;
+    try testing.expectEqual(Result.success, get(state, .rows, @ptrCast(&rows_val)));
+    try testing.expectEqual(Result.success, get(state, .scroll_row_frac, @ptrCast(&frac)));
+    try testing.expectEqual(@as(size.CellCountInt, 3), rows_val);
+    try testing.expectEqual(@as(f64, 0), frac);
+
+    {
+        var iterator: RowIterator = null;
+        try testing.expectEqual(Result.success, row_iterator_new(
+            &lib.alloc.test_allocator,
+            &iterator,
+        ));
+        defer row_iterator_free(iterator);
+        try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&iterator)));
+        var n: usize = 0;
+        while (row_iterator_next(iterator)) n += 1;
+        try testing.expectEqual(@as(usize, 3), n);
+    }
+
+    t.scrollViewport(.top);
+    t.setScrollRowFrac(0.25);
+    try testing.expectEqual(Result.success, update(state, terminal));
+    try testing.expectEqual(Result.success, get(state, .rows, @ptrCast(&rows_val)));
+    try testing.expectEqual(Result.success, get(state, .scroll_row_frac, @ptrCast(&frac)));
+    try testing.expectEqual(@as(size.CellCountInt, 3), rows_val);
+    try testing.expectEqual(@as(f64, 0.25), frac);
+
+    var iterator: RowIterator = null;
+    try testing.expectEqual(Result.success, row_iterator_new(
+        &lib.alloc.test_allocator,
+        &iterator,
+    ));
+    defer row_iterator_free(iterator);
+    try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&iterator)));
+
+    var n: usize = 0;
+    while (row_iterator_next(iterator)) n += 1;
+    try testing.expectEqual(@as(usize, 4), n);
 }
 
 test "render: row iterator get invalid value" {

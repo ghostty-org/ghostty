@@ -110,7 +110,7 @@ pub const Info = struct {
                 null,
                 cimgui.c.ImGuiWindowFlags_NoFocusOnAppearing,
             )) break :pagelist;
-            self.pagelist.draw(&screen.pages);
+            self.pagelist.draw(screen);
         }
 
         // The remainder is the open state

@@ -40,7 +40,7 @@ void main() {
 
     // The position of our image starts at the top-left of the grid cell and
     // adds the source rect width/height components.
-    vec2 image_pos = (cell_size * grid_pos) + cell_offset;
+    vec2 image_pos = (cell_size * grid_pos) + cell_offset + content_offset;
     image_pos += dest_size * corner;
 
     gl_Position = projection_matrix * vec4(image_pos.xy, 1.0, 1.0);

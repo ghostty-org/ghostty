@@ -22,7 +22,8 @@ const InspectedCell = struct {
 pub const Inspector = struct {
     pub const empty: Inspector = .{};
 
-    pub fn draw(_: *const Inspector, pages: *PageList) void {
+    pub fn draw(_: *const Inspector, screen: *terminal.Screen) void {
+        const pages = &screen.pages;
         cimgui.c.ImGui_TextWrapped(
             "PageList manages the backing pages that hold scrollback and the active " ++
                 "terminal grid. Each page is a contiguous memory buffer with its " ++
@@ -48,7 +49,7 @@ pub const Inspector = struct {
             cimgui.c.ImGuiTreeNodeFlags_DefaultOpen,
         )) {
             cimgui.c.ImGui_SeparatorText("Scrollbar");
-            scrollbarInfo(pages);
+            scrollbarInfo(screen);
             cimgui.c.ImGui_SeparatorText("Regions");
             regionsTable(pages);
         }
@@ -310,7 +311,8 @@ fn percentage(numerator: usize, denominator: usize) f64 {
         @as(f64, @floatFromInt(denominator));
 }
 
-fn scrollbarInfo(pages: *PageList) void {
+fn scrollbarInfo(screen: *terminal.Screen) void {
+    const pages = &screen.pages;
     const scrollbar = pages.scrollbar();
 
     // If we have a scrollbar, show it.
@@ -346,6 +348,30 @@ fn scrollbarInfo(pages: *PageList) void {
     widgets.helpMarker("Current scroll position as row offset from the top of scrollback.");
     _ = cimgui.c.ImGui_TableSetColumnIndex(2);
     cimgui.c.ImGui_Text("%d", scrollbar.offset);
+
+    cimgui.c.ImGui_TableNextRow();
+    _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+    cimgui.c.ImGui_Text("Row Frac");
+    _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+    widgets.helpMarker(
+        "Fractional part of the scroll row. Combined with Offset this is the visual " ++
+            "scroll position. Always 0 at the bottom; scroll up to change it.",
+    );
+    _ = cimgui.c.ImGui_TableSetColumnIndex(2);
+    {
+        var frac: f32 = @floatCast(screen.scrollRowFrac());
+        cimgui.c.ImGui_BeginDisabled(screen.viewportIsBottom());
+        defer cimgui.c.ImGui_EndDisabled();
+        cimgui.c.ImGui_SetNextItemWidth(cimgui.c.ImGui_GetFontSize() * 8);
+        if (cimgui.c.ImGui_SliderFloat(
+            "##scroll_row_frac",
+            &frac,
+            0,
+            std.math.nextAfter(f32, 1.0, 0.0),
+        )) {
+            screen.setScrollRowFrac(frac);
+        }
+    }
 
     cimgui.c.ImGui_TableNextRow();
     _ = cimgui.c.ImGui_TableSetColumnIndex(0);
