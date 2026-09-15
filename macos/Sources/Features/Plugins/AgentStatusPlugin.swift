@@ -61,7 +61,7 @@ enum AgentHookInstallerError: LocalizedError {
     }
 }
 
-enum AgentHookInstallationState: Equatable, Sendable {
+enum AgentHookInstallationState: String, Codable, Equatable, Sendable {
     case missing
     case updateAvailable
     case current

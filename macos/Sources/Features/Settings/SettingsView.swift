@@ -518,6 +518,9 @@ struct SettingsView: View {
                         toggle: { togglePlugin(manifest) },
                         uninstall: { uninstall(manifest) }
                     )
+                    if manifest.id == SSHPlugin.pluginID {
+                        SSHRegistrationSettingsView(strings: strings)
+                    }
                 }
                 Text(strings.officialPluginsCaption)
                     .font(.caption)

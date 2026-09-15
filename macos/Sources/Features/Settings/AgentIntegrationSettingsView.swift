@@ -4,17 +4,17 @@ struct AgentIntegrationSettingsView: View {
     let strings: SettingsStrings
     @ObservedObject var settings: OhMyGhosttySettings
     @ObservedObject var manager: AgentIntegrationManager = .shared
+    @ObservedObject var registry: SSHHostRegistry = .shared
     var exportInstaller: () -> Void = {}
     var exportError: String?
     var refreshOnAppear = true
-    @State private var target = AgentIntegrationManager.localID
-    @State private var hosts: [SSHHostConfiguration] = []
+    @State var target = AgentIntegrationManager.localID
     @State private var showingUpdateSettings = false
 
-    private var snapshot: AgentIntegrationSnapshot { manager.snapshots[target] ?? .init() }
-    private var busy: Bool { manager.busy.contains(target) }
+    private var snapshot: AgentIntegrationSnapshot { manager.snapshots[target] ?? registry.host(target)?.snapshot ?? .init() }
+    private var busy: Bool { manager.busy.contains(target) || registry.pending.contains(target) }
     private var local: Bool { target == AgentIntegrationManager.localID }
-    private var hostName: String { local ? strings.agentLocalHost : String(target.dropFirst(4)) }
+    private var hostName: String { local ? strings.agentLocalHost : registry.host(target)?.name ?? strings.agentLocalHost }
 
     var body: some View {
         Section {
@@ -33,20 +33,34 @@ struct AgentIntegrationSettingsView: View {
                 Text(strings.agentIntegrationSection)
                 Text("·").foregroundStyle(.tertiary)
                 Menu {
-                    Picker(strings.agentHostLabel, selection: $target) {
-                        Text(strings.agentLocalHost).tag(AgentIntegrationManager.localID)
-                        ForEach(hosts, id: \.workspaceID) { host in Text(host.alias).tag(host.workspaceID) }
+                    hostChoice(strings.agentLocalHost, id: AgentIntegrationManager.localID)
+                    ForEach(registry.hosts) { host in
+                        hostChoice(host.name + (registry.hosts.filter { $0.name == host.name }.count > 1 ? " · " + host.connection.displayEndpoint : ""), id: host.id)
                     }
                 } label: { Text(hostName).textCase(nil) }
                 .menuStyle(.borderlessButton).fixedSize().help(strings.agentHostLabel)
             }
         }
-        .task {
-            var seen: Set<String> = []
-            hosts = SSHPlugin.configurations().filter { seen.insert($0.workspaceID).inserted }
-        }
         .task(id: target) {
-            if refreshOnAppear { await manager.refresh(target: target) }
+            if local {
+                if refreshOnAppear { await manager.refresh(target: target) }
+            } else {
+                manager.loadCached(target: target)
+            }
+        }
+        .onReceive(registry.$hosts.receive(on: RunLoop.main)) { hosts in
+            let ids = hosts.map(\.id)
+            if !local && !ids.contains(target) { target = AgentIntegrationManager.localID } else if !local { manager.loadCached(target: target) }
+        }
+    }
+
+    private func hostChoice(_ title: String, id: String) -> some View {
+        Button { target = id } label: {
+            if target == id {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
         }
     }
 
@@ -55,7 +69,8 @@ struct AgentIntegrationSettingsView: View {
             Label(scheduleText, systemImage: "clock.arrow.circlepath").font(.callout)
             if !local && !manager.connectedTargets.contains(target) {
                 Text(strings.agentWaitingForConnection).font(.caption).foregroundStyle(.secondary)
-            } else if let date = manager.policy(for: target).lastSuccess {
+            }
+            if let date = local ? manager.policy(for: target).lastSuccess : registry.host(target)?.capturedAt {
                 Text(strings.agentLastChecked + " " + date.formatted(date: .abbreviated, time: .shortened))
                     .font(.caption).foregroundStyle(.secondary)
             }

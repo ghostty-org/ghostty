@@ -48,6 +48,7 @@ final class GitSSHTestServer {
         PasswordAuthentication no
         KbdInteractiveAuthentication no
         UsePAM no
+        Subsystem sftp internal-sftp
         LogLevel ERROR
         """
         let configURL = root.appendingPathComponent("sshd_config")

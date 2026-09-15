@@ -1046,7 +1046,8 @@ enum WorkspaceFilesystemFactory {
             }
             return SSHWorkspaceFilesystem(
                 host: host,
-                workingDirectory: workspace.workingDirectory
+                workingDirectory: workspace.workingDirectory,
+                connection: try? GitSSHConnection(session: context.session)
             )
         }
         if case .sshReady(let ssh, let workingDirectory) = context.session.state {
@@ -1078,7 +1079,8 @@ struct SSHImagePasteTransfer {
         }
         let remotePath = remotePath(for: localFile)
         let batch = batch(localPath: localFile.path, remotePath: remotePath)
-        _ = try await SSHSFTPClient.run(batch: batch, host: ssh.transferTarget)
+        _ = try await SSHSFTPClient.run(batch: batch, host: ssh.transferTarget,
+                                       connection: try? GitSSHConnection(session: ssh))
         return Ghostty.Shell.escape(remotePath)
     }
 
@@ -1103,83 +1105,29 @@ struct SSHImagePasteTransfer {
 }
 
 enum SSHSFTPClient {
-    static func run(batch: String, host: String) async throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/sftp")
-        process.arguments = ["-q", "-b", "-", host]
-        process.standardInput = dataPipe(batch + "\n")
-        return try await run(process)
+    static func run(batch: String, host: String, connection: GitSSHConnection? = nil) async throws -> String {
+        let connection = try connection ?? GitSSHConnection(destination: host,
+            localWorkingDirectory: FileManager.default.homeDirectoryForCurrentUser.path)
+        return try await SSHSessionTransport.sftp(batch: batch, connection: connection)
     }
 
-    static func runCommand(_ command: String, host: String) async throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        process.arguments = ["-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, command]
-        process.standardInput = FileHandle.nullDevice
-        return try await run(process)
-    }
-
-    private static func run(_ process: Process) async throws -> String {
-        return try await withTaskCancellationHandler {
-            try await Task.detached(priority: .utility) {
-                let temporaryDirectory = FileManager.default.temporaryDirectory
-                let token = UUID().uuidString
-                let outputURL = temporaryDirectory
-                    .appendingPathComponent("omg-sftp-\(token).out")
-                let errorURL = temporaryDirectory
-                    .appendingPathComponent("omg-sftp-\(token).err")
-                FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-                FileManager.default.createFile(atPath: errorURL.path, contents: nil)
-                defer {
-                    try? FileManager.default.removeItem(at: outputURL)
-                    try? FileManager.default.removeItem(at: errorURL)
-                }
-                guard let output = try? FileHandle(forWritingTo: outputURL),
-                      let errors = try? FileHandle(forWritingTo: errorURL) else {
-                    throw WorkspaceFilesystemError.unavailable
-                }
-                process.standardOutput = output
-                process.standardError = errors
-                do { try process.run() } catch {
-                    throw WorkspaceFilesystemError.unavailable
-                }
-                let timeout = Task.detached {
-                    try? await Task.sleep(for: .seconds(15))
-                    if process.isRunning { process.terminate() }
-                }
-                process.waitUntilExit()
-                timeout.cancel()
-                try? output.close()
-                try? errors.close()
-
-                let stdout = (try? String(contentsOf: outputURL, encoding: .utf8)) ?? ""
-                let stderr = (try? String(contentsOf: errorURL, encoding: .utf8)) ?? ""
-                guard process.terminationStatus == 0 else {
-                    throw WorkspaceFilesystemError.commandFailed(
-                        process.terminationStatus,
-                        stderr
-                    )
-                }
-                return stdout
-            }.value
-        } onCancel: {
-            if process.isRunning { process.terminate() }
-        }
-    }
-
-    private static func dataPipe(_ string: String) -> Pipe {
-        let pipe = Pipe()
-        pipe.fileHandleForWriting.write(string.data(using: .utf8)!)
-        pipe.fileHandleForWriting.closeFile()
-        return pipe
+    static func runCommand(_ command: String, host: String, connection: GitSSHConnection? = nil) async throws -> String {
+        let connection = try connection ?? GitSSHConnection(destination: host,
+            localWorkingDirectory: FileManager.default.homeDirectoryForCurrentUser.path)
+        let result = try await SSHSessionTransport.run(connection: connection,
+            command: SSHSessionTransport.shellCommand(command))
+        guard result.isSuccess else { throw WorkspaceFilesystemError.commandFailed(result.exitCode, result.stderrString) }
+        return result.stdoutString
     }
 }
 
 struct SSHWorkspaceFilesystem: WorkspaceFilesystem {
     let host: SSHHostConfiguration
+    let connection: GitSSHConnection?
     let descriptor: WorkspaceDescriptor
 
-    init(host: SSHHostConfiguration, workingDirectory: String) {
+    init(host: SSHHostConfiguration, workingDirectory: String, connection: GitSSHConnection? = nil) {
+        self.connection = connection
         self.host = host
         self.descriptor = .init(
             kind: .ssh,
@@ -1209,7 +1157,7 @@ struct SSHWorkspaceFilesystem: WorkspaceFilesystem {
         guard destination != path else { return }
         let command = "python3 -c " + Self.shellQuote(Self.exclusiveRenameScript) + " " +
             Self.shellQuote(path) + " " + Self.shellQuote(destination)
-        _ = try await SSHSFTPClient.runCommand(command, host: host.alias)
+        _ = try await SSHSFTPClient.runCommand(command, host: host.alias, connection: connection)
     }
 
     // No check-then-rename fallback: it could overwrite a concurrently created target.
@@ -1278,36 +1226,10 @@ struct SSHWorkspaceFilesystem: WorkspaceFilesystem {
     }
 
     private func resolveSymlinkViaSSH(at path: String) async -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        process.arguments = [
-            "-q",
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=3",
-            host.alias,
-            "readlink -f \(Self.shellQuote(path)) 2>/dev/null || realpath \(Self.shellQuote(path)) 2>/dev/null"
-        ]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            let timeout = Task.detached {
-                try? await Task.sleep(for: .seconds(3))
-                if process.isRunning { process.terminate() }
-            }
-            process.waitUntilExit()
-            timeout.cancel()
-            guard process.terminationStatus == 0 else { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let out = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  out.hasPrefix("/"), out != path else {
-                return nil
-            }
-            return out
-        } catch {
-            return nil
-        }
+        let command = "readlink -f \(Self.shellQuote(path)) 2>/dev/null || realpath \(Self.shellQuote(path)) 2>/dev/null"
+        guard let output = try? await SSHSFTPClient.runCommand(command, host: host.alias, connection: connection) else { return nil }
+        let result = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return result.hasPrefix("/") && result != path ? result : nil
     }
 
     enum RemoteSymlinkCheckResult: Equatable {
@@ -1424,7 +1346,7 @@ struct SSHWorkspaceFilesystem: WorkspaceFilesystem {
     }
 
     private func runSFTP(batch: String) async throws -> String {
-        try await SSHSFTPClient.run(batch: batch, host: host.alias)
+        try await SSHSFTPClient.run(batch: batch, host: host.alias, connection: connection)
     }
 
     static func parseFileAttributes(

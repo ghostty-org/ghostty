@@ -27,7 +27,8 @@ struct AgentIntegrationManagerTests {
         connected = ["ssh:vps-jump"]
         #expect(!manager.allowsAutomaticWork("ssh:cloud"))
         connected.insert("ssh:cloud")
-        #expect(manager.allowsAutomaticWork("ssh:cloud"))
+        // A ready connection alone is no longer sufficient: it must be registered.
+        #expect(!manager.allowsAutomaticWork("ssh:cloud"))
         connected.remove("ssh:cloud")
         #expect(!manager.allowsAutomaticWork("ssh:cloud"))
         #expect(manager.policy(for: "ssh:cloud").isDue(at: Date()))
@@ -178,6 +179,12 @@ else: sys.exit(2)
         let output = try await python(AgentIntegrationManager.cliScript(), environment: environment)
         let values = try JSONDecoder().decode([String: AgentCLIInstallation].self, from: output)
         #expect(values["codex"]?.updateAvailable == true)
+        var installedOnlyEnvironment = environment
+        installedOnlyEnvironment.removeValue(forKey: "OMG_TEST_LATEST")
+        let inventory = try await python(AgentIntegrationManager.cliScript(checkLatest: false), environment: installedOnlyEnvironment)
+        let installedOnly = try JSONDecoder().decode([String: AgentCLIInstallation].self, from: inventory)
+        #expect(installedOnly["codex"]?.version == "1.0.0")
+        #expect(installedOnly["codex"]?.latest == nil)
         _ = try await python(AgentIntegrationManager.cliScript(update: .codex), environment: environment)
         #expect(try String(contentsOf: log, encoding: .utf8).contains("@example/codex@1.2.0"))
         try FileManager.default.removeItem(at: log)

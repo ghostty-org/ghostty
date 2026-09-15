@@ -291,7 +291,28 @@ request sequence; failures return a typed `PluginProtocolFailure`.
 
 ### Built-in agent hook bridge (Internal)
 
-Settings → Plugins → Agent Integration selects **This Mac** or an OpenSSH alias.
+Settings → Plugins → SSH registers an existing ready OMG SSH connection manually,
+or opts into registration after successful connections. Registration never scans
+or connects the whole OpenSSH config. It captures the original executable,
+destination, options (including user, port and ProxyJump) and local launch directory.
+`SSHHostRegistry` persists registered connections and Agent inventory in the app's
+UserDefaults domain under `OMG.SSH.Registry.v1`; identity is derived from the full
+connection, not just the display alias. Different launch parameters remain isolated.
+Manual registration selects an already connected session instead of guessing its
+options from an alias. No remote helper, cron job, or service is deployed.
+
+Registration collects installed CLI versions and Hook state, without npm registry
+queries or install commands. Registered hosts refresh their inventory on reconnect;
+failed refreshes preserve the previous snapshot and its timestamp. Cancelling
+registration or disconnecting before its result returns cannot publish a late
+record. Unregister removes the local record/cache and suppresses automatic
+re-registration until explicitly registered again; it does not remove remote Hooks.
+
+Settings → Plugins → Agent Integration selects **This Mac** or a registered host.
+Switching remote hosts only reads persisted inventory; it never starts SSH or waits
+for version discovery. The capture time and connection state remain visible.
+Manual Check Now is the explicit remote refresh path. Legacy alias-only update
+preferences do not automatically enable updates for newly registered identities.
 Hook state and install/update/remove actions are scoped to that selected account;
 changing selection never retargets an in-flight operation. The normalized status
 events master switch remains an OMG-wide presentation setting. Detector-only
@@ -318,10 +339,16 @@ changes/window closure, and cancels background transport when the last matching
 connection goes away. Each remote command checks eligibility again before launch.
 Unconnected hosts are skipped without advancing their check deadline, so an
 overdue check can run when a connection becomes ready. A connection to a different
-alias does not qualify. Manual foreground checks remain available without an open
+connection identity does not qualify. Manual foreground checks remain available without an open
 SSH pane. All scheduling stays in the Mac app: no cron job, timer, or persistent
-Agent updater is installed on the remote host. Auxiliary SSH commands disable
-`ControlMaster` creation and `ControlPersist`, avoiding a new persistent SSH master.
+Agent updater is installed on the remote host. `SSHSessionTransport` shares the
+existing exact-connection OpenSSH socket namespace across Git, Agent inventory and
+SFTP. It uses bounded `GitProcessRunner` IO and captured connection options. SFTP
+uses a private, temporary local adapter to preserve SSH arguments while selecting
+the subsystem correctly. UTF-8 filenames remain UTF-8 in its listing output.
+The registry closes a connection's shared master after its last ready pane closes;
+OpenSSH also bounds idle masters to 60 seconds. Short-lived Git/SFTP/Python command
+processes are still expected; this is connection reuse, not a single-process server.
 
 Remote Hook operations reuse the exported Python installer with typed `status`,
 `install`, or `remove` actions and a closed Agent selection. No arguments preserves

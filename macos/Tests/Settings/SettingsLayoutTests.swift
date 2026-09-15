@@ -23,6 +23,26 @@ struct SettingsLayoutTests {
         snapshot.hooks[.claude] = .updateAvailable
         snapshot.cli[.codex] = .init(version: "1.2.3", latest: "1.3.0", package: "example", path: "/usr/local/bin/codex")
         let manager = AgentIntegrationManager(defaults: defaults, snapshots: ["local": snapshot], connectionTargets: { [] })
+        let connection = try GitSSHConnection(destination: "cloud", options: ["-p", "2222"])
+        let cachedInventory = snapshot
+        let registry = SSHHostRegistry(defaults: defaults, live: { [connection] }, inventory: { _ in cachedInventory })
+        registry.reconcile()
+        await registry.register(connection)
+        let registeredManager = AgentIntegrationManager(defaults: defaults,
+            connectionTargets: { [RegisteredSSHHost.id(for: connection)] }, registry: registry)
+        let registeredRoot = Form {
+            Section("SSH") {
+                SSHRegistrationSettingsView(strings: .init(language: .simplifiedChinese), registry: registry, agents: registeredManager)
+            }
+            AgentIntegrationSettingsView(strings: .init(language: .simplifiedChinese), settings: settings,
+                manager: registeredManager, registry: registry, refreshOnAppear: false, target: RegisteredSSHHost.id(for: connection))
+        }.formStyle(.grouped).environment(\.colorScheme, .dark)
+        let registeredHost = NSHostingView(rootView: registeredRoot)
+        let registeredWindow = makeWindow(registeredHost, width: 800)
+        defer { registeredWindow.close() }
+        try await Task.sleep(for: .milliseconds(150))
+        registeredHost.layoutSubtreeIfNeeded()
+        try capture(registeredHost, name: "registered-ssh")
         for width in [CGFloat(450), 1_000] {
             let root = Form {
                 AgentIntegrationSettingsView(strings: .init(language: .simplifiedChinese), settings: settings,

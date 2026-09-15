@@ -36,7 +36,7 @@ struct AgentCLIInstallation: Codable, Equatable, Sendable {
     }
 }
 
-struct AgentIntegrationSnapshot {
+struct AgentIntegrationSnapshot: Codable, Sendable {
     var hooks: [SupportedAgent: AgentHookInstallationState] = [:]
     var cli: [SupportedAgent: AgentCLIInstallation] = [:]
     var error: String?
@@ -46,12 +46,14 @@ struct AgentIntegrationSnapshot {
 /// target and publishes only to that target, including errors and timestamps.
 @MainActor
 final class AgentIntegrationManager: ObservableObject {
-    static let shared = AgentIntegrationManager()
+    static let shared = AgentIntegrationManager(registry: .shared)
     static let localID = "local"
     @Published private(set) var policies: [String: AgentIntegrationPolicy]
     @Published private(set) var snapshots: [String: AgentIntegrationSnapshot] = [:]
     @Published private(set) var busy: Set<String> = []
     @Published private(set) var connectedTargets: Set<String> = []
+    let registry: SSHHostRegistry
+    private var registryObserver: AnyCancellable?
     private let defaults: UserDefaults
     private let homeURL: URL
     private let connectionTargets: @MainActor () -> Set<String>
@@ -66,11 +68,15 @@ final class AgentIntegrationManager: ObservableObject {
         defaults: UserDefaults = .standard,
         homeURL: URL = FileManager.default.homeDirectoryForCurrentUser,
         snapshots: [String: AgentIntegrationSnapshot] = [:],
-        connectionTargets: @escaping @MainActor () -> Set<String> = AgentIntegrationManager.liveConnectionTargets
+        connectionTargets: @escaping @MainActor () -> Set<String> = AgentIntegrationManager.liveConnectionTargets,
+        registry: SSHHostRegistry? = nil
     ) {
+        let registry = registry ?? SSHHostRegistry(defaults: defaults)
+        self.registry = registry
         self.defaults = defaults
         self.homeURL = homeURL
-        self.snapshots = snapshots
+        self.snapshots = Dictionary(uniqueKeysWithValues: registry.hosts.map { ($0.id, $0.snapshot) })
+            .merging(snapshots, uniquingKeysWith: { _, fresh in fresh })
         self.connectionTargets = connectionTargets
         self.connectedTargets = connectionTargets()
         policies = defaults.data(forKey: storageKey)
@@ -82,6 +88,9 @@ final class AgentIntegrationManager: ObservableObject {
         // The app-hosted test runner must never schedule real maintenance.
         guard NSClassFromString("XCTestCase") == nil,
               ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+        registry.start()
+        registryObserver = registry.$hosts.dropFirst().receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.checkDueTargets() }
         timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
             .sink { [weak self] _ in self?.checkDueTargets() }
         connectionObserver = NotificationCenter.default.publisher(for: .terminalPaneSessionContextsDidChange)
@@ -103,6 +112,7 @@ final class AgentIntegrationManager: ObservableObject {
     }
 
     func checkDueTargets(at date: Date = Date()) {
+        registry.reconcile()
         let currentConnections = connectionTargets()
         if currentConnections != connectedTargets { connectedTargets = currentConnections }
         for (target, task) in automaticTasks where !allowsAutomaticWork(target) {
@@ -120,20 +130,28 @@ final class AgentIntegrationManager: ObservableObject {
     }
 
     static func liveConnectionTargets() -> Set<String> {
-        Set(TerminalController.all.flatMap { controller in
-            controller.paneSessionContexts.values.compactMap { context in
-                guard case .sshReady(let ssh, _) = context.state else { return nil }
-                return "ssh:" + ssh.alias
-            }
-        })
+        Set(SSHHostRegistry.liveConnections().map { RegisteredSSHHost.id(for: $0) })
     }
 
     func allowsAutomaticWork(_ target: String) -> Bool {
-        target == Self.localID || connectionTargets().contains(target)
+        target == Self.localID || (registry.host(target) != nil && connectionTargets().contains(target))
+    }
+
+    func loadCached(target: String) {
+        guard let host = registry.host(target) else { return }
+        snapshots[target] = host.snapshot
+    }
+
+    func forget(_ target: String) {
+        automaticTasks[target]?.cancel()
+        registry.unregister(target)
+        snapshots[target] = nil
+        policies[target] = nil
+        if let data = try? JSONEncoder().encode(policies) { defaults.set(data, forKey: storageKey) }
     }
 
     func refresh(target: String, automatic: Bool = false) async {
-        guard !busy.contains(target) else { return }
+        guard !busy.contains(target), !registry.isCollecting(target) else { return }
         guard !automatic || policy(for: target).checkAutomatically else { return }
         guard !automatic || allowsAutomaticWork(target), !Task.isCancelled else { return }
         busy.insert(target)
@@ -145,9 +163,12 @@ final class AgentIntegrationManager: ObservableObject {
         var policy = policy(for: target)
         policy.lastAttempt = Date()
         setPolicy(policy, for: target)
-        var snapshot = AgentIntegrationSnapshot()
+        var snapshot = snapshots[target] ?? registry.host(target)?.snapshot ?? AgentIntegrationSnapshot()
+        snapshot.error = nil
+        var captured = false
         do {
             snapshot.hooks = try await readHooks(target: target)
+            captured = true
             if automatic {
                 for agent in SupportedAgent.allCases where snapshot.hooks[agent] == .updateAvailable {
                     guard !Task.isCancelled, allowsAutomaticWork(target), self.policy(for: target).checkAutomatically,
@@ -164,10 +185,12 @@ final class AgentIntegrationManager: ObservableObject {
             snapshot.error = error.localizedDescription
         }
         snapshots[target] = snapshot
+        if captured { registry.storeSnapshot(snapshot, target: target) }
         if automatic && self.policy(for: target).automaticallyUpdatedAgents.isEmpty { return }
         // CLI discovery/network failures must not prevent Hook maintenance.
         do {
             snapshot.cli = try await readCLI(target: target)
+            captured = true
             if automatic {
                 var updatedCLI = false
                 for agent in SupportedAgent.allCases where snapshot.cli[agent]?.updateAvailable == true {
@@ -184,19 +207,23 @@ final class AgentIntegrationManager: ObservableObject {
             snapshot.error = [snapshot.error, error.localizedDescription].compactMap { $0 }.joined(separator: "\n")
         }
         snapshots[target] = snapshot
+        if captured { registry.storeSnapshot(snapshot, target: target) }
     }
 
     func update(_ agent: SupportedAgent, target: String, cli: Bool = false, remove: Bool = false) async {
-        guard !busy.contains(target) else { return }
+        guard !busy.contains(target), !registry.isCollecting(target) else { return }
         busy.insert(target)
         snapshots[target, default: .init()].error = nil
+        var captured = false
         do {
             if cli { try await installCLI(agent, target: target) } else { try await changeHook(agent, target: target, remove: remove) }
             snapshots[target, default: .init()].hooks = try await readHooks(target: target)
+            captured = true
             if cli { snapshots[target, default: .init()].cli = try await readCLI(target: target) }
         } catch {
             snapshots[target, default: .init()].error = error.localizedDescription
         }
+        if captured, let snapshot = snapshots[target] { registry.storeSnapshot(snapshot, target: target) }
         busy.remove(target)
     }
 
@@ -264,19 +291,10 @@ final class AgentIntegrationManager: ObservableObject {
             executable = getpwuid(getuid())?.pointee.pw_shell.map { String(cString: $0) } ?? "/bin/zsh"
             arguments = [loginShell ? "-lic" : "-lc", invocation]
         } else {
-            guard target.hasPrefix("ssh:"), SSHPlugin.validAlias(String(target.dropFirst(4))),
-                  !target.dropFirst(4).hasPrefix("-") else {
-                throw AgentHistoryRemoteError.unavailable
-            }
-            executable = "/usr/bin/ssh"
-            let remote = loginShell
-                ? "exec /bin/sh -c " + Ghostty.Shell.quote("exec \"${SHELL:-/bin/sh}\" -lic 'exec python3 -'")
-                : "exec python3 -"
-            arguments = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
-                         "-o", "ControlMaster=no", "-o", "ControlPersist=no",
-                         "-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=2",
-                         String(target.dropFirst(4)), remote]
+            guard let host = registry.host(target) else { throw AgentHistoryRemoteError.unavailable }
+            return try await SSHSessionTransport.python(script, connection: host.connection, loginShell: loginShell)
         }
+
         // Shell startup output is separated from the actual script output.
         let wrapped = "print('OMG_AGENT_RESULT_BEGIN', flush=True)\n" + script
         let result = try await GitProcessRunner().run(
@@ -295,7 +313,7 @@ final class AgentIntegrationManager: ObservableObject {
 
     /// Resolve the command to its actual npm bin before offering updates. A
     /// same-named Homebrew/native executable must never be replaced through npm.
-    static func cliScript(update: SupportedAgent? = nil) throws -> String {
+    nonisolated static func cliScript(update: SupportedAgent? = nil, checkLatest: Bool = true) throws -> String {
         let commands = Dictionary(uniqueKeysWithValues: SupportedAgent.allCases.map {
             ($0.rawValue, $0.definition.command)
         })
@@ -304,6 +322,7 @@ final class AgentIntegrationManager: ObservableObject {
 import base64, json, os, pathlib, re, shutil, subprocess
 COMMANDS = json.loads(base64.b64decode("\#(data.base64EncodedString())"))
 UPDATE = "\#(update?.rawValue ?? "")"
+CHECK_LATEST = \#(checkLatest ? "True" : "False")
 
 def run(args, timeout=30):
     result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
@@ -364,7 +383,7 @@ if UPDATE:
         if result.returncode != 0: raise RuntimeError(result.stderr.strip()[:2000])
 else:
     names = sorted(set(item["package"] for item in installed.values() if item.get("package")))
-    if names:
+    if names and CHECK_LATEST:
         outdated = outdated_packages(names)
         for item in installed.values():
             if item.get("package"):

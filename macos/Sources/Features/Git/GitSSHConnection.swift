@@ -1,11 +1,24 @@
 import Foundation
 
-struct GitSSHConnection: Hashable, Sendable {
+struct GitSSHConnection: Hashable, Codable, Sendable {
     let destination: String
     let options: [String]
     let workspaceID: String
     let executablePath: String
     let localWorkingDirectory: String
+
+    private enum CodingKeys: String, CodingKey {
+        case destination, options, workspaceID, executablePath, localWorkingDirectory
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(destination: values.decode(String.self, forKey: .destination),
+                      options: values.decode([String].self, forKey: .options),
+                      workspaceID: values.decode(String.self, forKey: .workspaceID),
+                      executablePath: values.decode(String.self, forKey: .executablePath),
+                      localWorkingDirectory: values.decode(String.self, forKey: .localWorkingDirectory))
+    }
 
     init(destination: String, options: [String] = [], workspaceID: String? = nil,
          executablePath: String = "/usr/bin/ssh", localWorkingDirectory: String = "/") throws {
@@ -60,6 +73,13 @@ struct GitSSHConnection: Hashable, Sendable {
     }
 
     var identity: String { ([destination, workspaceID, executablePath, localWorkingDirectory] + options).joined(separator: "\0") }
+    var displayEndpoint: String {
+        let parsed = OpenSSHArguments(options + [destination])
+        let port = parsed?.options.first(where: { $0.name == "p" })?.value
+        let jump = parsed?.options.first(where: { $0.name == "J" })?.value
+        let endpoint = destination + (port.map { ":" + $0 } ?? "")
+        return jump.map { $0 + " → " + endpoint } ?? endpoint
+    }
     var arguments: [String] { arguments(controlSocket: nil) }
 
     func arguments(controlSocket: String?) -> [String] {
@@ -117,15 +137,10 @@ struct SSHGitExecutor: GitExecutor {
         let framed = "printf '\\036OMG-GIT-v1\\037'; " + script
         // Only a quote-free base64 alphabet crosses the login shell. The
         // decoded POSIX script is a -c argument, leaving SSH stdin for git commit.
-        let encoded = Data(framed.utf8).base64EncodedString()
-        let command = "exec /bin/sh -c 'exec /bin/sh -c \"$(printf %s " + encoded + " | base64 -d)\"'"
+        let command = SSHSessionTransport.shellCommand(framed)
         let executable = sshPath ?? connection.executablePath
-        let socket = multiplexing ? try GitSSHControlSocket.path(for: connection, executablePath: executable) : nil
-        let result = try await GitProcessRunner().run(
-            executablePath: executable,
-            arguments: connection.arguments(controlSocket: socket) + [command], workingDirectory: connection.localWorkingDirectory,
-            stdin: stdin, maxOutputBytes: limit.map { $0 + 64 * 1024 }
-        )
+        let result = try await SSHSessionTransport.run(connection: connection, command: command,
+            stdin: stdin, limit: limit.map { $0 + 64 * 1024 }, executable: executable, multiplexing: multiplexing)
         guard result.exitCode != 255 else {
             throw GitExecutionError.executionFailed(GitL10n.text("SSH connection failed. If a write was in progress, refresh before retrying; its outcome may be unknown.\n") + result.stderrString)
         }

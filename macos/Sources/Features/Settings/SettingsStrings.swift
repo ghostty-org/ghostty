@@ -439,6 +439,16 @@ struct SettingsStrings: Equatable, Sendable {
     var genericPluginCaption: String { t("OMG plugin", "OMG 插件") }
 
     var agentIntegrationSection: String { t("Agent Integration", "Agent 集成") }
+    var sshAutomaticRegistration: String { t("Register hosts after connecting in OMG", "连接成功后自动注册主机") }
+    var sshRegistrationTarget: String { t("Select a connected host", "选择已连接主机") }
+    var sshRegister: String { t("Register", "注册") }
+    var sshUnregister: String { t("Unregister", "取消注册") }
+    var sshCached: String { t("Offline · cached", "离线 · 已缓存") }
+    var sshConnected: String { t("Connected", "已连接") }
+    var sshRegistrationCaption: String {
+        t("Connect in OMG first, then register the connection to cache installed Agent versions and Hook status on this Mac. No remote service is installed. Only registered hosts appear in Agent Integration.",
+          "先在 OMG 中连接主机，再注册该连接，将 Agent 已安装版本和 Hook 状态缓存在本机。不安装远端服务。Agent 集成仅展示已注册主机。")
+    }
     var agentUpdateSettings: String { t("Update Settings", "更新设置") }
     var agentManualChecks: String { t("Manual checks", "手动检查") }
     var agentAutomaticHooksShort: String { t("Auto-update Hooks", "自动更新 Hooks") }
@@ -461,7 +471,7 @@ struct SettingsStrings: Equatable, Sendable {
     var agentEveryDay: String { t("Every Day", "每天") }
     var agentEveryWeek: String { t("Every Week", "每周") }
     var agentCheckNow: String { t("Check Now", "立即检查") }
-    var agentLastChecked: String { t("Hooks last checked:", "Hooks 上次检查成功：") }
+    var agentLastChecked: String { t("Last captured:", "上次采集：") }
     var agentUpdateCLI: String { t("Update CLI", "更新 CLI") }
     var agentNotChecked: String { t("Not Checked", "尚未检查") }
     var agentCLIMissing: String { t("Not Found in PATH", "未在 PATH 中找到") }

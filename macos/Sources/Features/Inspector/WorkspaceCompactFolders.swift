@@ -33,7 +33,7 @@ extension SSHWorkspaceFilesystem {
     func listTreeDirectory(at path: String) async throws -> [WorkspaceFileEntry] {
         let command = "python3 -c " + Self.shellQuote(Self.compactTreeScript) + " " + Self.shellQuote(path)
         do {
-            let output = try await SSHSFTPClient.runCommand(command, host: host.alias)
+            let output = try await SSHSFTPClient.runCommand(command, host: host.alias, connection: connection)
             guard let marker = output.range(of: "OMG-TREE-v1\n", options: .backwards) else {
                 throw WorkspaceFilesystemError.invalidResponse
             }
