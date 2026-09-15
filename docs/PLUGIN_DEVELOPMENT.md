@@ -56,6 +56,7 @@ mutations bypass this gate; SSH retains its ten-second polling interval.
 Monitoring ends when a pane disappears or closes, and switches with repository
 identity. Git status reads use `--no-optional-locks` to avoid generating index
 writes merely from observing the repository.
+This includes the per-worktree status reads shown by the Branches pane.
 Git fsmonitor daemon cookies and IPC files inside the Git metadata directories
 are excluded so read-only status queries do not trigger their own next refresh.
 Actual index, HEAD, refs and worktree changes remain observable.

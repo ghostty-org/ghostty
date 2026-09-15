@@ -15,7 +15,8 @@ struct BuiltInGitInspectorProviderTests {
         }
     }
 
-    @Test func unchangedPollingSkipsCommandsAndFileEditsStillRefresh() async throws {
+    @Test(arguments: [InspectorGitContent.ActiveTab.history, .branches])
+    func unchangedPollingSkipsCommandsAndFileEditsStillRefresh(tab: InspectorGitContent.ActiveTab) async throws {
         let dir = createTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         try runCommand(["git", "init", "-b", "main"], in: dir.path)
@@ -27,6 +28,8 @@ struct BuiltInGitInspectorProviderTests {
         try provider.register()
         let context = InspectorPaneContext(tabID: UUID(), surfaceID: UUID(), title: "test", workingDirectory: dir.path)
         registry.presentationDidChange(to: BuiltInGitInspectorProvider.paneID, context: context)
+        registry.performAction(paneID: BuiltInGitInspectorProvider.paneID,
+                               action: .init(context: context, kind: .gitAction(.selectTab(tab))))
         defer { registry.presentationDidChange(to: nil, context: context) }
         try await Task.sleep(for: .seconds(1))
         provider.pollPresentedTabs() // Consume the initial watch snapshot.

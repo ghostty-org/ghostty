@@ -65,7 +65,7 @@ extension GitRepositoryService {
                         group.addTask {
                             var value = worktree
                             do {
-                                let status = try await execution.execute(arguments: ["status", "--porcelain=v1", "-z", "--untracked-files=normal"],
+                                let status = try await execution.execute(arguments: ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=normal"],
                                     workingDirectory: worktree.path, stdin: nil, maxOutputBytes: 512 * 1024)
                                 guard status.isSuccess else { throw GitDiffServiceError.gitFailed(status.stderrString) }
                                 value.isDirty = !status.stdout.isEmpty
