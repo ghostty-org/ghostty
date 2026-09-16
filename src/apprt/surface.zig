@@ -164,7 +164,7 @@ pub const Message = union(enum) {
     /// of the snapshot.
     tmux_windows: *terminal.tmux.Snapshot,
 
-    /// Tmux's active window id changed (`%window-pane-changed`).
+    /// Tmux's active window id changed (``%window-pane-changed``).
     tmux_active_window: usize,
 
     /// Output for a tmux pane. The payload is the pane id as a
@@ -172,8 +172,16 @@ pub const Message = union(enum) {
     /// WriteReq memory.
     tmux_output: WriteReq,
 
-    /// Control mode ended.
+    /// Control mode ended, so the follower surfaces have to go away.
     tmux_exit: void,
+
+    /// Terminal input from a follower surface that has to be turned into
+    /// `send-keys` for its pane. The receiver owns the WriteReq memory.
+    tmux_send_keys: WriteReq,
+
+    /// A follower surface's grid size changed, so its tmux pane should
+    /// follow.
+    tmux_resize: renderer.GridSize,
 
     pub const ReportTitleStyle = enum {
         csi_21_t,
