@@ -1180,6 +1180,15 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 .{ .selected = v },
             );
         },
+
+        // tmux control-mode events from the IO thread. Ownership of any
+        // payload is taken here; the GUI session that consumes these
+        // arrives in a later change, so for now we only free them.
+        .tmux_enter => {},
+        .tmux_windows => |v| v.destroy(),
+        .tmux_active_window => {},
+        .tmux_output => |v| v.deinit(),
+        .tmux_exit => {},
     }
 }
 
