@@ -214,6 +214,11 @@ pub const Viewer = struct {
         /// never reuses window IDs within a server process lifetime.
         windows: []const Window,
 
+        /// Tmux's current window changed (`%session-window-changed` or
+        /// `%window-pane-changed`), including from an external
+        /// `select-window`.
+        active_window: usize,
+
         pub fn format(self: Action, writer: *std.Io.Writer) !void {
             const T = Action;
             const info = @typeInfo(T).@"union";
@@ -512,9 +517,31 @@ pub const Viewer = struct {
                 return self.defunct();
             },
 
-            // The active pane changed. We don't care about this because
-            // we handle our own focus.
-            .window_pane_changed => {},
+            // A window was closed. Refresh the window list so removed
+            // windows disappear from the viewer model.
+            .window_close => |info| self.windowClose(info.id) catch {
+                log.warn("failed to handle window close, becoming defunct", .{});
+                return self.defunct();
+            },
+
+            // Current window / active pane changed, including from an
+            // external `select-window`.
+            .session_window_changed => |info| {
+                var arena = self.action_arena.promote(self.alloc);
+                defer self.action_arena = arena.state;
+                _ = actions.append(
+                    arena.allocator(),
+                    .{ .active_window = info.window_id },
+                ) catch {};
+            },
+            .window_pane_changed => |info| {
+                var arena = self.action_arena.promote(self.alloc);
+                defer self.action_arena = arena.state;
+                _ = actions.append(
+                    arena.allocator(),
+                    .{ .active_window = info.window_id },
+                ) catch {};
+            },
 
             // We ignore this one. It means a session was created or
             // destroyed. If it was our own session we will get an exit
@@ -624,6 +651,16 @@ pub const Viewer = struct {
         _ = window_id; // We refresh all windows via list-windows
 
         // Queue list-windows to get the updated window list
+        try self.queueCommands(&.{.list_windows});
+    }
+
+    /// When a window is closed, refresh the list so removed windows
+    /// disappear from the viewer model.
+    fn windowClose(
+        self: *Viewer,
+        window_id: usize,
+    ) !void {
+        _ = window_id;
         try self.queueCommands(&.{.list_windows});
     }
 
