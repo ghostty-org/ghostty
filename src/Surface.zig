@@ -820,11 +820,17 @@ pub fn init(
     app.first = false;
 
     // Now that we can be split from, let the session create the next
-    // pane. This is a no-op when we're already inside that loop
-    // (`session.advancing`).
+    // pane. This is a no-op when the apprt creates surfaces synchronously
+    // because we're already inside that loop. On macOS presentation is
+    // asynchronous, so continue on the next app tick.
     if (comptime terminal.options.tmux_control_mode) {
         if (self.tmux_pane_id != null) {
-            if (app.tmux) |*session| session.advance();
+            _ = app.mailbox.push(
+                global.io(),
+                .{ .tmux_advance = {} },
+                .{ .forever = {} },
+            );
+            self.rt_app.wakeup();
         }
     }
 }

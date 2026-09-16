@@ -294,6 +294,12 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
             .new_window => |msg| try self.newWindow(rt_app, msg),
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
+            .tmux_advance => {
+                if (self.tmux) |*session| session.advance();
+                // Surface presentation is asynchronous on macOS. Continue
+                // follower reconstruction on the next app tick.
+                return;
+            },
 
             // If we're quitting, then we set the quit flag and stop
             // draining the mailbox immediately. This lets us defer
@@ -572,6 +578,9 @@ pub const Message = union(enum) {
         surface: *Surface,
         message: apprt.surface.Message,
     },
+
+    /// Continue tmux follower reconstruction on the next app tick.
+    tmux_advance: void,
 
     const NewWindow = struct {
         /// The parent surface
