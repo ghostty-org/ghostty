@@ -413,6 +413,10 @@ pub const Session = struct {
         if (self.layout) |old| old.destroy();
         self.layout = snapshot;
 
+        if (self.affinities.items.len == 0 and snapshot.affinities.len > 0) {
+            self.loadAffinities(snapshot.affinities);
+        }
+
         // Rebuild the pane -> window index.
         self.pane_window.clearRetainingCapacity();
         for (snapshot.windows) |window| {
@@ -422,6 +426,36 @@ pub const Session = struct {
         self.syncAffinities();
         self.closeStalePanes();
         self.advance();
+    }
+
+    fn loadAffinities(self: *Session, raw: []const u8) void {
+        var groups = std.mem.tokenizeAny(u8, raw, " |");
+        while (groups.next()) |encoded| {
+            const ids_text = if (std.mem.indexOfScalar(u8, encoded, ';')) |i|
+                encoded[0..i]
+            else
+                encoded;
+            var group: std.ArrayList(usize) = .empty;
+            var ids = std.mem.tokenizeScalar(u8, ids_text, ',');
+            while (ids.next()) |id_text| {
+                const id = std.fmt.parseInt(usize, id_text, 10) catch continue;
+                group.append(self.alloc, id) catch {
+                    group.deinit(self.alloc);
+                    return;
+                };
+            }
+            if (group.items.len == 0) {
+                group.deinit(self.alloc);
+                continue;
+            }
+            self.affinities.append(self.alloc, group) catch {
+                group.deinit(self.alloc);
+                return;
+            };
+        }
+        if (self.affinities.items.len > 0) {
+            self.last_affinities = self.alloc.dupe(u8, raw) catch null;
+        }
     }
 
     /// Remember which tmux window a forthcoming ``new-window`` should share
@@ -454,6 +488,19 @@ pub const Session = struct {
 
     pub fn setActiveWindow(self: *Session, window_id: usize) void {
         self.active_window = window_id;
+        var it = self.pane_window.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.* != window_id) continue;
+            const surface = self.pane_to_surface.get(entry.key_ptr.*) orelse continue;
+            _ = surface.rt_app.performAction(
+                .{ .surface = surface },
+                .present_terminal,
+                {},
+            ) catch |err| {
+                log.warn("failed to present active tmux window err={}", .{err});
+            };
+            break;
+        }
     }
 
     /// Keep ``@affinities`` in sync with the live window list and persist it.
@@ -725,8 +772,13 @@ pub const Session = struct {
                         break;
                     };
                 } else {
-                    _ = self.leader.rt_app.performAction(
-                        .{ .surface = self.leader },
+                    var surfaces = self.pane_to_surface.valueIterator();
+                    const source = if (surfaces.next()) |surface|
+                        surface.*
+                    else
+                        self.leader;
+                    _ = source.rt_app.performAction(
+                        .{ .surface = source },
                         .new_window,
                         {},
                     ) catch |err| {
@@ -761,6 +813,37 @@ pub const Session = struct {
 
         var panes: std.ArrayList(PaneRef) = .empty;
         defer panes.deinit(self.alloc);
+
+        // Restore one native root for every affinity group before adding
+        // sibling tabs. AppKit may not accept a new tab while the first
+        // reconstructed window is still being presented; rooting groups
+        // first also makes their OS-window boundaries explicit.
+        for (self.affinities.items) |group| {
+            var group_has_surface = false;
+            for (group.items) |window_id| {
+                if (self.windowHasSurface(window_id)) {
+                    group_has_surface = true;
+                    break;
+                }
+            }
+            if (group_has_surface) continue;
+
+            for (group.items) |window_id| {
+                const window = for (snapshot.windows) |candidate| {
+                    if (candidate.id == window_id) break candidate;
+                } else continue;
+                panes.clearRetainingCapacity();
+                self.flatten(&panes, window.layout, .right);
+                for (panes.items) |pane| {
+                    if (self.pane_to_surface.contains(pane.id)) continue;
+                    return .{
+                        .pane = pane.id,
+                        .source = null,
+                        .direction = pane.direction,
+                    };
+                }
+            }
+        }
 
         for (snapshot.windows) |window| {
             panes.clearRetainingCapacity();

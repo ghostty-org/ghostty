@@ -22,6 +22,9 @@ pub const Snapshot = struct {
     /// The windows, in the order tmux reported them.
     windows: []const Window,
 
+    /// iTerm2-compatible native-window groups from tmux's @affinities.
+    affinities: []const u8,
+
     pub const Window = struct {
         id: usize,
         width: usize,
@@ -49,11 +52,16 @@ pub const Snapshot = struct {
             .height = src.height,
             .layout = try copyLayout(arena_alloc, src.layout),
         };
+        const affinities = if (windows.len > 0)
+            try arena_alloc.dupe(u8, windows[0].affinities)
+        else
+            "";
 
         self.* = .{
             .alloc = alloc,
             .arena = arena.state,
             .windows = copy,
+            .affinities = affinities,
         };
 
         return self;
@@ -108,6 +116,7 @@ test "tmux snapshot copies the layout tree" {
         .id = 3,
         .width = 80,
         .height = 24,
+        .affinities = "3,4",
         .layout_arena = .{},
         .layout = layout,
     }};
@@ -121,6 +130,7 @@ test "tmux snapshot copies the layout tree" {
 
     try testing.expectEqual(@as(usize, 1), snapshot.windows.len);
     try testing.expectEqual(@as(usize, 3), snapshot.windows[0].id);
+    try testing.expectEqualStrings("3,4", snapshot.affinities);
     const children = snapshot.windows[0].layout.content.horizontal;
     try testing.expectEqual(@as(usize, 2), children.len);
     try testing.expectEqual(@as(usize, 1), children[0].content.pane);
