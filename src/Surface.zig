@@ -832,7 +832,12 @@ pub fn init(
     // because we're already inside that loop.
     if (comptime terminal.options.tmux_control_mode) {
         if (self.tmux_pane_id != null) {
-            if (app.tmux) |*session| session.advance();
+            _ = app.mailbox.push(
+                global.io(),
+                .{ .tmux_advance = {} },
+                .{ .forever = {} },
+            );
+            self.rt_app.wakeup();
         }
     }
 }

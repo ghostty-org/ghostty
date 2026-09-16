@@ -296,6 +296,12 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
             .redraw_surface => |surface| try self.redrawSurface(rt_app, surface),
+            .tmux_advance => {
+                if (self.tmux) |*session| session.advance();
+                // Surface presentation is asynchronous on macOS. Continue
+                // follower reconstruction on the next app tick.
+                return;
+            },
 
             // If we're quitting, then we set the quit flag and stop
             // draining the mailbox immediately. This lets us defer
@@ -602,6 +608,9 @@ pub const Message = union(enum) {
     /// wake up the renderer thread. The renderer thread will send this
     /// message if it needs to.
     redraw_surface: *apprt.Surface,
+
+    /// Continue tmux follower reconstruction on the next app tick.
+    tmux_advance: void,
 
     const NewWindow = struct {
         /// The parent surface

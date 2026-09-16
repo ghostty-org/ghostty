@@ -2984,10 +2984,23 @@ pub fn insertLines(self: *Terminal, count: usize) void {
     // region. So we take whichever is smaller.
     const adjusted_count = @min(count, rem);
 
+    const bottom_pin =
+        self.screens.active.cursor.page_pin.down(rem - 1) orelse {
+            // A resize/layout update can transiently leave the scroll-region
+            // bottom beyond the currently materialized page rows. Ignore the
+            // reverse-index operation until the next layout sync rather than
+            // crashing the terminal IO thread.
+            log.warn(
+                "insertLines scroll region exceeds page rows y={} bottom={}",
+                .{ self.screens.active.cursor.y, self.scrolling_region.bottom },
+            );
+            return;
+        };
+
     // Create a new tracked pin which we'll use to navigate the page list
     // so that if we need to adjust capacity it will be properly tracked.
     var cur_p = self.screens.active.pages.trackPin(
-        self.screens.active.cursor.page_pin.down(rem - 1).?,
+        bottom_pin,
     ) catch |err| {
         comptime assert(@TypeOf(err) == error{OutOfMemory});
 
@@ -8347,6 +8360,21 @@ test "Terminal: insertLines outside of scroll region" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nDEF\nGHI", str);
     }
+}
+
+test "Terminal: insertLines tolerates stale scroll region after resize" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.scrolling_region.bottom = 99;
+    t.insertLines(1);
+
+    const str = try t.plainString(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("ABC", str);
 }
 
 test "Terminal: insertLines top/bottom scroll region" {
