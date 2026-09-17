@@ -542,6 +542,18 @@ extension Ghostty {
             return v
         }
 
+        /// Returns true if `window-colorspace = display-p3`, meaning the
+        /// renderer treats configured colors as Display P3 directly instead
+        /// of converting them from sRGB in the shader.
+        var windowColorspaceIsDisplayP3: Bool {
+            guard let config = self.config else { return false }
+            var v: UnsafePointer<Int8>?
+            let key = "window-colorspace"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))),
+                  let ptr = v else { return false }
+            return String(cString: ptr) == "display-p3"
+        }
+
         var backgroundBlur: BackgroundBlur {
             guard let config = self.config else { return .disabled }
             var v: Int16 = 0

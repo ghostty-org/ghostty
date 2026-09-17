@@ -12,7 +12,7 @@ import Testing
 /// chrome must also paint fully opaque. Painting another semi-transparent
 /// SwiftUI layer in that state produces a visible color mismatch.
 struct TerminalChromeBackgroundTests {
-    private let background = Color(red: 0.2, green: 0.4, blue: 0.6)
+    private let background = Color(.sRGB, red: 0.2, green: 0.4, blue: 0.6, opacity: 1)
 
     @Test func opaqueWindowForcesOpaqueChrome() {
         let chrome = TerminalController.chromeBackground(
@@ -20,7 +20,22 @@ struct TerminalChromeBackgroundTests {
             opacity: 0.85,
             windowIsOpaque: true
         )
-        #expect(chrome == background.opacity(1))
+        let opacity = NSColor(chrome).cgColor.alpha
+        #expect(opacity == 1)
+    }
+
+    @Test func opaqueWindowMatchesRenderedColor() {
+        let chrome = TerminalController.chromeBackground(
+            color: background,
+            opacity: 0.85,
+            windowIsOpaque: true
+        )
+        let expected = TerminalRenderColorQuantizer.matchingRenderedColor(
+            background,
+            colorspaceIsDisplayP3: false
+        )
+        #expect(NSColor(chrome).usingColorSpace(.displayP3) ==
+                NSColor(expected).usingColorSpace(.displayP3))
     }
 
     @Test func transparentWindowKeepsConfiguredOpacity() {
@@ -38,7 +53,7 @@ struct TerminalChromeBackgroundTests {
             opacity: 1,
             windowIsOpaque: false
         )
-        #expect(chrome == background.opacity(1))
+        #expect(NSColor(chrome).cgColor.alpha == 1)
     }
 
     @Test func opacityIsClamped() {

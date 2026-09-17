@@ -702,7 +702,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         self.terminalChromeBackground = Self.chromeBackground(
             color: initialBackgroundColor,
             opacity: ghostty.config.backgroundOpacity,
-            windowIsOpaque: false
+            windowIsOpaque: false,
+            colorspaceIsDisplayP3: ghostty.config.windowColorspaceIsDisplayP3
         )
         self.sidebarDividerColor = ghostty.config.splitDividerColor(
             for: initialBackgroundColor
@@ -3131,7 +3132,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let chromeBackground = Self.chromeBackground(
             color: backgroundColor,
             opacity: backgroundOpacity,
-            windowIsOpaque: windowIsOpaque
+            windowIsOpaque: windowIsOpaque,
+            colorspaceIsDisplayP3: ghostty.config.windowColorspaceIsDisplayP3
         )
         let dividerColor = ghostty.config.splitDividerColor(for: backgroundColor)
         if terminalBackgroundColor != backgroundColor ||
@@ -3180,9 +3182,22 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// opaque background color, so the chrome must paint that same opaque
     /// color instead of relying on Core Animation to composite a second
     /// semi-transparent layer (which produces a visible mismatch).
-    static func chromeBackground(color: Color, opacity: Double, windowIsOpaque: Bool) -> Color {
+    ///
+    /// The opaque case must additionally reproduce the terminal renderer's
+    /// exact output: the renderer converts sRGB to Display P3 in the shader
+    /// and quantizes to the 8-bit IOSurface, while SwiftUI would otherwise
+    /// paint the un-quantized sRGB value (a visible sub-1/255 mismatch in
+    /// the blue channel, e.g. Catppuccin Mocha's #1e1e2e).
+    static func chromeBackground(
+        color: Color,
+        opacity: Double,
+        windowIsOpaque: Bool,
+        colorspaceIsDisplayP3: Bool = false
+    ) -> Color {
         if windowIsOpaque || opacity >= 1 {
-            return color.opacity(1)
+            return TerminalRenderColorQuantizer
+                .matchingRenderedColor(color, colorspaceIsDisplayP3: colorspaceIsDisplayP3)
+                .opacity(1)
         }
         return color.opacity(max(0, min(1, opacity)))
     }

@@ -516,7 +516,15 @@ class TerminalWindow: NSWindow {
             isOpaque = true
 
             let backgroundColor = preferredBackgroundColor ?? NSColor(surfaceConfig.backgroundColor)
-            self.backgroundColor = backgroundColor.withAlphaComponent(1)
+            // The window background shows through around the terminal
+            // surface (padding, split gaps), so it must emit the exact same
+            // code values the renderer produces. Paint the renderer-matched
+            // Display P3 color to avoid a sub-1/255 mismatch at the surface
+            // edges on opaque windows. See issue #15.
+            self.backgroundColor = TerminalRenderColorQuantizer.matchingRenderedNSColor(
+                backgroundColor,
+                colorspaceIsDisplayP3: terminalController?.ghostty.config.windowColorspaceIsDisplayP3 ?? false
+            ).withAlphaComponent(1)
         }
     }
 
