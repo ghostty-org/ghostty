@@ -49,15 +49,15 @@ struct EditorWorkspaceHost<Terminal: View>: View {
                 .allowsHitTesting(!workspace.isVisible)
                 .accessibilityHidden(workspace.isVisible)
             if !workspace.documents.isEmpty || !workspace.gitDiffs.isEmpty || workspace.isVisible {
-                editor
-                    .opacity(workspace.isVisible ? 1 : 0)
-                    .allowsHitTesting(workspace.isVisible)
-                    .accessibilityHidden(!workspace.isVisible)
-                    .simultaneousGesture(TapGesture().onEnded {
-                        if controller.focusedSurface !== surfaceView {
-                            controller.focusedSurface = surfaceView
-                        }
-                    })
+                EditorVisibilityHost(isVisible: workspace.isVisible) {
+                    editor
+                        .accessibilityHidden(!workspace.isVisible)
+                        .simultaneousGesture(TapGesture().onEnded {
+                            if controller.focusedSurface !== surfaceView {
+                                controller.focusedSurface = surfaceView
+                            }
+                        })
+                }
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -504,5 +504,58 @@ struct EditorBackdrop: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
     final class Coordinator {
         var blur: OhMyGhosttyBackgroundBlur?
+    }
+}
+
+/// Keeps the hidden editor's native hierarchy mounted (undo stacks, scroll
+/// positions and the markdown WebView survive hide/show) while marking its
+/// root NSView hidden. Opacity-only hiding left the views "visible" to
+/// AppKit, so WebKit kept foreground assertions and occlusion churn running
+/// and terminal scrolling stuttered. Same host model as `InspectorPaneDeck`.
+struct EditorVisibilityHost<Content: View>: NSViewControllerRepresentable {
+    let isVisible: Bool
+    let content: Content
+
+    init(isVisible: Bool, @ViewBuilder content: () -> Content) {
+        self.isVisible = isVisible
+        self.content = content()
+    }
+
+    final class Host: NSHostingController<Content> {
+        // The host owns its children exclusively; size them with the
+        // surrounding SwiftUI layout instead of AppKit constraints.
+        // NSHostingController re-enables self-sizing when the view enters a
+        // window (see unit test), so reassert after every layout pass.
+        override func viewDidLayout() {
+            super.viewDidLayout()
+            if #available(macOS 13.0, *), !sizingOptions.isEmpty {
+                sizingOptions = []
+            }
+        }
+    }
+
+    static func apply(isVisible: Bool, to host: Host) {
+        host.view.isHidden = !isVisible
+    }
+
+    func makeNSViewController(context: Context) -> Host {
+        let host = Host(rootView: content)
+        Self.apply(isVisible: isVisible, to: host)
+        return host
+    }
+
+    func updateNSViewController(_ host: Host, context: Context) {
+        host.rootView = content
+        Self.apply(isVisible: isVisible, to: host)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsViewController host: Host, context: Context) -> CGSize? {
+        if #available(macOS 13.0, *) {
+            return host.sizeThatFits(in: CGSize(
+                width: proposal.width ?? NSView.noIntrinsicMetric,
+                height: proposal.height ?? NSView.noIntrinsicMetric
+            ))
+        }
+        return nil
     }
 }
