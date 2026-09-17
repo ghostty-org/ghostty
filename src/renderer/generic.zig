@@ -193,6 +193,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         font_shaper: font.Shaper,
         font_shaper_cache: font.ShaperCache,
 
+        /// Per-renderer glyph cache so paint does not take SharedGrid.lock
+        /// on the common path. 512-slot direct map, 20480 bytes (~20 KiB).
+        glyph_cache: font.SharedGrid.GlyphCache = @splat(.{}),
+
         /// The images that we may render.
         images: ImageState = .empty,
 
@@ -1283,6 +1287,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const font_shaper_cache = font.ShaperCache.init();
             self.font_shaper_cache.deinit(self.alloc);
             self.font_shaper_cache = font_shaper_cache;
+            self.glyph_cache = @splat(.{});
 
             // Update cell size.
             self.size.cell = .{
@@ -2128,6 +2133,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const font_shaper_cache = font.ShaperCache.init();
             self.font_shaper_cache.deinit(self.alloc);
             self.font_shaper_cache = font_shaper_cache;
+            self.glyph_cache = @splat(.{});
 
             // Set our new minimum contrast
             self.uniforms.min_contrast = config.min_contrast;
@@ -3327,8 +3333,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .curly => .underline_curly,
             };
 
-            const render = try self.font_grid.renderGlyph(
-                self.alloc,
+            const render = try self.renderGlyphCached(
                 font.sprite_index,
                 @intFromEnum(sprite),
                 .{
@@ -3358,8 +3363,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             color: terminal.color.RGB,
             alpha: u8,
         ) !void {
-            const render = try self.font_grid.renderGlyph(
-                self.alloc,
+            const render = try self.renderGlyphCached(
                 font.sprite_index,
                 @intFromEnum(font.Sprite.overline),
                 .{
@@ -3389,8 +3393,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             color: terminal.color.RGB,
             alpha: u8,
         ) !void {
-            const render = try self.font_grid.renderGlyph(
-                self.alloc,
+            const render = try self.renderGlyphCached(
                 font.sprite_index,
                 @intFromEnum(font.Sprite.strikethrough),
                 .{
@@ -3412,6 +3415,31 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             });
         }
 
+        fn renderGlyphCached(
+            self: *Self,
+            index: font.Collection.Index,
+            glyph_index: u32,
+            opts: font.Glyph.RenderOptions,
+        ) font.SharedGrid.RenderGlyphError!font.SharedGrid.Render {
+            const key = font.SharedGrid.GlyphKey.from(.{
+                .index = index,
+                .glyph = glyph_index,
+                .opts = opts,
+            });
+            const bits: u64 = @bitCast(key);
+            const slot = &self.glyph_cache[(bits ^ (bits >> 32)) & (self.glyph_cache.len - 1)];
+            if (slot.filled and slot.key == bits) return slot.render;
+
+            const v = try self.font_grid.renderGlyph(
+                self.alloc,
+                index,
+                glyph_index,
+                opts,
+            );
+            slot.* = .{ .key = bits, .filled = true, .render = v };
+            return v;
+        }
+
         // Add a glyph to the specified cell.
         fn addGlyph(
             self: *Self,
@@ -3428,8 +3456,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const cp = cell.codepoint();
 
             // Render
-            const render = try self.font_grid.renderGlyph(
-                self.alloc,
+            const render = try self.renderGlyphCached(
                 shaper_run.font_index,
                 shaper_cell.glyph_index,
                 .{
@@ -3516,8 +3543,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .lock => unreachable,
                     };
 
-                    break :render self.font_grid.renderGlyph(
-                        self.alloc,
+                    break :render self.renderGlyphCached(
                         font.sprite_index,
                         @intFromEnum(sprite),
                         .{

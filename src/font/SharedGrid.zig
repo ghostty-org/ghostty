@@ -472,7 +472,7 @@ const CodepointKey = struct {
 /// Cache key for rendered glyphs. Packed to 8 bytes so HashMap stores
 /// and compares a u64 instead of a full RenderOptions (metrics,
 /// nerd-font constraint, etc. are not part of the identity).
-const GlyphKey = packed struct(u64) {
+pub const GlyphKey = packed struct(u64) {
     glyph: u32,
     index: Collection.Index,
     opts: packed struct(u16) {
@@ -483,7 +483,7 @@ const GlyphKey = packed struct(u64) {
         _padding: u3 = 0,
     },
 
-    const Context = struct {
+    pub const Context = struct {
         pub fn hash(_: Context, key: GlyphKey) u64 {
             const x: u64 = @bitCast(key);
             return x ^ (x >> 32);
@@ -494,7 +494,7 @@ const GlyphKey = packed struct(u64) {
         }
     };
 
-    inline fn from(k: struct {
+    pub inline fn from(k: struct {
         index: Collection.Index,
         glyph: u32,
         opts: RenderOptions,
@@ -511,6 +511,39 @@ const GlyphKey = packed struct(u64) {
         };
     }
 };
+
+pub const GlyphCacheSlot = struct {
+    key: u64 = 0,
+    filled: bool = false,
+    render: Render = undefined,
+};
+
+/// Per-renderer glyph cache so paint does not take SharedGrid.lock
+/// on the common path. 512-slot direct map, 20480 bytes (~20 KiB)
+/// resident per renderer. Collision overwrites.
+pub const GlyphCache = [512]GlyphCacheSlot;
+
+test "GlyphCache hit" {
+    const testing = std.testing;
+    var cache: GlyphCache = @splat(.{});
+    const key = GlyphKey.from(.{ .index = .{}, .glyph = 1, .opts = .{ .grid_metrics = undefined } });
+    const bits: u64 = @bitCast(key);
+    const slot = &cache[(bits ^ (bits >> 32)) & (cache.len - 1)];
+    const render: Render = .{
+        .glyph = .{
+            .width = 8,
+            .height = 8,
+            .offset_x = 0,
+            .offset_y = 0,
+            .atlas_x = 1,
+            .atlas_y = 2,
+        },
+        .presentation = .text,
+    };
+    try testing.expect(!slot.filled);
+    slot.* = .{ .key = bits, .filled = true, .render = render };
+    try testing.expectEqual(@as(u32, 8), slot.render.glyph.width);
+}
 
 const TestMode = enum { normal };
 
