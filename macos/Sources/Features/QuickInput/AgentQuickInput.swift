@@ -649,7 +649,8 @@ struct AgentQuickInputDock<Content: View>: View {
                         },
                         dividerColor: controller.sidebarDividerColor,
                         backgroundColor: backgroundColor,
-                        backgroundOpacity: backgroundOpacity
+                        backgroundOpacity: backgroundOpacity,
+                        chromeBackground: controller.terminalChromeBackground
                     )
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -706,6 +707,8 @@ private struct AgentQuickInputQueueLane: View {
     let dividerColor: Color
     let backgroundColor: Color
     let backgroundOpacity: Double
+    /// Effective chrome background (see `TerminalController.terminalChromeBackground`).
+    let chromeBackground: Color
 
     var body: some View {
         VStack(spacing: 0) {
@@ -759,7 +762,7 @@ private struct AgentQuickInputQueueLane: View {
             }
             .frame(height: AgentQuickInputMetrics.queueLaneHeight)
         }
-        .background(backgroundColor.opacity(backgroundOpacity))
+        .background(chromeBackground)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Queued Agent Messages")
     }
@@ -917,6 +920,9 @@ private struct AgentQuickInputComposer: View {
     let backgroundColor: Color
     let backgroundOpacity: Double
 
+    /// Effective chrome background (see `TerminalController.terminalChromeBackground`).
+    private var chromeBackground: Color { controller.terminalChromeBackground }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             AgentQuickInputTextEditor(
@@ -978,7 +984,7 @@ private struct AgentQuickInputComposer: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(backgroundColor.opacity(backgroundOpacity))
+        .background(chromeBackground)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Agent Quick Input")
     }

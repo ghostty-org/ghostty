@@ -557,6 +557,8 @@ struct TerminalShellLayoutContainer<Content: View>: View {
     let showsTabSidebar: Bool
     let backgroundColor: Color
     let backgroundOpacity: Double
+    /// Effective chrome background (color with effective opacity applied).
+    let chromeBackground: Color
     let content: Content
 
     init(
@@ -567,6 +569,7 @@ struct TerminalShellLayoutContainer<Content: View>: View {
         showsTabSidebar: Bool,
         backgroundColor: Color,
         backgroundOpacity: Double,
+        chromeBackground: Color,
         @ViewBuilder content: () -> Content
     ) {
         self.controller = controller
@@ -576,6 +579,7 @@ struct TerminalShellLayoutContainer<Content: View>: View {
         self.showsTabSidebar = showsTabSidebar
         self.backgroundColor = backgroundColor
         self.backgroundOpacity = backgroundOpacity
+        self.chromeBackground = chromeBackground
         self.content = content()
     }
 
@@ -594,7 +598,7 @@ struct TerminalShellLayoutContainer<Content: View>: View {
                     width: leftWidth,
                     edge: .left,
                     animationsEnabled: selectedPresentation,
-                    background: backgroundColor.opacity(backgroundOpacity)
+                    background: chromeBackground
                 ) {
                     HStack(spacing: 0) {
                         TerminalTabSidebarView(
@@ -629,7 +633,7 @@ struct TerminalShellLayoutContainer<Content: View>: View {
                     edge: .right,
                     animationsEnabled: selectedPresentation,
                     retainsContent: true,
-                    background: backgroundColor.opacity(backgroundOpacity)
+                    background: chromeBackground
                 ) {
                     HStack(spacing: 0) {
                         RightInspectorResizeHandle(
