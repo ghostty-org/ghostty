@@ -146,7 +146,8 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                             inspectorRegistry: appDelegate.inspectorRegistry,
                             showsTabSidebar: viewModel.supportsSidebar,
                             backgroundColor: terminalBackground,
-                            backgroundOpacity: terminalBackgroundOpacity
+                            backgroundOpacity: terminalBackgroundOpacity,
+                            chromeBackground: controller.terminalChromeBackground
                         ) {
                             terminalContent
                         }

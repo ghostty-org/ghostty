@@ -277,6 +277,24 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The terminal renderer applies this independently to preserve opaque glyphs.
     @Published private(set) var terminalBackgroundOpacity: Double
 
+    /// The background color app shell chrome (sidebars, quick input, etc.)
+    /// should paint with, with the effective opacity already applied.
+    ///
+    /// While the window is transparent (windowed mode with
+    /// `background-opacity < 1`) this is the terminal background at the
+    /// configured opacity so the chrome blends with the desktop exactly like
+    /// the terminal surface. When the window is opaque (native fullscreen,
+    /// or the user toggled opaque backgrounds), the terminal renderer's
+    /// semi-transparent background composited over the opaque same-colored
+    /// window background produces exactly the opaque background color. The
+    /// chrome must paint that same opaque color: a second semi-transparent
+    /// SwiftUI layer composited by Core Animation over the opaque window
+    /// does not match the terminal's renderer-side (P3, linear blending)
+    /// compositing and shows a visible color difference in fullscreen.
+    ///
+    /// See: https://github.com/jischeng/oh-my-ghostty/issues/15
+    @Published private(set) var terminalChromeBackground: Color
+
     /// Opaque semantic separator derived from the current terminal background.
     @Published private(set) var sidebarDividerColor: Color
 
@@ -681,6 +699,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let initialBackgroundColor = ghostty.config.backgroundColor
         self.terminalBackgroundColor = initialBackgroundColor
         self.terminalBackgroundOpacity = ghostty.config.backgroundOpacity
+        self.terminalChromeBackground = Self.chromeBackground(
+            color: initialBackgroundColor,
+            opacity: ghostty.config.backgroundOpacity,
+            windowIsOpaque: false
+        )
         self.sidebarDividerColor = ghostty.config.splitDividerColor(
             for: initialBackgroundColor
         )
@@ -3101,9 +3124,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let window = window as? TerminalWindow else { return }
         let backgroundColor = focusedSurface?.backgroundColor ?? surfaceConfig.backgroundColor
         let backgroundOpacity = surfaceConfig.backgroundOpacity
+        // Mirrors the opaque-window condition in `TerminalWindow.syncAppearance`:
+        // native fullscreen forces an opaque window, as does the user's
+        // opaque-background toggle (`toggle_background_opacity`).
+        let windowIsOpaque = window.styleMask.contains(.fullScreen) || isBackgroundOpaque
+        let chromeBackground = Self.chromeBackground(
+            color: backgroundColor,
+            opacity: backgroundOpacity,
+            windowIsOpaque: windowIsOpaque
+        )
         let dividerColor = ghostty.config.splitDividerColor(for: backgroundColor)
         if terminalBackgroundColor != backgroundColor ||
             terminalBackgroundOpacity != backgroundOpacity ||
+            terminalChromeBackground != chromeBackground ||
             sidebarDividerColor != dividerColor {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -3112,6 +3145,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
                 if self.terminalBackgroundOpacity != backgroundOpacity {
                     self.terminalBackgroundOpacity = backgroundOpacity
+                }
+                if self.terminalChromeBackground != chromeBackground {
+                    self.terminalChromeBackground = chromeBackground
                 }
                 if self.sidebarDividerColor != dividerColor {
                     self.sidebarDividerColor = dividerColor
@@ -3132,6 +3168,23 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Call this last in case it uses any of the properties above.
         window.syncAppearance(surfaceConfig)
         terminalViewContainer?.ghosttyConfigDidChange(ghostty.config, preferredBackgroundColor: window.preferredBackgroundColor)
+    }
+
+    /// The background color app shell chrome should paint with.
+    ///
+    /// When the window is transparent, the chrome uses the terminal
+    /// background at the configured opacity so it blends with whatever is
+    /// behind the window, matching the terminal surface. When the window is
+    /// opaque (fullscreen / opaque toggle), the terminal surface's alpha
+    /// composited over the opaque same-colored window background yields the
+    /// opaque background color, so the chrome must paint that same opaque
+    /// color instead of relying on Core Animation to composite a second
+    /// semi-transparent layer (which produces a visible mismatch).
+    static func chromeBackground(color: Color, opacity: Double, windowIsOpaque: Bool) -> Color {
+        if windowIsOpaque || opacity >= 1 {
+            return color.opacity(1)
+        }
+        return color.opacity(max(0, min(1, opacity)))
     }
 
     /// Adjusts the given frame for the configured window position.
