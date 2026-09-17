@@ -1,22 +1,16 @@
 const std = @import("std");
 const gtk = @import("gtk");
 
-const gtk_version = @import("gtk_version.zig");
-
 pub const DeviceSize = struct {
     width: u32,
     height: u32,
 };
 
 pub fn widgetSurfaceScale(widget: *gtk.Widget) f64 {
-    if (comptime gtk_version.atLeast(4, 12, 0)) {
-        if (gtk_version.runtimeAtLeast(4, 12, 0)) {
-            if (widget.getNative()) |native| {
-                if (native.getSurface()) |surface| {
-                    const scale = surface.getScale();
-                    if (scale > 0) return scale;
-                }
-            }
+    if (widget.getNative()) |native| {
+        if (native.getSurface()) |surface| {
+            const scale = surface.getScale();
+            if (scale > 0) return scale;
         }
     }
 

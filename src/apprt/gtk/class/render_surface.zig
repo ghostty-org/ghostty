@@ -9,7 +9,6 @@ const global = @import("../../../global.zig");
 const Application = @import("application.zig").Application;
 const Common = @import("../class.zig").Common;
 const scale_util = @import("../scale.zig");
-const gtk_version = @import("../gtk_version.zig");
 const CoreSurface = @import("../../../Surface.zig");
 const rendererpkg = @import("../../../renderer.zig");
 const ExportedFrame = rendererpkg.Renderer.ExportedFrame;
@@ -194,9 +193,6 @@ pub const RenderSurface = extern struct {
     }
 
     fn connectScaleNotify(self: *Self) void {
-        if (comptime !gtk_version.atLeast(4, 12, 0)) return;
-        if (!gtk_version.runtimeAtLeast(4, 12, 0)) return;
-
         const native = self.as(gtk.Widget).getNative() orelse return;
         const surface = native.getSurface() orelse return;
 
