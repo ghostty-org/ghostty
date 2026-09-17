@@ -66,6 +66,9 @@ struct GitHistoryCommit: Identifiable, Hashable, Equatable, Sendable {
     var subject: String
     var message: String = ""
     let refDecorations: [GitRefDecoration]
+    /// Reachable from a remote-tracking ref but not from any local branch,
+    /// i.e. fetched but not yet merged/pulled into local history.
+    var isRemoteOnly = false
 
     init(
         id: GitCommitID,
@@ -92,6 +95,8 @@ struct GitHistorySnapshot: Equatable, Sendable {
     let headCommitID: GitCommitID?
     let tipCommitIDs: [GitCommitID]
     let decorationsByCommitID: [GitCommitID: [GitRefDecoration]]
+    /// Commits only reachable from remote-tracking refs (fetched, not pulled).
+    var remoteOnlyCommitIDs: Set<GitCommitID> = []
 
     var browsedBranch: String?
     var browsedRef: String?

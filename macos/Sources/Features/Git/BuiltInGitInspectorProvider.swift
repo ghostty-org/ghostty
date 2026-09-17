@@ -494,6 +494,7 @@ final class BuiltInGitInspectorProvider {
             return GitHistorySnapshot(scope: snapshot.scope, branchName: snapshot.branchName,
                 headCommitID: tree.head, tipCommitIDs: tree.head.map { [$0] } ?? [],
                 decorationsByCommitID: snapshot.decorationsByCommitID,
+                remoteOnlyCommitIDs: snapshot.remoteOnlyCommitIDs,
                 browsedBranch: tree.branchRef == nil ? tree.head?.shortSHA ?? GitL10n.text("No commits") : tree.branchName,
                 browsedWorktree: path)
         }
@@ -503,7 +504,8 @@ final class BuiltInGitInspectorProvider {
             guard result.isSuccess else { throw GitDiffServiceError.gitFailed(result.stderrString) }
             return GitHistorySnapshot(scope: snapshot.scope, branchName: snapshot.branchName,
                 headCommitID: snapshot.headCommitID, tipCommitIDs: [.init(result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines))],
-                decorationsByCommitID: snapshot.decorationsByCommitID, browsedBranch: String(branch.dropFirst("refs/tags/".count)), browsedRef: branch)
+                decorationsByCommitID: snapshot.decorationsByCommitID, remoteOnlyCommitIDs: snapshot.remoteOnlyCommitIDs,
+                browsedBranch: String(branch.dropFirst("refs/tags/".count)), browsedRef: branch)
         }
         let branches = try await repositoryService.branches(for: repository)
         guard let tip = branches.first(where: { $0.id == branch }) else {
@@ -511,7 +513,8 @@ final class BuiltInGitInspectorProvider {
         }
         return GitHistorySnapshot(scope: snapshot.scope, branchName: snapshot.branchName,
                                   headCommitID: snapshot.headCommitID, tipCommitIDs: [tip.commit],
-                                  decorationsByCommitID: snapshot.decorationsByCommitID, browsedBranch: tip.name, browsedRef: tip.id)
+                                  decorationsByCommitID: snapshot.decorationsByCommitID,
+                                  remoteOnlyCommitIDs: snapshot.remoteOnlyCommitIDs, browsedBranch: tip.name, browsedRef: tip.id)
     }
 
     private func ensurePollingTimer() {

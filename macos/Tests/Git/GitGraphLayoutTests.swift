@@ -35,6 +35,57 @@ struct GitGraphLayoutTests {
         #expect(page.map(\.topLanes) == rows.prefix(30).map(\.topLanes))
     }
 
+    @Test func spineCommitQueuedBySideBranchKeepsTrunkColorOnLaneZero() {
+        // topo order: a side child of spine commit `base` is listed before the
+        // spine's own continuation, so `base` enters the lanes via the side
+        // branch. The trunk on lane 0 must keep a single color regardless.
+        let history = [
+            commit("tip", ["s1", "side"]),
+            commit("side", ["base"]),
+            commit("s1", ["base"]),
+            commit("base", ["root"]),
+            commit("root", []),
+        ]
+        let rows = GitGraphLayout.rows(for: history)
+        let trunk = GitGraphLayout.spineColorIndex
+        for (index, nodeID) in ["tip", "side", "s1", "base", "root"].enumerated() {
+            #expect(rows[index].commitID == id(nodeID))
+        }
+        for row in rows where ["tip", "s1", "base", "root"].map(id).contains(row.commitID) {
+            #expect(row.nodeLane == 0)
+            #expect(row.nodeColorIndex == trunk)
+            if row.commitID != id("tip") {
+                #expect(row.incomingSegment()?.colorIndex == trunk)
+            }
+            for segment in row.segments where segment.kind == .parent && segment.parentID != nil
+                && ["s1", "base", "root"].map(id).contains(segment.parentID!) {
+                #expect(segment.colorIndex == trunk)
+            }
+        }
+        let sideRow = rows[1]
+        #expect(sideRow.nodeLane > 0)
+        #expect(sideRow.nodeColorIndex != trunk)
+        #expect(sideRow.parentEdge(to: id("base"))?.colorIndex == trunk)
+    }
+
+    @Test func remoteOnlyCommitsMarkRowsAndEdgesUntilLocalAncestor() {
+        let remoteTip = commit("remote-tip", ["remote-mid"])
+        let remoteMid = commit("remote-mid", ["local"])
+        let local = commit("local", ["base"])
+        let base = commit("base", [])
+        var input = [remoteTip, remoteMid, local, base]
+        input[0].isRemoteOnly = true
+        input[1].isRemoteOnly = true
+        let rows = GitGraphLayout.rows(for: input)
+        #expect(rows[0].isRemoteOnly && rows[1].isRemoteOnly)
+        #expect(!rows[2].isRemoteOnly && !rows[3].isRemoteOnly)
+        #expect(rows[0].parentEdge(to: id("remote-mid"))?.isRemoteOnly == false)
+        #expect(rows[1].incomingSegment()?.isRemoteOnly == true)
+        #expect(rows[1].parentEdge(to: id("local"))?.isRemoteOnly == true)
+        #expect(rows[2].segments.allSatisfy { !$0.isRemoteOnly })
+        #expect(rows[3].segments.allSatisfy { !$0.isRemoteOnly })
+    }
+
     private func commit(_ value: String, _ parents: [String]) -> GitHistoryCommit {
         GitHistoryCommit(id: id(value), parentIDs: parents.map(id), authorName: "Author", authorEmail: "a@example.com",
             authoredAt: .distantPast, subject: "feat: " + value)

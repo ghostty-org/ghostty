@@ -16,6 +16,8 @@ enum GitHistoryError: Error, Equatable, Sendable, LocalizedError {
 
 struct GitHistoryService: Sendable {
     static let pageSize = 100
+    /// Cap the remote-only walk so a never-fetched fork cannot stall snapshots.
+    static let remoteOnlyLimit = 4096
 
     private let executor: (any GitExecutor)?
 
@@ -51,8 +53,21 @@ struct GitHistoryService: Sendable {
             stdin: nil,
             maxOutputBytes: 16 * 1024
         )
+        // Fetched but not pulled: reachable from remote-tracking refs only.
+        async let remoteOnlyResult = (executor ?? repository.executor).execute(
+            arguments: [
+                "rev-list",
+                "--max-count=\(Self.remoteOnlyLimit)",
+                "--remotes",
+                "--not",
+                "--branches",
+            ],
+            workingDirectory: repository.worktreePath,
+            stdin: nil,
+            maxOutputBytes: 2 * 1024 * 1024
+        )
 
-        let (refs, branch, head) = try await (refsResult, branchResult, headResult)
+        let (refs, branch, head, remoteOnly) = try await (refsResult, branchResult, headResult, remoteOnlyResult)
         guard refs.isSuccess else {
             throw GitHistoryError.commandFailed(refs.stderrString)
         }
@@ -137,12 +152,21 @@ struct GitHistoryService: Sendable {
             }
         }
 
+        var remoteOnlyIDs = Set<GitCommitID>()
+        if remoteOnly.isSuccess {
+            for line in remoteOnly.stdoutString.split(whereSeparator: \.isNewline) {
+                let value = line.trimmingCharacters(in: .whitespaces)
+                if !value.isEmpty { remoteOnlyIDs.insert(GitCommitID(value)) }
+            }
+        }
+
         return GitHistorySnapshot(
             scope: scope,
             branchName: branchName,
             headCommitID: headID,
             tipCommitIDs: tipIDs,
-            decorationsByCommitID: decorations
+            decorationsByCommitID: decorations,
+            remoteOnlyCommitIDs: remoteOnlyIDs
         )
     }
 
@@ -217,6 +241,7 @@ struct GitHistoryService: Sendable {
         let hasMore = recordCount > pageSize
         let commits = try (0..<min(pageSize, recordCount)).map { index in
             var commit = try parseCommit(fields: Array(fields[(index * 6)..<(index * 6 + 6)]), snapshot: snapshot)
+            commit.isRemoteOnly = snapshot.remoteOnlyCommitIDs.contains(commit.id)
             if includeMessage {
                 commit.message = commit.subject
                 commit.subject = commit.message.components(separatedBy: "\n").first ?? ""

@@ -62,14 +62,14 @@ final class GitGraphCellView: NSView {
             if section == .expandedCommit { points.append(NSPoint(x: middleX, y: min(GitHistoryRowMetrics.contentAxisY, bounds.midY))) }
             points.append(NSPoint(x: middleX, y: bendY))
             if ending { points.append(point(for: segment.to)) }
-            stroke(points, colorIndex: segment.colorIndex)
+            stroke(points, colorIndex: segment.colorIndex, dashed: segment.isRemoteOnly)
         }
         let start = point(for: section == .expandedCommit ? .node(lane: row.nodeLane) : .top(lane: row.nodeLane))
         let bend = NSPoint(x: start.x, y: bendY)
-        stroke([start, bend], colorIndex: row.nodeColorIndex)
+        stroke([start, bend], colorIndex: row.nodeColorIndex, dashed: row.isRemoteOnly)
         if ending {
             for segment in row.segments where segment.kind == .parent {
-                stroke([bend, point(for: segment.to)], colorIndex: segment.colorIndex)
+                stroke([bend, point(for: segment.to)], colorIndex: segment.colorIndex, dashed: segment.isRemoteOnly)
             }
         }
         if section == .expandedCommit {
@@ -78,12 +78,13 @@ final class GitGraphCellView: NSView {
         }
     }
 
-    private func stroke(_ points: [NSPoint], colorIndex: Int) {
+    private func stroke(_ points: [NSPoint], colorIndex: Int, dashed: Bool = false) {
         guard let first = points.first else { return }
         let path = NSBezierPath()
         path.lineCapStyle = .round
         path.lineJoinStyle = .round
         path.lineWidth = Self.lineWidth
+        if dashed { path.setLineDash([3.5, 2.5], count: 2, phase: 0) }
         path.move(to: first)
         var previous = first
         for point in points.dropFirst() {
@@ -117,7 +118,7 @@ final class GitGraphCellView: NSView {
             points.append(NSPoint(x: x, y: max(bounds.midY, bounds.height - 12)))
         }
         points.append(end)
-        stroke(points, colorIndex: segment.colorIndex)
+        stroke(points, colorIndex: segment.colorIndex, dashed: segment.isRemoteOnly)
     }
 
     private func drawNode(_ row: GitGraphRow) {
@@ -131,8 +132,18 @@ final class GitGraphCellView: NSView {
             height: diameter
         )
 
-        color(for: row.nodeColorIndex).setFill()
-        NSBezierPath(ovalIn: rect).fill()
+        if row.isRemoteOnly {
+            // Unpulled (remote-only) commits stay hollow to match the dashed lane.
+            NSColor.controlBackgroundColor.setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            color(for: row.nodeColorIndex).setStroke()
+            let ring = NSBezierPath(ovalIn: rect)
+            ring.lineWidth = Self.lineWidth
+            ring.stroke()
+        } else {
+            color(for: row.nodeColorIndex).setFill()
+            NSBezierPath(ovalIn: rect).fill()
+        }
 
         NSColor.controlBackgroundColor.withAlphaComponent(0.85).setStroke()
         let outline = NSBezierPath(ovalIn: rect.insetBy(dx: -0.5, dy: -0.5))

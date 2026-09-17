@@ -106,6 +106,41 @@ struct GitHistoryServiceTests {
         #expect(Set(firstPage.commits.map(\.id)).isDisjoint(with: secondPage.commits.map(\.id)))
     }
 
+    @Test func fetchWithoutPullMarksRemoteOnlyCommitsAndClearsAfterMerge() async throws {
+        let remote = createTempDirectory()
+        let local = createTempDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: remote)
+            try? FileManager.default.removeItem(at: local)
+        }
+        try runCommand(["git", "init", "--bare", "-b", "main", "."], in: remote.path)
+        try runCommand(["git", "clone", remote.path, "."], in: local.path)
+        try runCommand(["git", "commit", "--allow-empty", "-m", "initial"], in: local.path)
+        try runCommand(["git", "push", "-u", "origin", "main"], in: local.path)
+
+        let seed = createTempDirectory()
+        defer { try? FileManager.default.removeItem(at: seed) }
+        try runCommand(["git", "clone", remote.path, "seed"], in: seed.path)
+        try runCommand(["git", "commit", "--allow-empty", "-m", "remote one"], in: seed.path + "/seed")
+        try runCommand(["git", "commit", "--allow-empty", "-m", "remote two"], in: seed.path + "/seed")
+        try runCommand(["git", "push", "origin", "main"], in: seed.path + "/seed")
+        try runCommand(["git", "fetch", "origin"], in: local.path)
+
+        let repository = try await identity(for: local)
+        let service = GitHistoryService()
+        let snapshot = try await service.captureSnapshot(for: repository, scope: .allBranches)
+        #expect(snapshot.remoteOnlyCommitIDs.count == 2)
+        let page = try await service.loadPage(snapshot: snapshot, repository: repository, offset: 0)
+        #expect(page.commits.count == 3)
+        #expect(page.commits.prefix(2).allSatisfy { $0.isRemoteOnly })
+        #expect(page.commits.last?.subject == "initial" && page.commits.last?.isRemoteOnly == false)
+
+        // Fast-forward the checked-out branch like a plain `git pull` would.
+        try runCommand(["git", "reset", "--hard", "origin/main"], in: local.path)
+        let merged = try await service.captureSnapshot(for: repository, scope: .allBranches)
+        #expect(merged.remoteOnlyCommitIDs.isEmpty)
+    }
+
     @Test func controlCharactersAndEmptySubjectsPreserveHistoryRecordsAndPageBoundaries() async throws {
         let directory = createTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
