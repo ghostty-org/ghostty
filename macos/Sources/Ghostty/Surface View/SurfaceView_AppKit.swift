@@ -198,6 +198,13 @@ extension Ghostty {
 
         // This is set to non-null during keyDown to accumulate insertText contents
         private var keyTextAccumulator: [String]?
+
+        // The command selector AppKit dispatched during the current keyDown, if
+        // any. An input method that ends composition on a key without handling
+        // the key itself leaves it to AppKit, which asks us to perform the key's
+        // command. That's our only signal that the key still belongs to the
+        // terminal (see shouldReplayCommittedPreeditKey).
+        private var keyCommandSelector: Selector?
         /// Temporary lead surrogate that's waiting for the trail
         private var leadSurrogate: LeadSurrogate?
 
@@ -1157,6 +1164,8 @@ extension Ghostty {
             // language.
             keyTextAccumulator = []
             defer { keyTextAccumulator = nil }
+            keyCommandSelector = nil
+            defer { keyCommandSelector = nil }
 
             // We need to know what the length of marked text was before this event to
             // know if these events cleared it.
@@ -1179,9 +1188,21 @@ extension Ghostty {
             self.interpretKeyEvents([translationEvent])
 
             // If our keyboard changed from this we just assume an input method
-            // grabbed it and do nothing.
+            // grabbed it and do nothing. The exception is a key the input method
+            // left to AppKit, which asked us to perform the key's own command:
+            // some input methods switch layout on a key they don't otherwise
+            // handle, such as Gureum switching to roman on escape for vi users,
+            // and that escape is still ours to encode.
             if !markedTextBefore && keyboardIdBefore != KeyboardLayout.id {
-                return
+                let commanded = if let key = Ghostty.Input.Key(keyCode: event.keyCode) {
+                    Ghostty.SurfaceView.isCommandSelector(keyCommandSelector, for: key)
+                } else {
+                    false
+                }
+
+                if !commanded {
+                    return
+                }
             }
 
             // If we have marked text, we're in a preedit state. The order we
@@ -1497,14 +1518,21 @@ extension Ghostty {
         private func shouldReplayCommittedPreeditKey(_ event: NSEvent) -> Bool {
             guard let key = Ghostty.Input.Key(keyCode: event.keyCode) else { return false }
             switch key {
-            case .arrowDown, .arrowRight, .arrowUp:
+            case .arrowDown, .arrowLeft, .arrowRight, .arrowUp:
+                // Every arrow, including a plain left-arrow: the input method
+                // committed the syllable and left the movement to us, so the
+                // terminal cursor has to move like it would without an input
+                // method. (AppKit leaving a text view's caret in place is a
+                // property of text views, not of a terminal grid.)
                 return true
-            case .arrowLeft:
-                // Don't replay plain left-arrow because AppKit already leaves
-                // the caret in place after Korean IMEs commit preedit text.
-                return !event.modifierFlags.isDisjoint(with: [.shift, .control, .option, .command])
             default:
-                return false
+                // Korean input methods end composition on Enter, Tab and Escape
+                // by committing the syllable and leaving the key unhandled, so
+                // AppKit asks us to perform the key's command. Replay the key so
+                // the terminal still sees it. An input method that consumes the
+                // key instead (Japanese confirming a candidate with Enter)
+                // dispatches no command, so nothing is replayed.
+                return Ghostty.SurfaceView.isCommandSelector(keyCommandSelector, for: key)
             }
         }
 
@@ -2117,6 +2145,13 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     /// 1. Prevents an audible NSBeep for unimplemented actions.
     /// 2. Allows us to properly encode super+key input events that we don't handle
     override func doCommand(by selector: Selector) {
+        // Record the command while we're inside keyDown. Reaching here means the
+        // input method didn't handle this key, which keyDown needs to know to
+        // deliver keys that only ended a composition.
+        if keyTextAccumulator != nil {
+            keyCommandSelector = selector
+        }
+
         // If we are being processed by performKeyEquivalent with a command binding,
         // we send it back through the event system so it can be encoded.
         if let lastPerformKeyEvent,
@@ -2143,6 +2178,34 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             // If we had marked text before but don't now, we're no longer
             // in a preedit state so we can clear it.
             ghostty_surface_preedit(surface, nil, 0)
+        }
+    }
+
+    /// True when AppKit's `selector` is the standard command for `key`, i.e.
+    /// this key reached `doCommand(by:)` as itself rather than as an editing
+    /// command the input method asked for. Only keys an input method commonly
+    /// ends a composition with are listed; everything else stays unreplayed so
+    /// that e.g. ctrl+j doesn't also encode LF after committing preedit text.
+    static func isCommandSelector(_ selector: Selector?, for key: Ghostty.Input.Key) -> Bool {
+        guard let selector else { return false }
+        return switch key {
+        case .enter, .numpadEnter:
+            selector == #selector(NSStandardKeyBindingResponding.insertNewline(_:)) ||
+            selector == #selector(NSStandardKeyBindingResponding.insertLineBreak(_:)) ||
+            selector == #selector(NSStandardKeyBindingResponding.insertNewlineIgnoringFieldEditor(_:))
+
+        case .tab:
+            selector == #selector(NSStandardKeyBindingResponding.insertTab(_:)) ||
+            selector == #selector(NSStandardKeyBindingResponding.insertBacktab(_:))
+
+        case .escape:
+            // AppKit's standard binding for escape is "cancel:", which
+            // NSResponder forwards to cancelOperation:. Accept both.
+            selector == NSSelectorFromString("cancel:") ||
+            selector == #selector(NSStandardKeyBindingResponding.cancelOperation(_:))
+
+        default:
+            false
         }
     }
 
