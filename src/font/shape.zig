@@ -73,6 +73,10 @@ pub const RunOptions = struct {
     /// cached values may be updated during shaping.
     grid: *SharedGrid,
 
+    /// Optional per-renderer getIndex cache so shaping does not take
+    /// SharedGrid.lock on the common path. Null in tests.
+    index_cache: ?*SharedGrid.IndexCache = null,
+
     /// The cells for the row to shape.
     cells: std.MultiArrayList(terminal.RenderState.Cell).Slice = .empty,
 

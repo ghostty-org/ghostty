@@ -197,6 +197,37 @@ pub fn getIndex(
     return value;
 }
 
+pub const IndexCacheSlot = struct {
+    key: u64 = 0,
+    filled: bool = false,
+    index: ?Collection.Index = null,
+};
+
+/// Per-renderer getIndex cache. 512-slot direct map, 8192 bytes
+/// (~8 KiB) resident per renderer. Collision overwrites. Negative
+/// matches are cached (`index` null).
+pub const IndexCache = [512]IndexCacheSlot;
+
+/// Like `getIndex`, but consults `cache` first so the caller can skip
+/// SharedGrid.lock on the common hit path.
+pub fn getIndexCached(
+    self: *SharedGrid,
+    alloc: Allocator,
+    cp: u32,
+    style: Style,
+    p: ?Presentation,
+    cache: *IndexCache,
+) !?Collection.Index {
+    const key = CodepointKey.from(.{ .style = style, .codepoint = cp, .presentation = p });
+    const bits: u64 = @bitCast(key);
+    const slot = &cache[(bits ^ (bits >> 32)) & (cache.len - 1)];
+    if (slot.filled and slot.key == bits) return slot.index;
+
+    const v = try self.getIndex(alloc, cp, style, p);
+    slot.* = .{ .key = bits, .filled = true, .index = v };
+    return v;
+}
+
 /// Returns true if the given font index has the codepoint and presentation.
 pub fn hasCodepoint(
     self: *SharedGrid,
@@ -540,6 +571,18 @@ const GlyphKey = struct {
         }
     };
 };
+
+test "IndexCache negative match" {
+    const testing = std.testing;
+    var cache: IndexCache = @splat(.{});
+    const key = CodepointKey.from(.{ .style = .regular, .codepoint = 'A', .presentation = null });
+    const bits: u64 = @bitCast(key);
+    const slot = &cache[(bits ^ (bits >> 32)) & (cache.len - 1)];
+    try testing.expect(!slot.filled);
+    slot.* = .{ .key = bits, .filled = true, .index = null };
+    try testing.expect(slot.filled);
+    try testing.expect(slot.index == null);
+}
 
 const TestMode = enum { normal };
 

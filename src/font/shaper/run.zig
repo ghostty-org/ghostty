@@ -228,7 +228,7 @@ pub const RunIterator = struct {
 
                 // Otherwise we need a fallback character. Prefer the
                 // official replacement character.
-                if (try self.opts.grid.getIndex(
+                if (try self.getIndex(
                     alloc,
                     0xFFFD, // replacement char
                     font_style,
@@ -236,7 +236,7 @@ pub const RunIterator = struct {
                 )) |idx| break :font_info .{ .idx = idx, .fallback = 0xFFFD };
 
                 // Fallback to space
-                if (try self.opts.grid.getIndex(
+                if (try self.getIndex(
                     alloc,
                     ' ',
                     font_style,
@@ -327,7 +327,7 @@ pub const RunIterator = struct {
             cell.codepoint() == 0 or
             cell.codepoint() == terminal.kitty.graphics.unicode.placeholder)
         {
-            return try self.opts.grid.getIndex(
+            return try self.getIndex(
                 alloc,
                 ' ',
                 style,
@@ -337,7 +337,7 @@ pub const RunIterator = struct {
 
         // Get the font index for the primary codepoint.
         const primary_cp: u32 = cell.codepoint();
-        const primary = try self.opts.grid.getIndex(
+        const primary = try self.getIndex(
             alloc,
             primary_cp,
             style,
@@ -361,7 +361,7 @@ pub const RunIterator = struct {
                 // to support the base presentation, since it is common for emoji
                 // fonts to support the base emoji with emoji presentation but not
                 // certain ZWJ-combined characters like the male and female signs.
-                break :idx try self.opts.grid.getIndex(
+                break :idx try self.getIndex(
                     alloc,
                     cp,
                     style,
@@ -379,6 +379,19 @@ pub const RunIterator = struct {
         }
 
         return null;
+    }
+
+    fn getIndex(
+        self: *RunIterator,
+        alloc: Allocator,
+        cp: u32,
+        style: font.Style,
+        presentation: ?font.Presentation,
+    ) !?font.Collection.Index {
+        if (self.opts.index_cache) |cache| {
+            return self.opts.grid.getIndexCached(alloc, cp, style, presentation, cache);
+        }
+        return self.opts.grid.getIndex(alloc, cp, style, presentation);
     }
 };
 
