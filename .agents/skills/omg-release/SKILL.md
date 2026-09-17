@@ -11,15 +11,17 @@ Use this skill only from the `oh-my-ghostty` repository. Read these files before
 - `AGENTS.md`
 - `macos/AGENTS.md`
 - `docs/RELEASING.md`
+- `.agents/skills/omg-build/SKILL.md`
 
 The repository documentation remains authoritative. This skill records the safe execution order and recurring local pitfalls.
 
 ## Choose a workflow
 
+- **Build, compile, or test OMG from CLI:** use the `omg-build` skill or `macos/build.nu`.
 - **Install a test build into OMG Dev:** use [Install OMG Dev](#install-omg-dev).
 - **Prepare or publish a release:** use [Release OMG](#release-omg).
 
-Never create a GitHub issue or pull request. Never replace, quit, sign, or otherwise modify `/Applications/OMG.app` during development work.
+Never open the Xcode GUI (`open ...xcodeproj`). Never create a GitHub issue or pull request. Never replace, quit, sign, or otherwise modify `/Applications/OMG.app` during development work.
 
 ## Shell rule
 
@@ -105,8 +107,13 @@ python3 dist/check_omg_docs.py
 plutil -lint macos/Ghostty-Info.plist
 xcrun ibtool --warnings --errors --notices \
   --output-format human-readable-text macos/Sources/App/MainMenu.xib
+rm -f default.profraw
 macos/build.nu --action test
 ```
+
+> **Tip for targeted testing during development:** `macos/build.nu --action test --only-testing GhosttyTests/<SuiteName>` runs a subset of tests quickly. For final release validation, run the full test suite above.
+>
+> **Zig command tip:** Whenever running `zig build` or `zig build test`, always pass `-Dversion-string=1.3.2-dev` to prevent Zig's upstream tag validation from aborting on OMG's `v0.x.y` release tags.
 
 Also verify Debug, Release, and ReleaseLocal report the intended `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`.
 
