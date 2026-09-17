@@ -3487,6 +3487,15 @@ pub const Surface = extern struct {
             config.@"working-directory" = wd_val;
         }
 
+        const content_scale = self.getContentScale();
+        log.info("surface content scale: x={d} y={d} dpi={}x{} font_size={}", .{
+            content_scale.x,
+            content_scale.y,
+            @round(content_scale.x * font.face.default_dpi),
+            @round(content_scale.y * font.face.default_dpi),
+            config.@"font-size",
+        });
+
         // Initialize the surface
         surface.init(
             alloc,

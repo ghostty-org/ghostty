@@ -64,6 +64,7 @@ pub const RenderSurface = extern struct {
         texture: ?*gdk.Texture = null,
         scale_notify_id: c_ulong = 0,
         scale_surface: ?*gdk.Surface = null,
+        scale_logged_size: bool = false,
 
         pub var offset: c_int = 0;
     };
@@ -131,6 +132,12 @@ pub const RenderSurface = extern struct {
             height,
             baseline,
         );
+
+        const priv = self.private();
+        if (!priv.scale_logged_size and width > 0 and height > 0) {
+            self.logScale("allocated", width, height);
+            priv.scale_logged_size = true;
+        }
     }
 
     fn snapshot(self: *Self, snap: *gtk.Snapshot) callconv(.c) void {
@@ -204,6 +211,7 @@ pub const RenderSurface = extern struct {
 
         _ = surface.as(gobject.Object).ref();
         priv.scale_surface = surface;
+        priv.scale_logged_size = false;
         priv.scale_notify_id = gobject.Object.signals.notify.connect(
             surface,
             *Self,
@@ -211,6 +219,8 @@ pub const RenderSurface = extern struct {
             self,
             .{ .detail = "scale" },
         );
+        const widget = self.as(gtk.Widget);
+        self.logScale("connected", widget.getWidth(), widget.getHeight());
     }
 
     fn disconnectScaleNotify(self: *Self) void {
@@ -233,8 +243,32 @@ pub const RenderSurface = extern struct {
         self: *Self,
     ) callconv(.c) void {
         const widget = self.as(gtk.Widget);
+        self.logScale("changed", widget.getWidth(), widget.getHeight());
         self.emitDeviceResize(widget.getWidth(), widget.getHeight());
         widget.queueDraw();
+    }
+
+    fn logScale(self: *Self, event: []const u8, css_width: c_int, css_height: c_int) void {
+        const widget = self.as(gtk.Widget);
+        const native = widget.getNative() orelse return;
+        const surface = native.getSurface() orelse return;
+        const effective_scale = scale_util.widgetSurfaceScale(widget);
+        const device_size = scale_util.deviceSize(css_width, css_height, effective_scale);
+
+        log.info(
+            "surface scale {s}: css={}x{} device={}x{} surface={d} effective={d} surface_factor={} widget_factor={}",
+            .{
+                event,
+                css_width,
+                css_height,
+                device_size.width,
+                device_size.height,
+                surface.getScale(),
+                effective_scale,
+                surface.getScaleFactor(),
+                widget.getScaleFactor(),
+            },
+        );
     }
 
     /// Set the core surface to pull presents from. Nothing will
