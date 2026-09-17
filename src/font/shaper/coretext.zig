@@ -653,18 +653,25 @@ pub const Shaper = struct {
         pub fn addCodepoint(self: RunIteratorHook, cp: u32, cluster: u32) !void {
             const state = &self.shaper.run_state;
 
+            // BMP is one UTF-16 unit, the codepoint itself. Pair
+            // conversion below is only for U+10000+.
+            if (cp <= 0xFFFF) {
+                try state.unichars.append(self.shaper.alloc, @intCast(cp));
+                try state.codepoints.append(self.shaper.alloc, .{
+                    .codepoint = cp,
+                    .cluster = cluster,
+                });
+                return;
+            }
+
             // Build our UTF-16 string for CoreText
+            // Always a pair now
             try state.unichars.ensureUnusedCapacity(self.shaper.alloc, 2);
-
             state.unichars.appendNTimesAssumeCapacity(0, 2);
-
-            const pair = macos.foundation.stringGetSurrogatePairForLongCharacter(
+            _ = macos.foundation.stringGetSurrogatePairForLongCharacter(
                 cp,
                 state.unichars.items[state.unichars.items.len - 2 ..][0..2],
             );
-            if (!pair) {
-                state.unichars.items.len -= 1;
-            }
 
             // Build our reverse lookup table for codepoints to clusters
             try state.codepoints.append(self.shaper.alloc, .{
@@ -676,7 +683,7 @@ pub const Shaper = struct {
             // If the UTF-16 codepoint is a pair then we need to insert
             // a dummy entry so that the CTRunGetStringIndices() function
             // maps correctly.
-            if (pair) try state.codepoints.append(self.shaper.alloc, .{
+            try state.codepoints.append(self.shaper.alloc, .{
                 .codepoint = 0,
                 .cluster = cluster,
             });
