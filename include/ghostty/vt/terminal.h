@@ -244,6 +244,14 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * GHOSTTY_TERMINAL_DATA_SCROLLBAR round-trips cleanly.
    */
   GHOSTTY_SCROLL_VIEWPORT_ROW,
+
+  /**
+   * Scroll by a fractional number of rows (up is negative). Combined
+   * with the integer viewport pin this updates the fractional scroll
+   * row. Integer GHOSTTY_SCROLL_VIEWPORT_DELTA still resets the
+   * fraction to 0.
+   */
+  GHOSTTY_SCROLL_VIEWPORT_DELTA_F,
   GHOSTTY_SCROLL_VIEWPORT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalScrollViewportTag;
 
@@ -258,6 +266,12 @@ typedef union {
 
   /** Absolute row offset (only used with GHOSTTY_SCROLL_VIEWPORT_ROW). */
   size_t row;
+
+  /**
+   * Fractional row delta (only used with GHOSTTY_SCROLL_VIEWPORT_DELTA_F).
+   * Up is negative.
+   */
+  double delta_f;
 
   /** Padding for ABI compatibility. Do not use. */
   uint64_t _padding[2];
@@ -1545,6 +1559,20 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: size_t*
    */
   GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE_MAX_BYTES = 39,
+
+  /**
+   * Set the fractional part of the scroll row, 0 <= value < 1.
+   * Combined with the integer scrollbar offset this is the visual
+   * scroll position. 0 is row-aligned.
+   *
+   * A NULL value pointer or a value outside 0 <= value < 1 stores
+   * 0. Integer ghostty_terminal_scroll_viewport behaviors reset this
+   * to 0. GHOSTTY_SCROLL_VIEWPORT_DELTA_F updates it. Always
+   * reported as 0 at the bottom.
+   *
+   * Input type: double*
+   */
+  GHOSTTY_TERMINAL_OPT_SCROLL_ROW_FRAC = 40,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 
@@ -1951,6 +1979,14 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Output type: size_t *
    */
   GHOSTTY_TERMINAL_DATA_CLIPBOARD_WRITE_MAX_BYTES = 40,
+
+  /**
+   * Fractional part of the scroll row. See
+   * GHOSTTY_TERMINAL_OPT_SCROLL_ROW_FRAC.
+   *
+   * Output type: double *
+   */
+  GHOSTTY_TERMINAL_DATA_SCROLL_ROW_FRAC = 41,
   GHOSTTY_TERMINAL_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalData;
 
@@ -2207,10 +2243,12 @@ GHOSTTY_API GhosttyResult ghostty_terminal_continuation_alloc(
  * Scrolls the terminal's viewport according to the given behavior.
  * When using GHOSTTY_SCROLL_VIEWPORT_DELTA, set the delta field in
  * the value union to specify the number of rows to scroll (negative
- * for up, positive for down). When using GHOSTTY_SCROLL_VIEWPORT_ROW,
- * set the row field to the absolute row offset from the top of the
- * scrollable area (the same row space as the offset field of
- * GhosttyTerminalScrollbar). For other behaviors, the value is ignored.
+ * for up, positive for down). When using GHOSTTY_SCROLL_VIEWPORT_DELTA_F,
+ * set the delta_f field to a fractional row delta. 
+ * When using GHOSTTY_SCROLL_VIEWPORT_ROW, set the row field to the absolute
+ * row offset from the top of the scrollable area (the same row space as the
+ * offset field of GhosttyTerminalScrollbar). For other behaviors, the value
+ * is ignored.
  *
  * @param terminal The terminal handle (may be NULL, in which case this is a no-op)
  * @param behavior The scroll behavior as a tagged union
