@@ -214,6 +214,30 @@ pub const Viewer = struct {
         /// never reuses window IDs within a server process lifetime.
         windows: []const Window,
 
+        /// Tmux's current window changed (``%session-window-changed`` or
+        /// ``%window-pane-changed``), including from an external
+        /// ``select-window``. Used for Cmd+T affinity.
+        active_window: usize,
+
+        /// The current contents of a pane, in response to `capturePane`.
+        /// This is only valid until the next call into the viewer.
+        pane_content: PaneContent,
+
+        /// Where the cursor sits in a pane, sent right after the
+        /// `pane_content` it belongs to.
+        pane_cursor: PaneCursor,
+
+        pub const PaneContent = struct {
+            pane_id: usize,
+            data: []const u8,
+        };
+
+        pub const PaneCursor = struct {
+            pane_id: usize,
+            x: usize,
+            y: usize,
+        };
+
         pub fn format(self: Action, writer: *std.Io.Writer) !void {
             const T = Action;
             const info = @typeInfo(T).@"union";
@@ -229,6 +253,13 @@ pub const Viewer = struct {
                         const value = @field(self, u_field.name);
                         switch (u_field.type) {
                             []const u8 => try writer.print("\"{s}\"", .{std.mem.trim(u8, value, " \t\r\n")}),
+                            // Window embeds ArenaAllocator.State; dumping
+                            // `{any}` walks freed/poisoned arena nodes.
+                            []const Window => try writer.print("[{d} windows]", .{value.len}),
+                            PaneContent => try writer.print(
+                                "%{d} ({d} bytes)",
+                                .{ value.pane_id, value.data.len },
+                            ),
                             else => try writer.print("{any}", .{value}),
                         }
                     }
@@ -248,6 +279,7 @@ pub const Viewer = struct {
         id: usize,
         width: usize,
         height: usize,
+        affinities: []const u8,
         layout_arena: ArenaAllocator.State,
         layout: Layout,
 
@@ -322,6 +354,83 @@ pub const Viewer = struct {
         return switch (input) {
             .tmux => self.nextTmux(input.tmux),
         };
+    }
+
+    /// Send a command that didn't originate from the viewer (e.g. one the
+    /// user typed, or a split created from the GUI). The command must
+    /// include its trailing newline.
+    ///
+    /// Commands can't just be written to the pty directly: tmux answers
+    /// every command with a `%begin`/`%end` block and we match those
+    /// blocks against our command queue in order, so an out-of-band
+    /// command would shift every later block onto the wrong command.
+    ///
+    /// The returned actions must be processed the same way as those from
+    /// `next`, and are only valid until the next call into the viewer.
+    pub fn sendCommand(self: *Viewer, command: []const u8) []const Action {
+        assert(command.len > 0);
+        assert(command[command.len - 1] == '\n');
+
+        // We can only interleave with the command queue once we're in it.
+        // Startup is a handful of round trips so dropping is fine.
+        if (self.state != .command_queue) {
+            log.info("dropping command sent outside the command queue", .{});
+            return &.{};
+        }
+
+        const owned = self.alloc.dupe(u8, command) catch {
+            log.warn("failed to allocate command, dropping", .{});
+            return &.{};
+        };
+
+        // If nothing is in flight we have to send this ourselves,
+        // otherwise the queue will send it when its turn comes.
+        const send = self.command_queue.empty();
+        self.queueCommands(&.{.{ .user = owned }}) catch {
+            log.warn("failed to queue command, dropping", .{});
+            self.alloc.free(owned);
+            return &.{};
+        };
+
+        // The queue owns `owned` until the matching block arrives, so
+        // this stays valid for as long as the action is.
+        return if (send) self.singleAction(.{ .command = owned }) else &.{};
+    }
+
+    /// Ask tmux for the current contents of a pane. The answer comes back
+    /// as a `pane_content` action.
+    ///
+    /// This is how a newly created view of a pane gets what was already on
+    /// screen; `%output` only carries what happens from now on.
+    pub fn capturePane(self: *Viewer, pane_id: usize) []const Action {
+        if (self.state != .command_queue) {
+            log.info("dropping capture-pane sent outside the command queue", .{});
+            return &.{};
+        }
+
+        // The cursor is a second command rather than a `;` sequence
+        // because tmux wraps every command of a sequence in its own
+        // begin/end block, which our queue matches one-to-one.
+        const command: Command = .{ .follower_capture = pane_id };
+        const send = self.command_queue.empty();
+        self.queueCommands(&.{
+            command,
+            .{ .follower_cursor = pane_id },
+        }) catch {
+            log.warn("failed to queue capture-pane, dropping", .{});
+            return &.{};
+        };
+        if (!send) return &.{};
+
+        var arena = self.action_arena.promote(self.alloc);
+        defer self.action_arena = arena.state;
+        var builder: std.Io.Writer.Allocating = .init(arena.allocator());
+        command.formatCommand(&builder.writer) catch {
+            log.warn("failed to format capture-pane, dropping", .{});
+            return &.{};
+        };
+
+        return self.singleAction(.{ .command = builder.writer.buffered() });
     }
 
     fn nextTmux(
@@ -509,9 +618,34 @@ pub const Viewer = struct {
                 return self.defunct();
             },
 
-            // The active pane changed. We don't care about this because
-            // we handle our own focus.
-            .window_pane_changed => {},
+            // A window was closed. Refresh the window list so the GUI
+            // drops the native surface and updates @affinities.
+            .window_close => |info| self.windowClose(info.id) catch {
+                log.warn("failed to handle window close, becoming defunct", .{});
+                return self.defunct();
+            },
+
+            // Current window / active pane changed — keep Cmd+T affinity in
+            // sync with tmux even when the change came from outside this
+            // client (e.g. a parallel ``select-window`` in e2e).
+            // ``select-window`` emits ``%session-window-changed``; changing
+            // the active pane within a window emits ``%window-pane-changed``.
+            .session_window_changed => |info| {
+                var arena = self.action_arena.promote(self.alloc);
+                defer self.action_arena = arena.state;
+                _ = actions.append(
+                    arena.allocator(),
+                    .{ .active_window = info.window_id },
+                ) catch {};
+            },
+            .window_pane_changed => |info| {
+                var arena = self.action_arena.promote(self.alloc);
+                defer self.action_arena = arena.state;
+                _ = actions.append(
+                    arena.allocator(),
+                    .{ .active_window = info.window_id },
+                ) catch {};
+            },
 
             // We ignore this one. It means a session was created or
             // destroyed. If it was our own session we will get an exit
@@ -621,6 +755,16 @@ pub const Viewer = struct {
         _ = window_id; // We refresh all windows via list-windows
 
         // Queue list-windows to get the updated window list
+        try self.queueCommands(&.{.list_windows});
+    }
+
+    /// When a window is closed, refresh the list so removed windows
+    /// disappear from the GUI and from ``@affinities``.
+    fn windowClose(
+        self: *Viewer,
+        window_id: usize,
+    ) !void {
+        _ = window_id;
         try self.queueCommands(&.{.list_windows});
     }
 
@@ -801,6 +945,32 @@ pub const Viewer = struct {
         switch (command) {
             .user => {},
 
+            .follower_capture => |id| try actions.append(arena_alloc, .{
+                .pane_content = .{
+                    .pane_id = id,
+                    .data = try control.unescapeAlloc(arena_alloc, content),
+                },
+            }),
+
+            .follower_cursor => |id| cursor: {
+                const line = std.mem.trim(u8, content, " \r\n");
+                var it = std.mem.splitScalar(u8, line, ',');
+                const x = std.fmt.parseInt(
+                    usize,
+                    it.next() orelse break :cursor,
+                    10,
+                ) catch break :cursor;
+                const y = std.fmt.parseInt(
+                    usize,
+                    it.next() orelse break :cursor,
+                    10,
+                ) catch break :cursor;
+
+                try actions.append(arena_alloc, .{
+                    .pane_cursor = .{ .pane_id = id, .x = x, .y = y },
+                });
+            },
+
             .pane_state => try self.receivedPaneState(content),
 
             .list_windows => try self.receivedListWindows(
@@ -812,13 +982,13 @@ pub const Viewer = struct {
             .pane_history => |cap| try self.receivedPaneHistory(
                 cap.screen_key,
                 cap.id,
-                content,
+                try control.unescapeAlloc(arena_alloc, content),
             ),
 
             .pane_visible => |cap| try self.receivedPaneVisible(
                 cap.screen_key,
                 cap.id,
-                content,
+                try control.unescapeAlloc(arena_alloc, content),
             ),
 
             .tmux_version => try self.receivedTmuxVersion(content),
@@ -854,9 +1024,13 @@ pub const Viewer = struct {
         content: []const u8,
     ) !void {
         // If there is an error, reset our actions to what it was before.
-        errdefer actions.shrinkRetainingCapacity(actions.items.len);
+        const actions_len = actions.items.len;
+        errdefer actions.shrinkRetainingCapacity(actions_len);
 
         // This stores our new window state from this list-windows output.
+        // Ownership of each Window's layout arena transfers into
+        // `self.windows` via syncLayouts; this list only owns the
+        // ArrayList buffer itself.
         var windows: std.ArrayList(Window) = .empty;
         defer windows.deinit(self.alloc);
 
@@ -893,17 +1067,18 @@ pub const Viewer = struct {
                 .id = data.window_id,
                 .width = data.window_width,
                 .height = data.window_height,
+                .affinities = try window_alloc.dupe(u8, data.affinities),
                 .layout_arena = arena.state,
                 .layout = layout,
             });
         }
 
-        // Setup our windows action so the caller can process GUI
-        // window changes.
-        try actions.append(arena_alloc, .{ .windows = windows.items });
-
-        // Sync up our layouts. This will populate unknown panes, prune, etc.
+        // Sync into self.windows first. The `.windows` action must point at
+        // `self.windows.items` (stable for the duration of next()), not the
+        // temporary list buffer which is freed by the defer above — otherwise
+        // logging/formatting the action is a use-after-free.
         try self.syncLayouts(windows.items);
+        try actions.append(arena_alloc, .{ .windows = self.windows.items });
     }
 
     fn receivedPaneState(
@@ -1275,6 +1450,15 @@ const Command = union(enum) {
     /// this is user provided, we can't be sure what it is.
     user: []const u8,
 
+    /// Capture the visible contents of a pane so that a newly created
+    /// view of it isn't blank. The pane ID is carried here because the
+    /// output doesn't identify itself.
+    follower_capture: usize,
+
+    /// The cursor position for the pane a `follower_capture` just
+    /// captured, so the view resumes where tmux left off.
+    follower_cursor: usize,
+
     const CapturePane = struct {
         id: usize,
         screen_key: ScreenSet.Key,
@@ -1287,6 +1471,8 @@ const Command = union(enum) {
             .pane_visible,
             .pane_state,
             .tmux_version,
+            .follower_capture,
+            .follower_cursor,
             => {},
             .user => |v| alloc.free(v),
         };
@@ -1308,13 +1494,17 @@ const Command = union(enum) {
             .pane_history => |cap| try writer.print(
                 // -p = output to stdout instead of buffer
                 // -e = output escape sequences for SGR
+                // -C = escape non-printables, so that the escape
+                //   sequences -e emits can't terminate the DCS that
+                //   carries the control stream. control.unescape undoes
+                //   this.
                 // -a = capture alternate screen (only valid for alternate)
                 // -q = quiet, don't error if alternate screen doesn't exist
                 // -S - = start at the top of history ("-")
                 // -E -1 = end at the last line of history (1 before the
                 //   visible area is -1).
                 // -t %{d} = target a specific pane ID
-                "capture-pane -p -e -q {s}-S - -E -1 -t %{d}\n",
+                "capture-pane -p -e -C -q {s}-S - -E -1 -t %{d}\n",
                 .{
                     if (cap.screen_key == .alternate) "-a " else "",
                     cap.id,
@@ -1324,11 +1514,12 @@ const Command = union(enum) {
             .pane_visible => |cap| try writer.print(
                 // -p = output to stdout instead of buffer
                 // -e = output escape sequences for SGR
+                // -C = escape non-printables; see pane_history
                 // -a = capture alternate screen (only valid for alternate)
                 // -q = quiet, don't error if alternate screen doesn't exist
                 // -t %{d} = target a specific pane ID
                 // (no -S/-E = capture visible area only)
-                "capture-pane -p -e -q {s}-t %{d}\n",
+                "capture-pane -p -e -C -q {s}-t %{d}\n",
                 .{
                     if (cap.screen_key == .alternate) "-a " else "",
                     cap.id,
@@ -1346,6 +1537,18 @@ const Command = union(enum) {
             )),
 
             .user => |v| try writer.writeAll(v),
+
+            .follower_capture => |id| try writer.print(
+                // -C so that the escape sequences -e emits can't
+                // terminate the DCS; see pane_history.
+                "capture-pane -p -e -C -t %{d}\n",
+                .{id},
+            ),
+
+            .follower_cursor => |id| try writer.print(
+                "display-message -p -t %{d} -F '#{{cursor_x}},#{{cursor_y}}'\n",
+                .{id},
+            ),
         }
     }
 };
@@ -1399,13 +1602,14 @@ const Format = struct {
     };
 
     const list_windows: Format = .{
-        .delim = ' ',
+        .delim = '\t',
         .vars = &.{
             .session_id,
             .window_id,
             .window_width,
             .window_height,
             .window_layout,
+            .affinities,
         },
     };
 
@@ -1542,9 +1746,7 @@ test "session changed resets state" {
         // Receive window layout with two panes (same format as "initial flow" test)
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$1 @0 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
-                ,
+                .block_end = "$1\t@0\t83\t44\t027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -1589,9 +1791,7 @@ test "session changed resets state" {
         // Uses same pane IDs 0,1 - they should be re-created since old panes were cleared
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$2 @1 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
-                ,
+                .block_end = "$2\t@1\t83\t44\t027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -1641,9 +1841,7 @@ test "initial flow" {
         },
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
-                ,
+                .block_end = "$0\t@0\t83\t44\t027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .contains_command = "capture-pane",
@@ -1814,9 +2012,7 @@ test "layout change" {
         // Receive initial window layout with one pane
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -1885,9 +2081,7 @@ test "layout_change does not return command when queue not empty" {
         // Receive initial window layout with one pane
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -1946,9 +2140,7 @@ test "layout_change returns command when queue was empty" {
         // Receive initial window layout with one pane
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
         },
@@ -2013,9 +2205,7 @@ test "window_add queues list_windows when queue empty" {
         // Receive initial window layout with one pane
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
         },
@@ -2074,9 +2264,7 @@ test "window_add queues list_windows when queue not empty" {
         // Receive initial window layout with one pane
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -2136,9 +2324,7 @@ test "two pane flow with pane state" {
         // list-windows output with 2 panes in a vertical split
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 165 79 ca97,165x79,0,0[165x40,0,0,0,165x38,0,41,4]
-                ,
+                .block_end = "$0\t@0\t165\t79\tca97,165x79,0,0[165x40,0,0,0,165x38,0,41,4]\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
