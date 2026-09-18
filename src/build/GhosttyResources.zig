@@ -27,6 +27,13 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
 
     deps.help_strings.addImport(build_data_exe);
 
+    // The help book embeds the same app version.
+    {
+        const options = b.addOptions();
+        try cfg.addOptions(options);
+        build_data_exe.root_module.addOptions("build_options", options);
+    }
+
     // Terminfo
     terminfo: {
         const os_tag = cfg.target.result.os.tag;
@@ -121,6 +128,42 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
             .install_dir = .{ .custom = "share" },
             .install_subdir = b.pathJoin(&.{ "ghostty", "shell-integration" }),
             .exclude_extensions = &.{".md"},
+        });
+        try steps.append(b.allocator, &install_step.step);
+    }
+
+    // Apple Help Book: generated bundle plus the hiutil search indices.
+    // Installed outside share/ghostty so the app bundle doesn't pick it up
+    // twice (the Xcode project references both directories). The host
+    // check is because hiutil is a macOS host tool.
+    if (cfg.target.result.os.tag == .macos and
+        b.graph.host.result.os.tag == .macos)
+    {
+        const run = b.addRunArtifact(build_data_exe);
+        run.addArg("+help-book");
+        const book_dir = run.addOutputDirectoryArg("Ghostty.help");
+        const lproj = book_dir.path(b, "Contents/Resources/en.lproj");
+
+        const lsm = RunStep.create(b, "hiutil lsm index");
+        lsm.addArgs(&.{ "/usr/bin/hiutil", "-I", "lsm", "-Caf" });
+        const lsm_out = lsm.addOutputFileArg("Ghostty.helpindex");
+        lsm.addDirectoryArg(lproj);
+
+        const cs = RunStep.create(b, "hiutil corespotlight index");
+        cs.addArgs(&.{ "/usr/bin/hiutil", "-I", "corespotlight", "-Caf" });
+        const cs_out = cs.addOutputFileArg("Ghostty.cshelpindex");
+        cs.addDirectoryArg(lproj);
+
+        // Assemble the final bundle (pages + indices) into one tree.
+        const wf = b.addWriteFiles();
+        _ = wf.addCopyDirectory(book_dir, "Ghostty.help", .{});
+        _ = wf.addCopyFile(lsm_out, "Ghostty.help/Contents/Resources/en.lproj/Ghostty.helpindex");
+        _ = wf.addCopyFile(cs_out, "Ghostty.help/Contents/Resources/en.lproj/Ghostty.cshelpindex");
+
+        const install_step = b.addInstallDirectory(.{
+            .source_dir = wf.getDirectory(),
+            .install_dir = .prefix,
+            .install_subdir = "help",
         });
         try steps.append(b.allocator, &install_step.step);
     }
