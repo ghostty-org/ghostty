@@ -900,10 +900,18 @@ pub fn addSimd(
             .optimize = optimize,
             .no_libcxx = true,
         })) |simdutf_dep| {
-            m.linkLibrary(simdutf_dep.artifact("simdutf"));
+            const simdutf = simdutf_dep.artifact("simdutf");
+
+            // The vendored SIMD libraries are their own compile steps so
+            // they don't inherit -Dstrip from the module linking them. Their
+            // objects land in our fat static archive as-is, so they have to
+            // match or the archive keeps their debug info.
+            simdutf.root_module.strip = m.strip;
+
+            m.linkLibrary(simdutf);
             if (static_libs) |v| try v.append(
                 b.allocator,
-                simdutf_dep.artifact("simdutf").getEmittedBin(),
+                simdutf.getEmittedBin(),
             );
         }
     }
@@ -916,10 +924,15 @@ pub fn addSimd(
             .target = target,
             .optimize = optimize,
         })) |highway_dep| {
-            m.linkLibrary(highway_dep.artifact("highway"));
+            const highway = highway_dep.artifact("highway");
+
+            // Same as simdutf above.
+            highway.root_module.strip = m.strip;
+
+            m.linkLibrary(highway);
             if (static_libs) |v| try v.append(
                 b.allocator,
-                highway_dep.artifact("highway").getEmittedBin(),
+                highway.getEmittedBin(),
             );
         }
     }
