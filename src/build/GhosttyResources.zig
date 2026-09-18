@@ -1,6 +1,7 @@
 const GhosttyResources = @This();
 
 const std = @import("std");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 const Config = @import("Config.zig");
 const RunStep = std.Build.Step.Run;
@@ -181,6 +182,36 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
             .install_subdir = "share/bash-completion/completions",
         });
         try steps.append(b.allocator, &install_step.step);
+    }
+
+    // PowerShell module
+    {
+        const run = b.addRunArtifact(build_data_exe);
+        run.addArg("+pwsh");
+        const wf = b.addWriteFiles();
+        _ = wf.addCopyFile(run.captureStdOut(), "ghostty.psm1");
+
+        // Write the module file.
+        const module_subdir = b.path("share", "pwsh", "modules");
+        const install_step = b.addInstallDirectory(.{
+            .source_dir = wf.getDirectory(),
+            .install_dir = .prefix,
+            .install_subdir = b.pathJoin(module_subdir, "ghostty"),
+        });
+        try steps.append(b.allocator, &install_step.step);
+
+        // Add the modules path to PSModulePath.
+        var module_path = cfg.env.get("PSModulePath");
+        module_path = if (module_path != null) {
+            const module_dir = b.pathJoin(b.install_path, module_subdir);
+            if (builtin.os.tag == .windows) {
+                module_path + ";" + module_dir;
+            } else {
+                module_path + ":" + module_dir;
+            }
+        };
+        const env_step = RunStep.setEnvironmentVariable(run, "PSModulePath", module_path);
+        try steps.append(b.allocator, env_step);
     }
 
     // Vim and Neovim plugin
