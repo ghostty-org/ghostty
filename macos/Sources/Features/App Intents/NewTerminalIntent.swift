@@ -7,7 +7,11 @@ import GhosttyKit
 /// This requires macOS 15 or greater because we use features of macOS 15 here.
 @available(macOS 15.0, *)
 struct NewTerminalIntent: AppIntent {
+#if DEBUG
+    static var title: LocalizedStringResource = "[DEBUG] New Terminal"
+#else
     static var title: LocalizedStringResource = "New Terminal"
+#endif
     static var description = IntentDescription("Create a new terminal.")
 
     @Parameter(

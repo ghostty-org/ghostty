@@ -3,7 +3,11 @@ import AppIntents
 import GhosttyKit
 
 struct CloseTerminalIntent: AppIntent {
+#if DEBUG
+    static var title: LocalizedStringResource = "[DEBUG] Close Terminal"
+#else
     static var title: LocalizedStringResource = "Close Terminal"
+#endif
     static var description = IntentDescription("Close an existing terminal.")
 
     @Parameter(
