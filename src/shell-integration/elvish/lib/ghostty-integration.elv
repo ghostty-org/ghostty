@@ -89,6 +89,9 @@
     if (not (has-value $features ssh-terminfo)) {
       set flags = (conj $flags --terminfo=false)
     }
+    if (has-value $features ssh-mouse-cleanup) {
+      set flags = (conj $flags --mouse-cleanup)
+    }
     $ghostty +ssh $@flags -- $@args
   }
 
