@@ -229,6 +229,9 @@ pub const Viewer = struct {
                         const value = @field(self, u_field.name);
                         switch (u_field.type) {
                             []const u8 => try writer.print("\"{s}\"", .{std.mem.trim(u8, value, " \t\r\n")}),
+                            // Window embeds ArenaAllocator.State; dumping
+                            // `{any}` walks freed/poisoned arena nodes.
+                            []const Window => try writer.print("[{d} windows]", .{value.len}),
                             else => try writer.print("{any}", .{value}),
                         }
                     }
@@ -854,9 +857,13 @@ pub const Viewer = struct {
         content: []const u8,
     ) !void {
         // If there is an error, reset our actions to what it was before.
-        errdefer actions.shrinkRetainingCapacity(actions.items.len);
+        const actions_len = actions.items.len;
+        errdefer actions.shrinkRetainingCapacity(actions_len);
 
         // This stores our new window state from this list-windows output.
+        // Ownership of each Window's layout arena transfers into
+        // `self.windows` via syncLayouts; this list only owns the
+        // ArrayList buffer itself.
         var windows: std.ArrayList(Window) = .empty;
         defer windows.deinit(self.alloc);
 
@@ -898,12 +905,12 @@ pub const Viewer = struct {
             });
         }
 
-        // Setup our windows action so the caller can process GUI
-        // window changes.
-        try actions.append(arena_alloc, .{ .windows = windows.items });
-
-        // Sync up our layouts. This will populate unknown panes, prune, etc.
+        // Sync into self.windows first. The `.windows` action must point at
+        // `self.windows.items` (stable for the duration of next()), not the
+        // temporary list buffer which is freed by the defer above — otherwise
+        // logging/formatting the action is a use-after-free.
         try self.syncLayouts(windows.items);
+        try actions.append(arena_alloc, .{ .windows = self.windows.items });
     }
 
     fn receivedPaneState(
