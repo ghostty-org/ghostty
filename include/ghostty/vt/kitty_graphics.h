@@ -60,6 +60,16 @@ extern "C" {
  *      ghostty_kitty_graphics_image() to access pixel data and dimensions.
  *   6. Free the iterator with ghostty_kitty_graphics_placement_iterator_free().
  *
+ * ## Iterating Unicode Placements
+ *
+ * Unicode placeholder cells are inspected with a separate iterator populated
+ * directly from the terminal. It scans the active viewport inclusively and
+ * returns decoded occurrences even when their image or virtual definition is
+ * unavailable. Copy results before mutating the terminal, then repopulate the
+ * iterator before further use.
+ *
+ * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-unicode-placements
+ *
  * ## Looking Up Images
  *
  * Given an image ID (obtained from a placement via
@@ -83,6 +93,8 @@ extern "C" {
  *   rectangle in pixels, clamped to image bounds.
  * - ghostty_kitty_graphics_placement_rect() — bounding rectangle as a
  *   @ref GhosttySelection.
+ * - ghostty_kitty_graphics_unicode_placement_render_info() — resolved
+ *   viewport, destination, and source geometry for a Unicode occurrence.
  *
  * ## Change Detection
  *
@@ -110,9 +122,10 @@ extern "C" {
  *
  * All handles borrowed from the terminal (GhosttyKittyGraphics,
  * GhosttyKittyGraphicsImage) are invalidated by any mutating terminal
- * call. The placement iterator is independently owned and must be freed
- * by the caller, but the data it yields is only valid while the
- * underlying terminal is not mutated.
+ * call. Placement iterators and Unicode placement iterators are independently
+ * owned and must be freed by the caller. Data they yield is borrowed and valid
+ * only while the underlying terminal is not mutated. After mutation,
+ * repopulate an iterator before calling its next, get, or rendering functions.
  *
  * ## Example
  *
@@ -262,6 +275,38 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyKittyGraphicsPlacementData;
+
+/**
+ * Queryable data kinds for
+ * ghostty_kitty_graphics_unicode_placement_get().
+ *
+ * @ingroup kitty_graphics
+ */
+typedef enum GHOSTTY_ENUM_TYPED {
+  /** Invalid / sentinel value. */
+  GHOSTTY_KITTY_GRAPHICS_UNICODE_PLACEMENT_DATA_INVALID = 0,
+  /**
+   * Caller-owned snapshot containing a borrowed top-left grid position. The
+   * position is invalidated by terminal mutation.
+   *
+   * Output type: GhosttyGridRef *
+   */
+  GHOSTTY_KITTY_GRAPHICS_UNICODE_PLACEMENT_DATA_TOP_LEFT = 1,
+  /** Image ID. Output type: uint32_t * */
+  GHOSTTY_KITTY_GRAPHICS_UNICODE_PLACEMENT_DATA_IMAGE_ID = 2,
+  /** Placement ID, or zero when absent. Output type: uint32_t * */
+  GHOSTTY_KITTY_GRAPHICS_UNICODE_PLACEMENT_DATA_PLACEMENT_ID = 3,
+  /** Zero-based source-grid column. Output type: uint32_t * */
+  GHOSTTY_KITTY_GRAPHICS_UNICODE_PLACEMENT_DATA_COLUMN = 4,
+  /** Zero-based source-grid row. Output type: uint32_t * */
+  GHOSTTY_KITTY_GRAPHICS_UNICODE_PLACEMENT_DATA_ROW = 5,
+  /** Number of columns in this single-row run. Output type: uint32_t * */
+  GHOSTTY_KITTY_GRAPHICS_UNICODE_PLACEMENT_DATA_COLUMNS = 6,
+  /** Number of rows in this run, currently always one. Output type: uint32_t * */
+  GHOSTTY_KITTY_GRAPHICS_UNICODE_PLACEMENT_DATA_ROWS = 7,
+  GHOSTTY_KITTY_GRAPHICS_UNICODE_PLACEMENT_DATA_MAX_VALUE =
+      GHOSTTY_ENUM_MAX_VALUE,
+} GhosttyKittyGraphicsUnicodePlacementData;
 
 /**
  * Z-layer classification for kitty graphics placements.
@@ -485,6 +530,44 @@ typedef struct {
   /** Resolved source rectangle height in pixels. */
   uint32_t source_height;
 } GhosttyKittyGraphicsPlacementRenderInfo;
+
+/**
+ * Resolved rendering geometry for a Kitty Unicode placement occurrence.
+ *
+ * Coordinates are viewport-relative terminal cells. Offsets and destination
+ * dimensions are physical pixels. Source values are image pixels. Initialize
+ * with GHOSTTY_INIT_SIZED(GhosttyKittyGraphicsUnicodePlacementRenderInfo).
+ * Fields appended in future versions are written only when they fit within
+ * the caller-provided size.
+ *
+ * @ingroup kitty_graphics
+ */
+typedef struct {
+  /** Size of this struct in bytes. */
+  size_t size;
+  /** Viewport-relative destination column. */
+  int32_t viewport_col;
+  /** Viewport-relative destination row. */
+  int32_t viewport_row;
+  /** Effective z-index used for Unicode placements. */
+  int32_t z;
+  /** Destination x offset from the cell origin in physical pixels. */
+  uint32_t cell_offset_x;
+  /** Destination y offset from the cell origin in physical pixels. */
+  uint32_t cell_offset_y;
+  /** Destination width in physical pixels. */
+  uint32_t pixel_width;
+  /** Destination height in physical pixels. */
+  uint32_t pixel_height;
+  /** Source rectangle x origin in image pixels. */
+  uint32_t source_x;
+  /** Source rectangle y origin in image pixels. */
+  uint32_t source_y;
+  /** Source rectangle width in image pixels. */
+  uint32_t source_width;
+  /** Source rectangle height in image pixels. */
+  uint32_t source_height;
+} GhosttyKittyGraphicsUnicodePlacementRenderInfo;
 
 /**
  * Get data from a kitty graphics storage instance.
@@ -861,6 +944,104 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_render_info(
     GhosttyKittyGraphicsImage image,
     GhosttyTerminal terminal,
     GhosttyKittyGraphicsPlacementRenderInfo* out_info);
+
+/**
+ * Create a caller-owned Unicode placement iterator.
+ *
+ * Populate or rewind it with ghostty_terminal_get() and
+ * GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS_UNICODE_PLACEMENT_ITERATOR before
+ * iteration.
+ *
+ * @param allocator Allocator to use, or NULL for the default allocator
+ * @param[out] out_iterator Created iterator
+ * @return GHOSTTY_SUCCESS, GHOSTTY_OUT_OF_MEMORY, or GHOSTTY_NO_VALUE when
+ *         Kitty graphics are disabled
+ *
+ * @ingroup kitty_graphics
+ */
+GHOSTTY_API GhosttyResult
+ghostty_kitty_graphics_unicode_placement_iterator_new(
+    const GhosttyAllocator* allocator,
+    GhosttyKittyGraphicsUnicodePlacementIterator* out_iterator);
+
+/**
+ * Free a Unicode placement iterator. A NULL iterator is accepted.
+ *
+ * @ingroup kitty_graphics
+ */
+GHOSTTY_API void ghostty_kitty_graphics_unicode_placement_iterator_free(
+    GhosttyKittyGraphicsUnicodePlacementIterator iterator);
+
+/**
+ * Advance to the next decoded occurrence in the active viewport.
+ *
+ * The viewport bounds used during population are inclusive. Traversal is
+ * row-major: top to bottom, then left to right. Occurrences are single-row
+ * runs and may be returned even when their image or virtual placement
+ * definition is unavailable. Returns false for a NULL, unpopulated, or
+ * exhausted iterator.
+ *
+ * @ingroup kitty_graphics
+ */
+GHOSTTY_API bool ghostty_kitty_graphics_unicode_placement_next(
+    GhosttyKittyGraphicsUnicodePlacementIterator iterator);
+
+/**
+ * Read one field from the current decoded occurrence.
+ *
+ * For TOP_LEFT, initialize the output with
+ * GHOSTTY_INIT_SIZED(GhosttyGridRef). Any prefix of at least sizeof(size_t)
+ * is accepted, and only fields within the declared size are written.
+ *
+ * @return GHOSTTY_SUCCESS or GHOSTTY_INVALID_VALUE for a NULL or
+ *         unpositioned iterator, invalid data kind, invalid output, or
+ *         undersized TOP_LEFT output
+ *
+ * @ingroup kitty_graphics
+ */
+GHOSTTY_API GhosttyResult ghostty_kitty_graphics_unicode_placement_get(
+    GhosttyKittyGraphicsUnicodePlacementIterator iterator,
+    GhosttyKittyGraphicsUnicodePlacementData data,
+    void* out);
+
+/**
+ * Read multiple fields from the current decoded occurrence.
+ *
+ * Processing stops at the first error. out_written receives the number of
+ * successfully written values and may be NULL.
+ *
+ * @ingroup kitty_graphics
+ */
+GHOSTTY_API GhosttyResult ghostty_kitty_graphics_unicode_placement_get_multi(
+    GhosttyKittyGraphicsUnicodePlacementIterator iterator,
+    size_t count,
+    const GhosttyKittyGraphicsUnicodePlacementData* keys,
+    void** values,
+    size_t* out_written);
+
+/**
+ * Resolve rendering geometry for the current decoded occurrence.
+ *
+ * This looks up the image and virtual definition in the active Kitty storage
+ * of the terminal used to populate the iterator. The terminal must not have
+ * been mutated since population. Initialize out_info with
+ * GHOSTTY_INIT_SIZED(GhosttyKittyGraphicsUnicodePlacementRenderInfo). Any
+ * size of at least sizeof(size_t) is accepted, and only fields that fit are
+ * written.
+ *
+ * @return GHOSTTY_SUCCESS for drawable geometry, GHOSTTY_NO_VALUE when the
+ *         occurrence cannot be rendered because its image or definition is
+ *         unavailable, its placement grid is out of bounds, or its crop or
+ *         destination is empty, or GHOSTTY_INVALID_VALUE for invalid handles,
+ *         ownership, output size, or physical terminal geometry
+ *
+ * @ingroup kitty_graphics
+ */
+GHOSTTY_API GhosttyResult
+ghostty_kitty_graphics_unicode_placement_render_info(
+    GhosttyKittyGraphicsUnicodePlacementIterator iterator,
+    GhosttyTerminal terminal,
+    GhosttyKittyGraphicsUnicodePlacementRenderInfo* out_info);
 
 /** @} */
 
