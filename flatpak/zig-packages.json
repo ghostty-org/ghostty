@@ -144,10 +144,16 @@
     "sha256": "8fb0f5c6a3e8b3bf0e35225d3abc1230bcf6f1fdf162467f1f747ec2fa5eda07"
   },
   {
+    "type": "git",
+    "url": "https://github.com/jacobsandlund/uucode",
+    "commit": "2826a37a4562284fdacd8fa029d49509cc9bffcd",
+    "dest": "vendor/p/uucode-0.2.0-ZZjBPlK5VADj7fdoq7G8LIHzD5o6FSkcBXXrRWr4jnrA"
+  },
+  {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/uucode-2826a37a4562284fdacd8fa029d49509cc9bffcd.tar.gz",
-    "dest": "vendor/p/uucode-0.2.0-ZZjBPlK5VADj7fdoq7G8LIHzD5o6FSkcBXXrRWr4jnrA",
-    "sha256": "7e76fc7fab1e7ac728c52b35bbb3e5b8c639841abfc7fe1a4bcb13050594bc9e"
+    "url": "https://github.com/jacobsandlund/uucode/archive/9d55524551411b493cca41ca06363625d90aff1e.tar.gz",
+    "dest": "vendor/p/uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7",
+    "sha256": "68d23543cb2c6c5dfdbdf38b38375e0c6d412a5c5fb72ce06bd139f7a4d25132"
   },
   {
     "type": "git",
