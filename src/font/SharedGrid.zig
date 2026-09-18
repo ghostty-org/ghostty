@@ -39,7 +39,7 @@ const global = @import("../global.zig");
 const log = std.log.scoped(.font_shared_grid);
 
 /// Cache for codepoints to font indexes in a group.
-codepoints: std.AutoHashMapUnmanaged(CodepointKey, ?Collection.Index) = .{},
+codepoints: std.HashMapUnmanaged(CodepointKey, ?Collection.Index, CodepointKey.Context, 80) = .{},
 
 /// Cache for glyph renders into the atlas.
 glyphs: std.HashMapUnmanaged(GlyphKey, Render, GlyphKey.Context, 80) = .{},
@@ -160,7 +160,7 @@ pub fn getIndex(
     style: Style,
     p: ?Presentation,
 ) !?Collection.Index {
-    const key: CodepointKey = .{ .style = style, .codepoint = cp, .presentation = p };
+    const key = CodepointKey.from(.{ .style = style, .codepoint = cp, .presentation = p });
 
     // Fast path: the cache has the value. This is almost always true and
     // only requires a read lock.
@@ -463,10 +463,36 @@ pub fn renderGlyph(
     return gop.value_ptr.*;
 }
 
-const CodepointKey = struct {
-    style: Style,
+const CodepointKey = packed struct(u64) {
     codepoint: u32,
-    presentation: ?Presentation,
+    style: Style,
+    has_presentation: bool,
+    presentation: Presentation,
+    _padding: u27 = 0,
+
+    const Context = struct {
+        pub fn hash(_: Context, key: CodepointKey) u64 {
+            const x: u64 = @bitCast(key);
+            return x ^ (x >> 32);
+        }
+
+        pub fn eql(_: Context, a: CodepointKey, b: CodepointKey) bool {
+            return @as(u64, @bitCast(a)) == @as(u64, @bitCast(b));
+        }
+    };
+
+    inline fn from(k: struct {
+        style: Style,
+        codepoint: u32,
+        presentation: ?Presentation,
+    }) CodepointKey {
+        return .{
+            .codepoint = k.codepoint,
+            .style = k.style,
+            .has_presentation = k.presentation != null,
+            .presentation = k.presentation orelse .text,
+        };
+    }
 };
 
 const GlyphKey = struct {
