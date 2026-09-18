@@ -214,6 +214,11 @@ pub const Viewer = struct {
         /// never reuses window IDs within a server process lifetime.
         windows: []const Window,
 
+        /// Tmux's current window changed (`%session-window-changed` or
+        /// `%window-pane-changed`), including from an external
+        /// `select-window`.
+        active_window: usize,
+
         pub fn format(self: Action, writer: *std.Io.Writer) !void {
             const T = Action;
             const info = @typeInfo(T).@"union";
@@ -229,6 +234,9 @@ pub const Viewer = struct {
                         const value = @field(self, u_field.name);
                         switch (u_field.type) {
                             []const u8 => try writer.print("\"{s}\"", .{std.mem.trim(u8, value, " \t\r\n")}),
+                            // Window embeds ArenaAllocator.State; dumping
+                            // `{any}` walks freed/poisoned arena nodes.
+                            []const Window => try writer.print("[{d} windows]", .{value.len}),
                             else => try writer.print("{any}", .{value}),
                         }
                     }
@@ -509,9 +517,31 @@ pub const Viewer = struct {
                 return self.defunct();
             },
 
-            // The active pane changed. We don't care about this because
-            // we handle our own focus.
-            .window_pane_changed => {},
+            // A window was closed. Refresh the window list so removed
+            // windows disappear from the viewer model.
+            .window_close => |info| self.windowClose(info.id) catch {
+                log.warn("failed to handle window close, becoming defunct", .{});
+                return self.defunct();
+            },
+
+            // Current window / active pane changed, including from an
+            // external `select-window`.
+            .session_window_changed => |info| {
+                var arena = self.action_arena.promote(self.alloc);
+                defer self.action_arena = arena.state;
+                _ = actions.append(
+                    arena.allocator(),
+                    .{ .active_window = info.window_id },
+                ) catch {};
+            },
+            .window_pane_changed => |info| {
+                var arena = self.action_arena.promote(self.alloc);
+                defer self.action_arena = arena.state;
+                _ = actions.append(
+                    arena.allocator(),
+                    .{ .active_window = info.window_id },
+                ) catch {};
+            },
 
             // We ignore this one. It means a session was created or
             // destroyed. If it was our own session we will get an exit
@@ -621,6 +651,16 @@ pub const Viewer = struct {
         _ = window_id; // We refresh all windows via list-windows
 
         // Queue list-windows to get the updated window list
+        try self.queueCommands(&.{.list_windows});
+    }
+
+    /// When a window is closed, refresh the list so removed windows
+    /// disappear from the viewer model.
+    fn windowClose(
+        self: *Viewer,
+        window_id: usize,
+    ) !void {
+        _ = window_id;
         try self.queueCommands(&.{.list_windows});
     }
 
@@ -854,9 +894,13 @@ pub const Viewer = struct {
         content: []const u8,
     ) !void {
         // If there is an error, reset our actions to what it was before.
-        errdefer actions.shrinkRetainingCapacity(actions.items.len);
+        const actions_len = actions.items.len;
+        errdefer actions.shrinkRetainingCapacity(actions_len);
 
         // This stores our new window state from this list-windows output.
+        // Ownership of each Window's layout arena transfers into
+        // `self.windows` via syncLayouts; this list only owns the
+        // ArrayList buffer itself.
         var windows: std.ArrayList(Window) = .empty;
         defer windows.deinit(self.alloc);
 
@@ -898,12 +942,12 @@ pub const Viewer = struct {
             });
         }
 
-        // Setup our windows action so the caller can process GUI
-        // window changes.
-        try actions.append(arena_alloc, .{ .windows = windows.items });
-
-        // Sync up our layouts. This will populate unknown panes, prune, etc.
+        // Sync into self.windows first. The `.windows` action must point at
+        // `self.windows.items` (stable for the duration of next()), not the
+        // temporary list buffer which is freed by the defer above — otherwise
+        // logging/formatting the action is a use-after-free.
         try self.syncLayouts(windows.items);
+        try actions.append(arena_alloc, .{ .windows = self.windows.items });
     }
 
     fn receivedPaneState(
