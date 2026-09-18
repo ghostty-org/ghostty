@@ -29,6 +29,7 @@
 /// with some data.
 pub const locales = [_][:0]const u8{
     "zh_CN",
+    "ar",
     "de",
     "fr",
     "ja",
