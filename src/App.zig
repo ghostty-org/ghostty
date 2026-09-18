@@ -16,6 +16,7 @@ const BlockingQueue = @import("datastruct/main.zig").BlockingQueue;
 const renderer = @import("renderer.zig");
 const font = @import("font/main.zig");
 const global = @import("global.zig");
+const TmuxSession = @import("TmuxSession.zig");
 
 const log = std.log.scoped(.app);
 
@@ -64,6 +65,11 @@ last_notification_digest: u64 = 0,
 /// in the Surface struct for more information. In this case, this applies
 /// to the app-level config and as a default for new surfaces.
 config_conditional_state: configpkg.ConditionalState,
+
+/// The active tmux control mode session, if any. Only one surface can be
+/// the gateway at a time, so this lives on the app rather than on a
+/// surface.
+tmux: ?TmuxSession.Session = null,
 
 /// Set to false once we've created at least one surface. This
 /// never goes true again. This can be used by surfaces to determine
@@ -130,6 +136,11 @@ pub fn init(
 }
 
 pub fn deinit(self: *App) void {
+    if (self.tmux) |*session| {
+        session.deinit();
+        self.tmux = null;
+    }
+
     // Clean up all our surfaces
     for (self.surfaces.items) |surface| surface.deinit();
     self.surfaces.deinit(self.alloc);
@@ -283,6 +294,12 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
             .new_window => |msg| try self.newWindow(rt_app, msg),
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
+            .tmux_advance => {
+                if (self.tmux) |*session| session.advance();
+                // Surface presentation is asynchronous on macOS. Continue
+                // follower reconstruction on the next app tick.
+                return;
+            },
 
             // If we're quitting, then we set the quit flag and stop
             // draining the mailbox immediately. This lets us defer
@@ -561,6 +578,9 @@ pub const Message = union(enum) {
         surface: *Surface,
         message: apprt.surface.Message,
     },
+
+    /// Continue tmux follower reconstruction on the next app tick.
+    tmux_advance: void,
 
     const NewWindow = struct {
         /// The parent surface
