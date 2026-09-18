@@ -34,6 +34,7 @@ const configpkg = @import("config.zig");
 const Duration = configpkg.Config.Duration;
 const input = @import("input.zig");
 const App = @import("App.zig");
+const TmuxSession = @import("TmuxSession.zig");
 const internal_os = @import("os/main.zig");
 const inspectorpkg = @import("inspector/main.zig");
 const SurfaceMouse = @import("surface_mouse.zig");
@@ -807,6 +808,10 @@ pub fn deinit(self: *Surface) void {
         self.io_thr.join();
     }
 
+    // Leave our tmux session after IO has stopped so the gateway thread
+    // can't dispatch into a session we're destroying.
+    self.tmuxOnDeinit();
+
     // We need to deinit AFTER everything is stopped, since there are
     // shared values between the two threads.
     self.renderer_thread.deinit();
@@ -1180,6 +1185,14 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 .{ .selected = v },
             );
         },
+
+        // tmux control-mode events from the IO thread. Ownership of any
+        // payload is taken here.
+        .tmux_enter => self.tmuxEnter(),
+        .tmux_windows => |v| v.destroy(),
+        .tmux_active_window => {},
+        .tmux_output => |v| v.deinit(),
+        .tmux_exit => self.tmuxTeardown(),
     }
 }
 
@@ -2740,6 +2753,10 @@ pub fn keyCallback(
         event,
         if (insp_ev) |*ev| ev else null,
     )) |v| return v;
+
+    // The tmux control mode gateway isn't a terminal the user types into,
+    // it's a control plate, so it claims its own keys.
+    if (self.tmuxGatewayKey(event)) return .consumed;
     // If we allow KAM and KAM is enabled then we do nothing.
     if (self.config.vt_kam_allowed) {
         self.renderer_state.mutex.lockUncancelable(global.io());
@@ -2852,11 +2869,7 @@ pub fn keyCallback(
             return .closed;
         }
 
-        self.queueIo(switch (write_req) {
-            .small => |v| .{ .write_small = v },
-            .stable => |v| .{ .write_stable = v },
-            .alloc => |v| .{ .write_alloc = v },
-        }, .unlocked);
+        self.queueKeyWrite(write_req);
     } else {
         // No valid request means that we didn't encode anything.
         return .ignored;
@@ -3206,11 +3219,7 @@ fn endKeySequence(
     // Run the proper action first
     switch (action) {
         .flush => for (self.keyboard.sequence_queued.items) |write_req| {
-            self.queueIo(switch (write_req) {
-                .small => |v| .{ .write_small = v },
-                .stable => |v| .{ .write_stable = v },
-                .alloc => |v| .{ .write_alloc = v },
-            }, .unlocked);
+            self.queueKeyWrite(write_req);
         },
 
         .drop => for (self.keyboard.sequence_queued.items) |req| req.deinit(),
@@ -4812,6 +4821,218 @@ fn showMouse(self: *Surface) void {
     };
 }
 
+/// The tmux session this surface takes part in, if any.
+fn tmuxSession(self: *Surface) ?*TmuxSession.Session {
+    if (comptime !terminal.options.tmux_control_mode) return null;
+    const session = if (self.app.tmux) |*s| s else return null;
+    if (!session.isLeader(self)) return null;
+    return session;
+}
+
+/// True if this surface is the gateway for an active control mode
+/// session.
+fn tmuxIsGateway(self: *Surface) bool {
+    if (comptime !terminal.options.tmux_control_mode) return false;
+    if (!self.io.inTmuxControlMode()) return false;
+    const session = if (self.app.tmux) |*s| s else return false;
+    return session.isLeader(self);
+}
+
+/// Handle a binding action that tmux owns while we're attached to a
+/// control mode session. Returns true if the action was forwarded to tmux
+/// and should not be handled natively.
+///
+/// Creating a native split or tab of the gateway would leave Ghostty's
+/// layout out of sync with tmux, so we send tmux the equivalent command
+/// instead.
+fn tmuxBindingAction(self: *Surface, action: input.Binding.Action) !bool {
+    const session = self.tmuxSession() orelse return false;
+
+    switch (action) {
+        .new_split => |direction| {
+            const flag: []const u8 = switch (direction) {
+                .right, .left => "-h",
+                .down, .up => "-v",
+                .auto => if (self.size.screen.width > self.size.screen.height)
+                    "-h"
+                else
+                    "-v",
+            };
+            session.sendCommandFmt("split-window {s}\n", .{flag});
+        },
+
+        .new_tab => session.sendCommand("new-window\n"),
+
+        .new_window => session.sendCommand("new-window\n"),
+
+        .close_surface,
+        .close_tab,
+        .close_window,
+        => {
+            // Closing the gateway means leaving control mode entirely,
+            // which is the detach path rather than a kill-pane.
+            return false;
+        },
+
+        else => return false,
+    }
+
+    return true;
+}
+
+/// Handle a key press on the gateway while control mode is active.
+/// Returns true if the key drove the control plate and shouldn't reach
+/// tmux.
+fn tmuxGatewayKey(self: *Surface, event: input.KeyEvent) bool {
+    if (comptime !terminal.options.tmux_control_mode) return false;
+    if (event.action == .release) return false;
+    if (!self.tmuxIsGateway()) return false;
+
+    const session = if (self.app.tmux) |*s| s else return false;
+
+    // While the command prompt is up every key belongs to it.
+    if (session.prompt) |*prompt| {
+        switch (event.key) {
+            .enter, .numpad_enter => {
+                const command = self.alloc.dupe(u8, prompt.items) catch |err| {
+                    log.warn("error copying tmux command err={}", .{err});
+                    return true;
+                };
+                defer self.alloc.free(command);
+
+                prompt.deinit(self.alloc);
+                session.prompt = null;
+                session.echo("\r\n");
+                if (command.len > 0) {
+                    session.sendCommandFmt("{s}\n", .{command});
+                }
+            },
+
+            .escape => {
+                prompt.deinit(self.alloc);
+                session.prompt = null;
+                session.echo("\r\n");
+            },
+
+            .backspace => if (prompt.pop()) |_| session.echo("\x08 \x08"),
+
+            else => {
+                if (event.utf8.len == 0) return true;
+                if (event.utf8[0] < 0x20 or event.utf8[0] == 0x7f) return true;
+                prompt.appendSlice(self.alloc, event.utf8) catch |err| {
+                    log.warn("error appending to tmux command err={}", .{err});
+                    return true;
+                };
+                session.echo(event.utf8);
+            },
+        }
+
+        return true;
+    }
+
+    if (event.mods.super or event.mods.ctrl or event.mods.alt) return false;
+
+    switch (event.key) {
+        .escape => {
+            session.detach();
+            self.tmuxTeardown();
+        },
+
+        .key_x => self.tmuxForceQuit(),
+
+        .key_l => self.io.queueMessage(.{ .tmux_logging_toggle = {} }, .unlocked),
+
+        .key_c => {
+            session.prompt = .empty;
+            session.echo("\r\ntmux command: ");
+        },
+
+        else => return false,
+    }
+
+    return true;
+}
+
+/// Abandon control mode without waiting on tmux.
+fn tmuxForceQuit(self: *Surface) void {
+    if (comptime !terminal.options.tmux_control_mode) return;
+
+    const session = if (self.app.tmux) |*s| s else return;
+    if (!session.isLeader(self)) return;
+
+    session.sendRaw("detach-client\n");
+    self.io.queueMessage(.{ .tmux_force_quit = {} }, .unlocked);
+    self.tmuxTeardown();
+}
+
+/// Queue an encoded key write request, taking ownership of `write_req`.
+///
+/// On the gateway the pty speaks the control protocol, so the encoded
+/// bytes have to be wrapped in `send-keys` rather than written directly.
+fn queueKeyWrite(self: *Surface, write_req: termio.Message.WriteReq) void {
+    if (self.tmuxIsGateway()) {
+        defer write_req.deinit();
+        const session = if (self.app.tmux) |*s| s else return;
+        session.sendKeys(null, write_req.slice());
+        return;
+    }
+
+    self.queueIo(switch (write_req) {
+        .small => |v| .{ .write_small = v },
+        .stable => |v| .{ .write_stable = v },
+        .alloc => |v| .{ .write_alloc = v },
+    }, .unlocked);
+}
+
+/// Become the gateway for a new control mode session.
+fn tmuxEnter(self: *Surface) void {
+    if (comptime !terminal.options.tmux_control_mode) return;
+
+    if (self.app.tmux != null) {
+        log.warn("tmux session already active, ignoring enter", .{});
+        return;
+    }
+
+    self.app.tmux = .init(self.alloc, self);
+    log.info("tmux control mode entered gateway={x}", .{self.id});
+
+    _ = self.rt_app.performAction(
+        .{ .surface = self },
+        .set_title,
+        .{ .title = "[↣ tmux tmux]" },
+    ) catch |err| {
+        log.warn("failed to set tmux gateway title err={}", .{err});
+    };
+}
+
+/// Drop the session. The gateway surface stays.
+fn tmuxTeardown(self: *Surface) void {
+    if (comptime !terminal.options.tmux_control_mode) return;
+
+    const session = if (self.app.tmux) |*s| s else return;
+    if (!session.isLeader(self)) return;
+
+    var owned = session.*;
+    self.app.tmux = null;
+    owned.deinit();
+    log.info("tmux control mode exited", .{});
+
+    _ = self.rt_app.performAction(
+        .{ .surface = self },
+        .set_title,
+        .{ .title = "ghostty" },
+    ) catch {};
+}
+
+/// Leave the session as this surface goes away. Called after the IO
+/// thread has stopped.
+fn tmuxOnDeinit(self: *Surface) void {
+    if (comptime !terminal.options.tmux_control_mode) return;
+
+    const session = if (self.app.tmux) |*s| s else return;
+    if (session.isLeader(self)) self.tmuxTeardown();
+}
+
 /// Perform a binding action. A binding is a keybinding. This function
 /// must be called from the GUI thread.
 ///
@@ -4823,6 +5044,10 @@ fn showMouse(self: *Surface) void {
 /// will ever return false. We can expand this in the future if it becomes
 /// useful. We did previous/next tab so we could implement #498.
 pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool {
+    // While attached to a tmux control mode session, split and tab
+    // management belongs to tmux rather than to us.
+    if (try self.tmuxBindingAction(action)) return true;
+
     // Forward app-scoped actions to the app. Some app-scoped actions are
     // special-cased here because they do some special things when performed
     // from the surface.

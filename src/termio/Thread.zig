@@ -344,6 +344,17 @@ fn drainMailbox(
                 defer v.alloc.free(v.pw);
                 try io.kittyClipboardGrant(v.pw, .write);
             },
+            .tmux_command => |v| {
+                defer v.alloc.free(v.data);
+                io.tmuxCommand(data, v.data);
+            },
+            .tmux_echo => |v| {
+                defer v.alloc.free(v.data);
+                io.tmuxEcho(v.data);
+            },
+            .tmux_capture_pane => |v| io.tmuxCapturePane(data, v),
+            .tmux_logging_toggle => io.tmuxToggleLogging(),
+            .tmux_force_quit => io.tmuxForceQuit(),
             .start_synchronized_output => self.startSynchronizedOutput(cb),
             .linefeed_mode => |v| self.flags.linefeed_mode = v,
             .focused => |v| try io.focusGained(data, v),
