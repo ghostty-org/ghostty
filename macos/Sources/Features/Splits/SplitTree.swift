@@ -1219,20 +1219,23 @@ extension SplitTree: Collection {
 // MARK: SplitTree Combine
 
 extension SplitTree {
-    /// Builds a publisher that emits current values for all leaf views keyed by view ID.
+    /// Builds a publisher that emits current values for all leaf views grouped by view ID.
     ///
-    /// The returned publisher emits a full `[ViewType.ID: Value]` snapshot whenever any leaf view
+    /// The returned publisher emits a full `[(id, value)]` snapshot whenever any leaf view
     /// publishes through the provided publisher key path.
+    ///
+    /// - Note: The result array is ordered as the order we traverse the tree.
     func valuesPublisher<Value>(
         valueKeyPath: KeyPath<ViewType, Value>,
         publisherKeyPath: KeyPath<ViewType, Published<Value>.Publisher>
-    ) -> AnyPublisher<[ViewType.ID: Value], Never> {
+    ) -> AnyPublisher<[(id: ViewType.ID, value: Value)], Never> {
         // Flatten the split tree into a list of current leaf views.
         let views = map { $0 }
+        let viewIDs = views.map(\.id)
         guard !views.isEmpty else {
             // If there are no leaves, immediately publish an empty snapshot.
-            // `Just([:])` keeps the return type simple and makes downstream usage easy.
-            return Just([:]).eraseToAnyPublisher()
+            // `Just([])` keeps the return type simple and makes downstream usage easy.
+            return Just([]).eraseToAnyPublisher()
         }
 
         // Capture each view's current value up front.
@@ -1262,6 +1265,15 @@ extension SplitTree {
             // Emit the initial snapshot first so subscribers always get a
             // complete value dictionary immediately upon subscription.
             .prepend(initial)
+            .map { dictionary in
+                viewIDs.compactMap {
+                    if let value = dictionary[$0] {
+                        return (id: $0, value: value)
+                    } else {
+                        return nil
+                    }
+                }
+            }
             // Hide implementation details and expose a stable API type.
             .eraseToAnyPublisher()
     }
