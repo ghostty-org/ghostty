@@ -501,8 +501,14 @@ pub fn resize(
     self.size = size;
     const grid_size = size.grid();
 
-    // Update the size of our pty.
-    try self.backend.resize(grid_size, size.terminal());
+    // A gateway pty is the tmux client's terminal, so resizing it would
+    // resize every tmux window to the size of the control plate. The
+    // followers own the sizing while control mode is active; they tell
+    // tmux about it with refresh-client.
+    if (!self.inTmuxControlMode()) {
+        // Update the size of our pty.
+        try self.backend.resize(grid_size, size.terminal());
+    }
 
     // Enter the critical area that we want to keep small
     {
@@ -560,6 +566,95 @@ fn sizeReportLocked(self: *Termio, td: *ThreadData, style: termio.Message.SizeRe
     );
 
     try self.queueWrite(td, writer.buffered(), false);
+}
+
+/// True if the terminal is currently attached to a tmux control mode
+/// session. When this is true the pty carries the tmux control protocol,
+/// so anything we want to send to the running program has to be wrapped
+/// in a tmux command.
+///
+/// Safe to call from any thread.
+pub fn inTmuxControlMode(self: *const Termio) bool {
+    if (comptime !StreamHandler.tmux_enabled) return false;
+    return self.terminal_stream.handler.tmux_control_mode.load(.acquire);
+}
+
+/// True if tmux protocol logging is enabled on this terminal.
+///
+/// Safe to call from any thread.
+pub fn inTmuxLogging(self: *const Termio) bool {
+    if (comptime !StreamHandler.tmux_enabled) return false;
+    return self.terminal_stream.handler.tmux_logging.load(.acquire);
+}
+
+/// Send a command to tmux. Commands are routed through the viewer so
+/// that the `%begin`/`%end` blocks tmux replies with stay matched up
+/// with the commands that caused them.
+pub fn tmuxCommand(self: *Termio, td: *ThreadData, command: []const u8) void {
+    if (comptime !StreamHandler.tmux_enabled) return;
+
+    const pending: ?[]const u8 = pending: {
+        self.renderer_state.mutex.lockUncancelable(global.io());
+        defer self.renderer_state.mutex.unlock(global.io());
+        break :pending self.terminal_stream.handler.tmuxSubmitCommand(command);
+    };
+
+    // The viewer queued the command behind one that is still in flight;
+    // it'll be sent for us when its turn comes.
+    const data = pending orelse return;
+    self.queueWrite(td, data, false) catch |err| {
+        log.warn("error writing tmux command err={}", .{err});
+    };
+}
+
+/// Ask tmux for a pane's current contents. See
+/// StreamHandler.tmuxCapturePane.
+pub fn tmuxCapturePane(self: *Termio, td: *ThreadData, pane_id: usize) void {
+    if (comptime !StreamHandler.tmux_enabled) return;
+
+    const pending: ?[]const u8 = pending: {
+        self.renderer_state.mutex.lockUncancelable(global.io());
+        defer self.renderer_state.mutex.unlock(global.io());
+        break :pending self.terminal_stream.handler.tmuxCapturePane(pane_id);
+    };
+
+    const data = pending orelse return;
+    self.queueWrite(td, data, false) catch |err| {
+        log.warn("error writing tmux capture-pane err={}", .{err});
+    };
+}
+
+/// Print text on the terminal as part of the tmux control plate. Nothing
+/// is sent to tmux.
+pub fn tmuxEcho(self: *Termio, text: []const u8) void {
+    if (comptime !StreamHandler.tmux_enabled) return;
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+    self.terminal_stream.handler.tmuxPrint(text);
+}
+
+/// Toggle tmux protocol logging.
+pub fn tmuxToggleLogging(self: *Termio) void {
+    if (comptime !StreamHandler.tmux_enabled) return;
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+    self.terminal_stream.handler.tmuxToggleLogging();
+}
+
+/// Abandon tmux control mode without waiting for a clean DCS exit.
+pub fn tmuxForceQuit(self: *Termio) void {
+    if (comptime !StreamHandler.tmux_enabled) return;
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+
+    // Leave DCS passthrough immediately. If we only destroy the viewer and
+    // wait for ST, shell output after detach (htm especially) is still
+    // eaten as control-mode bytes and reattach paste never reaches a shell.
+    self.terminal_stream.parser.state = .ground;
+    self.terminal_stream.handler.dcs.deinit();
+    self.terminal_stream.handler.dcs = .{};
+
+    self.terminal_stream.handler.tmuxForceQuit();
 }
 
 /// Reset the synchronized output mode. This is usually called by timer

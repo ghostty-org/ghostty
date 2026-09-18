@@ -88,6 +88,26 @@ pub const Message = union(enum) {
     kitty_clipboard_grant_read: KittyClipboardGrant,
     kitty_clipboard_grant_write: KittyClipboardGrant,
 
+    /// tmux control mode: send a command to tmux. This can't be a plain
+    /// write because tmux answers every command with a `%begin`/`%end`
+    /// block that has to be matched against the viewer's command queue.
+    /// The data must include its trailing newline.
+    tmux_command: WriteReq.Alloc,
+
+    /// tmux control mode: print text on the gateway terminal without
+    /// sending anything to tmux. Used for the control plate.
+    tmux_echo: WriteReq.Alloc,
+
+    /// tmux control mode: fetch a pane's current contents so a newly
+    /// created follower surface isn't blank.
+    tmux_capture_pane: usize,
+
+    /// tmux control mode: toggle protocol logging on the gateway.
+    tmux_logging_toggle: void,
+
+    /// tmux control mode: abandon control mode without detaching.
+    tmux_force_quit: void,
+
     /// Write where the data fits in the union.
     write_small: WriteReq.Small,
 
@@ -123,7 +143,10 @@ pub const Message = union(enum) {
                 v.ptr.deinit();
                 v.alloc.destroy(v.ptr);
             },
-            .write_alloc => |v| v.alloc.free(v.data),
+            .write_alloc,
+            .tmux_command,
+            .tmux_echo,
+            => |v| v.alloc.free(v.data),
             .kitty_clipboard_grant_read,
             .kitty_clipboard_grant_write,
             => |v| v.alloc.free(v.pw),
