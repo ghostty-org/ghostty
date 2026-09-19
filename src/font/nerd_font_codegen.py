@@ -18,6 +18,7 @@ import math
 from fontTools.ttLib import TTFont, TTLibError
 from fontTools.pens.boundsPen import BoundsPen
 from collections import defaultdict
+from collections.abc import Iterable
 from contextlib import suppress
 from pathlib import Path
 from types import SimpleNamespace
@@ -216,6 +217,30 @@ def coalesce_codepoints_to_ranges(codepoints: list[int]) -> list[tuple[int, int]
     return ranges
 
 
+SKIP_PAGE_LEN = 0x1100  # 0x10FFFF >> 8 + 1
+
+
+def emit_skip_page_table(codepoints: Iterable[int]) -> str:
+    """True when a 256-codepoint page has no constrained nerd glyphs."""
+    constrained = sorted({c >> 8 for c in codepoints if c >> 8 < SKIP_PAGE_LEN})
+    lines = [
+        "// True when this 256-codepoint page has no Nerd Fonts constrained glyphs.",
+        f"const skip_page: [{SKIP_PAGE_LEN:#x}]bool = blk: {{",
+        f"    var p: [{SKIP_PAGE_LEN:#x}]bool = @splat(true);",
+    ]
+    for hi in constrained:
+        lines.append(f"    p[{hi:#x}] = false;")
+    lines.extend(["    break :blk p;", "};", ""])
+    return "\n".join(lines)
+
+
+def emit_skip_page_lookup() -> str:
+    return (
+        "    const hi = cp >> 8;\n"
+        "    if (hi >= skip_page.len or skip_page[hi]) return null;"
+    )
+
+
 def emit_zig_entry_multikey(codepoints: list[int], attr: PatchSetAttributeEntry) -> str:
     align = parse_alignment(attr.get("align", ""))
     valign = parse_alignment(attr.get("valign", ""))
@@ -411,11 +436,11 @@ def generate_codepoint_tables(
     return cp_tables
 
 
-def generate_zig_switch_arms(
+def collect_entries(
     patch_sets: list[PatchSet],
     nerd_font: TTFont,
     nf_version: str,
-) -> str:
+) -> dict[int, PatchSetAttributeEntry]:
     cmap = nerd_font.getBestCmap()
     glyphs = nerd_font.getGlyphSet()
     cp_tables = generate_codepoint_tables(patch_sets, nerd_font, nf_version)
@@ -531,18 +556,18 @@ def generate_zig_switch_arms(
                         ) / group_width
         entries |= patch_set_entries
 
-    # Group codepoints by attribute key
+    return entries
+
+
+def emit_zig_switch_arms(entries: dict[int, PatchSetAttributeEntry]) -> str:
     grouped = defaultdict[AttributeHash, list[int]](list)
     for cp, attr in entries.items():
         grouped[attr_key(attr)].append(cp)
 
-    # Emit zig switch arms
     result: list[str] = []
     for codepoints in sorted(grouped.values()):
-        # Use one of the attrs in the group to emit the value
         attr = entries[codepoints[0]]
         result.append(emit_zig_entry_multikey(codepoints, attr))
-
     return "\n".join(result)
 
 
@@ -557,6 +582,8 @@ if __name__ == "__main__":
     source = patcher_path.read_text(encoding="utf-8")
     patch_set, nf_version = extract_patch_set_values(source)
 
+    entries = collect_entries(patch_set, nerd_font, nf_version)
+
     out_path = project_root / "src" / "font" / "nerd_font_attributes.zig"
 
     with out_path.open("w", encoding="utf-8") as f:
@@ -568,9 +595,12 @@ if __name__ == "__main__":
 
 const Constraint = @import("Glyph.zig").RenderOptions.Constraint;
 
-/// Get the constraints for the provided codepoint.
-pub fn getConstraint(cp: u21) ?Constraint {
-    return switch (cp) {
 """)
-        f.write(generate_zig_switch_arms(patch_set, nerd_font, nf_version))
+        f.write(emit_skip_page_table(entries))
+        f.write("""/// Get the constraints for the provided codepoint.
+pub fn getConstraint(cp: u21) ?Constraint {
+""")
+        f.write(emit_skip_page_lookup())
+        f.write("\n\n    return switch (cp) {\n")
+        f.write(emit_zig_switch_arms(entries))
         f.write("\n        else => null,\n    };\n}\n")

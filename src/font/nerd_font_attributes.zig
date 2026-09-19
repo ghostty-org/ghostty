@@ -6,8 +6,67 @@
 
 const Constraint = @import("Glyph.zig").RenderOptions.Constraint;
 
+// True when this 256-codepoint page has no Nerd Fonts constrained glyphs.
+const skip_page: [0x1100]bool = blk: {
+    var p: [0x1100]bool = @splat(true);
+    p[0x23] = false;
+    p[0x26] = false;
+    p[0x27] = false;
+    p[0x2b] = false;
+    p[0xe0] = false;
+    p[0xe2] = false;
+    p[0xe3] = false;
+    p[0xe5] = false;
+    p[0xe6] = false;
+    p[0xe7] = false;
+    p[0xe8] = false;
+    p[0xea] = false;
+    p[0xeb] = false;
+    p[0xec] = false;
+    p[0xed] = false;
+    p[0xee] = false;
+    p[0xef] = false;
+    p[0xf0] = false;
+    p[0xf1] = false;
+    p[0xf2] = false;
+    p[0xf3] = false;
+    p[0xf4] = false;
+    p[0xf5] = false;
+    p[0xf00] = false;
+    p[0xf01] = false;
+    p[0xf02] = false;
+    p[0xf03] = false;
+    p[0xf04] = false;
+    p[0xf05] = false;
+    p[0xf06] = false;
+    p[0xf07] = false;
+    p[0xf08] = false;
+    p[0xf09] = false;
+    p[0xf0a] = false;
+    p[0xf0b] = false;
+    p[0xf0c] = false;
+    p[0xf0d] = false;
+    p[0xf0e] = false;
+    p[0xf0f] = false;
+    p[0xf10] = false;
+    p[0xf11] = false;
+    p[0xf12] = false;
+    p[0xf13] = false;
+    p[0xf14] = false;
+    p[0xf15] = false;
+    p[0xf16] = false;
+    p[0xf17] = false;
+    p[0xf18] = false;
+    p[0xf19] = false;
+    p[0xf1a] = false;
+    break :blk p;
+};
+
 /// Get the constraints for the provided codepoint.
 pub fn getConstraint(cp: u21) ?Constraint {
+    const hi = cp >> 8;
+    if (hi >= skip_page.len or skip_page[hi]) return null;
+
     return switch (cp) {
         0x2630,
         => .{
