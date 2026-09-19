@@ -4495,6 +4495,50 @@ fn osc8URI(self: *Surface, pin: terminal.Pin) ?[]const u8 {
     return entry.uri.slice(page.memory);
 }
 
+/// Return the URL for the given link.
+///
+/// Requires the renderer state mutex is held.
+fn linkUrl(
+    self: *Surface,
+    alloc: Allocator,
+    link: Link,
+) Allocator.Error!?[:0]const u8 {
+    switch (link.action) {
+        .open => return try self.io.terminal.screens.active.selectionString(alloc, .{
+            .sel = link.selection,
+            .trim = self.config.clipboard_trim_trailing_spaces,
+        }),
+
+        ._open_osc8 => {
+            const uri = self.osc8URI(link.selection.start()) orelse return null;
+            return try alloc.dupeZ(u8, uri);
+        },
+    }
+}
+
+/// Returns the URL of the link at the given cursor position, else null.
+pub fn linkUrlAtPos(
+    self: *Surface,
+    alloc: Allocator,
+    pos: apprt.CursorPos,
+) !?[:0]const u8 {
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+
+    const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
+    const pin = screen.pages.pin(.{
+        .viewport = self.posToViewport(pos.x, pos.y),
+    }) orelse return null;
+
+    const link: Link = if (self.config.link_osc8 and
+        pin.rowAndCell().cell.hyperlink)
+        .{ .action = ._open_osc8, .selection = .init(pin, pin, false) }
+    else
+        try self.linkAtPin(pin, null) orelse return null;
+
+    return try self.linkUrl(alloc, link);
+}
+
 pub fn mousePressureCallback(
     self: *Surface,
     stage: input.MousePressureStage,
@@ -5077,26 +5121,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             self.renderer_state.mutex.lockUncancelable(global.io());
             defer self.renderer_state.mutex.unlock(global.io());
             if (try self.linkAtPos(pos)) |link_info| {
-                const url_text = switch (link_info.action) {
-                    .open => url_text: {
-                        // For regex links, get the text from selection
-                        break :url_text (self.io.terminal.screens.active.selectionString(self.alloc, .{
-                            .sel = link_info.selection,
-                            .trim = self.config.clipboard_trim_trailing_spaces,
-                        })) catch |err| {
-                            log.err("error reading url string err={}", .{err});
-                            return false;
-                        };
-                    },
-
-                    ._open_osc8 => url_text: {
-                        // For OSC8 links, get the URI directly from hyperlink data
-                        const uri = self.osc8URI(link_info.selection.start()) orelse {
-                            log.warn("failed to get URI for OSC8 hyperlink", .{});
-                            return false;
-                        };
-                        break :url_text try self.alloc.dupeZ(u8, uri);
-                    },
+                const url_text = (self.linkUrl(self.alloc, link_info) catch |err| {
+                    log.err("error reading url string err={}", .{err});
+                    return false;
+                }) orelse {
+                    log.warn("failed to get URI for OSC8 hyperlink", .{});
+                    return false;
                 };
                 defer self.alloc.free(url_text);
 

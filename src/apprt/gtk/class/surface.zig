@@ -594,6 +594,10 @@ pub const Surface = extern struct {
         /// The URL that the mouse is currently hovering over.
         mouse_hover_url: ?[:0]const u8 = null,
 
+        /// The URL of the link under the mouse when the context menu was
+        /// last opened, if any.
+        context_menu_url: ?[:0]const u8 = null,
+
         /// The current working directory. This has to be reported externally,
         /// usually by shell integration which then talks to libghostty
         /// which triggers this property.
@@ -1872,6 +1876,11 @@ pub const Surface = extern struct {
                 actionPromptTitle,
                 null,
             ),
+            .init(
+                "copy-link",
+                actionCopyLink,
+                null,
+            ),
             .initStateful(
                 "notify-on-next-command-finish",
                 actionNotifyOnNextCommandFinish,
@@ -1881,6 +1890,9 @@ pub const Surface = extern struct {
         };
 
         priv.action_group = ext.actions.addAsGroup(Self, self, "surface", &actions);
+
+        // Disable copy-link until a context menu is opened over a link.
+        self.setContextMenuUrl(null);
     }
 
     fn dispose(self: *Self) callconv(.c) void {
@@ -1973,6 +1985,10 @@ pub const Surface = extern struct {
         if (priv.mouse_hover_url) |v| {
             glib.free(@ptrCast(@constCast(v)));
             priv.mouse_hover_url = null;
+        }
+        if (priv.context_menu_url) |v| {
+            alloc.free(v);
+            priv.context_menu_url = null;
         }
         if (priv.default_size) |v| {
             ext.boxedFree(Size, v);
@@ -2283,6 +2299,21 @@ pub const Surface = extern struct {
         priv.mouse_hover_url = null;
         if (url) |v| priv.mouse_hover_url = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.@"mouse-hover-url".impl.param_spec);
+    }
+
+    /// Set the URL for the copy-link action, taking ownership of it. The
+    /// action is disabled when this is null.
+    fn setContextMenuUrl(self: *Self, url: ?[:0]const u8) void {
+        const priv = self.private();
+        if (priv.context_menu_url) |v| Application.default().allocator().free(v);
+        priv.context_menu_url = url;
+
+        const group = priv.action_group orelse return;
+        const action = gobject.ext.cast(
+            gio.SimpleAction,
+            group.as(gio.ActionMap).lookupAction("copy-link") orelse return,
+        ) orelse return;
+        action.setEnabled(@intFromBool(url != null));
     }
 
     pub fn getBellRinging(self: *Self) bool {
@@ -2644,6 +2675,18 @@ pub const Surface = extern struct {
         };
     }
 
+    pub fn actionCopyLink(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const url = self.private().context_menu_url orelse return;
+        self.setClipboard(.standard, &.{.{
+            .mime = "text/plain",
+            .data = url,
+        }}, false);
+    }
+
     pub fn actionNotifyOnNextCommandFinish(
         action: *gio.SimpleAction,
         _: ?*glib.Variant,
@@ -2906,6 +2949,16 @@ pub const Surface = extern struct {
                 .{},
                 null,
             );
+
+            // Save the link now since the mouse will have moved by the
+            // time a menu item is activated.
+            self.setContextMenuUrl(core_surface.linkUrlAtPos(
+                Application.default().allocator(),
+                self.getCursorPos(),
+            ) catch |err| url: {
+                log.warn("error getting link for context menu err={}", .{err});
+                break :url null;
+            });
 
             const rect: gdk.Rectangle = .{
                 .f_x = @intFromFloat(x),
