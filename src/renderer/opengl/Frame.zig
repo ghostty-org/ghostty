@@ -60,20 +60,27 @@ pub fn complete(self: *const Self, sync: bool) void {
     // If there are any GL errors, consider the frame unhealthy.
     const health: Health = if (gl.errors.getError()) .healthy else |_| .unhealthy;
 
-    // If the frame is healthy, export it and push to the present queue.
+    // If the frame is healthy, draw it to an ExportedFrame
+    // Then sync before exporting and pushing to the present queue.
     // The apprt pulls from this queue in its snapshot handler.
-    if (health == .healthy) frame: {
+    const presented_frame: ?OpenGL.ExportedFrame = if (health == .healthy) frame: {
         const frame = self.renderer.api.present(self.target.*) catch |err| {
             log.warn("failed to present render target: err={}", .{err});
-            break :frame;
+            break :frame null;
         };
+        break :frame frame;
+    } else null;
 
+    // Sync after frame draw AND frame present GL calls.
+    gl.finish();
+
+    // At this point the ExportedFrame is finished and can be shared
+    if (presented_frame) |frame| {
         self.renderer.pushFrame(frame);
 
         // Notify the surface that it should redraw
         _ = self.renderer.surface_mailbox.push(.redraw, .{ .forever = {} });
     }
-    gl.finish();
 
     // Report the health to the renderer.
     self.renderer.frameCompleted(health);
