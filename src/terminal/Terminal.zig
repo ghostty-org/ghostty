@@ -4767,6 +4767,43 @@ test "Terminal: setTitle accepts its current value" {
     try testing.expectEqualStrings("Ghostty", t.getTitle().?);
 }
 
+/// Get a mode's effective value.
+///
+/// Some modes are answered from terminal state and can never
+/// contradict it. Every other mode is answered from its value.
+pub fn getMode(self: *const Terminal, mode: modespkg.Mode) bool {
+    return switch (mode) {
+        // All three read the active screen.
+        .alt_screen_legacy,
+        .alt_screen,
+        .alt_screen_save_cursor_clear_enter,
+        => self.screens.active_key == .alternate,
+
+        // Whether a cursor is saved on the active screen.
+        .save_cursor => self.screens.active.saved_cursor != null,
+
+        else => self.modes.get(mode),
+    };
+}
+
+/// Get a mode's state report.
+///
+/// Some modes are reported from terminal state and can never
+/// contradict it. Every other mode is reported from its value.
+pub fn modeReport(self: *const Terminal, mode: modespkg.Mode) modespkg.Report {
+    const report = self.modes.getReport(.fromMode(mode));
+
+    // Only a set or reset state can be replaced.
+    if (report.state == .set or report.state == .reset) {
+        return .{
+            .tag = report.tag,
+            .state = if (self.getMode(mode)) .set else .reset,
+        };
+    }
+
+    return report;
+}
+
 /// Switch to the given screen type (alternate or primary).
 ///
 /// This does NOT handle behaviors such as clearing the screen,
@@ -16598,6 +16635,46 @@ test "Terminal: mode 1049 alt screen plain" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("", str);
     }
+}
+
+// See ghostty-org/ghostty#14199.
+test "Terminal: modeReport answers the alternate screen modes from the active screen" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    const alt_screen_modes = [_]modespkg.Mode{
+        .alt_screen_legacy,
+        .alt_screen,
+        .alt_screen_save_cursor_clear_enter,
+    };
+
+    // Enter with one mode and leave with another.
+    // All three have to follow the active screen.
+    try t.switchScreenMode(.@"47", true);
+    for (alt_screen_modes) |mode| {
+        try testing.expectEqual(.set, t.modeReport(mode).state);
+    }
+
+    try t.switchScreenMode(.@"1049", false);
+    for (alt_screen_modes) |mode| {
+        try testing.expectEqual(.reset, t.modeReport(mode).state);
+    }
+}
+
+test "Terminal: modeReport answers mode 1048 from the saved cursor" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    try testing.expectEqual(.reset, t.modeReport(.save_cursor).state);
+
+    t.saveCursor(); // DECSC
+    try testing.expectEqual(.set, t.modeReport(.save_cursor).state);
+
+    // The alternate screen has its own saved cursor.
+    _ = try t.switchScreen(.alternate);
+    try testing.expectEqual(.reset, t.modeReport(.save_cursor).state);
 }
 
 // Reproduces a crash found by AFL++ fuzzer (afl-out/stream/default/crashes/

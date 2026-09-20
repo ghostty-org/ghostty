@@ -1813,7 +1813,7 @@ pub const Handler = struct {
     }
 
     fn requestMode(self: *Handler, mode: modes.Mode) void {
-        var report = self.terminal.modes.getReport(.fromMode(mode));
+        var report = self.terminal.modeReport(mode);
 
         // Kitty paste events (mode 5522) can't work without a clipboard
         // read effect, so if that isn't set mark it as unrecognized.
@@ -5345,6 +5345,71 @@ test "request mode DECRQM ANSI responses" {
         try testing.expectEqual(1, S.calls);
         try testing.expectEqualStrings(case[1], S.response[0..S.len]);
     }
+}
+
+// See ghostty-org/ghostty#14199.
+test "DECRQM reports the alternate screen modes from the active screen" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var last_response: ?[:0]const u8 = null;
+        fn writePty(_: *Handler, data: []const u8) void {
+            if (last_response) |old| testing.allocator.free(old);
+            last_response = testing.allocator.dupeZ(u8, data) catch @panic("OOM");
+        }
+    };
+    S.last_response = null;
+    defer if (S.last_response) |old| testing.allocator.free(old);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // Enter with one mode and leave with another.
+    // All three have to follow the active screen.
+    s.nextSlice("\x1B[?47h");
+    s.nextSlice("\x1B[?1047$p");
+    try testing.expectEqualStrings("\x1B[?1047;1$y", S.last_response.?);
+
+    s.nextSlice("\x1B[?1049l");
+    s.nextSlice("\x1B[?47$p");
+    try testing.expectEqualStrings("\x1B[?47;2$y", S.last_response.?);
+}
+
+test "DECRQM reports mode 1048 from the saved cursor" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var last_response: ?[:0]const u8 = null;
+        fn writePty(_: *Handler, data: []const u8) void {
+            if (last_response) |old| testing.allocator.free(old);
+            last_response = testing.allocator.dupeZ(u8, data) catch @panic("OOM");
+        }
+    };
+    S.last_response = null;
+    defer if (S.last_response) |old| testing.allocator.free(old);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    s.nextSlice("\x1B[?1048$p");
+    try testing.expectEqualStrings("\x1B[?1048;2$y", S.last_response.?);
+
+    s.nextSlice("\x1B7"); // DECSC
+    s.nextSlice("\x1B[?1048$p");
+    try testing.expectEqualStrings("\x1B[?1048;1$y", S.last_response.?);
+
+    // The alternate screen has its own saved cursor.
+    s.nextSlice("\x1B[?47h");
+    s.nextSlice("\x1B[?1048$p");
+    try testing.expectEqualStrings("\x1B[?1048;2$y", S.last_response.?);
 }
 
 test "stream: CSI W with intermediate but no params" {
