@@ -159,13 +159,32 @@ pub fn spirvFromGlsl(
     errlog: ?*SpirvLog,
     src: [:0]const u8,
 ) !void {
+    return spirvFromGlslStage(writer, errlog, src, .fragment);
+}
+
+pub const ShaderStage = enum {
+    vertex,
+    fragment,
+};
+
+/// Convert GLSL for the requested graphics stage into SPIR-V assembly.
+pub fn spirvFromGlslStage(
+    writer: *std.Io.Writer,
+    errlog: ?*SpirvLog,
+    src: [:0]const u8,
+    stage: ShaderStage,
+) !void {
     // So we can run unit tests without fear.
     if (builtin.is_test) try glslang.testing.ensureInit();
 
     const c = glslang.c;
+    const glslang_stage: c.glslang_stage_t = @intCast(switch (stage) {
+        .vertex => c.GLSLANG_STAGE_VERTEX,
+        .fragment => c.GLSLANG_STAGE_FRAGMENT,
+    });
     const input: c.glslang_input_t = .{
         .language = c.GLSLANG_SOURCE_GLSL,
-        .stage = c.GLSLANG_STAGE_FRAGMENT,
+        .stage = glslang_stage,
         .client = c.GLSLANG_CLIENT_VULKAN,
         .client_version = c.GLSLANG_TARGET_VULKAN_1_2,
         .target_language = c.GLSLANG_TARGET_SPV,
@@ -201,7 +220,7 @@ pub fn spirvFromGlsl(
         if (errlog) |ptr| ptr.fromProgram(program) catch {};
         return err;
     };
-    program.spirvGenerate(c.GLSLANG_STAGE_FRAGMENT);
+    program.spirvGenerate(glslang_stage);
     const size = program.spirvGetSize();
     const ptr = try program.spirvGetPtr();
     const ptr_u8: [*]u8 = @ptrCast(ptr);

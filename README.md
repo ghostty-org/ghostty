@@ -112,7 +112,8 @@ experience.
 This performance is achieved through high-level architectural decisions and
 low-level optimizations. At a high-level, Ghostty has a multi-threaded
 architecture with a dedicated read thread, write thread, and render thread
-per terminal. Our renderer uses OpenGL on Linux and Metal on macOS.
+per terminal. Our renderer uses OpenGL by default on Linux, with an optional
+Vulkan backend (`zig build -Drenderer=vulkan`), and Metal on macOS.
 Our read thread has a heavily optimized terminal parser that leverages
 CPU-specific SIMD instructions. Etc.
 

@@ -203,7 +203,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     config.renderer = b.option(
         RendererBackend,
         "renderer",
-        "The app runtime to use. Not all values supported on all platforms.",
+        "The renderer backend to use. Not all values are supported on all platforms.",
     ) orelse RendererBackend.default(target.result, wasm_target);
 
     //---------------------------------------------------------------

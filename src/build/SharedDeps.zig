@@ -511,6 +511,9 @@ pub fn add(
     if (b.lazyDependency("opengl", .{})) |dep| {
         step.root_module.addImport("opengl", dep.module("opengl"));
     }
+    if (self.config.renderer == .vulkan) {
+        step.root_module.linkSystemLibrary("vulkan", dynamic_link_opts);
+    }
     if (b.lazyDependency("vaxis", .{
         .target = target,
         .optimize = optimize,
