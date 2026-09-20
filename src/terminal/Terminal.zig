@@ -4875,6 +4875,20 @@ pub fn modeReport(self: *const Terminal, mode: modespkg.Mode) modespkg.Report {
     return .{ .tag = report.tag, .state = if (set) .set else .reset };
 }
 
+// REVIEW: Replicated from `srm_SAVE_CURSOR` in xterm's
+// REVIEW: `dpmodes` (charproc.c:7915-7921).
+// REVIEW:
+// REVIEW: DECSC and DECRC are a separate path
+// REVIEW: (`CASE_DECSC` charproc.c:4906, `CASE_DECRC` charproc.c:4916).
+//
+/// Mode 1048: save the cursor on DECSET, restore it on DECRST.
+///
+/// The saved cursor is the whole of this mode's state, so DECSC
+/// reaches it by another route and leaves DECRQM reporting set.
+pub fn saveCursorMode(self: *Terminal, enabled: bool) void {
+    if (enabled) self.saveCursor() else self.restoreCursor();
+}
+
 /// Switch to the given screen type (alternate or primary).
 ///
 /// This does NOT handle behaviors such as clearing the screen,
@@ -16569,6 +16583,20 @@ test "Terminal: mode 1048 saves and restores the cursor itself" {
     t.setCursorPos(1, 1);
 
     try testing.expectEqual(@as(?bool, null), try t.restoreMode(.save_cursor));
+    try testing.expectEqual(@as(size.CellCountInt, 3), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 2), t.screens.active.cursor.y);
+}
+
+test "Terminal: mode 1048 moves the cursor on set and reset" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    t.setCursorPos(3, 4);
+    t.saveCursorMode(true);
+    t.setCursorPos(1, 1);
+    t.saveCursorMode(false);
+
     try testing.expectEqual(@as(size.CellCountInt, 3), t.screens.active.cursor.x);
     try testing.expectEqual(@as(size.CellCountInt, 2), t.screens.active.cursor.y);
 }
