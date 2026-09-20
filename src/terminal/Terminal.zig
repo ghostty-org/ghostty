@@ -4720,6 +4720,53 @@ test "Terminal: setTitle accepts its current value" {
     try testing.expectEqualStrings("Ghostty", t.getTitle().?);
 }
 
+// REVIEW: Replicated from `do_dec_rqm` in xterm's misc.c:5466. xterm
+// REVIEW: answers several of these from real terminal state rather than
+// REVIEW: from a stored mode value:
+// REVIEW:
+// REVIEW:   - 47, 1047 and 1049 all report `screen->whichBuf`
+// REVIEW:     (misc.c:5610-5618), so they always agree with each other and
+// REVIEW:     with the screen on display. Reporting stored bits instead is
+// REVIEW:     the bug in ghostty-org/ghostty#14199: enter with `?47h`,
+// REVIEW:     leave with `?1049l`, and 47 still reports set.
+// REVIEW:   - 1048 reports `screen->sc[screen->whichBuf].saved` (misc.c:5716),
+// REVIEW:     that is whether a cursor is actually saved on the active screen,
+// REVIEW:     which a plain DECSC also sets. xterm seeds that flag for both
+// REVIEW:     screens at startup (`VTRealize` charproc.c:13066) and never
+// REVIEW:     clears it, so in xterm 1048 always reports set. We do not.
+//
+/// DECRQM: report a mode's state.
+///
+/// Some modes are answered from the terminal's state rather than
+/// a stored value, so a report can never contradict what the terminal
+/// is doing. Other modes are reported from the mode value itself.
+pub fn modeReport(self: *const Terminal, mode: modespkg.Mode) modespkg.Report {
+    const report = self.modes.getReport(.fromMode(mode));
+
+    switch (report.state) {
+        // Only these have a state we can replace.
+        .set, .reset => {},
+
+        // All other states are returned as-is.
+        else => return report,
+    }
+
+    const set = switch (mode) {
+        else => return report,
+
+        // All three report the active screen.
+        .alt_screen_legacy,
+        .alt_screen,
+        .alt_screen_save_cursor_clear_enter,
+        => self.screens.active_key == .alternate,
+
+        // Whether a cursor is saved, including by DECSC.
+        .save_cursor => self.screens.active.saved_cursor != null,
+    };
+
+    return .{ .tag = report.tag, .state = if (set) .set else .reset };
+}
+
 /// Switch to the given screen type (alternate or primary).
 ///
 /// This does NOT handle behaviors such as clearing the screen,
@@ -16315,6 +16362,45 @@ test "Terminal: mode 1049 alt screen plain" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("", str);
     }
+}
+
+test "Terminal: modeReport answers the alt screen modes from the active screen" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    const alt_screen_modes = [_]modespkg.Mode{
+        .alt_screen_legacy,
+        .alt_screen,
+        .alt_screen_save_cursor_clear_enter,
+    };
+
+    // Enter with one mode and leave with another. All three have
+    // to follow the active screen. See ghostty-org/ghostty#14199.
+    try t.switchScreenMode(.@"47", true);
+    for (alt_screen_modes) |mode| {
+        try testing.expectEqual(.set, t.modeReport(mode).state);
+    }
+
+    try t.switchScreenMode(.@"1049", false);
+    for (alt_screen_modes) |mode| {
+        try testing.expectEqual(.reset, t.modeReport(mode).state);
+    }
+}
+
+test "Terminal: modeReport answers mode 1048 from the saved cursor" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    try testing.expectEqual(.reset, t.modeReport(.save_cursor).state);
+
+    t.saveCursor(); // Model a plain DECSC saving the cursor.
+    try testing.expectEqual(.set, t.modeReport(.save_cursor).state);
+
+    // The alternate screen has its own saved cursor.
+    _ = try t.switchScreen(.alternate);
+    try testing.expectEqual(.reset, t.modeReport(.save_cursor).state);
 }
 
 // Reproduces a crash found by AFL++ fuzzer (afl-out/stream/default/crashes/
