@@ -669,6 +669,14 @@ pub const StreamHandler = struct {
             return;
         }
 
+        switch (mode) {
+            .alt_screen_legacy => return self.terminal.switchScreenMode(.@"47", enabled),
+            .alt_screen => return self.terminal.switchScreenMode(.@"1047", enabled),
+            .alt_screen_save_cursor_clear_enter => return self.terminal.switchScreenMode(.@"1049", enabled),
+
+            else => {},
+        }
+
         // We first always set the raw mode on our mode state.
         self.terminal.modes.set(mode, enabled);
 
@@ -695,17 +703,11 @@ pub const StreamHandler = struct {
                 self.terminal.scrolling_region.right = self.terminal.cols - 1;
             },
 
-            .alt_screen_legacy => {
-                try self.terminal.switchScreenMode(.@"47", enabled);
-            },
-
-            .alt_screen => {
-                try self.terminal.switchScreenMode(.@"1047", enabled);
-            },
-
-            .alt_screen_save_cursor_clear_enter => {
-                try self.terminal.switchScreenMode(.@"1049", enabled);
-            },
+            // Handled above
+            .alt_screen_legacy,
+            .alt_screen,
+            .alt_screen_save_cursor_clear_enter,
+            => unreachable,
 
             // Mode 1048 is xterm's conditional save cursor depending
             // on if alt screen is enabled or not (at the terminal emulator

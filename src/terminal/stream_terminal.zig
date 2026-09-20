@@ -1869,15 +1869,23 @@ pub const Handler = struct {
     }
 
     fn setMode(self: *Handler, mode: modes.Mode, enabled: bool) !void {
-        // Synchronized output is reported as a render hold. We only report
-        // real changes. Reporting a set during a hold would be harmful
-        // because the screen is half-drawn at that point and the callback
-        // is expected to capture it.
-        if (mode == .synchronized_output) {
-            if (self.terminal.modes.get(mode) == enabled) return;
-            self.terminal.modes.set(mode, enabled);
-            self.renderHold(enabled);
-            return;
+        switch (mode) {
+            .alt_screen_legacy => return self.terminal.switchScreenMode(.@"47", enabled),
+            .alt_screen => return self.terminal.switchScreenMode(.@"1047", enabled),
+            .alt_screen_save_cursor_clear_enter => return self.terminal.switchScreenMode(.@"1049", enabled),
+
+            // Synchronized output is reported as a render hold. We only report
+            // real changes. Reporting a set during a hold would be harmful
+            // because the screen is half-drawn at that point and the callback
+            // is expected to capture it.
+            .synchronized_output => {
+                if (self.terminal.modes.get(mode) == enabled) return;
+                self.terminal.modes.set(mode, enabled);
+                self.renderHold(enabled);
+                return;
+            },
+
+            else => {},
         }
 
         // Set the mode on the terminal
@@ -1896,9 +1904,11 @@ pub const Handler = struct {
                 self.terminal.scrolling_region.right = self.terminal.cols - 1;
             },
 
-            .alt_screen_legacy => try self.terminal.switchScreenMode(.@"47", enabled),
-            .alt_screen => try self.terminal.switchScreenMode(.@"1047", enabled),
-            .alt_screen_save_cursor_clear_enter => try self.terminal.switchScreenMode(.@"1049", enabled),
+            // Handled above
+            .alt_screen_legacy,
+            .alt_screen,
+            .alt_screen_save_cursor_clear_enter,
+            => unreachable,
 
             .save_cursor => if (enabled) {
                 self.terminal.saveCursor();
