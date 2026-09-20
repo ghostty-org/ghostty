@@ -278,12 +278,9 @@ pub const StreamHandler = struct {
             .soft_reset => self.terminal.softReset(),
             .set_mode => try self.setMode(value.mode, true),
             .reset_mode => try self.setMode(value.mode, false),
-            .save_mode => self.terminal.modes.save(value.mode),
-            .restore_mode => {
-                // For restore mode we have to restore but if we set it, we
-                // always have to call setMode because setting some modes have
-                // side effects and we want to make sure we process those.
-                const v = self.terminal.modes.restore(value.mode);
+            .save_mode => self.terminal.saveMode(value.mode),
+            .restore_mode => if (try self.terminal.restoreMode(value.mode)) |v| {
+                // A value means the set side effects still have to run.
                 try self.setMode(value.mode, v);
             },
             .request_mode => try self.requestMode(value.mode),
