@@ -277,12 +277,9 @@ pub const StreamHandler = struct {
             .full_reset => try self.fullReset(),
             .set_mode => try self.setMode(value.mode, true),
             .reset_mode => try self.setMode(value.mode, false),
-            .save_mode => self.terminal.modes.save(value.mode),
-            .restore_mode => {
-                // For restore mode we have to restore but if we set it, we
-                // always have to call setMode because setting some modes have
-                // side effects and we want to make sure we process those.
-                const v = self.terminal.modes.restore(value.mode);
+            .save_mode => self.terminal.saveMode(value.mode),
+            .restore_mode => if (try self.terminal.restoreMode(value.mode)) |v| {
+                // A value means the set side effects still have to run.
                 try self.setMode(value.mode, v);
             },
             .request_mode => try self.requestMode(value.mode),
@@ -579,7 +576,7 @@ pub const StreamHandler = struct {
     }
 
     fn requestMode(self: *StreamHandler, mode: terminal.Mode) !void {
-        self.sendModeReport(self.terminal.modes.getReport(.fromMode(mode)));
+        self.sendModeReport(self.terminal.modeReport(mode));
     }
 
     fn requestModeUnknown(self: *StreamHandler, mode_raw: u16, ansi: bool) !void {
@@ -639,6 +636,19 @@ pub const StreamHandler = struct {
             return;
         }
 
+        switch (mode) {
+            // REVIEW: xterm keeps no live bit for these. `do_dec_rqm`
+            // REVIEW: answers 47, 1047 and 1049 from `screen->whichBuf`
+            // REVIEW: and 1048 from `screen->sc[whichBuf].saved`
+            // REVIEW: (misc.c:5610-5618, 5716).
+            .alt_screen_legacy => return self.terminal.switchScreenMode(.@"47", enabled),
+            .alt_screen => return self.terminal.switchScreenMode(.@"1047", enabled),
+            .alt_screen_save_cursor_clear_enter => return self.terminal.switchScreenMode(.@"1049", enabled),
+            .save_cursor => return self.terminal.saveCursorMode(enabled),
+
+            else => {},
+        }
+
         // We first always set the raw mode on our mode state.
         self.terminal.modes.set(mode, enabled);
 
@@ -665,29 +675,12 @@ pub const StreamHandler = struct {
                 self.terminal.scrolling_region.right = self.terminal.cols - 1;
             },
 
-            .alt_screen_legacy => {
-                try self.terminal.switchScreenMode(.@"47", enabled);
-            },
-
-            .alt_screen => {
-                try self.terminal.switchScreenMode(.@"1047", enabled);
-            },
-
-            .alt_screen_save_cursor_clear_enter => {
-                try self.terminal.switchScreenMode(.@"1049", enabled);
-            },
-
-            // Mode 1048 is xterm's conditional save cursor depending
-            // on if alt screen is enabled or not (at the terminal emulator
-            // level). Alt screen is always enabled for us so this just
-            // does a save/restore cursor.
-            .save_cursor => {
-                if (enabled) {
-                    self.terminal.saveCursor();
-                } else {
-                    self.terminal.restoreCursor();
-                }
-            },
+            // Handled above
+            .alt_screen_legacy,
+            .alt_screen,
+            .alt_screen_save_cursor_clear_enter,
+            .save_cursor,
+            => unreachable,
 
             // Force resize back to the window size
             .enable_mode_3 => {

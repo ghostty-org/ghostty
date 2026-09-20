@@ -410,9 +410,9 @@ pub const Handler = struct {
             .tab_reset => self.terminal.tabReset(),
             .set_mode => try self.setMode(value.mode, true),
             .reset_mode => try self.setMode(value.mode, false),
-            .save_mode => self.terminal.modes.save(value.mode),
-            .restore_mode => {
-                const v = self.terminal.modes.restore(value.mode);
+            .save_mode => self.terminal.saveMode(value.mode),
+            .restore_mode => if (try self.terminal.restoreMode(value.mode)) |v| {
+                // A value means the set side effects still have to run.
                 try self.setMode(value.mode, v);
             },
             .top_and_bottom_margin => self.terminal.setTopAndBottomMargin(value.top_left, value.bottom_right),
@@ -1502,7 +1502,7 @@ pub const Handler = struct {
     }
 
     fn requestMode(self: *Handler, mode: modes.Mode) void {
-        var report = self.terminal.modes.getReport(.fromMode(mode));
+        var report = self.terminal.modeReport(mode);
 
         // Kitty paste events (mode 5522) can't work without a clipboard
         // read effect, so if that isn't set mark it as unrecognized.
@@ -1561,6 +1561,19 @@ pub const Handler = struct {
     }
 
     fn setMode(self: *Handler, mode: modes.Mode, enabled: bool) !void {
+        switch (mode) {
+            // REVIEW: xterm keeps no live bit for these. `do_dec_rqm`
+            // REVIEW: answers 47, 1047 and 1049 from `screen->whichBuf`
+            // REVIEW: and 1048 from `screen->sc[whichBuf].saved`
+            // REVIEW: (misc.c:5610-5618, 5716).
+            .alt_screen_legacy => return self.terminal.switchScreenMode(.@"47", enabled),
+            .alt_screen => return self.terminal.switchScreenMode(.@"1047", enabled),
+            .alt_screen_save_cursor_clear_enter => return self.terminal.switchScreenMode(.@"1049", enabled),
+            .save_cursor => return self.terminal.saveCursorMode(enabled),
+
+            else => {},
+        }
+
         // Set the mode on the terminal
         self.terminal.modes.set(mode, enabled);
 
@@ -1577,15 +1590,12 @@ pub const Handler = struct {
                 self.terminal.scrolling_region.right = self.terminal.cols - 1;
             },
 
-            .alt_screen_legacy => try self.terminal.switchScreenMode(.@"47", enabled),
-            .alt_screen => try self.terminal.switchScreenMode(.@"1047", enabled),
-            .alt_screen_save_cursor_clear_enter => try self.terminal.switchScreenMode(.@"1049", enabled),
-
-            .save_cursor => if (enabled) {
-                self.terminal.saveCursor();
-            } else {
-                self.terminal.restoreCursor();
-            },
+            // Handled above
+            .alt_screen_legacy,
+            .alt_screen,
+            .alt_screen_save_cursor_clear_enter,
+            .save_cursor,
+            => unreachable,
 
             .enable_mode_3 => {},
 
@@ -4679,6 +4689,91 @@ test "request mode DECRQM ANSI responses" {
         try testing.expectEqual(1, S.calls);
         try testing.expectEqualStrings(case[1], S.response[0..S.len]);
     }
+}
+
+test "DECRQM reports the alternate screen modes from the active screen" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var last_response: ?[:0]const u8 = null;
+        fn writePty(_: *Handler, data: []const u8) void {
+            if (last_response) |old| testing.allocator.free(old);
+            last_response = testing.allocator.dupeZ(u8, data) catch @panic("OOM");
+        }
+    };
+    S.last_response = null;
+    defer if (S.last_response) |old| testing.allocator.free(old);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // Entering through one mode is visible through all three: they describe
+    // one thing between them, which is the screen that is really active.
+    s.nextSlice("\x1B[?47h");
+    s.nextSlice("\x1B[?1047$p");
+    try testing.expectEqualStrings("\x1B[?1047;1$y", S.last_response.?);
+
+    // Leave through a third. Reporting a stored bit would answer "set" here
+    // while the primary screen is showing.
+    s.nextSlice("\x1B[?1049l");
+    s.nextSlice("\x1B[?47$p");
+    try testing.expectEqualStrings("\x1B[?47;2$y", S.last_response.?);
+}
+
+test "DECRQM reports mode 1048 from the saved cursor" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var last_response: ?[:0]const u8 = null;
+        fn writePty(_: *Handler, data: []const u8) void {
+            if (last_response) |old| testing.allocator.free(old);
+            last_response = testing.allocator.dupeZ(u8, data) catch @panic("OOM");
+        }
+    };
+    S.last_response = null;
+    defer if (S.last_response) |old| testing.allocator.free(old);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    s.nextSlice("\x1B[?1048$p");
+    try testing.expectEqualStrings("\x1B[?1048;2$y", S.last_response.?);
+
+    // A plain DECSC saves a cursor, which is the whole of this mode.
+    s.nextSlice("\x1B7");
+    s.nextSlice("\x1B[?1048$p");
+    try testing.expectEqualStrings("\x1B[?1048;1$y", S.last_response.?);
+}
+
+test "XTRESTORE of an alternate screen mode only moves the buffer" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+    defer s.deinit();
+
+    s.nextSlice("\x1B[?1049h");
+    s.nextSlice("alt");
+    s.nextSlice("\x1B[?1049s");
+    s.nextSlice("\x1B[?1049l");
+    try testing.expectEqual(.primary, t.screens.active_key);
+
+    // DECSET erases the screen on entry. XTRESTORE must not: what was on
+    // the alternate screen is still there when it comes back.
+    s.nextSlice("\x1B[?1049r");
+    try testing.expectEqual(.alternate, t.screens.active_key);
+
+    const str = try t.plainString(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("alt", str);
 }
 
 test "stream: CSI W with intermediate but no params" {
