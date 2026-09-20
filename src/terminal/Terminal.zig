@@ -5053,6 +5053,14 @@ pub const SwitchScreenMode = enum {
     @"1049",
 };
 
+/// Save the cursor on DECSET, restore it on DECRST.
+pub fn saveCursorMode(self: *Terminal, enabled: bool) void {
+    // Mode 1048 is xterm's conditional save cursor depending on whether
+    // the alternate screen is allowed (via mode 1046 and `titeInhibit`).
+    // For us, the alternate screen is always allowed.
+    if (enabled) self.saveCursor() else self.restoreCursor();
+}
+
 /// Return the current string value of the terminal. Newlines are
 /// encoded as "\n". This omits any formatting such as fg/bg.
 ///

@@ -1873,6 +1873,10 @@ pub const Handler = struct {
             .alt_screen_legacy => return self.terminal.switchScreenMode(.@"47", enabled),
             .alt_screen => return self.terminal.switchScreenMode(.@"1047", enabled),
             .alt_screen_save_cursor_clear_enter => return self.terminal.switchScreenMode(.@"1049", enabled),
+            .save_cursor => {
+                self.terminal.saveCursorMode(enabled);
+                return;
+            },
 
             // Synchronized output is reported as a render hold. We only report
             // real changes. Reporting a set during a hold would be harmful
@@ -1908,13 +1912,8 @@ pub const Handler = struct {
             .alt_screen_legacy,
             .alt_screen,
             .alt_screen_save_cursor_clear_enter,
+            .save_cursor,
             => unreachable,
-
-            .save_cursor => if (enabled) {
-                self.terminal.saveCursor();
-            } else {
-                self.terminal.restoreCursor();
-            },
 
             .enable_mode_3 => {},
 
@@ -2861,6 +2860,19 @@ test "cursor save and restore" {
 
     // Restore cursor
     s.nextSlice("\x1B8");
+    try testing.expectEqual(@as(usize, 14), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 9), t.screens.active.cursor.y);
+}
+
+test "mode 1048 cursor save and restore" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+    defer s.deinit();
+
+    s.nextSlice("\x1B[10;15H\x1B[?1048h\x1B[1;1H\x1B[?1048l");
+
     try testing.expectEqual(@as(usize, 14), t.screens.active.cursor.x);
     try testing.expectEqual(@as(usize, 9), t.screens.active.cursor.y);
 }

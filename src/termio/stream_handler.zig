@@ -673,6 +673,10 @@ pub const StreamHandler = struct {
             .alt_screen_legacy => return self.terminal.switchScreenMode(.@"47", enabled),
             .alt_screen => return self.terminal.switchScreenMode(.@"1047", enabled),
             .alt_screen_save_cursor_clear_enter => return self.terminal.switchScreenMode(.@"1049", enabled),
+            .save_cursor => {
+                self.terminal.saveCursorMode(enabled);
+                return;
+            },
 
             else => {},
         }
@@ -707,19 +711,8 @@ pub const StreamHandler = struct {
             .alt_screen_legacy,
             .alt_screen,
             .alt_screen_save_cursor_clear_enter,
+            .save_cursor,
             => unreachable,
-
-            // Mode 1048 is xterm's conditional save cursor depending
-            // on if alt screen is enabled or not (at the terminal emulator
-            // level). Alt screen is always enabled for us so this just
-            // does a save/restore cursor.
-            .save_cursor => {
-                if (enabled) {
-                    self.terminal.saveCursor();
-                } else {
-                    self.terminal.restoreCursor();
-                }
-            },
 
             // Force resize back to the window size
             .enable_mode_3 => {
