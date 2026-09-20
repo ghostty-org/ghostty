@@ -4899,6 +4899,20 @@ pub fn restoreMode(self: *Terminal, mode: modespkg.Mode) !?bool {
     return null;
 }
 
+// REVIEW: Replicated from `srm_SAVE_CURSOR` in xterm's
+// REVIEW: `dpmodes` (charproc.c:7915-7921).
+// REVIEW:
+// REVIEW: DECSC and DECRC are a separate path
+// REVIEW: (`CASE_DECSC` charproc.c:4906, `CASE_DECRC` charproc.c:4916).
+//
+/// Mode 1048: save the cursor on DECSET, restore it on DECRST.
+///
+/// The saved cursor is the whole of this mode's state, so DECSC
+/// reaches it by another route and leaves DECRQM reporting set.
+pub fn saveCursorMode(self: *Terminal, enabled: bool) void {
+    if (enabled) self.saveCursor() else self.restoreCursor();
+}
+
 /// Switch to the given screen type (alternate or primary).
 ///
 /// This does NOT handle behaviors such as clearing the screen,
