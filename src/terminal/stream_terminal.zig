@@ -629,18 +629,9 @@ pub const Handler = struct {
             .tab_reset => self.terminal.tabReset(),
             .set_mode => try self.setMode(value.mode, true),
             .reset_mode => try self.setMode(value.mode, false),
-            .save_mode => self.terminal.modes.save(value.mode),
-            .restore_mode => {
-                const prev = self.terminal.modes.get(value.mode);
-                const v = self.terminal.modes.restore(value.mode);
-
-                // Restore writes the value directly. Put the old value
-                // back for synchronized output so that setMode can see
-                // the change and report the render hold.
-                if (value.mode == .synchronized_output) {
-                    self.terminal.modes.set(value.mode, prev);
-                }
-
+            .save_mode => self.terminal.saveMode(value.mode),
+            .restore_mode => if (try self.terminal.restoreMode(value.mode)) |v| {
+                // A value means the set side effects still have to run.
                 try self.setMode(value.mode, v);
             },
             .top_and_bottom_margin => self.terminal.setTopAndBottomMargin(value.top_left, value.bottom_right),
@@ -5410,6 +5401,45 @@ test "DECRQM reports mode 1048 from the saved cursor" {
     s.nextSlice("\x1B[?47h");
     s.nextSlice("\x1B[?1048$p");
     try testing.expectEqualStrings("\x1B[?1048;2$y", S.last_response.?);
+}
+
+// See ghostty-org/ghostty#14199.
+test "XTRESTORE of an alternate screen mode only moves the buffer" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+    defer s.deinit();
+
+    s.nextSlice("\x1B[?1049h");
+    s.nextSlice("alt");
+
+    // Save while the alternate screen is up, then leave it.
+    s.nextSlice("\x1B[?1049s");
+    s.nextSlice("\x1B[?1049l");
+    try testing.expectEqual(.primary, t.screens.active_key);
+
+    // Setting 1049 erases the screen on entry. Restoring it must not:
+    // the content that was on the alternate screen is still there.
+    s.nextSlice("\x1B[?1049r");
+    try testing.expectEqual(.alternate, t.screens.active_key);
+
+    const str = try t.plainString(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("alt", str);
+}
+
+test "XTSAVE and XTRESTORE of mode 1048 move the cursor" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+    defer s.deinit();
+
+    s.nextSlice("\x1B[3;4H\x1B[?1048s\x1B[1;1H\x1B[?1048r");
+
+    try testing.expectEqual(3, t.screens.active.cursor.x);
+    try testing.expectEqual(2, t.screens.active.cursor.y);
 }
 
 test "stream: CSI W with intermediate but no params" {
