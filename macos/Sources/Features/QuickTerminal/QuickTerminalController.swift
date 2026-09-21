@@ -624,9 +624,7 @@ class QuickTerminalController: BaseTerminalController {
             // Terminal.app more easily.
             window.backgroundColor = .white.withAlphaComponent(0.001)
 
-            if !derivedConfig.backgroundBlur.isGlassStyle {
-                ghostty_set_window_background_blur(ghostty.app, Unmanaged.passUnretained(window).toOpaque())
-            }
+            ghostty_set_window_background_blur(ghostty.app, Unmanaged.passUnretained(window).toOpaque())
         } else {
             window.isOpaque = true
             window.backgroundColor = .windowBackgroundColor

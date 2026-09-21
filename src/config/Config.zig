@@ -3461,6 +3461,35 @@ keybind: Keybinds = .{},
 /// find false more visually appealing.
 @"macos-window-shadow": bool = true,
 
+/// Enable the macOS "liquid glass" background effect.
+///
+/// This is equivalent to setting `background-blur = macos-glass-clear`
+/// and `background-opacity = 0`. The opacity defaults to zero because
+/// the glass is drawn behind the terminal surface, so an opaque
+/// background would hide it.
+///
+/// Both are only defaults. Set `background-opacity` yourself to tint the
+/// glass with your `background` color, or `background-blur =
+/// macos-glass-regular` for a frostier glass.
+///
+/// Only applies on macOS 26.0 and later.
+///
+/// Available since: 1.4.0
+@"macos-liquid-glass": bool = false,
+
+/// The blur radius applied behind the window when `macos-liquid-glass`
+/// is enabled. The default of `0` disables it.
+///
+/// Glass only refracts along the border of its shape, leaving the middle
+/// of the window see-through. This blurs the backdrop so the middle
+/// frosts while the edges keep the glass highlight.
+///
+/// Values behave like `background-blur`. This is ignored unless
+/// `background-blur` is a glass style.
+///
+/// Available since: 1.4.0
+@"macos-liquid-glass-blur": u8 = 0,
+
 /// If true, the macOS icon in the dock and app switcher will be hidden. This is
 /// mainly intended for those primarily using the quick-terminal mode.
 ///
@@ -4875,6 +4904,30 @@ pub fn finalize(self: *Config) !void {
     }
 
     self.@"faint-opacity" = std.math.clamp(self.@"faint-opacity", 0.0, 1.0);
+
+    // Resolve `macos-liquid-glass` here so that every consumer just reads
+    // the normal `background-blur`/`background-opacity` fields. Both are
+    // only defaulted, never clobbered, so an explicitly chosen glass style
+    // or tint still applies. Requires macOS 26; below that the app maps a
+    // glass style back to "disabled", which would leave a transparent
+    // window with nothing drawn behind it.
+    if (comptime builtin.os.tag == .macos) {
+        if (self.@"macos-liquid-glass") {
+            if (internal_os.macos.isAtLeastVersion(26, 0, 0)) {
+                if (!self.@"background-blur".isGlassStyle()) {
+                    self.@"background-blur" = .@"macos-glass-clear";
+                }
+                if (self.@"background-opacity" == 1.0) {
+                    self.@"background-opacity" = 0.0;
+                }
+            } else {
+                log.warn(
+                    "macos-liquid-glass requires macOS 26 or later, ignoring",
+                    .{},
+                );
+            }
+        }
+    }
 
     // Finalize key remapping set for efficient lookups
     self.@"key-remap".finalize();
@@ -9923,6 +9976,14 @@ pub const BackgroundBlur = union(enum) {
         };
     }
 
+    /// Returns true if this is a macOS glass style (regular or clear).
+    pub fn isGlassStyle(self: BackgroundBlur) bool {
+        return switch (self) {
+            .@"macos-glass-regular", .@"macos-glass-clear" => true,
+            .false, .true, .radius => false,
+        };
+    }
+
     pub fn cval(self: BackgroundBlur) i16 {
         return switch (self) {
             .false => 0,
@@ -11296,4 +11357,59 @@ test "compatibility: window new-window" {
             cfg.@"macos-dock-drop-behavior",
         );
     }
+}
+
+test "macos-liquid-glass defaults blur style and opacity" {
+    if (comptime builtin.os.tag != .macos) return error.SkipZigTest;
+    if (!internal_os.macos.isAtLeastVersion(26, 0, 0)) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    var it: TestIterator = .{ .data = &.{"--macos-liquid-glass"} };
+    try cfg.loadIter(alloc, &it);
+    try cfg.finalize();
+
+    try testing.expectEqual(BackgroundBlur.@"macos-glass-clear", cfg.@"background-blur");
+    try testing.expectEqual(@as(f64, 0.0), cfg.@"background-opacity");
+    try testing.expectEqual(@as(u8, 0), cfg.@"macos-liquid-glass-blur");
+}
+
+test "macos-liquid-glass keeps explicitly set values" {
+    if (comptime builtin.os.tag != .macos) return error.SkipZigTest;
+    if (!internal_os.macos.isAtLeastVersion(26, 0, 0)) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    var it: TestIterator = .{ .data = &.{
+        "--macos-liquid-glass",
+        "--background-blur=macos-glass-regular",
+        "--background-opacity=0.35",
+        "--macos-liquid-glass-blur=30",
+    } };
+    try cfg.loadIter(alloc, &it);
+    try cfg.finalize();
+
+    try testing.expectEqual(BackgroundBlur.@"macos-glass-regular", cfg.@"background-blur");
+    try testing.expectEqual(@as(f64, 0.35), cfg.@"background-opacity");
+    try testing.expectEqual(@as(u8, 30), cfg.@"macos-liquid-glass-blur");
+}
+
+test "macos-liquid-glass off leaves blur and opacity alone" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.@"background-blur" = .{ .radius = 40 };
+    cfg.@"background-opacity" = 0.93;
+    try cfg.finalize();
+
+    try testing.expectEqual(BackgroundBlur{ .radius = 40 }, cfg.@"background-blur");
+    try testing.expectEqual(@as(f64, 0.93), cfg.@"background-opacity");
 }

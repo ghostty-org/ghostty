@@ -2391,11 +2391,22 @@ pub const CAPI = struct {
         // Do nothing if we don't have background transparency enabled
         if (config.@"background-opacity" >= 1.0) return;
 
+        // A glass style has no radius of its own (`cval` returns a negative
+        // sentinel), so it uses a dedicated option.
+        const radius: c_int = if (config.@"background-blur".isGlassStyle())
+            config.@"macos-liquid-glass-blur"
+        else
+            config.@"background-blur".cval();
+
+        // Zero is still worth setting, since that's how a previously
+        // applied blur gets cleared on a config reload.
+        if (radius < 0) return;
+
         const nswindow = objc.Object.fromId(window);
         _ = CGSSetWindowBackgroundBlurRadius(
             CGSDefaultConnectionForThread(),
             nswindow.msgSend(usize, objc.sel("windowNumber"), .{}),
-            @intCast(config.@"background-blur".cval()),
+            radius,
         );
     }
 
