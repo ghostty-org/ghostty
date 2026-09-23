@@ -61,6 +61,7 @@
  * @{
  */
 
+#include <ghostty/vt/mouse/shape.h>
 #include <ghostty/vt/mouse/event.h>
 #include <ghostty/vt/mouse/encoder.h>
 
