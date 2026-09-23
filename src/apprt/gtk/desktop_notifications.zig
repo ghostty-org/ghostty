@@ -1,12 +1,11 @@
 //! Sends and clears desktop notifications associated with a single GTK surface.
-//! Access this object only on the GTK main thread and keep its address stable
-//! until deinit has cancelled its timers.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const gio = @import("gio");
 const glib = @import("glib");
+const Application = @import("class/application.zig").Application;
 
 const DesktopNotifications = @This();
 const log = std.log.scoped(.gtk_desktop_notifications);
@@ -32,90 +31,49 @@ const Key = struct {
         alloc.free(self.title);
         alloc.free(self.body);
     }
-
-    fn hash(self: Key) u64 {
-        var hasher = std.hash.Wyhash.init(0);
-        hasher.update(self.title);
-        hasher.update("\x00");
-        hasher.update(self.body);
-        return hasher.final();
-    }
-
-    fn eql(self: Key, other: Key) bool {
-        return std.mem.eql(u8, self.title, other.title) and
-            std.mem.eql(u8, self.body, other.body);
-    }
 };
 
 const Notification = struct {
+    key: Key,
     timeout_source: ?c_uint = null,
 };
 
 const TrackResult = struct {
     // Borrows the stored key until the entry is removed or the manager cleared.
     key: Key,
-    evicted: ?Notifications.KV = null,
+    evicted: ?Notification = null,
 };
 
-/// GLib callback data. The manager and application must outlive the source.
-/// The key borrows stored strings; external cleanup must cancel the source
-/// before freeing them.
+/// The key borrows stored strings, so cancel the source before freeing them.
 const Timeout = struct {
     alloc: Allocator,
     notifications: *DesktopNotifications,
-    app: *gio.Application,
     key: Key,
 };
 
-/// Hash and compare string contents rather than the addresses of their slices.
-const Context = struct {
-    pub fn hash(_: Context, key: Key) u32 {
-        return @truncate(key.hash());
-    }
-
-    pub fn eql(_: Context, a: Key, b: Key, _: usize) bool {
-        return a.eql(b);
-    }
-};
-
-const Notifications = std.ArrayHashMapUnmanaged(
-    Key,
-    Notification,
-    Context,
-    true,
-);
-
 /// Entries are ordered from oldest to newest; replacement refreshes their age.
-notifications: Notifications = .empty,
-/// Bound on the first send and retained for later withdrawal, even after clear.
+notifications: std.Deque(Notification) = .empty,
+/// Set when the core surface initializes and retained through cleanup.
 surface_id: u64 = 0,
 /// Bound retained entries because GIO does not report desktop-side dismissals.
-limit: usize,
+limit: usize = default_limit,
 
-/// Create an empty manager. Call this explicitly when initializing a GObject:
-/// zeroed private memory does not apply Zig field defaults.
-pub fn init() DesktopNotifications {
-    return .{ .limit = default_limit };
+pub fn init(surface_id: u64) DesktopNotifications {
+    assert(surface_id != 0);
+    return .{ .surface_id = surface_id };
 }
 
 /// Send or replace a notification for this surface. Content is copied, so the
-/// caller may release title and body on return. Use the same application and
-/// allocator for all sends and cleanup calls on this manager.
+/// caller may release title and body on return.
 pub fn send(
     self: *DesktopNotifications,
     alloc: Allocator,
-    app: *gio.Application,
-    surface_id: u64,
     focused: bool,
     title: [:0]const u8,
     body: [:0]const u8,
 ) void {
-    assert(surface_id != 0);
-    if (self.surface_id == 0) {
-        self.surface_id = surface_id;
-    } else {
-        assert(self.surface_id == surface_id);
-    }
+    assert(self.surface_id != 0);
+    const app = Application.default().as(gio.Application);
 
     const display_title = if (title.len == 0) "Ghostty" else title;
     const notification = gio.Notification.new(display_title);
@@ -127,20 +85,20 @@ pub fn send(
     notification.setIcon(icon.as(gio.Icon));
     notification.setDefaultActionAndTargetValue(
         "app.present-surface",
-        glib.Variant.newUint64(surface_id),
+        glib.Variant.newUint64(self.surface_id),
     );
 
-    const tracked = self.track(alloc, title, body) catch |err| {
+    const tracked = self.track(alloc, .{ .title = title, .body = body }) catch |err| {
         log.warn("unable to track desktop notification err={}", .{err});
         return;
     };
-    if (tracked.evicted) |evicted| self.clearRemoved(alloc, app, evicted);
+    if (tracked.evicted) |evicted| self.clearRemoved(alloc, evicted);
 
     var id_buf: [64]u8 = undefined;
-    const id = formatId(&id_buf, surface_id, tracked.key);
+    const id = formatId(&id_buf, self.surface_id, tracked.key);
     app.sendNotification(id, notification);
 
-    if (focused) self.scheduleTimeout(alloc, app, tracked.key);
+    if (focused) self.scheduleTimeout(alloc, tracked.key);
 }
 
 /// Withdraw delivered notifications and cancel their timers. GIO's freedesktop
@@ -149,24 +107,23 @@ pub fn send(
 pub fn clear(
     self: *DesktopNotifications,
     alloc: Allocator,
-    app: *gio.Application,
 ) void {
-    while (self.pop()) |removed| self.clearRemoved(alloc, app, removed);
-    self.notifications.clearAndFree(alloc);
+    while (self.notifications.popFront()) |removed| self.clearRemoved(alloc, removed);
+    self.notifications.deinit(alloc);
+    self.notifications = .empty;
 }
 
 /// Store content and return any evicted entry for withdrawal by the caller.
 fn track(
     self: *DesktopNotifications,
     alloc: Allocator,
-    title: []const u8,
-    body: []const u8,
+    key: Key,
 ) Allocator.Error!TrackResult {
-    const key: Key = .{ .title = title, .body = body };
-    if (self.notifications.fetchOrderedRemove(key)) |removed| {
+    assert(self.limit > 0);
+    if (self.remove(key)) |removed| {
         // Keep the owned strings and move the entry to the newest position.
-        cancelTimeout(removed.value.timeout_source);
-        self.notifications.putAssumeCapacity(removed.key, .{});
+        cancelTimeout(removed.timeout_source);
+        self.notifications.pushBackAssumeCapacity(.{ .key = removed.key });
         return .{ .key = removed.key };
     }
 
@@ -174,54 +131,65 @@ fn track(
     const stored_key = try key.clone(alloc);
     errdefer stored_key.deinit(alloc);
 
-    var evicted: ?Notifications.KV = null;
-    if (self.notifications.count() >= self.limit) {
-        evicted = self.pop();
+    var evicted: ?Notification = null;
+    if (self.notifications.len >= self.limit) {
+        evicted = self.notifications.popFront();
     } else {
         try self.notifications.ensureUnusedCapacity(alloc, 1);
     }
 
-    self.notifications.putAssumeCapacity(stored_key, .{});
+    self.notifications.pushBackAssumeCapacity(.{ .key = stored_key });
     return .{ .key = stored_key, .evicted = evicted };
 }
 
-/// Remove the oldest entry, transferring its key and timer to the caller.
-fn pop(self: *DesktopNotifications) ?Notifications.KV {
-    if (self.notifications.count() == 0) return null;
-    return self.notifications.fetchOrderedRemove(self.notifications.keys()[0]);
+fn find(self: *const DesktopNotifications, key: Key) ?usize {
+    var it = self.notifications.iterator();
+    var i: usize = 0;
+    while (it.next()) |notification| : (i += 1) {
+        if (std.mem.eql(u8, notification.key.title, key.title) and
+            std.mem.eql(u8, notification.key.body, key.body)) return i;
+    }
+    return null;
+}
+
+/// Remove a matching entry without changing the age of the remaining entries.
+fn remove(self: *DesktopNotifications, key: Key) ?Notification {
+    var i = self.find(key) orelse return null;
+    const removed = self.notifications.at(i);
+    while (i + 1 < self.notifications.len) : (i += 1) {
+        self.notifications.atPtr(i).* = self.notifications.at(i + 1);
+    }
+    _ = self.notifications.popBack();
+    return removed;
 }
 
 /// Cancel the removed entry's timer and withdraw it before freeing its key.
 fn clearRemoved(
     self: *DesktopNotifications,
     alloc: Allocator,
-    app: *gio.Application,
-    removed: Notifications.KV,
+    removed: Notification,
 ) void {
-    cancelTimeout(removed.value.timeout_source);
-    self.withdraw(app, removed.key);
+    cancelTimeout(removed.timeout_source);
+    self.withdraw(removed.key);
     removed.key.deinit(alloc);
 }
 
 fn withdraw(
     self: *DesktopNotifications,
-    app: *gio.Application,
     key: Key,
 ) void {
     var id_buf: [64]u8 = undefined;
     const id = formatId(&id_buf, self.surface_id, key);
-    app.withdrawNotification(id);
+    Application.default().as(gio.Application).withdrawNotification(id);
 }
 
 fn scheduleTimeout(
     self: *DesktopNotifications,
     alloc: Allocator,
-    app: *gio.Application,
     key: Key,
 ) void {
-    const notification = self.notifications.getPtr(key) orelse return;
-    cancelTimeout(notification.timeout_source);
-    notification.timeout_source = null;
+    const notification = self.notifications.atPtr(self.find(key) orelse return);
+    assert(notification.timeout_source == null);
 
     const timeout = alloc.create(Timeout) catch |err| {
         log.warn("unable to allocate desktop notification timer err={}", .{err});
@@ -230,7 +198,6 @@ fn scheduleTimeout(
     timeout.* = .{
         .alloc = alloc,
         .notifications = self,
-        .app = app,
         .key = key,
     };
     notification.timeout_source = glib.timeoutAddFull(
@@ -245,12 +212,12 @@ fn scheduleTimeout(
 fn timeoutCallback(ud: ?*anyopaque) callconv(.c) c_int {
     const timeout: *Timeout = @ptrCast(@alignCast(ud orelse
         return @intFromBool(glib.SOURCE_REMOVE)));
-    const removed = timeout.notifications.notifications.fetchOrderedRemove(timeout.key) orelse
+    const removed = timeout.notifications.remove(timeout.key) orelse
         return @intFromBool(glib.SOURCE_REMOVE);
-    assert(removed.value.timeout_source != null);
+    assert(removed.timeout_source != null);
     // This source is already dispatching. Let SOURCE_REMOVE destroy its callback
     // data after return instead of cancelling it through clearRemoved.
-    timeout.notifications.withdraw(timeout.app, removed.key);
+    timeout.notifications.withdraw(removed.key);
     removed.key.deinit(timeout.alloc);
     return @intFromBool(glib.SOURCE_REMOVE);
 }
@@ -268,8 +235,8 @@ fn cancelTimeout(source_: ?c_uint) void {
 }
 
 /// Release notifications, timers, and storage. Safe after clear or deinit.
-pub fn deinit(self: *DesktopNotifications, alloc: Allocator, app: *gio.Application) void {
-    self.clear(alloc, app);
+pub fn deinit(self: *DesktopNotifications, alloc: Allocator) void {
+    self.clear(alloc);
 }
 
 /// GIO requires the same ID for sending and withdrawing. Including the surface
@@ -280,10 +247,12 @@ fn formatId(
     surface_id: u64,
     key: Key,
 ) [:0]u8 {
+    var hasher = std.hash.Wyhash.init(0);
+    std.hash.autoHashStrat(&hasher, key, .Deep);
     return std.fmt.bufPrintZ(
         buf,
         "ghostty-surface-{x}-{x}",
-        .{ surface_id, key.hash() },
+        .{ surface_id, hasher.final() },
     ) catch unreachable;
 }
 
@@ -311,6 +280,11 @@ test "desktop notification IDs are stable per surface and content" {
     try testing.expect(!std.mem.eql(u8, first_id, other_surface_id));
     try testing.expect(!std.mem.eql(u8, first_id, other_title_id));
     try testing.expect(!std.mem.eql(u8, first_id, other_body_id));
+
+    // The string boundary is part of the hash, not just the concatenated text.
+    const a = formatId(&first_buf, surface_id, .{ .title = "ab", .body = "c" });
+    const b = formatId(&repeated_buf, surface_id, .{ .title = "a", .body = "bc" });
+    try testing.expect(!std.mem.eql(u8, a, b));
 }
 
 test "desktop notifications replace and evict oldest" {
@@ -318,53 +292,117 @@ test "desktop notifications replace and evict oldest" {
 
     var notifications: DesktopNotifications = .{ .limit = 3 };
     defer {
-        while (notifications.pop()) |removed| removed.key.deinit(testing.allocator);
+        while (notifications.notifications.popFront()) |removed| removed.key.deinit(testing.allocator);
         notifications.notifications.deinit(testing.allocator);
     }
 
-    _ = try notifications.track(testing.allocator, "First", "Body");
-    _ = try notifications.track(testing.allocator, "Second", "Body");
-    _ = try notifications.track(testing.allocator, "Third", "Body");
+    _ = try notifications.track(testing.allocator, .{ .title = "First", .body = "Body" });
+    _ = try notifications.track(testing.allocator, .{ .title = "Second", .body = "Body" });
+    _ = try notifications.track(testing.allocator, .{ .title = "Third", .body = "Body" });
 
-    const repeated = try notifications.track(testing.allocator, "First", "Body");
-    try testing.expectEqual(@as(?c_uint, null), notifications.notifications.getPtr(repeated.key).?.timeout_source);
-    try testing.expectEqual(@as(?Notifications.KV, null), repeated.evicted);
+    const repeated = try notifications.track(testing.allocator, .{ .title = "First", .body = "Body" });
+    try testing.expect(repeated.evicted == null);
 
-    const fourth = try notifications.track(testing.allocator, "Fourth", "Body");
+    const fourth = try notifications.track(testing.allocator, .{ .title = "Fourth", .body = "Body" });
     const evicted = fourth.evicted.?;
     defer evicted.key.deinit(testing.allocator);
     try testing.expectEqualStrings("Second", evicted.key.title);
-    try testing.expectEqual(@as(usize, 3), notifications.notifications.count());
+    try testing.expectEqual(@as(usize, 3), notifications.notifications.len);
 }
 
 test "desktop notifications remove and drain independently" {
     const testing = std.testing;
 
-    var first: DesktopNotifications = .init();
+    var first: DesktopNotifications = .init(1);
     defer {
-        while (first.pop()) |removed| removed.key.deinit(testing.allocator);
+        while (first.notifications.popFront()) |removed| removed.key.deinit(testing.allocator);
         first.notifications.deinit(testing.allocator);
     }
-    var second: DesktopNotifications = .init();
+    var second: DesktopNotifications = .init(2);
     defer {
-        while (second.pop()) |removed| removed.key.deinit(testing.allocator);
+        while (second.notifications.popFront()) |removed| removed.key.deinit(testing.allocator);
         second.notifications.deinit(testing.allocator);
     }
 
-    const first_notification = try first.track(testing.allocator, "Title", "Body");
-    _ = try first.track(testing.allocator, "Other", "Body");
-    _ = try second.track(testing.allocator, "Title", "Body");
+    const first_notification = try first.track(testing.allocator, .{ .title = "Title", .body = "Body" });
+    _ = try first.track(testing.allocator, .{ .title = "Other", .body = "Body" });
+    _ = try second.track(testing.allocator, .{ .title = "Title", .body = "Body" });
 
-    const removed = first.notifications.fetchOrderedRemove(first_notification.key).?;
+    const removed = first.remove(first_notification.key).?;
     defer removed.key.deinit(testing.allocator);
     try testing.expectEqualStrings("Title", removed.key.title);
-    try testing.expectEqual(@as(usize, 1), first.notifications.count());
-    try testing.expectEqual(@as(usize, 1), second.notifications.count());
+    try testing.expectEqual(@as(usize, 1), first.notifications.len);
+    try testing.expectEqual(@as(usize, 1), second.notifications.len);
 
-    const drained = first.pop().?;
+    const drained = first.notifications.popFront().?;
     defer drained.key.deinit(testing.allocator);
     try testing.expectEqualStrings("Other", drained.key.title);
-    try testing.expectEqual(@as(usize, 0), first.notifications.count());
-    try testing.expect(first.pop() == null);
-    try testing.expectEqual(@as(usize, 1), second.notifications.count());
+    try testing.expectEqual(@as(usize, 0), first.notifications.len);
+    try testing.expect(first.notifications.popFront() == null);
+    try testing.expectEqual(@as(usize, 1), second.notifications.len);
+}
+
+test "desktop notifications remove from a wrapped deque" {
+    const testing = std.testing;
+    var notifications: DesktopNotifications = .{ .limit = 3 };
+    defer {
+        while (notifications.notifications.popFront()) |removed| removed.key.deinit(testing.allocator);
+        notifications.notifications.deinit(testing.allocator);
+    }
+    try notifications.notifications.ensureTotalCapacityPrecise(testing.allocator, 3);
+    for ([_][]const u8{ "First", "Second", "Third", "Fourth" }) |title| {
+        const tracked = try notifications.track(testing.allocator, .{ .title = title, .body = "Body" });
+        if (tracked.evicted) |evicted| evicted.key.deinit(testing.allocator);
+    }
+    const repeated = try notifications.track(testing.allocator, .{ .title = "Third", .body = "Body" });
+    try testing.expect(repeated.evicted == null);
+    try testing.expectEqualStrings("Second", notifications.notifications.at(0).key.title);
+    try testing.expectEqualStrings("Fourth", notifications.notifications.at(1).key.title);
+    try testing.expectEqualStrings("Third", notifications.notifications.at(2).key.title);
+    try testing.expect(notifications.remove(.{ .title = "Missing", .body = "Body" }) == null);
+}
+
+test "desktop notifications allocation failure preserves entries" {
+    const testing = std.testing;
+    try testing.checkAllAllocationFailures(testing.allocator, struct {
+        fn run(alloc: Allocator) !void {
+            var notifications: DesktopNotifications = .{ .limit = 2 };
+            defer {
+                while (notifications.notifications.popFront()) |removed| removed.key.deinit(alloc);
+                notifications.notifications.deinit(alloc);
+            }
+            for ([_][]const u8{ "First", "Second", "Third" }, 0..) |title, i| {
+                const tracked = notifications.track(alloc, .{ .title = title, .body = "Body" }) catch |err| {
+                    try testing.expectEqual(i, notifications.notifications.len);
+                    if (i > 0) try testing.expectEqualStrings("First", notifications.notifications.front().?.key.title);
+                    return err;
+                };
+                if (tracked.evicted) |evicted| evicted.key.deinit(alloc);
+            }
+            try testing.expectEqualStrings("Second", notifications.notifications.front().?.key.title);
+        }
+    }.run, .{});
+}
+
+test "desktop notifications cleanup releases storage and is repeatable" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var notifications: DesktopNotifications = .{};
+    notifications.clear(alloc);
+    try testing.expectEqual(@as(usize, 0), notifications.notifications.buffer.len);
+
+    notifications = .init(42);
+    const tracked = try notifications.track(alloc, .{ .title = "Title", .body = "Body" });
+    const removed = notifications.remove(tracked.key).?;
+    removed.key.deinit(alloc);
+    try testing.expectEqual(@as(usize, 0), notifications.notifications.len);
+    try testing.expect(notifications.notifications.buffer.len > 0);
+
+    notifications.clear(alloc);
+    try testing.expectEqual(@as(usize, 0), notifications.notifications.buffer.len);
+    notifications.deinit(alloc);
+    notifications.deinit(alloc);
+    try testing.expectEqual(@as(usize, 0), notifications.notifications.len);
+    try testing.expectEqual(@as(usize, 0), notifications.notifications.buffer.len);
+    try testing.expectEqual(@as(u64, 42), notifications.surface_id);
 }
