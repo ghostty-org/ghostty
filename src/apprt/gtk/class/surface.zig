@@ -1766,15 +1766,13 @@ pub const Surface = extern struct {
         const app = Application.default();
         const priv: *Private = self.private();
 
-        const core_surface = priv.core_surface orelse {
+        if (priv.core_surface == null) {
             log.warn("can't send notification because there is no core surface", .{});
             return;
-        };
+        }
 
         priv.desktop_notifications.send(
             app.allocator(),
-            app.as(gio.Application),
-            core_surface.id,
             priv.focused,
             title,
             body,
@@ -1783,10 +1781,7 @@ pub const Surface = extern struct {
 
     fn clearDesktopNotifications(self: *Self) void {
         const app = Application.default();
-        self.private().desktop_notifications.clear(
-            app.allocator(),
-            app.as(gio.Application),
-        );
+        self.private().desktop_notifications.clear(app.allocator());
     }
 
     //---------------------------------------------------------------
@@ -1810,7 +1805,7 @@ pub const Surface = extern struct {
         priv.mapped = false;
         priv.size = .{ .width = 0, .height = 0 };
         priv.vadj_signal_group = null;
-        priv.desktop_notifications = .init();
+        priv.desktop_notifications = .{};
 
         // If our configuration is null then we get the configuration
         // from the application.
@@ -2007,7 +2002,7 @@ pub const Surface = extern struct {
         for (priv.key_tables.items) |s| alloc.free(s);
         priv.key_tables.deinit(alloc);
 
-        priv.desktop_notifications.deinit(alloc, Application.default().as(gio.Application));
+        priv.desktop_notifications.deinit(alloc);
 
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,
@@ -3512,6 +3507,7 @@ pub const Surface = extern struct {
 
         // Store it!
         priv.core_surface = surface;
+        priv.desktop_notifications = .init(surface.id);
 
         // Give the render surface a pointer to the core surface so it
         // can pull presents from the renderer in its snapshot handler.
