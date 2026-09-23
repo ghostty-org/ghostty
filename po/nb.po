@@ -43,7 +43,7 @@ msgstr "Tillat"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
 msgid "Remember choice for this split"
-msgstr "Husk valget for dette delte vinduet?"
+msgstr "Husk valget for dette delte vinduet"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
 msgid "Reload configuration to show this prompt again"
@@ -70,8 +70,8 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Én eller flere konfigurasjonsfeil ble funnet. Vennligst gjennomgå feilene "
-"under, og enten last konfigurasjonen din på nytt eller ignorer disse feilene."
+"Det ble funnet én eller flere konfigurasjonsfeil. Se gjennom feilene nedenfor, "
+"og last inn konfigurasjonen din på nytt eller ignorer feilene."
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:12
 msgid "Ignore"
@@ -80,7 +80,7 @@ msgstr "Ignorer"
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:13
 #: src/apprt/gtk/ui/1.2/surface.blp:439 src/apprt/gtk/ui/1.5/window.blp:318
 msgid "Reload Configuration"
-msgstr "Last konfigurasjon på nytt"
+msgstr "Last inn konfigurasjonen på nytt"
 
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
@@ -136,11 +136,11 @@ msgstr "Lim inn"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:326
 msgid "Notify on Next Command Finish"
-msgstr "Varsle når neste kommandoen fullføres"
+msgstr "Varsle når neste kommando fullføres"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
-msgstr "Fjern"
+msgstr "Tøm"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:338 src/apprt/gtk/ui/1.5/window.blp:286
 msgid "Reset"
@@ -222,7 +222,7 @@ msgstr "Konfigurasjon"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
-msgstr "Åpne konfigurasjonen i OS editoren"
+msgstr "Åpne konfigurasjonen i OS-editoren"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
@@ -310,7 +310,7 @@ msgstr ""
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
 msgid "Warning: Potentially Unsafe Paste"
-msgstr "Adarsel: Lim inn kan være utrygt"
+msgstr "Adarsel: Innliming kan være utrygt"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:206
 msgid ""
@@ -354,7 +354,7 @@ msgstr "Den kjørende prosessen for denne splitten vil bli avsluttet."
 
 #: src/apprt/gtk/class/surface.zig:1181
 msgid "Command Finished"
-msgstr "Kommandoen fullført"
+msgstr "Kommando fullført"
 
 #: src/apprt/gtk/class/surface.zig:1182
 #: src/apprt/gtk/class/surface_child_exited.zig:109
@@ -410,7 +410,7 @@ msgstr "Kopier til utklippstavlen"
 msgid ""
 "Copy the selected text to the clipboard in both plain and styled formats."
 msgstr ""
-"Kopier merket tekst til utklippstavlen som formatert- og ren tekst."
+"Kopier merket tekst til utklippstavlen som både formatert og ren tekst."
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
@@ -546,7 +546,7 @@ msgstr "Tøm skjermen og rulleminnet."
 
 #: src/input/command.zig:249
 msgid "Select All"
-msgstr "Velg alt"
+msgstr "Marker alt"
 
 #: src/input/command.zig:250
 msgid "Select all text on the screen."

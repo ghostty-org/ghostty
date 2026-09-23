@@ -1234,6 +1234,18 @@ pub const Resize = struct {
     /// resize/reflow behavior depends on the cursor position.
     cursor: ?Cursor = null,
 
+    /// Whether the resize may pull rows out of scrollback back into the
+    /// active area. If false, growing rows always appends blank rows at the
+    /// bottom and a column reflow keeps the top of the active area on the
+    /// same content, so a line that is fully in scrollback stays there.
+    /// A wrapped line with at least one row still in the active area may
+    /// still unwrap back into view.
+    ///
+    /// This should be false for ptys that keep their own screen buffer
+    /// without scrollback (e.g. Windows ConPTY), since they can't pull
+    /// rows back and would otherwise get out of sync with us.
+    pull_scrollback: bool = true,
+
     pub const Cursor = struct {
         x: size.CellCountInt,
         y: size.CellCountInt,
@@ -1295,7 +1307,7 @@ pub fn resize(self: *PageList, opts: Resize) Allocator.Error!void {
         .gt => {
             // We grow rows after cols so that we can do our unwrapping/reflow
             // before we do a no-reflow grow.
-            try self.resizeCols(cols, opts.cursor);
+            try self.resizeCols(cols, opts);
             try self.resizeWithoutReflow(opts);
         },
 
@@ -1307,7 +1319,7 @@ pub fn resize(self: *PageList, opts: Resize) Allocator.Error!void {
                 copy.cols = self.cols;
                 break :opts copy;
             });
-            try self.resizeCols(cols, opts.cursor);
+            try self.resizeCols(cols, opts);
         },
     }
 
@@ -1331,9 +1343,20 @@ pub fn resize(self: *PageList, opts: Resize) Allocator.Error!void {
 fn resizeCols(
     self: *PageList,
     cols: size.CellCountInt,
-    cursor: ?Resize.Cursor,
+    opts: Resize,
 ) Allocator.Error!void {
     assert(cols != self.cols);
+    const cursor = opts.cursor;
+
+    // The active area is always the last `rows` rows, so a reflow that
+    // changes the number of rows our text needs slides the active area
+    // over the content. If we aren't allowed to pull scrollback then we
+    // track the top of the active area so we can restore it afterwards.
+    const active_top: ?*Pin = if (!opts.pull_scrollback)
+        try self.trackPin(self.getTopLeft(.active))
+    else
+        null;
+    defer if (active_top) |p| self.untrackPin(p);
 
     // If we have a cursor position (x,y), then we try under any col resizing
     // to keep the same number remaining active rows beneath it. This is a
@@ -1506,6 +1529,18 @@ fn resizeCols(
         .pin => if (self.pinIsActive(self.viewport_pin.*)) {
             self.viewport = .active;
         },
+    }
+
+    // If we can't pull scrollback then pad the bottom with blank rows until
+    // the old top of the active area is back at the top. If the reflow
+    // instead pushed it into scrollback (the text needs more rows than
+    // we have) then there is nothing to do. This subsumes the preserved
+    // cursor logic below since that also only exists to avoid a pull.
+    if (active_top) |p| {
+        if (self.pointFromPin(.active, p.*)) |pt| {
+            for (0..pt.active.y) |_| _ = try self.grow();
+        }
+        return;
     }
 
     // See preserved_cursor setup for why.
@@ -2855,12 +2890,18 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) Allocator.Error!void {
                 // we want to try to preserve the y value of the old cursor.
                 // In other words, we don't want to "pull down" scrollback.
                 // This is purely a UX feature.
-                if (opts.cursor) |cursor| cursor: {
-                    if (cursor.y >= self.rows - 1) break :cursor;
-
-                    // Cursor is not at the bottom, so we just grow our
-                    // rows and we're done. Cursor does NOT change for this
-                    // since we're not pulling down scrollback.
+                //
+                // If we're not allowed to pull scrollback at all then we
+                // always do this regardless of the cursor.
+                const pull = pull: {
+                    if (!opts.pull_scrollback) break :pull false;
+                    const cursor = opts.cursor orelse break :pull true;
+                    break :pull cursor.y >= self.rows - 1;
+                };
+                if (!pull) {
+                    // We just grow our rows and we're done. Cursor does
+                    // NOT change for this since we're not pulling down
+                    // scrollback.
                     const delta = rows - self.rows;
                     self.rows = rows;
                     for (0..delta) |_| _ = try self.grow();
@@ -18101,6 +18142,48 @@ test "PageList resize reflow less cols cursor not on last line preserves locatio
     try testing.expectEqual(@as(usize, 10), s.totalRows());
 
     // Our cursor should move to the first row
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 0,
+        .y = 0,
+    } }, s.pointFromPin(.active, p.*).?);
+}
+
+test "PageList resize reflow less cols no scrollback pull blank active" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 5, .max_size = 1 });
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = s.pages.first.?.page();
+    for (0..s.rows) |y| {
+        for (0..2) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = .{ .data = @intCast(x) } },
+            };
+        }
+    }
+
+    // Grow blank rows to push our rows back into scrollback
+    try s.growRows(5);
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 0, .y = 0 } }).?);
+    defer s.untrackPin(p);
+
+    // Resize with no cursor. Normally the trailing blank rows would be
+    // trimmed and the active area would slide up over our history.
+    try s.resize(.{
+        .cols = 4,
+        .reflow = true,
+        .pull_scrollback = false,
+    });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    // The top of the active area should not move
     try testing.expectEqual(point.Point{ .active = .{
         .x = 0,
         .y = 0,

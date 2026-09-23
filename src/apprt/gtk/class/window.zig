@@ -30,6 +30,7 @@ const DebugWarning = @import("debug_warning.zig").DebugWarning;
 const CommandPalette = @import("command_palette.zig").CommandPalette;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
 const TitleDialog = @import("title_dialog.zig").TitleDialog;
+const Overrides = @import("Overrides.zig");
 
 const log = std.log.scoped(.gtk_ghostty_window);
 
@@ -408,14 +409,7 @@ pub const Window = extern struct {
     /// Create a new tab with the given parent. The tab will be inserted
     /// at the position dictated by the `window-new-tab-position` config.
     /// The new tab will be selected.
-    pub fn newTab(self: *Self, parent_: ?*CoreSurface, overrides: struct {
-        command: ?configpkg.Command = null,
-        shell_integration: ?configpkg.Config.ShellIntegration = null,
-        working_directory: ?[:0]const u8 = null,
-        title: ?[:0]const u8 = null,
-
-        pub const none: @This() = .{};
-    }) void {
+    pub fn newTab(self: *Self, parent_: ?*CoreSurface, overrides: Overrides) void {
         _ = self.newTabPage(parent_, .tab, .{
             .command = overrides.command,
             .shell_integration = overrides.shell_integration,
@@ -424,18 +418,7 @@ pub const Window = extern struct {
         });
     }
 
-    pub fn newTabForWindow(
-        self: *Self,
-        parent_: ?*CoreSurface,
-        overrides: struct {
-            command: ?configpkg.Command = null,
-            shell_integration: ?configpkg.Config.ShellIntegration = null,
-            working_directory: ?[:0]const u8 = null,
-            title: ?[:0]const u8 = null,
-
-            pub const none: @This() = .{};
-        },
-    ) void {
+    pub fn newTabForWindow(self: *Self, parent_: ?*CoreSurface, overrides: Overrides) void {
         _ = self.newTabPage(
             parent_,
             .window,
@@ -452,14 +435,7 @@ pub const Window = extern struct {
         self: *Self,
         parent_: ?*CoreSurface,
         context: apprt.surface.NewSurfaceContext,
-        overrides: struct {
-            command: ?configpkg.Command = null,
-            shell_integration: ?configpkg.Config.ShellIntegration = null,
-            working_directory: ?[:0]const u8 = null,
-            title: ?[:0]const u8 = null,
-
-            pub const none: @This() = .{};
-        },
+        overrides: Overrides,
     ) *adw.TabPage {
         const priv: *Private = self.private();
         const tab_view = priv.tab_view;

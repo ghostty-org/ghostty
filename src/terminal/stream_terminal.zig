@@ -201,6 +201,33 @@ pub const Handler = struct {
         /// is 256 bytes; longer strings will be silently ignored.
         xtversion: ?*const fn (*Handler) []const u8,
 
+        /// Called with `true` when the running program asks the terminal
+        /// to stop updating the screen, and with `false` when it allows
+        /// updates again. The time in between is a "render hold". Programs
+        /// use a hold so that the user never sees a half-drawn frame.
+        ///
+        /// Today the only source of a hold is synchronized output (mode
+        /// 2026). The hold begins when VT input sets the mode. It ends
+        /// when VT input resets the mode, on a full reset, and on a resize
+        /// through `Handler.resize`. The calls always come in pairs:
+        /// setting the mode during a hold does nothing, and neither does
+        /// resetting it when there is no hold. Writing `terminal.modes`
+        /// directly never calls this.
+        ///
+        /// When a hold begins, nothing after the sequence that began it
+        /// has been processed yet, so the terminal contains exactly the
+        /// frame the program wants left on screen. A renderer can capture
+        /// that frame from within this callback (e.g. `RenderState.update`)
+        /// and then skip updates until the hold ends. Checking the mode
+        /// before each draw instead can't do this. It leaves whatever was
+        /// drawn last on screen, and it loses a finished frame entirely
+        /// when one hold ends and the next begins between two draws.
+        ///
+        /// The terminal has no clock so it never ends a hold on its own.
+        /// The caller must use a timeout so that a program that never
+        /// releases its hold can't freeze the screen.
+        render_hold: ?*const fn (*Handler, bool) void,
+
         /// No effects means that the stream effectively becomes readonly
         /// that only affects pure terminal state and ignores all side
         /// effects beyond that.
@@ -215,6 +242,7 @@ pub const Handler = struct {
             .enquiry = null,
             .progress_report = null,
             .size = null,
+            .render_hold = null,
             .title_changed = null,
             .pwd_changed = null,
             .write_pty = null,
@@ -254,7 +282,10 @@ pub const Handler = struct {
     /// because it also handles the side effects like mode 2048 in-band
     /// size reports if write_pty is set.
     pub fn resize(self: *Handler, value: Terminal.Resize) !void {
+        // Resize always turns off synchronized output, ending its hold.
+        const sync = self.terminal.modes.get(.synchronized_output);
         try self.terminal.resize(self.terminal.gpa(), value);
+        if (sync) self.renderHold(false);
 
         // Mode 2048 reports require complete, current cell pixel geometry.
         const cell_size = value.cell_size_px orelse return;
@@ -412,7 +443,16 @@ pub const Handler = struct {
             .reset_mode => try self.setMode(value.mode, false),
             .save_mode => self.terminal.modes.save(value.mode),
             .restore_mode => {
+                const prev = self.terminal.modes.get(value.mode);
                 const v = self.terminal.modes.restore(value.mode);
+
+                // Restore writes the value directly. Put the old value
+                // back for synchronized output so that setMode can see
+                // the change and report the render hold.
+                if (value.mode == .synchronized_output) {
+                    self.terminal.modes.set(value.mode, prev);
+                }
+
                 try self.setMode(value.mode, v);
             },
             .top_and_bottom_margin => self.terminal.setTopAndBottomMargin(value.top_left, value.bottom_right),
@@ -451,7 +491,10 @@ pub const Handler = struct {
             .active_status_display => self.terminal.status_display = value,
             .decaln => try self.terminal.decaln(),
             .full_reset => {
+                // A reset turns off synchronized output, ending its hold.
+                const sync = self.terminal.modes.get(.synchronized_output);
                 self.terminal.fullReset();
+                if (sync) self.renderHold(false);
 
                 // Full reset clears grants
                 self.kitty_clipboard_grants.deinit(self.terminal.gpa());
@@ -1517,7 +1560,7 @@ pub const Handler = struct {
 
     fn requestModeUnknown(self: *Handler, mode_raw: u16, ansi: bool) void {
         const report = self.terminal.modes.getReport(.{
-            .value = @truncate(mode_raw),
+            .value = mode_raw,
             .ansi = ansi,
         });
         self.sendModeReport(report);
@@ -1560,7 +1603,24 @@ pub const Handler = struct {
         }
     }
 
+    /// Report that a render hold began or ended. See `Effects.render_hold`.
+    inline fn renderHold(self: *Handler, held: bool) void {
+        const func = self.effects.render_hold orelse return;
+        func(self, held);
+    }
+
     fn setMode(self: *Handler, mode: modes.Mode, enabled: bool) !void {
+        // Synchronized output is reported as a render hold. We only report
+        // real changes. Reporting a set during a hold would be harmful
+        // because the screen is half-drawn at that point and the callback
+        // is expected to capture it.
+        if (mode == .synchronized_output) {
+            if (self.terminal.modes.get(mode) == enabled) return;
+            self.terminal.modes.set(mode, enabled);
+            self.renderHold(enabled);
+            return;
+        }
+
         // Set the mode on the terminal
         self.terminal.modes.set(mode, enabled);
 
@@ -1594,7 +1654,9 @@ pub const Handler = struct {
                 if (enabled) .@"132_cols" else .@"80_cols",
             ),
 
-            .synchronized_output,
+            // Handled above
+            .synchronized_output => unreachable,
+
             .linefeed,
             .focus_event,
             => {},
@@ -1923,6 +1985,102 @@ const PtyWriter = struct {
         return consumed;
     }
 };
+
+test "render hold effect fires on synchronized output transitions only" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var events: [8]bool = undefined;
+        var len: usize = 0;
+
+        fn hold(_: *Handler, held: bool) void {
+            events[len] = held;
+            len += 1;
+        }
+    };
+    S.len = 0;
+
+    var handler: Handler = .init(&t);
+    handler.effects.render_hold = &S.hold;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // Reset without a hold is ignored
+    s.nextSlice("\x1b[?2026l");
+    try testing.expectEqual(0, S.len);
+
+    // A set during a hold is ignored since the screen is half-drawn
+    s.nextSlice("\x1b[?2026hA\x1b[?2026hB\x1b[?2026l\x1b[?2026l");
+    try testing.expectEqualSlices(bool, &.{ true, false }, S.events[0..S.len]);
+
+    // Save and restore report the same way as set and reset
+    S.len = 0;
+    s.nextSlice("\x1b[?2026s\x1b[?2026h\x1b[?2026r\x1b[?2026r");
+    try testing.expectEqualSlices(bool, &.{ true, false }, S.events[0..S.len]);
+    try testing.expect(!t.modes.get(.synchronized_output));
+
+    // Full reset
+    S.len = 0;
+    s.nextSlice("\x1b[?2026h\x1bc\x1bc");
+    try testing.expectEqualSlices(bool, &.{ true, false }, S.events[0..S.len]);
+
+    // Resize
+    S.len = 0;
+    s.nextSlice("\x1b[?2026h");
+    try s.handler.resize(.{ .cols = 80, .rows = 24 });
+    try s.handler.resize(.{ .cols = 80, .rows = 24 });
+    try testing.expectEqualSlices(bool, &.{ true, false }, S.events[0..S.len]);
+}
+
+test "render hold effect can snapshot the frame when the hold begins" {
+    const alloc = testing.allocator;
+    const RenderState = @import("render.zig").RenderState;
+    var t: Terminal = try .init(testing.io, alloc, .{ .cols = 10, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // This is how a renderer is expected to use the effect: capture the
+    // frame when the hold begins and then leave the render state alone
+    // until the hold ends.
+    const S = struct {
+        var state: RenderState = .empty;
+        var snapshots: usize = 0;
+
+        fn hold(h: *Handler, held: bool) void {
+            if (!held) return;
+            state.update(testing.allocator, h.terminal) catch unreachable;
+            snapshots += 1;
+        }
+
+        fn char(y: usize, x: usize) u21 {
+            return state.row_data.items(.cells)[y].get(x).raw.codepoint();
+        }
+    };
+    S.state = .empty;
+    S.snapshots = 0;
+    defer S.state.deinit(alloc);
+
+    var handler: Handler = .init(&t);
+    handler.effects.render_hold = &S.hold;
+    var s: Stream = .init(.{ .allocator = alloc, .handler = handler });
+    defer s.deinit();
+
+    // Normal output, the start of a hold, and part of the next frame all
+    // arrive in one write with no draw in between. The captured frame
+    // must have all of the output before the hold and none after.
+    s.nextSlice("AB\x1b[?2026h\x1b[HXY");
+    try testing.expectEqual(1, S.snapshots);
+    try testing.expectEqual('A', S.char(0, 0));
+    try testing.expectEqual('B', S.char(0, 1));
+
+    // The frame is finished and the next hold begins before we ever
+    // draw. The finished frame must be captured, not lost.
+    s.nextSlice("Z\x1b[?2026l\x1b[?2026h\x1b[H123");
+    try testing.expectEqual(2, S.snapshots);
+    try testing.expectEqual('X', S.char(0, 0));
+    try testing.expectEqual('Y', S.char(0, 1));
+    try testing.expectEqual('Z', S.char(0, 2));
+}
 
 test "resize clears synchronized output on unchanged cell dimensions" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
@@ -4574,6 +4732,7 @@ test "request mode DECRQM with write_pty callback" {
 
         // DECRQM for mode 7 (wraparound) — should be silently ignored
         s.nextSlice("\x1B[?7$p");
+        s.nextSlice("\x1B[4$p");
     }
 
     t.fullReset();
@@ -4605,6 +4764,12 @@ test "request mode DECRQM with write_pty callback" {
         s.nextSlice("\x1B[?7$p");
         try testing.expectEqualStrings("\x1B[?7;2$y", S.last_response.?);
 
+        // A large unknown mode must not alias wraparound mode 7.
+        const before = t.modes;
+        s.nextSlice("\x1B[?32775$p");
+        try testing.expectEqualStrings("\x1B[?32775;0$y", S.last_response.?);
+        try testing.expectEqualDeep(before, t.modes);
+
         // Query an unknown mode
         s.nextSlice("\x1B[?9999$p");
         try testing.expectEqualStrings("\x1B[?9999;0$y", S.last_response.?);
@@ -4612,6 +4777,65 @@ test "request mode DECRQM with write_pty callback" {
         // Query DECECM, which Ghostty recognizes but does not allow changing
         s.nextSlice("\x1B[?117$p");
         try testing.expectEqualStrings("\x1B[?117;4$y", S.last_response.?);
+    }
+}
+
+test "request mode DECRQM ANSI responses" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var response: [32]u8 = undefined;
+        var len: usize = 0;
+        var calls: usize = 0;
+
+        fn writePty(_: *Handler, data: []const u8) void {
+            @memcpy(response[0..data.len], data);
+            len = data.len;
+            calls += 1;
+        }
+    };
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    inline for (.{
+        .{ "2", modes.Mode.disable_keyboard },
+        .{ "4", modes.Mode.insert },
+        .{ "12", modes.Mode.send_receive_mode },
+        .{ "20", modes.Mode.linefeed },
+    }) |mode| {
+        inline for (.{ false, true, false }) |enabled| {
+            s.nextSlice("\x1b[" ++ mode[0] ++ (if (enabled) "h" else "l"));
+            try testing.expectEqual(enabled, t.modes.get(mode[1]));
+            const query = "\x1b[" ++ mode[0] ++ "$p";
+            for (0..query.len + 1) |split| {
+                S.calls = 0;
+                S.len = 0;
+                s.nextSlice(query[0..split]);
+                if (split < query.len) try testing.expectEqual(0, S.calls);
+                s.nextSlice(query[split..]);
+                try testing.expectEqual(1, S.calls);
+                try testing.expectEqualStrings("\x1b[" ++ mode[0] ++ (if (enabled) ";1$y" else ";2$y"), S.response[0..S.len]);
+                try testing.expectEqual(enabled, t.modes.get(mode[1]));
+            }
+        }
+    }
+
+    // The two namespaces must report independent states for mode 4.
+    s.nextSlice("\x1b[4h\x1b[?4l");
+    const cases = .{
+        .{ "\x1b[4$p", "\x1b[4;1$y" },
+        .{ "\x1b[?4$p", "\x1b[?4;2$y" },
+        .{ "\x1b[9999$p", "\x1b[9999;0$y" },
+    };
+    inline for (cases) |case| {
+        S.calls = 0;
+        S.len = 0;
+        s.nextSlice(case[0]);
+        try testing.expectEqual(1, S.calls);
+        try testing.expectEqualStrings(case[1], S.response[0..S.len]);
     }
 }
 

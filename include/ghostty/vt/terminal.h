@@ -100,6 +100,7 @@ extern "C" {
  * | `GHOSTTY_TERMINAL_OPT_DESKTOP_NOTIFICATION`| `GhosttyTerminalDesktopNotificationFn` | Desktop notification via OSC 9 / OSC 777 |
  * | `GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT`  | `GhosttyTerminalProgressReportFn` | Progress report via OSC 9;4               |
  * | `GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE` | `GhosttyTerminalUnknownSequenceFn` | Unsupported sequence identifier          |
+ * | `GHOSTTY_TERMINAL_OPT_RENDER_HOLD`      | `GhosttyTerminalRenderHoldFn`     | Synchronized output (mode 2026) begins or ends |
  *
  * ### Defining a write_pty callback
  * @snippet c-vt-effects/src/main.c effects-write-pty
@@ -1003,6 +1004,126 @@ typedef void (*GhosttyTerminalTitleChangedFn)(GhosttyTerminal terminal,
                                               void* userdata);
 
 /**
+ * Callback function type for render_hold.
+ *
+ * Called when the running program asks the terminal to stop updating
+ * the screen, and again when it lets the screen update again. We call
+ * the time in between a "render hold".
+ *
+ * Programs use a hold to avoid flicker. A full-screen program usually
+ * redraws in several steps: clear, draw the text, move the cursor. If
+ * the screen is drawn halfway through, the user sees a broken frame. To
+ * prevent that, the program starts a hold, draws everything, and then
+ * releases the hold. The screen should keep showing the last finished
+ * frame the whole time and then switch to the new one all at once.
+ *
+ * Today the only way a program can start a hold is synchronized output
+ * (DEC private mode 2026, GHOSTTY_MODE_SYNC_OUTPUT). The callback is
+ * named for what the embedder should do rather than for that mode so
+ * that other sources of holds can be added later.
+ *
+ * ### When it is called
+ *
+ * With `held` set to true when the program sets mode 2026.
+ *
+ * With `held` set to false when the hold ends, which happens when:
+ *
+ *   - the program resets mode 2026
+ *   - the terminal is fully reset, by the program (RIS) or by
+ *     ghostty_terminal_reset()
+ *   - the terminal is resized with ghostty_terminal_resize()
+ *
+ * The two calls always come in pairs. Setting the mode while a hold is
+ * already active does nothing, and neither does resetting it when there
+ * is no hold. Changing the mode yourself with GHOSTTY_TERMINAL_OPT_MODE
+ * never invokes the callback.
+ *
+ * ### What to do
+ *
+ * When a hold begins, the terminal contains exactly the frame the
+ * program wants left on screen. Nothing after the start of the hold has
+ * been processed yet, even if more bytes follow in the same
+ * ghostty_terminal_vt_write() call. Capture that frame by calling
+ * ghostty_render_state_update() from within the callback, then stop
+ * updating the render state until the hold ends. You can keep drawing
+ * the render state in the meantime. It won't change.
+ *
+ * @code{.c}
+ * typedef struct {
+ *   GhosttyRenderState render_state;
+ *   bool held;
+ *   uint64_t hold_started_ms;
+ * } Renderer;
+ *
+ * void on_render_hold(GhosttyTerminal terminal, void* userdata, bool held) {
+ *   Renderer* r = userdata;
+ *   if (held) {
+ *     // Capture the frame the program wants left on screen.
+ *     ghostty_render_state_update(r->render_state, terminal);
+ *     r->hold_started_ms = now_ms();
+ *   }
+ *   r->held = held;
+ * }
+ *
+ * void draw(Renderer* r, GhosttyTerminal terminal) {
+ *   // Give up on a program that holds the screen for too long.
+ *   if (r->held && now_ms() - r->hold_started_ms >= 1000) {
+ *     GhosttyTerminalModeConfig mode = {
+ *       .mode = GHOSTTY_MODE_SYNC_OUTPUT,
+ *       .value = false,
+ *     };
+ *     ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_MODE, &mode);
+ *     r->held = false;
+ *   }
+ *
+ *   // During a hold, skip the update and draw the captured frame.
+ *   if (!r->held) ghostty_render_state_update(r->render_state, terminal);
+ *   draw_render_state(r->render_state);
+ * }
+ * @endcode
+ *
+ * ### Timeouts
+ *
+ * The terminal has no clock, so it never ends a hold on its own. A
+ * program that crashes or forgets to release its hold would freeze the
+ * screen forever, so you need a timeout like the one above. One second
+ * is a common choice. When it expires, reset the mode yourself and go
+ * back to updating normally. Because setting the mode again during a
+ * hold does nothing, a program can't keep pushing your deadline back.
+ *
+ * ### Why a callback
+ *
+ * You could instead check GHOSTTY_MODE_SYNC_OUTPUT before each draw
+ * and skip the update when it is set. That is simpler, but it has two
+ * problems. First, the frame left on screen is whatever you happened to
+ * draw last, which can be older than what the program intended or even
+ * a half-drawn frame. Second, if the program releases a hold and starts
+ * the next one between two of your draws, you never see the mode turn
+ * off and the finished frame in between is lost. A program that draws
+ * continuously can then appear frozen. Capturing the frame when each
+ * hold begins avoids both.
+ *
+ * ### Other notes
+ *
+ * You are free to ignore a hold whenever showing live content matters
+ * more, such as when the user scrolls or starts a selection.
+ *
+ * Like every callback, this runs on the thread that called
+ * ghostty_terminal_vt_write(). If another thread draws the render
+ * state, protect the update in the callback the same way you protect
+ * any other access to the render state.
+ *
+ * @param terminal The terminal handle
+ * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
+ * @param held True when a hold begins, false when it ends
+ *
+ * @ingroup terminal
+ */
+typedef void (*GhosttyTerminalRenderHoldFn)(GhosttyTerminal terminal,
+                                            void* userdata,
+                                            bool held);
+
+/**
  * Callback function type for pwd_changed.
  *
  * Called when the terminal pwd (current working directory) changes via
@@ -1545,6 +1666,43 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: size_t*
    */
   GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE_MAX_BYTES = 39,
+
+  /**
+   * Set whether a resize may pull rows out of scrollback back into the
+   * active area.
+   *
+   * When true, growing rows reveals scrollback if the cursor is on the
+   * bottom row, and a column reflow that needs fewer rows reveals
+   * scrollback as well. When false, growing rows always appends blank rows
+   * at the bottom and a column reflow keeps the top of the active area on
+   * the same content, so a line that is fully in scrollback stays there. A
+   * soft-wrapped line with at least one row still in the active area may
+   * still unwrap back into view.
+   *
+   * Set this to false when the pty keeps its own screen buffer without
+   * scrollback, since it cannot pull rows back and will otherwise disagree
+   * with the terminal about the screen contents after a resize. Windows
+   * ConPTY is the motivating case.
+   *
+   * This is preserved across a full reset (RIS).
+   *
+   * A NULL value pointer resets to the built-in default of true.
+   *
+   * Input type: bool*
+   */
+  GHOSTTY_TERMINAL_OPT_RESIZE_PULL_SCROLLBACK = 40,
+
+  /**
+   * Callback invoked when the running program asks the terminal to
+   * stop updating the screen and when it allows updates again. Today
+   * this is driven by synchronized output (mode 2026). Set to NULL to
+   * ignore these events.
+   *
+   * See GhosttyTerminalRenderHoldFn for how to use this in a renderer.
+   *
+   * Input type: GhosttyTerminalRenderHoldFn
+   */
+  GHOSTTY_TERMINAL_OPT_RENDER_HOLD = 41,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 
@@ -1993,6 +2151,9 @@ GHOSTTY_API void ghostty_terminal_free(GhosttyTerminal terminal);
  * modes, scrollback, scrolling region, and screen contents. The terminal
  * dimensions are preserved.
  *
+ * If synchronized output was enabled, the GHOSTTY_TERMINAL_OPT_RENDER_HOLD
+ * callback is invoked to report that the hold ended.
+ *
  * @param terminal The terminal handle (may be NULL, in which case this is a no-op)
  *
  * @ingroup terminal
@@ -2010,6 +2171,9 @@ GHOSTTY_API void ghostty_terminal_reset(GhosttyTerminal terminal);
  * protocols and size reports), disables synchronized output mode (allowed
  * by the spec so that resize results are shown immediately), and sends an
  * in-band size report if mode 2048 is enabled.
+ *
+ * If synchronized output was enabled, the GHOSTTY_TERMINAL_OPT_RENDER_HOLD
+ * callback is invoked to report that the hold ended.
  *
  * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param cols New width in cells (must be greater than zero)

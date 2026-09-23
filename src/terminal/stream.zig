@@ -2167,7 +2167,7 @@ pub fn Stream(comptime H: type) type {
 
                 // DECRQM - Request Mode
                 'p' => switch (input.intermediates.len) {
-                    2 => decrqm: {
+                    1, 2 => decrqm: {
                         const ansi_mode = ansi: {
                             switch (input.intermediates.len) {
                                 1 => if (input.intermediates[0] == '$') break :ansi true,
@@ -3399,6 +3399,61 @@ test "stream: ansi set mode (SM) and reset mode (RM)" {
     s.handler.mode = null;
     s.nextSlice("\x1B[>5h");
     try testing.expect(s.handler.mode == null);
+}
+
+test "stream: DECRQM dispatch" {
+    const H = struct {
+        calls: usize = 0,
+        mode: ?modes.Mode = null,
+        raw: ?Action.RawMode = null,
+
+        pub fn vt(self: *@This(), comptime action: Action.Tag, value: Action.Value(action)) void {
+            switch (action) {
+                .request_mode => {
+                    self.calls += 1;
+                    self.mode = value.mode;
+                },
+                .request_mode_unknown => {
+                    self.calls += 1;
+                    self.raw = value;
+                },
+                else => {},
+            }
+        }
+    };
+
+    const cases = [_]struct {
+        input: []const u8,
+        mode: ?modes.Mode = null,
+        raw: ?Action.RawMode = null,
+    }{
+        .{ .input = "\x1b[4$p", .mode = .insert },
+        .{ .input = "\x1b[?4$p", .mode = .slow_scroll },
+        .{ .input = "\x1b[9999$p", .raw = .{ .mode = 9999, .ansi = true } },
+        .{ .input = "\x1b[?9999$p", .raw = .{ .mode = 9999, .ansi = false } },
+        .{ .input = "\x1b[4p" },
+        .{ .input = "\x1b[?4p" },
+        .{ .input = "\x1b[4!p" },
+        .{ .input = "\x1b[4 p" },
+        .{ .input = "\x1b[>4$p" },
+        .{ .input = "\x1b[?4!p" },
+        .{ .input = "\x1b[$p" },
+        .{ .input = "\x1b[?$p" },
+        .{ .input = "\x1b[4;20$p" },
+        .{ .input = "\x1b[?4;7$p" },
+        .{ .input = "\x1b[4:20$p" },
+    };
+    for (cases) |case| {
+        for (0..case.input.len + 1) |split| {
+            var s: Stream(H) = .init(.{ .handler = .{} });
+            s.nextSlice(case.input[0..split]);
+            if (split < case.input.len) try testing.expectEqual(0, s.handler.calls);
+            s.nextSlice(case.input[split..]);
+            try testing.expectEqual(@as(usize, if (case.mode != null or case.raw != null) 1 else 0), s.handler.calls);
+            try testing.expectEqual(case.mode, s.handler.mode);
+            try testing.expectEqualDeep(case.raw, s.handler.raw);
+        }
+    }
 }
 
 test "stream: ansi set mode (SM) and reset mode (RM) with unknown value" {

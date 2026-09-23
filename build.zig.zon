@@ -5,15 +5,9 @@
     .fingerprint = 0x64407a2a0b4147e5,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
-        // External translate-c
-        // NOTE: We might not need to keep this around forever, but we need it
-        // for at least the 0.16.0 release cycle since we need fixes in
-        // Aro/translate-c itself.
-        .translate_c = .{
-            .lazy = true,
-            .url = "https://codeberg.org/vancluever/translate-c/archive/4e879eb8aba615de112eabd1231ea6e01920cead.tar.gz",
-            .hash = "translate_c-0.0.0-Q_BUWhVNBwDOEcIqub4VFPJPB6D9dgwzUMHTX5KWr8Xr",
-        },
+        // Our higher-level C translation helper (this also helps ensure we
+        // only need to maintain one external dependency point)
+        .translate_c = .{ .path = "./pkg/translate-c" },
 
         // Zig libs
         .libxev = .{
@@ -48,8 +42,8 @@
         },
         .uucode = .{
             // jacobsandlund/uucode
-            .url = "https://deps.files.ghostty.org/uucode-2826a37a4562284fdacd8fa029d49509cc9bffcd.tar.gz",
-            .hash = "uucode-0.2.0-ZZjBPlK5VADj7fdoq7G8LIHzD5o6FSkcBXXrRWr4jnrA",
+            .url = "https://github.com/jacobsandlund/uucode/archive/9d55524551411b493cca41ca06363625d90aff1e.tar.gz",
+            .hash = "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7",
         },
         .zig_wayland = .{
             // codeberg ifreund/zig-wayland

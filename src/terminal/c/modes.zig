@@ -24,7 +24,7 @@ pub fn report_encode(
 ) callconv(lib.calling_conv) Result {
     const mode_tag: modes.ModeTag = @bitCast(tag);
     const report: modes.Report = .{
-        .tag = mode_tag,
+        .tag = .{ .value = mode_tag.value, .ansi = mode_tag.ansi },
         .state = state.toZig() orelse return .invalid_value,
     };
 

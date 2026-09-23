@@ -583,7 +583,7 @@ pub const StreamHandler = struct {
     }
 
     fn requestModeUnknown(self: *StreamHandler, mode_raw: u16, ansi: bool) !void {
-        self.sendModeReport(self.terminal.modes.getReport(.{ .value = @truncate(mode_raw), .ansi = ansi }));
+        self.sendModeReport(self.terminal.modes.getReport(.{ .value = mode_raw, .ansi = ansi }));
     }
 
     fn sendModeReport(self: *StreamHandler, report: terminal.modes.Report) void {

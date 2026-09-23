@@ -1,4 +1,5 @@
 const std = @import("std");
+const translate_c = @import("translate_c");
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -26,6 +27,15 @@ pub fn build(b: *std.Build) !void {
         try apple_sdk.addPaths(b, lib);
     }
 
+    try translate_c.addImportToModule(b, "sentry_c", module, .{
+        .source = .{ .includes = .{
+            .files = &.{.{ .path = "sentry.h" }},
+        } },
+        .target = target,
+        .optimize = optimize,
+        .link_libs = &.{lib},
+    });
+
     var flags: std.ArrayList([]const u8) = .empty;
     defer flags.deinit(b.allocator);
     if (target.result.os.tag == .windows) {
@@ -45,7 +55,6 @@ pub fn build(b: *std.Build) !void {
     }
 
     if (b.lazyDependency("sentry", .{})) |upstream| {
-        module.addIncludePath(upstream.path("include"));
         lib.root_module.addIncludePath(upstream.path("include"));
         lib.root_module.addIncludePath(upstream.path("src"));
         lib.root_module.addCSourceFiles(.{

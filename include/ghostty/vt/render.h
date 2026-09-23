@@ -73,6 +73,27 @@ extern "C" {
  * reset the row-level dirty flags. So, the caller of the render state API must
  * be careful to manage both layers of dirty state correctly. 
  *
+ * ## Render Holds (Synchronized Output)
+ *
+ * A program can ask the terminal to stop updating the screen while it
+ * draws a frame, so the user never sees a half-drawn one. Today programs
+ * do this with synchronized output (DEC private mode 2026).
+ *
+ * ghostty_render_state_update() does not check for this. It always
+ * captures the terminal as it is right now, so a renderer that updates
+ * on every draw will show half-drawn frames. To avoid that:
+ *
+ *   1. Set a GHOSTTY_TERMINAL_OPT_RENDER_HOLD callback on the terminal.
+ *   2. When the callback reports that a hold began, update the render
+ *      state from within the callback. This captures the frame the
+ *      program wants left on screen.
+ *   3. Don't update the render state again until the callback reports
+ *      that the hold ended. You can keep drawing it in the meantime.
+ *   4. End the hold yourself if it lasts too long (one second is a
+ *      common limit) so a misbehaving program can't freeze the screen.
+ *
+ * See GhosttyTerminalRenderHoldFn for the details and a complete example.
+ *
  * ## Examples
  *
  * ### Creating and updating render state

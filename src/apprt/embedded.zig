@@ -2164,16 +2164,30 @@ pub const CAPI = struct {
     /// Request that the surface become closed. This will go through the
     /// normal trigger process that a close surface input binding would.
     export fn ghostty_surface_request_close(ptr: *Surface) void {
-        ptr.core_surface.close();
+        // Prefer the binding path so close goes through the same Surface
+        // hook as a close-surface keybind, rather than a raw close() that
+        // bypasses it.
+        const handled = ptr.core_surface.performBindingAction(.{ .close_surface = {} }) catch |err| {
+            log.err("error requesting close err={}", .{err});
+            return;
+        };
+        if (!handled) ptr.core_surface.close();
     }
 
     /// Request that the surface split in the given direction.
     export fn ghostty_surface_split(ptr: *Surface, direction: apprt.action.SplitDirection) void {
-        _ = ptr.app.performAction(
-            .{ .surface = &ptr.core_surface },
-            .new_split,
-            direction,
-        ) catch |err| {
+        // Menu shortcuts call this C API directly. Route through
+        // performBindingAction so menus and keybinds share one path,
+        // matching GTK.
+        const action: input.Binding.Action = .{
+            .new_split = switch (direction) {
+                .right => .right,
+                .left => .left,
+                .down => .down,
+                .up => .up,
+            },
+        };
+        _ = ptr.core_surface.performBindingAction(action) catch |err| {
             log.err("error creating new split err={}", .{err});
             return;
         };
@@ -2184,12 +2198,18 @@ pub const CAPI = struct {
         ptr: *Surface,
         direction: apprt.action.GotoSplit,
     ) void {
-        _ = ptr.app.performAction(
-            .{ .surface = &ptr.core_surface },
-            .goto_split,
-            direction,
-        ) catch |err| {
-            log.err("error creating new split err={}", .{err});
+        const action: input.Binding.Action = .{
+            .goto_split = switch (direction) {
+                .previous => .previous,
+                .next => .next,
+                .up => .up,
+                .down => .down,
+                .left => .left,
+                .right => .right,
+            },
+        };
+        _ = ptr.core_surface.performBindingAction(action) catch |err| {
+            log.err("error focusing split err={}", .{err});
             return;
         };
     }

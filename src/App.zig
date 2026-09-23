@@ -267,7 +267,6 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
         if (comptime std.log.logEnabled(.debug, .app)) {
             switch (message) {
                 // these tend to be way too verbose for normal debugging
-                .redraw_surface => {},
                 else => log.debug("mailbox message={t}", .{message}),
             }
         }
@@ -284,7 +283,6 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
             .new_window => |msg| try self.newWindow(rt_app, msg),
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
-            .redraw_surface => |surface| try self.redrawSurface(rt_app, surface),
 
             // If we're quitting, then we set the quit flag and stop
             // draining the mailbox immediately. This lets us defer
@@ -307,20 +305,6 @@ pub fn closeSurface(self: *App, surface: *Surface) void {
 pub fn focusSurface(self: *App, surface: *Surface) void {
     if (!self.hasSurface(surface)) return;
     self.focused_surface = surface;
-}
-
-fn redrawSurface(
-    self: *App,
-    rt_app: *apprt.App,
-    surface: *apprt.Surface,
-) !void {
-    if (!self.hasRtSurface(surface)) return;
-
-    _ = try rt_app.performAction(
-        .{ .surface = surface.core() },
-        .render,
-        {},
-    );
 }
 
 /// Create a new window
@@ -557,14 +541,6 @@ pub fn findSurfaceByID(self: *const App, id: u64) ?*Surface {
     return null;
 }
 
-fn hasRtSurface(self: *const App, surface: *apprt.Surface) bool {
-    for (self.surfaces.items) |v| {
-        if (v == surface) return true;
-    }
-
-    return false;
-}
-
 /// The message types that can be sent to the app thread.
 pub const Message = union(enum) {
     // Open the configuration file
@@ -585,12 +561,6 @@ pub const Message = union(enum) {
         surface: *Surface,
         message: apprt.surface.Message,
     },
-
-    /// Redraw a surface. This only has an effect for runtimes that
-    /// use single-threaded draws. To redraw a surface for all runtimes,
-    /// wake up the renderer thread. The renderer thread will send this
-    /// message if it needs to.
-    redraw_surface: *apprt.Surface,
 
     const NewWindow = struct {
         /// The parent surface

@@ -235,7 +235,19 @@ pub const ImguiWidget = extern struct {
 
         // Realize means that our OpenGL context is ready, so we can now
         // initialize the ImgUI OpenGL backend for our context.
-        _ = cimgui.ImGui_ImplOpenGL3_Init(null);
+        // GTK may use GLES for its shared context. ImGui's default shader
+        // version is for desktop GL, so select GLSL ES explicitly in that case.
+        const context = priv.gl_area.getContext().?;
+        const glsl_version: ?[*:0]const u8 = if (context.getUseEs() != 0)
+            "#version 300 es"
+        else
+            null;
+        if (!cimgui.ImGui_ImplOpenGL3_Init(glsl_version)) {
+            log.warn("unable to initialize Dear ImGui OpenGL backend", .{});
+            cimgui.c.ImGui_DestroyContext(priv.ig_context);
+            priv.ig_context = null;
+            return;
+        }
 
         // Call the virtual method to setup the UI.
         self.setup();
@@ -317,9 +329,6 @@ pub const ImguiWidget = extern struct {
             cimgui.c.ImGui_Render();
         }
 
-        // OpenGL final render
-        gl.clearColor(0x28 / 0xFF, 0x2C / 0xFF, 0x34 / 0xFF, 1.0);
-        gl.clear(gl.c.GL_COLOR_BUFFER_BIT);
         cimgui.ImGui_ImplOpenGL3_RenderDrawData(cimgui.c.ImGui_GetDrawData());
 
         return @intFromBool(true);
