@@ -2325,6 +2325,8 @@ keybind: Keybinds = .{},
 /// leftmost tab with `previous`, or the rightmost tab with `next`), focus
 /// falls back to the only available neighbor. Closing a tab that is not
 /// currently focused never changes which tab is focused.
+///
+/// Available since: 1.4.0
 @"window-close-tab-focus": WindowCloseTabFocus = .next,
 
 /// Whether to show the tab bar.
