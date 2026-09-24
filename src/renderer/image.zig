@@ -996,8 +996,7 @@ pub const Image = union(enum) {
         // Get our pending info
         const p = self.getPendingPointer().?;
 
-        // No error recover is required after this call because it just
-        // converts in place and is idempotent.
+        // This allocates a copy of the image data, and converts the pixel format
         try self.prepForUpload(alloc);
 
         // Create our texture
