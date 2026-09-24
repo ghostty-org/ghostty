@@ -1514,12 +1514,7 @@ extension Ghostty {
             var key_ev = event.ghosttyKeyEvent(action, translationMods: translationEvent?.modifierFlags)
             key_ev.composing = composing
 
-            // Control characters are encoded by Ghostty itself so that the
-            // physical key and its modifiers remain available to protocols
-            // such as the Kitty keyboard protocol.
-            if let text,
-               !text.isEmpty,
-               !text.startsWithASCIIControlCharacter {
+            if let text = text?.keyEventText {
                 return text.withCString { ptr in
                     key_ev.text = ptr
                     return ghostty_surface_key(surface, key_ev)
@@ -2338,10 +2333,7 @@ extension Ghostty.SurfaceView {
 
         if let content {
             DispatchQueue.main.async {
-                self.insertText(
-                    content,
-                    replacementRange: NSRange(location: 0, length: 0)
-                )
+                self.surfaceModel?.sendText(content)
             }
             return true
         }

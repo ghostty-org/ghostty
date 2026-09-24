@@ -99,14 +99,16 @@ pub fn rasterize(
     // bitmap just like an empty outline.
     if (bounds.width() == 0 or bounds.height() == 0) return Bitmap.initEmpty(alloc, width, height);
 
-    // Build the surface we'll draw on. This is a simple alpha8 drawing.
-    var sfc: z2d.Surface = try .init(
+    // Build the surface directly over the bitmap we'll return.
+    const data = try alloc.alloc(u8, @as(usize, width) * @as(usize, height));
+    errdefer alloc.free(data);
+    var sfc: z2d.Surface = .initBuffer(
         .image_surface_alpha8,
-        alloc,
+        null,
+        std.mem.bytesAsSlice(z2d.pixel.Alpha8, data),
         @intCast(width),
         @intCast(height),
     );
-    defer sfc.deinit(alloc);
 
     var path: z2d.Path = .empty;
     defer path.deinit(alloc);
@@ -133,7 +135,7 @@ pub fn rasterize(
     return .{
         .width = width,
         .height = height,
-        .data = try alloc.dupe(u8, std.mem.sliceAsBytes(sfc.image_surface_alpha8.buf)),
+        .data = data,
     };
 }
 

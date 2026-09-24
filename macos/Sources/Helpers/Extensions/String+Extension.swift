@@ -5,6 +5,17 @@ extension String {
         return scalar.value < 0x20 || scalar.value == 0x7F
     }
 
+    /// The string as the text of a terminal key event, or nil when it is empty
+    /// or begins with an ASCII control character.
+    ///
+    /// - Note: Control characters are encoded by Ghostty itself so that the
+    /// physical key and its modifiers remain available to protocols
+    /// such as the Kitty keyboard protocol.
+    var keyEventText: String? {
+        guard !isEmpty, !startsWithASCIIControlCharacter else { return nil }
+        return self
+    }
+
     func truncate(length: Int, trailing: String = "…") -> String {
         let maxLength = length - trailing.count
         guard maxLength > 0, !self.isEmpty, self.count > length else {

@@ -1,5 +1,6 @@
 const std = @import("std");
 const NativeTargetInfo = std.zig.system.NativeTargetInfo;
+const translate_c = @import("translate_c");
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -50,37 +51,41 @@ pub fn build(b: *std.Build) !void {
         }
     }
 
-    // Flags for C compilation, common to all.
-    var flags: std.ArrayList([]const u8) = .empty;
-    defer flags.deinit(b.allocator);
-    try flags.appendSlice(b.allocator, &.{
+    // Split -D flags off from the rest of the flags, so that we can use them
+    // in C translation.
+    var define_flags: std.ArrayList([]const u8) = .empty;
+    defer define_flags.deinit(b.allocator);
+    try define_flags.appendSlice(b.allocator, &.{
         "-DIMGUI_HAS_DOCK=1",
         "-DIMGUI_USE_WCHAR32=1",
         "-DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=1",
     });
+    if (freetype) try define_flags.appendSlice(b.allocator, &.{
+        "-DIMGUI_ENABLE_FREETYPE=1",
+    });
+    if (backend_opengl3) try define_flags.appendSlice(b.allocator, &.{
+        "-DZIGPKG_IMGUI_ENABLE_OPENGL3=1",
+    });
+    if (target.result.os.tag == .windows) {
+        try define_flags.appendSlice(b.allocator, &.{
+            "-DIMGUI_IMPL_API=extern\t\"C\"\t__declspec(dllexport)",
+        });
+    } else {
+        try define_flags.appendSlice(b.allocator, &.{
+            "-DIMGUI_IMPL_API=extern\t\"C\"",
+        });
+    }
+
+    var all_flags: std.ArrayList([]const u8) = .empty;
+    try all_flags.appendSlice(b.allocator, define_flags.items);
     if (target.result.abi == .msvc) {
-        try flags.appendSlice(b.allocator, &.{
+        try all_flags.appendSlice(b.allocator, &.{
             "-fno-sanitize=undefined",
             "-fno-sanitize-trap=undefined",
         });
     }
-    if (freetype) try flags.appendSlice(b.allocator, &.{
-        "-DIMGUI_ENABLE_FREETYPE=1",
-    });
-    if (backend_opengl3) try flags.appendSlice(b.allocator, &.{
-        "-DZIGPKG_IMGUI_ENABLE_OPENGL3=1",
-    });
-    if (target.result.os.tag == .windows) {
-        try flags.appendSlice(b.allocator, &.{
-            "-DIMGUI_IMPL_API=extern\t\"C\"\t__declspec(dllexport)",
-        });
-    } else {
-        try flags.appendSlice(b.allocator, &.{
-            "-DIMGUI_IMPL_API=extern\t\"C\"",
-        });
-    }
     if (target.result.os.tag == .freebsd or target.result.abi == .musl) {
-        try flags.append(b.allocator, "-fPIC");
+        try all_flags.append(b.allocator, "-fPIC");
     }
 
     // Add the core Dear Imgui source files
@@ -95,7 +100,7 @@ pub fn build(b: *std.Build) !void {
                 "imgui_widgets.cpp",
                 "imgui.cpp",
             },
-            .flags = flags.items,
+            .flags = all_flags.items,
         });
 
         lib.installHeadersDirectory(
@@ -107,7 +112,7 @@ pub fn build(b: *std.Build) !void {
         if (freetype) {
             lib.root_module.addCSourceFile(.{
                 .file = upstream.path("misc/freetype/imgui_freetype.cpp"),
-                .flags = flags.items,
+                .flags = all_flags.items,
             });
 
             if (b.systemIntegrationOption("freetype", .{})) {
@@ -119,12 +124,6 @@ pub fn build(b: *std.Build) !void {
                     .@"enable-libpng" = true,
                 });
                 lib.root_module.linkLibrary(freetype_dep.artifact("freetype"));
-                if (freetype_dep.builder.lazyDependency(
-                    "freetype",
-                    .{},
-                )) |freetype_upstream| {
-                    mod.addIncludePath(freetype_upstream.path("include"));
-                }
             }
         }
 
@@ -132,7 +131,7 @@ pub fn build(b: *std.Build) !void {
             lib.root_module.addCSourceFiles(.{
                 .root = upstream.path("backends"),
                 .files = &.{"imgui_impl_metal.mm"},
-                .flags = flags.items,
+                .flags = all_flags.items,
             });
             lib.installHeadersDirectory(
                 upstream.path("backends"),
@@ -144,7 +143,7 @@ pub fn build(b: *std.Build) !void {
             lib.root_module.addCSourceFiles(.{
                 .root = upstream.path("backends"),
                 .files = &.{"imgui_impl_osx.mm"},
-                .flags = flags.items,
+                .flags = all_flags.items,
             });
             lib.installHeadersDirectory(
                 upstream.path("backends"),
@@ -156,7 +155,7 @@ pub fn build(b: *std.Build) !void {
             lib.root_module.addCSourceFiles(.{
                 .root = upstream.path("backends"),
                 .files = &.{"imgui_impl_opengl3.cpp"},
-                .flags = flags.items,
+                .flags = all_flags.items,
             });
             lib.installHeadersDirectory(
                 upstream.path("backends"),
@@ -175,12 +174,12 @@ pub fn build(b: *std.Build) !void {
                 "dcimgui.cpp",
                 "dcimgui_internal.cpp",
             },
-            .flags = flags.items,
+            .flags = all_flags.items,
         });
         lib.root_module.addCSourceFiles(.{
             .root = b.path(""),
             .files = &.{"ext.cpp"},
-            .flags = flags.items,
+            .flags = all_flags.items,
         });
 
         lib.installHeadersDirectory(
@@ -189,6 +188,18 @@ pub fn build(b: *std.Build) !void {
             .{ .include_extensions = &.{".h"} },
         );
     }
+
+    // C translation
+    try translate_c.addImportToModule(b, "dcimgui_c", mod, .{
+        .source = .{ .includes = .{
+            .files = &.{.{ .path = "dcimgui.h" }},
+        } },
+        .target = target,
+        .optimize = optimize,
+        .link_libs = &.{lib},
+        .default_init = true,
+        .extra_args = define_flags.items,
+    });
 
     const test_exe = b.addTest(.{
         .name = "test",

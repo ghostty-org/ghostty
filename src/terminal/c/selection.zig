@@ -38,6 +38,18 @@ pub const CSelection = extern struct {
     }
 };
 
+/// C: GhosttySelectionBuffer
+///
+/// A caller-provided buffer of selections. This follows the same
+/// conventions as GhosttyBuffer: ptr may be NULL with cap 0 to query
+/// the required capacity, and len is set to the entries written on
+/// success or to the required capacity on GHOSTTY_OUT_OF_SPACE.
+pub const CSelectionBuffer = extern struct {
+    ptr: ?[*]CSelection = null,
+    cap: usize = 0,
+    len: usize = 0,
+};
+
 /// C: GhosttyTerminalSelectWordOptions
 pub const SelectWordOptions = extern struct {
     size: usize = @sizeOf(SelectWordOptions),
@@ -234,7 +246,8 @@ pub fn format_alloc(
     };
 
     const buf = aw.toOwnedSlice() catch return .out_of_memory;
-    out_ptr.* = buf.ptr;
+    // Do not expose Zig's empty slice sentinel through the C ABI.
+    out_ptr.* = if (buf.len == 0) null else buf.ptr;
     out_len.* = buf.len;
     return .success;
 }
@@ -390,6 +403,37 @@ pub fn equal(
 
     out.* = sel_a.eql(sel_b);
     return .success;
+}
+
+test "selection_format_alloc empty output" {
+    const failing: CAllocator = .fromZig(&std.mem.Allocator.failing);
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    var ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &ref));
+    const sel: CSelection = .{ .start = ref, .end = ref };
+    try testing.expectEqual(Result.success, terminal_c.set(t, .selection, &sel));
+
+    var ptr: ?[*]u8 = null;
+    var len: usize = 123;
+    try testing.expectEqual(Result.success, format_alloc(t, &failing, .{
+        .emit = .plain,
+        .unwrap = true,
+        .trim = true,
+    }, &ptr, &len));
+    defer @import("allocator.zig").free(&failing, ptr, len);
+    try testing.expectEqual(@as(usize, 0), len);
+    try testing.expectEqual(null, ptr);
 }
 
 test "selection_format_alloc uses active selection" {

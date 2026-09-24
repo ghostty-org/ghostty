@@ -31,23 +31,10 @@ over_link: bool,
 /// True if the mouse pointer is currently hidden.
 hidden: bool,
 
-/// Translates key state to mouse shape (cursor) state, based on a state
-/// machine.
-///
-/// There are 4 current states:
-///
-/// * text: starting state, displays a text bar.
-/// * default: default state when in a mouse tracking mode. (e.g. vim, etc).
-///   Displays an arrow pointer.
-/// * pointer: default state when over a link. Displays a pointing finger.
-/// * crosshair: any above state can transition to this when the rectangle
-///   select keys are pressed (ctrl/super+alt).
-///
-/// Additionally, default can transition back to text if one of the shift keys
-/// are pressed during mouse tracking mode.
-///
-/// Any secondary state transitions back to its default state when the
-/// appropriate keys are released.
+/// Translates key state to mouse shape, called during key events. This mainly
+/// handles overrides on key presses depending on whether or not we are in
+/// mouse tracking mode, however it is also responsible for resetting cursor
+/// state on any particular key releases.
 ///
 /// null is returned when the mouse shape does not need changing.
 pub fn keyToMouseShape(self: SurfaceMouse) ?MouseShape {
@@ -62,24 +49,10 @@ pub fn keyToMouseShape(self: SurfaceMouse) ?MouseShape {
         return null;
     }
 
-    // Set our current default state
-    var current_shape_state: MouseShape = undefined;
-    if (self.mouse_event != .none) {
-        // In mouse tracking mode, should be default (arrow pointer)
-        current_shape_state = .default;
-    } else {
-        // Default terminal mode, should be text (text bar)
-        current_shape_state = .text;
-    }
-
-    // Transition table.
-    //
-    // TODO: This could be updated eventually to be a true transition table if
-    // we move to a full stateful mouse surface, e.g. very specific inputs
-    // transitioning state based on previous state, versus flags like "is the
-    // mouse over a link", etc.
-    switch (current_shape_state) {
-        .default => {
+    // Handle possible overrides depending on mouse tracking state.
+    switch (self.mouse_event != .none) {
+        true => {
+            // In mouse tracking mode
             if (isMouseModeOverrideState(self.mods) and isRectangleSelectState(self.mods)) {
                 // Crosshair (rectangle select), only set if we are also
                 // overriding (e.g. shift+ctrl+alt)
@@ -87,23 +60,27 @@ pub fn keyToMouseShape(self: SurfaceMouse) ?MouseShape {
             } else if (isMouseModeOverrideState(self.mods)) {
                 // Normal override state
                 return .text;
-            } else {
-                return .default;
             }
         },
 
-        .text => {
+        false => {
+            // Default terminal mode
             if (isRectangleSelectState(self.mods)) {
                 // Crosshair (rectangle select)
                 return .crosshair;
-            } else {
+            } else if (isMouseModeOverrideState(self.mods)) {
+                // Shift shows an I-beam so selection is obvious even when
+                // the application cursor is not text (OSC 22). Release
+                // restores mouse_shape below.
                 return .text;
             }
         },
-
-        // Fall back on default state
-        else => unreachable,
     }
+
+    // No overrides means we just revert back to the stored terminal mouse
+    // shape. Note that this may be different than what has been currently sent
+    // to the apprt, so this will force the reset.
+    return self.mouse_shape;
 }
 
 fn eligibleMouseShapeKeyEvent(physical_key: input.Key) bool {
@@ -239,7 +216,7 @@ test "keyToMouseShape" {
     }
 
     {
-        // crosshair -> default (mouse tracking)
+        // no override restores the application shape (mouse tracking)
         const m: SurfaceMouse = .{
             .physical_key = .alt_left,
             .mouse_event = .x10,
@@ -249,7 +226,7 @@ test "keyToMouseShape" {
             .hidden = false,
         };
 
-        const want: MouseShape = .default;
+        const want: MouseShape = .crosshair;
         const got = m.keyToMouseShape();
         try testing.expect(want == got);
     }
@@ -266,22 +243,6 @@ test "keyToMouseShape" {
         };
 
         const want: MouseShape = .crosshair;
-        const got = m.keyToMouseShape();
-        try testing.expect(want == got);
-    }
-
-    {
-        // text -> default (mouse tracking)
-        const m: SurfaceMouse = .{
-            .physical_key = .shift_left,
-            .mouse_event = .x10,
-            .mouse_shape = .text,
-            .mods = .{},
-            .over_link = false,
-            .hidden = false,
-        };
-
-        const want: MouseShape = .default;
         const got = m.keyToMouseShape();
         try testing.expect(want == got);
     }
@@ -319,7 +280,7 @@ test "keyToMouseShape" {
     }
 
     {
-        // crosshair -> text (no mouse tracking)
+        // no override restores the application shape (no mouse tracking)
         const m: SurfaceMouse = .{
             .physical_key = .alt_left,
             .mouse_event = .none,
@@ -329,7 +290,7 @@ test "keyToMouseShape" {
             .hidden = false,
         };
 
-        const want: MouseShape = .text;
+        const want: MouseShape = .crosshair;
         const got = m.keyToMouseShape();
         try testing.expect(want == got);
     }

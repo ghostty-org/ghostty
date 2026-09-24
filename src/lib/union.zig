@@ -132,13 +132,7 @@ pub fn TaggedUnion(
 
         /// Returns the value type for the given tag.
         pub fn Value(comptime tag: Tag) type {
-            @setEvalBranchQuota(10000);
-            inline for (@typeInfo(Union).@"union".fields) |field| {
-                const field_tag = @field(Tag, field.name);
-                if (field_tag == tag) return field.type;
-            }
-
-            unreachable;
+            return @FieldType(Union, @tagName(tag));
         }
     };
 }

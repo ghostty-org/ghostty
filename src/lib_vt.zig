@@ -45,11 +45,13 @@ pub const sys = terminal.sys;
 /// don't have their own `Io` can use `TinyIo` (e.g.
 /// `(TinyIo.init).io()`) instead of `std.Io.Threaded` to avoid linking
 /// Threaded's full vtable (networking, process spawning, async
-/// machinery, etc.), which is worth roughly 110KB of binary size. See
-/// the TinyIo docs for the exact tradeoffs.
+/// machinery, etc.), which is worth roughly 110KB of binary size on
+/// macOS and 370KB on Windows. See the TinyIo docs for the exact
+/// tradeoffs.
 pub const TinyIo = @import("lib/TinyIo.zig");
 
 pub const apc = terminal.apc;
+pub const clipboard = terminal.clipboard;
 pub const dcs = terminal.dcs;
 pub const osc = terminal.osc;
 pub const point = terminal.point;
@@ -64,6 +66,7 @@ pub const parse_table = terminal.parse_table;
 pub const search = terminal.search;
 pub const sgr = terminal.sgr;
 pub const size = terminal.size;
+pub const snapshot = terminal.snapshot;
 pub const x11_color = terminal.x11_color;
 
 pub const Charset = terminal.Charset;
@@ -93,6 +96,10 @@ pub const TerminalStream = terminal.TerminalStream;
 pub const Stream = terminal.Stream;
 pub const StreamAction = terminal.StreamAction;
 pub const UnknownSequence = terminal.UnknownSequence;
+
+pub const Paste = terminal.Paste;
+pub const PasteSource = terminal.PasteSource;
+pub const PasteError = terminal.PasteError;
 pub const Cursor = Screen.Cursor;
 pub const CursorStyle = Screen.CursorStyle;
 pub const CursorStyleReq = terminal.CursorStyle;
@@ -127,8 +134,11 @@ pub const input = struct {
     // Paste-related APIs
     pub const PasteError = paste.Error;
     pub const PasteOptions = paste.Options;
+    pub const max_paste_frame_size = paste.max_frame_size;
     pub const isSafePaste = paste.isSafe;
+    pub const isSafePasteWith = paste.isSafeWith;
     pub const encodePaste = paste.encode;
+    pub const encodePasteWriter = paste.encodeWriter;
 
     // Key encoding
     pub const Key = key.Key;
@@ -206,6 +216,7 @@ comptime {
             @export(&c.focus_encode, .{ .name = "ghostty_focus_encode" });
             @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
             @export(&c.paste_encode, .{ .name = "ghostty_paste_encode" });
+            @export(&c.terminal_paste, .{ .name = "ghostty_terminal_paste" });
             @export(&c.mouse_event_new, .{ .name = "ghostty_mouse_event_new" });
             @export(&c.mouse_event_free, .{ .name = "ghostty_mouse_event_free" });
             @export(&c.mouse_event_set_action, .{ .name = "ghostty_mouse_event_set_action" });
@@ -339,6 +350,16 @@ comptime {
             @export(&c.selection_gesture_event_free, .{ .name = "ghostty_selection_gesture_event_free" });
             @export(&c.selection_gesture_event_set, .{ .name = "ghostty_selection_gesture_event_set" });
         }
+        if (features.search) {
+            @export(&c.search_new, .{ .name = "ghostty_search_new" });
+            @export(&c.search_free, .{ .name = "ghostty_search_free" });
+            @export(&c.search_tick, .{ .name = "ghostty_search_tick" });
+            @export(&c.search_feed, .{ .name = "ghostty_search_feed" });
+            @export(&c.search_run, .{ .name = "ghostty_search_run" });
+            @export(&c.search_set, .{ .name = "ghostty_search_set" });
+            @export(&c.search_get, .{ .name = "ghostty_search_get" });
+            @export(&c.search_get_multi, .{ .name = "ghostty_search_get_multi" });
+        }
         // Selections are expressed in grid references, so the untracked
         // reference constructors are required by both features.
         if (features.grid_introspection or features.selection) {
@@ -414,6 +435,15 @@ comptime {
 pub const std_options: std.Options = opts: {
     var options: std.Options = .{};
 
+    if (native_freestanding) {
+        // Freestanding targets don't have an OS page size. We still need an
+        // alignment for terminal page allocations, and 16 covers everything
+        // stored in a page without requiring 4 KiB-aligned embedded heaps.
+        options.page_size_min = 16;
+        options.page_size_max = 16;
+        options.allow_stack_tracing = false;
+    }
+
     if (builtin.target.cpu.arch.isWasm()) {
         // In non-debug modes, we want to ship effectively no logging
         // warn and lower add ~200KB at the time of this comment.
@@ -454,10 +484,14 @@ pub const std_options: std.Options = opts: {
 /// traces on panic, std.debug.print, etc.). These builds are for
 /// development, where the roughly 160KB of binary size it costs is
 /// worth it.
-const debug_machinery: bool = builtin.is_test or switch (builtin.mode) {
-    .Debug, .ReleaseSafe => true,
-    .ReleaseFast, .ReleaseSmall => false,
-};
+const native_freestanding = builtin.target.os.tag == .freestanding and
+    !builtin.target.cpu.arch.isWasm();
+
+const debug_machinery: bool = !native_freestanding and
+    (builtin.is_test or switch (builtin.mode) {
+        .Debug, .ReleaseSafe => true,
+        .ReleaseFast, .ReleaseSmall => false,
+    });
 
 /// The panic handler for when this file is the root module.
 ///

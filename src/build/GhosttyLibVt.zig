@@ -246,7 +246,9 @@ fn initLib(
 
         // Enable PIC so the static library can be linked into PIE
         // executables, which is the default on most Linux distributions.
-        lib.root_module.pic = true;
+        // Native freestanding targets don't have a dynamic loader and some,
+        // such as Xtensa, don't support PIC relocations.
+        lib.root_module.pic = target.result.os.tag != .freestanding;
     }
 
     if (target.result.os.tag == .windows) {

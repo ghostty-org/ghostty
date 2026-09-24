@@ -10,6 +10,7 @@ const UnicodeTables = @import("UnicodeTables.zig");
 const GhosttyFrameData = @import("GhosttyFrameData.zig");
 const DistResource = @import("GhosttyDist.zig").Resource;
 const gtk_helpers = @import("gtk.zig");
+const translate_c = @import("translate_c");
 
 config: *const Config,
 
@@ -75,6 +76,12 @@ pub fn init(b: *std.Build, cfg: *const Config) !SharedDeps {
         .tables_path = uucode_tables,
         .build_config_path = b.path("src/build/uucode_config.zig"),
     }).module("uucode");
+
+    // Re-export the uucode module so that Zig programs that embed libgtostty-vt
+    // can use it. This is necessary to use libraries like libvaxis in
+    // the embedding program that need uucode as well (libvaxis provides
+    // -Dexternal_uucode for this).
+    try b.modules.put(b.allocator, b.dupe("uucode"), uucode_mod);
 
     var result: SharedDeps = .{
         .config = cfg,
@@ -185,26 +192,11 @@ pub fn add(
     step.root_module.addImport("uucode", self.uucode_mod);
 
     // C imports for locale constants and functions
-    {
-        const c = b.addTranslateC(.{
-            .root_source_file = b.path("src/os/locale.c"),
-            .target = target,
-            .optimize = optimize,
-        });
-        if (target.result.os.tag.isDarwin()) {
-            const libc = try std.zig.LibCInstallation.findNative(
-                b.allocator,
-                b.graph.io,
-                .{
-                    .environ_map = &b.graph.environ_map,
-                    .target = &target.result,
-                    .verbose = false,
-                },
-            );
-            c.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
-        }
-        step.root_module.addImport("locale-c", c.createModule());
-    }
+    try translate_c.addImportToModule(b, "locale-c", step.root_module, .{
+        .source = .{ .file = b.path("src/os/locale.c") },
+        .target = target,
+        .optimize = optimize,
+    });
 
     // C imports needed to manage/create PTYs
     switch (target.result.os.tag) {
@@ -212,30 +204,29 @@ pub fn add(
         .linux,
         .macos,
         => {
-            const c = b.addTranslateC(.{
-                .root_source_file = b.path("src/pty.c"),
+            try translate_c.addImportToModule(b, "pty-c", step.root_module, .{
+                .source = .{ .file = b.path("src/pty.c") },
                 .target = target,
                 .optimize = optimize,
             });
-            switch (target.result.os.tag) {
-                .macos => {
-                    const libc = try std.zig.LibCInstallation.findNative(
-                        b.allocator,
-                        b.graph.io,
-                        .{
-                            .environ_map = &b.graph.environ_map,
-                            .target = &target.result,
-                            .verbose = false,
-                        },
-                    );
-                    c.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
-                },
-                else => {},
-            }
-            step.root_module.addImport("pty-c", c.createModule());
         },
         else => {},
     }
+
+    // POSIX C imports that are used throughout Ghostty on a general basis.
+    // (note: errno is C stdlib but we just include it here because that's
+    // where it's generally included otherwise)
+    try translate_c.addImportToModule(b, "posix_c", step.root_module, .{
+        .source = .{ .includes = .{ .files = &.{
+            .{ .path = "errno.h" },
+            .{ .path = "pwd.h" },
+            .{ .path = "signal.h" },
+            .{ .path = "sys/types.h" },
+            .{ .path = "unistd.h" },
+        } } },
+        .target = target,
+        .optimize = optimize,
+    });
 
     // Freetype. We always include this even if our font backend doesn't
     // use it because Dear Imgui uses Freetype.
@@ -466,6 +457,17 @@ pub fn add(
         } else |_| {}
     }
 
+    // nothings/stb headers
+    try translate_c.addImportToModule(b, "stb_c", step.root_module, .{
+        .source = .{ .includes = .{ .files = &.{
+            .{ .path = "stb_image.h" },
+            .{ .path = "stb_image_resize.h" },
+        } } },
+        .target = target,
+        .optimize = optimize,
+        .include_paths = &.{b.path("src/stb")},
+    });
+
     // C files
     step.root_module.link_libc = true;
     step.root_module.addIncludePath(b.path("src/stb"));
@@ -660,31 +662,30 @@ pub fn add(
             .flags = &.{},
         });
 
+        // Link EGL for GTK.
+        if (self.config.app_runtime == .gtk) {
+            step.root_module.addCSourceFile(.{
+                .file = b.path("vendor/glad/src/glad_egl.c"),
+                .flags = &.{},
+            });
+            step.root_module.linkSystemLibrary("egl", dynamic_link_opts);
+        }
+
         // When we're targeting flatpak we ALWAYS link GTK so we
         // get access to glib for dbus.
         if (self.config.flatpak) {
             step.root_module.linkSystemLibrary("gtk4", dynamic_link_opts);
 
             // We need to translate gio headers too
-            gio_translate: {
-                // translate-c stuff
-                const translate_c = b.lazyImport(@import("../../build.zig"), "translate_c") orelse
-                    break :gio_translate;
-                const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse
-                    break :gio_translate;
-                const translated: translate_c.Translator = .init(translate_c_dep, .{
-                    .c_source_file = b.addWriteFiles().add("gio_c.h",
-                        \\#include <gio/gio.h>
-                        \\#include <gio/gunixfdlist.h>
-                    ),
-                    .target = target,
-                    .optimize = optimize,
-                    .link_system_libs = &.{
-                        .{ .name = "gio-2.0", .options = dynamic_link_opts },
-                    },
-                });
-                step.root_module.addImport("gio_c", translated.mod);
-            }
+            try translate_c.addImportToModule(b, "gio_c", step.root_module, .{
+                .source = .{ .includes = .{ .files = &.{
+                    .{ .path = "gio/gio.h" },
+                    .{ .path = "gio/gunixfdlist.h" },
+                } } },
+                .target = target,
+                .optimize = optimize,
+                .link_system_libs = &.{"gio-2.0"},
+            });
         }
 
         switch (self.config.app_runtime) {
@@ -729,44 +730,36 @@ fn addGtkNg(
             step.root_module.addImport(name, gobject.module(module));
         }
     }
-    gtk_adw_translate: {
-        // translate-c stuff
-        const translate_c = b.lazyImport(@import("../../build.zig"), "translate_c") orelse break :gtk_adw_translate;
-        const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse break :gtk_adw_translate;
-        const Translator = translate_c.Translator;
 
-        {
-            // GTK headers
-            const translated: Translator = .init(translate_c_dep, .{
-                .c_source_file = b.addWriteFiles().add("gtk_c.h",
-                    \\#include <gtk/gtk.h>
-                ),
-                .target = target,
-                .optimize = optimize,
-                .link_system_libs = &.{
-                    .{ .name = "gtk4", .options = dynamic_link_opts },
-                },
-            });
-            step.root_module.addImport("gtk_c", translated.mod);
-        }
-        {
-            // Adwaita headers
-            const translated: Translator = .init(translate_c_dep, .{
-                .c_source_file = b.addWriteFiles().add("adw_c.h",
-                    \\#include <adwaita.h>
-                ),
-                .target = target,
-                .optimize = optimize,
-                .link_system_libs = &.{
-                    .{ .name = "libadwaita-1", .options = dynamic_link_opts },
-                },
-            });
-            step.root_module.addImport("adw_c", translated.mod);
-        }
-    }
+    // GTK C translation
+    try translate_c.addImportToModule(b, "gtk_c", step.root_module, .{
+        .source = .{ .includes = .{ .files = &.{.{ .path = "gtk/gtk.h" }} } },
+        .target = target,
+        .optimize = optimize,
+        .link_system_libs = &.{"gtk4"},
+    });
+
+    // Adwaita C translation
+    try translate_c.addImportToModule(b, "adw_c", step.root_module, .{
+        .source = .{ .includes = .{ .files = &.{.{ .path = "adwaita.h" }} } },
+        .target = target,
+        .optimize = optimize,
+        .link_system_libs = &.{"libadwaita-1"},
+    });
 
     if (self.config.x11) {
-        step.root_module.linkSystemLibrary("X11", dynamic_link_opts);
+        // X11 headers
+        try translate_c.addImportToModule(b, "x11_c", step.root_module, .{
+            .source = .{ .includes = .{ .files = &.{
+                .{ .path = "X11/Xlib.h" },
+                .{ .path = "X11/Xatom.h" },
+                .{ .path = "X11/XKBlib.h" },
+            } } },
+            .target = target,
+            .optimize = optimize,
+            .link_system_libs = &.{"X11"},
+        });
+
         if (gobject_) |gobject| {
             step.root_module.addImport(
                 "gdk_x11",
@@ -869,24 +862,19 @@ fn addGtkNg(
         step.root_module.linkSystemLibrary("wayland-client", dynamic_link_opts);
     }
 
-    ghostty_resources_translate: {
+    {
         // Get our gresource c/h files and add them to our build.
         const dist = gtkNgDistResources(b);
-        const translate_c = b.lazyImport(@import("../../build.zig"), "translate_c") orelse
-            break :ghostty_resources_translate;
-        const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse
-            break :ghostty_resources_translate;
-        const translated: translate_c.Translator = .init(translate_c_dep, .{
-            .c_source_file = b.addWriteFiles().add("c.h",
-                \\#include <ghostty_resources.h>
-            ),
+        const translated = try translate_c.init(b, .{
+            .source = .{ .includes = .{
+                .generated_name = "ghostty_gtk_resources_c.h",
+                .files = &.{.{ .path = "ghostty_resources.h" }},
+            } },
             .target = target,
             .optimize = optimize,
-            .link_system_libs = &.{
-                .{ .name = "glib-2.0", .options = dynamic_link_opts },
-            },
+            .link_system_libs = &.{"glib-2.0"},
+            .include_paths = &.{dist.resources_h.path(b).dirname()},
         });
-        translated.addIncludePath(dist.resources_h.path(b).dirname());
         translated.mod.addCSourceFile(.{ .file = dist.resources_c.path(b), .flags = &.{} });
         step.root_module.addImport("ghostty_gtk_resources", translated.mod);
     }
@@ -1010,14 +998,121 @@ pub fn addSimd(
     }
 }
 
-/// Creates the resources that can be prebuilt for our dist build.
-pub fn gtkNgDistResources(
-    b: *std.Build,
-) struct {
+pub const GtkNgResources = struct {
     resources_c: DistResource,
     resources_h: DistResource,
-} {
+};
+
+/// Memoized result of `gtkNgDistResources`, keyed on the `*std.Build`.
+/// The configure pass is single-threaded, so a file-scope map is enough.
+var gtk_ng_resources: std.AutoHashMapUnmanaged(*std.Build, GtkNgResources) = .empty;
+
+/// Creates the resources that can be prebuilt for our dist build.
+///
+/// Memoized because `add` calls this once per artifact that links GTK and
+/// `GhosttyDist` calls it too. Each call used to build its own copy of the
+/// whole pipeline, and since Zig's cache hashes input *paths* as well as
+/// contents, the copies did not share results downstream.
+pub fn gtkNgDistResources(b: *std.Build) GtkNgResources {
+    if (gtk_ng_resources.get(b)) |cached| return cached;
+    const resources = gtkNgDistResourcesUncached(b);
+    gtk_ng_resources.put(b.allocator, b, resources) catch @panic("OOM");
+    return resources;
+}
+
+fn gtkNgDistResourcesUncached(b: *std.Build) GtkNgResources {
     const gresource = @import("../apprt/gtk/build/gresource.zig");
+    const gresource_file_inputs = gresource.file_inputs;
+
+    // Compile every blueprint into one directory laid out as
+    // `{major}.{minor}/{name}.ui`, so that `glib-compile-resources` gets a
+    // single `--sourcedir` and the gresource XML needs no absolute paths.
+    //
+    // `blueprint-compiler` is run directly, not through a compiled wrapper.
+    // A run step hashes the bytes of the executable it runs, and a Zig
+    // binary does not relink to the same bytes (anonymous declaration
+    // numbering depends on compilation history), so a branch switch that
+    // touched the wrapper would move every `.ui`, re-run the gresource
+    // compiler and recompile the whole app for identical output. Run
+    // directly, a `.ui` depends only on its `.blp`.
+    const ui_dir = ui_dir: {
+        // The version checks, done once. This links libadwaita for the
+        // version macros and so relinks as described above, which is
+        // harmless: nothing reads its output, the compile steps only
+        // depend on it having succeeded.
+        const check_exe = b.addExecutable(.{
+            .name = "gtk_blueprint_check",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/apprt/gtk/build/blueprint.zig"),
+                .target = b.graph.host,
+                .link_libc = true,
+            }),
+        });
+
+        // Adwaita headers
+        translate_c.addImportToModule(b, "adw_c", check_exe.root_module, .{
+            .source = .{ .includes = .{ .files = &.{.{ .path = "adwaita.h" }} } },
+            .target = b.graph.host,
+            .optimize = .Debug,
+            .link_system_libs = &.{"libadwaita-1"},
+        }) catch unreachable;
+
+        // The headers have to satisfy the newest blueprint.
+        var required: struct { major: u16, minor: u16 } = .{ .major = 0, .minor = 0 };
+        for (gresource.blueprints) |bp| {
+            if (bp.major > required.major or
+                (bp.major == required.major and bp.minor > required.minor))
+            {
+                required = .{ .major = bp.major, .minor = bp.minor };
+            }
+        }
+
+        const check_run = b.addRunArtifact(check_exe);
+        check_run.addArgs(&.{
+            b.fmt("{d}", .{required.major}),
+            b.fmt("{d}", .{required.minor}),
+        });
+        // An output, so the check is cached instead of run every build.
+        _ = check_run.addOutputFileArg("blueprint-check.stamp");
+
+        // `WriteFile` hashes source paths as well as bytes, but these paths
+        // only move when a `.blp` changes, which reaches the gresource
+        // compiler regardless since the `.blp` files are its inputs too.
+        const ui_files = b.addWriteFiles();
+        for (gresource.blueprints) |bp| {
+            const sub_path = b.fmt("{d}.{d}/{s}.ui", .{
+                bp.major,
+                bp.minor,
+                bp.name,
+            });
+
+            const compile = b.addSystemCommand(&.{
+                "blueprint-compiler",
+                "compile",
+                "--output",
+            });
+            const ui_file = compile.addOutputFileArg(sub_path);
+            compile.addFileArg(b.path(b.fmt(
+                "{s}/{d}.{d}/{s}.blp",
+                .{
+                    gresource.ui_path,
+                    bp.major,
+                    bp.minor,
+                    bp.name,
+                },
+            )));
+            compile.step.dependOn(&check_run.step);
+
+            _ = ui_files.addCopyFile(ui_file, sub_path);
+        }
+
+        break :ui_dir ui_files.getDirectory();
+    };
+
+    // The gresource XML. Its only inputs are source tree files, so its path
+    // and contents are stable. The compiled `.ui` files are deliberately
+    // not inputs: it names them relative to the `--sourcedir` below, so no
+    // cache path ever appears in it.
     const gresource_xml = gresource_xml: {
         const xml_exe = b.addExecutable(.{
             .name = "generate_gresource_xml",
@@ -1028,96 +1123,61 @@ pub fn gtkNgDistResources(
         });
         const xml_run = b.addRunArtifact(xml_exe);
 
-        // Run our blueprint compiler across all of our blueprint files.
-        const blueprint_exe = b.addExecutable(.{
-            .name = "gtk_blueprint_compiler",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("src/apprt/gtk/build/blueprint.zig"),
-                .target = b.graph.host,
-                .link_libc = true,
-            }),
-        });
-        adw_translate: {
-            // Adwaita headers
-            const translate_c = b.lazyImport(@import("../../build.zig"), "translate_c") orelse break :adw_translate;
-            const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse break :adw_translate;
-            const translated: translate_c.Translator = .init(translate_c_dep, .{
-                .c_source_file = b.addWriteFiles().add("adw_c.h",
-                    \\#include <adwaita.h>
-                ),
-                .target = b.graph.host,
-                .optimize = .Debug,
-                .link_system_libs = &.{
-                    .{ .name = "libadwaita-1", .options = dynamic_link_opts },
-                },
-            });
-            blueprint_exe.root_module.addImport("adw_c", translated.mod);
-        }
-
-        for (gresource.blueprints) |bp| {
-            const blueprint_run = b.addRunArtifact(blueprint_exe);
-            blueprint_run.addArgs(&.{
-                b.fmt("{d}", .{bp.major}),
-                b.fmt("{d}", .{bp.minor}),
-            });
-            const ui_file = blueprint_run.addOutputFileArg(b.fmt(
-                "{d}.{d}/{s}.ui",
-                .{
-                    bp.major,
-                    bp.minor,
-                    bp.name,
-                },
-            ));
-            blueprint_run.addFileArg(b.path(b.fmt(
-                "{s}/{d}.{d}/{s}.blp",
-                .{
-                    gresource.ui_path,
-                    bp.major,
-                    bp.minor,
-                    bp.name,
-                },
-            )));
-
-            xml_run.addFileArg(ui_file);
-        }
+        // Named in the XML by relative path; the program only `access`es them.
+        for (gresource.file_inputs) |path| xml_run.addFileInput(b.path(path));
 
         break :gresource_xml xml_run.captureStdOut(.{});
     };
 
-    const generate_c = b.addSystemCommand(&.{
-        "glib-compile-resources",
-        "--c-name",
-        "ghostty",
-        "--generate-source",
-        "--target",
-    });
-    const resources_c = generate_c.addOutputFileArg("ghostty_resources.c");
-    generate_c.addFileArg(gresource_xml);
-    for (gresource.file_inputs) |path| {
-        generate_c.addFileInput(b.path(path));
-    }
+    const generate = struct {
+        fn step(
+            bb: *std.Build,
+            dir: std.Build.LazyPath,
+            xml: std.Build.LazyPath,
+            mode: []const u8,
+            name: []const u8,
+        ) std.Build.LazyPath {
+            const run = bb.addSystemCommand(&.{"glib-compile-resources"});
 
-    const generate_h = b.addSystemCommand(&.{
-        "glib-compile-resources",
-        "--c-name",
-        "ghostty",
-        "--generate-header",
-        "--target",
-    });
-    const resources_h = generate_h.addOutputFileArg("ghostty_resources.h");
-    generate_h.addFileArg(gresource_xml);
-    for (gresource.file_inputs) |path| {
-        generate_h.addFileInput(b.path(path));
-    }
+            // The build root for the icons and CSS, the collected directory
+            // for the compiled blueprints. Any `--sourcedir` replaces the
+            // default of the working directory, so the root must be named.
+            run.addArgs(&.{ "--sourcedir", "." });
+            run.addArg("--sourcedir");
+            run.addDirectoryArg(dir);
+
+            run.addArgs(&.{ "--c-name", "ghostty", mode, "--target" });
+            const out = run.addOutputFileArg(name);
+            run.addFileArg(xml);
+
+            // `glib-compile-resources` reads these itself, so they are
+            // inputs here as well as of the XML step.
+            for (gresource_file_inputs) |path| run.addFileInput(bb.path(path));
+
+            return out;
+        }
+    }.step;
 
     return .{
         .resources_c = .{
             .dist = "src/apprt/gtk/ghostty_resources.c",
-            .generated = resources_c,
+            .generated = generate(
+                b,
+                ui_dir,
+                gresource_xml,
+                "--generate-source",
+                "ghostty_resources.c",
+            ),
         },
         .resources_h = .{
             .dist = "src/apprt/gtk/ghostty_resources.h",
-            .generated = resources_h,
+            .generated = generate(
+                b,
+                ui_dir,
+                gresource_xml,
+                "--generate-header",
+                "ghostty_resources.h",
+            ),
         },
     };
 }

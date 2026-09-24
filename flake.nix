@@ -6,10 +6,10 @@
     # glibc versions used by our dependencies from Nix are compatible with the
     # system glibc that the user is building for.
     #
-    # We are currently on nixpkgs-unstable to get Zig 0.15 for our package.nix and
-    # Gnome 49/Gtk 4.20.
+    # We are currently on nixpkgs-unstable to get Zig 0.16 for our package.nix,
+    # Gnome 50/Gtk 4.22, and fontconfig 2.18.
     #
-    nixpkgs.url = "https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.xz";
+    nixpkgs.url = "https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.zst";
 
     # Used for shell.nix
     flake-compat = {
@@ -76,25 +76,7 @@
     devShells = forAllPlatforms (pkgs: {
       default =
         pkgs.callPackage ./nix/devShell.nix
-        (let
-          libfyaml =
-            if pkgs.stdenv.hostPlatform.isDarwin
-            then
-              pkgs.libfyaml.overrideAttrs (prev: {
-                # Manually fix libfyaml.pc until NixOS/nixpkgs#515614 is available
-                postInstall =
-                  (prev.postInstall or "")
-                  + ''
-                    substituteInPlace "$dev/lib/pkgconfig/libfyaml.pc" \
-                      --replace-fail " none required" ""
-                  '';
-              })
-            else pkgs.libfyaml;
-
-          appstream = pkgs.appstream.override {libfyaml = libfyaml;};
-          libadwaita = pkgs.libadwaita.override {appstream = appstream;};
-          blueprint-compiler = pkgs.blueprint-compiler.override {libadwaita = libadwaita;};
-        in {
+        {
           zig = zig.packages.${pkgs.stdenv.hostPlatform.system}."0.16.0";
           wraptest = pkgs.callPackage ./nix/pkgs/wraptest.nix {};
           zon2nix = zon2nix;
@@ -107,9 +89,7 @@
               wcwidth = pyfinal.callPackage ./nix/pkgs/wcwidth.nix {};
             };
           };
-
-          inherit appstream libadwaita blueprint-compiler;
-        });
+        };
     });
 
     packages =

@@ -88,6 +88,15 @@ pub const Options = struct {
         /// `ghostty_terminal_selection_*`, `ghostty_selection_gesture_*`.
         selection: bool = true,
 
+        /// Terminal search: find matches for a string in the active
+        /// area and scrollback (ASCII case-insensitive), with results
+        /// that survive primary/alternate screen switches, resize, and
+        /// scrollback pruning, plus match selection with wrap-around
+        /// and viewport scrolling. Used to implement find bars.
+        ///
+        /// C API: `ghostty_search_*`.
+        search: bool = true,
+
         /// The render state API: a coherent, update-in-place view of
         /// the visible screen (rows, cells, styles, cursor, colors,
         /// palette) designed to drive a renderer at frame rates. This
@@ -257,6 +266,16 @@ pub const Options = struct {
         }
     };
 
+    /// Whether the Kitty graphics feature is effectively enabled for
+    /// the given target. Kitty graphics requires the ability to get
+    /// timestamps and there is no way to do that on freestanding
+    /// targets, so it is always disabled there regardless of the
+    /// feature setting.
+    pub fn kittyGraphics(self: Options, target: std.Target) bool {
+        if (target.os.tag == .freestanding) return false;
+        return self.features.kitty_graphics;
+    }
+
     /// Add the required build options for the terminal module.
     ///
     /// The memory referenced by self is expected to stick around (it isn't
@@ -281,12 +300,10 @@ pub const Options = struct {
         inline for (@typeInfo(Features).@"struct".fields) |field| {
             var value = @field(self.features, field.name);
 
-            // Kitty graphics requires the ability to get timestamps and
-            // there is no way to do that on freestanding targets, so it
-            // is always disabled there regardless of the feature setting.
+            // Kitty graphics is force-disabled on some targets; see
+            // kittyGraphics for details.
             if (comptime std.mem.eql(u8, field.name, "kitty_graphics")) {
-                if (target.cpu.arch == .wasm32 and target.os.tag == .freestanding)
-                    value = false;
+                value = self.kittyGraphics(target);
             }
 
             opts.addOption(bool, field.name, value);

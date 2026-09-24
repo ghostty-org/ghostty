@@ -32,9 +32,10 @@
  * - @ref render "Render State" - Incremental render state updates for custom renderers
  * - @ref formatter "Formatter" - Format terminal content as plain text, VT sequences, or HTML
  * - @ref snapshot "Terminal Snapshot" - Encode and incrementally restore terminal state
+ * - @ref search "Search" - Search terminal contents, including scrollback
  * - @ref osc "OSC Parser" - Parse OSC (Operating System Command) sequences
  * - @ref sgr "SGR Parser" - Parse SGR (Select Graphic Rendition) sequences
- * - @ref paste "Paste Utilities" - Validate paste data safety
+ * - @ref paste "Paste" - Paste into a terminal, validate and encode paste data
  * - @ref unicode "Unicode Utilities" - Codepoint properties for text layout
  * - @ref build_info "Build Info" - Query compile-time build configuration
  * - @ref allocator "Memory Management" - Memory management and custom allocators
@@ -53,12 +54,13 @@
  * - @ref c-vt/src/main.c - OSC parser example
  * - @ref c-vt-encode-key/src/main.c - Key encoding example
  * - @ref c-vt-encode-mouse/src/main.c - Mouse encoding example
- * - @ref c-vt-paste/src/main.c - Paste safety check example
+ * - @ref c-vt-paste/src/main.c - Paste example
  * - @ref c-vt-sgr/src/main.c - SGR parser example
  * - @ref c-vt-formatter/src/main.c - Terminal formatter example
  * - @ref c-vt-grid-traverse/src/main.c - Grid traversal example using grid refs
  * - @ref c-vt-grid-ref-tracked/src/main.c - Tracked grid ref example
  * - @ref c-vt-compression/src/main.c - Idle scrollback compression example
+ * - @ref c-vt-search/src/main.c - Terminal search example
  *
  */
 
@@ -83,8 +85,10 @@
  */
 
 /** @example c-vt-paste/src/main.c
- * This example demonstrates how to use the paste utilities to check if
- * paste data is safe before sending it to the terminal.
+ * This example demonstrates how to paste into a terminal, including the
+ * unsafe-paste confirmation flow and Kitty clipboard protocol paste events
+ * (mode 5522), as well as the terminal-free paste safety and encoding
+ * utilities.
  */
 
 /** @example c-vt-sgr/src/main.c
@@ -123,6 +127,12 @@
  * PNG decoder callback and send a Kitty Graphics Protocol image.
  */
 
+/** @example c-vt-search/src/main.c
+ * This example demonstrates how to search terminal contents for a
+ * string, navigate between the matches like a find bar, and read the
+ * viewport matches used to draw highlights.
+ */
+
 #ifndef GHOSTTY_VT_H
 #define GHOSTTY_VT_H
 
@@ -154,6 +164,7 @@ extern "C" {
 #include <ghostty/vt/paste.h>
 #include <ghostty/vt/point.h>
 #include <ghostty/vt/screen.h>
+#include <ghostty/vt/search.h>
 #include <ghostty/vt/selection.h>
 #include <ghostty/vt/size_report.h>
 #include <ghostty/vt/snapshot.h>

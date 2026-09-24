@@ -86,7 +86,11 @@ fn openThread(io: std.Io, exe_: std.process.Child) void {
         var stream = stderr.readerStreaming(io, &buffer);
         const reader = &stream.interface;
         while (true) {
-            const line = reader.takeDelimiterExclusive('\n') catch |outer| switch (outer) {
+            // Read inclusively so the delimiter is consumed:
+            // takeDelimiterExclusive leaves the '\n' buffered, so once the
+            // child writes a line this loop would receive an empty slice
+            // forever, pinning a core and spamming empty warnings.
+            const line = reader.takeDelimiterInclusive('\n') catch |outer| switch (outer) {
                 error.EndOfStream => break,
                 error.ReadFailed => break,
                 error.StreamTooLong => reader.take(buffer.len) catch |inner| switch (inner) {
@@ -94,7 +98,7 @@ fn openThread(io: std.Io, exe_: std.process.Child) void {
                     error.EndOfStream => break,
                 },
             };
-            log.warn("open stderr={s}", .{line});
+            log.warn("open stderr={s}", .{std.mem.trimEnd(u8, line, "\n")});
         }
     }
     _ = exe.wait(io) catch {};

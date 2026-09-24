@@ -399,6 +399,12 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * time, before the image is stored. Consumers can upload this
    * directly to the GPU without any decode step.
    *
+   * For an animated image (Kitty graphics animation, actions a=f/a=a)
+   * this is the pixel data of the current animation frame. The
+   * image's GHOSTTY_KITTY_IMAGE_DATA_GENERATION changes whenever the
+   * current frame changes, so generation-keyed caches remain
+   * coherent.
+   *
    * Output type: const uint8_t **
    */
   GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR = 7,

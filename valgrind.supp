@@ -13,6 +13,15 @@
 # You must gracefully exit Ghostty (do not SIGINT) by closing all windows
 # and quitting. Otherwise, we leave a number of GTK resources around.
 
+# Zig's DEFLATE encoder intentionally increments an undefined base[0] entry
+# for unused Huffman symbols. The corresponding output code is also unused;
+# see the comment in std.compress.flate.Compress.huffman.buildValues.
+{
+   Zig std DEFLATE unused Huffman code
+   Memcheck:Cond
+   fun:compress.flate.Compress.huffman.buildValues
+}
+
 
 # Reproduction: 
 # 1. Launch Ghostty (no config)

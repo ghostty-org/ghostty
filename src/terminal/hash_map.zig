@@ -139,7 +139,17 @@ pub fn OffsetHashMap(
         /// This is the alignment that the base pointer must have.
         pub const base_align = Unmanaged.base_align;
 
+        /// The slot metadata in the backing memory. The map's size counter
+        /// sits immediately before it (see `Unmanaged.Header`).
         metadata: Offset(Unmanaged.Metadata) = .{},
+
+        /// The key and value arrays in the backing memory.
+        keys: Offset(K) = .{},
+        values: Offset(V) = .{},
+
+        /// The number of slots. This never changes after init, so it is
+        /// kept here rather than in the backing memory.
+        capacity: Unmanaged.Size = 0,
 
         /// Returns the total size of the backing memory required for a
         /// HashMap with the given capacity. The base ptr must also be
@@ -151,19 +161,35 @@ pub fn OffsetHashMap(
         /// Initialize a new HashMap with the given capacity and backing
         /// memory. The backing memory must be aligned to base_align.
         pub fn init(buf: OffsetBuf, l: Layout) Self {
-            assert(base_align.check(@intFromPtr(buf.start())));
+            const self = initAssumeZeroed(buf, l);
+            var m = self.map(buf);
+            m.clearRetainingCapacity();
+            return self;
+        }
 
-            const m = Unmanaged.init(buf, l);
-            return .{ .metadata = getOffset(
-                Unmanaged.Metadata,
-                buf,
-                @ptrCast(m.metadata.?),
-            ) };
+        /// Like `init`, but for backing memory that the caller guarantees
+        /// is already zero-filled (e.g. fresh OS pages). This writes
+        /// nothing to the backing memory: all-zero slot metadata means
+        /// every slot is free and a zero size counter means empty, so the
+        /// OS pages behind the map stay untouched until the first insert.
+        pub fn initAssumeZeroed(buf: OffsetBuf, l: Layout) Self {
+            assert(base_align.check(@intFromPtr(buf.start())));
+            return .{
+                .metadata = buf.member(Unmanaged.Metadata, l.metadata_start),
+                .keys = buf.member(K, l.keys_start),
+                .values = buf.member(V, l.vals_start),
+                .capacity = l.capacity,
+            };
         }
 
         /// Returns the pointer-based map from a base pointer.
         pub fn map(self: Self, base: anytype) Unmanaged {
-            return .{ .metadata = self.metadata.ptr(base) };
+            return .{
+                .metadata = self.metadata.ptr(base),
+                .keys = self.keys.ptr(base),
+                .values = self.values.ptr(base),
+                .cap = self.capacity,
+            };
         }
     };
 }
@@ -196,15 +222,21 @@ fn HashMapUnmanaged(
             val_align,
         ));
 
-        // This is actually a midway pointer to the single buffer containing
-        // a `Header` field, the `Metadata`s and `Entry`s.
-        // At `-@sizeOf(Header)` is the Header field.
-        // At `sizeOf(Metadata) * capacity + offset`, which is pointed to by
-        // self.header().entries, is the array of entries.
-        // This means that the hashmap only holds one live allocation, to
-        // reduce memory fragmentation and struct size.
-        /// Pointer to the metadata.
-        metadata: ?[*]Metadata = null,
+        // The backing buffer holds a `Header` (the size counter) followed
+        // by the `Metadata`s, then the keys and values arrays. Everything
+        // the map needs that does not change after init, the capacity and
+        // the entry pointers, lives in this struct instead of the buffer,
+        // so that a zero-filled buffer is a valid empty map and init never
+        // has to write to it.
+        /// Pointer to the slot metadata. The header sits right before it.
+        metadata: [*]Metadata,
+
+        /// The key and value arrays.
+        keys: [*]K,
+        values: [*]V,
+
+        /// The number of slots. Always zero or a power of two.
+        cap: Size,
 
         // This hashmap is specially designed for sizes that fit in a u32.
         pub const Size = u32;
@@ -223,11 +255,10 @@ fn HashMapUnmanaged(
             value: V,
         };
 
+        /// The part of the map's state that changes after init. It lives
+        /// in the backing buffer so that the map can be handed around by
+        /// value; its zero value is the empty map.
         const Header = struct {
-            /// The keys/values offset are relative to the metadata
-            values: Offset(V),
-            keys: Offset(K),
-            capacity: Size,
             size: Size,
         };
 
@@ -287,20 +318,20 @@ fn HashMapUnmanaged(
             index: Size = 0,
 
             pub fn next(it: *Iterator) ?Entry {
-                assert(it.index <= it.hm.capacity());
+                assert(it.index <= it.hm.cap);
                 if (it.hm.header().size == 0) return null;
 
-                const cap = it.hm.capacity();
-                const end = it.hm.metadata.? + cap;
-                var metadata = it.hm.metadata.? + it.index;
+                const cap = it.hm.cap;
+                const end = it.hm.metadata + cap;
+                var metadata = it.hm.metadata + it.index;
 
                 while (metadata != end) : ({
                     metadata += 1;
                     it.index += 1;
                 }) {
                     if (metadata[0].isUsed()) {
-                        const key = &it.hm.keys()[it.index];
-                        const value = &it.hm.values()[it.index];
+                        const key = &it.hm.keys[it.index];
+                        const value = &it.hm.values[it.index];
                         it.index += 1;
                         return Entry{ .key_ptr = key, .value_ptr = value };
                     }
@@ -344,22 +375,24 @@ fn HashMapUnmanaged(
         /// Initialize a hash map with a given capacity and a buffer. The
         /// buffer must fit within the size defined by `layoutForCapacity`.
         pub fn init(buf: OffsetBuf, layout: Layout) Self {
-            assert(base_align.check(@intFromPtr(buf.start())));
-
-            // Get all our main pointers
-            const metadata_buf = buf.rebase(@sizeOf(Header));
-            const metadata_ptr: [*]Metadata = @ptrCast(metadata_buf.start());
-
-            // Build our map
-            var map: Self = .{ .metadata = metadata_ptr };
-            const hdr = map.header();
-            hdr.capacity = layout.capacity;
-            hdr.size = 0;
-            if (@sizeOf([*]K) != 0) hdr.keys = metadata_buf.member(K, layout.keys_start);
-            if (@sizeOf([*]V) != 0) hdr.values = metadata_buf.member(V, layout.vals_start);
-            map.initMetadatas();
-
+            var map = initAssumeZeroed(buf, layout);
+            map.clearRetainingCapacity();
             return map;
+        }
+
+        /// Like `init`, but for a buffer that the caller guarantees is
+        /// already zero-filled. Nothing is written: an all-zero metadata
+        /// byte is a free slot (see `Metadata.isFree`) and a zero header
+        /// is an empty map. Behavior is undefined if the header and
+        /// metadata region is not zero.
+        pub fn initAssumeZeroed(buf: OffsetBuf, layout: Layout) Self {
+            assert(base_align.check(@intFromPtr(buf.start())));
+            return .{
+                .metadata = @ptrCast(buf.start() + layout.metadata_start),
+                .keys = buf.member(K, layout.keys_start).ptr(buf),
+                .values = buf.member(V, layout.vals_start).ptr(buf),
+                .cap = layout.capacity,
+            };
         }
 
         pub fn ensureTotalCapacity(self: *Self, new_size: Size) Allocator.Error!void {
@@ -373,10 +406,8 @@ fn HashMapUnmanaged(
         }
 
         pub fn clearRetainingCapacity(self: *Self) void {
-            if (self.metadata) |_| {
-                self.initMetadatas();
-                self.header().size = 0;
-            }
+            self.initMetadatas();
+            self.header().size = 0;
         }
 
         pub fn count(self: *const Self) Size {
@@ -384,28 +415,18 @@ fn HashMapUnmanaged(
         }
 
         fn header(self: *const Self) *Header {
-            return @ptrCast(@as([*]Header, @ptrCast(@alignCast(self.metadata.?))) - 1);
-        }
-
-        fn keys(self: *const Self) [*]K {
-            return self.header().keys.ptr(self.metadata.?);
-        }
-
-        fn values(self: *const Self) [*]V {
-            return self.header().values.ptr(self.metadata.?);
+            return @ptrCast(@as([*]Header, @ptrCast(@alignCast(self.metadata))) - 1);
         }
 
         pub fn capacity(self: *const Self) Size {
-            if (self.metadata == null) return 0;
-
-            return self.header().capacity;
+            return self.cap;
         }
 
         /// Maximum number of entries the map will hold. This is less than
         /// capacity when max_load_percentage is below 100, which keeps free
         /// slots in every probe chain and bounds probe lengths.
         pub fn maxLoad(self: *const Self) Size {
-            return maxLoadForCapacity(self.capacity());
+            return maxLoadForCapacity(self.cap);
         }
 
         pub fn iterator(self: *const Self) Iterator {
@@ -413,35 +434,19 @@ fn HashMapUnmanaged(
         }
 
         pub fn keyIterator(self: *const Self) KeyIterator {
-            if (self.metadata) |metadata| {
-                return .{
-                    .len = self.capacity(),
-                    .metadata = metadata,
-                    .items = self.keys(),
-                };
-            } else {
-                return .{
-                    .len = 0,
-                    .metadata = undefined,
-                    .items = undefined,
-                };
-            }
+            return .{
+                .len = self.cap,
+                .metadata = self.metadata,
+                .items = self.keys,
+            };
         }
 
         pub fn valueIterator(self: *const Self) ValueIterator {
-            if (self.metadata) |metadata| {
-                return .{
-                    .len = self.capacity(),
-                    .metadata = metadata,
-                    .items = self.values(),
-                };
-            } else {
-                return .{
-                    .len = 0,
-                    .metadata = undefined,
-                    .items = undefined,
-                };
-            }
+            return .{
+                .len = self.cap,
+                .metadata = self.metadata,
+                .items = self.values,
+            };
         }
 
         /// Insert an entry in the map. Assumes it is not already present.
@@ -481,21 +486,21 @@ fn HashMapUnmanaged(
             assert(!self.containsContext(key, ctx));
 
             // A free slot must exist for the probe below to terminate.
-            assert(self.header().size < self.capacity());
+            assert(self.header().size < self.cap);
 
             const hash = ctx.hash(key);
-            const mask = self.capacity() - 1;
+            const mask = self.cap - 1;
             var idx = @as(usize, @truncate(hash & mask));
 
-            var metadata = self.metadata.? + idx;
+            var metadata = self.metadata + idx;
             while (metadata[0].isUsed()) {
                 idx = (idx + 1) & mask;
-                metadata = self.metadata.? + idx;
+                metadata = self.metadata + idx;
             }
 
             metadata[0].fill(Metadata.takeFingerprint(hash));
-            self.keys()[idx] = key;
-            self.values()[idx] = value;
+            self.keys[idx] = key;
+            self.values[idx] = value;
             self.header().size += 1;
         }
 
@@ -550,8 +555,8 @@ fn HashMapUnmanaged(
         pub fn fetchRemoveContext(self: *Self, key: K, ctx: Context) ?KV {
             const idx = self.getIndex(key, ctx) orelse return null;
             const result = KV{
-                .key = self.keys()[idx],
-                .value = self.values()[idx],
+                .key = self.keys[idx],
+                .value = self.values[idx],
             };
             self.removeByIndexContext(idx, ctx);
             return result;
@@ -576,16 +581,16 @@ fn HashMapUnmanaged(
             if (@TypeOf(hash) != Hash) {
                 @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type! " ++ @typeName(Hash) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
             }
-            const mask = self.capacity() - 1;
+            const mask = self.cap - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
             // Don't loop indefinitely when there are no free slots.
-            var limit = self.capacity();
+            var limit = self.cap;
             var idx = @as(usize, @truncate(hash & mask));
 
-            var metadata = self.metadata.? + idx;
+            var metadata = self.metadata + idx;
             while (!metadata[0].isFree() and limit != 0) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
-                    const test_key = &self.keys()[idx];
+                    const test_key = &self.keys[idx];
                     // If you get a compile error on this line, it means that your generic eql
                     // function is invalid for these parameters.
                     const eql = ctx.eql(key, test_key.*);
@@ -601,7 +606,7 @@ fn HashMapUnmanaged(
 
                 limit -= 1;
                 idx = (idx + 1) & mask;
-                metadata = self.metadata.? + idx;
+                metadata = self.metadata + idx;
             }
 
             return null;
@@ -618,8 +623,8 @@ fn HashMapUnmanaged(
         pub fn getEntryAdapted(self: Self, key: anytype, ctx: anytype) ?Entry {
             if (self.getIndex(key, ctx)) |idx| {
                 return Entry{
-                    .key_ptr = &self.keys()[idx],
-                    .value_ptr = &self.values()[idx],
+                    .key_ptr = &self.keys[idx],
+                    .value_ptr = &self.values[idx],
                 };
             }
             return null;
@@ -647,7 +652,7 @@ fn HashMapUnmanaged(
         }
         pub fn getKeyPtrAdapted(self: Self, key: anytype, ctx: anytype) ?*K {
             if (self.getIndex(key, ctx)) |idx| {
-                return &self.keys()[idx];
+                return &self.keys[idx];
             }
             return null;
         }
@@ -663,7 +668,7 @@ fn HashMapUnmanaged(
         }
         pub fn getKeyAdapted(self: Self, key: anytype, ctx: anytype) ?K {
             if (self.getIndex(key, ctx)) |idx| {
-                return self.keys()[idx];
+                return self.keys[idx];
             }
             return null;
         }
@@ -679,7 +684,7 @@ fn HashMapUnmanaged(
         }
         pub fn getPtrAdapted(self: Self, key: anytype, ctx: anytype) ?*V {
             if (self.getIndex(key, ctx)) |idx| {
-                return &self.values()[idx];
+                return &self.values[idx];
             }
             return null;
         }
@@ -695,7 +700,7 @@ fn HashMapUnmanaged(
         }
         pub fn getAdapted(self: Self, key: anytype, ctx: anytype) ?V {
             if (self.getIndex(key, ctx)) |idx| {
-                return self.values()[idx];
+                return self.values[idx];
             }
             return null;
         }
@@ -724,8 +729,8 @@ fn HashMapUnmanaged(
                 // error, we could not add another.
                 const index = self.getIndex(key, key_ctx) orelse return err;
                 return GetOrPutResult{
-                    .key_ptr = &self.keys()[index],
-                    .value_ptr = &self.values()[index],
+                    .key_ptr = &self.keys[index],
+                    .value_ptr = &self.values[index],
                     .found_existing = true,
                 };
             };
@@ -753,15 +758,15 @@ fn HashMapUnmanaged(
             if (@TypeOf(hash) != Hash) {
                 @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type! " ++ @typeName(Hash) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
             }
-            const mask = self.capacity() - 1;
+            const mask = self.cap - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
-            var limit = self.capacity();
+            var limit = self.cap;
             var idx = @as(usize, @truncate(hash & mask));
 
-            var metadata = self.metadata.? + idx;
+            var metadata = self.metadata + idx;
             while (!metadata[0].isFree() and limit != 0) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
-                    const test_key = &self.keys()[idx];
+                    const test_key = &self.keys[idx];
                     // If you get a compile error on this line, it means that your generic eql
                     // function is invalid for these parameters.
                     const eql = ctx.eql(key, test_key.*);
@@ -773,7 +778,7 @@ fn HashMapUnmanaged(
                     if (eql) {
                         return GetOrPutResult{
                             .key_ptr = test_key,
-                            .value_ptr = &self.values()[idx],
+                            .value_ptr = &self.values[idx],
                             .found_existing = true,
                         };
                     }
@@ -781,7 +786,7 @@ fn HashMapUnmanaged(
 
                 limit -= 1;
                 idx = (idx + 1) & mask;
-                metadata = self.metadata.? + idx;
+                metadata = self.metadata + idx;
             }
 
             // The caller guaranteed capacity for at least one new entry, so
@@ -791,8 +796,8 @@ fn HashMapUnmanaged(
             assert(metadata[0].isFree());
 
             metadata[0].fill(fingerprint);
-            const new_key = &self.keys()[idx];
-            const new_value = &self.values()[idx];
+            const new_key = &self.keys[idx];
+            const new_value = &self.values[idx];
             new_key.* = undefined;
             new_value.* = undefined;
             self.header().size += 1;
@@ -839,10 +844,10 @@ fn HashMapUnmanaged(
         /// hole further along the cluster, until the cluster ends at a free
         /// slot.
         fn removeByIndexContext(self: *Self, idx: usize, ctx: Context) void {
-            const mask: usize = self.capacity() - 1;
-            const metadata = self.metadata.?;
-            const keys_ptr = self.keys();
-            const values_ptr = self.values();
+            const mask: usize = self.cap - 1;
+            const metadata = self.metadata;
+            const keys_ptr = self.keys;
+            const values_ptr = self.values;
 
             // A completely full table has no free slot to terminate the
             // scan, so bound it to one full cycle. That is sufficient: the
@@ -850,7 +855,7 @@ fn HashMapUnmanaged(
             // visited, so each entry needs to be considered exactly once.
             var hole = idx;
             var j = idx;
-            var limit = self.capacity() - 1;
+            var limit = self.cap - 1;
             while (limit != 0) : (limit -= 1) {
                 j = (j + 1) & mask;
                 if (metadata[j].isFree()) break;
@@ -904,7 +909,7 @@ fn HashMapUnmanaged(
             // map, which is assumed to exist as key_ptr must be valid.  This
             // item must be at index 0.
             const idx = if (@sizeOf(K) > 0)
-                (@intFromPtr(key_ptr) - @intFromPtr(self.keys())) / @sizeOf(K)
+                (@intFromPtr(key_ptr) - @intFromPtr(self.keys)) / @sizeOf(K)
             else
                 0;
 
@@ -912,7 +917,7 @@ fn HashMapUnmanaged(
         }
 
         fn initMetadatas(self: *Self) void {
-            @memset(@as([*]u8, @ptrCast(self.metadata.?))[0 .. @sizeOf(Metadata) * self.capacity()], 0);
+            @memset(@as([*]u8, @ptrCast(self.metadata))[0 .. @sizeOf(Metadata) * self.cap], 0);
         }
 
         /// Returns an error if the map cannot hold `new_count` more entries.
@@ -932,10 +937,15 @@ fn HashMapUnmanaged(
         }
 
         /// The memory layout for the underlying buffer for a given capacity.
+        /// All offsets are from the start of the buffer.
         const Layout = struct {
             /// The total size of the buffer required. The buffer is expected
             /// to be aligned to `base_align`.
             total_size: usize,
+
+            /// The offset to the start of the slot metadata. The header
+            /// occupies the bytes before it.
+            metadata_start: usize,
 
             /// The offset to the start of the keys data.
             keys_start: usize,
@@ -958,9 +968,9 @@ fn HashMapUnmanaged(
             // See: https://github.com/ziglang/zig/pull/19048
             const cap: usize = new_capacity;
 
-            // Pack our metadata, keys, and values.
+            // Pack our header, metadata, keys, and values.
             const meta_start = @sizeOf(Header);
-            const meta_end = @sizeOf(Header) + cap * @sizeOf(Metadata);
+            const meta_end = meta_start + cap * @sizeOf(Metadata);
             const keys_start = std.mem.alignForward(usize, meta_end, key_align);
             const keys_end = keys_start + cap * @sizeOf(K);
             const vals_start = std.mem.alignForward(usize, keys_end, val_align);
@@ -974,16 +984,11 @@ fn HashMapUnmanaged(
                 base_align.toByteUnits(),
             );
 
-            // The offsets we actually store in the map are from the
-            // metadata pointer so that we can use self.metadata as
-            // the base.
-            const keys_offset = keys_start - meta_start;
-            const vals_offset = vals_start - meta_start;
-
             return .{
                 .total_size = total_size,
-                .keys_start = keys_offset,
-                .vals_start = vals_offset,
+                .metadata_start = meta_start,
+                .keys_start = keys_start,
+                .vals_start = vals_start,
                 .capacity = new_capacity,
             };
         }
@@ -1033,13 +1038,13 @@ fn expectCanonical(map: anytype, ctx: anytype) !void {
     const mask = cap - 1;
     var used: usize = 0;
     for (0..cap) |idx| {
-        const metadata = map.metadata.?[idx];
+        const metadata = map.metadata[idx];
         if (!metadata.isUsed()) continue;
         used += 1;
 
-        var probe: usize = @truncate(ctx.hash(map.keys()[idx]) & mask);
+        var probe: usize = @truncate(ctx.hash(map.keys[idx]) & mask);
         while (probe != idx) : (probe = (probe + 1) & mask) {
-            try expect(map.metadata.?[probe].isUsed());
+            try expect(map.metadata[probe].isUsed());
         }
     }
     try expectEqual(map.count(), used);

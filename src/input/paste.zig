@@ -1,6 +1,14 @@
 const std = @import("std");
 const Terminal = @import("../terminal/Terminal.zig");
 
+/// The bracketed paste (mode 2004) frame written around the data.
+pub const bracketed_prefix = "\x1b[200~";
+pub const bracketed_suffix = "\x1b[201~";
+
+/// The maximum number of bytes `encode` adds around the data, so callers
+/// can size a buffer for the full encoded result.
+pub const max_frame_size = bracketed_prefix.len + bracketed_suffix.len;
+
 pub const Options = struct {
     /// True if bracketed paste mode is on.
     bracketed: bool,
@@ -93,8 +101,8 @@ pub fn encode(
     // Bracketed paste mode (mode 2004) wraps pasted data in
     // fenceposts so that the terminal can ignore things like newlines.
     if (opts.bracketed) {
-        result[0] = "\x1b[200~";
-        result[2] = "\x1b[201~";
+        result[0] = bracketed_prefix;
+        result[2] = bracketed_suffix;
         return result;
     }
 
@@ -116,6 +124,42 @@ pub const Error = error{
     MutableRequired,
 };
 
+/// Encode the given data for pasting directly into a writer. This is
+/// the same transformation as `encode` (unsafe bytes replaced, bracketed
+/// frame or newline conversion per `opts`) but the data is copied
+/// exactly once: into the writer's buffer, where it is modified in place.
+/// This is the form to use when the data is const and the result is
+/// being assembled into a single buffer anyway.
+///
+/// The data is copied in chunks sized to the writer's buffer, so any
+/// writer works; a writer with less total capacity than the writer
+/// needs to hold at once reports `error.WriteFailed` as usual.
+///
+/// WARNING: The input data is not checked for safety. See `isSafe`
+/// and `isSafeWith` to check if the data is safe to paste.
+pub fn encodeWriter(
+    writer: *std.Io.Writer,
+    data: []const u8,
+    opts: Options,
+) std.Io.Writer.Error!void {
+    if (opts.bracketed) try writer.writeAll(bracketed_prefix);
+
+    // The byte transformations are position-independent, so the data
+    // can be copied and encoded chunk by chunk. The frame returned by
+    // encode is ignored since it's written around the whole data here.
+    var remaining = data;
+    while (remaining.len > 0) {
+        const dest = try writer.writableSliceGreedy(1);
+        const n = @min(dest.len, remaining.len);
+        @memcpy(dest[0..n], remaining[0..n]);
+        _ = encode(dest[0..n], opts);
+        writer.advance(n);
+        remaining = remaining[n..];
+    }
+
+    if (opts.bracketed) try writer.writeAll(bracketed_suffix);
+}
+
 /// Returns true if the data looks safe to paste. Data is considered
 /// unsafe if it contains any of the following:
 ///
@@ -133,12 +177,132 @@ pub fn isSafe(data: []const u8) bool {
         std.mem.indexOf(u8, data, "\x1b[201~") == null;
 }
 
+/// Returns true if the data looks safe to paste given how it will be
+/// encoded. This is the terminal-state-aware counterpart of `isSafe`:
+///
+/// - Bracketed (mode 2004 on): the program receives the data as one
+///   framed unit, so newlines are fine. The data is unsafe only if it
+///   contains the end of the frame (`\x1b[201~`), which would let the
+///   rest of the data escape the frame and inject commands.
+/// - Unbracketed: the same rule as `isSafe`.
+///
+/// Callers wanting the conservative rule regardless of terminal state
+/// should use `isSafe` instead.
+pub fn isSafeWith(data: []const u8, opts: Options) bool {
+    if (opts.bracketed) return std.mem.indexOf(u8, data, bracketed_suffix) == null;
+    return isSafe(data);
+}
+
 test isSafe {
     const testing = std.testing;
     try testing.expect(isSafe("hello"));
     try testing.expect(!isSafe("hello\n"));
     try testing.expect(!isSafe("hello\nworld"));
     try testing.expect(!isSafe("he\x1b[201~llo"));
+}
+
+test isSafeWith {
+    const testing = std.testing;
+
+    // Bracketed: newlines are fine, the frame terminator is not.
+    try testing.expect(isSafeWith("hello", .{ .bracketed = true }));
+    try testing.expect(isSafeWith("hello\nworld", .{ .bracketed = true }));
+    try testing.expect(!isSafeWith("he\x1b[201~llo", .{ .bracketed = true }));
+    try testing.expect(!isSafeWith("hello\n\x1b[201~", .{ .bracketed = true }));
+
+    // Unbracketed: the conservative rule.
+    try testing.expect(isSafeWith("hello", .{ .bracketed = false }));
+    try testing.expect(!isSafeWith("hello\nworld", .{ .bracketed = false }));
+    try testing.expect(!isSafeWith("he\x1b[201~llo", .{ .bracketed = false }));
+}
+
+test "encodeWriter bracketed" {
+    const testing = std.testing;
+    var buf: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try encodeWriter(&writer, "hel\x1blo\nworld", .{ .bracketed = true });
+    try testing.expectEqualStrings("\x1b[200~hel lo\nworld\x1b[201~", writer.buffered());
+}
+
+test "encodeWriter unbracketed" {
+    const testing = std.testing;
+    var buf: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try encodeWriter(&writer, "hel\x00lo\r\nworld", .{ .bracketed = false });
+    try testing.expectEqualStrings("hel lo\r\rworld", writer.buffered());
+}
+
+test "encodeWriter empty" {
+    const testing = std.testing;
+    var buf: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try encodeWriter(&writer, "", .{ .bracketed = true });
+    try testing.expectEqualStrings("\x1b[200~\x1b[201~", writer.buffered());
+    writer = .fixed(&buf);
+    try encodeWriter(&writer, "", .{ .bracketed = false });
+    try testing.expectEqualStrings("", writer.buffered());
+}
+
+test "encodeWriter chunks through a small writer buffer" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // A writer with a 4-byte staging buffer that drains into a list,
+    // so the data is copied and encoded in several chunks.
+    const Sink = struct {
+        list: std.ArrayList(u8) = .empty,
+        writer: std.Io.Writer,
+
+        fn drain(
+            w: *std.Io.Writer,
+            data: []const []const u8,
+            splat: usize,
+        ) std.Io.Writer.Error!usize {
+            const self: *@This() = @alignCast(@fieldParentPtr("writer", w));
+            self.list.appendSlice(testing.allocator, w.buffered()) catch return error.WriteFailed;
+            w.end = 0;
+            var n: usize = 0;
+            for (data[0 .. data.len - 1]) |slice| {
+                self.list.appendSlice(testing.allocator, slice) catch return error.WriteFailed;
+                n += slice.len;
+            }
+            for (0..splat) |_| {
+                self.list.appendSlice(testing.allocator, data[data.len - 1]) catch return error.WriteFailed;
+            }
+            return n + splat * data[data.len - 1].len;
+        }
+    };
+
+    var staging: [4]u8 = undefined;
+    var sink: Sink = .{ .writer = .{
+        .buffer = &staging,
+        .vtable = &.{ .drain = Sink.drain },
+    } };
+    defer sink.list.deinit(alloc);
+
+    const data = "line one\nline\x1btwo\nline three\n";
+    try encodeWriter(&sink.writer, data, .{ .bracketed = true });
+    try sink.writer.flush();
+    try testing.expectEqualStrings(
+        "\x1b[200~line one\nline two\nline three\n\x1b[201~",
+        sink.list.items,
+    );
+}
+
+test "encodeWriter too small" {
+    const testing = std.testing;
+    var buf: [4]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try testing.expectError(
+        error.WriteFailed,
+        encodeWriter(&writer, "hello", .{ .bracketed = true }),
+    );
+}
+
+test max_frame_size {
+    const testing = std.testing;
+    const result = try encode(@as([]const u8, ""), .{ .bracketed = true });
+    try testing.expectEqual(max_frame_size, result[0].len + result[2].len);
 }
 
 test "encode bracketed" {

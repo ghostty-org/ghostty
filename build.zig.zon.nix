@@ -21,7 +21,7 @@
     ''
       # workaround https://codeberg.org/ziglang/zig/issues/31866
       # https://github.com/Cloudef/zig2nix/issues/54
-      mkdir "$TMPDIR/src" "$TMPDIR/cache"
+      mkdir "$TMPDIR/src" "$TMPDIR/cache" "$TMPDIR/cache/tmp"
       touch "$TMPDIR/src/build.zig"
       hash="$(cd "$TMPDIR/src" && zig fetch --global-cache-dir "$TMPDIR/cache" ${artifact})"
       mkdir "$out"
@@ -95,14 +95,66 @@
     };
   in
     fetcher.${proto};
-in
-  linkFarm name [
+  # The packages, as real directories holding symlinked files, rather than as
+  # a farm of symlinked directories.
+  #
+  # Zig runs a dependency's own build steps with the working directory set to
+  # that dependency, and points at the program to run with a path counted in
+  # directories up from there. Through a symlink the two disagree: Zig counts
+  # from `<farm>/<package>/`, four directories below the root, while the kernel
+  # resolves the working directory to `/nix/store/<hash>`, which is three, so
+  # the path lands one short of where the program is.
+  #
+  # It works anyway when the build directory is `/build`, because the sum then
+  # overshoots into the root and going above the root stays there. It fails
+  # when the build directory is under `/nix/var/nix/builds`, which is where Nix
+  # puts it when the sandbox is off. Real directories make the two depths
+  # agree, so it works either way.
+  #
+  # The files have to be real as well, which is the expensive part and cannot
+  # be avoided. `--symbolic-link` would leave them pointing into each
+  # dependency's own store path, so that the farm is a few megabytes rather
+  # than a second copy of every dependency -- but Zig's
+  # `installHeadersDirectory` walks the directory and copies only the entries
+  # whose kind is `.file`. Symlinked headers are skipped without a word, and
+  # the first thing to include one fails with `'dcimgui.h' not found`.
+  #
+  # `--link` is not the way out. A hard link into a Nix output is a file the
+  # builder did not create: inside the Linux sandbox the store is a separate
+  # mount and `link` fails with `Invalid cross-device link`, while on Darwin it
+  # succeeds and leaves root-owned files in the output, which Nix refuses while
+  # canonicalising with `invalid ownership on file`.
+  #
+  # So it is a real copy, with `--reflink=auto` to share the blocks on a
+  # filesystem that can. `nix store optimise` recovers the duplication after
+  # the fact, hard-linking identical files across the store, which is the
+  # store's own business to do and not a build's.
+  copyFarm = farm: entries: pathDependencyPackages:
+    runCommandLocal farm
     {
-      name = "aro-0.0.0-JSD1Qk8rOQDnuVcD4jAwMpHitA6pADRKzQ7M7hKRwxvD";
+      # The packages whose own manifest declares a dependency by `.path`.
+      # Zig 0.16.0 cannot build these through `zig build --system`: it spins
+      # in userspace forever, because a `.path` dependency's hash is computed
+      # against the system package directory during the fetch and against the
+      # real global cache afterwards, and in that mode the two disagree. A
+      # package that wants `--system` copies each of these into its build
+      # root and passes `--fork=`; see the README.
+      passthru = {inherit pathDependencyPackages;};
+    }
+    ''
+      mkdir -p "$out"
+      cp --recursive --reflink=auto --dereference --no-preserve=mode \
+        ${linkFarm farm entries}/. "$out/"
+    '';
+in
+  copyFarm name
+  [
+    {
+      name = "aro-0.0.0-JSD1Qk6lNgDdcDV4Vh7Sfy-34m2TluIVOdPzMmj_0BjX";
       path = fetchZigArtifact {
         name = "aro";
-        url = "https://github.com/vancluever/arocc/archive/ecbc5c799574e0da2758a961b12efa586007f03c.tar.gz";
-        hash = "sha256-rjNfhWjmA/1WR/xuHo4ls4fnDCbsI1VZSvb8SFRvwso=";
+        url = "https://github.com/vancluever/arocc/archive/f97cdfc3779aec4b242299e2fc9a1c828c3547c6.tar.gz";
+        hash = "sha256-G/NNgk7KhJSLdy17ip1igIzpYhAUlzO7ef8r3/iCv/s=";
         unpack = true;
       };
     }
@@ -125,11 +177,11 @@ in
       };
     }
     {
-      name = "N-V-__8AAIrfdwARSa-zMmxWwFuwpXf1T3asIN7s5jqi9c1v";
+      name = "N-V-__8AAOgqbADacob-q2_DMQlmgaG4xKHRuW-6PJ4oJzMZ";
       path = fetchZigArtifact {
         name = "fontconfig";
-        url = "https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz";
-        hash = "sha256-O6LdkhWHGKzsXKrxpxYEO1qgVcJ7CB2RSvPMtA3OilU=";
+        url = "https://gitlab.freedesktop.org/api/v4/projects/890/packages/generic/fontconfig/2.18.3/fontconfig-2.18.3.tar.xz";
+        hash = "sha256-T3tVSjjN94wDP2ZsiHHzdJ4UoJT2Wgf2MMke0LQ9NeM=";
         unpack = false;
       };
     }
@@ -164,7 +216,7 @@ in
       name = "gobject-0.3.2-Skun7F6HogCMynX2JqeSHS7xr-8pK4ob-qRFIcEasVi3";
       path = fetchZigArtifact {
         name = "gobject";
-        url = "https://github.com/ghostty-org/zig-gobject/releases/download/0.10.0-2026-07-28-36-1/ghostty-gobject-0.10.0-2026-07-28-36-1.tar.zst";
+        url = "https://deps.files.ghostty.org/gobject-2026-07-28-36-1.tar.zst";
         hash = "sha256-dyCfm2XjiAk30zccjD6AgKFBdE7IRsJuoqnscfvnWSQ=";
         unpack = true;
       };
@@ -206,11 +258,11 @@ in
       };
     }
     {
-      name = "N-V-__8AAPpcBAD4_75xLBbLiYqdojOwQP74eoWmpL3jPrBl";
+      name = "N-V-__8AAEFmBABuDGOKxAI6VMg41b9euMZ-z7HS9EcUdaor";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://deps.files.ghostty.org/ghostty-themes-release-20260810-152212-0173c3c.tgz";
-        hash = "sha256-6ph4RxQg7lsS5/L/SACZyVTqUOVzob34P0PhBcm+Y/A=";
+        url = "https://deps.files.ghostty.org/ghostty-themes-release-20260831-151010-752a9c0.tgz";
+        hash = "sha256-g2U+uDe661v8fVDJG31EdyeW4IwcJDE04Rxe32yNFcU=";
         unpack = false;
       };
     }
@@ -305,11 +357,11 @@ in
       };
     }
     {
-      name = "translate_c-0.0.0-Q_BUWmU6BwB_9JKG2l2W7i_mhmYWeRseTGBEHi_YlV5f";
+      name = "translate_c-0.0.0-Q_BUWhVNBwDOEcIqub4VFPJPB6D9dgwzUMHTX5KWr8Xr";
       path = fetchZigArtifact {
         name = "translate_c";
-        url = "https://deps.files.ghostty.org/translate_c-80f8b6e4f45a303268717d8e5f4f91d7837138bb.tar.gz";
-        hash = "sha256-fB7OsZ2PIijMzVMYg8SzDBtTKX7IZHbEvPuBTdyGtWk=";
+        url = "https://codeberg.org/vancluever/translate-c/archive/4e879eb8aba615de112eabd1231ea6e01920cead.tar.gz";
+        hash = "sha256-/sT7W8Kp+O11xaFBgpb/kDiWzfQ0MuXk/d/TuGq1Am8=";
         unpack = true;
       };
     }
@@ -368,11 +420,11 @@ in
       };
     }
     {
-      name = "N-V-__8AAAzZywE3s51XfsLbP9eyEw57ae9swYB9aGB6fCMs";
+      name = "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI";
       path = fetchZigArtifact {
         name = "wuffs";
-        url = "https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd.tar.gz";
-        hash = "sha256-nkzSCr6W5sTG7enDBXEIhgEm574uLD41UVR2wlC+HBM=";
+        url = "https://deps.files.ghostty.org/wuffs-7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz";
+        hash = "sha256-F4d9NG95iGUdbGLkWy47BchoCaZELF40YSN0sqlxmhw=";
         unpack = false;
       };
     }
@@ -439,4 +491,6 @@ in
         unpack = false;
       };
     }
+  ]
+  [
   ]

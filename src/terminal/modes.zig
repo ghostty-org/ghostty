@@ -8,6 +8,8 @@
 //! to ensure all our various types and logic remain in sync.
 
 const std = @import("std");
+const builtin = @import("builtin");
+const build_options = @import("terminal_options");
 const testing = std.testing;
 
 /// A struct that maintains the state of all the settable modes.
@@ -74,7 +76,7 @@ pub const ModeState = struct {
 
     /// Return a DECRPM report for the given mode tag. If the tag does
     /// not correspond to a known mode, the report state is .not_recognized.
-    pub fn getReport(self: *const ModeState, tag: ModeTag) Report {
+    pub fn getReport(self: *const ModeState, tag: Report.Tag) Report {
         // DECECM (Erase Color Mode, DEC private mode 117) controls whether erasing
         // and scrolling use the default background or the active background color.
         // Ghostty's behavior is fixed equivalent to DECECM reset, and DECRQM has a
@@ -189,14 +191,27 @@ pub fn modeFromInt(v: u16, ansi: bool) ?Mode {
 
 /// A DECRPM mode report response.
 pub const Report = struct {
-    tag: ModeTag,
+    tag: Tag,
     state: State,
+
+    /// A query identifier can use the full parser parameter range. Keep it
+    /// separate from ModeTag, which packs supported modes and the ANSI flag
+    /// into a u16 and is also used by the public C API.
+    pub const Tag = struct {
+        value: u16,
+        ansi: bool = false,
+
+        pub fn fromMode(mode: Mode) Tag {
+            const tag = ModeTag.fromMode(mode);
+            return .{ .value = tag.value, .ansi = tag.ansi };
+        }
+    };
 
     pub const max_size = max_size: {
         // Construct the largest possible report in terms of values.
         const report: Report = .{
             .tag = .{
-                .value = std.math.maxInt(u15),
+                .value = std.math.maxInt(u16),
                 .ansi = false,
             },
             .state = .permanently_reset,
@@ -327,6 +342,17 @@ const entries: []const ModeEntry = &.{
     .{ .name = "report_color_scheme", .value = 2031 },
     .{ .name = "report_visibility", .value = 2033, .default_configurable = false },
     .{ .name = "in_band_size_reports", .value = 2048 },
+    // Kitty clipboard protocol paste events. When set, a user-initiated
+    // paste sends an unsolicited OSC 5522 targets listing with a
+    // one-time password instead of pasting the text.
+    // See https://sw.kovidgoyal.net/kitty/clipboard/
+    .{
+        .name = "kitty_paste_events",
+        .value = 5522,
+        // The macOS app and libghostty-vt can both serve the follow-up
+        // Kitty clipboard read that a paste event grants.
+        .disabled = build_options.artifact != .lib and builtin.os.tag != .macos,
+    },
 };
 
 test {
@@ -446,4 +472,26 @@ test "Report.encode not recognized" {
     const report: Report = .{ .tag = .{ .value = 9999, .ansi = false }, .state = .not_recognized };
     try report.encode(&writer);
     try testing.expectEqualStrings("\x1B[?9999;0$y", writer.buffered());
+}
+
+test "getReport large unknown modes" {
+    const state: ModeState = .{};
+    // These would alias ANSI insert mode and fixed-status DEC mode 117.
+    for ([_]Report.Tag{
+        .{ .value = 32772, .ansi = true },
+        .{ .value = 32885 },
+    }) |tag| {
+        const report = state.getReport(tag);
+        try testing.expectEqual(Report.State.not_recognized, report.state);
+        try testing.expectEqualDeep(tag, report.tag);
+    }
+}
+
+test "Report.encode maximum size" {
+    var buf: [Report.max_size]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    const report: Report = .{ .tag = .{ .value = 65535 }, .state = .permanently_reset };
+    try report.encode(&writer);
+    try testing.expectEqualStrings("\x1b[?65535;4$y", writer.buffered());
+    try testing.expectEqual(buf.len, writer.buffered().len);
 }

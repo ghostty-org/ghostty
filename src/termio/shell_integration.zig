@@ -407,7 +407,7 @@ fn setupBash(
     }
 
     // Return a copy of our modified command line to use as the shell command.
-    return .{ .shell = try alloc.dupeZ(u8, try cmd.toOwnedSlice()) };
+    return .{ .shell = try alloc.dupeZ(u8, cmd.buffer.written()) };
 }
 
 test "bash" {
@@ -839,7 +839,7 @@ fn setupNushell(
     }
 
     // Return a copy of our modified command line to use as the shell command.
-    return .{ .shell = try alloc.dupeZ(u8, try cmd.toOwnedSlice()) };
+    return .{ .shell = try alloc.dupeZ(u8, cmd.buffer.written()) };
 }
 
 test "nushell" {

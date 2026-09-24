@@ -46,11 +46,13 @@ alexfeijoo44
 alexjuca
 alosarjos
 amadeus
+and-rs
 andrejdaskalov
 anhthang
 anmitalidev
 anthonyzhoon
 aprilnea
+arneshbanerjee
 arvin7liu
 athaapa
 atomk
@@ -73,6 +75,7 @@ bo2themax
 bousii
 brentschroeter
 brianc442
+by-nelson
 c0x0o
 carldaws
 carlvillads
@@ -98,6 +101,7 @@ deblasis
 dervedro
 devsunb
 diaaeddin
+-didouougha slingshotting LLM output
 diego-moment
 diegoarmstrong
 dkinzler
@@ -146,16 +150,20 @@ hakonhagland
 halosatrio
 heaths
 heddxh heddxh
+helium777
 -highimpact-dev Disrespectful AI user
 hlcfan
 hqnna
 hulet
 i999rri
+ibaios
 icodesign
 illiakrauchanka
+j-c-m
 j0hnm4r5
 jacobsandlund
 jake-stewart
+jakeriksen
 -jamesarch Bad AI etiquette
 jamylak
 jarred-sumner
@@ -168,8 +176,10 @@ johnslavik
 jordandm
 josephmart
 jparise
+juaniraggio
 juniqlim
 justonia
+jzillmann
 karesansui-u
 kataokatsuki
 kawarimidoll
@@ -179,10 +189,12 @@ khipp
 kierancanter
 kirwiisp
 kjvdven
+kleshzz
 kloneets
 knu
 -kody-w
 koranir
+korikhin
 kostich
 kristina8888
 kristofersoler
@@ -207,6 +219,7 @@ marrocco-simone
 masterflitzer
 matkotiric
 mattn
+mgsloan
 micaeljarniac
 michielvk
 miguelelgallo
@@ -215,6 +228,7 @@ mikailmm
 minorcell
 misairuzame
 mischief
+mistertea
 mitchellh
 miupa
 mjbommar
@@ -230,6 +244,7 @@ mustafa0x
 nagato-yuzuru
 natesmyth
 neo773
+neoto
 neurosnap
 nicholas-ochoa
 nicosuave
@@ -241,6 +256,7 @@ nolinmcfarland
 nouritsu
 nwehg
 ocean6954
+ollioddi
 oshdubh
 otomn
 paaloeye
@@ -248,6 +264,7 @@ pan93412
 pangoraw
 pauley-unsaturated
 pearkes
+pedronaugusto
 peilingjiang
 peterdavehello
 philocalyst
@@ -273,6 +290,7 @@ rgehan
 rhodes-b
 rightaditya
 rjwittams
+rkoten
 rmengelbrecht
 rmunn
 rockorager
@@ -292,21 +310,28 @@ sghng
 shorsher
 silveirapf
 simonbcn
+slowdub
 slsrepo
 steven-tk
 sunshine-syz
+svector-anu
 svmhdvn
+tacherasasi
+-tangivis
 tasselx
 tbrundige
 tdgroot
 tdslot
 thirstycrow
+-thomas-trijindev No human in the loop
 thoutbeckers
 ticclick
 tnagatomi
+tothedarktowercame
 trag1c
 tristan957
 tsacha
+tuananh
 turbolent
 tweedbeetle
 uhojin
@@ -314,6 +339,7 @@ unphased
 unsaltedscholar
 uzaaft
 vancluever
+vasilmytsyk
 vaughanandrews
 -vectorpeak Stupid bot cosplaying as a maintainer
 vegerot

@@ -57,9 +57,7 @@ const terminal = struct {
 const log = std.log.scoped(.config);
 
 /// Used on Unixes for some defaults.
-const c = @cImport({
-    @cInclude("unistd.h");
-});
+const c = @import("posix_c");
 
 pub const compatibility = std.StaticStringMap(
     cli.CompatibilityHandler(Config),
@@ -100,6 +98,12 @@ pub const compatibility = std.StaticStringMap(
     // Ghostty 1.4 renamed `scrollback-limit` to `scrollback-limit-bytes`
     // when `scrollback-limit-lines` was added so the units are explicit.
     .{ "scrollback-limit", cli.compatibilityRenamed(Config, "scrollback-limit-bytes") },
+
+    // Ghostty 1.4 updated "copy-on-select", allow copying to the selection
+    // clipboard (on supported operating systems), the system clipboard, or
+    // both. The semantics also changed but this is the correct mapping.
+    // See: https://github.com/ghostty-org/ghostty/pull/12604
+    .{ "copy-on-select", compatCopyOnSelect },
 });
 
 /// Set Ghostty's graphical user interface language to a language other than the
@@ -2454,6 +2458,32 @@ keybind: Keybinds = .{},
 @"clipboard-read": ClipboardAccess = .ask,
 @"clipboard-write": ClipboardAccess = .allow,
 
+/// The maximum size in bytes of a single clipboard write by a program
+/// running in the terminal via the Kitty clipboard protocol (OSC 5522).
+/// This doesn't apply to OSC 52, which is limited by the maximum length
+/// of an escape sequence hardcoded into Ghostty for now.
+///
+/// Data beyond the limit fails the entire write with an `EFBIG` status,
+/// discards the transaction, and leaves the clipboard untouched. Later
+/// write-related packets are ignored until a new write begins.
+///
+/// The data is buffered in memory while the write is in progress, so
+/// this limit bounds how much memory a program can make Ghostty
+/// allocate per write. A future improvement will attempt to spool large
+/// writes to disk.
+///
+/// The default is 64 MiB, the minimum a conforming implementation must
+/// accept. Set this to `unlimited` to remove the limit, allowing writes
+/// bounded only by available memory. A value of `0` rejects every non-empty
+/// write. To reject clipboard writes entirely, use `clipboard-write = deny`
+/// instead.
+///
+/// This can be changed at runtime and applies to writes that begin
+/// after the change.
+///
+/// Available since: 1.4.0
+@"clipboard-write-limit-bytes": Limit(usize, 64 * 1024 * 1024) = .default,
+
 /// Trims trailing whitespace on data that is copied to the clipboard. This does
 /// not affect data sent to the clipboard via `clipboard-write`. This only
 /// applies to trailing whitespace on lines that have other characters.
@@ -2491,25 +2521,28 @@ keybind: Keybinds = .{},
 /// limit per surface is double.
 @"image-storage-limit": u32 = 320 * 1000 * 1000,
 
-/// Whether to automatically copy selected text to the clipboard. `true`
-/// will prefer to copy to the selection clipboard, otherwise it will copy to
-/// the system clipboard.
+/// Whether to automatically copy selected text to the clipboard.
 ///
-/// The value `clipboard` will always copy text to the selection clipboard
-/// as well as the system clipboard.
+/// Valid values:
 ///
-/// Middle-click primary paste (see `middle-click-action`) is enabled by
-/// default even if this is `false`. The clipboard it pastes from follows
-/// this setting: with `true` (or `false`) it reads from the selection
-/// clipboard (falling back to the system clipboard on platforms without a
-/// selection clipboard); with `clipboard` it reads from the system
-/// clipboard.
+/// * `none` - Do not copy selected text automatically.
 ///
-/// The default value is true on Linux and macOS.
+/// * `primary` - On Linux, copy to the selection clipboard only. This has no
+///   effect on macOS. (Available since: 1.4.0)
+///
+/// * `clipboard` - Copy text to the system clipboard only.
+///
+/// * `both` - Copy to both clipboards on Linux, and only the system clipboard
+///   on macOS. (Available since: 1.4.0)
+///
+/// For backward compatibility and convenience, a value of `true` is the same as
+/// `primary` on Linux and `clipboard` on macOS, and `false` is an alias for
+/// `none`.
+///
+/// The default value is `primary` on Linux and `none` otherwise.
 @"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
-    .linux => .true,
-    .macos => .true,
-    else => .false,
+    .linux => .primary,
+    else => .none,
 },
 
 /// The action to take when the user right-clicks on the terminal surface.
@@ -2528,8 +2561,9 @@ keybind: Keybinds = .{},
 /// The action to take when the user middle-clicks on the terminal surface.
 ///
 /// Valid values:
-///   * `primary-paste` - Paste from the selection (or system) clipboard per
-///      `copy-on-select`.
+///   * `primary-paste` - Paste from the selection clipboard on Linux.
+///      Does nothing on macOS.
+///   * `clipboard-paste` - Paste from the system clipboard.
 ///   * `ignore` - Do nothing, ignore the middle click.
 ///
 /// The default value is `primary-paste`.
@@ -5065,6 +5099,31 @@ fn compatMacOSDockDropBehavior(
 
     if (std.mem.eql(u8, value orelse "", "window")) {
         self.@"macos-dock-drop-behavior" = .@"new-window";
+        return true;
+    }
+
+    return false;
+}
+
+fn compatCopyOnSelect(
+    self: *Config,
+    alloc: Allocator,
+    key: []const u8,
+    value: ?[]const u8,
+) bool {
+    _ = alloc;
+    assert(std.mem.eql(u8, key, "copy-on-select"));
+
+    if (std.mem.eql(u8, value orelse "", "true")) {
+        self.@"copy-on-select" = switch (builtin.os.tag) {
+            .linux, .freebsd => .primary,
+            else => .clipboard,
+        };
+        return true;
+    }
+
+    if (std.mem.eql(u8, value orelse "", "false")) {
+        self.@"copy-on-select" = .none;
         return true;
     }
 
@@ -8803,16 +8862,20 @@ pub const RepeatableLink = struct {
 
 /// Options for copy on select behavior.
 pub const CopyOnSelect = enum {
-    /// Disables copy on select entirely.
-    false,
+    /// Disables copy on select entirely. This is the default on macOS.
+    none,
 
     /// Copy on select is enabled, but goes to the selection clipboard.
-    /// This is not supported on platforms such as macOS. This is the default.
-    true,
+    /// This is not supported on platforms such as macOS. This is the default
+    /// on Linux.
+    primary,
+
+    /// Copy on select is enabled and goes to the system clipboard.
+    clipboard,
 
     /// Copy on select is enabled and goes to both the system clipboard
     /// and the selection clipboard (for Linux).
-    clipboard,
+    both,
 };
 
 /// Options for right-click actions.
@@ -8836,8 +8899,10 @@ pub const RightClickAction = enum {
 
 /// Options for middle-click actions.
 pub const MiddleClickAction = enum {
-    /// Paste from the selection/standard clipboard per `copy-on-select`.
+    /// Paste from the selection clipboard.
     @"primary-paste",
+    /// Paste from the standard clipboard.
+    @"clipboard-paste",
 
     /// No action is taken on middle click.
     ignore,
@@ -9085,9 +9150,19 @@ pub const RepeatableCommand = struct {
             item.* = try item.clone(alloc);
         }
 
+        // Cloning value_c directly would copy Command.C structs
+        // whose string pointers still reference the source config's
+        // memory — the clone must stay valid after the source is
+        // freed.
+        var value_c: std.ArrayListUnmanaged(inputpkg.Command.C) = .empty;
+        try value_c.ensureTotalCapacityPrecise(alloc, value.items.len);
+        for (value.items) |item| {
+            value_c.appendAssumeCapacity(try item.cval(alloc));
+        }
+
         return .{
             .value = value,
-            .value_c = try self.value_c.clone(alloc),
+            .value_c = value_c,
         };
     }
 
@@ -9174,6 +9249,26 @@ pub const RepeatableCommand = struct {
 
         try list.parseCLI(alloc, "");
         try testing.expectEqual(inputpkg.command.defaults.len, list.value.items.len);
+    }
+
+    test "RepeatableCommand clone rebuilds the C mirror" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: RepeatableCommand = .{};
+        try list.parseCLI(alloc, "title:Foo,description:bar,action:new_tab");
+
+        const copy = try list.clone(alloc);
+        try testing.expectEqual(list.value_c.items.len, copy.value_c.items.len);
+        // The clone's C strings must not alias the source's — the
+        // source config can be freed while the clone lives on.
+        try testing.expect(list.value_c.items[0].title != copy.value_c.items[0].title);
+        try testing.expectEqualStrings(
+            std.mem.span(list.value_c.items[0].title),
+            std.mem.span(copy.value_c.items[0].title),
+        );
     }
 
     test "RepeatableCommand formatConfig empty" {
@@ -11267,6 +11362,38 @@ test "scrollback limits" {
     try testing.expectEqual(
         std.math.maxInt(usize),
         cfg.@"scrollback-limit-lines".value,
+    );
+}
+
+test "clipboard write limit" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    try testing.expectEqual(
+        @as(usize, 64 * 1024 * 1024),
+        cfg.@"clipboard-write-limit-bytes".value,
+    );
+
+    var it: TestIterator = .{ .data = &.{
+        "--clipboard-write-limit-bytes=1234",
+    } };
+    try cfg.loadIter(alloc, &it);
+
+    try testing.expectEqual(
+        @as(usize, 1234),
+        cfg.@"clipboard-write-limit-bytes".value,
+    );
+
+    var unlimited_it: TestIterator = .{ .data = &.{
+        "--clipboard-write-limit-bytes=unlimited",
+    } };
+    try cfg.loadIter(alloc, &unlimited_it);
+
+    try testing.expectEqual(
+        std.math.maxInt(usize),
+        cfg.@"clipboard-write-limit-bytes".value,
     );
 }
 

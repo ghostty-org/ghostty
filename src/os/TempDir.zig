@@ -2,7 +2,6 @@
 //! store temporary data and is destroyed on deinit.
 const TempDir = @This();
 
-const builtin = @import("builtin");
 const std = @import("std");
 const Dir = std.Io.Dir;
 const file = @import("file.zig");
@@ -84,8 +83,6 @@ test {
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     var path_len: usize = undefined;
-    var dir_handle: Dir.Handle = undefined;
-    var parent_handle: Dir.Handle = undefined;
     {
         var td = try init();
         errdefer td.deinit();
@@ -98,23 +95,12 @@ test {
         dir.close(testing.io);
 
         path_len = try td.dir.realPath(testing.io, &path_buf);
-        dir_handle = td.dir.handle;
-        parent_handle = td.parent.handle;
 
-        // Should be deleted after we deinit.
+        // Don't check the raw handles after close: descriptor numbers can be
+        // reused immediately, so a valid number does not imply that we leaked it.
         td.deinit();
     }
 
-    switch (builtin.os.tag) {
-        .freebsd, .ios, .linux, .macos => {
-            for ([_]Dir.Handle{ dir_handle, parent_handle }) |handle| {
-                const result = std.posix.system.fcntl(handle, std.posix.F.GETFD);
-                try testing.expectEqual(std.posix.E.BADF, std.posix.errno(result));
-            }
-        },
-
-        else => {},
-    }
     try testing.expectError(
         error.FileNotFound,
         Dir.openDirAbsolute(testing.io, path_buf[0..path_len], .{}),
@@ -126,30 +112,18 @@ test "close retains temporary directory" {
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     var path_len: usize = undefined;
-    var dir_handle: Dir.Handle = undefined;
-    var parent_handle: Dir.Handle = undefined;
     {
         var td = try init();
         errdefer td.deinit();
 
         path_len = try td.dir.realPath(testing.io, &path_buf);
-        dir_handle = td.dir.handle;
-        parent_handle = td.parent.handle;
 
+        // Don't check the raw handles after close: descriptor numbers can be
+        // reused immediately, so a valid number does not imply that we leaked it.
         td.close(.retain);
     }
     defer Dir.deleteDirAbsolute(testing.io, path_buf[0..path_len]) catch {};
 
-    switch (builtin.os.tag) {
-        .freebsd, .ios, .linux, .macos => {
-            for ([_]Dir.Handle{ dir_handle, parent_handle }) |handle| {
-                const result = std.posix.system.fcntl(handle, std.posix.F.GETFD);
-                try testing.expectEqual(std.posix.E.BADF, std.posix.errno(result));
-            }
-        },
-
-        else => {},
-    }
     var dir = try Dir.openDirAbsolute(testing.io, path_buf[0..path_len], .{});
     dir.close(testing.io);
 }

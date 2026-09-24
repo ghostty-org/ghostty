@@ -1,4 +1,5 @@
 const std = @import("std");
+const translate_c = @import("translate_c");
 const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 
 pub fn build(b: *std.Build) !void {
@@ -11,23 +12,11 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    // For dynamic linking, we prefer dynamic linking and to search by
-    // mode first. Mode first will search all paths for a dynamic library
-    // before falling back to static.
-    const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
-        .preferred_link_mode = .dynamic,
-        .search_strategy = .mode_first,
-    };
-
     var test_exe: ?*std.Build.Step.Compile = null;
     if (target.query.isNative()) {
         test_exe = b.addTest(.{
             .name = "test",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("main.zig"),
-                .target = target,
-                .optimize = optimize,
-            }),
+            .root_module = module,
         });
         const tests_run = b.addRunArtifact(test_exe.?);
         const test_step = b.step("test", "Run tests");
@@ -37,25 +26,29 @@ pub fn build(b: *std.Build) !void {
         b.installArtifact(test_exe.?);
     }
 
-    if (b.systemIntegrationOption("oniguruma", .{})) {
-        module.linkSystemLibrary("oniguruma", dynamic_link_opts);
-
-        if (test_exe) |exe| {
-            exe.root_module.linkSystemLibrary("oniguruma", dynamic_link_opts);
-        }
-    } else {
-        const lib = try buildLib(b, module, .{
+    const lib: union(enum) {
+        system,
+        static: *std.Build.Step.Compile,
+    } = if (b.systemIntegrationOption("oniguruma", .{}))
+        .system
+    else
+        .{ .static = try buildLib(b, .{
             .target = target,
             .optimize = optimize,
-        });
+        }) };
 
-        if (test_exe) |exe| {
-            exe.root_module.linkLibrary(lib);
-        }
-    }
+    try translate_c.addImportToModule(b, "oniguruma_c", module, .{
+        .source = .{ .includes = .{
+            .files = &.{.{ .path = "oniguruma.h" }},
+        } },
+        .target = target,
+        .optimize = optimize,
+        .link_system_libs = if (lib == .system) &.{"oniguruma"} else &.{},
+        .link_libs = if (lib == .static) &.{lib.static} else &.{},
+    });
 }
 
-fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Build.Step.Compile {
+fn buildLib(b: *std.Build, options: anytype) !*std.Build.Step.Compile {
     const target = options.target;
     const optimize = options.optimize;
 
@@ -78,8 +71,6 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
 
     if (b.lazyDependency("oniguruma", .{})) |upstream| {
         lib.root_module.addIncludePath(upstream.path("src"));
-        module.addIncludePath(upstream.path("src"));
-
         lib.root_module.addConfigHeader(b.addConfigHeader(.{
             .style = .{ .cmake = upstream.path("src/config.h.cmake.in") },
         }, .{

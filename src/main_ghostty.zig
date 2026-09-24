@@ -228,7 +228,7 @@ pub const std_options: std.Options = .{
     .allow_stack_tracing = if (builtin.target.os.tag.isDarwin() and builtin.target.os.tag != .macos)
         false
     else
-        builtin.strip_debug_info,
+        !builtin.strip_debug_info,
 };
 
 test {
