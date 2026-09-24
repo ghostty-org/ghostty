@@ -13,6 +13,7 @@ const PageList = @import("../PageList.zig");
 const Screen = @import("../Screen.zig");
 const LoadingImage = @import("graphics_image.zig").LoadingImage;
 const Image = @import("graphics_image.zig").Image;
+const ArcCpuImage = @import("../image.zig").ArcCpuImage;
 const Rect = @import("graphics_image.zig").Rect;
 const Command = command.Command;
 
@@ -165,9 +166,9 @@ pub const ImageStorage = struct {
     /// The limits of what medium types are allowed for image loading.
     image_limits: LoadingImage.Limits = .direct,
 
-    /// The total bytes of image data that have been loaded and the limit.
-    /// If the limit is reached, the oldest images will be evicted to make
-    /// space. Unused images take priority.
+    /// Bytes reserved by storage and its limit. Eviction releases storage's
+    /// references, preferring unused images. Readers can keep evicted pixels
+    /// alive outside this quota until they release their references.
     total_bytes: usize = 0,
     total_limit: usize = 320 * 1000 * 1000, // 320MB
 
@@ -224,16 +225,29 @@ pub const ImageStorage = struct {
             self: PendingImage,
             storage: *ImageStorage,
             io: std.Io,
-            data: []const u8,
+            alloc: Allocator,
+            data: []u8,
         ) bool {
             const img = self.image(storage) orelse return false;
             const expected_len = switch (img.data) {
-                .complete => return false,
+                .complete, .ready => return false,
                 .pending => |len| len,
             };
             if (data.len != expected_len) return false;
 
-            img.data = .{ .complete = data };
+            const image = ArcCpuImage.init(alloc, .{
+                .width = img.width,
+                .height = img.height,
+                .format = switch (img.format) {
+                    .gray => .gray,
+                    .gray_alpha => .gray_alpha,
+                    .rgb => .rgb,
+                    .rgba => .rgba,
+                    .png => unreachable,
+                },
+                .data = data,
+            }) catch return false;
+            img.data = .{ .ready = image };
             storage.markMutated(io);
             return true;
         }
@@ -400,7 +414,8 @@ pub const ImageStorage = struct {
 
     /// Add an image to the storage. This will automatically free any existing
     /// image with the same ID. Prefer addPendingImage for pending data so the
-    /// caller receives a completion token.
+    /// caller receives a completion token. Completed payloads already own an
+    /// ArcCpuImage. On success storage owns img; on error the caller retains it.
     pub fn addImage(
         self: *ImageStorage,
         io: std.Io,
@@ -1170,10 +1185,17 @@ pub const ImageStorage = struct {
         const old = img.data.bytes() orelse return;
 
         const rgba = try pixel.rgbaFromFormat(alloc, img.format, old);
+        errdefer alloc.free(rgba);
+        const image = try ArcCpuImage.init(alloc, .{
+            .width = img.width,
+            .height = img.height,
+            .format = .rgba,
+            .data = rgba,
+        });
         self.total_bytes -= old.len;
         self.total_bytes += rgba.len;
         img.data.deinit(alloc);
-        img.data = .{ .complete = rgba };
+        img.data = .{ .ready = image };
         img.format = .rgba;
         self.markImageContentChanged(io, img);
     }
@@ -3686,7 +3708,12 @@ test "storage: generation bumps when setLimit evicts or disables" {
         .id = 1,
         .width = 1,
         .height = 1,
-        .data = .{ .complete = data },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgb,
+            .data = data,
+        }) },
     });
     const gen_add = s.generation;
 
@@ -3777,17 +3804,32 @@ test "storage: evicts images in priority order" {
 
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 1,
-        .data = .{ .complete = stars() },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "*" ** 64),
+        }) },
         .metadata = .{ .transient = false },
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 2,
-        .data = .{ .complete = stars() },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "*" ** 64),
+        }) },
         .metadata = .{ .transient = true },
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 3,
-        .data = .{ .complete = stars() },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "*" ** 64),
+        }) },
         .metadata = .{ .transient = true },
     });
     try s.addPlacement(
@@ -3824,14 +3866,24 @@ test "storage: eviction releases placement pins" {
     const tracked = t.screens.active.pages.countTrackedPins();
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 1,
-        .data = .{ .complete = stars() },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "*" ** 64),
+        }) },
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{
         .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) },
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 2,
-        .data = .{ .complete = stars() },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "*" ** 64),
+        }) },
     });
     try s.addPlacement(io, alloc, t.screens.active, 2, 1, .{
         .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) },
@@ -3842,7 +3894,12 @@ test "storage: eviction releases placement pins" {
     // placement. The newer image's placement and tracked pin remain intact.
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 3,
-        .data = .{ .complete = stars() },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "*" ** 64),
+        }) },
     });
     try testing.expect(!s.images.contains(1));
     try testing.expect(s.images.contains(2));
@@ -3883,7 +3940,7 @@ test "storage: pending image completes once and preserves age" {
     try testing.expectEqual(@as(usize, 1), s.placements.count());
 
     const wrong = try alloc.dupe(u8, "short");
-    const wrong_completed = pending.complete(&s, io, wrong);
+    const wrong_completed = pending.complete(&s, io, alloc, wrong);
     try testing.expect(!wrong_completed);
     defer alloc.free(wrong);
 
@@ -3892,7 +3949,7 @@ test "storage: pending image completes once and preserves age" {
     const dirty = s.dirty;
     const pixels = try alloc.alloc(u8, 16);
     @memset(pixels, '*');
-    try testing.expect(pending.complete(&s, io, pixels));
+    try testing.expect(pending.complete(&s, io, alloc, pixels));
     try testing.expect(s.dirty != dirty);
     try testing.expect(s.generation > storage_generation);
     try testing.expectEqual(image_generation, s.imageById(1).?.generation);
@@ -3901,7 +3958,7 @@ test "storage: pending image completes once and preserves age" {
 
     const duplicate = try alloc.alloc(u8, 16);
     @memset(duplicate, '!');
-    const duplicate_completed = pending.complete(&s, io, duplicate);
+    const duplicate_completed = pending.complete(&s, io, alloc, duplicate);
     try testing.expect(!duplicate_completed);
     defer alloc.free(duplicate);
 }
@@ -3922,7 +3979,7 @@ test "storage: stale pending completion loses to delete replacement and eviction
     });
     s.delete(io, alloc, &t, .{ .id = .{ .delete = true, .image_id = 1 } });
     const deleted_data = try alloc.dupe(u8, "gone");
-    const deleted_completed = deleted.complete(&s, io, deleted_data);
+    const deleted_completed = deleted.complete(&s, io, alloc, deleted_data);
     try testing.expect(!deleted_completed);
     defer alloc.free(deleted_data);
 
@@ -3932,10 +3989,15 @@ test "storage: stale pending completion loses to delete replacement and eviction
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 2,
-        .data = .{ .complete = try alloc.dupe(u8, "live") },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "live"),
+        }) },
     });
     const replaced_data = try alloc.dupe(u8, "late");
-    const replaced_completed = replaced.complete(&s, io, replaced_data);
+    const replaced_completed = replaced.complete(&s, io, alloc, replaced_data);
     try testing.expect(!replaced_completed);
     defer alloc.free(replaced_data);
     try testing.expectEqualStrings("live", s.imageById(2).?.data.bytes().?);
@@ -3946,11 +4008,16 @@ test "storage: stale pending completion loses to delete replacement and eviction
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 4,
-        .data = .{ .complete = try alloc.dupe(u8, "12345678") },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "12345678"),
+        }) },
     });
     try testing.expect(s.imageById(3) == null);
     const evicted_data = try alloc.dupe(u8, "late");
-    const evicted_completed = evicted.complete(&s, io, evicted_data);
+    const evicted_completed = evicted.complete(&s, io, alloc, evicted_data);
     try testing.expect(!evicted_completed);
     defer alloc.free(evicted_data);
 }
@@ -3978,7 +4045,12 @@ test "storage: replacement reuses pending reservation and removes placements" {
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 2,
-        .data = .{ .complete = try alloc.dupe(u8, "keep") },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "keep"),
+        }) },
     });
 
     try s.addImage(io, alloc, t.screens.active, .{
@@ -3986,7 +4058,12 @@ test "storage: replacement reuses pending reservation and removes placements" {
         .width = 2,
         .height = 1,
         .format = .rgba,
-        .data = .{ .complete = try alloc.dupe(u8, "12345678") },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 2,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, "12345678"),
+        }) },
     });
     try testing.expect(s.images.contains(1));
     try testing.expect(s.images.contains(2));
@@ -3999,7 +4076,7 @@ test "storage: replacement reuses pending reservation and removes placements" {
     try testing.expectEqual(@as(usize, 12), s.total_bytes);
 
     const stale = try alloc.dupe(u8, "snapshot");
-    const stale_completed = pending.complete(&s, io, stale);
+    const stale_completed = pending.complete(&s, io, alloc, stale);
     try testing.expect(!stale_completed);
     defer alloc.free(stale);
 
@@ -4007,7 +4084,12 @@ test "storage: replacement reuses pending reservation and removes placements" {
     // excluded. The other image supplies the needed bytes.
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 1,
-        .data = .{ .complete = try alloc.dupe(u8, "1234567890") },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "1234567890"),
+        }) },
     });
     try testing.expect(s.images.contains(1));
     try testing.expect(!s.images.contains(2));
@@ -4045,7 +4127,7 @@ test "storage: pending completion survives a change of displayed frame" {
     try testing.expectEqual(pending.transmission, img.transmission);
 
     const pixels = try alloc.dupe(u8, "rgba");
-    try testing.expect(pending.complete(&s, io, pixels));
+    try testing.expect(pending.complete(&s, io, alloc, pixels));
 }
 
 test "storage: pending animation frames" {
@@ -4137,7 +4219,12 @@ test "storage: pending images share exact eviction ordering" {
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 3,
-        .data = .{ .complete = stars() },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "*" ** 64),
+        }) },
         .metadata = .{ .transient = true },
     });
     try s.addPlacement(io, alloc, t.screens.active, 2, 1, .{
@@ -4727,7 +4814,12 @@ test "storage: eviction removes orphaned relative placements" {
         .id = 1,
         .width = 2,
         .height = 1,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 0, 0, 0, 0, 0, 0 }) },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 2,
+            .height = 1,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 0, 0, 0, 0 }),
+        }) },
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{
         .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) },
@@ -4748,7 +4840,12 @@ test "storage: eviction removes orphaned relative placements" {
         .id = 3,
         .width = 2,
         .height = 1,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 0, 0, 0, 0, 0, 0 }) },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 2,
+            .height = 1,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 0, 0, 0, 0 }),
+        }) },
     });
 
     try testing.expect(s.imageById(1) == null);
@@ -4826,14 +4923,24 @@ test "storage: animation tick advances and schedules" {
         .width = 1,
         .height = 1,
         .format = .rgba,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }) },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }),
+        }) },
     });
     const img = s.images.getPtr(1).?;
     const anim = try alloc.create(animation.Animation);
     anim.* = .{ .state = .running };
     img.animation = anim;
     try anim.frames.append(alloc, .{
-        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        .image = try ArcCpuImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        }),
         .gap_ms = 40,
     });
 
@@ -4886,13 +4993,23 @@ test "storage: animation tick loading state parks on last frame" {
         .width = 1,
         .height = 1,
         .format = .rgba,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }) },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }),
+        }) },
     });
     const anim = try alloc.create(animation.Animation);
     anim.* = .{ .state = .loading };
     s.images.getPtr(1).?.animation = anim;
     try anim.frames.append(alloc, .{
-        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        .image = try ArcCpuImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        }),
         .gap_ms = 40,
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
@@ -4910,7 +5027,12 @@ test "storage: animation tick loading state parks on last frame" {
     // A new frame arriving resumes playback. The real frame command
     // calls markMutated, so we do the same by hand.
     try anim.frames.append(alloc, .{
-        .data = try alloc.dupe(u8, &.{ 0, 255, 0, 255 }),
+        .image = try ArcCpuImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 0, 255, 0, 255 }),
+        }),
         .gap_ms = 25,
     });
     s.markMutated(io);
@@ -4937,7 +5059,12 @@ test "storage: animation tick exhausts loop budget" {
         .width = 1,
         .height = 1,
         .format = .rgba,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }) },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }),
+        }) },
     });
     const anim = try alloc.create(animation.Animation);
     anim.* = .{
@@ -4947,7 +5074,12 @@ test "storage: animation tick exhausts loop budget" {
     };
     s.images.getPtr(1).?.animation = anim;
     try anim.frames.append(alloc, .{
-        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        .image = try ArcCpuImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        }),
         .gap_ms = 40,
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
@@ -4984,13 +5116,23 @@ test "storage: animation tick ignores ineligible animations" {
         .width = 1,
         .height = 1,
         .format = .rgba,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }) },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }),
+        }) },
     });
     const anim = try alloc.create(animation.Animation);
     anim.* = .{};
     s.images.getPtr(1).?.animation = anim;
     try anim.frames.append(alloc, .{
-        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        .image = try ArcCpuImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        }),
         .gap_ms = 40,
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
@@ -5078,7 +5220,12 @@ test "storage: animation tick re-anchors a restarted clock" {
         .width = 1,
         .height = 1,
         .format = .rgba,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }) },
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }),
+        }) },
     });
     const anim = try alloc.create(animation.Animation);
     anim.* = .{
@@ -5088,7 +5235,12 @@ test "storage: animation tick re-anchors a restarted clock" {
     };
     s.images.getPtr(1).?.animation = anim;
     try anim.frames.append(alloc, .{
-        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        .image = try ArcCpuImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        }),
         .gap_ms = 40,
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
@@ -5100,4 +5252,44 @@ test "storage: animation tick re-anchors a restarted clock" {
     // timestamp comes around again.
     try testing.expectEqual(@as(?u64, 40), s.animationTick(io, 5));
     try testing.expectEqual(@as(?u64, 5), anim.frame_shown_at_ms);
+}
+
+test "storage: retained CPU image survives replacement and teardown" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+    var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+    var s: ImageStorage = .{};
+    defer s.deinit(alloc, t.screens.active);
+    const pixels = try alloc.dupe(u8, &.{ 1, 2, 3, 4 });
+    try s.addImage(io, alloc, t.screens.active, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = pixels,
+        }) },
+    });
+    const retained = s.imageById(1).?.renderImage().?.clone();
+    defer retained.release();
+    try testing.expectEqual(pixels.ptr, retained.value.data.ptr);
+    try s.addImage(io, alloc, t.screens.active, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = .{ .ready = try ArcCpuImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 5, 6, 7, 8 }),
+        }) },
+    });
+    s.setLimit(io, alloc, t.screens.active, 0);
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, retained.value.data);
 }

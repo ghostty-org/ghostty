@@ -232,7 +232,6 @@ fn transmit(
         encodeError(&result, err);
         return result;
     };
-    errdefer load.image.deinit(alloc);
 
     // If we're also displaying, then do that now. This function does
     // both transmit and transmit and display. The display might also be
@@ -973,6 +972,15 @@ fn ensureAnimation(
 ) Allocator.Error!*animation.Animation {
     if (img.animation) |anim| return anim;
     const anim = try alloc.create(animation.Animation);
+    errdefer alloc.destroy(anim);
+    switch (img.data) {
+        .ready => |shared| {
+            const data = try alloc.dupe(u8, shared.value.data);
+            shared.release();
+            img.data = .{ .complete = data };
+        },
+        .complete, .pending => {},
+    }
     anim.* = .{};
     img.animation = anim;
     return anim;
@@ -1011,7 +1019,7 @@ fn loadAndAddImage(
     terminal: *Terminal,
     cmd: *const Command,
 ) !struct {
-    image: Image,
+    image: LoadingImage.Info,
     more: bool = false,
     display: ?command.Display = null,
 } {
@@ -1080,18 +1088,21 @@ fn loadAndAddImage(
     // loading.debugDump() catch unreachable;
 
     // Validate and store our image
-    var img = try loading.complete(alloc);
+    var pixels = try loading.complete(alloc);
+    var img = Image.init(alloc, loading.image, pixels) catch |err| {
+        pixels.deinit(alloc);
+        return err;
+    };
     errdefer img.deinit(alloc);
     try storage.addImage(io, alloc, terminal.screens.active, img);
 
     // Get our display settings
     const display_ = loading.display;
 
-    // Ensure we deinit the loading state because we're done. The image
-    // won't be deinit because of "complete" above.
+    // Completion transferred the decoded pixels out of the loading buffer.
     loading.deinit(alloc);
 
-    return .{ .image = img, .display = display_ };
+    return .{ .image = img.withoutData(), .display = display_ };
 }
 
 const EncodeableError = Image.Error || Allocator.Error;

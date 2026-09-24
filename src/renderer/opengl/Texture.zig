@@ -3,6 +3,7 @@ const Self = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const CpuImage = @import("../../terminal/image.zig").CpuImage;
 const gl = @import("opengl");
 
 const OpenGL = @import("../OpenGL.zig");
@@ -37,6 +38,11 @@ pub const Error = error{
     /// An OpenGL API call failed.
     OpenGLFailed,
 };
+
+/// Return the native texture format for an image, if it can be uploaded directly.
+pub fn imageTextureFormat(format: CpuImage.Format) ?OpenGL.ImageTextureFormat {
+    return if (format == .rgba) .rgba else null;
+}
 
 /// Initialize a texture
 pub fn init(

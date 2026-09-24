@@ -8,6 +8,8 @@ const posix = std.posix;
 
 const fastmem = @import("../../fastmem.zig");
 const animation = @import("graphics_animation.zig");
+const ArcCpuImage = @import("../image.zig").ArcCpuImage;
+const CpuImage = @import("../image.zig").CpuImage;
 const command = @import("graphics_command.zig");
 const kitty_windows = @import("windows.zig");
 const PageList = @import("../PageList.zig");
@@ -29,7 +31,7 @@ const max_size = 400 * 1024 * 1024; // 400MB
 pub const LoadingImage = struct {
     /// The in-progress image. The first chunk must have all the metadata
     /// so this comes from that initially.
-    image: Image,
+    image: Info,
 
     /// The data that is being built up.
     data: std.ArrayList(u8) = .empty,
@@ -55,6 +57,17 @@ pub const LoadingImage = struct {
     /// The temporary directory for file transmission (null means that
     /// temporary directory transmission is disabled).
     temporary_directory: ?[]const u8,
+
+    /// Transmission metadata, independent of decoded pixel ownership.
+    pub const Info = struct {
+        id: u32 = 0,
+        number: u32 = 0,
+        width: u32 = 0,
+        height: u32 = 0,
+        format: command.Transmission.Format = .rgb,
+        compression: command.Transmission.Compression = .none,
+        metadata: Image.Metadata = .{},
+    };
 
     pub const FrameContext = struct {
         /// The frame parameters from the initial a=f command. Chunked
@@ -535,7 +548,6 @@ pub const LoadingImage = struct {
     }
 
     pub fn deinit(self: *LoadingImage, alloc: Allocator) void {
-        self.image.deinit(alloc);
         self.data.deinit(alloc);
     }
 
@@ -565,8 +577,9 @@ pub const LoadingImage = struct {
         fastmem.copy(u8, self.data.items[start_i..], data);
     }
 
-    /// Complete the chunked image, returning a completed image.
-    pub fn complete(self: *LoadingImage, alloc: Allocator) !Image {
+    /// Transfer the decoded pixels into an owned CPU image. Transmission
+    /// metadata remains available in image until the loading state is discarded.
+    pub fn complete(self: *LoadingImage, alloc: Allocator) !CpuImage {
         const img = &self.image;
 
         // Decompress the data if it is compressed.
@@ -603,12 +616,18 @@ pub const LoadingImage = struct {
             return error.InvalidData;
         }
 
-        // Everything looks good, copy the image data over.
-        var result = self.image;
-        result.data = .{ .complete = try self.data.toOwnedSlice(alloc) };
-        errdefer result.deinit(alloc);
-        self.image = .{};
-        return result;
+        return .{
+            .width = img.width,
+            .height = img.height,
+            .format = switch (img.format) {
+                .gray => .gray,
+                .gray_alpha => .gray_alpha,
+                .rgb => .rgb,
+                .rgba => .rgba,
+                .png => unreachable,
+            },
+            .data = try self.data.toOwnedSlice(alloc),
+        };
     }
 
     /// Debug function to write the data to a file. This is useful for
@@ -699,7 +718,7 @@ pub const LoadingImage = struct {
             else
                 return error.OutOfMemory,
         };
-        defer decode_alloc.free(result.data);
+        errdefer decode_alloc.free(result.data);
 
         if (result.data.len > max_size) {
             log.warn("png image too large size={} max_size={}", .{ result.data.len, max_size });
@@ -708,9 +727,9 @@ pub const LoadingImage = struct {
 
         // Replace our data
         self.data.deinit(alloc);
-        self.data = .empty;
-        try self.data.ensureUnusedCapacity(alloc, result.data.len);
-        try self.data.appendSlice(alloc, result.data[0..result.data.len]);
+        // LimitedAllocator forwards allocations unchanged to alloc, so the
+        // decoded allocation can outlive the stack-local limit wrapper.
+        self.data = .fromOwnedSlice(result.data);
 
         // Store updated image dimensions
         self.image.width = result.width;
@@ -733,23 +752,8 @@ pub const Image = struct {
     height: u32 = 0,
     format: command.Transmission.Format = .rgb,
     compression: command.Transmission.Compression = .none,
-    data: Data = .{ .complete = "" },
-    metadata: packed struct(u32) {
-        /// The image's transient usage hint, used to prioritize eviction.
-        transient: bool = false,
-
-        /// Set this if the image was loaded without an ID or number. Such
-        /// images must not receive responses. Kitty gives these client ID
-        /// 0 (unaddressable); our storage keys everything by one public
-        /// u32 ID, so they get an ID from the upper half of the range
-        /// that is guaranteed unused at assignment time, but a client
-        /// that explicitly transmits that ID later can still replace
-        /// them.
-        implicit_id: bool = false,
-
-        /// Number of placements referencing this image.
-        placement_count: u30 = 0,
-    } = .{},
+    data: Data = .{ .pending = 0 },
+    metadata: Metadata = .{},
 
     /// Unique, monotonically increasing stamp assigned each time an
     /// image is added to (or replaced in) an ImageStorage. A changed
@@ -795,6 +799,23 @@ pub const Image = struct {
     /// pointer and never own it).
     animation: ?*animation.Animation = null,
 
+    pub const Metadata = packed struct(u32) {
+        /// The image's transient usage hint, used to prioritize eviction.
+        transient: bool = false,
+
+        /// Set this if the image was loaded without an ID or number. Such
+        /// images must not receive responses. Kitty gives these client ID
+        /// 0 (unaddressable); our storage keys everything by one public
+        /// u32 ID, so they get an ID from the upper half of the range
+        /// that is guaranteed unused at assignment time, but a client
+        /// that explicitly transmits that ID later can still replace
+        /// them.
+        implicit_id: bool = false,
+
+        /// Number of placements referencing this image.
+        placement_count: u30 = 0,
+    };
+
     pub const Error = error{
         InsufficientData,
         InvalidData,
@@ -810,8 +831,9 @@ pub const Image = struct {
     };
 
     pub const Data = union(enum) {
-        /// Owned, decoded image bytes. The empty default is not allocated.
         complete: []const u8,
+        /// Completed decoded pixels, always reference-counted.
+        ready: *const ArcCpuImage,
 
         /// Expected decoded byte length for a payload that has not arrived.
         pending: usize,
@@ -820,6 +842,7 @@ pub const Image = struct {
         pub fn len(self: Data) usize {
             return switch (self) {
                 .complete => |data| data.len,
+                .ready => |image| image.value.data.len,
                 .pending => |expected_len| expected_len,
             };
         }
@@ -828,6 +851,7 @@ pub const Image = struct {
         pub fn bytes(self: Data) ?[]const u8 {
             return switch (self) {
                 .complete => |data| data,
+                .ready => |image| image.value.data,
                 .pending => null,
             };
         }
@@ -838,11 +862,39 @@ pub const Image = struct {
 
         pub fn deinit(self: *Data, alloc: Allocator) void {
             switch (self.*) {
-                .complete => |data| if (data.len > 0) alloc.free(data),
+                .complete => |data| alloc.free(data),
+                .ready => |image| image.release(),
                 .pending => {},
             }
         }
     };
+
+    /// Adopt decoded CPU pixels. On error the caller retains their ownership.
+    pub fn init(alloc: Allocator, info: LoadingImage.Info, pixels: CpuImage) Allocator.Error!Image {
+        return .{
+            .id = info.id,
+            .number = info.number,
+            .width = pixels.width,
+            .height = pixels.height,
+            .format = switch (pixels.format) {
+                .gray => .gray,
+                .gray_alpha => .gray_alpha,
+                .rgb => .rgb,
+                .rgba => .rgba,
+                .bgr, .bgra => unreachable,
+            },
+            .metadata = info.metadata,
+            .data = .{ .ready = try ArcCpuImage.init(alloc, pixels) },
+        };
+    }
+
+    /// Borrow the immutable displayed frame while terminal state is locked.
+    pub fn renderImage(self: *const Image) ?*const ArcCpuImage {
+        return switch (self.renderData()) {
+            .ready => |image| image,
+            .complete, .pending => null,
+        };
+    }
 
     pub fn deinit(self: *Image, alloc: Allocator) void {
         self.data.deinit(alloc);
@@ -911,10 +963,16 @@ pub const Image = struct {
     }
 
     /// Mostly for logging
-    pub fn withoutData(self: *const Image) Image {
-        var copy = self.*;
-        if (copy.data == .complete) copy.data = .{ .complete = "" };
-        return copy;
+    pub fn withoutData(self: *const Image) LoadingImage.Info {
+        return .{
+            .id = self.id,
+            .number = self.number,
+            .width = self.width,
+            .height = self.height,
+            .format = self.format,
+            .compression = self.compression,
+            .metadata = self.metadata,
+        };
     }
 };
 
@@ -1256,7 +1314,7 @@ test "image load: rgb, zlib compressed, direct" {
     defer img.deinit(alloc);
 
     // should be decompressed
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 }
 
 test "image load: rgb, not compressed, direct" {
@@ -1285,7 +1343,7 @@ test "image load: rgb, not compressed, direct" {
     defer img.deinit(alloc);
 
     // should be decompressed
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 }
 
 test "image load: rgb, zlib compressed, direct, chunked" {
@@ -1323,7 +1381,7 @@ test "image load: rgb, zlib compressed, direct, chunked" {
     // Complete
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 }
 
 test "image load: rgb, zlib compressed, direct, chunked with zero initial chunk" {
@@ -1360,7 +1418,7 @@ test "image load: rgb, zlib compressed, direct, chunked with zero initial chunk"
     // Complete
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 }
 
 test "image load: temporary file without correct path" {
@@ -1540,7 +1598,7 @@ test "image load: rgb, not compressed, temporary file" {
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 
     // Temporary file should be gone
     try testing.expectError(error.FileNotFound, tmp_dir.dir.access(testing.io, path, .{}));
@@ -1584,7 +1642,7 @@ test "image load: rgb, not compressed, regular file" {
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
     try tmp_dir.dir.access(testing.io, path, .{});
 }
 
@@ -1638,7 +1696,7 @@ test "image load: regular file size reads exactly requested bytes" {
         var img = try loading.complete(alloc);
         defer img.deinit(alloc);
 
-        try testing.expectEqualSlices(u8, &case.expected, img.data.complete);
+        try testing.expectEqualSlices(u8, &case.expected, img.data);
     }
 }
 
@@ -1719,7 +1777,7 @@ test "image load: rgb, not compressed, relative regular file" {
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 }
 
 test "image load: blocklist applies to opened file after symlink swap" {
@@ -1952,7 +2010,7 @@ test "image load: windows local file accepted in forward slash and upper case sp
         defer loading.deinit(alloc);
         var img = try loading.complete(alloc);
         defer img.deinit(alloc);
-        try testing.expect(img.compression == .none);
+        try testing.expect(loading.image.compression == .none);
     }
 
     try tmp_dir.dir.access(io, filename, .{});
@@ -2004,7 +2062,7 @@ test "image load: windows temporary file with differently spelled directory" {
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 
     // Temporary file should be gone
     try testing.expectError(error.FileNotFound, tmp_dir.dir.access(io, filename, .{}));
@@ -2116,7 +2174,7 @@ test "image load: png, not compressed, regular file" {
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
     try testing.expect(img.format == .rgba);
     try tmp_dir.dir.access(testing.io, path, .{});
 }
@@ -2386,4 +2444,42 @@ test "limits: temporary file medium allowed by limits" {
         },
     );
     defer loading.deinit(alloc);
+}
+
+test "kitty image frame editing reuses unique pixels and preserves retained pixels" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const Edit = struct {
+        fn compose(dst: *CpuImage, index: usize) void {
+            dst.data[index] = std.ascii.toUpper(dst.data[index]);
+        }
+    };
+    var img = try Image.init(alloc, .{}, .{
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, "rgba"),
+    });
+    defer img.deinit(alloc);
+    const original = img.data.ready.value.data.ptr;
+    var failing = testing.FailingAllocator.init(alloc, .{ .fail_index = 0 });
+    const original_arc = img.data.ready;
+    try img.editFrame(failing.allocator(), 1, @as(usize, 0), Edit.compose);
+    try testing.expect(!failing.has_induced_failure);
+    try testing.expectEqual(original_arc, img.data.ready);
+    try testing.expectEqual(original, img.data.ready.value.data.ptr);
+
+    const retained = img.data.ready.clone();
+    defer retained.release();
+    // Both the replacement wrapper and copied pixels can fail to allocate.
+    for (0..2) |fail_index| {
+        var failure = testing.FailingAllocator.init(alloc, .{ .fail_index = fail_index });
+        try testing.expectError(error.OutOfMemory, img.editFrame(failure.allocator(), 1, @as(usize, 1), Edit.compose));
+        try testing.expectEqual(retained, img.data.ready);
+        try testing.expectEqualSlices(u8, "Rgba", retained.value.data);
+    }
+    try img.editFrame(alloc, 1, @as(usize, 1), Edit.compose);
+    try testing.expect(original != img.data.ready.value.data.ptr);
+    try testing.expectEqualSlices(u8, "Rgba", retained.value.data);
+    try testing.expectEqualSlices(u8, "RGba", img.data.ready.value.data);
 }
