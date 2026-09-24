@@ -11,6 +11,7 @@ const Texture = GraphicsAPI.Texture;
 const Overlay = @import("Overlay.zig");
 
 pub const CpuImage = terminal.CpuImage;
+/// TODO(review)
 /// Shared CPU image ownership used by Kitty storage and pending uploads.
 pub const ArcCpuImage = terminal.ArcCpuImage;
 
@@ -434,6 +435,7 @@ pub const State = struct {
         gop.value_ptr.generation = generation;
     }
 
+    /// TODO(review)
     /// Retain immutable pixels while terminal state is locked. Conversion and
     /// texture upload happen later, after releasing that lock.
     fn prepKittyImage(
@@ -578,10 +580,12 @@ pub const Image = union(enum) {
         pending: Pending,
     };
 
+    /// TODO(review)
     /// Every pending image uses the same immutable, reference-counted CPU
     /// format, whether it originated in Kitty, an overlay, or a background.
     pub const Pending = *const ArcCpuImage;
 
+    /// TODO(review)
     /// Convert layouts without native backend support into RGBA.
     fn convertForUpload(alloc: Allocator, shared: *const ArcCpuImage) wuffs.Error!*const ArcCpuImage {
         const source = &shared.value;
@@ -601,6 +605,7 @@ pub const Image = union(enum) {
         });
     }
 
+    /// TODO(review)
     /// Replace only this owner's reference with the converted image. Existing
     /// readers keep their original pixels. Native formats need no allocation.
     fn prepForUpload(self: *Image, alloc: Allocator) wuffs.Error!void {
@@ -1380,6 +1385,7 @@ test "kitty renderer uploads the current animation frame" {
     );
 }
 
+// TODO(review)
 test "kitty renderer retains pixels and converts outside storage" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -1429,6 +1435,7 @@ test "kitty renderer retains pixels and converts outside storage" {
     try testing.expectEqual(converted, entry.image.pending);
 }
 
+// TODO(review)
 test "kitty renderer releases pending replacement and canceled unload" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -1455,6 +1462,7 @@ test "kitty renderer releases pending replacement and canceled unload" {
     try testing.expectEqualSlices(u8, "1234", first.value.data);
 }
 
+// TODO(review)
 test "kitty renderer overlay snapshot survives drawing and teardown" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -1482,6 +1490,7 @@ test "kitty renderer overlay snapshot survives drawing and teardown" {
     try testing.expectEqual(snapshot, state.images.get(.overlay).?.image.pending);
 }
 
+// TODO(review)
 test "kitty renderer uploads native formats without copying" {
     const testing = std.testing;
     const alloc = testing.allocator;

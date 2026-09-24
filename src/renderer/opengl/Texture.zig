@@ -13,6 +13,7 @@ const log = std.log.scoped(.opengl);
 /// Options for initializing a texture.
 pub const Options = struct {
     format: gl.Texture.Format,
+    /// TODO(review)
     /// Replicate the decoded red channel for grayscale image sampling.
     grayscale: bool = false,
     internal_format: gl.Texture.InternalFormat,
@@ -41,6 +42,7 @@ pub const Error = error{
     OpenGLFailed,
 };
 
+/// TODO(review)
 /// Native upload format preserving the source's sRGB color and linear alpha.
 /// Null requires conversion before uploading.
 pub fn imageTextureFormat(format: CpuImage.Format) ?OpenGL.ImageTextureFormat {
@@ -55,6 +57,7 @@ pub fn imageTextureFormat(format: CpuImage.Format) ?OpenGL.ImageTextureFormat {
     };
 }
 
+/// TODO(review)
 /// Initialize a texture.
 ///
 /// `image2D` synchronously consumes client memory. This renderer does not use
@@ -132,6 +135,7 @@ pub fn replaceRegion(
     ) catch return error.OpenGLFailed;
 }
 
+/// TODO(review)
 /// Scope pixel-unpack alignment so tightly packed data does not inherit the
 /// default four-byte row padding or change another texture user's GL state.
 const UnpackAlignment = struct {
