@@ -37,12 +37,22 @@ pub const Error = error{
     MetalFailed,
 };
 
-/// Return the native texture format for an image, if it can be uploaded directly.
+/// Native upload format preserving the source's sRGB color and linear alpha.
+/// Null requires conversion before uploading.
 pub fn imageTextureFormat(format: CpuImage.Format) ?Metal.ImageTextureFormat {
-    return if (format == .rgba) .rgba else null;
+    return switch (format) {
+        .rgba => .rgba,
+        .bgra => .bgra,
+        // Packed RGB/BGR have no corresponding Metal pixel format. Grayscale
+        // sRGB formats are not supported across all supported Metal devices.
+        .gray, .gray_alpha, .rgb, .bgr => null,
+    };
 }
 
-/// Initialize a texture
+/// Initialize a texture.
+///
+/// Metal's `replaceRegion:...withBytes:` synchronously copies `data`, so the
+/// caller may release the CPU bytes after this returns.
 pub fn init(
     opts: Options,
     width: usize,

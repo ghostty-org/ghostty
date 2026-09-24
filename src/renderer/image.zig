@@ -872,8 +872,7 @@ pub const Image = union(enum) {
             .gray_alpha => wuffs.swizzle.gaToRgba(alloc, source.data),
             .rgb => wuffs.swizzle.rgbToRgba(alloc, source.data),
             .bgr => wuffs.swizzle.bgrToRgba(alloc, source.data),
-            .bgra => wuffs.swizzle.bgraToRgba(alloc, source.data),
-            .rgba => unreachable, // both backends upload this directly
+            .rgba, .bgra => unreachable, // both backends upload these directly
         };
         errdefer alloc.free(rgba);
         return ArcCpuImage.init(alloc, .{
@@ -1562,4 +1561,27 @@ test "kitty renderer overlay snapshot survives drawing and teardown" {
     defer state.deinit(alloc);
     try state.prepImage(alloc, .overlay, 1, snapshot);
     try testing.expectEqual(snapshot, state.images.get(.overlay).?.image.pending);
+}
+
+test "kitty renderer uploads native formats without copying" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    for (std.enums.values(CpuImage.Format)) |format| {
+        if (Texture.imageTextureFormat(format) == null) continue;
+        const shared = try ArcCpuImage.init(alloc, .{
+            .width = 3,
+            .height = 2,
+            .format = format,
+            .data = try alloc.alloc(u8, 3 * 2 * format.bpp()),
+        });
+        defer shared.release();
+        var image: Image = .{ .pending = shared.clone() };
+        defer image.deinit();
+        var failing = testing.FailingAllocator.init(alloc, .{ .fail_index = 0 });
+        try image.prepForUpload(failing.allocator());
+        try testing.expect(!failing.has_induced_failure);
+        try testing.expectEqual(shared, image.pending);
+        try testing.expectEqual(shared.value.data.ptr, image.pending.value.data.ptr);
+        try testing.expectEqual(format, image.pending.value.format);
+    }
 }

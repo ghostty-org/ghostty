@@ -376,6 +376,9 @@ pub inline fn samplerOptions(self: OpenGL) Sampler.Options {
 pub const ImageTextureFormat = enum {
     /// 1 byte per pixel grayscale.
     gray,
+    /// 3 bytes per pixel RGB or BGR.
+    rgb,
+    bgr,
     /// 4 bytes per pixel RGBA.
     rgba,
     /// 4 bytes per pixel BGRA.
@@ -384,6 +387,8 @@ pub const ImageTextureFormat = enum {
     fn toPixelFormat(self: ImageTextureFormat) gl.Texture.Format {
         return switch (self) {
             .gray => .red,
+            .rgb => .rgb,
+            .bgr => .bgr,
             .rgba => .rgba,
             .bgra => .bgra,
         };
@@ -399,6 +404,7 @@ pub inline fn imageTextureOptions(
     _ = self;
     return .{
         .format = format.toPixelFormat(),
+        .grayscale = format == .gray,
         .internal_format = if (srgb) .srgba else .rgba,
         .target = .@"2d",
         // TODO: Generate mipmaps for image textures and use
