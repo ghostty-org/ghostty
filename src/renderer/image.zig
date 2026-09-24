@@ -11,8 +11,6 @@ const Texture = GraphicsAPI.Texture;
 const Overlay = @import("Overlay.zig");
 
 pub const CpuImage = terminal.CpuImage;
-/// TODO(review)
-/// Shared CPU image ownership used by Kitty storage and pending uploads.
 pub const ArcCpuImage = terminal.ArcCpuImage;
 
 const log = std.log.scoped(.renderer_image);
@@ -435,9 +433,8 @@ pub const State = struct {
         gop.value_ptr.generation = generation;
     }
 
-    /// TODO(review)
-    /// Retain immutable pixels while terminal state is locked. Conversion and
-    /// texture upload happen later, after releasing that lock.
+    /// Prepare the provided Kitty image for GPU upload by cloning a shared
+    /// reference to its current frame as pending state in the renderer.
     fn prepKittyImage(
         self: *State,
         alloc: Allocator,
@@ -467,7 +464,8 @@ pub const State = struct {
         } else {
             gop.value_ptr.* = .{ .image = next, .generation = 0 };
         }
-        gop.value_ptr.generation = image.generation;
+        gop.value_ptr.generation =
+            image.generation;
     }
 };
 
@@ -580,13 +578,10 @@ pub const Image = union(enum) {
         pending: Pending,
     };
 
-    /// TODO(review)
-    /// Every pending image uses the same immutable, reference-counted CPU
-    /// format, whether it originated in Kitty, an overlay, or a background.
     pub const Pending = *const ArcCpuImage;
 
-    /// TODO(review)
     /// Convert layouts without native backend support into RGBA.
+    /// A Graphics API may accept more than the shared format of RGBA
     fn convertForUpload(alloc: Allocator, shared: *const ArcCpuImage) wuffs.Error!*const ArcCpuImage {
         const source = &shared.value;
         const rgba = try switch (source.format) {
@@ -605,9 +600,8 @@ pub const Image = union(enum) {
         });
     }
 
-    /// TODO(review)
-    /// Replace only this owner's reference with the converted image. Existing
-    /// readers keep their original pixels. Native formats need no allocation.
+    /// Prepare the pending image data for upload to the GPU. This doesn't
+    /// need GPU access and is a no-op for formats the graphics API accepts.
     fn prepForUpload(self: *Image, alloc: Allocator) wuffs.Error!void {
         const pending = self.getPendingPointer().?;
         if (Texture.imageTextureFormat(pending.*.value.format) != null) return;
@@ -1385,7 +1379,6 @@ test "kitty renderer uploads the current animation frame" {
     );
 }
 
-// TODO(review)
 test "kitty renderer retains pixels and converts outside storage" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -1435,7 +1428,6 @@ test "kitty renderer retains pixels and converts outside storage" {
     try testing.expectEqual(converted, entry.image.pending);
 }
 
-// TODO(review)
 test "kitty renderer releases pending replacement and canceled unload" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -1462,7 +1454,6 @@ test "kitty renderer releases pending replacement and canceled unload" {
     try testing.expectEqualSlices(u8, "1234", first.value.data);
 }
 
-// TODO(review)
 test "kitty renderer overlay snapshot survives drawing and teardown" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -1490,7 +1481,6 @@ test "kitty renderer overlay snapshot survives drawing and teardown" {
     try testing.expectEqual(snapshot, state.images.get(.overlay).?.image.pending);
 }
 
-// TODO(review)
 test "kitty renderer uploads native formats without copying" {
     const testing = std.testing;
     const alloc = testing.allocator;

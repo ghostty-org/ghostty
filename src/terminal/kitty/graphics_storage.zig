@@ -166,10 +166,9 @@ pub const ImageStorage = struct {
     /// The limits of what medium types are allowed for image loading.
     image_limits: LoadingImage.Limits = .direct,
 
-    /// TODO(review)
     /// Bytes reserved by storage and its limit. Eviction releases storage's
-    /// references, preferring unused images. Readers can keep evicted pixels
-    /// alive outside this quota until they release their references.
+    /// references, preferring unused images. Readers might keep evicted pixels
+    /// alive outside this quota until they release their shared references.
     total_bytes: usize = 0,
     total_limit: usize = 320 * 1000 * 1000, // 320MB
 
@@ -413,7 +412,6 @@ pub const ImageStorage = struct {
         return id;
     }
 
-    /// TODO(review)
     /// Add an image to the storage. This will automatically free any existing
     /// image with the same ID. Prefer addPendingImage for pending data so the
     /// caller receives a completion token. Completed payloads already own an
@@ -5256,7 +5254,6 @@ test "storage: animation tick re-anchors a restarted clock" {
     try testing.expectEqual(@as(?u64, 5), anim.frame_shown_at_ms);
 }
 
-// TODO(review)
 test "storage: retained CPU image survives replacement and teardown" {
     const testing = std.testing;
     const alloc = testing.allocator;
