@@ -37,6 +37,7 @@ pub const Error = error{
     MetalFailed,
 };
 
+/// TODO(review)
 /// Native upload format preserving the source's sRGB color and linear alpha.
 /// Null requires conversion before uploading.
 pub fn imageTextureFormat(format: CpuImage.Format) ?Metal.ImageTextureFormat {
@@ -49,6 +50,7 @@ pub fn imageTextureFormat(format: CpuImage.Format) ?Metal.ImageTextureFormat {
     };
 }
 
+/// TODO(review)
 /// Initialize a texture.
 ///
 /// Metal's `replaceRegion:...withBytes:` synchronously copies `data`, so the

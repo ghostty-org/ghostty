@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
+/// TODO(review)
 /// An owned, mutable Image residing on the CPU, borrowing should use
 /// ArcCpuImage for an immutable reference-counted image.
 pub const CpuImage = struct {
@@ -36,6 +37,7 @@ pub const CpuImage = struct {
 
 pub const ArcCpuImage = AtomicRefCounted(CpuImage);
 
+/// TODO(review)
 /// Atomic shared ownership of a value with a deinit(Allocator) method.
 /// Shared values are immutable. Publication across threads requires external
 /// synchronization. The allocator must outlive all references and support
@@ -48,6 +50,7 @@ pub fn AtomicRefCounted(comptime T: type) type {
         allocator: Allocator,
         value: T,
 
+        /// TODO(review)
         /// Transfer an owned value into shared storage without copying it.
         /// On allocation failure the caller retains ownership of value.
         /// The value must support deinitialization with alloc.
@@ -57,6 +60,7 @@ pub fn AtomicRefCounted(comptime T: type) type {
             return result;
         }
 
+        /// TODO(review)
         /// Clone shared ownership without copying the inner value.
         pub fn clone(self: *const Self) *const Self {
             const previous = @constCast(self).refs.fetchAdd(1, .monotonic);
@@ -64,6 +68,7 @@ pub fn AtomicRefCounted(comptime T: type) type {
             return self;
         }
 
+        /// TODO(review)
         /// Consume the sole shared reference and return this allocation for
         /// exclusive mutation. A zero count marks private ownership. Failure
         /// leaves the reference unchanged. Exclude all access through the
@@ -74,6 +79,7 @@ pub fn AtomicRefCounted(comptime T: type) type {
             return mutable;
         }
 
+        /// TODO(review)
         /// Consume exclusive ownership and restore one shared reference.
         /// Publication to another thread still requires external synchronization.
         pub fn publish(self: *Self) *const Self {
@@ -82,6 +88,7 @@ pub fn AtomicRefCounted(comptime T: type) type {
             return self;
         }
 
+        /// TODO(review)
         /// Destroy a privately owned Arc instead of publishing it again.
         pub fn deinit(self: *Self) void {
             std.debug.assert(self.refs.load(.monotonic) == 0);
@@ -104,6 +111,7 @@ pub fn AtomicRefCounted(comptime T: type) type {
     };
 }
 
+// TODO(review)
 test "CPU image takes unique ownership without copying" {
     const alloc = std.testing.allocator;
     const pixels = try alloc.dupe(u8, "rgba");
@@ -129,6 +137,7 @@ test "CPU image takes unique ownership without copying" {
     cloned.release();
 }
 
+// TODO(review)
 test "CPU image retains immutable pixels without copying" {
     const alloc = std.testing.allocator;
     const data = try alloc.dupe(u8, &.{ 1, 2, 3, 4 });
@@ -146,6 +155,7 @@ test "CPU image retains immutable pixels without copying" {
     try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, retained.value.data);
 }
 
+// TODO(review)
 test "CPU image can release its final reference on another thread" {
     if (builtin.single_threaded) return error.SkipZigTest;
     const alloc = std.testing.allocator;
@@ -170,6 +180,7 @@ test "CPU image can release its final reference on another thread" {
     thread.join();
 }
 
+// TODO(review)
 test "CPU image allocation failure leaves pixels with caller" {
     const alloc = std.testing.allocator;
     const pixels = try alloc.dupe(u8, "rgba");
@@ -184,10 +195,12 @@ test "CPU image allocation failure leaves pixels with caller" {
     try std.testing.expectEqualSlices(u8, "rgba", pixels);
 }
 
+// TODO(review)
 test {
     std.testing.refAllDecls(@This());
 }
 
+// TODO(review)
 test "AtomicRefCounted releases the inner value only on final release" {
     const Value = struct {
         destroyed: *usize,

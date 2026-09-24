@@ -3655,6 +3655,7 @@ test "kittygfx animation: control negative gap makes frame gapless" {
     try testing.expectEqual(@as(u32, 0), anim.frames.items[0].gap_ms);
 }
 
+// TODO(review)
 test "kittygfx retained frames stay immutable during animation edits" {
     const testing = std.testing;
     const alloc = testing.allocator;
