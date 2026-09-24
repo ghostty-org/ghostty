@@ -1081,20 +1081,33 @@ extension Ghostty {
         override func pressureChange(with event: NSEvent) {
             guard let surface = self.surface else { return }
 
+            // Pressure stage 2 is a force click ("deep press"). Ghostty treats
+            // a deep press as the macOS text affordance that selects the word
+            // under the pointer and consumes the drag gesture.
+            //
+            // Starting with macOS 27, AppKit reports stage 2 a few dozen
+            // milliseconds into an ordinary trackpad click, at a fraction of
+            // full pressure, even when the user has disabled Force Click in
+            // System Settings. If we forwarded that, every click-and-drag
+            // would select a single word and stop tracking the drag. Respect
+            // the user's setting instead: with Force Click disabled, never
+            // report more than a normal press. See discussion #14286.
+            let forceClickEnabled = UserDefaults.ghostty.bool(forKey: "com.apple.trackpad.forceClick")
+            let stage = forceClickEnabled ? event.stage : min(event.stage, 1)
+
             // Notify Ghostty first. We do this because this will let Ghostty handle
             // state setup that we'll need for later pressure handling (such as
             // QuickLook)
-            ghostty_surface_mouse_pressure(surface, UInt32(event.stage), Double(event.pressure))
+            ghostty_surface_mouse_pressure(surface, UInt32(stage), Double(event.pressure))
 
-            // Pressure stage 2 is force click. We only want to execute this on the
-            // initial transition to stage 2, and not for any repeated events.
+            // We only want to execute the force click on the initial transition
+            // to stage 2, and not for any repeated events.
             guard self.prevPressureStage < 2 else { return }
-            prevPressureStage = event.stage
-            guard event.stage == 2 else { return }
+            prevPressureStage = stage
+            guard stage == 2 else { return }
 
-            // If the user has force click enabled then we do a quick look. There
-            // is no public API for this as far as I can tell.
-            guard UserDefaults.ghostty.bool(forKey: "com.apple.trackpad.forceClick") else { return }
+            // Stage 2 is only reachable when force click is enabled, so we do
+            // a quick look. There is no public API for this as far as I can tell.
             quickLook(with: event)
         }
 
