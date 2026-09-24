@@ -376,7 +376,6 @@ pub inline fn samplerOptions(self: OpenGL) Sampler.Options {
 pub const ImageTextureFormat = enum {
     /// 1 byte per pixel grayscale.
     gray,
-    /// TODO(review)
     /// 3 bytes per pixel RGB or BGR.
     rgb,
     bgr,

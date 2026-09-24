@@ -57,7 +57,6 @@ pub const LoadingImage = struct {
     /// temporary directory transmission is disabled).
     temporary_directory: ?[]const u8,
 
-    /// TODO(review)
     /// Transmission metadata, independent of decoded pixel ownership.
     pub const Info = struct {
         id: u32 = 0,
@@ -565,7 +564,6 @@ pub const LoadingImage = struct {
         fastmem.copy(u8, self.data.items[start_i..], data);
     }
 
-    /// TODO(review)
     /// Transfer the decoded pixels into an owned CPU image. Transmission
     /// metadata remains available in image until the loading state is discarded.
     pub fn complete(self: *LoadingImage, alloc: Allocator) !CpuImage {
@@ -754,11 +752,9 @@ pub const Image = struct {
     animation: ?*animation.Animation = null,
 
     pub const Metadata = packed struct(u32) {
-        /// TODO(review)
         /// The image's transient usage hint, used to prioritize eviction.
         transient: bool = false,
 
-        /// TODO(review)
         /// Set this if the image was loaded without an ID or number. Such
         /// images must not receive responses. Kitty gives these client ID
         /// 0 (unaddressable); our storage keys everything by one public
@@ -768,7 +764,6 @@ pub const Image = struct {
         /// them.
         implicit_id: bool = false,
 
-        /// TODO(review)
         /// Number of placements referencing this image.
         placement_count: u30 = 0,
     };
@@ -788,7 +783,6 @@ pub const Image = struct {
     };
 
     pub const Data = union(enum) {
-        /// TODO(review)
         /// Completed decoded pixels, always reference-counted.
         ready: *const ArcCpuImage,
 
@@ -823,7 +817,6 @@ pub const Image = struct {
         }
     };
 
-    /// TODO(review)
     /// Adopt decoded CPU pixels. On error the caller retains their ownership.
     pub fn init(alloc: Allocator, info: LoadingImage.Info, pixels: CpuImage) Allocator.Error!Image {
         return .{
@@ -843,8 +836,8 @@ pub const Image = struct {
         };
     }
 
-    /// TODO(review)
     /// Borrow the immutable displayed frame while terminal state is locked.
+    /// Without incrementing the ref-count.
     pub fn renderImage(self: *const Image) ?*const ArcCpuImage {
         return switch (self.renderData()) {
             .ready => |image| image,
@@ -852,7 +845,6 @@ pub const Image = struct {
         };
     }
 
-    /// TODO(review)
     /// Compose an owned CPU image while holding the terminal lock, then return
     /// it to shared storage. Allocation failure leaves the old frame unchanged.
     pub fn editFrame(
@@ -2253,7 +2245,6 @@ test "limits: temporary file medium allowed by limits" {
     defer loading.deinit(alloc);
 }
 
-// TODO(review)
 test "kitty image frame editing reuses unique pixels and preserves retained pixels" {
     const testing = std.testing;
     const alloc = testing.allocator;

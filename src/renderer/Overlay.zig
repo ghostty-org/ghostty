@@ -107,7 +107,6 @@ pub fn deinit(self: *Overlay, alloc: Allocator) void {
     self.surface.deinit(alloc);
 }
 
-/// TODO(review)
 /// Return an immutable snapshot independent of subsequent overlay drawing.
 pub fn pendingImage(self: *const Overlay, alloc: Allocator) Allocator.Error!*const ArcCpuImage {
     const pixels = try alloc.dupe(u8, std.mem.sliceAsBytes(self.surface.image_surface_rgba.buf));
