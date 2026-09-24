@@ -717,6 +717,8 @@ pub const Application = extern struct {
                 value,
             ),
 
+            .sync_broadcast_group => return Action.syncBroadcastGroup(target, value),
+
             .key_sequence => return Action.keySequence(target, value),
             .key_table => return Action.keyTable(target, value),
 
@@ -936,6 +938,17 @@ pub const Application = extern struct {
                 \\}}
                 \\
             , .{ .font_family = font_family });
+        }
+
+        // Border colors for broadcast input groups. The class names must
+        // match Surface.broadcastColorClass.
+        for (config.@"broadcast-group-colors".colors, 0..) |color, i| {
+            try writer.print(
+                \\.surface .broadcast-overlay.broadcast-color-{d} {{
+                \\  border-color: rgb({d},{d},{d});
+                \\}}
+                \\
+            , .{ i, color.r, color.g, color.b });
         }
 
         const contents = buf.written();
@@ -2368,6 +2381,19 @@ const Action = struct {
                     .last => .last,
                     else => .{ .n = @intCast(@intFromEnum(tab)) },
                 });
+            },
+        }
+    }
+
+    pub fn syncBroadcastGroup(
+        target: apprt.Target,
+        value: apprt.action.BroadcastGroup,
+    ) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                core.rt_surface.surface.syncBroadcastGroup(value);
+                return true;
             },
         }
     }
