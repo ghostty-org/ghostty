@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const wuffs = @import("wuffs");
 const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
@@ -632,22 +633,36 @@ pub const LoadingImage = struct {
     }
 
     fn decompressZlib(self: *LoadingImage, alloc: Allocator) !void {
-        // Open our zlib stream
-        var buf: [std.compress.flate.max_window_len]u8 = undefined;
-        var reader: std.Io.Reader = .fixed(self.data.items);
-        var stream: std.compress.flate.Decompress = .init(&reader, .zlib, &buf);
-
-        // Write it to an array list
-        var list: std.ArrayList(u8) = .empty;
-        errdefer list.deinit(alloc);
-        stream.reader.appendRemaining(alloc, &list, .limited(max_size)) catch {
-            log.warn("failed to read decompressed data: {?}", .{stream.err});
-            return error.DecompressionFailed;
+        // Provide a bounded size hint based on image metadata for the initial allocation
+        const size_hint: ?usize = hint: {
+            if (self.image.format == .png or
+                self.image.width == 0 or self.image.height == 0 or
+                self.image.width > max_dimension or self.image.height > max_dimension)
+                break :hint null;
+            const pixels = std.math.mul(
+                usize,
+                self.image.width,
+                self.image.height,
+            ) catch break :hint null;
+            const bytes = std.math.mul(
+                usize,
+                pixels,
+                command.Transmission.formatBpp(self.image.format),
+            ) catch break :hint null;
+            break :hint if (bytes <= max_size) bytes else null;
+        };
+        const decompressed = wuffs.zlib.decode(
+            alloc,
+            self.data.items,
+            max_size,
+            size_hint,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.WuffsError, error.Overflow => return error.DecompressionFailed,
         };
 
-        // Empty our current data list, take ownership over managed array list
         self.data.deinit(alloc);
-        self.data = .{ .items = list.items, .capacity = list.capacity };
+        self.data = .{ .items = decompressed, .capacity = decompressed.len };
 
         // Make sure we note that our image is no longer compressed
         self.image.compression = .none;
@@ -1920,6 +1935,35 @@ test "image load: png, not compressed, regular file" {
     try testing.expect(img.compression == .none);
     try testing.expect(img.format == .rgba);
     try tmp_dir.dir.access(testing.io, path, .{});
+}
+
+test "image load: png, zlib compressed, direct" {
+    if (sys.decode_png == null) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+    const data = @embedFile("testdata/image-png-zlib_deflate-50x76-2147483647-raw.data");
+
+    var cmd: command.Command = .{
+        .control = .{ .transmit = .{
+            .format = .png,
+            .medium = .direct,
+            .compression = .zlib_deflate,
+            .image_id = 31,
+        } },
+        .data = try alloc.dupe(u8, data),
+    };
+    defer cmd.deinit(alloc);
+    var loading = try LoadingImage.init(io, alloc, &cmd, .direct);
+    defer loading.deinit(alloc);
+    var img = try loading.complete(alloc);
+    defer img.deinit(alloc);
+
+    try testing.expectEqual(command.Transmission.Compression.none, img.compression);
+    try testing.expectEqual(command.Transmission.Format.rgba, img.format);
+    try testing.expectEqual(@as(u32, 50), img.width);
+    try testing.expectEqual(@as(u32, 76), img.height);
 }
 
 test "image load: png rejects oversized decoder allocation" {
