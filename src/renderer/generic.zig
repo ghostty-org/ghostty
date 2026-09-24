@@ -893,7 +893,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.images = .empty;
 
                 if (self.bg_image) |img| {
-                    img.deinit(self.alloc);
+                    img.deinit();
                     self.bg_image = null;
                 }
             }
@@ -2072,18 +2072,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 };
 
                 const image: imagepkg.Image = .{
-                    .pending = .{
+                    .pending = imagepkg.ArcCpuImage.init(self.alloc, .{
                         .width = image_data.width,
                         .height = image_data.height,
-                        .pixel_format = .rgba,
-                        .data = image_data.data.ptr,
+                        .format = .rgba,
+                        .data = image_data.data,
+                    }) catch |err| {
+                        self.alloc.free(image_data.data);
+                        return err;
                     },
                 };
 
                 // If we have an existing background image, replace it.
                 // Otherwise, set this as our background image directly.
                 if (self.bg_image) |*img| {
-                    img.markForReplace(self.alloc, image);
+                    img.markForReplace(image);
                 } else {
                     self.bg_image = image;
                 }
@@ -2098,7 +2101,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Make sure our bg image is uploaded if it needs to be.
             if (self.bg_image) |*bg| {
                 if (bg.isUnloading()) {
-                    bg.deinit(self.alloc);
+                    bg.deinit();
                     self.bg_image = null;
                     return;
                 }

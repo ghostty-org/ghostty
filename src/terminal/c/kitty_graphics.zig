@@ -1066,7 +1066,7 @@ test "image_get exposes pending metadata without a data pointer" {
     try testing.expectEqual(Result.no_value, image_get(img, .data_ptr, @ptrCast(&data_ptr)));
 
     const pixels = try alloc.dupe(u8, "*" ** 12);
-    try testing.expect(pending.complete(graphics, testing.io, pixels));
+    try testing.expect(pending.complete(graphics, testing.io, alloc, pixels));
     const completed_img = image_get_handle(graphics, 42);
     try testing.expect(completed_img != null);
     try testing.expectEqual(Result.success, image_get(completed_img, .data_ptr, @ptrCast(&data_ptr)));

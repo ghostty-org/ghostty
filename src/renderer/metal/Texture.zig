@@ -3,6 +3,7 @@ const Self = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const CpuImage = @import("../../terminal/image.zig").CpuImage;
 const assert = @import("../../quirks.zig").inlineAssert;
 const objc = @import("objc");
 
@@ -35,6 +36,11 @@ pub const Error = error{
     /// A Metal API call failed.
     MetalFailed,
 };
+
+/// Return the native texture format for an image, if it can be uploaded directly.
+pub fn imageTextureFormat(format: CpuImage.Format) ?Metal.ImageTextureFormat {
+    return if (format == .rgba) .rgba else null;
+}
 
 /// Initialize a texture
 pub fn init(
