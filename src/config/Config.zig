@@ -2312,6 +2312,23 @@ keybind: Keybinds = .{},
 ///   * `end` - Insert the new tab at the end of the tab list.
 @"window-new-tab-position": WindowNewTabPosition = .current,
 
+/// Which tab to focus after the currently focused tab is closed.
+///
+/// Valid values:
+///
+///   * `next` - Focus the tab to the right of the closed tab. This is the
+///     default and matches the historical behavior.
+///
+///   * `previous` - Focus the tab to the left of the closed tab.
+///
+/// If the closed tab is on the far edge in the chosen direction (the
+/// leftmost tab with `previous`, or the rightmost tab with `next`), focus
+/// falls back to the only available neighbor. Closing a tab that is not
+/// currently focused never changes which tab is focused.
+///
+/// Available since: 1.4.0
+@"window-close-tab-focus": WindowCloseTabFocus = .next,
+
 /// Whether to show the tab bar.
 ///
 /// Valid values:
@@ -4128,6 +4145,41 @@ test "handle bom in config files" {
         try testing.expectEqual(
             2500,
             cfg.@"abnormal-command-exit-runtime",
+        );
+    }
+}
+
+test "window-close-tab-focus" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Default is next.
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        try cfg.finalize();
+        try testing.expectEqual(
+            WindowCloseTabFocus.next,
+            cfg.@"window-close-tab-focus",
+        );
+    }
+
+    // Explicit previous parses.
+    {
+        const data = "window-close-tab-focus = previous\n";
+        var reader: std.Io.Reader = .fixed(data);
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        try cfg.loadReader(
+            alloc,
+            &reader,
+            "/home/ghostty/.config/ghostty/config.ghostty",
+        );
+        try cfg.finalize();
+        try testing.expect(cfg._diagnostics.empty());
+        try testing.expectEqual(
+            WindowCloseTabFocus.previous,
+            cfg.@"window-close-tab-focus",
         );
     }
 }
@@ -9433,6 +9485,12 @@ pub const WindowSaveState = enum {
 pub const WindowNewTabPosition = enum {
     current,
     end,
+};
+
+/// See window-close-tab-focus
+pub const WindowCloseTabFocus = enum {
+    next,
+    previous,
 };
 
 /// See macos-dock-drop-behavior

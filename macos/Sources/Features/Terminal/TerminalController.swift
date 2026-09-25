@@ -741,6 +741,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             }
         }
 
+        // Honor window-close-tab-focus. By default AppKit selects the next
+        // (right) tab when the selected tab closes; `previous` selects the
+        // left neighbor instead. Only reroute when we're closing the
+        // currently selected tab and a left neighbor exists.
+        if ghostty.config.windowCloseTabFocus == .previous,
+           tabGroup.selectedWindow == window,
+           let index = tabGroup.windows.firstIndex(of: window),
+           index > 0 {
+            tabGroup.selectedWindow = tabGroup.windows[index - 1]
+        }
+
         window.close()
     }
 
