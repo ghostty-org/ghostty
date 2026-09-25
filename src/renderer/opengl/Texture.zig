@@ -62,6 +62,8 @@ pub fn imageTextureFormat(format: CpuImage.Format) ?OpenGL.ImageTextureFormat {
 ///
 /// `image2D` synchronously consumes client memory. This renderer does not use
 /// a pixel-unpack buffer, so `data` may be released after this returns.
+///
+/// This is documented at https://wikis.khronos.org/opengl/Pixel_Buffer_Object
 pub fn init(
     opts: Options,
     width: usize,
