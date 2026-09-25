@@ -168,6 +168,18 @@ typedef const struct GhosttyKittyGraphicsImageImpl* GhosttyKittyGraphicsImage;
 typedef struct GhosttyKittyGraphicsPlacementIteratorImpl* GhosttyKittyGraphicsPlacementIterator;
 
 /**
+ * Opaque handle to a Kitty graphics Unicode placement iterator.
+ *
+ * The iterator is caller-owned and remains valid until freed. Populated
+ * traversal state and values are borrowed from the terminal and are
+ * invalidated by terminal mutation.
+ *
+ * @ingroup kitty_graphics
+ */
+typedef struct GhosttyKittyGraphicsUnicodePlacementIteratorImpl*
+    GhosttyKittyGraphicsUnicodePlacementIterator;
+
+/**
  * Opaque handle to a render state instance.
  *
  * @ingroup render
