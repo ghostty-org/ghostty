@@ -43,6 +43,9 @@ pub const Error = error{
 
 /// Native upload format preserving the source's sRGB color and linear alpha.
 /// Null requires conversion before uploading.
+///
+/// This is based on the `format` field for incoming data for glTexImage2D
+/// Documented at https://registry.khronos.org/OpenGL-Refpages/gl4/html/glTexImage2D.xhtml
 pub fn imageTextureFormat(format: CpuImage.Format) ?OpenGL.ImageTextureFormat {
     return switch (format) {
         .gray => .gray,
