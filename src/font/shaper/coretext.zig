@@ -654,16 +654,16 @@ pub const Shaper = struct {
             const state = &self.shaper.run_state;
 
             // Build our UTF-16 string for CoreText
-            try state.unichars.ensureUnusedCapacity(self.shaper.alloc, 2);
-
-            state.unichars.appendNTimesAssumeCapacity(0, 2);
-
-            const pair = macos.foundation.stringGetSurrogatePairForLongCharacter(
-                cp,
-                state.unichars.items[state.unichars.items.len - 2 ..][0..2],
-            );
-            if (!pair) {
-                state.unichars.items.len -= 1;
+            const pair = cp > 0xFFFF;
+            if (pair) {
+                try state.unichars.ensureUnusedCapacity(self.shaper.alloc, 2);
+                state.unichars.appendNTimesAssumeCapacity(0, 2);
+                _ = macos.foundation.stringGetSurrogatePairForLongCharacter(
+                    cp,
+                    state.unichars.items[state.unichars.items.len - 2 ..][0..2],
+                );
+            } else {
+                try state.unichars.append(self.shaper.alloc, @intCast(cp));
             }
 
             // Build our reverse lookup table for codepoints to clusters
