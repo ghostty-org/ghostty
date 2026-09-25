@@ -40,6 +40,8 @@ bool decode_png(void* userdata,
   out->height = 1;
   out->data = pixels;
   out->data_len = pixel_len;
+  /* The allocation is exactly the pixel data, so there is no surplus. */
+  out->data_extra = 0;
   return true;
 }
 //! [kitty-graphics-decode-png]
