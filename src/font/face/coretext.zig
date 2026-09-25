@@ -1161,3 +1161,75 @@ test "glyphIndex colored vs text" {
         try testing.expect(face.isColorGlyph(glyph));
     }
 }
+
+// Expected pixel pattern for Spleen 8x16 'A', matching the FreeType tests.
+const spleen_A =
+    \\........
+    \\........
+    \\.#####..
+    \\##...##.
+    \\##...##.
+    \\##...##.
+    \\#######.
+    \\##...##.
+    \\##...##.
+    \\##...##.
+    \\##...##.
+    \\##...##.
+    \\........
+    \\........
+    \\........
+    \\........
+;
+// 8 columns plus the newline separator.
+const spleen_A_pitch = 9;
+
+test "bitmap glyph Apple SFNT" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const testFont = font.embedded.spleen_apple;
+
+    var atlas = try font.Atlas.init(alloc, 512, .grayscale);
+    defer atlas.deinit(alloc);
+
+    var lib = try font.Library.init(alloc);
+    defer lib.deinit();
+
+    // Request the native 16px strike (16pt @ 72 DPI) so it renders 1:1.
+    var face = try Face.init(lib, testFont, .{ .size = .{
+        .points = 16,
+        .xdpi = 72,
+        .ydpi = 72,
+    } });
+    defer face.deinit();
+
+    // Metrics come from the 'bhed' table (Apple bitmap SFNTs have no 'head');
+    // for the 16px strike that's an 8px cell, 12px ascent, 4px descent.
+    const fm = face.getMetrics();
+    try testing.expectEqual(@as(f64, 16), fm.px_per_em);
+    try testing.expectApproxEqAbs(@as(f64, 8), fm.cell_width, 0.01);
+    try testing.expectApproxEqAbs(@as(f64, 12), fm.ascent, 0.01);
+    try testing.expectApproxEqAbs(@as(f64, -4), fm.descent, 0.01);
+
+    const glyph_index = face.glyphIndex('A') orelse return error.GlyphNotFound;
+
+    const glyph = try face.renderGlyph(
+        alloc,
+        &atlas,
+        glyph_index,
+        .{ .grid_metrics = font.Metrics.calc(fm) },
+    );
+
+    // A bitmap glyph must render crisp: 8x16 with every pixel fully on or off.
+    try testing.expectEqual(8, glyph.width);
+    try testing.expectEqual(16, glyph.height);
+    for (0..glyph.height) |y| {
+        for (0..glyph.width) |x| {
+            const pixel = spleen_A[y * spleen_A_pitch + x];
+            try testing.expectEqual(
+                @as(u8, if (pixel == '#') 255 else 0),
+                atlas.data[(glyph.atlas_y + y) * atlas.size + (glyph.atlas_x + x)],
+            );
+        }
+    }
+}
