@@ -55,6 +55,10 @@ pub fn imageTextureFormat(format: CpuImage.Format) ?Metal.ImageTextureFormat {
 ///
 /// Metal's `replaceRegion:...withBytes:` synchronously copies `data`, so the
 /// caller may release the CPU bytes after this returns.
+///
+/// A synchronize must be done before reading this texture data on the GPU.
+///
+/// This is documented at ![replace(region:mipmaplevel:withbytes:bytesperrow)](https://developer.apple.com/documentation/metal/mtltexture/replace(region:mipmaplevel:withbytes:bytesperrow:)#discussion)
 pub fn init(
     opts: Options,
     width: usize,
