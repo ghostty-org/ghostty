@@ -39,6 +39,8 @@ pub const Error = error{
 
 /// Native upload format preserving the source's sRGB color and linear alpha.
 /// Null requires conversion before uploading.
+///
+/// Metal documents the acceptable pixel formats at https://developer.apple.com/documentation/metal/mtlpixelformat
 pub fn imageTextureFormat(format: CpuImage.Format) ?Metal.ImageTextureFormat {
     return switch (format) {
         .rgba => .rgba,
