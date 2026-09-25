@@ -310,7 +310,7 @@ pub const ResizeOverlay = extern struct {
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
                     .major = 1,
-                    .minor = 2,
+                    .minor = 0,
                     .name = "resize-overlay",
                 }),
             );

@@ -1105,7 +1105,7 @@ pub const SplitTree = extern struct {
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
                     .major = 1,
-                    .minor = 5,
+                    .minor = 0,
                     .name = "split-tree",
                 }),
             );
@@ -1486,7 +1486,7 @@ const SplitTreeSplit = extern struct {
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
                     .major = 1,
-                    .minor = 5,
+                    .minor = 0,
                     .name = "split-tree-split",
                 }),
             );

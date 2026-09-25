@@ -7,19 +7,14 @@ const gtk = @import("gtk");
 const apprt = @import("../../../apprt.zig");
 const gresource = @import("../build/gresource.zig");
 const i18n = @import("../../../os/main.zig").i18n;
-const adw_version = @import("../adw_version.zig");
 const Common = @import("../class.zig").Common;
-const Dialog = @import("dialog.zig").Dialog;
 
 const log = std.log.scoped(.gtk_ghostty_clipboard_confirmation);
-
-/// Whether we're able to have the remember switch
-const can_remember = adw_version.supportsSwitchRow();
 
 pub const ClipboardConfirmationDialog = extern struct {
     const Self = @This();
     parent_instance: Parent,
-    pub const Parent = Dialog;
+    pub const Parent = adw.AlertDialog;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
         .name = "GhosttyClipboardConfirmationDialog",
         .instanceInit = &init,
@@ -132,7 +127,7 @@ pub const ClipboardConfirmationDialog = extern struct {
         text_view: *gtk.TextView,
         reveal_button: *gtk.Button,
         hide_button: *gtk.Button,
-        remember_choice: if (can_remember) *adw.SwitchRow else void,
+        remember_choice: *adw.SwitchRow,
 
         pub var offset: c_int = 0;
     };
@@ -150,7 +145,7 @@ pub const ClipboardConfirmationDialog = extern struct {
     }
 
     pub fn present(self: *Self, parent: ?*gtk.Widget) void {
-        self.as(Dialog).present(parent);
+        self.as(adw.Dialog).present(parent);
     }
 
     /// Get the clipboard request without copying.
@@ -194,16 +189,16 @@ pub const ClipboardConfirmationDialog = extern struct {
         const req = priv.request orelse return;
         switch (req.*) {
             .osc_52_write, .kitty_write => {
-                self.as(Dialog.Parent).setHeading(i18n._("Authorize Clipboard Access"));
-                self.as(Dialog.Parent).setBody(i18n._("An application is attempting to write to the clipboard. The current clipboard contents are shown below."));
+                self.as(adw.AlertDialog).setHeading(i18n._("Authorize Clipboard Access"));
+                self.as(adw.AlertDialog).setBody(i18n._("An application is attempting to write to the clipboard. The current clipboard contents are shown below."));
             },
             .osc_52_read, .kitty_read => {
-                self.as(Dialog.Parent).setHeading(i18n._("Authorize Clipboard Access"));
-                self.as(Dialog.Parent).setBody(i18n._("An application is attempting to read from the clipboard. The current clipboard contents are shown below."));
+                self.as(adw.AlertDialog).setHeading(i18n._("Authorize Clipboard Access"));
+                self.as(adw.AlertDialog).setBody(i18n._("An application is attempting to read from the clipboard. The current clipboard contents are shown below."));
             },
             .paste => {
-                self.as(Dialog.Parent).setHeading(i18n._("Warning: Potentially Unsafe Paste"));
-                self.as(Dialog.Parent).setBody(i18n._("Pasting this text into the terminal may be dangerous as it looks like some commands may be executed."));
+                self.as(adw.AlertDialog).setHeading(i18n._("Warning: Potentially Unsafe Paste"));
+                self.as(adw.AlertDialog).setBody(i18n._("Pasting this text into the terminal may be dangerous as it looks like some commands may be executed."));
             },
             .list => unreachable,
         }
@@ -232,10 +227,7 @@ pub const ClipboardConfirmationDialog = extern struct {
         self: *Self,
         response_id: [*:0]const u8,
     ) callconv(.c) void {
-        const remember: bool = if (comptime can_remember) remember: {
-            const priv = self.private();
-            break :remember priv.remember_choice.getActive() != 0;
-        } else false;
+        const remember: bool = self.private().remember_choice.getActive() != 0;
 
         if (std.mem.orderZ(u8, response_id, "cancel") == .eq) {
             signals.deny.impl.emit(
@@ -299,18 +291,11 @@ pub const ClipboardConfirmationDialog = extern struct {
         fn init(class: *Class) callconv(.c) void {
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
-                if (comptime adw_version.atLeast(1, 4, 0))
-                    comptime gresource.blueprint(.{
-                        .major = 1,
-                        .minor = 4,
-                        .name = "clipboard-confirmation-dialog",
-                    })
-                else
-                    comptime gresource.blueprint(.{
-                        .major = 1,
-                        .minor = 0,
-                        .name = "clipboard-confirmation-dialog",
-                    }),
+                comptime gresource.blueprint(.{
+                    .major = 1,
+                    .minor = 5,
+                    .name = "clipboard-confirmation-dialog",
+                }),
             );
 
             // Bindings
@@ -318,9 +303,7 @@ pub const ClipboardConfirmationDialog = extern struct {
             class.bindTemplateChildPrivate("text_view", .{});
             class.bindTemplateChildPrivate("hide_button", .{});
             class.bindTemplateChildPrivate("reveal_button", .{});
-            if (comptime can_remember) {
-                class.bindTemplateChildPrivate("remember_choice", .{});
-            }
+            class.bindTemplateChildPrivate("remember_choice", .{});
 
             // Template Callbacks
             class.bindTemplateCallback("reveal_clicked", &revealButtonClicked);
@@ -343,7 +326,7 @@ pub const ClipboardConfirmationDialog = extern struct {
             // Virtual methods
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
             gobject.Object.virtual_methods.finalize.implement(class, &finalize);
-            Dialog.virtual_methods.response.implement(class, &response);
+            adw.AlertDialog.virtual_methods.response.implement(class, &response);
         }
 
         pub const as = C.Class.as;

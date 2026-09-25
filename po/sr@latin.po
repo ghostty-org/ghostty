@@ -11,7 +11,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-08-10 10:06-0500\n"
+"POT-Creation-Date: 2026-09-21 17:23-0500\n"
 "PO-Revision-Date: 2026-08-31 21:45+0200\n"
 "Last-Translator: Marko Kostić <marko.m.kostic@gmail.com>\n"
 "Language-Team: Language SR\n"
@@ -24,97 +24,33 @@ msgstr ""
 msgid "Open in Ghostty"
 msgstr "Otvori u Ghostty-ju"
 
-#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
-msgid "Authorize Clipboard Access"
-msgstr "Odobri pristup ostavi"
-
-#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:17
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:17
-msgid "Deny"
-msgstr "Odbij"
-
-#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:18
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:18
-msgid "Allow"
-msgstr "Dozvoli"
-
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
-msgid "Remember choice for this split"
-msgstr "Zapamti izbor za ovu razdelu"
-
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
-msgid "Reload configuration to show this prompt again"
-msgstr "Ponovo učitaj podešavanja da bi se ovaj upit ponovo prikazao"
-
-#: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
-#: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2263
-msgid "Cancel"
-msgstr "Otkaži"
-
-#: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:8
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:90
-#: src/apprt/gtk/ui/1.3/surface-child-exited.blp:17
-msgid "Close"
-msgstr "Zatvori"
-
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
-msgid "Configuration Errors"
-msgstr "Greške u podešavanjima"
-
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:8
-msgid ""
-"One or more configuration errors were found. Please review the errors below, "
-"and either reload your configuration or ignore these errors."
-msgstr ""
-"Pronađena je jedna ili više grešaka u podešavanjima. Pregledaj greške ispod, "
-"i ponovo učitaj svoja podešavanja ili zanemari ove greške."
-
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:12
-msgid "Ignore"
-msgstr "Zanemari"
-
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:13
-#: src/apprt/gtk/ui/1.2/surface.blp:439 src/apprt/gtk/ui/1.5/window.blp:318
-msgid "Reload Configuration"
-msgstr "Ponovo učitaj podešavanja"
-
-#: src/apprt/gtk/ui/1.2/debug-warning.blp:7
-#: src/apprt/gtk/ui/1.3/debug-warning.blp:6
-msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr ""
-"⚠️ Pokrećeš izdanje Ghostty-ja za otklanjanje grešaka! Performanse biće "
-"smanjene."
-
-#: src/apprt/gtk/ui/1.5/inspector-window.blp:5
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: inspektor terminala"
-
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:29
+#: src/apprt/gtk/ui/1.0/search-overlay.blp:29
 msgid "Find…"
 msgstr "Nađi…"
 
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:69
+#: src/apprt/gtk/ui/1.0/search-overlay.blp:69
 msgid "Previous Match"
 msgstr "Prethodno poklapanje"
 
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:79
+#: src/apprt/gtk/ui/1.0/search-overlay.blp:79
 msgid "Next Match"
 msgstr "Sledeće poklapanje"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:7
+#: src/apprt/gtk/ui/1.0/search-overlay.blp:90
+#: src/apprt/gtk/ui/1.3/surface-child-exited.blp:17
+#: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:7
+msgid "Close"
+msgstr "Zatvori"
+
+#: src/apprt/gtk/ui/1.0/surface.blp:6
 msgid "Oh, no."
 msgstr "O, ne."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:8
+#: src/apprt/gtk/ui/1.0/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
 msgstr "Nije bilo moguće obezbediti OpenGL kontekst za iscrtavanje."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:101
+#: src/apprt/gtk/ui/1.0/surface.blp:96
 msgid ""
 "This terminal is in read-only mode. You can still view, select, and scroll "
 "through the content, but no input events will be sent to the running "
@@ -123,111 +59,203 @@ msgstr ""
 "Ovaj terminal je u režimu samo za čitanje. I dalje možeš pregledati, birati "
 "i pomicati sadržaj, ali događaji unosa neće biti poslati pokrenutom programu."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:112
+#: src/apprt/gtk/ui/1.0/surface.blp:107
 msgid "Read-only"
 msgstr "Samo za čitanje"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:316 src/apprt/gtk/ui/1.5/window.blp:203
+#: src/apprt/gtk/ui/1.0/surface.blp:311 src/apprt/gtk/ui/1.4/window.blp:203
 msgid "Copy"
 msgstr "Kopiraj"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:321 src/apprt/gtk/ui/1.5/window.blp:208
+#: src/apprt/gtk/ui/1.0/surface.blp:316 src/apprt/gtk/ui/1.4/window.blp:208
 msgid "Paste"
 msgstr "Ubaci"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:326
+#: src/apprt/gtk/ui/1.0/surface.blp:321
 msgid "Notify on Next Command Finish"
 msgstr "Obavesti kada se sledeća naredba završi"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
+#: src/apprt/gtk/ui/1.0/surface.blp:328 src/apprt/gtk/ui/1.4/window.blp:281
 msgid "Clear"
 msgstr "Očisti"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:338 src/apprt/gtk/ui/1.5/window.blp:286
+#: src/apprt/gtk/ui/1.0/surface.blp:333 src/apprt/gtk/ui/1.4/window.blp:286
 msgid "Reset"
 msgstr "Vrati"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:250
+#: src/apprt/gtk/ui/1.0/surface.blp:340 src/apprt/gtk/ui/1.4/window.blp:250
 msgid "Split"
 msgstr "Razdeli"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:348 src/apprt/gtk/ui/1.5/window.blp:253
+#: src/apprt/gtk/ui/1.0/surface.blp:343 src/apprt/gtk/ui/1.4/window.blp:253
 msgid "Change Title…"
 msgstr "Promeni naslov…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:353 src/apprt/gtk/ui/1.5/window.blp:180
-#: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:487
+#: src/apprt/gtk/ui/1.0/surface.blp:348 src/apprt/gtk/ui/1.4/window.blp:180
+#: src/apprt/gtk/ui/1.4/window.blp:258 src/input/command.zig:487
 msgid "Split Up"
 msgstr "Razdeli nagore"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:359 src/apprt/gtk/ui/1.5/window.blp:185
-#: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:492
+#: src/apprt/gtk/ui/1.0/surface.blp:354 src/apprt/gtk/ui/1.4/window.blp:185
+#: src/apprt/gtk/ui/1.4/window.blp:263 src/input/command.zig:492
 msgid "Split Down"
 msgstr "Razdeli dole"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:365 src/apprt/gtk/ui/1.5/window.blp:190
-#: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
+#: src/apprt/gtk/ui/1.0/surface.blp:360 src/apprt/gtk/ui/1.4/window.blp:190
+#: src/apprt/gtk/ui/1.4/window.blp:268 src/input/command.zig:477
 msgid "Split Left"
 msgstr "Razdeli ulevo"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:195
-#: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
+#: src/apprt/gtk/ui/1.0/surface.blp:366 src/apprt/gtk/ui/1.4/window.blp:195
+#: src/apprt/gtk/ui/1.4/window.blp:273 src/input/command.zig:482
 msgid "Split Right"
 msgstr "Razdeli udesno"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:377
+#: src/apprt/gtk/ui/1.0/surface.blp:372
 msgid "Close Split"
 msgstr "Zatvori razdelu"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:383
+#: src/apprt/gtk/ui/1.0/surface.blp:378
 msgid "Tab"
 msgstr "Jezičak"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:386 src/apprt/gtk/ui/1.5/window.blp:232
-#: src/apprt/gtk/ui/1.5/window.blp:339 src/input/command.zig:464
+#: src/apprt/gtk/ui/1.0/surface.blp:381 src/apprt/gtk/ui/1.4/window.blp:232
+#: src/apprt/gtk/ui/1.4/window.blp:339 src/input/command.zig:464
 msgid "Change Tab Title…"
 msgstr "Promeni naslov jezička…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:391 src/apprt/gtk/ui/1.5/window.blp:60
-#: src/apprt/gtk/ui/1.5/window.blp:110 src/apprt/gtk/ui/1.5/window.blp:237
+#: src/apprt/gtk/ui/1.0/surface.blp:386 src/apprt/gtk/ui/1.4/window.blp:60
+#: src/apprt/gtk/ui/1.4/window.blp:110 src/apprt/gtk/ui/1.4/window.blp:237
 #: src/input/command.zig:427
 msgid "New Tab"
 msgstr "Novi jezičak"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:396 src/apprt/gtk/ui/1.5/window.blp:242
+#: src/apprt/gtk/ui/1.0/surface.blp:391 src/apprt/gtk/ui/1.4/window.blp:242
 #: src/input/command.zig:613
 msgid "Close Tab"
 msgstr "Zatvori jezičak"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:403
+#: src/apprt/gtk/ui/1.0/surface.blp:398
 msgid "Window"
 msgstr "Prozor"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:215
+#: src/apprt/gtk/ui/1.0/surface.blp:401 src/apprt/gtk/ui/1.4/window.blp:215
 msgid "Change Window Title…"
 msgstr "Promeni naslov prozora…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:220
+#: src/apprt/gtk/ui/1.0/surface.blp:406 src/apprt/gtk/ui/1.4/window.blp:220
 #: src/input/command.zig:421
 msgid "New Window"
 msgstr "Novi prozor"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:416 src/apprt/gtk/ui/1.5/window.blp:225
+#: src/apprt/gtk/ui/1.0/surface.blp:411 src/apprt/gtk/ui/1.4/window.blp:225
 #: src/input/command.zig:630
 msgid "Close Window"
 msgstr "Zatvori prozor"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:424 src/apprt/gtk/ui/1.5/window.blp:303
+#: src/apprt/gtk/ui/1.0/surface.blp:419 src/apprt/gtk/ui/1.4/window.blp:303
 msgid "Config"
 msgstr "Podešavanja"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
+#: src/apprt/gtk/ui/1.0/surface.blp:422 src/apprt/gtk/ui/1.4/window.blp:306
 msgid "Open Configuration in OS Editor"
 msgstr "Otvori podešavanja u uređivaču OS-a"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
+#: src/apprt/gtk/ui/1.0/surface.blp:428 src/apprt/gtk/ui/1.4/window.blp:312
 msgid "Open Configuration in New Window"
 msgstr "Otvori podešavanja u novom prozoru"
+
+#: src/apprt/gtk/ui/1.0/surface.blp:434 src/apprt/gtk/ui/1.4/window.blp:318
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:12
+msgid "Reload Configuration"
+msgstr "Ponovo učitaj podešavanja"
+
+#: src/apprt/gtk/ui/1.3/debug-warning.blp:6
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""
+"⚠️ Pokrećeš izdanje Ghostty-ja za otklanjanje grešaka! Performanse biće "
+"smanjene."
+
+#: src/apprt/gtk/ui/1.4/inspector-window.blp:5
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: inspektor terminala"
+
+#: src/apprt/gtk/ui/1.4/window.blp:61 src/apprt/gtk/ui/1.4/window.blp:111
+msgid "New Split"
+msgstr "Nova razdela"
+
+#: src/apprt/gtk/ui/1.4/window.blp:71 src/apprt/gtk/ui/1.4/window.blp:129
+msgid "View Open Tabs"
+msgstr "Prikaži otvorene jezičke"
+
+#: src/apprt/gtk/ui/1.4/window.blp:81 src/apprt/gtk/ui/1.4/window.blp:143
+msgid "Main Menu"
+msgstr "Glavni meni"
+
+#: src/apprt/gtk/ui/1.4/window.blp:293
+msgid "Command Palette"
+msgstr "Paleta naredbi"
+
+#: src/apprt/gtk/ui/1.4/window.blp:298
+msgid "Terminal Inspector"
+msgstr "Inspektor terminala"
+
+#: src/apprt/gtk/ui/1.4/window.blp:326
+msgid "About Ghostty"
+msgstr "O programu Ghostty"
+
+#: src/apprt/gtk/ui/1.4/window.blp:331 src/input/command.zig:702
+msgid "Quit"
+msgstr "Izađi"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:192
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:196
+msgid "Authorize Clipboard Access"
+msgstr "Odobri pristup ostavi"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:16
+msgid "Deny"
+msgstr "Odbij"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:17
+msgid "Allow"
+msgstr "Dozvoli"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:91
+msgid "Remember choice for this split"
+msgstr "Zapamti izbor za ovu razdelu"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:92
+msgid "Reload configuration to show this prompt again"
+msgstr "Ponovo učitaj podešavanja da bi se ovaj upit ponovo prikazao"
+
+#: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
+#: src/apprt/gtk/ui/1.5/title-dialog.blp:8
+#: src/apprt/gtk/class/application.zig:2237
+msgid "Cancel"
+msgstr "Otkaži"
+
+#: src/apprt/gtk/ui/1.5/command-palette.blp:17
+msgid "Execute a command…"
+msgstr "Izvrši naredbu…"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
+msgid "Configuration Errors"
+msgstr "Greške u podešavanjima"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:7
+msgid ""
+"One or more configuration errors were found. Please review the errors below, "
+"and either reload your configuration or ignore these errors."
+msgstr ""
+"Pronađena je jedna ili više grešaka u podešavanjima. Pregledaj greške ispod, "
+"i ponovo učitaj svoja podešavanja ili zanemari ove greške."
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:11
+msgid "Ignore"
+msgstr "Zanemari"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
@@ -237,70 +265,38 @@ msgstr "Ostavi prazno da vratiš podrazumevani naslov."
 msgid "OK"
 msgstr "U redu"
 
-#: src/apprt/gtk/ui/1.5/window.blp:61 src/apprt/gtk/ui/1.5/window.blp:111
-msgid "New Split"
-msgstr "Nova razdela"
-
-#: src/apprt/gtk/ui/1.5/window.blp:71 src/apprt/gtk/ui/1.5/window.blp:129
-msgid "View Open Tabs"
-msgstr "Prikaži otvorene jezičke"
-
-#: src/apprt/gtk/ui/1.5/window.blp:81 src/apprt/gtk/ui/1.5/window.blp:143
-msgid "Main Menu"
-msgstr "Glavni meni"
-
-#: src/apprt/gtk/ui/1.5/window.blp:293
-msgid "Command Palette"
-msgstr "Paleta naredbi"
-
-#: src/apprt/gtk/ui/1.5/window.blp:298
-msgid "Terminal Inspector"
-msgstr "Inspektor terminala"
-
-#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1991
-msgid "About Ghostty"
-msgstr "O programu Ghostty"
-
-#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:702
-msgid "Quit"
-msgstr "Izađi"
-
-#: src/apprt/gtk/ui/1.5/command-palette.blp:17
-msgid "Execute a command…"
-msgstr "Izvrši naredbu…"
-
-#: src/apprt/gtk/class/application.zig:1767
+#: src/apprt/gtk/class/application.zig:1720
 msgid "The keybind was revoked by the system."
 msgstr "Sistem je opozvao prečicu."
 
-#: src/apprt/gtk/class/application.zig:1769
+#: src/apprt/gtk/class/application.zig:1722
 msgid "The keybind was denied by the system."
 msgstr "Sistem je odbio prečicu."
 
-#: src/apprt/gtk/class/application.zig:1780
+#: src/apprt/gtk/class/application.zig:1733
 msgid "Global keybind unavailable"
 msgstr "Globalna prečica nije dostupna"
 
-#: src/apprt/gtk/class/application.zig:2259
+#: src/apprt/gtk/class/application.zig:2233
 msgid "Export Terminal IO Events"
 msgstr "Izvezi događaje ulaza/izlaza terminala"
 
-#: src/apprt/gtk/class/application.zig:2262
+#: src/apprt/gtk/class/application.zig:2236
 msgid "Export"
 msgstr "Izvezi"
 
-#: src/apprt/gtk/class/application.zig:2783
+#: src/apprt/gtk/class/application.zig:2763
 msgid "Editing configuration file"
 msgstr "Uređivanje datoteke sa podešavanjima"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:193
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
 "Program pokušava da piše u ostavu. Trenutni sadržaj ostave je prikazan ispod."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:202
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
@@ -308,11 +304,11 @@ msgstr ""
 "Program pokušava da čita iz ostave. Trenutni sadržaj ostave je prikazan "
 "ispod."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:200
 msgid "Warning: Potentially Unsafe Paste"
 msgstr "Upozorenje: potencijalno nebezbedno ubacivanje"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:206
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
@@ -320,77 +316,77 @@ msgstr ""
 "Ubacivanje ovog teksta u terminal može biti opasno jer izgleda kao da se "
 "neke naredbe mogu izvršiti."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:184
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:183
 msgid "Quit Ghostty?"
 msgstr "Izaći iz Ghostty-ja?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:184
 msgid "Close Tab?"
 msgstr "Da zatvorim jezičak?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Window?"
 msgstr "Da zatvorim prozor?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:187
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
 msgid "Close Split?"
 msgstr "Zatvoriti razdelu?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:193
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:192
 msgid "All terminal sessions will be terminated."
 msgstr "Sve sesije terminala biće prekinute."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:194
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions in this tab will be terminated."
 msgstr "Sve sesije terminala u ovom jezičku biće prekinute."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:195
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:194
 msgid "All terminal sessions in this window will be terminated."
 msgstr "Sve sesije terminala u ovom prozoru biće prekinute."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:196
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:195
 msgid "The currently running process in this split will be terminated."
 msgstr "Trenutno pokrenut proces u ovoj razdeli biće prekinut."
 
-#: src/apprt/gtk/class/surface.zig:1181
+#: src/apprt/gtk/class/surface.zig:1191
 msgid "Command Finished"
 msgstr "Naredba je završena"
 
-#: src/apprt/gtk/class/surface.zig:1182
-#: src/apprt/gtk/class/surface_child_exited.zig:109
+#: src/apprt/gtk/class/surface.zig:1192
+#: src/apprt/gtk/class/surface_child_exited.zig:102
 msgid "Command Succeeded"
 msgstr "Naredba je uspešno izvršena"
 
-#: src/apprt/gtk/class/surface.zig:1183
-#: src/apprt/gtk/class/surface_child_exited.zig:113
+#: src/apprt/gtk/class/surface.zig:1193
+#: src/apprt/gtk/class/surface_child_exited.zig:106
 msgid "Command Failed"
 msgstr "Naredba nije uspela"
 
-#: src/apprt/gtk/class/title_dialog.zig:227
+#: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Terminal Title"
 msgstr "Promeni naslov terminala"
 
-#: src/apprt/gtk/class/title_dialog.zig:228
+#: src/apprt/gtk/class/title_dialog.zig:227
 msgid "Change Tab Title"
 msgstr "Promeni naslov jezička"
 
-#: src/apprt/gtk/class/title_dialog.zig:229
+#: src/apprt/gtk/class/title_dialog.zig:228
 msgid "Change Window Title"
 msgstr "Promeni naslov prozora"
 
-#: src/apprt/gtk/class/window.zig:1153
+#: src/apprt/gtk/class/window.zig:1149
 msgid "Reloaded the configuration"
 msgstr "Ponovo učitana podešavanja"
 
-#: src/apprt/gtk/class/window.zig:1830
+#: src/apprt/gtk/class/window.zig:1823
 msgid "Copied to clipboard"
 msgstr "Kopirano u ostavu"
 
-#: src/apprt/gtk/class/window.zig:1832
+#: src/apprt/gtk/class/window.zig:1825
 msgid "Cleared clipboard"
 msgstr "Ostava očišćena"
 
-#: src/apprt/gtk/class/window.zig:1972
+#: src/apprt/gtk/class/window.zig:1964
 msgid "Ghostty Developers"
 msgstr "Programeri Ghostty-ja"
 

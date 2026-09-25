@@ -1,18 +1,18 @@
 const std = @import("std");
+const adw = @import("adw");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const gresource = @import("../build/gresource.zig");
 const Common = @import("../class.zig").Common;
 const Config = @import("config.zig").Config;
-const Dialog = @import("dialog.zig").Dialog;
 
 const log = std.log.scoped(.gtk_ghostty_config_errors_dialog);
 
 pub const ConfigErrorsDialog = extern struct {
     const Self = @This();
     parent_instance: Parent,
-    pub const Parent = Dialog;
+    pub const Parent = adw.AlertDialog;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
         .name = "GhosttyConfigErrorsDialog",
         .instanceInit = &init,
@@ -68,11 +68,11 @@ pub const ConfigErrorsDialog = extern struct {
     }
 
     pub fn present(self: *Self, parent: ?*gtk.Widget) void {
-        self.as(Dialog).present(parent);
+        self.as(adw.Dialog).present(parent);
     }
 
     pub fn close(self: *Self) void {
-        self.as(Dialog).close();
+        self.as(adw.Dialog).forceClose();
     }
 
     fn response(
@@ -131,12 +131,11 @@ pub const ConfigErrorsDialog = extern struct {
         pub const Instance = Self;
 
         fn init(class: *Class) callconv(.c) void {
-            gobject.ext.ensureType(Dialog);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
                     .major = 1,
-                    .minor = 2,
+                    .minor = 5,
                     .name = "config-errors-dialog",
                 }),
             );
@@ -151,7 +150,7 @@ pub const ConfigErrorsDialog = extern struct {
 
             // Virtual methods
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
-            Dialog.virtual_methods.response.implement(class, &response);
+            adw.AlertDialog.virtual_methods.response.implement(class, &response);
         }
 
         pub fn as(class: *Class, comptime T: type) *T {

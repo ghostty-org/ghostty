@@ -15,6 +15,19 @@ pub const comptime_version: std.SemanticVersion = .{
     .patch = gtk_c.GTK_MICRO_VERSION,
 };
 
+pub const minimum_version: std.SemanticVersion = .{
+    .major = 4,
+    .minor = 18,
+    .patch = 0,
+};
+
+comptime {
+    if (comptime_version.order(minimum_version) == .lt) @compileError(std.fmt.comptimePrint(
+        "The minimum GTK version is {f}!",
+        .{minimum_version},
+    ));
+}
+
 pub fn getRuntimeVersion() std.SemanticVersion {
     return .{
         .major = gtk.getMajorVersion(),
@@ -23,11 +36,13 @@ pub fn getRuntimeVersion() std.SemanticVersion {
     };
 }
 
-pub fn logVersion() void {
+pub fn logVersion() error{GtkMinimumVersion}!void {
+    const runtime_version = getRuntimeVersion();
     log.info("GTK version build={f} runtime={f}", .{
         comptime_version,
-        getRuntimeVersion(),
+        runtime_version,
     });
+    if (runtime_version.order(minimum_version) == .lt) return error.GtkMinimumVersion;
 }
 
 /// Verifies that the GTK version is at least the given version.

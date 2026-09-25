@@ -256,7 +256,7 @@ pub const Application = extern struct {
     pub fn new(
         rt_app: *ApprtApp,
         core_app: *CoreApp,
-    ) Allocator.Error!*Self {
+    ) (error{ GtkMinimumVersion, AdwaitaMinimumVersion } || Allocator.Error)!*Self {
         const alloc = core_app.alloc;
 
         // Capture GLib/GObject/GTK log messages and funnel them through Zig's
@@ -264,8 +264,8 @@ pub const Application = extern struct {
         _ = glib.logSetWriterFunc(glibLogWriterFunction, null, null);
 
         // Log our GTK versions
-        gtk_version.logVersion();
-        adw_version.logVersion();
+        try gtk_version.logVersion();
+        try adw_version.logVersion();
 
         // Load our configuration.
         var config = CoreConfig.load(alloc) catch |err| err: {
@@ -898,102 +898,6 @@ pub const Application = extern struct {
 
         const writer = &buf.writer;
 
-        // Load standard css first as it can override some of the user configured styling.
-        try loadRuntimeCss414(config, writer);
-        try loadRuntimeCss416(config, writer);
-
-        const unfocused_fill: CoreConfig.Color = config.@"unfocused-split-fill" orelse config.background;
-
-        try writer.print(
-            \\widget.unfocused-split {{
-            \\ opacity: {d:.2};
-            \\ background-color: rgb({d},{d},{d});
-            \\}}
-            \\
-        , .{
-            1.0 - config.@"unfocused-split-opacity",
-            unfocused_fill.r,
-            unfocused_fill.g,
-            unfocused_fill.b,
-        });
-
-        if (config.@"split-divider-color") |color| {
-            try writer.print(
-                \\.window .split paned > separator {{
-                \\  color: rgb({[r]d},{[g]d},{[b]d});
-                \\  background: rgb({[r]d},{[g]d},{[b]d});
-                \\}}
-                \\
-            , .{
-                .r = color.r,
-                .g = color.g,
-                .b = color.b,
-            });
-        }
-
-        if (config.@"window-title-font-family") |font_family| {
-            try writer.print(
-                \\.window headerbar {{
-                \\  font-family: "{[font_family]s}";
-                \\}}
-                \\
-            , .{ .font_family = font_family });
-        }
-
-        const contents = buf.written();
-
-        log.debug("runtime CSS is {d} bytes", .{contents.len});
-
-        const bytes = glib.Bytes.new(contents.ptr, contents.len);
-        defer bytes.unref();
-
-        // Clears any previously loaded CSS from this provider
-        priv.css_provider.loadFromBytes(bytes);
-    }
-
-    /// Load runtime CSS for older than GTK 4.16
-    fn loadRuntimeCss414(
-        config: *const CoreConfig,
-        writer: *std.Io.Writer,
-    ) std.Io.Writer.Error!void {
-        if (gtk_version.runtimeAtLeast(4, 16, 0)) return;
-
-        const window_theme = config.@"window-theme";
-        const headerbar_background = config.@"window-titlebar-background" orelse config.background;
-        const headerbar_foreground = config.@"window-titlebar-foreground" orelse config.foreground;
-
-        switch (window_theme) {
-            .ghostty => try writer.print(
-                \\windowhandle {{
-                \\  background-color: rgb({d},{d},{d});
-                \\  color: rgb({d},{d},{d});
-                \\}}
-                \\windowhandle:backdrop {{
-                \\ background-color: oklab(from rgb({d},{d},{d}) calc(l * 0.9) a b / alpha);
-                \\}}
-                \\
-            , .{
-                headerbar_background.r,
-                headerbar_background.g,
-                headerbar_background.b,
-                headerbar_foreground.r,
-                headerbar_foreground.g,
-                headerbar_foreground.b,
-                headerbar_background.r,
-                headerbar_background.g,
-                headerbar_background.b,
-            }),
-            else => {},
-        }
-    }
-
-    /// Load runtime for GTK 4.16 and newer
-    fn loadRuntimeCss416(
-        config: *const CoreConfig,
-        writer: *std.Io.Writer,
-    ) std.Io.Writer.Error!void {
-        if (gtk_version.runtimeUntil(4, 16, 0)) return;
-
         const window_theme = config.@"window-theme";
         const headerbar_background = config.@"window-titlebar-background" orelse config.background;
         const headerbar_foreground = config.@"window-titlebar-foreground" orelse config.foreground;
@@ -1117,6 +1021,54 @@ pub const Application = extern struct {
             }),
             else => {},
         }
+
+        const unfocused_fill: CoreConfig.Color = config.@"unfocused-split-fill" orelse config.background;
+
+        try writer.print(
+            \\widget.unfocused-split {{
+            \\ opacity: {d:.2};
+            \\ background-color: rgb({d},{d},{d});
+            \\}}
+            \\
+        , .{
+            1.0 - config.@"unfocused-split-opacity",
+            unfocused_fill.r,
+            unfocused_fill.g,
+            unfocused_fill.b,
+        });
+
+        if (config.@"split-divider-color") |color| {
+            try writer.print(
+                \\.window .split paned > separator {{
+                \\  color: rgb({[r]d},{[g]d},{[b]d});
+                \\  background: rgb({[r]d},{[g]d},{[b]d});
+                \\}}
+                \\
+            , .{
+                .r = color.r,
+                .g = color.g,
+                .b = color.b,
+            });
+        }
+
+        if (config.@"window-title-font-family") |font_family| {
+            try writer.print(
+                \\.window headerbar {{
+                \\  font-family: "{[font_family]s}";
+                \\}}
+                \\
+            , .{ .font_family = font_family });
+        }
+
+        const contents = buf.written();
+
+        log.debug("runtime CSS is {d} bytes", .{contents.len});
+
+        const bytes = glib.Bytes.new(contents.ptr, contents.len);
+        defer bytes.unref();
+
+        // Clears any previously loaded CSS from this provider
+        priv.css_provider.loadFromBytes(bytes);
     }
 
     const LoadCustomCssError = std.Io.File.OpenError ||
@@ -1326,7 +1278,7 @@ pub const Application = extern struct {
     ) callconv(.c) void {
         const location = css_section.toString();
         defer glib.free(location);
-        if (comptime gtk_version.atLeast(4, 16, 0)) bytes: {
+        bytes: {
             const bytes = css_section.getBytes() orelse break :bytes;
             var len: usize = undefined;
             const ptr = bytes.getData(&len) orelse break :bytes;

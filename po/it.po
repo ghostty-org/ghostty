@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-08-10 10:06-0500\n"
+"POT-Creation-Date: 2026-09-21 17:23-0500\n"
 "PO-Revision-Date: 2026-09-12 18:00+0200\n"
 "Last-Translator: Giacomo Bettini <giaco.bettini@gmail.com>\n"
 "Language-Team: Italian <tp@lists.linux.it>\n"
@@ -22,97 +22,33 @@ msgstr ""
 msgid "Open in Ghostty"
 msgstr "Apri in Ghostty"
 
-#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
-msgid "Authorize Clipboard Access"
-msgstr "Consenti accesso agli Appunti"
-
-#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:17
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:17
-msgid "Deny"
-msgstr "Non consentire"
-
-#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:18
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:18
-msgid "Allow"
-msgstr "Consenti"
-
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
-msgid "Remember choice for this split"
-msgstr "Ricorda scelta per questo riquadro"
-
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
-msgid "Reload configuration to show this prompt again"
-msgstr ""
-"Ricarica la configurazione per visualizzare nuovamente questo messaggio"
-
-#: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
-#: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2263
-msgid "Cancel"
-msgstr "Annulla"
-
-#: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:8
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:90
-#: src/apprt/gtk/ui/1.3/surface-child-exited.blp:17
-msgid "Close"
-msgstr "Chiudi"
-
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
-msgid "Configuration Errors"
-msgstr "Errori di configurazione"
-
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:8
-msgid ""
-"One or more configuration errors were found. Please review the errors below, "
-"and either reload your configuration or ignore these errors."
-msgstr ""
-"Sono stati trovati uno o più errori di configurazione. Controlla gli errori "
-"seguenti, poi ricarica la tua configurazione o ignora quegli errori."
-
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:12
-msgid "Ignore"
-msgstr "Ignora"
-
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:13
-#: src/apprt/gtk/ui/1.2/surface.blp:439 src/apprt/gtk/ui/1.5/window.blp:318
-msgid "Reload Configuration"
-msgstr "Ricarica configurazione"
-
-#: src/apprt/gtk/ui/1.2/debug-warning.blp:7
-#: src/apprt/gtk/ui/1.3/debug-warning.blp:6
-msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr ""
-"⚠️ Stai usando una build di debug di Ghostty! Le prestazioni saranno ridotte."
-
-#: src/apprt/gtk/ui/1.5/inspector-window.blp:5
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Ispettore del terminale"
-
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:29
+#: src/apprt/gtk/ui/1.0/search-overlay.blp:29
 msgid "Find…"
 msgstr "Cerca…"
 
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:69
+#: src/apprt/gtk/ui/1.0/search-overlay.blp:69
 msgid "Previous Match"
 msgstr "Corrispondenza precedente"
 
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:79
+#: src/apprt/gtk/ui/1.0/search-overlay.blp:79
 msgid "Next Match"
 msgstr "Corrispondenza successiva"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:7
+#: src/apprt/gtk/ui/1.0/search-overlay.blp:90
+#: src/apprt/gtk/ui/1.3/surface-child-exited.blp:17
+#: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:7
+msgid "Close"
+msgstr "Chiudi"
+
+#: src/apprt/gtk/ui/1.0/surface.blp:6
 msgid "Oh, no."
 msgstr "Oh no!"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:8
+#: src/apprt/gtk/ui/1.0/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
 msgstr "Impossibile ottenere un contesto OpenGL per il rendering."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:101
+#: src/apprt/gtk/ui/1.0/surface.blp:96
 msgid ""
 "This terminal is in read-only mode. You can still view, select, and scroll "
 "through the content, but no input events will be sent to the running "
@@ -122,111 +58,203 @@ msgstr ""
 "selezionare e scorrere il contenuto, ma non verrà inviato alcun evento di "
 "input all'applicazione in esecuzione."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:112
+#: src/apprt/gtk/ui/1.0/surface.blp:107
 msgid "Read-only"
 msgstr "Sola lettura"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:316 src/apprt/gtk/ui/1.5/window.blp:203
+#: src/apprt/gtk/ui/1.0/surface.blp:311 src/apprt/gtk/ui/1.4/window.blp:203
 msgid "Copy"
 msgstr "Copia"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:321 src/apprt/gtk/ui/1.5/window.blp:208
+#: src/apprt/gtk/ui/1.0/surface.blp:316 src/apprt/gtk/ui/1.4/window.blp:208
 msgid "Paste"
 msgstr "Incolla"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:326
+#: src/apprt/gtk/ui/1.0/surface.blp:321
 msgid "Notify on Next Command Finish"
 msgstr "Notifica al termine del prossimo comando"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
+#: src/apprt/gtk/ui/1.0/surface.blp:328 src/apprt/gtk/ui/1.4/window.blp:281
 msgid "Clear"
 msgstr "Pulisci"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:338 src/apprt/gtk/ui/1.5/window.blp:286
+#: src/apprt/gtk/ui/1.0/surface.blp:333 src/apprt/gtk/ui/1.4/window.blp:286
 msgid "Reset"
 msgstr "Reimposta"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:250
+#: src/apprt/gtk/ui/1.0/surface.blp:340 src/apprt/gtk/ui/1.4/window.blp:250
 msgid "Split"
 msgstr "Riquadro"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:348 src/apprt/gtk/ui/1.5/window.blp:253
+#: src/apprt/gtk/ui/1.0/surface.blp:343 src/apprt/gtk/ui/1.4/window.blp:253
 msgid "Change Title…"
 msgstr "Cambia titolo…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:353 src/apprt/gtk/ui/1.5/window.blp:180
-#: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:487
+#: src/apprt/gtk/ui/1.0/surface.blp:348 src/apprt/gtk/ui/1.4/window.blp:180
+#: src/apprt/gtk/ui/1.4/window.blp:258 src/input/command.zig:487
 msgid "Split Up"
 msgstr "Dividi in alto"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:359 src/apprt/gtk/ui/1.5/window.blp:185
-#: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:492
+#: src/apprt/gtk/ui/1.0/surface.blp:354 src/apprt/gtk/ui/1.4/window.blp:185
+#: src/apprt/gtk/ui/1.4/window.blp:263 src/input/command.zig:492
 msgid "Split Down"
 msgstr "Dividi in basso"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:365 src/apprt/gtk/ui/1.5/window.blp:190
-#: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
+#: src/apprt/gtk/ui/1.0/surface.blp:360 src/apprt/gtk/ui/1.4/window.blp:190
+#: src/apprt/gtk/ui/1.4/window.blp:268 src/input/command.zig:477
 msgid "Split Left"
 msgstr "Dividi a sinistra"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:195
-#: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
+#: src/apprt/gtk/ui/1.0/surface.blp:366 src/apprt/gtk/ui/1.4/window.blp:195
+#: src/apprt/gtk/ui/1.4/window.blp:273 src/input/command.zig:482
 msgid "Split Right"
 msgstr "Dividi a destra"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:377
+#: src/apprt/gtk/ui/1.0/surface.blp:372
 msgid "Close Split"
 msgstr "Chiudi riquadro"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:383
+#: src/apprt/gtk/ui/1.0/surface.blp:378
 msgid "Tab"
 msgstr "Scheda"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:386 src/apprt/gtk/ui/1.5/window.blp:232
-#: src/apprt/gtk/ui/1.5/window.blp:339 src/input/command.zig:464
+#: src/apprt/gtk/ui/1.0/surface.blp:381 src/apprt/gtk/ui/1.4/window.blp:232
+#: src/apprt/gtk/ui/1.4/window.blp:339 src/input/command.zig:464
 msgid "Change Tab Title…"
 msgstr "Cambia titolo scheda…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:391 src/apprt/gtk/ui/1.5/window.blp:60
-#: src/apprt/gtk/ui/1.5/window.blp:110 src/apprt/gtk/ui/1.5/window.blp:237
+#: src/apprt/gtk/ui/1.0/surface.blp:386 src/apprt/gtk/ui/1.4/window.blp:60
+#: src/apprt/gtk/ui/1.4/window.blp:110 src/apprt/gtk/ui/1.4/window.blp:237
 #: src/input/command.zig:427
 msgid "New Tab"
 msgstr "Nuova scheda"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:396 src/apprt/gtk/ui/1.5/window.blp:242
+#: src/apprt/gtk/ui/1.0/surface.blp:391 src/apprt/gtk/ui/1.4/window.blp:242
 #: src/input/command.zig:613
 msgid "Close Tab"
 msgstr "Chiudi scheda"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:403
+#: src/apprt/gtk/ui/1.0/surface.blp:398
 msgid "Window"
 msgstr "Finestra"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:215
+#: src/apprt/gtk/ui/1.0/surface.blp:401 src/apprt/gtk/ui/1.4/window.blp:215
 msgid "Change Window Title…"
 msgstr "Cambia titolo finestra…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:220
+#: src/apprt/gtk/ui/1.0/surface.blp:406 src/apprt/gtk/ui/1.4/window.blp:220
 #: src/input/command.zig:421
 msgid "New Window"
 msgstr "Nuova finestra"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:416 src/apprt/gtk/ui/1.5/window.blp:225
+#: src/apprt/gtk/ui/1.0/surface.blp:411 src/apprt/gtk/ui/1.4/window.blp:225
 #: src/input/command.zig:630
 msgid "Close Window"
 msgstr "Chiudi finestra"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:424 src/apprt/gtk/ui/1.5/window.blp:303
+#: src/apprt/gtk/ui/1.0/surface.blp:419 src/apprt/gtk/ui/1.4/window.blp:303
 msgid "Config"
 msgstr "Configurazione"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
+#: src/apprt/gtk/ui/1.0/surface.blp:422 src/apprt/gtk/ui/1.4/window.blp:306
 msgid "Open Configuration in OS Editor"
 msgstr "Apri configurazione nell'editor di sistema"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
+#: src/apprt/gtk/ui/1.0/surface.blp:428 src/apprt/gtk/ui/1.4/window.blp:312
 msgid "Open Configuration in New Window"
 msgstr "Apri configurazione in una nuova finestra"
+
+#: src/apprt/gtk/ui/1.0/surface.blp:434 src/apprt/gtk/ui/1.4/window.blp:318
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:12
+msgid "Reload Configuration"
+msgstr "Ricarica configurazione"
+
+#: src/apprt/gtk/ui/1.3/debug-warning.blp:6
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""
+"⚠️ Stai usando una build di debug di Ghostty! Le prestazioni saranno ridotte."
+
+#: src/apprt/gtk/ui/1.4/inspector-window.blp:5
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: Ispettore del terminale"
+
+#: src/apprt/gtk/ui/1.4/window.blp:61 src/apprt/gtk/ui/1.4/window.blp:111
+msgid "New Split"
+msgstr "Nuovo riquadro"
+
+#: src/apprt/gtk/ui/1.4/window.blp:71 src/apprt/gtk/ui/1.4/window.blp:129
+msgid "View Open Tabs"
+msgstr "Vedi schede aperte"
+
+#: src/apprt/gtk/ui/1.4/window.blp:81 src/apprt/gtk/ui/1.4/window.blp:143
+msgid "Main Menu"
+msgstr "Menù principale"
+
+#: src/apprt/gtk/ui/1.4/window.blp:293
+msgid "Command Palette"
+msgstr "Riquadro comandi"
+
+#: src/apprt/gtk/ui/1.4/window.blp:298
+msgid "Terminal Inspector"
+msgstr "Ispettore del terminale"
+
+#: src/apprt/gtk/ui/1.4/window.blp:326
+msgid "About Ghostty"
+msgstr "Informazioni su Ghostty"
+
+#: src/apprt/gtk/ui/1.4/window.blp:331 src/input/command.zig:702
+msgid "Quit"
+msgstr "Chiudi"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:192
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:196
+msgid "Authorize Clipboard Access"
+msgstr "Consenti accesso agli Appunti"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:16
+msgid "Deny"
+msgstr "Non consentire"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:17
+msgid "Allow"
+msgstr "Consenti"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:91
+msgid "Remember choice for this split"
+msgstr "Ricorda scelta per questo riquadro"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:92
+msgid "Reload configuration to show this prompt again"
+msgstr ""
+"Ricarica la configurazione per visualizzare nuovamente questo messaggio"
+
+#: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
+#: src/apprt/gtk/ui/1.5/title-dialog.blp:8
+#: src/apprt/gtk/class/application.zig:2237
+msgid "Cancel"
+msgstr "Annulla"
+
+#: src/apprt/gtk/ui/1.5/command-palette.blp:17
+msgid "Execute a command…"
+msgstr "Esegui un comando…"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
+msgid "Configuration Errors"
+msgstr "Errori di configurazione"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:7
+msgid ""
+"One or more configuration errors were found. Please review the errors below, "
+"and either reload your configuration or ignore these errors."
+msgstr ""
+"Sono stati trovati uno o più errori di configurazione. Controlla gli errori "
+"seguenti, poi ricarica la tua configurazione o ignora quegli errori."
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:11
+msgid "Ignore"
+msgstr "Ignora"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
@@ -236,63 +264,31 @@ msgstr "Lasciare vuoto per ripristinare il titolo predefinito."
 msgid "OK"
 msgstr "OK"
 
-#: src/apprt/gtk/ui/1.5/window.blp:61 src/apprt/gtk/ui/1.5/window.blp:111
-msgid "New Split"
-msgstr "Nuovo riquadro"
-
-#: src/apprt/gtk/ui/1.5/window.blp:71 src/apprt/gtk/ui/1.5/window.blp:129
-msgid "View Open Tabs"
-msgstr "Vedi schede aperte"
-
-#: src/apprt/gtk/ui/1.5/window.blp:81 src/apprt/gtk/ui/1.5/window.blp:143
-msgid "Main Menu"
-msgstr "Menù principale"
-
-#: src/apprt/gtk/ui/1.5/window.blp:293
-msgid "Command Palette"
-msgstr "Riquadro comandi"
-
-#: src/apprt/gtk/ui/1.5/window.blp:298
-msgid "Terminal Inspector"
-msgstr "Ispettore del terminale"
-
-#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1991
-msgid "About Ghostty"
-msgstr "Informazioni su Ghostty"
-
-#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:702
-msgid "Quit"
-msgstr "Chiudi"
-
-#: src/apprt/gtk/ui/1.5/command-palette.blp:17
-msgid "Execute a command…"
-msgstr "Esegui un comando…"
-
-#: src/apprt/gtk/class/application.zig:1767
+#: src/apprt/gtk/class/application.zig:1720
 msgid "The keybind was revoked by the system."
 msgstr "La scorciatoia è stata revocata dal sistema."
 
-#: src/apprt/gtk/class/application.zig:1769
+#: src/apprt/gtk/class/application.zig:1722
 msgid "The keybind was denied by the system."
 msgstr "La scorciatoia è stata negata dal sistema."
 
-#: src/apprt/gtk/class/application.zig:1780
+#: src/apprt/gtk/class/application.zig:1733
 msgid "Global keybind unavailable"
 msgstr "Scorciatoia globale non disponibile."
 
-#: src/apprt/gtk/class/application.zig:2259
+#: src/apprt/gtk/class/application.zig:2233
 msgid "Export Terminal IO Events"
 msgstr "Esporta eventi di I/O del terminale"
 
-#: src/apprt/gtk/class/application.zig:2262
+#: src/apprt/gtk/class/application.zig:2236
 msgid "Export"
 msgstr "Esporta"
 
-#: src/apprt/gtk/class/application.zig:2783
+#: src/apprt/gtk/class/application.zig:2763
 msgid "Editing configuration file"
 msgstr "Modificando il file di configurazione"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:193
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
@@ -300,7 +296,7 @@ msgstr ""
 "Un'applicazione sta cercando di scrivere negli Appunti. Il contenuto attuale "
 "degli Appunti è mostrato di seguito."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:202
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
@@ -308,11 +304,11 @@ msgstr ""
 "Un'applicazione sta cercando di leggere dagli Appunti. Il contenuto attuale "
 "degli Appunti è mostrato di seguito."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:200
 msgid "Warning: Potentially Unsafe Paste"
 msgstr "Attenzione: Incolla potenzialmente pericoloso"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:206
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
@@ -320,78 +316,78 @@ msgstr ""
 "Incollare questo testo nel terminale potrebbe essere pericoloso poiché "
 "sembra contenere comandi che potrebbero venire eseguiti."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:184
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:183
 msgid "Quit Ghostty?"
 msgstr "Chiudere Ghostty?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:184
 msgid "Close Tab?"
 msgstr "Chiudere scheda?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Window?"
 msgstr "Chiudere finestra?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:187
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
 msgid "Close Split?"
 msgstr "Chiudere riquadro?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:193
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:192
 msgid "All terminal sessions will be terminated."
 msgstr "Tutte le sessioni del terminale saranno terminate."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:194
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions in this tab will be terminated."
 msgstr "Tutte le sessioni del terminale in questa scheda saranno terminate."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:195
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:194
 msgid "All terminal sessions in this window will be terminated."
 msgstr "Tutte le sessioni del terminale in questa finestra saranno terminate."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:196
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:195
 msgid "The currently running process in this split will be terminated."
 msgstr ""
 "Il processo attualmente in esecuzione in questo riquadro sarà terminato."
 
-#: src/apprt/gtk/class/surface.zig:1181
+#: src/apprt/gtk/class/surface.zig:1191
 msgid "Command Finished"
 msgstr "Comando terminato"
 
-#: src/apprt/gtk/class/surface.zig:1182
-#: src/apprt/gtk/class/surface_child_exited.zig:109
+#: src/apprt/gtk/class/surface.zig:1192
+#: src/apprt/gtk/class/surface_child_exited.zig:102
 msgid "Command Succeeded"
 msgstr "Comando riuscito"
 
-#: src/apprt/gtk/class/surface.zig:1183
-#: src/apprt/gtk/class/surface_child_exited.zig:113
+#: src/apprt/gtk/class/surface.zig:1193
+#: src/apprt/gtk/class/surface_child_exited.zig:106
 msgid "Command Failed"
 msgstr "Comando fallito"
 
-#: src/apprt/gtk/class/title_dialog.zig:227
+#: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Terminal Title"
 msgstr "Cambia titolo del terminale"
 
-#: src/apprt/gtk/class/title_dialog.zig:228
+#: src/apprt/gtk/class/title_dialog.zig:227
 msgid "Change Tab Title"
 msgstr "Cambia titolo della scheda"
 
-#: src/apprt/gtk/class/title_dialog.zig:229
+#: src/apprt/gtk/class/title_dialog.zig:228
 msgid "Change Window Title"
 msgstr "Cambia titolo della finestra"
 
-#: src/apprt/gtk/class/window.zig:1153
+#: src/apprt/gtk/class/window.zig:1149
 msgid "Reloaded the configuration"
 msgstr "Configurazione ricaricata"
 
-#: src/apprt/gtk/class/window.zig:1830
+#: src/apprt/gtk/class/window.zig:1823
 msgid "Copied to clipboard"
 msgstr "Copiato negli Appunti"
 
-#: src/apprt/gtk/class/window.zig:1832
+#: src/apprt/gtk/class/window.zig:1825
 msgid "Cleared clipboard"
 msgstr "Appunti svuotati"
 
-#: src/apprt/gtk/class/window.zig:1972
+#: src/apprt/gtk/class/window.zig:1964
 msgid "Ghostty Developers"
 msgstr "Sviluppatori di Ghostty"
 
@@ -411,7 +407,8 @@ msgstr "Copia negli Appunti"
 msgid ""
 "Copy the selected text to the clipboard in both plain and styled formats."
 msgstr ""
-"Copia il testo selezionato negli Appunti sia in formato semplice che formattato."
+"Copia il testo selezionato negli Appunti sia in formato semplice che "
+"formattato."
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
@@ -427,8 +424,7 @@ msgstr "Copia selezione come sequenze ANSI negli Appunti"
 
 #: src/input/command.zig:164
 msgid "Copy the selected text as ANSI escape sequences to the clipboard."
-msgstr ""
-"Copia il testo selezionato come sequenze di escape ANSI negli Appunti."
+msgstr "Copia il testo selezionato come sequenze di escape ANSI negli Appunti."
 
 #: src/input/command.zig:167
 msgid "Copy Selection as HTML to Clipboard"
@@ -497,8 +493,8 @@ msgstr "Termina ricerca"
 #: src/input/command.zig:210
 msgid "End the current search if any and hide any GUI elements."
 msgstr ""
-"Termina la ricerca in corso, se attiva, e nascondi "
-"i relativi elementi dell'interfaccia grafica."
+"Termina la ricerca in corso, se attiva, e nascondi i relativi elementi "
+"dell'interfaccia grafica."
 
 #: src/input/command.zig:215
 msgid "Next Search Result"
@@ -605,8 +601,8 @@ msgid ""
 "Copy the screen contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
-"Copia i contenuti dello schermo in un file temporaneo e copiane il "
-"percorso negli Appunti."
+"Copia i contenuti dello schermo in un file temporaneo e copiane il percorso "
+"negli Appunti."
 
 #: src/input/command.zig:291
 msgid "Copy Screen to Temporary File and Paste Path"
@@ -616,8 +612,8 @@ msgstr "Copia schermo in file temporaneo e incolla il percorso"
 msgid ""
 "Copy the screen contents to a temporary file and paste the path to the file."
 msgstr ""
-"Copia i contenuti dello schermo in un file temporaneo e incolla il "
-"percorso al file."
+"Copia i contenuti dello schermo in un file temporaneo e incolla il percorso "
+"al file."
 
 #: src/input/command.zig:296
 msgid "Copy Screen to Temporary File and Open"
@@ -636,8 +632,8 @@ msgid ""
 "Copy the screen contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
-"Copia i contenuti dello schermo come HTML in un file temporaneo e "
-"copiane il percorso negli Appunti."
+"Copia i contenuti dello schermo come HTML in un file temporaneo e copiane il "
+"percorso negli Appunti."
 
 #: src/input/command.zig:313
 msgid "Copy Screen as HTML to Temporary File and Paste Path"
@@ -648,8 +644,8 @@ msgid ""
 "Copy the screen contents as HTML to a temporary file and paste the path to "
 "the file."
 msgstr ""
-"Copia i contenuti dello schermo come HTML in un file temporaneo e "
-"incolla il percorso al file."
+"Copia i contenuti dello schermo come HTML in un file temporaneo e incolla il "
+"percorso al file."
 
 #: src/input/command.zig:321
 msgid "Copy Screen as HTML to Temporary File and Open"
@@ -658,8 +654,7 @@ msgstr "Copia schermo come HTML in file temporaneo e apri"
 #: src/input/command.zig:322
 msgid "Copy the screen contents as HTML to a temporary file and open it."
 msgstr ""
-"Copia i contenuti dello schermo come HTML in un file temporaneo e "
-"aprilo."
+"Copia i contenuti dello schermo come HTML in un file temporaneo e aprilo."
 
 #: src/input/command.zig:330
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
@@ -738,8 +733,8 @@ msgid ""
 "Copy the selection contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
-"Copia i contenuti della selezione come HTML in un file temporaneo e copiane il "
-"percorso negli Appunti."
+"Copia i contenuti della selezione come HTML in un file temporaneo e copiane "
+"il percorso negli Appunti."
 
 #: src/input/command.zig:381
 msgid "Copy Selection as HTML to Temporary File and Paste Path"
@@ -750,8 +745,8 @@ msgid ""
 "Copy the selection contents as HTML to a temporary file and paste the path "
 "to the file."
 msgstr ""
-"Copia i contenuti della selezione come HTML in un file temporaneo e incolla il "
-"percorso al file."
+"Copia i contenuti della selezione come HTML in un file temporaneo e incolla "
+"il percorso al file."
 
 #: src/input/command.zig:389
 msgid "Copy Selection as HTML to Temporary File and Open"
@@ -776,7 +771,8 @@ msgstr ""
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
-msgstr "Copia selezione come sequenze ANSI in file temporaneo e incolla percorso"
+msgstr ""
+"Copia selezione come sequenze ANSI in file temporaneo e incolla percorso"
 
 #: src/input/command.zig:407
 msgid ""
@@ -944,7 +940,8 @@ msgstr "Attiva/disattiva modalità di sola lettura"
 
 #: src/input/command.zig:552
 msgid "Toggle read-only mode for the current surface."
-msgstr "Attiva/disattiva la modalità di sola lettura per la superficie corrente."
+msgstr ""
+"Attiva/disattiva la modalità di sola lettura per la superficie corrente."
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
@@ -1000,8 +997,9 @@ msgstr "Apri configurazione in nuova finestra del terminale"
 
 #: src/input/command.zig:594
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
-msgstr "Apri il file di configurazione in una nuova finestra usando "
-"$EDITOR o $VISUAL."
+msgstr ""
+"Apri il file di configurazione in una nuova finestra usando $EDITOR o "
+"$VISUAL."
 
 #: src/input/command.zig:600
 msgid "Reload Config"
@@ -1065,8 +1063,7 @@ msgstr "Attiva/disattiva schermo intero"
 
 #: src/input/command.zig:649
 msgid "Toggle the fullscreen state of the current window."
-msgstr ""
-"Attiva/disattiva la modalità a schermo intero della finestra corrente."
+msgstr "Attiva/disattiva la modalità a schermo intero della finestra corrente."
 
 #: src/input/command.zig:654
 msgid "Toggle Window Decorations"
@@ -1100,8 +1097,8 @@ msgstr "Attiva/disattiva segnalazione mouse"
 #: src/input/command.zig:673
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr ""
-"Attiva/disattiva l'invio degli eventi del mouse alle applicazioni "
-"del terminale."
+"Attiva/disattiva l'invio degli eventi del mouse alle applicazioni del "
+"terminale."
 
 #: src/input/command.zig:678
 msgid "Toggle Background Opacity"
@@ -1110,8 +1107,8 @@ msgstr "Attiva/disattiva opacità sfondo"
 #: src/input/command.zig:679
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr ""
-"Attiva/disattiva l'opacità dello sfondo di una finestra avviata "
-"come trasparente."
+"Attiva/disattiva l'opacità dello sfondo di una finestra avviata come "
+"trasparente."
 
 #: src/input/command.zig:684
 msgid "Check for Updates"
