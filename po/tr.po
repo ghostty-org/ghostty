@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-08-10 10:06-0500\n"
+"POT-Creation-Date: 2026-09-19 15:08+0000\n"
 "PO-Revision-Date: 2026-08-13 20:33+0300\n"
 "Last-Translator: Emir SARI <emir_sari@icloud.com>\n"
 "Language-Team: Turkish\n"
@@ -48,7 +48,7 @@ msgstr "Bu istemi tekrar göstermek için yapılandırmayı yeniden yükle"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2263
+#: src/apprt/gtk/class/application.zig:2285
 msgid "Cancel"
 msgstr "İptal"
 
@@ -76,7 +76,7 @@ msgid "Ignore"
 msgstr "Yok Say"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:13
-#: src/apprt/gtk/ui/1.2/surface.blp:439 src/apprt/gtk/ui/1.5/window.blp:318
+#: src/apprt/gtk/ui/1.2/surface.blp:440 src/apprt/gtk/ui/1.5/window.blp:318
 msgid "Reload Configuration"
 msgstr "Yapılandırmayı Yeniden Yükle"
 
@@ -104,15 +104,15 @@ msgstr "Önceki Eşleşme"
 msgid "Next Match"
 msgstr "Sonraki Eşleşme"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:7
+#: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
 msgstr "Hayır, olamaz."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:8
+#: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
 msgstr "Görüntü oluşturma işlemi için OpenGL bağlamı elde edilemiyor."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:101
+#: src/apprt/gtk/ui/1.2/surface.blp:96
 msgid ""
 "This terminal is in read-only mode. You can still view, select, and scroll "
 "through the content, but no input events will be sent to the running "
@@ -122,109 +122,113 @@ msgstr ""
 "kaydırabilirsiniz; ancak çalışan uygulamaya hiçbir giriş olayı "
 "gönderilmeyecektir."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:112
+#: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
 msgstr "Salt Okunur"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:316 src/apprt/gtk/ui/1.5/window.blp:203
+#: src/apprt/gtk/ui/1.2/surface.blp:311 src/apprt/gtk/ui/1.5/window.blp:203
 msgid "Copy"
 msgstr "Kopyala"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:321 src/apprt/gtk/ui/1.5/window.blp:208
+#: src/apprt/gtk/ui/1.2/surface.blp:316
+msgid "Copy Link"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.2/surface.blp:322 src/apprt/gtk/ui/1.5/window.blp:208
 msgid "Paste"
 msgstr "Yapıştır"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:326
+#: src/apprt/gtk/ui/1.2/surface.blp:327
 msgid "Notify on Next Command Finish"
 msgstr "Sonraki Komut Bittiğinde Bildir"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
+#: src/apprt/gtk/ui/1.2/surface.blp:334 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
 msgstr "Temizle"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:338 src/apprt/gtk/ui/1.5/window.blp:286
+#: src/apprt/gtk/ui/1.2/surface.blp:339 src/apprt/gtk/ui/1.5/window.blp:286
 msgid "Reset"
 msgstr "Sıfırla"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:250
+#: src/apprt/gtk/ui/1.2/surface.blp:346 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split"
 msgstr "Böl"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:348 src/apprt/gtk/ui/1.5/window.blp:253
+#: src/apprt/gtk/ui/1.2/surface.blp:349 src/apprt/gtk/ui/1.5/window.blp:253
 msgid "Change Title…"
 msgstr "Başlığı Değiştir…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:353 src/apprt/gtk/ui/1.5/window.blp:180
+#: src/apprt/gtk/ui/1.2/surface.blp:354 src/apprt/gtk/ui/1.5/window.blp:180
 #: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:487
 msgid "Split Up"
 msgstr "Yukarı Doğru Böl"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:359 src/apprt/gtk/ui/1.5/window.blp:185
+#: src/apprt/gtk/ui/1.2/surface.blp:360 src/apprt/gtk/ui/1.5/window.blp:185
 #: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:492
 msgid "Split Down"
 msgstr "Aşağı Doğru Böl"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:365 src/apprt/gtk/ui/1.5/window.blp:190
+#: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:190
 #: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
 msgid "Split Left"
 msgstr "Sola Doğru Böl"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:195
+#: src/apprt/gtk/ui/1.2/surface.blp:372 src/apprt/gtk/ui/1.5/window.blp:195
 #: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
 msgid "Split Right"
 msgstr "Sağa Doğru Böl"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:377
+#: src/apprt/gtk/ui/1.2/surface.blp:378
 msgid "Close Split"
 msgstr "Bölmeyi Kapat"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:383
+#: src/apprt/gtk/ui/1.2/surface.blp:384
 msgid "Tab"
 msgstr "Sekme"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:386 src/apprt/gtk/ui/1.5/window.blp:232
+#: src/apprt/gtk/ui/1.2/surface.blp:387 src/apprt/gtk/ui/1.5/window.blp:232
 #: src/apprt/gtk/ui/1.5/window.blp:339 src/input/command.zig:464
 msgid "Change Tab Title…"
 msgstr "Sekme Başlığını Değiştir…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:391 src/apprt/gtk/ui/1.5/window.blp:60
+#: src/apprt/gtk/ui/1.2/surface.blp:392 src/apprt/gtk/ui/1.5/window.blp:60
 #: src/apprt/gtk/ui/1.5/window.blp:110 src/apprt/gtk/ui/1.5/window.blp:237
 #: src/input/command.zig:427
 msgid "New Tab"
 msgstr "Yeni Sekme"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:396 src/apprt/gtk/ui/1.5/window.blp:242
+#: src/apprt/gtk/ui/1.2/surface.blp:397 src/apprt/gtk/ui/1.5/window.blp:242
 #: src/input/command.zig:613
 msgid "Close Tab"
 msgstr "Sekmeyi Kapat"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:403
+#: src/apprt/gtk/ui/1.2/surface.blp:404
 msgid "Window"
 msgstr "Pencere"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:215
+#: src/apprt/gtk/ui/1.2/surface.blp:407 src/apprt/gtk/ui/1.5/window.blp:215
 msgid "Change Window Title…"
 msgstr "Pencere Başlığını Değiştir…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:220
+#: src/apprt/gtk/ui/1.2/surface.blp:412 src/apprt/gtk/ui/1.5/window.blp:220
 #: src/input/command.zig:421
 msgid "New Window"
 msgstr "Yeni Pencere"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:416 src/apprt/gtk/ui/1.5/window.blp:225
+#: src/apprt/gtk/ui/1.2/surface.blp:417 src/apprt/gtk/ui/1.5/window.blp:225
 #: src/input/command.zig:630
 msgid "Close Window"
 msgstr "Pencereyi Kapat"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:424 src/apprt/gtk/ui/1.5/window.blp:303
+#: src/apprt/gtk/ui/1.2/surface.blp:425 src/apprt/gtk/ui/1.5/window.blp:303
 msgid "Config"
 msgstr "Yapılandırma"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
+#: src/apprt/gtk/ui/1.2/surface.blp:428 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
 msgstr "Yapılandırmayı İşletim Sistemi Düzenleyicisinde Aç"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
+#: src/apprt/gtk/ui/1.2/surface.blp:434 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
 msgstr "Yapılandırmayı Yeni Pencerede Aç"
 
@@ -256,7 +260,7 @@ msgstr "Komut Paleti"
 msgid "Terminal Inspector"
 msgstr "Uçbirim Denetçisi"
 
-#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1991
+#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1997
 msgid "About Ghostty"
 msgstr "Ghostty Hakkında"
 
@@ -268,27 +272,27 @@ msgstr "Çık"
 msgid "Execute a command…"
 msgstr "Bir komut çalıştır…"
 
-#: src/apprt/gtk/class/application.zig:1767
+#: src/apprt/gtk/class/application.zig:1768
 msgid "The keybind was revoked by the system."
 msgstr "Tuş atama, sistem tarafından yürürlükten kaldırıldı."
 
-#: src/apprt/gtk/class/application.zig:1769
+#: src/apprt/gtk/class/application.zig:1770
 msgid "The keybind was denied by the system."
 msgstr "Tuş atama, sistem tarafından reddedildi."
 
-#: src/apprt/gtk/class/application.zig:1780
+#: src/apprt/gtk/class/application.zig:1781
 msgid "Global keybind unavailable"
 msgstr "Global tuş atama kullanılamıyor"
 
-#: src/apprt/gtk/class/application.zig:2259
+#: src/apprt/gtk/class/application.zig:2281
 msgid "Export Terminal IO Events"
 msgstr "Uçbirim G–Ç Olaylarını Dışa Aktar"
 
-#: src/apprt/gtk/class/application.zig:2262
+#: src/apprt/gtk/class/application.zig:2284
 msgid "Export"
 msgstr "Dışa Aktar"
 
-#: src/apprt/gtk/class/application.zig:2783
+#: src/apprt/gtk/class/application.zig:2811
 msgid "Editing configuration file"
 msgstr "Yapılandırma dosyası düzenleniyor"
 
@@ -352,16 +356,16 @@ msgstr "Bu penceredeki tüm uçbirim oturumları sonlandırılacaktır."
 msgid "The currently running process in this split will be terminated."
 msgstr "Bu bölmedeki şu anda çalışan süreç sonlandırılacaktır."
 
-#: src/apprt/gtk/class/surface.zig:1181
+#: src/apprt/gtk/class/surface.zig:1195
 msgid "Command Finished"
 msgstr "Komut Bitti"
 
-#: src/apprt/gtk/class/surface.zig:1182
+#: src/apprt/gtk/class/surface.zig:1196
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
 msgstr "Komut Başarılı"
 
-#: src/apprt/gtk/class/surface.zig:1183
+#: src/apprt/gtk/class/surface.zig:1197
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
 msgstr "Komut Başarısız"
@@ -378,19 +382,19 @@ msgstr "Sekme Başlığını Değiştir"
 msgid "Change Window Title"
 msgstr "Pencere Başlığını Değiştir"
 
-#: src/apprt/gtk/class/window.zig:1153
+#: src/apprt/gtk/class/window.zig:1159
 msgid "Reloaded the configuration"
 msgstr "Yapılandırma yeniden yüklendi"
 
-#: src/apprt/gtk/class/window.zig:1830
+#: src/apprt/gtk/class/window.zig:1836
 msgid "Copied to clipboard"
 msgstr "Panoya kopyalandı"
 
-#: src/apprt/gtk/class/window.zig:1832
+#: src/apprt/gtk/class/window.zig:1838
 msgid "Cleared clipboard"
 msgstr "Pano temizlendi"
 
-#: src/apprt/gtk/class/window.zig:1972
+#: src/apprt/gtk/class/window.zig:1978
 msgid "Ghostty Developers"
 msgstr "Ghostty Geliştiricileri"
 
