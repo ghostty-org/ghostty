@@ -5,6 +5,8 @@ const Allocator = std.mem.Allocator;
 const Terminal = @import("../Terminal.zig");
 const command = @import("graphics_command.zig");
 const image = @import("graphics_image.zig");
+const ArcCpuImage = @import("../image.zig").ArcCpuImage;
+const CpuImage = @import("../image.zig").CpuImage;
 const animation = @import("graphics_animation.zig");
 const pixel = @import("graphics_pixel.zig");
 const Command = command.Command;
@@ -218,7 +220,6 @@ fn transmit(
         encodeError(&result, err);
         return result;
     };
-    errdefer load.image.deinit(alloc);
 
     // If we're also displaying, then do that now. This function does
     // both transmit and transmit and display. The display might also be
@@ -600,14 +601,20 @@ fn completeAnimationFrame(
     if (frame_img.format != .rgba) {
         const rgba = pixel.rgbaFromFormat(
             alloc,
-            frame_img.format,
-            frame_img.data.bytes().?,
+            switch (frame_img.format) {
+                .gray => .gray,
+                .gray_alpha => .gray_alpha,
+                .rgb => .rgb,
+                .rgba => .rgba,
+                .bgr, .bgra => unreachable,
+            },
+            frame_img.data,
         ) catch |err| {
             encodeError(&result, err);
             return result;
         };
-        frame_img.data.deinit(alloc);
-        frame_img.data = .{ .complete = rgba };
+        alloc.free(frame_img.data);
+        frame_img.data = rgba;
         frame_img.format = .rgba;
     }
     storage.convertImageToRgba(io, alloc, img) catch |err| {
@@ -632,7 +639,7 @@ fn completeAnimationFrame(
     };
     result.frame = number;
 
-    const src = frame_img.data.bytes().?;
+    const src = frame_img.data;
     if (number == count + 1) {
         // Creating a new frame. The gap defaults to 40ms when omitted
         // and a negative gap creates a gapless (never shown) frame.
@@ -666,18 +673,23 @@ fn completeAnimationFrame(
         };
         img = storage.imagePtrByIdOrNumber(image_id, 0).?;
 
-        const canvas = alloc.alloc(u8, frame_len) catch {
-            storage.releaseAnimationBytes(frame_len);
-            result.message = "ENOMEM: out of memory";
-            return result;
+        var canvas: CpuImage = .{
+            .width = img.width,
+            .height = img.height,
+            .format = .rgba,
+            .data = alloc.alloc(u8, frame_len) catch {
+                storage.releaseAnimationBytes(frame_len);
+                result.message = "ENOMEM: out of memory";
+                return result;
+            },
         };
         if (f.create_frame > 0) {
-            @memcpy(canvas, img.frameData(f.create_frame).?);
+            @memcpy(canvas.data, img.frameData(f.create_frame).?);
         } else {
-            pixel.fillBackground(canvas, f.background);
+            pixel.fillBackground(canvas.data, f.background);
         }
         pixel.composeRect(
-            canvas,
+            canvas.data,
             img.width,
             img.height,
             src,
@@ -688,11 +700,17 @@ fn completeAnimationFrame(
             f.composition_mode,
         );
 
+        const published = ArcCpuImage.init(alloc, canvas) catch {
+            canvas.deinit(alloc);
+            storage.releaseAnimationBytes(frame_len);
+            result.message = "ENOMEM: out of memory";
+            return result;
+        };
         anim.frames.append(alloc, .{
-            .data = canvas,
+            .image = published,
             .gap_ms = gap,
         }) catch {
-            alloc.free(canvas);
+            published.release();
             storage.releaseAnimationBytes(frame_len);
             result.message = "ENOMEM: out of memory";
             return result;
@@ -706,28 +724,37 @@ fn completeAnimationFrame(
         // frame's gap; the 40ms default doesn't apply to edits.
         //
         // Unlike frame creation there is no byte reservation here:
-        // frames are always stored at full image size, so the edit
-        // composes into the existing buffer in place and storage
-        // usage cannot change. Kitty likewise exempts frame edits
-        // from its quota check.
+        // frames are always stored at full image size, so replacing
+        // a frame leaves storage accounting unchanged. Retained old
+        // frames remain alive until their readers release them.
+
+        // Reuse uniquely owned pixels; retained readers require a copy.
+        const Edit = struct {
+            source: *const CpuImage,
+            command: command.AnimationFrameLoading,
+
+            fn compose(dst: *CpuImage, ctx: @This()) void {
+                pixel.composeRect(
+                    dst.data,
+                    dst.width,
+                    dst.height,
+                    ctx.source.data,
+                    ctx.source.width,
+                    ctx.source.height,
+                    ctx.command.x,
+                    ctx.command.y,
+                    ctx.command.composition_mode,
+                );
+            }
+        };
+        img.editFrame(alloc, number, Edit{ .source = &frame_img, .command = f }, Edit.compose) catch {
+            result.message = "ENOMEM: out of memory";
+            return result;
+        };
+
         if (f.gap_ms != 0) anim.setGapAt(
             number - 1,
             if (f.gap_ms > 0) @intCast(f.gap_ms) else 0,
-        );
-
-        // The frame data is owned by this storage, so the const cast
-        // is safe (same reasoning as the renderer's image uploads).
-        const dst = @constCast(img.frameData(number).?);
-        pixel.composeRect(
-            dst,
-            img.width,
-            img.height,
-            src,
-            frame_img.width,
-            frame_img.height,
-            f.x,
-            f.y,
-            f.composition_mode,
         );
 
         if (number - 1 == anim.current_index) {
@@ -914,23 +941,46 @@ fn composeAnimation(
         return result;
     };
 
-    // The frame data is owned by this storage, so the const cast is
-    // safe. The rectangles were validated disjoint above, so in-place
-    // composition within one frame is well-defined.
-    const src = img.frameData(c.source_frame).?;
-    const dst = @constCast(img.frameData(c.dest_frame).?);
-    pixel.composeCanvasRect(
-        dst,
-        src,
-        img.width,
-        @intCast(width),
-        @intCast(height),
-        c.left_edge,
-        c.top_edge,
-        c.x,
-        c.y,
-        c.composition_mode,
-    );
+    // A null source composes the owned destination onto itself. The rectangles
+    // have already been validated as non-overlapping.
+    const Edit = struct {
+        source: ?[]const u8,
+        width: u32,
+        height: u32,
+        source_x: u32,
+        source_y: u32,
+        dest_x: u32,
+        dest_y: u32,
+        mode: command.CompositionMode,
+
+        fn compose(dst: *CpuImage, ctx: @This()) void {
+            pixel.composeCanvasRect(
+                dst.data,
+                ctx.source orelse dst.data,
+                dst.width,
+                ctx.width,
+                ctx.height,
+                ctx.source_x,
+                ctx.source_y,
+                ctx.dest_x,
+                ctx.dest_y,
+                ctx.mode,
+            );
+        }
+    };
+    img.editFrame(alloc, c.dest_frame, Edit{
+        .source = if (c.source_frame == c.dest_frame) null else img.frameData(c.source_frame).?,
+        .width = @intCast(width),
+        .height = @intCast(height),
+        .source_x = c.left_edge,
+        .source_y = c.top_edge,
+        .dest_x = c.x,
+        .dest_y = c.y,
+        .mode = c.composition_mode,
+    }, Edit.compose) catch {
+        result.message = "ENOMEM: out of memory";
+        return result;
+    };
 
     // If the destination is the displayed frame then the on-screen
     // content changed.
@@ -989,7 +1039,7 @@ fn loadAndAddImage(
     terminal: *Terminal,
     cmd: *const Command,
 ) !struct {
-    image: Image,
+    image: LoadingImage.Info,
     more: bool = false,
     display: ?command.Display = null,
 } {
@@ -1058,18 +1108,21 @@ fn loadAndAddImage(
     // loading.debugDump() catch unreachable;
 
     // Validate and store our image
-    var img = try loading.complete(alloc);
+    var pixels = try loading.complete(alloc);
+    var img = Image.init(alloc, loading.image, pixels) catch |err| {
+        pixels.deinit(alloc);
+        return err;
+    };
     errdefer img.deinit(alloc);
     try storage.addImage(io, alloc, terminal.screens.active, img);
 
     // Get our display settings
     const display_ = loading.display;
 
-    // Ensure we deinit the loading state because we're done. The image
-    // won't be deinit because of "complete" above.
+    // Completion transferred the decoded pixels out of the loading buffer.
     loading.deinit(alloc);
 
-    return .{ .image = img, .display = display_ };
+    return .{ .image = img.withoutData(), .display = display_ };
 }
 
 const EncodeableError = Image.Error || Allocator.Error;
@@ -2744,7 +2797,7 @@ test "kittygfx animation: new frame with default gap responds with frame number"
     try testing.expectEqual(@as(u32, 2), anim.frameCount());
     try testing.expectEqual(@as(u32, 0), anim.root_gap_ms);
     try testing.expectEqual(@as(u32, 40), anim.frames.items[0].gap_ms);
-    try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, anim.frames.items[0].data);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, anim.frames.items[0].image.value.data);
 
     // The displayed frame is still the root: renderData is the base.
     try testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255 }, img.renderData().bytes().?);
@@ -2818,7 +2871,7 @@ test "kittygfx animation: background fill and offset composition" {
     try testing.expectEqualSlices(
         u8,
         &.{ 255, 0, 0, 255, 255, 255, 255, 255 },
-        anim.frames.items[0].data,
+        anim.frames.items[0].image.value.data,
     );
 }
 
@@ -2853,7 +2906,7 @@ test "kittygfx animation: create from base frame with overwrite" {
     }
 
     const anim = storage.imagePtrByIdOrNumber(1, 0).?.animation.?;
-    try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 128 }, anim.frames.items[0].data);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 128 }, anim.frames.items[0].image.value.data);
 }
 
 test "kittygfx animation: alpha blend composes over base frame" {
@@ -2896,8 +2949,8 @@ test "kittygfx animation: alpha blend composes over base frame" {
     }
 
     const anim = storage.imagePtrByIdOrNumber(1, 0).?.animation.?;
-    try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, anim.frames.items[0].data);
-    try testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255 }, anim.frames.items[1].data);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, anim.frames.items[0].image.value.data);
+    try testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255 }, anim.frames.items[1].image.value.data);
 }
 
 test "kittygfx animation: edit root frame bumps generation" {
@@ -3066,7 +3119,7 @@ test "kittygfx animation: excess frame data is truncated" {
     try testing.expect(execute(io, alloc, &t, &cmd).?.ok());
 
     const anim = storage.imagePtrByIdOrNumber(1, 0).?.animation.?;
-    try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, anim.frames.items[0].data);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, anim.frames.items[0].image.value.data);
 }
 
 test "kittygfx animation: chunked frame transmission" {
@@ -3115,7 +3168,7 @@ test "kittygfx animation: chunked frame transmission" {
     try testing.expectEqualSlices(
         u8,
         &.{ 255, 0, 0, 255, 0, 0, 255, 255 },
-        anim.frames.items[0].data,
+        anim.frames.items[0].image.value.data,
     );
 }
 
@@ -3302,7 +3355,7 @@ test "kittygfx animation: compose frames" {
     try testing.expectEqualSlices(
         u8,
         &.{ 0, 0, 255, 255, 0, 0, 0, 0 },
-        anim.frames.items[0].data,
+        anim.frames.items[0].image.value.data,
     );
 }
 
@@ -3600,4 +3653,23 @@ test "kittygfx animation: control negative gap makes frame gapless" {
 
     const anim = storage.imagePtrByIdOrNumber(1, 0).?.animation.?;
     try testing.expectEqual(@as(u32, 0), anim.frames.items[0].gap_ms);
+}
+
+test "kittygfx retained frames stay immutable during animation edits" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+    var t = try Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+    const storage = &t.screens.active.kitty_images;
+    const transmission = try command.Parser.parseString(alloc, "a=t,f=32,s=1,v=1,i=1;/wAA/w==");
+    defer transmission.deinit(alloc);
+    try testing.expect(execute(io, alloc, &t, &transmission).?.ok());
+    const retained = storage.imageById(1).?.renderImage().?.clone();
+    defer retained.release();
+    const edit = try command.Parser.parseString(alloc, "a=f,i=1,r=1,f=32,s=1,v=1;AAD//w==");
+    defer edit.deinit(alloc);
+    try testing.expect(execute(io, alloc, &t, &edit).?.ok());
+    try testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255 }, retained.value.data);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, storage.imageById(1).?.renderImage().?.value.data);
 }

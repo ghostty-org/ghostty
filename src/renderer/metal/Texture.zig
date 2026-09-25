@@ -3,6 +3,7 @@ const Self = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const CpuImage = @import("../../terminal/image.zig").CpuImage;
 const assert = @import("../../quirks.zig").inlineAssert;
 const objc = @import("objc");
 
@@ -36,7 +37,21 @@ pub const Error = error{
     MetalFailed,
 };
 
-/// Initialize a texture
+/// Native upload format preserving the source's sRGB color and linear alpha.
+/// Null requires conversion before uploading.
+///
+/// Metal documents the acceptable pixel formats at https://developer.apple.com/documentation/metal/mtlpixelformat
+pub fn imageTextureFormat(format: CpuImage.Format) ?Metal.ImageTextureFormat {
+    return switch (format) {
+        .rgba => .rgba,
+        .bgra => .bgra,
+        // Packed RGB/BGR have no corresponding Metal pixel format. Grayscale
+        // sRGB formats are not supported across all supported Metal devices.
+        .gray, .gray_alpha, .rgb, .bgr => null,
+    };
+}
+
+/// Initialize a texture.
 pub fn init(
     opts: Options,
     width: usize,
