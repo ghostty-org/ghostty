@@ -469,6 +469,11 @@ pub const StreamHandler = struct {
                         .windows => {
                             // TODO
                         },
+
+                        .active_window => {
+                            // TODO: notify the GUI that tmux's current
+                            // window changed.
+                        },
                     }
                 }
             },
