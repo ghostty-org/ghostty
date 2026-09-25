@@ -3139,10 +3139,9 @@ pub const Surface = extern struct {
             .{},
         ) catch |err| {
             log.warn("error in scroll callback err={}", .{err});
-            return @intFromBool(false);
         };
 
-        return @intFromBool(true);
+        return @intFromBool(false);
     }
 
     fn ecMouseScrollHorizontalReset(ud: ?*anyopaque) callconv(.c) c_int {
