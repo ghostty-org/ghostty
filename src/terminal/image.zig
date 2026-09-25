@@ -132,16 +132,23 @@ test "CPU image takes unique ownership without copying" {
     try std.testing.expect(image.tryOwn() == null);
     retained.release();
     const owned = image.tryOwn().?;
+    // No shared references exist now
+    try std.testing.expectEqual(0, owned.refs.raw);
     try std.testing.expectEqual(*ArcCpuImage, @TypeOf(owned));
     try std.testing.expectEqual(image, owned);
     try std.testing.expectEqual(pixels.ptr, owned.value.data.ptr);
+    // Mutation is safe as ownership is unique and no writes/reads can race
     owned.value.data[0] = 'R';
+    // Restored to a normal shared reference of 1
     const published = owned.publish();
     defer published.release();
+    try std.testing.expectEqual(1, published.refs.raw);
+
     try std.testing.expectEqual(image, published);
     try std.testing.expectEqualSlices(u8, "Rgba", published.value.data);
     const cloned = published.clone();
     cloned.release();
+    try std.testing.expectEqual(1, published.refs.raw);
 }
 
 test "CPU image retains immutable pixels without copying" {
@@ -172,10 +179,10 @@ test "CPU image can release its final reference on another thread" {
         .data = pixels,
     });
     const worker = struct {
-        fn run(value: *const ArcCpuImage) void {
+        fn run(value: *const ArcCpuImage) !void {
             defer value.release();
             for (0..1000) |_| value.clone().release();
-            std.debug.assert(std.mem.eql(u8, value.value.data, "rgba"));
+            try std.testing.expectEqualSlices(u8, value.value.data, "rgba");
         }
     };
     const thread = std.Thread.spawn(.{}, worker.run, .{image}) catch |err| {
@@ -197,10 +204,6 @@ test "CPU image allocation failure leaves pixels with caller" {
         .data = pixels,
     }));
     try std.testing.expectEqualSlices(u8, "rgba", pixels);
-}
-
-test {
-    std.testing.refAllDecls(@This());
 }
 
 test "AtomicRefCounted releases the inner value only on final release" {
