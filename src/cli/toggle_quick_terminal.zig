@@ -19,16 +19,9 @@ pub const Options = struct {
     }
 };
 
-/// The `+toggle-quick-terminal` command will use native platform IPC to toggle
-/// the quick terminal in a running instance of Ghostty.
-///
-/// If the `--class` flag is not set, the command will try and connect to the
-/// default running Ghostty instance. Otherwise it will contact a Ghostty
-/// instance configured with the given `class`.
-///
-/// On GTK, D-Bus activation must be properly configured. Ghostty does not need
-/// to be running, as D-Bus will handle launching a new instance if it is not
-/// already running.
+/// The `+toggle-quick-terminal` command toggles the quick terminal in a
+/// running Ghostty instance. If no instance owns the D-Bus name, it launches
+/// one directly as a quick terminal.
 ///
 /// Only supported on GTK.
 ///
@@ -49,9 +42,7 @@ pub fn run(alloc: Allocator) !u8 {
         .toggle_quick_terminal,
         {},
     ) catch |err| switch (err) {
-        error.IPCFailed => {
-            return 1;
-        },
+        error.ServiceNotFound, error.IPCFailed => return launchQuickTerminal(alloc, stderr),
         else => {
             try stderr.print("Sending the IPC failed: {}\n", .{err});
             return 1;
@@ -60,4 +51,28 @@ pub fn run(alloc: Allocator) !u8 {
 
     try stderr.print("+toggle-quick-terminal is not supported on this platform.\n", .{});
     return 1;
+}
+
+fn launchQuickTerminal(
+    alloc: Allocator,
+    stderr: *std.Io.Writer,
+) !u8 {
+    var args = try global.args().iterateAllocator(alloc);
+    defer args.deinit();
+    const exe_path = args.next() orelse return error.MissingExecutablePath;
+
+    var environ = try global.environMap();
+    defer environ.deinit();
+    try environ.put("GHOSTTY_LAUNCH_QUICK_TERMINAL", "1");
+
+    _ = std.process.spawn(global.io(), .{
+        .argv = &.{exe_path},
+        .stdout = .ignore,
+        .stderr = .inherit,
+        .environ_map = &environ,
+    }) catch |err| {
+        try stderr.print("Unable to launch quick terminal: {}\n", .{err});
+        return 1;
+    };
+    return 0;
 }

@@ -241,6 +241,11 @@ pub const Window = struct {
         }
     }
 
+    pub fn prepareQuickTerminal(self: *Window) !void {
+        if (!self.apprt_window.isQuickTerminal()) return;
+        try self.syncQuickTerminal();
+    }
+
     pub fn clientSideDecorationEnabled(self: Window) bool {
         return switch (self.getDecorationMode()) {
             .Client => true,

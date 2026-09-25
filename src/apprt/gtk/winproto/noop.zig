@@ -70,6 +70,8 @@ pub const Window = struct {
 
     pub fn syncAppearance(_: *Window) !void {}
 
+    pub fn prepareQuickTerminal(_: *Window) !void {}
+
     /// This returns true if CSD is enabled for this window. This
     /// should be the actual present state of the window, not the
     /// desired state.

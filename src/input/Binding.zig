@@ -836,14 +836,16 @@ pub const Action = union(enum) {
     ///
     ///   - Only one quick terminal instance can exist at a time.
     ///
+    ///   - Closing the last quick-terminal tab opens a replacement tab, so the
+    ///     persistent dropdown remains available.
+    ///
     ///   - Unlike normal terminal windows, the quick terminal will not be
     ///     restored when the application is restarted on systems that support
     ///     window restoration like macOS.
     ///
-    ///   - On Linux, the quick terminal is only supported on Wayland and not
-    ///     X11, and only on Wayland compositors that support the `wlr-layer-shell-v1`
-    ///     protocol. In practice, this means that only GNOME users would not be
-    ///     able to use this feature.
+    ///   - On Linux, Wayland quick terminals require a compositor that supports
+    ///     the `wlr-layer-shell-v1` protocol. On X11, this build uses EWMH
+    ///     window-state hints. Stacking remains subject to window-manager policy.
     ///
     ///   - On Linux, slide-in animations are only supported on KDE, and when
     ///     the "Sliding Popups" KWin plugin is enabled.

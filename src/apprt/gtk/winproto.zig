@@ -156,6 +156,12 @@ pub const Window = union(Protocol) {
         }
     }
 
+    pub fn prepareQuickTerminal(self: *Window) !void {
+        switch (self.*) {
+            inline else => |*v| try v.prepareQuickTerminal(),
+        }
+    }
+
     pub fn clientSideDecorationEnabled(self: Window) bool {
         return switch (self) {
             inline else => |v| v.clientSideDecorationEnabled(),

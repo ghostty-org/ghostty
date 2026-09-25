@@ -2745,7 +2745,8 @@ keybind: Keybinds = .{},
 ///   * `center` - Terminal appears at the center of the screen.
 ///
 /// On macOS, changing this configuration requires restarting Ghostty
-/// completely.
+/// completely. GTK X11 quick terminals are always fullscreen, so this option
+/// is ignored on X11.
 ///
 /// Note: There is no default keybind for toggling the quick terminal.
 /// To enable this feature, bind the `toggle_quick_terminal` action to a key.
@@ -2770,6 +2771,13 @@ keybind: Keybinds = .{},
 /// from the first by a comma (`,`). Percentage and pixel sizes can be mixed
 /// together: for instance, a size of `50%,500px` for a top-positioned quick
 /// terminal would be half a screen tall, and 500 pixels wide.
+///
+/// Without `quick-terminal-size`, the default primary dimension is 400px:
+/// height for top/bottom terminals and width for left/right terminals. The
+/// secondary dimension fills the selected monitor.
+///
+/// GTK X11 quick terminals are always fullscreen, so this option is ignored
+/// on X11.
 ///
 /// Available since: 1.2.0
 @"quick-terminal-size": QuickTerminalSize = .{},
@@ -2797,7 +2805,8 @@ keybind: Keybinds = .{},
 ///
 ///    The quick terminal appears behind all windows.
 ///
-/// GTK Wayland only.
+/// GTK Wayland only. On X11, quick terminals use EWMH window-state hints and
+/// ignore this option.
 ///
 /// Available since: 1.2.0
 @"gtk-quick-terminal-layer": QuickTerminalLayer = .top,
@@ -2831,13 +2840,14 @@ keybind: Keybinds = .{},
 /// The default value is `main` because this is the recommended screen
 /// by the operating system.
 ///
-/// On macOS, `macos-menu-bar` uses the screen containing the menu bar.
-/// On Linux/Wayland, `macos-menu-bar` is treated as equivalent to `main`.
+/// On macOS, `macos-menu-bar` uses the screen containing the menu bar. On
+/// Linux, `macos-menu-bar` is treated as equivalent to `main`.
 ///
 /// Note: On Linux, there is no universal concept of a "primary" monitor.
-/// Ghostty uses the compositor-reported primary output when available and
-/// falls back to the first monitor reported by GDK if no primary output can
-/// be resolved.
+/// On Wayland, Ghostty uses the compositor-reported primary output when
+/// available and falls back to the first monitor reported by GDK. On X11,
+/// `main` falls back to the first monitor reported by GDK; `mouse` uses the
+/// X11 pointer location.
 @"quick-terminal-screen": QuickTerminalScreen = .main,
 
 /// Duration (in seconds) of the quick terminal enter and exit animation.

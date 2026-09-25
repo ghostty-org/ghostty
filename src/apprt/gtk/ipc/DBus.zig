@@ -177,9 +177,13 @@ pub fn send(self: *Self) (std.Io.Writer.Error || apprt.ipc.Errors)!void {
         defer if (result_) |result| result.unref();
 
         if (err_) |err| {
+            const message = std.mem.span(err.f_message orelse "(unknown)");
+            if (std.mem.indexOf(u8, message, "org.freedesktop.DBus.Error.ServiceUnknown") != null) {
+                return error.ServiceNotFound;
+            }
             try stderr.print(
                 "D-Bus method call returned an error err={s}\n",
-                .{err.f_message orelse "(unknown)"},
+                .{message},
             );
             try stderr.flush();
             return error.IPCFailed;

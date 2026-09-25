@@ -190,6 +190,10 @@ pub const Application = extern struct {
         /// window.
         requested_window: bool = false,
 
+        /// Launch the first application window as a quick terminal rather
+        /// than as a normal terminal window.
+        launch_quick_terminal: bool = false,
+
         /// This is set to false internally when the event loop
         /// should exit and the application should quit. This must
         /// only be set by the main loop thread.
@@ -415,6 +419,7 @@ pub const Application = extern struct {
             .css_provider = css_provider,
             .custom_css_providers = .empty,
             .global_shortcuts = gobject.ext.newInstance(GlobalShortcuts, .{}),
+            .launch_quick_terminal = global.environ().getPosix("GHOSTTY_LAUNCH_QUICK_TERMINAL") != null,
             .saved_language = saved_language,
             .open_uri = .init(rt_app),
         };
@@ -541,7 +546,9 @@ pub const Application = extern struct {
             // We need to scope any config access because once we run our
             // event loop, this can change out from underneath us.
             const config = priv.config.get();
-            if (config.@"initial-window") self.as(gio.Application).activate();
+            if (priv.launch_quick_terminal or config.@"initial-window") {
+                self.as(gio.Application).activate();
+            }
         }
 
         // If we are NOT the primary instance, then we never want to run.
@@ -1541,11 +1548,16 @@ pub const Application = extern struct {
     fn activate(self: *Self) callconv(.c) void {
         log.debug("activate", .{});
 
-        // Queue a new window
         const priv = self.private();
-        _ = priv.core_app.mailbox.push(global.io(), .{
-            .new_window = .{},
-        }, .{ .forever = {} });
+        if (priv.launch_quick_terminal) {
+            _ = Action.toggleQuickTerminal(self);
+            priv.launch_quick_terminal = false;
+        } else {
+            // Queue a new window
+            _ = priv.core_app.mailbox.push(global.io(), .{
+                .new_window = .{},
+            }, .{ .forever = {} });
+        }
 
         // Call the parent activate method.
         gio.Application.virtual_methods.activate.call(

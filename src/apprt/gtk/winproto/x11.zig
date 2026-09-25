@@ -13,7 +13,8 @@ const xlib = @import("xlib");
 pub const c = @import("x11_c");
 
 const input = @import("../../../input.zig");
-const Config = @import("../../../config.zig").Config;
+const configpkg = @import("../../../config.zig");
+const Config = configpkg.Config;
 const ApprtWindow = @import("../class/window.zig").Window;
 const GlobalShortcuts = @import("../class/global_shortcuts.zig").GlobalShortcuts;
 const BlurRegion = @import("BlurRegion.zig");
@@ -166,11 +167,29 @@ pub const App = struct {
     pub fn clearGlobalShortcuts(_: *App) void {}
 
     pub fn supportsQuickTerminal(_: App) bool {
-        log.warn("quick terminal is not yet supported on X11", .{});
-        return false;
+        return true;
     }
 
-    pub fn initQuickTerminal(_: *App, _: *ApprtWindow) !void {}
+    pub fn initQuickTerminal(self: *App, apprt_window: *ApprtWindow) !void {
+        const window = apprt_window.as(gtk.Window);
+        window.setDecorated(0);
+
+        const config = if (apprt_window.getConfig()) |v| v.get() else {
+            window.fullscreen();
+            return;
+        };
+        const monitor = quickTerminalMonitor(
+            self.display,
+            apprt_window,
+            config.@"quick-terminal-screen",
+        ) orelse {
+            window.fullscreen();
+            return;
+        };
+        defer monitor.unref();
+
+        window.fullscreenOnMonitor(monitor);
+    }
 };
 
 pub const Window = struct {
@@ -185,6 +204,7 @@ pub const Window = struct {
     // Redundant property updates seem to cause some visual glitches
     // with some window managers: https://github.com/ghostty-org/ghostty/pull/8075
     last_applied_decoration_hints: ?MotifWMHints = null,
+    quick_terminal_hints_applied: bool = false,
 
     pub fn init(
         alloc: Allocator,
@@ -199,12 +219,14 @@ pub const Window = struct {
             surface,
         ) orelse return error.NotX11Surface;
 
-        return .{
+        var result = Window{
             .app = app,
             .alloc = alloc,
             .apprt_window = apprt_window,
             .x11_surface = x11_surface,
         };
+        if (apprt_window.isQuickTerminal()) try result.syncQuickTerminal();
+        return result;
     }
 
     pub fn deinit(self: *Window) void {
@@ -227,13 +249,133 @@ pub const Window = struct {
         self.syncDecorations() catch |err| {
             log.err("failed to sync decorations={}", .{err});
         };
+        if (self.apprt_window.isQuickTerminal()) try self.syncQuickTerminal();
     }
 
     pub fn clientSideDecorationEnabled(self: Window) bool {
+        if (self.apprt_window.isQuickTerminal()) return false;
         return switch (self.apprt_window.getWindowDecoration()) {
             .auto, .client => true,
             .server, .none => false,
         };
+    }
+
+    pub fn prepareQuickTerminal(self: *Window) !void {
+        if (!self.apprt_window.isQuickTerminal()) return;
+        try self.syncQuickTerminal();
+        _ = c.XRaiseWindow(
+            @ptrCast(@alignCast(self.app.display)),
+            self.x11_surface.getXid(),
+        );
+        _ = c.XFlush(@ptrCast(@alignCast(self.app.display)));
+    }
+
+    fn syncQuickTerminal(self: *Window) !void {
+        if (!self.quick_terminal_hints_applied) {
+            try self.applyQuickTerminalHints();
+            self.quick_terminal_hints_applied = true;
+        }
+        try self.requestQuickTerminalState();
+        _ = c.XFlush(@ptrCast(@alignCast(self.app.display)));
+    }
+
+    fn applyQuickTerminalHints(self: *Window) !void {
+        const states = [_]c.Atom{
+            self.app.atoms.net_wm_state_fullscreen,
+            self.app.atoms.net_wm_state_above,
+            self.app.atoms.net_wm_state_sticky,
+            self.app.atoms.net_wm_state_skip_taskbar,
+            self.app.atoms.net_wm_state_skip_pager,
+        };
+        try self.changeProperty(
+            c.Atom,
+            self.app.atoms.net_wm_state,
+            c.XA_ATOM,
+            ._32,
+            .{ .mode = .replace },
+            &states,
+        );
+
+        const desktop = [_]c_ulong{std.math.maxInt(u32)};
+        try self.changeProperty(
+            c_ulong,
+            self.app.atoms.net_wm_desktop,
+            c.XA_CARDINAL,
+            ._32,
+            .{ .mode = .replace },
+            &desktop,
+        );
+    }
+
+    fn requestQuickTerminalState(self: *Window) !void {
+        try self.requestWindowState(
+            .remove,
+            self.app.atoms.net_wm_state_below,
+            c.None,
+        );
+        try self.requestWindowState(
+            .add,
+            self.app.atoms.net_wm_state_above,
+            self.app.atoms.net_wm_state_fullscreen,
+        );
+        try self.requestWindowState(
+            .add,
+            self.app.atoms.net_wm_state_sticky,
+            self.app.atoms.net_wm_state_skip_taskbar,
+        );
+        try self.requestWindowState(
+            .add,
+            self.app.atoms.net_wm_state_skip_pager,
+            c.None,
+        );
+        try self.requestAllDesktops();
+    }
+
+    fn requestWindowState(
+        self: *Window,
+        action: NetWmStateAction,
+        first: c.Atom,
+        second: c.Atom,
+    ) !void {
+        const display: *c.Display = @ptrCast(@alignCast(self.app.display));
+        var event = std.mem.zeroes(c.XEvent);
+        event.xclient.type = c.ClientMessage;
+        event.xclient.display = display;
+        event.xclient.window = self.x11_surface.getXid();
+        event.xclient.message_type = self.app.atoms.net_wm_state;
+        event.xclient.format = 32;
+        event.xclient.data.l[0] = @intFromEnum(action);
+        event.xclient.data.l[1] = @intCast(first);
+        event.xclient.data.l[2] = @intCast(second);
+        event.xclient.data.l[3] = 1; // source indication: normal application
+
+        if (c.XSendEvent(
+            display,
+            c.XDefaultRootWindow(display),
+            0,
+            c.SubstructureRedirectMask | c.SubstructureNotifyMask,
+            &event,
+        ) == 0) return error.RequestFailed;
+    }
+
+    fn requestAllDesktops(self: *Window) !void {
+        const display: *c.Display = @ptrCast(@alignCast(self.app.display));
+        var event = std.mem.zeroes(c.XEvent);
+        event.xclient.type = c.ClientMessage;
+        event.xclient.display = display;
+        event.xclient.window = self.x11_surface.getXid();
+        event.xclient.message_type = self.app.atoms.net_wm_desktop;
+        event.xclient.format = 32;
+        event.xclient.data.l[0] = @intCast(std.math.maxInt(u32));
+        event.xclient.data.l[1] = 1; // source indication: normal application
+
+        if (c.XSendEvent(
+            display,
+            c.XDefaultRootWindow(display),
+            0,
+            c.SubstructureRedirectMask | c.SubstructureNotifyMask,
+            &event,
+        ) == 0) return error.RequestFailed;
     }
 
     fn syncBlur(self: *Window) !void {
@@ -437,9 +579,23 @@ const GetWindowPropertyError = X11Error || error{
     PropertyFormatMismatch,
 };
 
+const NetWmStateAction = enum(c_long) {
+    remove = 0,
+    add = 1,
+    toggle = 2,
+};
+
 const Atoms = struct {
     kde_blur: c.Atom,
     motif_wm_hints: c.Atom,
+    net_wm_desktop: c.Atom,
+    net_wm_state: c.Atom,
+    net_wm_state_above: c.Atom,
+    net_wm_state_below: c.Atom,
+    net_wm_state_fullscreen: c.Atom,
+    net_wm_state_sticky: c.Atom,
+    net_wm_state_skip_taskbar: c.Atom,
+    net_wm_state_skip_pager: c.Atom,
 
     fn init(display: *gdk_x11.X11Display) Atoms {
         return .{
@@ -451,9 +607,77 @@ const Atoms = struct {
                 display,
                 "_MOTIF_WM_HINTS",
             ),
+            .net_wm_desktop = gdk_x11.x11GetXatomByNameForDisplay(display, "_NET_WM_DESKTOP"),
+            .net_wm_state = gdk_x11.x11GetXatomByNameForDisplay(display, "_NET_WM_STATE"),
+            .net_wm_state_above = gdk_x11.x11GetXatomByNameForDisplay(display, "_NET_WM_STATE_ABOVE"),
+            .net_wm_state_below = gdk_x11.x11GetXatomByNameForDisplay(display, "_NET_WM_STATE_BELOW"),
+            .net_wm_state_fullscreen = gdk_x11.x11GetXatomByNameForDisplay(display, "_NET_WM_STATE_FULLSCREEN"),
+            .net_wm_state_sticky = gdk_x11.x11GetXatomByNameForDisplay(display, "_NET_WM_STATE_STICKY"),
+            .net_wm_state_skip_taskbar = gdk_x11.x11GetXatomByNameForDisplay(display, "_NET_WM_STATE_SKIP_TASKBAR"),
+            .net_wm_state_skip_pager = gdk_x11.x11GetXatomByNameForDisplay(display, "_NET_WM_STATE_SKIP_PAGER"),
         };
     }
 };
+
+fn quickTerminalMonitor(
+    xlib_display: *xlib.Display,
+    apprt_window: *ApprtWindow,
+    screen: Config.QuickTerminalScreen,
+) ?*gdk.Monitor {
+    const display: *c.Display = @ptrCast(@alignCast(xlib_display));
+    const pointer = if (screen == .mouse) pointerPosition(display) else null;
+    const gdk_display = apprt_window.as(gtk.Widget).getDisplay();
+    const monitors = gdk_display.getMonitors();
+    var first: ?*gdk.Monitor = null;
+    var i: u32 = 0;
+    while (monitors.getObject(i)) |item| : (i += 1) {
+        const monitor = gobject.ext.cast(gdk.Monitor, item) orelse {
+            item.unref();
+            continue;
+        };
+        var geometry: gdk.Rectangle = undefined;
+        monitor.getGeometry(&geometry);
+        if (pointer) |pos| {
+            if (pos.x >= geometry.f_x and
+                pos.x < geometry.f_x + geometry.f_width and
+                pos.y >= geometry.f_y and
+                pos.y < geometry.f_y + geometry.f_height)
+            {
+                if (first) |fallback| fallback.unref();
+                return monitor;
+            }
+        }
+        if (first == null) {
+            first = monitor;
+        } else {
+            monitor.unref();
+        }
+    }
+
+    return first;
+}
+
+fn pointerPosition(display: *c.Display) ?struct { x: c_int, y: c_int } {
+    var root: c.Window = undefined;
+    var child: c.Window = undefined;
+    var root_x: c_int = undefined;
+    var root_y: c_int = undefined;
+    var window_x: c_int = undefined;
+    var window_y: c_int = undefined;
+    var mask: c_uint = undefined;
+    if (c.XQueryPointer(
+        display,
+        c.XDefaultRootWindow(display),
+        &root,
+        &child,
+        &root_x,
+        &root_y,
+        &window_x,
+        &window_y,
+        &mask,
+    ) == 0) return null;
+    return .{ .x = root_x, .y = root_y };
+}
 
 const PropertyChangeMode = enum(c_int) {
     replace = c.PropModeReplace,

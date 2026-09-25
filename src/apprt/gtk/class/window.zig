@@ -647,7 +647,17 @@ pub const Window = extern struct {
     /// Toggle the visible property.
     pub fn toggleVisibility(self: *Self) void {
         const widget = self.as(gtk.Widget);
-        widget.setVisible(@intFromBool(widget.isVisible() == 0));
+        if (widget.isVisible() != 0) {
+            widget.setVisible(0);
+            return;
+        }
+
+        self.as(gtk.Window).present();
+        if (self.isQuickTerminal()) {
+            self.winproto().prepareQuickTerminal() catch |err| {
+                log.warn("failed to prepare quick terminal error={}", .{err});
+            };
+        }
     }
 
     /// Updates various appearance properties. This should always be safe
@@ -1772,6 +1782,11 @@ pub const Window = extern struct {
     ) callconv(.c) void {
         const priv = self.private();
         if (priv.tab_view.getNPages() == 0) {
+            if (self.isQuickTerminal()) {
+                self.newTabForWindow(null, .none);
+                return;
+            }
+
             // If we have no pages left then we want to close window.
 
             // If the tab overview is open, then we don't close the window

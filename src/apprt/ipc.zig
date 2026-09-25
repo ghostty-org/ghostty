@@ -6,6 +6,9 @@ const assert = @import("../quirks.zig").inlineAssert;
 const lib = @import("../lib/main.zig");
 
 pub const Errors = error{
+    /// No Ghostty instance owns the requested D-Bus name.
+    ServiceNotFound,
+
     /// The IPC failed. If a function returns this error, it's expected that
     /// an a more specific error message will have been written to stderr (or
     /// otherwise shown to the user in an appropriate way).
