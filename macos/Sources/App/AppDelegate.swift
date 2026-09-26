@@ -444,6 +444,31 @@ class AppDelegate: NSObject,
         // but I haven't seen it happen in releases. I'm unsure why.
         guard applicationHasBecomeActive else { return true }
 
+#if compiler(>=6.4)
+        if #available(macOS 27.0, *) {
+            // It seems that with macOS 27, running an App Intent against an already
+            // running app (from Shortcuts, Spotlight, the `shortcuts` CLI, ...)
+            // opens the app through LaunchServices in the background before the
+            // intent is delivered, which we receive as a reopen event.
+            //
+            // Ignore reopens from the intents runner unless it asked for us to come to
+            // the front to prevent creating two windows (#14107).
+            let appIntentsRunnerBundleIdentifiers: Set<String> = [
+                "com.apple.WorkflowKit.BackgroundShortcutRunner",
+                "com.apple.shortcuts",
+                "com.apple.siriactionsd",
+            ]
+
+            if let event = NSAppleEventManager.shared().currentAppleEvent,
+               let sender = event.senderBundleIdentifier,
+               appIntentsRunnerBundleIdentifiers.contains(sender),
+               !event.expectsActivation {
+                AppDelegate.logger.info("reopen triggered by shortcuts (\(sender)), ignoring...")
+                return true
+            }
+        }
+#endif
+
         // No visible windows, open a new one.
         _ = TerminalController.newWindow(ghostty)
         return false
