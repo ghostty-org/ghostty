@@ -7028,3 +7028,57 @@ test "Page HTML hyperlink point map maps closing to previous cell" {
         try testing.expectEqual(expected_coord, point_map.items[i]);
     }
 }
+
+test "Screen VT roundtrip is stable" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    const inputs = [_][]const u8{
+        "hello, world",
+        "line1\r\nline2\r\nline3",
+        "tab\tseparated\tvals",
+        "日本語 wide characters",
+        "\x1b[31mred\x1b[0m plain",
+        "\x1b[1;3;4mbold italic underline\x1b[0m",
+        "\x1b[7mreverse\x1b[0m \x1b[9mstrike\x1b[0m \x1b[53moverline\x1b[0m",
+        "\x1b[4:3mcurly underline\x1b[0m",
+        "\x1b[38;5;196m256 color\x1b[0m",
+        "\x1b[38;2;1;2;3mtruecolor\x1b[0m",
+        "\x1b[58;5;9munderline color\x1b[0m",
+        "mixed \x1b[31m日本\x1b[0m back",
+    };
+
+    for (inputs) |input| {
+        for ([_]u16{ 10, 20, 80 }) |cols| {
+            var t1 = try Terminal.init(io, alloc, .{ .cols = cols, .rows = 6 });
+            defer t1.deinit(alloc);
+            {
+                var s = t1.vtStream();
+                defer s.deinit();
+                s.nextSlice(input);
+            }
+
+            var first: std.Io.Writer.Allocating = .init(alloc);
+            defer first.deinit();
+            var f1: ScreenFormatter = .init(t1.screens.active, .{ .emit = .vt });
+            try f1.format(&first.writer);
+
+            var t2 = try Terminal.init(io, alloc, .{ .cols = cols, .rows = 6 });
+            defer t2.deinit(alloc);
+            {
+                var s = t2.vtStream();
+                defer s.deinit();
+                s.nextSlice(first.written());
+            }
+
+            var second: std.Io.Writer.Allocating = .init(alloc);
+            defer second.deinit();
+            var f2: ScreenFormatter = .init(t2.screens.active, .{ .emit = .vt });
+            try f2.format(&second.writer);
+
+            try testing.expect(first.written().len > 0);
+            try testing.expectEqualStrings(first.written(), second.written());
+        }
+    }
+}
