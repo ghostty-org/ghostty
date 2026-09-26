@@ -35,6 +35,7 @@ const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const Window = @import("window.zig").Window;
 const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
 const SplitTree = @import("split_tree.zig").SplitTree;
+const SurfaceScrolledWindow = @import("surface_scrolled_window.zig").SurfaceScrolledWindow;
 const RenderSurface = @import("render_surface.zig").RenderSurface;
 const i18n = @import("../../../os/i18n.zig");
 const global = @import("../../../global.zig");
@@ -582,6 +583,10 @@ pub const Surface = extern struct {
         /// The minimum size for this surface. Embedders enforce this,
         /// not the surface itself.
         min_size: ?*Size = null,
+
+        /// The smallest size, in logical pixels, that this surface can be
+        /// resized to within a split: one cell plus the window padding.
+        split_min_size: Size = .{ .width = 1, .height = 1 },
 
         /// The requested font size. This only applies to initialization
         /// and has no effect later.
@@ -2224,6 +2229,53 @@ pub const Surface = extern struct {
         const priv = self.private();
         const alloc = Application.default().allocator();
         return ext.StringList.create(alloc, priv.key_tables.items) catch null;
+    }
+
+    /// Return the smallest size, in logical pixels, that this surface can
+    /// be resized to within a split.
+    pub fn getSplitMinSize(self: *Self) Size {
+        return self.private().split_min_size;
+    }
+
+    /// Set the size of a cell, in pixels. This determines the smallest size
+    /// that this surface can be resized to within a split, so that a split
+    /// is never so small that none of its terminal is visible.
+    pub fn setCellSize(self: *Self, width: u32, height: u32) void {
+        const priv = self.private();
+        const config_obj = priv.config orelse return;
+        const config = config_obj.get();
+
+        // The cell size is in pixels but widget sizes are in logical pixels.
+        const content_scale = self.getContentScale();
+        const width_f32: f32 = @floatFromInt(width);
+        const height_f32: f32 = @floatFromInt(height);
+        const cell_width: u32 = @intFromFloat(@ceil(width_f32 / content_scale.x));
+        const cell_height: u32 = @intFromFloat(@ceil(height_f32 / content_scale.y));
+
+        // Padding is in points, and is rounded down like scaledPadding in
+        // the core surface.
+        const padding = struct {
+            fn logical(points: u32) u32 {
+                const points_f32: f32 = @floatFromInt(points);
+                return @intFromFloat(@floor(points_f32 * font.face.default_dpi / 72));
+            }
+        }.logical;
+        const padding_x = config.@"window-padding-x";
+        const padding_y = config.@"window-padding-y";
+
+        priv.split_min_size = .{
+            .width = cell_width +
+                padding(padding_x.top_left) +
+                padding(padding_x.bottom_right),
+            .height = cell_height +
+                padding(padding_y.top_left) +
+                padding(padding_y.bottom_right),
+        };
+
+        if (ext.getAncestor(
+            SurfaceScrolledWindow,
+            self.as(gtk.Widget),
+        )) |window| window.syncSplitMinSize();
     }
 
     /// Return the min size, if set.
