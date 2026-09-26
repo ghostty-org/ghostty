@@ -1,4 +1,5 @@
 const std = @import("std");
+const parse_int = @import("../../parse_int.zig");
 
 const Parser = @import("../../osc.zig").Parser;
 const Command = @import("../../osc.zig").Command;
@@ -25,7 +26,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
                     ';' => {
                         parser.command = .{
                             .conemu_sleep = .{
-                                .duration_ms = if (std.fmt.parseUnsigned(u16, data[2..], 10)) |num| @min(num, 10_000) else |_| 100,
+                                .duration_ms = if (parse_int.parse(u16, data[2..], 10)) |num| @min(num, 10_000) else |_| 100,
                             },
                         };
                         return &parser.command;
@@ -193,7 +194,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
                         // parse the progress value
                         parser.command.conemu_progress_report.progress = value: {
                             break :value @intCast(std.math.clamp(
-                                std.fmt.parseUnsigned(usize, data[4..], 10) catch break :value null,
+                                parse_int.parse(usize, data[4..], 10) catch break :value null,
                                 0,
                                 100,
                             ));
@@ -283,6 +284,20 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
         },
     };
     return &parser.command;
+}
+
+test "OSC 9: numeric fields reject digit separators" {
+    const testing = std.testing;
+
+    var sleep: Parser = .init(null);
+    for ("9;1;4_2") |ch| sleep.next(ch);
+    const sleep_cmd = sleep.end(null).?.*;
+    try testing.expectEqual(100, sleep_cmd.conemu_sleep.duration_ms);
+
+    var progress: Parser = .init(null);
+    for ("9;4;1;4_2") |ch| progress.next(ch);
+    const progress_cmd = progress.end(null).?.*;
+    try testing.expectEqual(null, progress_cmd.conemu_progress_report.progress);
 }
 
 test "OSC 9: show desktop notification" {

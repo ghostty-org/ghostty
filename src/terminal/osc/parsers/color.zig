@@ -1,4 +1,5 @@
 const std = @import("std");
+const parse_int = @import("../../parse_int.zig");
 const Allocator = std.mem.Allocator;
 
 const DynamicColor = @import("../../color.zig").Dynamic;
@@ -174,7 +175,7 @@ fn parseGetSetAnsiColor(
         const spec_str = it.next() orelse return result;
 
         // Color must be numeric. u9 because that'll fit our palette + special
-        const color: u9 = std.fmt.parseInt(
+        const color: u9 = parse_int.parse(
             u9,
             color_str,
             10,
@@ -247,7 +248,7 @@ fn parseResetAnsiColor(
         if (color_str.len == 0) continue;
 
         // Color must be numeric. u9 because that'll fit our palette + special
-        const color: u9 = std.fmt.parseInt(
+        const color: u9 = parse_int.parse(
             u9,
             color_str,
             10,
@@ -354,6 +355,25 @@ pub const ColoredTarget = struct {
     target: Target,
     color: RGB,
 };
+
+test "OSC color indexes reject digit separators" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    inline for (.{ Operation.osc_4, Operation.osc_5 }) |op| {
+        var list = try parseColor(alloc, op, "1;red;0_3;blue;2;green");
+        defer list.deinit(alloc);
+        // Invalid indexes stop get/set requests at the valid prefix.
+        try testing.expectEqual(1, list.count());
+    }
+
+    inline for (.{ Operation.osc_104, Operation.osc_105 }) |op| {
+        var list = try parseColor(alloc, op, "1;0_3;2");
+        defer list.deinit(alloc);
+        // Invalid indexes are skipped in reset requests.
+        try testing.expectEqual(2, list.count());
+    }
+}
 
 test "OSC 4:" {
     const testing = std.testing;

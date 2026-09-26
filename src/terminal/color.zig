@@ -1,6 +1,7 @@
 const colorpkg = @This();
 
 const std = @import("std");
+const parse_int = @import("parse_int.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = @import("../quirks.zig").inlineAssert;
@@ -716,7 +717,7 @@ pub const RGB = packed struct(u24) {
             return error.InvalidFormat;
         }
 
-        const color = std.fmt.parseUnsigned(u16, value, 16) catch {
+        const color = parse_int.parse(u16, value, 16) catch {
             @branchHint(.cold);
             return error.InvalidFormat;
         };
@@ -1029,6 +1030,12 @@ test "RGB.parse" {
     try testing.expectError(error.InvalidFormat, RGB.parse("#12345"));
     try testing.expectError(error.InvalidFormat, RGB.parse("12345"));
     try testing.expectError(error.InvalidFormat, RGB.parse("nosuchcolor"));
+}
+
+test "RGB.parse rejects digit separators" {
+    const testing = std.testing;
+    try testing.expectError(error.InvalidFormat, RGB.parse("rgb:f_f/0/0"));
+    try testing.expectError(error.InvalidFormat, RGB.parse("#f_f000000"));
 }
 
 test "RGB: encode" {

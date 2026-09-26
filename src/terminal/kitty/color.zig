@@ -1,4 +1,5 @@
 const std = @import("std");
+const parse_int = @import("../parse_int.zig");
 const terminal = @import("../main.zig");
 const RGB = terminal.color.RGB;
 const Terminator = terminal.osc.Terminator;
@@ -48,7 +49,7 @@ pub const Kind = union(enum) {
 
     pub fn parse(key: []const u8) ?Kind {
         if (std.meta.stringToEnum(Special, key)) |s| return .{ .special = s };
-        return .{ .palette = std.fmt.parseUnsigned(u8, key, 10) catch return null };
+        return .{ .palette = parse_int.parse(u8, key, 10) catch return null };
     }
 
     /// Returns true when a terminal has built-in state for this key.
@@ -78,6 +79,15 @@ pub const Kind = union(enum) {
         }
     }
 };
+
+test "OSC: kitty color indexes reject digit separators" {
+    try std.testing.expectEqual(null, Kind.parse("1_0"));
+    try std.testing.expectEqualDeep(Kind{ .palette = 10 }, Kind.parse("10").?);
+    try std.testing.expectEqualDeep(
+        Kind{ .special = .selection_foreground },
+        Kind.parse("selection_foreground").?,
+    );
+}
 
 test "OSC: kitty color protocol kind string" {
     const testing = std.testing;

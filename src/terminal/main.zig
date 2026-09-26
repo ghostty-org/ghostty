@@ -99,6 +99,7 @@ test {
     _ = @import("fraction.zig");
     _ = @import("hash_map.zig");
     _ = @import("mem.zig");
+    _ = @import("parse_int.zig");
     _ = @import("ref_counted_set.zig");
     _ = @import("size.zig");
 }

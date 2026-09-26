@@ -6,6 +6,7 @@
 //! and form a stack.
 
 const std = @import("std");
+const parse_int = @import("../../parse_int.zig");
 const Parser = @import("../../osc.zig").Parser;
 const OSCCommand = @import("../../osc.zig").Command;
 
@@ -162,16 +163,11 @@ pub const Field = enum {
             return switch (self) {
                 .type => .parse(value),
                 .exit => .parse(value),
-                .pid, .pidfdid, .status => value: {
-                    for (value) |c| {
-                        if (c < '0' or c > '9') break :value null;
-                    }
-                    break :value std.fmt.parseInt(
-                        u64,
-                        value,
-                        10,
-                    ) catch null;
-                },
+                .pid, .pidfdid, .status => parse_int.parse(
+                    u64,
+                    value,
+                    10,
+                ) catch null,
                 // String fields
                 .user,
                 .hostname,

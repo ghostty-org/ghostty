@@ -2,6 +2,7 @@
 //! Specification: https://sw.kovidgoyal.net/kitty/text-sizing-protocol/
 
 const std = @import("std");
+const parse_int = @import("../../parse_int.zig");
 
 const assert = @import("../../../quirks.zig").inlineAssert;
 
@@ -47,7 +48,7 @@ pub const OSC = struct {
         InvalidValue,
     }!void {
         // All values are numeric, so we can do a small hack here
-        const v = std.fmt.parseInt(
+        const v = parse_int.parse(
             u4,
             value,
             10,
@@ -143,6 +144,16 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
     }
 
     return &parser.command;
+}
+
+test "OSC 66: numeric fields reject digit separators" {
+    var p: Parser = .init(null);
+    for ("66;s=0_2;text") |ch| p.next(ch);
+    const cmd = p.end(null).?.*;
+    try std.testing.expectEqualDeep(
+        OSC{ .text = "text" },
+        cmd.kitty_text_sizing,
+    );
 }
 
 test "OSC 66: empty parameters" {
