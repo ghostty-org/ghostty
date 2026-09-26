@@ -1,13 +1,13 @@
 /**
  * @file mouse.h
  *
- * Mouse encoding module - encode mouse events into terminal escape sequences.
+ * Mouse support module - encode mouse events and provide pointer shapes.
  */
 
 #ifndef GHOSTTY_VT_MOUSE_H
 #define GHOSTTY_VT_MOUSE_H
 
-/** @defgroup mouse Mouse Encoding
+/** @defgroup mouse Mouse Support
  *
  * Utilities for encoding mouse events into terminal escape sequences,
  * supporting X10, UTF-8, SGR, URxvt, and SGR-Pixels mouse protocols.
@@ -61,9 +61,55 @@
  * @{
  */
 
-#include <ghostty/vt/mouse/shape.h>
+#include <ghostty/vt/types.h>
 #include <ghostty/vt/mouse/event.h>
 #include <ghostty/vt/mouse/encoder.h>
+
+/**
+ * Mouse pointer shapes based on the W3C cursor names.
+ *
+ * Hosts map these values to their native pointer shapes; not every platform
+ * supports every shape. These are pointer shapes, not terminal text cursors.
+ *
+ * @ingroup mouse
+ */
+typedef enum GHOSTTY_ENUM_TYPED {
+  GHOSTTY_MOUSE_SHAPE_DEFAULT = 0,
+  GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU = 1,
+  GHOSTTY_MOUSE_SHAPE_HELP = 2,
+  GHOSTTY_MOUSE_SHAPE_POINTER = 3,
+  GHOSTTY_MOUSE_SHAPE_PROGRESS = 4,
+  GHOSTTY_MOUSE_SHAPE_WAIT = 5,
+  GHOSTTY_MOUSE_SHAPE_CELL = 6,
+  GHOSTTY_MOUSE_SHAPE_CROSSHAIR = 7,
+  GHOSTTY_MOUSE_SHAPE_TEXT = 8,
+  GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT = 9,
+  GHOSTTY_MOUSE_SHAPE_ALIAS = 10,
+  GHOSTTY_MOUSE_SHAPE_COPY = 11,
+  GHOSTTY_MOUSE_SHAPE_MOVE = 12,
+  GHOSTTY_MOUSE_SHAPE_NO_DROP = 13,
+  GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED = 14,
+  GHOSTTY_MOUSE_SHAPE_GRAB = 15,
+  GHOSTTY_MOUSE_SHAPE_GRABBING = 16,
+  GHOSTTY_MOUSE_SHAPE_ALL_SCROLL = 17,
+  GHOSTTY_MOUSE_SHAPE_COL_RESIZE = 18,
+  GHOSTTY_MOUSE_SHAPE_ROW_RESIZE = 19,
+  GHOSTTY_MOUSE_SHAPE_N_RESIZE = 20,
+  GHOSTTY_MOUSE_SHAPE_E_RESIZE = 21,
+  GHOSTTY_MOUSE_SHAPE_S_RESIZE = 22,
+  GHOSTTY_MOUSE_SHAPE_W_RESIZE = 23,
+  GHOSTTY_MOUSE_SHAPE_NE_RESIZE = 24,
+  GHOSTTY_MOUSE_SHAPE_NW_RESIZE = 25,
+  GHOSTTY_MOUSE_SHAPE_SE_RESIZE = 26,
+  GHOSTTY_MOUSE_SHAPE_SW_RESIZE = 27,
+  GHOSTTY_MOUSE_SHAPE_EW_RESIZE = 28,
+  GHOSTTY_MOUSE_SHAPE_NS_RESIZE = 29,
+  GHOSTTY_MOUSE_SHAPE_NESW_RESIZE = 30,
+  GHOSTTY_MOUSE_SHAPE_NWSE_RESIZE = 31,
+  GHOSTTY_MOUSE_SHAPE_ZOOM_IN = 32,
+  GHOSTTY_MOUSE_SHAPE_ZOOM_OUT = 33,
+  GHOSTTY_MOUSE_SHAPE_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+} GhosttyMouseShape;
 
 /** @} */
 
