@@ -271,6 +271,7 @@ const type_decls = [_]TypeDecl{
     .initEnum("GhosttyMouseButton", input_mouse.Button, "GHOSTTY_MOUSE_BUTTON_"),
     .initEnum("GhosttyMouseEncoderOption", mouse_encode.Option, "GHOSTTY_MOUSE_ENCODER_OPT_"),
     .initEnum("GhosttyMouseFormat", mouse_pkg.Format, "GHOSTTY_MOUSE_FORMAT_"),
+    .initEnum("GhosttyMouseShape", mouse_pkg.Shape, "GHOSTTY_MOUSE_SHAPE_"),
     .initEnum("GhosttyMouseTrackingMode", mouse_pkg.Event, "GHOSTTY_MOUSE_TRACKING_"),
     .initEnum("GhosttyOptionAsAlt", input_config.OptionAsAlt, "GHOSTTY_OPTION_AS_ALT_"),
     .initEnum("GhosttyOscCommandData", osc.CommandData, "GHOSTTY_OSC_DATA_"),
@@ -1053,6 +1054,14 @@ test "manifest uses public enum names" {
     try std.testing.expectEqual(@as(i64, 26), osc_values.get("KITTY_DESKTOP_NOTIFICATION").?.integer);
     try std.testing.expect(osc_values.contains("TYPE_MAX_VALUE"));
     try std.testing.expect(!osc_values.contains("MAX_VALUE"));
+
+    const mouse_shape_values = manifest_types.get("GhosttyMouseShape").?.object.get("values").?.object;
+    try std.testing.expectEqual(@as(i64, 8), mouse_shape_values.get("TEXT").?.integer);
+    try std.testing.expectEqual(@as(i64, 33), mouse_shape_values.get("ZOOM_OUT").?.integer);
+    try std.testing.expect(mouse_shape_values.contains("MAX_VALUE"));
+
+    const terminal_data_values = manifest_types.get("GhosttyTerminalData").?.object.get("values").?.object;
+    try std.testing.expectEqual(@as(i64, 41), terminal_data_values.get("MOUSE_SHAPE").?.integer);
 
     const key_values = manifest_types.get("GhosttyKey").?.object.get("values").?.object;
     try std.testing.expect(key_values.contains("A"));
