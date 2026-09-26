@@ -104,6 +104,16 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // In all cases, we have to hide the background view since this has multiple subviews
         // that force a background color.
         titlebarBackgroundView?.isHidden = true
+#if compiler(>=6.4)
+        if #available(macOS 27.0, *) {
+            // Add some delay to cover the cases where:
+            // 1. AppKit resets the style after exiting fullscreen
+            // 2. AppKit resets the style after adding a new tab
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50)) { [weak self] in
+                self?.reduceTabBarBackgroundGoldenGate()
+            }
+        }
+#endif
     }
 
     @available(macOS 13.0, *)
@@ -120,6 +130,13 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // Necessary to not draw the border around the title
         titlebarAppearsTransparent = true
     }
+
+#if compiler(>=6.4)
+    @available(macOS 27.0, *)
+    final func reduceTabBarBackgroundGoldenGate() {
+        titlebarContainer?.firstDescendant(withClassName: "NSSubduedGlassEffectView")?.subviews.first?.alphaValue = 0.5
+    }
+#endif
 
     // MARK: View Finders
 
