@@ -2,6 +2,7 @@
 //! Specification: https://sw.kovidgoyal.net/kitty/desktop-notifications/
 
 const std = @import("std");
+const parse_int = @import("../../parse_int.zig");
 
 const assert = @import("../../../quirks.zig").inlineAssert;
 
@@ -207,9 +208,7 @@ pub const Option = enum {
             .t => unreachable,
             .u => .init(value),
             .w => value: {
-                // Zig's integer parser allows '_', we don't
-                if (std.mem.indexOfScalar(u8, value, '_')) |_| break :value key.default();
-                const tmp = std.fmt.parseInt(i32, value, 10) catch break :value key.default();
+                const tmp = parse_int.parse(i32, value, 10) catch break :value key.default();
                 // negative values less than -1 are not allowed
                 if (tmp < -1) break :value key.default();
                 break :value tmp;
@@ -1192,6 +1191,20 @@ test "OSC 99: w 4" {
     var p: Parser = .init(null);
 
     const input = "99;w=4294967296;foobar";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .kitty_desktop_notification);
+    try testing.expectEqualStrings("foobar", cmd.kitty_desktop_notification.payload);
+    try testing.expectEqual(-1, cmd.kitty_desktop_notification.readOption(.w));
+}
+
+test "OSC 99: w 5" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "99;w=4_2;foobar";
     for (input) |ch| p.next(ch);
 
     const cmd = p.end('\x1b').?.*;
