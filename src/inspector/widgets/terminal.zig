@@ -434,7 +434,7 @@ fn mouseTable(t: *Terminal) void {
         }
         {
             _ = cimgui.c.ImGui_TableSetColumnIndex(1);
-            cimgui.c.ImGui_Text("%s", @tagName(t.flags.mouse_event).ptr);
+            cimgui.c.ImGui_Text("%s", @tagName(t.modes.mouse_event).ptr);
         }
     }
 
@@ -448,7 +448,7 @@ fn mouseTable(t: *Terminal) void {
         }
         {
             _ = cimgui.c.ImGui_TableSetColumnIndex(1);
-            cimgui.c.ImGui_Text("%s", @tagName(t.flags.mouse_format).ptr);
+            cimgui.c.ImGui_Text("%s", @tagName(t.modes.mouse_format).ptr);
         }
     }
 

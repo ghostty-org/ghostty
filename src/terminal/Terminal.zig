@@ -113,13 +113,6 @@ flags: packed struct {
     // this to false and we act in mode 1 by default.
     modify_other_keys_2: bool = false,
 
-    /// The mouse event mode and format. These are set to the last
-    /// set mode in modes. You can't get the right event/format to use
-    /// based on modes alone because modes don't show you what order
-    /// this was called so we have to track it separately.
-    mouse_event: mouse.Event = .none,
-    mouse_format: mouse.Format = .x10,
-
     /// Set via the XTSHIFTESCAPE sequence. If true (XTSHIFTESCAPE = 1)
     /// then we want to capture the shift key for the mouse protocol
     /// if the configuration allows it.
