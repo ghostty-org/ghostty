@@ -86,6 +86,7 @@ chronologos
 cmwetherell
 crayxt
 craziestowl
+cristeahub
 curtismoncoq
 -cznorth Automated advertising + likely AI communication
 d-dudas
@@ -114,6 +115,7 @@ douglance
 douglas
 douglas-macgregor
 drepper
+dungdm93
 dzhlobo
 ekaterinepapava
 elias8
@@ -193,6 +195,7 @@ kleshzz
 kloneets
 knu
 -kody-w
+konstantinhudyakov
 koranir
 korikhin
 kostich
@@ -247,6 +250,7 @@ neo773
 neoto
 neurosnap
 nicholas-ochoa
+nicolaair
 nicosuave
 nikicat
 nilsherzig
@@ -270,6 +274,7 @@ peterdavehello
 philocalyst
 phush0
 piedrahitac
+pltrz
 pluiedev
 pouwerkerk
 poweruser64
@@ -282,6 +287,7 @@ puzza007
 qappell
 quinnypig
 qwerasd205
+radicaltray
 ragnoroct
 raphamorim
 reo101
@@ -308,6 +314,7 @@ seruman
 seyoungjeong
 sghng
 shorsher
+shreeve
 silveirapf
 simonbcn
 slowdub
@@ -324,9 +331,11 @@ tdgroot
 tdslot
 thirstycrow
 -thomas-trijindev No human in the loop
+thomasfedb
 thoutbeckers
 ticclick
 tnagatomi
+toppk
 tothedarktowercame
 trag1c
 tristan957
@@ -348,6 +357,7 @@ vlsi
 voidnv
 williamhcarter
 wyounas
+xandris
 yabbal
 yak3d
 yamshta
@@ -357,4 +367,5 @@ zenangst
 zenyr
 zeshi09
 zlitus
+-zorzysty Meatproxying
 zubb

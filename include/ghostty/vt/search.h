@@ -83,7 +83,8 @@ extern "C" {
  * The search and its terminal can be freed in either order. Freeing
  * the search first releases tracked state it holds within the
  * terminal. If the terminal is freed first, the search detects this:
- * calls that need the terminal return GHOSTTY_INVALID_VALUE, reads
+ * calls that need the terminal, and ghostty_search_tick(), return
+ * GHOSTTY_INVALID_VALUE, reads
  * return whatever the search last saw, and ghostty_search_free()
  * releases only search-owned memory. A search cannot be rebound, so
  * searching another terminal means creating a new search.
@@ -355,7 +356,7 @@ GHOSTTY_API void ghostty_search_free(GhosttySearch search);
  * @param search Search handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param[out] out_status Receives the status after the tick (may be NULL)
  * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if
- *         search is NULL
+ *         search is NULL or the terminal was freed
  *
  * @ingroup search
  */

@@ -168,20 +168,12 @@ const Precompute = struct {
     const data = precompute: {
         var result: [std.math.maxInt(u13) + 1]Value = undefined;
 
-        const max_state_int = blk: {
-            var max: usize = 0;
-            for (@typeInfo(uucode.grapheme.BreakState).@"enum".fields) |field| {
-                if (field.value > max) max = field.value;
-            }
-            break :blk max;
-        };
-
-        @setEvalBranchQuota(10_000);
+        @setEvalBranchQuota(20_000);
         const info = @typeInfo(uucode.types.GraphemeBreakNoControl).@"enum";
-        for (0..max_state_int + 1) |state_int| {
+        for (0..uucode.grapheme.BreakState.table_len) |state_int| {
             for (info.fields) |field1| {
                 for (info.fields) |field2| {
-                    var state: uucode.grapheme.BreakState = @enumFromInt(state_int);
+                    var state: uucode.grapheme.BreakState = .fromTableIndex(state_int);
 
                     const key: Key = .{
                         .gb1 = @field(uucode.types.GraphemeBreakNoControl, field1.name),

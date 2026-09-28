@@ -304,6 +304,7 @@ pub const StreamHandler = struct {
             .protected_mode_dec => self.terminal.setProtectedMode(.dec),
             .mouse_shift_capture => self.terminal.flags.mouse_shift_capture = if (value) .true else .false,
             .size_report => self.sendSizeReport(value),
+            .resize_window => self.surfaceMessageWriter(.{ .resize_window = value }),
             .xtversion => try self.reportXtversion(),
             .device_attributes => try self.deviceAttributes(value),
             .device_status => try self.deviceStatusReport(value.request),

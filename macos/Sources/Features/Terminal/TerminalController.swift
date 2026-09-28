@@ -1402,6 +1402,35 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         defaultSize.apply(to: window)
     }
 
+    /// Resize the window so that the given surface is the given size, keeping
+    /// any zero dimension as is. This is only done if the surface is the only
+    /// terminal in the window, since otherwise it would resize other terminals
+    /// (including other tabs, which share the window frame).
+    func resizeWindow(_ surfaceView: Ghostty.SurfaceView, to size: NSSize) -> Bool {
+        guard let window,
+              let screen = window.screen ?? NSScreen.main,
+              case .leaf(let view) = surfaceTree.root, view == surfaceView,
+              !surfaceView.inspectorVisible,
+              (window.tabGroup?.windows.count ?? 1) == 1,
+              !(fullscreenStyle?.isFullscreen ?? false) else { return false }
+
+        // Resize the window by the change in surface size so the titlebar and
+        // any other views are accounted for.
+        let dw = size.width > 0 ? size.width - surfaceView.frame.width : 0
+        let dh = size.height > 0 ? size.height - surfaceView.frame.height : 0
+
+        // Clamp to the screen first so the terminal is only resized once, and
+        // keep the top-left corner in place (the origin is the bottom-left).
+        let visible = screen.visibleFrame
+        var frame = window.frame
+        frame.size.width = min(frame.width + dw, visible.width)
+        frame.size.height = min(frame.height + dh, visible.height)
+        frame.origin.y = window.frame.maxY - frame.height
+        window.setFrame(frame, display: true)
+        window.constrainToScreen()
+        return true
+    }
+
     @IBAction override func closeWindow(_ sender: Any?) {
         guard let window = window else { return }
 

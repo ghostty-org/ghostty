@@ -16,6 +16,7 @@ const Application = @import("application.zig").Application;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
 const TitleDialog = @import("title_dialog.zig").TitleDialog;
+const Overrides = @import("Overrides.zig");
 
 const log = std.log.scoped(.gtk_ghostty_window);
 
@@ -187,14 +188,7 @@ pub const Tab = extern struct {
         }
     }
 
-    pub fn new(config: ?*Config, overrides: struct {
-        command: ?configpkg.Command = null,
-        shell_integration: ?configpkg.Config.ShellIntegration = null,
-        working_directory: ?[:0]const u8 = null,
-        title: ?[:0]const u8 = null,
-
-        pub const none: @This() = .{};
-    }) *Self {
+    pub fn new(config: ?*Config, overrides: Overrides) *Self {
         const tab = gobject.ext.newInstance(Tab, .{});
 
         const priv: *Private = tab.private();

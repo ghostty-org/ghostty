@@ -690,6 +690,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_RESET_WINDOW_SIZE:
                 resetWindowSize(app, target: target)
 
+            case GHOSTTY_ACTION_RESIZE_WINDOW:
+                return resizeWindow(app, target: target, v: action.action.resize_window)
+
             case GHOSTTY_ACTION_CELL_SIZE:
                 setCellSize(app, target: target, v: action.action.cell_size)
 
@@ -2107,6 +2110,30 @@ extension Ghostty {
 
             default:
                 assertionFailure()
+            }
+        }
+
+        private static func resizeWindow(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_resize_window_s) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("resize window does nothing with an app target")
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard let controller = surfaceView.window?.windowController as? TerminalController else { return false }
+                return controller.resizeWindow(
+                    surfaceView,
+                    to: NSSize(width: Double(v.width), height: Double(v.height))
+                )
+
+            default:
+                assertionFailure()
+                return false
             }
         }
 

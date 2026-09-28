@@ -10,6 +10,7 @@ const split_tree = @import("split_tree.zig");
 pub const BlockingQueue = blocking_queue.BlockingQueue;
 pub const CacheTable = cache_table.CacheTable;
 pub const CircBuf = circ_buf.CircBuf;
+pub const ComptimeIntSet = @import("comptime_int_set.zig").ComptimeIntSet;
 pub const IntrusiveDoublyLinkedList = intrusive_linked_list.DoublyLinkedList;
 pub const LimitedAllocator = @import("limited_allocator.zig").LimitedAllocator;
 pub const MessageData = @import("message_data.zig").MessageData;

@@ -256,7 +256,7 @@ if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )
   # errors from inside our hooks, but those are all terminal escape sequences
   # and non-actionable.
   # shellcheck disable=SC2128,SC2178,SC2179
-  if [[ ";${PROMPT_COMMAND[*]:-};" != *";__ghostty_hook 2>/dev/null;"* ]]; then
+  if [[ "${PROMPT_COMMAND[*]:-}" != *"__ghostty_hook 2>/dev/null"* ]]; then
     if [[ -z "${PROMPT_COMMAND[*]}" ]]; then
       if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )); then
         PROMPT_COMMAND=("__ghostty_hook 2>/dev/null")

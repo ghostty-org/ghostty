@@ -127,6 +127,13 @@ flags: packed struct {
     /// represented as visible so callers behave conservatively.
     visible: bool = true,
 
+    /// Whether a resize may pull rows out of scrollback back into the
+    /// active area. This should be false if the pty keeps its own screen
+    /// buffer without scrollback (e.g. Windows ConPTY) so that we stay in
+    /// sync with it. See PageList.Resize for details. This is configuration
+    /// rather than terminal state so it is preserved across a full reset.
+    resize_pull_scrollback: bool = true,
+
     /// True if the terminal is in a password entry mode. This is set
     /// to true based on termios state. This is set
     /// to true based on termios state.
@@ -550,14 +557,9 @@ pub fn printSlice(self: *Terminal, cps: []const u32) !void {
         if (self.modes.get(.insert)) break :fast false;
         if (!self.modes.get(.wraparound)) break :fast false;
 
-        // Charset must map ASCII as-is (true unless a DEC special
-        // charset is actively invoked, which is rare).
+        // Single shifts require per-codepoint charset handling.
         const screen: *Screen = self.screens.active;
         if (screen.charset.single_shift != null) break :fast false;
-        switch (screen.charset.charsets.get(screen.charset.gl)) {
-            .utf8, .ascii => {},
-            else => break :fast false,
-        }
 
         // Hyperlinks require per-cell map bookkeeping.
         if (screen.cursor.hyperlink_id != 0) break :fast false;
@@ -575,7 +577,12 @@ pub fn printSlice(self: *Terminal, cps: []const u32) !void {
     // print() consults the cell left of the margin after wrapping,
     // which we can't reason about here. Restrict the fast path to
     // the [0x10, 0xFF] range in that case (those never cluster).
-    const allow_unicode = !grapheme_cluster or self.scrolling_region.left == 0;
+    const charset = self.screens.active.charset;
+    const allow_unicode = switch (charset.charsets.get(charset.gl)) {
+        .utf8, .ascii => !grapheme_cluster or self.scrolling_region.left == 0,
+        // print() handles Unicode width and clustering before charset mapping.
+        else => false,
+    };
 
     var i: usize = 0;
     while (i < cps.len) {
@@ -749,25 +756,18 @@ inline fn printSliceEligible(cp: u32, comptime width: PrintSliceWidth) bool {
     });
 }
 
-/// Store a run of narrow codepoint cells built from a bit template:
-/// for each `idx` in `[from, to)`, `cells[idx]` is assigned the bits
-/// `template_bits | (cps[idx] << cp_shift)`.
+/// Store narrow cells using a template with zeroed codepoint bits.
+/// If a charset table is provided, all input codepoints must fit in a byte.
 ///
-/// The template is a complete Cell (content tag, style, wide state,
-/// etc. already baked in by the caller) whose codepoint content bits
-/// are zero. Since Cell is a packed struct(u64), OR-ing a codepoint
-/// into the content field's bit position yields a finished cell as a
-/// single integer, keeping the loop pure data movement: no per-cell
-/// field assignments and no branches.
-///
-/// This loop is manually vectorized: Zig 0.16 (LLVM 21) no longer
-/// auto-vectorizes the scalar form the way Zig 0.15 (LLVM 20) did.
+/// The unmapped loop is manually vectorized: Zig 0.16 (LLVM 21) no longer
+/// auto-vectorizes it as Zig 0.15 (LLVM 20) did.
 inline fn printSliceStoreRun(
     cells: [*]Cell,
     cps: [*]const u32,
     from: usize,
     to: usize,
     template_bits: u64,
+    charset_table: ?[]const u16,
 ) void {
     // The bit position of the `content` field within the packed
     // Cell. A codepoint occupies the low bits of `content`, so
@@ -783,6 +783,13 @@ inline fn printSliceStoreRun(
         break :mask ((1 << bits) - 1) << cp_shift;
     };
     assert(template_bits & content_mask == 0);
+
+    if (charset_table) |table| {
+        for (from..to) |idx| {
+            cells[idx] = @bitCast(template_bits | (@as(u64, table[cps[idx]]) << cp_shift));
+        }
+        return;
+    }
 
     var idx = from;
 
@@ -839,6 +846,11 @@ fn printSliceFill(
     allow_unicode: bool,
 ) !usize {
     const screen: *Screen = self.screens.active;
+    const charset_table: ?[]const u16 = switch (screen.charset.charsets.get(screen.charset.gl)) {
+        .utf8, .ascii => null,
+        else => |set| charsets.table(set),
+    };
+    assert(charset_table == null or !allow_unicode);
 
     // Our fast path can only handle "simple" cells. A simple cell is
     // a codepoint cell (no grapheme data or bg-color tag), narrow, and
@@ -1063,6 +1075,7 @@ fn printSliceFill(
                     k,
                     simple,
                     template_bits,
+                    charset_table,
                 );
                 k = simple;
             }
@@ -1121,6 +1134,7 @@ fn printSliceFill(
                     k,
                     m,
                     template_bits,
+                    charset_table,
                 );
                 k = m;
                 continue :fill;
@@ -1154,8 +1168,12 @@ fn printSliceFill(
                 );
                 cells[k + 1] = @bitCast(spacer_bits);
             } else {
+                const cp = if (charset_table) |table|
+                    table[cps[printed + k]]
+                else
+                    cps[printed + k];
                 cells[k] = @bitCast(
-                    template_bits | (@as(u64, cps[printed + k]) << cp_shift),
+                    template_bits | (@as(u64, cp) << cp_shift),
                 );
             }
             k += cells_per_cp;
@@ -1921,6 +1939,7 @@ pub fn cursorLeft(self: *Terminal, count_req: usize) void {
     if (self.screens.active.cursor.pending_wrap) {
         count -= 1;
         self.screens.active.cursor.pending_wrap = false;
+        if (count == 0) return;
     }
 
     // The margins we can move to.
@@ -4089,6 +4108,7 @@ pub fn resize(
         .rows = opts.rows,
         .reflow = self.modes.get(.wraparound),
         .prompt_redraw = self.flags.shell_redraws_prompt,
+        .pull_scrollback = self.flags.resize_pull_scrollback,
     });
 
     // Alternate screen, if it exists, doesn't reflow. The primary resize
@@ -4102,6 +4122,7 @@ pub fn resize(
                 .cols = opts.cols,
                 .rows = opts.rows,
                 .reflow = false,
+                .pull_scrollback = self.flags.resize_pull_scrollback,
             }) catch |err| break :resize err;
 
             // Resize succeeded.
@@ -4920,11 +4941,16 @@ pub fn fullReset(self: *Terminal) void {
 
     // Rest our basic state
     const visible = self.flags.visible;
+    const resize_pull_scrollback = self.flags.resize_pull_scrollback;
     self.modes.reset();
     self.flags = .{
         // Visibility belongs to the view rather than terminal state, so a
         // terminal reset must not make a hidden view potentially visible.
         .visible = visible,
+
+        // This is configuration based on the pty rather than terminal
+        // state, so a terminal reset must not change it.
+        .resize_pull_scrollback = resize_pull_scrollback,
     };
     self.tabstops.reset(TABSTOP_INTERVAL);
     self.previous_char = null;
@@ -10993,6 +11019,38 @@ test "Terminal: cursorLeft reverse wrap with pending wrap state" {
     }
 }
 
+test "Terminal: cursorLeft reverse wrap with pending wrap above top margin" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    t.modes.set(.wraparound, true);
+    t.modes.set(.reverse_wrap, true);
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(1, 2);
+    for ("AB") |c| try t.print(c);
+    t.saveCursor();
+
+    // Restore pending wrap at the left margin, above the top margin.
+    t.setLeftAndRightMargin(2, 5);
+    t.setTopAndBottomMargin(3, 5);
+    t.restoreCursor();
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+
+    t.cursorLeft(1);
+    try testing.expect(!t.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(1, t.screens.active.cursor.x);
+    try testing.expectEqual(0, t.screens.active.cursor.y);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        try testing.expectEqualStrings("AX", str);
+    }
+}
+
 test "Terminal: cursorLeft reverse wrap extended with pending wrap state" {
     const alloc = testing.allocator;
     const io_impl = testing.io;
@@ -14286,6 +14344,101 @@ test "Terminal: printSlice simple ascii" {
     }
 }
 
+test "Terminal: printSlice charset batched fill" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 5, .rows = 2 });
+    defer t.deinit(alloc);
+
+    t.configureCharset(.G1, .dec_special);
+    t.invokeCharset(.GL, .G1, false);
+    t.modes.set(.grapheme_cluster, true);
+
+    // Background-only cells use the general fill path.
+    try t.setAttribute(.{ .@"8_bg" = .red });
+    t.eraseDisplay(.complete, false);
+
+    // Require batching when reusing cells and replacing styles.
+    const cps = [_]u32{ 'l', 'q', 'q', 'q', 'k', 'm', 'q', 'q', 'q', 'j' };
+    for ([_]sgr.Attribute{ .unset, .unset, .bold, .bold, .unset }) |attr| {
+        t.setCursorPos(1, 1);
+        try t.setAttribute(attr);
+        try testing.expectEqual(cps.len, try t.printSliceFast(&cps, true, false));
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        try testing.expectEqualStrings("┌───┐\n└───┘", str);
+        try testing.expectEqual(@as(u21, 'j'), t.previous_char.?);
+        try testing.expect(t.screens.active.cursor.pending_wrap);
+        for (0..2) |y| {
+            for (0..5) |x| {
+                const cell = t.screens.active.pages.getCell(.{ .active = .{
+                    .x = @intCast(x),
+                    .y = @intCast(y),
+                } }).?.cell;
+                try testing.expectEqual(t.screens.active.cursor.style_id, cell.style_id);
+            }
+        }
+        try t.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
+    }
+}
+
+test "Terminal: printSlice charset matches scalar printing" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    for ([_]charsets.Charset{ .dec_special, .british }) |set| {
+        for ([_]bool{ false, true }) |grapheme_cluster| {
+            var scalar = try init(io_impl, alloc, .{ .cols = 17, .rows = 4 });
+            defer scalar.deinit(alloc);
+            var batched = try init(io_impl, alloc, .{ .cols = 17, .rows = 4 });
+            defer batched.deinit(alloc);
+
+            for ([_]*Terminal{ &scalar, &batched }) |t| {
+                t.configureCharset(.G0, set);
+                t.modes.set(.grapheme_cluster, grapheme_cluster);
+            }
+
+            var bytes: [240]u32 = undefined;
+            for (&bytes, 0x10..) |*cp, value| cp.* = @intCast(value);
+            const mixed = [_]u32{ 0x100, 'q', 0x301, 'x', 0x4E00, '#', 0xFE0F, 0x1F600, 'j' };
+            for ([_][]const u32{ &bytes, &mixed }) |cps| {
+                for (cps) |cp| try scalar.print(@intCast(cp));
+                try batched.printSlice(cps);
+
+                const expected = try scalar.screens.active.dumpStringAlloc(alloc, .{ .screen = .{} });
+                defer alloc.free(expected);
+                const actual = try batched.screens.active.dumpStringAlloc(alloc, .{ .screen = .{} });
+                defer alloc.free(actual);
+                try testing.expectEqualStrings(expected, actual);
+                try testing.expectEqual(scalar.screens.active.cursor.x, batched.screens.active.cursor.x);
+                try testing.expectEqual(scalar.screens.active.cursor.y, batched.screens.active.cursor.y);
+                try testing.expectEqual(scalar.screens.active.cursor.pending_wrap, batched.screens.active.cursor.pending_wrap);
+                try testing.expectEqual(scalar.previous_char, batched.previous_char);
+            }
+        }
+    }
+}
+
+test "Terminal: printSlice charset single shift and repeat" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 10, .rows = 2 });
+    defer t.deinit(alloc);
+
+    t.configureCharset(.G0, .dec_special);
+    t.configureCharset(.G2, .british);
+    t.invokeCharset(.GL, .G2, true);
+    try t.printSlice(&.{ '#', 'q' });
+    try testing.expectEqual(null, t.screens.active.charset.single_shift);
+    try t.printRepeat(2);
+
+    // REP uses the original byte with the current charset.
+    t.configureCharset(.G0, .ascii);
+    try t.printRepeat(2);
+    const str = try t.plainString(alloc);
+    defer alloc.free(str);
+    try testing.expectEqualStrings("£───qq", str);
+}
+
 test "Terminal: printSlice wraps and scrolls" {
     const alloc = testing.allocator;
     const io_impl = testing.io;
@@ -14443,10 +14596,7 @@ fn testPrintSliceDifferential(
                 t2.screens.active.endHyperlink();
             },
             20 => {
-                const set: charsets.Charset = if (rand.boolean())
-                    .dec_special
-                else
-                    .utf8;
+                const set = rand.enumValue(charsets.Charset);
                 t1.configureCharset(.G0, set);
                 t2.configureCharset(.G0, set);
             },
@@ -15787,6 +15937,27 @@ test "Terminal: resize with left and right margin set" {
     try t.printRepeat(1850);
     _ = t.modes.restore(.enable_mode_3);
     try t.resize(alloc, .{ .cols = cols, .rows = rows });
+}
+
+test "Terminal: resize without scrollback pull" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 5, .rows = 3 });
+    defer t.deinit(alloc);
+    t.flags.resize_pull_scrollback = false;
+
+    // This is configuration so it should survive a reset.
+    t.fullReset();
+    try testing.expect(!t.flags.resize_pull_scrollback);
+
+    try t.printString("1\n2\n3\n4\n5");
+    try t.resize(alloc, .{ .cols = 5, .rows = 5 });
+    try testing.expectEqual(@as(size.CellCountInt, 2), t.screens.active.cursor.y);
+    {
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        try testing.expectEqualStrings("3\n4\n5", str);
+    }
 }
 
 // https://github.com/mitchellh/ghostty/issues/1343

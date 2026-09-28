@@ -2014,6 +2014,10 @@ pub const Resize = struct {
     /// currently at a prompt. This detects OSC133 prompts lines and clears
     /// them. If set to `.last`, only the most recent prompt line is cleared.
     prompt_redraw: osc.semantic_prompt.Redraw = .false,
+
+    /// Whether the resize may pull rows out of scrollback back into the
+    /// active area. See PageList.Resize for details.
+    pull_scrollback: bool = true,
 };
 
 const resize_tw = tripwire.module(enum {
@@ -2110,6 +2114,7 @@ pub inline fn resize(
             .y = self.cursor.y,
             .pin = self.cursor.page_pin,
         },
+        .pull_scrollback = opts.pull_scrollback,
     });
 
     // No more failures are possible after this. Enforced by compiler
@@ -3275,14 +3280,13 @@ pub fn selectWord(
 
     // If our cell is empty we can't select a word, because we can't select
     // areas where the screen is not yet written.
-    const start_cell = pin.rowAndCell().cell;
-    if (!start_cell.hasText()) return null;
+    const start_codepoint = selectWordCodepoint(pin) orelse return null;
 
     // Determine if we are a boundary or not to determine what our boundary is.
     const expect_boundary = std.mem.indexOfScalar(
         u21,
         boundary_codepoints,
-        start_cell.content.codepoint.data,
+        start_codepoint,
     ) != null;
 
     // Go forwards to find our end boundary
@@ -3290,25 +3294,21 @@ pub fn selectWord(
         var it = pin.cellIterator(.right_down, null);
         var prev = it.next().?; // Consume one, our start
         while (it.next()) |p| {
-            const rac = p.rowAndCell();
-            const cell = rac.cell;
+            // Only cross a row boundary if the previous row wraps.
+            if (prev.x == prev.node.cols() - 1 and !prev.rowAndCell().row.wrap) {
+                break :end prev;
+            }
 
             // If we reached an empty cell its always a boundary
-            if (!cell.hasText()) break :end prev;
+            const codepoint = selectWordCodepoint(p) orelse break :end prev;
 
             // If we do not match our expected set, we hit a boundary
             const this_boundary = std.mem.indexOfScalar(
                 u21,
                 boundary_codepoints,
-                cell.content.codepoint.data,
+                codepoint,
             ) != null;
             if (this_boundary != expect_boundary) break :end prev;
-
-            // If we are going to the next row and it isn't wrapped, we
-            // return the previous.
-            if (p.x == p.node.cols() - 1 and !rac.row.wrap) {
-                break :end p;
-            }
 
             prev = p;
         }
@@ -3322,7 +3322,6 @@ pub fn selectWord(
         var prev = it.next().?; // Consume one, our start
         while (it.next()) |p| {
             const rac = p.rowAndCell();
-            const cell = rac.cell;
 
             // If we are going to the next row and it isn't wrapped, we
             // return the previous.
@@ -3331,13 +3330,13 @@ pub fn selectWord(
             }
 
             // If we reached an empty cell its always a boundary
-            if (!cell.hasText()) break :start prev;
+            const codepoint = selectWordCodepoint(p) orelse break :start prev;
 
             // If we do not match our expected set, we hit a boundary
             const this_boundary = std.mem.indexOfScalar(
                 u21,
                 boundary_codepoints,
-                cell.content.codepoint.data,
+                codepoint,
             ) != null;
             if (this_boundary != expect_boundary) break :start prev;
 
@@ -3348,6 +3347,22 @@ pub fn selectWord(
     };
 
     return .init(start, end, false);
+}
+
+/// Return the codepoint for word selection, following wide-character spacers.
+fn selectWordCodepoint(pin: Pin) ?u21 {
+    const rac = pin.rowAndCell();
+    const cell = switch (rac.cell.wide) {
+        .narrow, .wide => rac.cell,
+        .spacer_tail => pin.left(1).rowAndCell().cell,
+        .spacer_head => cell: {
+            const next_row = pin.down(1) orelse return null;
+            const owner = &next_row.cells(.all)[0];
+            if (owner.wide != .wide) return null;
+            break :cell owner;
+        },
+    };
+    return if (cell.hasText()) cell.content.codepoint.data else null;
 }
 
 /// Select the command output under the given point. The limits of the output
@@ -7169,6 +7184,137 @@ test "Screen: resize (no reflow) more rows with scrollback cursor end" {
     }
 }
 
+test "Screen: resize (no reflow) more rows no scrollback pull" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 7, .rows = 3, .max_scrollback_bytes = 2 });
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL\n4ABCD\n5EFGH";
+    try s.testWriteString(str);
+
+    // Cursor is at the bottom so this would normally pull scrollback.
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+    try s.resize(.{
+        .cols = 7,
+        .rows = 10,
+        .reflow = false,
+        .pull_scrollback = false,
+    });
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("3IJKL\n4ABCD\n5EFGH", contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+}
+
+test "Screen: resize more cols no scrollback pull" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 5, .rows = 3, .max_scrollback_bytes = 2 });
+    defer s.deinit();
+    try s.testWriteString("1AAAA\n2BBBB\n3CCCCDD\n4E");
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("3CCCC\nDD\n4E", contents);
+    }
+
+    // The wrapped line in the active area unwraps, freeing up a row. This
+    // would normally pull "2BBBB" back but we should get a blank row at
+    // the bottom instead.
+    try s.resize(.{ .cols = 10, .rows = 3, .pull_scrollback = false });
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("3CCCCDD\n4E", contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1AAAA\n2BBBB\n3CCCCDD\n4E", contents);
+    }
+}
+
+test "Screen: resize more cols no scrollback pull wrap straddles scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 5, .rows = 3, .max_scrollback_bytes = 2 });
+    defer s.deinit();
+    try s.testWriteString("1AAAA\n2BBBBXX\n3C\n4D");
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("XX\n3C\n4D", contents);
+    }
+
+    // The line isn't fully in scrollback so it is allowed to unwrap
+    // back into view, but nothing above it is.
+    try s.resize(.{ .cols = 10, .rows = 3, .pull_scrollback = false });
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2BBBBXX\n3C\n4D", contents);
+    }
+}
+
+test "Screen: resize more cols and rows no scrollback pull" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 5, .rows = 3, .max_scrollback_bytes = 2 });
+    defer s.deinit();
+    try s.testWriteString("1AAAA\n2BBBB\n3CCCCDD\n4E");
+
+    try s.resize(.{ .cols = 10, .rows = 5, .pull_scrollback = false });
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("3CCCCDD\n4E", contents);
+    }
+}
+
+test "Screen: resize less cols no scrollback pull" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 10, .rows = 3, .max_scrollback_bytes = 2 });
+    defer s.deinit();
+    try s.testWriteString("0Z\n1AAAA\n2BBBBXX\n3C");
+
+    // Wrapping needs more rows than we have so the top of the active
+    // area still scrolls off as usual.
+    try s.resize(.{ .cols = 5, .rows = 3, .pull_scrollback = false });
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2BBBB\nXX\n3C", contents);
+    }
+}
+
 test "Screen: resize (no reflow) less rows with scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -10062,6 +10208,140 @@ test "Screen: selectWord" {
             .x = 2,
             .y = 2,
         } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+}
+
+test "Screen: selectWord at hard line breaks" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    const cases = [_]struct { cols: size.CellCountInt, text: []const u8 }{
+        .{ .cols = 5, .text = "abcde\nfghij" },
+        .{ .cols = 5, .text = "     \n     " },
+        .{ .cols = 1, .text = "a\nb" },
+        .{ .cols = 1, .text = " \n " },
+    };
+    for (cases) |case| {
+        var s = try init(io, alloc, .{
+            .cols = case.cols,
+            .rows = 2,
+            .max_scrollback_bytes = 0,
+        });
+        defer s.deinit();
+        try s.testWriteString(case.text);
+
+        for (0..2) |y| {
+            for (0..case.cols) |x| {
+                var sel = s.selectWord(s.pages.pin(.{ .active = .{
+                    .x = @intCast(x),
+                    .y = @intCast(y),
+                } }).?, &.{ 0, ' ' }).?;
+                defer sel.deinit(&s);
+                try testing.expectEqual(point.Point{ .screen = .{
+                    .x = 0,
+                    .y = @intCast(y),
+                } }, s.pages.pointFromPin(.screen, sel.start()).?);
+                try testing.expectEqual(point.Point{ .screen = .{
+                    .x = case.cols - 1,
+                    .y = @intCast(y),
+                } }, s.pages.pointFromPin(.screen, sel.end()).?);
+            }
+        }
+    }
+}
+
+test "Screen: selectWord across soft-wrap at right edge" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{
+        .cols = 5,
+        .rows = 3,
+        .max_scrollback_bytes = 0,
+    });
+    defer s.deinit();
+    try s.testWriteString("abcdefghij\nklmno");
+
+    for (0..2) |y| {
+        for (0..5) |x| {
+            var sel = s.selectWord(s.pages.pin(.{ .active = .{
+                .x = @intCast(x),
+                .y = @intCast(y),
+            } }).?, &.{ 0, ' ' }).?;
+            defer sel.deinit(&s);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = 0,
+                .y = 0,
+            } }, s.pages.pointFromPin(.screen, sel.start()).?);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = 4,
+                .y = 1,
+            } }, s.pages.pointFromPin(.screen, sel.end()).?);
+        }
+    }
+}
+
+test "Screen: selectWord wide characters" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    const cases = [_]struct {
+        text: []const u8,
+        cols: size.CellCountInt = 10,
+        boundary_codepoints: []const u21 = &.{ 0, ' ' },
+        start: usize = 0,
+        end: usize,
+        expected: []const u8,
+    }{
+        .{ .text = "日本語", .end = 5, .expected = "日本語" },
+        .{ .text = "日本語", .end = 5, .expected = "日本語", .boundary_codepoints = &.{' '} },
+        .{ .text = "a日b語c", .end = 6, .expected = "a日b語c" },
+        .{ .text = " 日本語 ", .start = 1, .end = 6, .expected = "日本語" },
+        .{ .text = "日本語", .cols = 4, .end = 5, .expected = "日本語" },
+        .{ .text = "日本語", .cols = 5, .end = 6, .expected = "日本語" },
+        .{ .text = "日本\n語文", .cols = 4, .end = 3, .expected = "日本" },
+        .{ .text = "日本\n語文", .cols = 4, .start = 4, .end = 7, .expected = "語文" },
+        .{ .text = "a語b", .boundary_codepoints = &.{ 0, '語' }, .end = 0, .expected = "a" },
+        .{ .text = "a語b", .boundary_codepoints = &.{ 0, '語' }, .start = 1, .end = 2, .expected = "語" },
+        .{ .text = "a語b", .boundary_codepoints = &.{ 0, '語' }, .start = 3, .end = 3, .expected = "b" },
+        .{ .text = "abcd語ef", .cols = 5, .boundary_codepoints = &.{ 0, '語' }, .end = 3, .expected = "abcd" },
+        .{ .text = "abcd語ef", .cols = 5, .boundary_codepoints = &.{ 0, '語' }, .start = 4, .end = 6, .expected = "語" },
+        .{ .text = "abcd語ef", .cols = 5, .boundary_codepoints = &.{ 0, '語' }, .start = 7, .end = 8, .expected = "ef" },
+    };
+
+    for (cases) |case| {
+        var s = try init(io, alloc, .{
+            .cols = case.cols,
+            .rows = 4,
+            .max_scrollback_bytes = 0,
+        });
+        defer s.deinit();
+        try s.testWriteString(case.text);
+
+        // Selecting any cell in the word should select the whole word.
+        for (case.start..case.end + 1) |offset| {
+            const pin = s.pages.pin(.{ .active = .{
+                .x = @intCast(offset % case.cols),
+                .y = @intCast(offset / case.cols),
+            } }).?;
+            var sel = s.selectWord(pin, case.boundary_codepoints).?;
+            defer sel.deinit(&s);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = @intCast(case.start % case.cols),
+                .y = @intCast(case.start / case.cols),
+            } }, s.pages.pointFromPin(.screen, sel.start()).?);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = @intCast(case.end % case.cols),
+                .y = @intCast(case.end / case.cols),
+            } }, s.pages.pointFromPin(.screen, sel.end()).?);
+
+            const contents = try s.selectionString(alloc, .{ .sel = sel });
+            defer alloc.free(contents);
+            try testing.expectEqualStrings(case.expected, contents);
+        }
     }
 }
 

@@ -49,7 +49,11 @@ egl_context: *gl.egl.Context,
 pub fn init(alloc: Allocator, opts: rendererpkg.Options) !OpenGL {
     try egl.load();
 
-    const display: *egl.Display = try .init(egl.c.EGL_DEFAULT_DISPLAY);
+    const display: *egl.Display = try .initPlatform(
+        egl.c.EGL_PLATFORM_SURFACELESS_MESA,
+        egl.c.EGL_DEFAULT_DISPLAY,
+        null,
+    );
 
     log.info("EGL vendor={s}", .{display.queryString(.vendor) orelse "(unknown)"});
     log.info("EGL extensions={s}", .{display.queryString(.extensions) orelse "(unknown)"});
@@ -59,12 +63,16 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !OpenGL {
     // Choose a config. We need a config that is renderable with
     // OpenGL and a RGBA8 color buffer.
     const config = egl.Config.choose(display, &.{
+        // EGL_SURFACE_TYPE defaults to EGL_WINDOW_BIT even though
+        // we are rendering exclusively through surfaceless mode.
+        // This is no problem on Mesa but we need to specify this
+        // explicitly for proprietary Nvidia drivers.
+        egl.c.EGL_SURFACE_TYPE,    0,
         egl.c.EGL_RENDERABLE_TYPE, egl.c.EGL_OPENGL_BIT,
         egl.c.EGL_RED_SIZE,        8,
         egl.c.EGL_GREEN_SIZE,      8,
         egl.c.EGL_BLUE_SIZE,       8,
         egl.c.EGL_ALPHA_SIZE,      8,
-        egl.c.EGL_NONE,
     }) catch |err| {
         log.warn("failed to choose config err={}", .{err});
         return err;
@@ -75,7 +83,6 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !OpenGL {
         egl.c.EGL_CONTEXT_MAJOR_VERSION,       MIN_VERSION_MAJOR,
         egl.c.EGL_CONTEXT_MINOR_VERSION,       MIN_VERSION_MINOR,
         egl.c.EGL_CONTEXT_OPENGL_PROFILE_MASK, egl.c.EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
-        egl.c.EGL_NONE,
     }) catch |err| {
         log.warn("failed to create EGL context err={}", .{err});
         return err;
@@ -288,18 +295,27 @@ pub fn initTarget(self: *const OpenGL, width: usize, height: usize) !Target {
 /// of the frame and is responsible for freeing it.
 ///
 /// This runs on the render thread.
-pub fn present(self: *OpenGL, target: Target) !ExportedFrame {
-    if (target.exportDmabuf(self.egl_display, self.egl_context)) |dmabuf| {
-        return .{ .dmabuf = dmabuf };
-    } else |_| {
-        // If DMABUFs fail, then use CPU buffers
-        return .{ .memory = .{
-            .width = @intCast(target.width),
-            .height = @intCast(target.height),
-            .pixels = try target.readPixelsAlloc(self.alloc),
-            .alloc = self.alloc,
-        } };
+pub fn present(
+    self: *OpenGL,
+    target: Target,
+    presentation_health: rendererpkg.Health,
+) !ExportedFrame {
+    // We only export DMABUFs when the apprt can present them.
+    // Otherwise, use CPU buffers.
+    if (presentation_health == .healthy) {
+        if (target.exportDmabuf(self.egl_display, self.egl_context)) |dmabuf| {
+            return .{ .dmabuf = dmabuf };
+        } else |_| {
+            log.warn("failed to export DMABUF, falling back to CPU presentation", .{});
+        }
     }
+
+    return .{ .memory = .{
+        .width = @intCast(target.width),
+        .height = @intCast(target.height),
+        .pixels = try target.readPixelsAlloc(self.alloc),
+        .alloc = self.alloc,
+    } };
 }
 
 /// A finished frame exported for presentation by the apprt.

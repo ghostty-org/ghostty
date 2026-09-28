@@ -51,6 +51,12 @@ const Renderer = rendererpkg.Renderer;
 pub const min_window_width_cells: u32 = 10;
 pub const min_window_height_cells: u32 = 4;
 
+/// Minimum size in cells that the running program can resize the window
+/// to (CSI 8 t). This is larger than the minimum window size so that a
+/// program can't shrink the window to hide its output.
+const min_resize_width_cells: u32 = 40;
+const min_resize_height_cells: u32 = 10;
+
 /// The maximum number of key tables that can be active at any
 /// given time. `activate_key_table` calls after this are ignored.
 const max_active_key_tables = 8;
@@ -345,6 +351,7 @@ const DerivedConfig = struct {
     window_width: u32,
     title: ?[:0]const u8,
     title_report: bool,
+    vt_window_resize_allowed: bool,
     links: []DerivedConfig.Link,
     link_osc8: bool,
     link_previews: configpkg.LinkPreviews,
@@ -426,6 +433,7 @@ const DerivedConfig = struct {
             .window_width = config.@"window-width",
             .title = config.title,
             .title_report = config.@"title-report",
+            .vt_window_resize_allowed = config.@"vt-window-resize-allowed",
             .links = links,
             .link_osc8 = config.@"link-osc8",
             .link_previews = config.@"link-previews",
@@ -523,8 +531,8 @@ pub fn init(
     // The font size we desire along with the DPI determined for the surface
     const font_size: font.face.DesiredSize = .{
         .points = config.@"font-size",
-        .xdpi = @intFromFloat(x_dpi),
-        .ydpi = @intFromFloat(y_dpi),
+        .xdpi = @intFromFloat(@round(x_dpi)),
+        .ydpi = @intFromFloat(@round(y_dpi)),
     };
 
     // Setup our font group. This will reuse an existing font group if
@@ -925,6 +933,19 @@ pub fn activateInspector(self: *Surface) !void {
     self.queueIo(.{ .inspector = true }, .unlocked);
 }
 
+/// Report to the renderer how well the apprt can present the frames
+/// the renderer exports. See `renderer.Health` and the renderer's
+/// `presentation_health` state for the semantics.
+pub fn reportPresentationHealth(self: *Surface, health: rendererpkg.Health) void {
+    _ = self.renderer_thread.mailbox.push(
+        global.io(),
+        .{ .presentation_health = health },
+        .forever,
+    );
+    self.renderer_thread.wakeup.notify() catch |err|
+        log.warn("failed to wake up renderer err={}", .{err});
+}
+
 /// Deactivate the inspector and stop collecting any information.
 pub fn deactivateInspector(self: *Surface) void {
     const insp = self.inspector orelse return;
@@ -1018,6 +1039,8 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 },
             }, .unlocked);
         },
+
+        .resize_window => |size| try self.resizeWindow(size),
 
         .color_change => |change| color_change: {
             // Notify our apprt, but don't send a mode 2031 DSR report
@@ -1905,6 +1928,41 @@ fn recomputeInitialSize(
         .initial_size,
         .{ .width = final_width, .height = final_height },
     ) catch return error.AppActionFailed;
+}
+
+/// Handle a request from the running program (CSI 8 t) to resize the
+/// window to the given grid size.
+fn resizeWindow(
+    self: *Surface,
+    size: terminal.StreamAction.ResizeWindow,
+) !void {
+    if (!self.config.vt_window_resize_allowed) {
+        log.info("resize_window requested, but disabled via config", .{});
+        return;
+    }
+
+    // Our cell size and padding are in pixels but the apprt expects
+    // points. We use the configured padding rather than the current
+    // padding since balanced padding depends on the size.
+    const scale = try self.rt_surface.getContentScale();
+    const padding = self.config.scaledPadding(
+        scale.x * font.face.default_dpi,
+        scale.y * font.face.default_dpi,
+    );
+    const width: f32 = @floatFromInt(@max(size.columns, min_resize_width_cells) *
+        self.size.cell.width + padding.left + padding.right);
+    const height: f32 = @floatFromInt(@max(size.rows, min_resize_height_cells) *
+        self.size.cell.height + padding.top + padding.bottom);
+
+    // A zero dimension is passed through so the apprt keeps it as is.
+    _ = try self.rt_app.performAction(
+        .{ .surface = self },
+        .resize_window,
+        .{
+            .width = if (size.columns > 0) @intFromFloat(@ceil(width / scale.x)) else 0,
+            .height = if (size.rows > 0) @intFromFloat(@ceil(height / scale.y)) else 0,
+        },
+    );
 }
 
 /// Represents text read from the terminal and some metadata about it
@@ -3772,8 +3830,8 @@ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !
     // Update our font size which is dependent on the DPI
     const size = size: {
         var size = self.font_size;
-        size.xdpi = @intFromFloat(x_dpi);
-        size.ydpi = @intFromFloat(y_dpi);
+        size.xdpi = @intFromFloat(@round(x_dpi));
+        size.ydpi = @intFromFloat(@round(y_dpi));
         break :size size;
     };
 

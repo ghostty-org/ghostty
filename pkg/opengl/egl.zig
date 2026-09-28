@@ -72,8 +72,12 @@ pub fn bindApi(api: c.EGLenum) Error!void {
 }
 
 pub const Display = opaque {
-    pub fn init(id: c.EGLNativeDisplayType) Error!*Display {
-        const display = c.eglGetDisplay(id) orelse return mustError();
+    pub fn initPlatform(
+        platform: c.EGLenum,
+        id: c.EGLNativeDisplayType,
+        attribs: ?[*:c.EGL_NONE]const c.EGLAttrib,
+    ) Error!*Display {
+        const display = c.eglGetPlatformDisplay(platform, id, attribs) orelse return mustError();
         return initialize(display);
     }
 

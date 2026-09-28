@@ -15,6 +15,7 @@ const apc = @import("../apc.zig");
 const kitty = @import("../kitty/key.zig");
 const kitty_gfx_c = @import("kitty_graphics.zig");
 const modes = @import("../modes.zig");
+const mouse = @import("../mouse.zig");
 const point = @import("../point.zig");
 const size = @import("../size.zig");
 const device_attributes = @import("../device_attributes.zig");
@@ -257,6 +258,7 @@ const Effects = struct {
     clipboard_write: ?ClipboardWriteFn = null,
     clipboard_read: ?ClipboardReadFn = null,
     unknown_sequence: ?UnknownSequenceFn = null,
+    render_hold: ?RenderHoldFn = null,
 
     /// Scratch buffer for DA1 feature codes. The device attributes
     /// trampoline converts C feature codes into this buffer and returns
@@ -303,6 +305,9 @@ const Effects = struct {
 
     /// C function pointer type for the title_changed callback.
     pub const TitleChangedFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the render_hold callback.
+    pub const RenderHoldFn = *const fn (Terminal, ?*anyopaque, bool) callconv(lib.calling_conv) void;
 
     /// C function pointer type for the pwd_changed callback.
     pub const PwdChangedFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
@@ -588,6 +593,12 @@ const Effects = struct {
         func(@ptrCast(wrapper), wrapper.effects.userdata);
     }
 
+    fn renderHoldTrampoline(handler: *Handler, held: bool) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.render_hold orelse return;
+        func(@ptrCast(wrapper), wrapper.effects.userdata, held);
+    }
+
     fn pwdChangedTrampoline(handler: *Handler) void {
         const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.pwd_changed orelse return;
@@ -674,6 +685,7 @@ fn wrap(
         .pwd_changed = &Effects.pwdChangedTrampoline,
         .progress_report = &Effects.progressReportTrampoline,
         .size = &Effects.sizeTrampoline,
+        .render_hold = &Effects.renderHoldTrampoline,
 
         // Installed dynamically when the callback is set; see Effects.
         .clipboard_write = null,
@@ -1174,6 +1186,8 @@ pub const Option = enum(c_int) {
     terminfo_name = 37,
     clipboard_read = 38,
     clipboard_write_max_bytes = 39,
+    resize_pull_scrollback = 40,
+    render_hold = 41,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -1193,6 +1207,7 @@ pub const Option = enum(c_int) {
             .clipboard_write => ?Effects.ClipboardWriteFn,
             .clipboard_read => ?Effects.ClipboardReadFn,
             .unknown_sequence => ?Effects.UnknownSequenceFn,
+            .render_hold => ?Effects.RenderHoldFn,
             .title, .pwd, .terminfo_name => ?*const lib.String,
             .color_foreground, .color_background, .color_cursor => ?*const color.RGB.C,
             .color_palette => ?*const color.PaletteC,
@@ -1201,6 +1216,7 @@ pub const Option = enum(c_int) {
             .kitty_image_medium_shared_mem,
             .glyph_protocol,
             .title_report,
+            .resize_pull_scrollback,
             => ?*const bool,
             .kitty_image_medium_temp_file => ?*const lib.String,
             .apc_max_bytes,
@@ -1260,6 +1276,7 @@ fn setTyped(
         .pwd_changed => wrapper.effects.pwd_changed = value,
         .progress_report => wrapper.effects.progress_report = value,
         .size_cb => wrapper.effects.size_cb = value,
+        .render_hold => wrapper.effects.render_hold = value,
         .clipboard_write => {
             wrapper.effects.clipboard_write = value;
             wrapper.stream.handler.effects.clipboard_write = if (value != null)
@@ -1422,6 +1439,8 @@ fn setTyped(
             if (value) |ptr| ptr.* else 0,
         .clipboard_write_max_bytes => wrapper.stream.handler.kitty_clipboard_write_max_bytes =
             if (value) |ptr| ptr.* else kitty_clipboard.max_write_size,
+        .resize_pull_scrollback => wrapper.terminal.flags.resize_pull_scrollback =
+            if (value) |ptr| ptr.* else true,
         .mode, .mode_default => {
             const config = (value orelse return .invalid_value).*;
             const mode = config.toMode() orelse return .invalid_value;
@@ -1500,8 +1519,13 @@ pub fn resize(
 }
 
 pub fn reset(terminal_: Terminal) callconv(lib.calling_conv) void {
-    const t: *ZigTerminal = (terminal_ orelse return).terminal;
+    const wrapper = terminal_ orelse return;
+    const t: *ZigTerminal = wrapper.terminal;
+
+    // A reset always turns off synchronized output, ending its hold.
+    const sync = t.modes.get(.synchronized_output);
     t.fullReset();
+    if (sync) Effects.renderHoldTrampoline(&wrapper.stream.handler, false);
 }
 
 /// C: GhosttyKittyGraphics
@@ -1556,6 +1580,7 @@ pub const TerminalData = enum(c_int) {
     vt_ground = 38,
     cursor_at_prompt = 39,
     clipboard_write_max_bytes = 40,
+    mouse_shape = 41,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: TerminalData) type {
@@ -1570,6 +1595,7 @@ pub const TerminalData = enum(c_int) {
             .vt_ground,
             .cursor_at_prompt,
             => bool,
+            .mouse_shape => mouse.Shape,
             .active_screen => TerminalScreen,
             .kitty_keyboard_flags => u8,
             .scrollbar => TerminalScrollbar,
@@ -1671,6 +1697,7 @@ fn getTyped(
             t.modes.get(.mouse_event_normal) or
             t.modes.get(.mouse_event_button) or
             t.modes.get(.mouse_event_any),
+        .mouse_shape => out.* = t.mouse_shape,
         .title => {
             const title = t.getTitle() orelse "";
             out.* = .{ .ptr = title.ptr, .len = title.len };
@@ -3367,6 +3394,26 @@ test "set default cursor style and blink" {
     try testing.expect(t.?.terminal.modes.get(.cursor_blinking));
 }
 
+test "set resize pull scrollback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+    try testing.expect(t.?.terminal.flags.resize_pull_scrollback);
+
+    const disabled = false;
+    try testing.expectEqual(Result.success, set(t, .resize_pull_scrollback, &disabled));
+    try testing.expect(!t.?.terminal.flags.resize_pull_scrollback);
+
+    // NULL restores the default.
+    try testing.expectEqual(Result.success, set(t, .resize_pull_scrollback, null));
+    try testing.expect(t.?.terminal.flags.resize_pull_scrollback);
+}
+
 test "set and get selection" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
@@ -4320,6 +4367,65 @@ test "set title_changed callback" {
     // Another title change
     vt_write(t, "\x1B]2;World\x1B\\", 10);
     try testing.expectEqual(@as(usize, 2), S.title_count);
+}
+
+test "set render_hold callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var events: [8]bool = undefined;
+        var len: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+
+        fn hold(_: Terminal, ud: ?*anyopaque, held: bool) callconv(lib.calling_conv) void {
+            events[len] = held;
+            len += 1;
+            last_userdata = ud;
+        }
+    };
+    S.len = 0;
+    S.last_userdata = null;
+
+    var sentinel: u8 = 0;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(t, .render_hold, @ptrCast(&S.hold)));
+
+    // A set during a hold and a reset without a hold are ignored.
+    const frame = "\x1b[?2026h\x1b[?2026hA\x1b[?2026l\x1b[?2026l";
+    vt_write(t, frame, frame.len);
+    try testing.expectEqualSlices(bool, &.{ true, false }, S.events[0..S.len]);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+
+    // Resize and reset turn the mode off and end the hold.
+    const begin = "\x1b[?2026h";
+    S.len = 0;
+    vt_write(t, begin, begin.len);
+    try testing.expectEqual(Result.success, resize(t, 80, 24, 9, 18));
+    vt_write(t, begin, begin.len);
+    reset(t);
+    reset(t);
+    try testing.expectEqualSlices(bool, &.{ true, false, true, false }, S.events[0..S.len]);
+
+    // Changing the mode ourselves (e.g. for a timeout) isn't reported.
+    S.len = 0;
+    vt_write(t, begin, begin.len);
+    const off: ModeConfig = .{ .mode = 2026, .value = false };
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&off)));
+    try testing.expect(!t.?.terminal.modes.get(.synchronized_output));
+    try testing.expectEqualSlices(bool, &.{true}, S.events[0..S.len]);
+
+    // Clearing the callback silences it.
+    S.len = 0;
+    try testing.expectEqual(Result.success, set(t, .render_hold, null));
+    vt_write(t, frame, frame.len);
+    try testing.expectEqual(0, S.len);
 }
 
 test "title_changed without callback is silent" {
@@ -6239,4 +6345,39 @@ test "get_multi null keys returns invalid_value" {
     var cols: u16 = 0;
     var values = [_]?*anyopaque{@ptrCast(&cols)};
     try testing.expectEqual(Result.invalid_value, get_multi(null, 1, null, &values, null));
+}
+
+test "get mouse_shape" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(&lib.alloc.test_allocator, &t, 80, 24));
+    defer free(t);
+
+    var shape: mouse.Shape = undefined;
+    try testing.expectEqual(Result.success, get(t, .mouse_shape, @ptrCast(&shape)));
+    try testing.expectEqual(mouse.Shape.text, shape);
+
+    const cases = .{
+        .{ "\x1b]22;pointer\x07", mouse.Shape.pointer },
+        .{ "\x1b]22;crosshair\x1b\\", mouse.Shape.crosshair },
+        // Invalid names leave the last accepted shape unchanged.
+        .{ "\x1b]22;not-a-pointer-shape\x07", mouse.Shape.crosshair },
+        // Hyperlinks don't override the application's requested shape.
+        .{ "\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\", mouse.Shape.crosshair },
+        .{ "\x1b]22;default\x07", mouse.Shape.default },
+        .{ "\x1b]22;text\x07", mouse.Shape.text },
+    };
+    inline for (cases) |case| {
+        vt_write(t, case[0], case[0].len);
+        try testing.expectEqual(Result.success, get(t, .mouse_shape, @ptrCast(&shape)));
+        try testing.expectEqual(case[1], shape);
+    }
+
+    // An incomplete OSC must not update the shape before its terminator.
+    const prefix = "\x1b]22;wait";
+    vt_write(t, prefix, prefix.len);
+    try testing.expectEqual(Result.success, get(t, .mouse_shape, @ptrCast(&shape)));
+    try testing.expectEqual(mouse.Shape.text, shape);
+    vt_write(t, "\x07", 1);
+    try testing.expectEqual(Result.success, get(t, .mouse_shape, @ptrCast(&shape)));
+    try testing.expectEqual(mouse.Shape.wait, shape);
 }
