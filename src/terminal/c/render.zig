@@ -77,6 +77,10 @@ const RowIteratorWrapper = struct {
     /// The color palette from the render state, needed to resolve
     /// palette-indexed background colors on cells.
     palette: *const colorpkg.Palette,
+
+    /// Scratch storage for the borrowed styles view returned by
+    /// `GHOSTTY_RENDER_STATE_ROW_DATA_STYLES_RAW`. Owned by the iterator.
+    styles_scratch: std.ArrayListUnmanaged(style_c.Style) = .empty,
 };
 
 const RowCellsWrapper = struct {
@@ -405,6 +409,7 @@ fn getTyped(
                 .state_dirty = &state.state.dirty,
                 .palette = &state.state.colors.palette,
                 .viewport_y_base = -@as(i32, state.state.overscan.above),
+                .styles_scratch = it.styles_scratch,
             };
         },
         .color_background => out.* = state.state.colors.background.cval(),
@@ -636,6 +641,8 @@ pub fn row_iterator_new(
         .state_dirty = undefined,
         .palette = undefined,
         .viewport_y_base = undefined,
+        // Owned scratch; the remaining fields are borrowed pointers.
+        .styles_scratch = .empty,
     };
     result.* = ptr;
     return .success;
@@ -644,6 +651,7 @@ pub fn row_iterator_new(
 pub fn row_iterator_free(iterator_: RowIterator) callconv(lib.calling_conv) void {
     const iterator = iterator_ orelse return;
     const alloc = iterator.alloc;
+    iterator.styles_scratch.deinit(alloc);
     alloc.destroy(iterator);
 }
 
@@ -967,6 +975,7 @@ pub const RowData = enum(c_int) {
     cells_raw = 5,
     viewport_y = 6,
     id = 7,
+    styles_raw = 8,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: RowData) type {
@@ -979,6 +988,7 @@ pub const RowData = enum(c_int) {
             .cells_raw => cell_c.CellsView,
             .viewport_y => i32,
             .id => RowId,
+            .styles_raw => style_c.StylesView,
         };
     }
 };
@@ -1104,8 +1114,39 @@ fn rowGetTyped(
         },
         .viewport_y => out.* = it.viewport_y_base + @as(i32, @intCast(y)),
         .id => out.* = .init(.{ .serial = it.serials[y], .y = it.pins[y].y }),
+        .styles_raw => return setStylesRaw(it, y, out),
     }
 
+    return .success;
+}
+
+/// Materialize a row's resolved styles into the iterator's reusable scratch.
+fn setStylesRaw(
+    it: *RowIteratorWrapper,
+    y: usize,
+    out: *style_c.StylesView,
+) Result {
+    const cell_data = it.cells[y].slice();
+    const styles = cell_data.items(.style);
+    const raws = cell_data.items(.raw);
+
+    const buf = &it.styles_scratch;
+    buf.clearRetainingCapacity();
+    buf.ensureTotalCapacity(it.alloc, styles.len) catch return .out_of_memory;
+
+    for (styles, raws) |s, raw| {
+        const dst = buf.addOneAssumeCapacity();
+        if (raw.hasStyling()) {
+            style_c.Style.write(s, dst);
+        } else {
+            dst.* = style_c.Style.default;
+        }
+    }
+
+    out.* = .{
+        .ptr = if (buf.items.len == 0) null else buf.items.ptr,
+        .len = buf.items.len,
+    };
     return .success;
 }
 
@@ -1679,6 +1720,160 @@ test "render: row get cells_raw" {
     const second: page.Cell = @bitCast(ptr[1]);
     try testing.expectEqual(@as(u21, 'A'), first.codepoint());
     try testing.expectEqual(@as(u21, 'B'), second.codepoint());
+}
+
+test "render: row get styles_raw" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        10,
+        3,
+    ));
+    defer terminal_c.free(terminal);
+
+    // Bold "AB" with palette fg, 256-color bg, RGB underline color, and an
+    // underline; then default "CD", so both styled and unstyled cells are
+    // exercised.
+    const input = "\x1b[1;31;48;5;9;58;2;40;50;60;4mAB\x1b[0mCD";
+    terminal_c.vt_write(terminal, input, input.len);
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var it: RowIterator = null;
+    try testing.expectEqual(Result.success, row_iterator_new(
+        &lib.alloc.test_allocator,
+        &it,
+    ));
+    defer row_iterator_free(it);
+
+    try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&it)));
+
+    // Not positioned on a row yet
+    var view: style_c.StylesView = undefined;
+    try testing.expectEqual(Result.invalid_value, row_get(it, .styles_raw, @ptrCast(&view)));
+
+    try testing.expect(row_iterator_next(it));
+    try testing.expectEqual(Result.success, row_get(it, .styles_raw, @ptrCast(&view)));
+    try testing.expectEqual(@as(usize, 10), view.len);
+
+    // The bulk view must equal the per-cell style reads exactly
+    var cells: RowCells = null;
+    try testing.expectEqual(Result.success, row_cells_new(
+        &lib.alloc.test_allocator,
+        &cells,
+    ));
+    defer row_cells_free(cells);
+    try testing.expectEqual(Result.success, row_get(it, .cells, @ptrCast(&cells)));
+
+    const ptr = view.ptr.?;
+    var x: u16 = 0;
+    while (x < view.len) : (x += 1) {
+        var one: style_c.Style = undefined;
+        try testing.expectEqual(Result.success, row_cells_select(cells, x));
+        try testing.expectEqual(Result.success, row_cells_get(cells, .style, @ptrCast(&one)));
+        try testing.expectEqual(one.size, ptr[x].size);
+        try testing.expectEqual(one.fg_color.tag, ptr[x].fg_color.tag);
+        try testing.expectEqual(one.fg_color.value._padding, ptr[x].fg_color.value._padding);
+        try testing.expectEqual(one.bg_color.tag, ptr[x].bg_color.tag);
+        try testing.expectEqual(one.bg_color.value._padding, ptr[x].bg_color.value._padding);
+        try testing.expectEqual(one.underline_color.tag, ptr[x].underline_color.tag);
+        try testing.expectEqual(
+            one.underline_color.value._padding,
+            ptr[x].underline_color.value._padding,
+        );
+        try testing.expectEqual(one.bold, ptr[x].bold);
+        try testing.expectEqual(one.italic, ptr[x].italic);
+        try testing.expectEqual(one.faint, ptr[x].faint);
+        try testing.expectEqual(one.blink, ptr[x].blink);
+        try testing.expectEqual(one.inverse, ptr[x].inverse);
+        try testing.expectEqual(one.invisible, ptr[x].invisible);
+        try testing.expectEqual(one.strikethrough, ptr[x].strikethrough);
+        try testing.expectEqual(one.overline, ptr[x].overline);
+        try testing.expectEqual(one.underline, ptr[x].underline);
+    }
+
+    // Sanity: the styled cells carry the expected attributes; plain cells
+    // are default.
+    try testing.expect(ptr[0].bold);
+    try testing.expect(ptr[0].underline != 0);
+    try testing.expectEqual(style_c.ColorTag.palette, ptr[0].fg_color.tag);
+    try testing.expectEqual(@as(u8, 1), ptr[0].fg_color.value.palette);
+    try testing.expectEqual(style_c.ColorTag.palette, ptr[0].bg_color.tag);
+    try testing.expectEqual(@as(u8, 9), ptr[0].bg_color.value.palette);
+    try testing.expectEqual(style_c.ColorTag.rgb, ptr[0].underline_color.tag);
+    try testing.expectEqual(@as(u8, 40), ptr[0].underline_color.value.rgb.r);
+    try testing.expectEqual(@as(u8, 50), ptr[0].underline_color.value.rgb.g);
+    try testing.expectEqual(@as(u8, 60), ptr[0].underline_color.value.rgb.b);
+    try testing.expect(!ptr[2].bold);
+    try testing.expectEqual(style_c.ColorTag.none, ptr[2].fg_color.tag);
+
+    // A re-get (the per-frame loop) must preserve the scratch and values.
+    try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&it)));
+    try testing.expect(row_iterator_next(it));
+    var view2: style_c.StylesView = undefined;
+    try testing.expectEqual(Result.success, row_get(it, .styles_raw, @ptrCast(&view2)));
+    try testing.expectEqual(@as(usize, 10), view2.len);
+    try testing.expect(view2.ptr.?[0].bold);
+    try testing.expectEqual(style_c.ColorTag.palette, view2.ptr.?[0].fg_color.tag);
+    try testing.expectEqual(@as(u8, 1), view2.ptr.?[0].fg_color.value.palette);
+    try testing.expect(!view2.ptr.?[2].bold);
+    try testing.expectEqual(style_c.ColorTag.none, view2.ptr.?[2].fg_color.tag);
+}
+
+test "render: row get styles_raw default rows" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        10,
+        3,
+    ));
+    defer terminal_c.free(terminal);
+
+    // Row 0 is styled; rows 1 and 2 are entirely default.
+    terminal_c.vt_write(terminal, "\x1b[1;31mAB", 8);
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var it: RowIterator = null;
+    try testing.expectEqual(Result.success, row_iterator_new(
+        &lib.alloc.test_allocator,
+        &it,
+    ));
+    defer row_iterator_free(it);
+    try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&it)));
+
+    var view: style_c.StylesView = undefined;
+    try testing.expect(row_iterator_next(it));
+    try testing.expectEqual(Result.success, row_get(it, .styles_raw, @ptrCast(&view)));
+    try testing.expect(view.ptr.?[0].bold);
+    try testing.expectEqual(style_c.ColorTag.palette, view.ptr.?[0].fg_color.tag);
+
+    while (row_iterator_next(it)) {
+        try testing.expectEqual(Result.success, row_get(it, .styles_raw, @ptrCast(&view)));
+        for (view.ptr.?[0..view.len]) |s| {
+            try testing.expectEqual(style_c.ColorTag.none, s.fg_color.tag);
+            try testing.expectEqual(style_c.ColorTag.none, s.bg_color.tag);
+            try testing.expectEqual(style_c.ColorTag.none, s.underline_color.tag);
+            try testing.expect(!s.bold and !s.italic and !s.faint and !s.blink);
+            try testing.expect(!s.inverse and !s.invisible and !s.strikethrough and !s.overline);
+            try testing.expectEqual(@as(c_int, 0), s.underline);
+        }
+    }
 }
 
 test "render: row cells get selected" {
@@ -2589,12 +2784,14 @@ test "render: row_get_multi success" {
     try testing.expect(row_iterator_next(it));
 
     var dirty: bool = true;
+    var view: style_c.StylesView = undefined;
     var written: usize = 0;
 
-    const keys = [_]RowData{.dirty};
-    var values = [_]?*anyopaque{@ptrCast(&dirty)};
+    const keys = [_]RowData{ .dirty, .styles_raw };
+    var values = [_]?*anyopaque{ @ptrCast(&dirty), @ptrCast(&view) };
     try testing.expectEqual(Result.success, row_get_multi(it, keys.len, &keys, &values, &written));
     try testing.expectEqual(keys.len, written);
+    try testing.expectEqual(@as(usize, 80), view.len);
 }
 
 test "render: row_get_multi null returns invalid_value" {

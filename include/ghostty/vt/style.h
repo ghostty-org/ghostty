@@ -108,6 +108,25 @@ typedef struct {
 } GhosttyStyle;
 
 /**
+ * A borrowed view of `len` contiguous resolved styles. The memory is not
+ * owned by this struct; its lifetime is documented by the API that produces
+ * it.
+ *
+ * Elements are contiguous; because GhosttyStyle is a sized struct, callers
+ * that need cross-version safety should advance by each element's `size`
+ * field rather than their compiled sizeof(GhosttyStyle).
+ *
+ * @ingroup style
+ */
+typedef struct {
+  /** Pointer to the first style. */
+  const GhosttyStyle* ptr;
+
+  /** The number of styles. */
+  size_t len;
+} GhosttyStylesView;
+
+/**
  * Get the default style.
  *
  * Initializes the style to the default values (no colors, no flags).

@@ -219,6 +219,7 @@ const type_decls = [_]TypeDecl{
     .initStruct("GhosttyStyle", style.Style),
     .initTaggedStruct("GhosttyStyleColor", style.Color, "tag", "value", .fields),
     .initUnion("GhosttyStyleColorValue", style.ColorValue, null),
+    .initStruct("GhosttyStylesView", style.StylesView),
     .initStruct("GhosttySysImage", sys.Image),
     .initStruct("GhosttyTerminalDesktopNotification", terminal.DesktopNotification),
     .initStruct("GhosttyTerminalMemoryUsage", terminal.TerminalMemoryUsage),

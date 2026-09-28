@@ -470,6 +470,15 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *  works with or without overscan. See "Row Identity" in the render
    *  state overview. */
   GHOSTTY_RENDER_STATE_ROW_DATA_ID = 7,
+
+  /** A borrowed view of the resolved styles for the current row
+   *  (GhosttyStylesView), one per column. Unstyled cells read back as the
+   *  default style. This is the style counterpart to
+   *  GHOSTTY_RENDER_STATE_ROW_DATA_CELLS_RAW, avoiding a call per cell.
+   *
+   *  The view is only valid until the next styles view query on the same
+   *  iterator or until the render state is updated. */
+  GHOSTTY_RENDER_STATE_ROW_DATA_STYLES_RAW = 8,
   GHOSTTY_RENDER_STATE_ROW_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyRenderStateRowData;
 
@@ -788,6 +797,10 @@ GHOSTTY_API GhosttyResult ghostty_render_state_row_iterator_new(
 /**
  * Free a render-state row iterator.
  *
+ * Any borrowed view previously returned by this iterator, including a
+ * GhosttyStylesView from GHOSTTY_RENDER_STATE_ROW_DATA_STYLES_RAW, is
+ * invalid after this call; using it is undefined behavior.
+ *
  * @param iterator The iterator handle to free (may be NULL)
  *
  * @ingroup render
@@ -852,7 +865,10 @@ GHOSTTY_API bool ghostty_render_state_row_iterator_next_dirty(
  * @param data The data kind to query
  * @param[out] out Pointer to receive the queried value
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if
- *         `iterator` is NULL or the iterator is not positioned on a row
+ *         `iterator` is NULL or the iterator is not positioned on a row,
+ *         or GHOSTTY_OUT_OF_MEMORY if a
+ *         GHOSTTY_RENDER_STATE_ROW_DATA_STYLES_RAW query cannot grow the
+ *         iterator's scratch buffer
  *
  * @ingroup render
  */
@@ -878,7 +894,10 @@ GHOSTTY_API GhosttyResult ghostty_render_state_row_get(
  *               documented output type)
  * @param[out] out_written On return, receives the number of values
  *             successfully written (may be NULL)
- * @return GHOSTTY_SUCCESS if all queries succeed
+ * @return GHOSTTY_SUCCESS if all queries succeed, or
+ *         GHOSTTY_OUT_OF_MEMORY if a
+ *         GHOSTTY_RENDER_STATE_ROW_DATA_STYLES_RAW query cannot grow the
+ *         iterator's scratch buffer
  *
  * @ingroup render
  */

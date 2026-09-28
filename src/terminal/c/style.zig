@@ -55,6 +55,15 @@ pub const Color = extern struct {
     }
 };
 
+/// C: GhosttyStylesView
+///
+/// A borrowed view of a contiguous run of resolved styles. The memory is
+/// owned by whoever produced the view (the render state row iterator).
+pub const StylesView = extern struct {
+    ptr: ?[*]const Style = null,
+    len: usize = 0,
+};
+
 /// C: GhosttyStyle
 pub const Style = extern struct {
     size: usize = @sizeOf(Style),
