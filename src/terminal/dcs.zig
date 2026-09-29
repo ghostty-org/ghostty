@@ -178,23 +178,33 @@ pub const Handler = struct {
                 break :xtgettcap .{ .xtgettcap = .{ .data = list.* } };
             },
 
-            .decrqss => |buffer| .{ .decrqss = switch (buffer.len) {
-                0 => .none,
-                1 => switch (buffer.data[0]) {
-                    'm' => .sgr,
-                    'r' => .decstbm,
-                    's' => .decslrm,
-                    else => .none,
-                },
-                2 => switch (buffer.data[0]) {
-                    ' ' => switch (buffer.data[1]) {
-                        'q' => .decscusr,
+            .decrqss => |buffer| .{
+                .decrqss = switch (buffer.len) {
+                    0 => .none,
+                    1 => switch (buffer.data[0]) {
+                        'm' => .sgr,
+                        'r' => .decstbm,
+                        's' => .decslrm,
                         else => .none,
                     },
-                    else => .none,
+                    2 => switch (buffer.data[0]) {
+                        ' ' => switch (buffer.data[1]) {
+                            'q' => .decscusr,
+                            else => .none,
+                        },
+                        else => .none,
+                    },
+                    // XTQMODKEYS: `> Pp m`. We only report modifyOtherKeys
+                    // (resource 4).
+                    3 => if (buffer.data[0] == '>' and buffer.data[2] == 'm')
+                        switch (buffer.data[1]) {
+                            '4' => .modify_other_keys,
+                            else => .none,
+                        }
+                    else
+                        .none,
                 },
-                else => unreachable,
-            } },
+            },
         };
     }
 
@@ -254,6 +264,7 @@ pub const Command = union(enum) {
         decscusr,
         decstbm,
         decslrm,
+        modify_other_keys,
 
         /// Fixed upper bound for an encoded DECRPSS response. The comptime
         /// calculated max at the time of writing this was around 63 so this
@@ -300,6 +311,12 @@ pub const Command = union(enum) {
                         t.scrolling_region.right + 1,
                     });
                 },
+                .modify_other_keys => {
+                    const report = try t.modifyOtherKeysReport(
+                        writer.buffer[writer.end..],
+                    );
+                    writer.end += report.len;
+                },
             }
 
             const valid = writer.end > prefix_len;
@@ -327,7 +344,7 @@ const State = union(enum) {
 
     /// DECRQSS
     decrqss: struct {
-        data: [2]u8 = undefined,
+        data: [3]u8 = undefined,
         len: u2 = 0,
     },
 
@@ -455,9 +472,11 @@ test "DECRQSS invalid command" {
 
     h.discard();
 
+    // A Pt longer than the buffer overflows and is discarded entirely.
     try testing.expect(h.hook(alloc, .{ .intermediates = "$", .final = 'q' }) == null);
     _ = h.put('"');
     _ = h.put(' ');
+    _ = h.put('q');
     _ = h.put('q');
     try testing.expect(h.unhook() == null);
 }
@@ -544,6 +563,38 @@ test "DECRQSS largest response fits fixed buffer" {
         ";48:2::255:255:255m\x1B\\";
     try testing.expectEqualStrings(expected, encoded);
     try testing.expect(encoded.len <= Command.DECRQSS.max_response_bytes);
+}
+
+test "DECRQSS XTQMODKEYS modifyOtherKeys" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    defer h.deinit();
+    try testing.expect(h.hook(alloc, .{ .intermediates = "$", .final = 'q' }) == null);
+    _ = h.put('>');
+    _ = h.put('4');
+    _ = h.put('m');
+    var cmd = h.unhook().?;
+    defer cmd.deinit();
+    try testing.expect(cmd == .decrqss);
+    try testing.expect(cmd.decrqss == .modify_other_keys);
+}
+
+test "DECRQSS XTQMODKEYS unsupported resource" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    defer h.deinit();
+    try testing.expect(h.hook(alloc, .{ .intermediates = "$", .final = 'q' }) == null);
+    _ = h.put('>');
+    _ = h.put('0');
+    _ = h.put('m');
+    var cmd = h.unhook().?;
+    defer cmd.deinit();
+    try testing.expect(cmd == .decrqss);
+    try testing.expect(cmd.decrqss == .none);
 }
 
 test "tmux enter and implicit exit" {
