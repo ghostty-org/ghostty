@@ -5,7 +5,12 @@ const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const lib = @import("lib.zig");
 const color = @import("color.zig");
-const SepList = @import("Parser.zig").Action.CSI.SepList;
+pub const SepList = @import("Parser.zig").Action.CSI.SepList;
+
+/// The separator list of a sequence that used no colons at all. Almost
+/// every SGR sequence is one of those, and they all share this one bit
+/// set instead of each carrying a copy.
+const no_seps: SepList = .initEmpty();
 
 /// Attribute type for SGR
 pub const Attribute = union(Tag) {
@@ -183,7 +188,13 @@ pub const Attribute = union(Tag) {
 /// Parser parses the attributes from a list of SGR parameters.
 pub const Parser = struct {
     params: []const u16 = &.{},
-    params_sep: SepList = .initEmpty(),
+
+    /// Colon separators by parameter index, borrowed alongside `params`
+    /// the same way `Parser.Action.CSI.params_sep` is. A pointer,
+    /// because the bit set is `MAX_PARAMS` wide and copying 32 bytes
+    /// into every SGR dispatch buys nothing.
+    params_sep: *const SepList = &no_seps,
+
     idx: usize = 0,
 
     /// Empty state parser.
@@ -209,7 +220,7 @@ pub const Parser = struct {
         const colon = @call(
             .always_inline,
             SepList.isSet,
-            .{ self.params_sep, self.idx },
+            .{ self.params_sep.*, self.idx },
         );
         self.idx += 1;
 
@@ -233,7 +244,11 @@ pub const Parser = struct {
                     // Consume all the colon separated
                     // values and return them as unknown.
                     const start = self.idx;
-                    while (self.params_sep.isSet(self.idx)) self.idx += 1;
+                    // Bounded like countColon: the last parameter has no
+                    // separator after it, so a set bit there is stale and
+                    // walking past it would read off the end of the set.
+                    while (self.idx + 1 < self.params.len and
+                        self.params_sep.isSet(self.idx)) self.idx += 1;
                     self.idx += 1;
                     return .{ .unknown = .{
                         .full = self.params,
@@ -512,7 +527,7 @@ pub const Parser = struct {
         return @call(
             .always_inline,
             SepList.isSet,
-            .{ self.params_sep, self.idx },
+            .{ self.params_sep.*, self.idx },
         );
     }
 
@@ -538,10 +553,38 @@ fn testParse(params: []const u16) Attribute {
     return p.next().?;
 }
 
-fn testParseColon(params: []const u16) Attribute {
-    var p: Parser = .{ .params = params };
-    // Mark all parameters except the last as having a colon after.
-    for (0..params.len - 1) |i| p.params_sep.set(i);
+/// A separator list with a colon after each parameter index in
+/// `colons`. The bit set is materialized at comptime, so the returned
+/// pointer is static and a `Parser` literal can borrow it the way a real
+/// dispatch borrows the parser's own.
+fn testSeps(comptime colons: []const usize) *const SepList {
+    return &struct {
+        const value: SepList = value: {
+            var list: SepList = .initEmpty();
+            for (colons) |i| list.set(i);
+            break :value list;
+        };
+    }.value;
+}
+
+/// A separator list joining every parameter to the next. The last
+/// parameter has nothing after it, so its bit stays clear.
+fn testSepsAll(comptime len: usize) *const SepList {
+    return testSeps(comptime colons: {
+        var idx: [len - 1]usize = undefined;
+        for (&idx, 0..) |*v, i| v.* = i;
+        const final = idx;
+        break :colons &final;
+    });
+}
+
+/// Parse the first attribute of a sequence whose parameters are all
+/// colon-joined, which is how SGR spells a subparameter group.
+fn testParseColon(comptime params: []const u16) Attribute {
+    var p: Parser = .{
+        .params = params,
+        .params_sep = testSepsAll(params.len),
+    };
     return p.next().?;
 }
 
@@ -585,11 +628,7 @@ test "sgr: Parser multiple" {
 test "sgr: unsupported with colon" {
     var p: Parser = .{
         .params = &[_]u16{ 0, 4, 1 },
-        .params_sep = sep: {
-            var list = SepList.initEmpty();
-            list.set(0);
-            break :sep list;
-        },
+        .params_sep = testSeps(&.{0}),
     };
     try testing.expect(p.next().? == .unknown);
     try testing.expect(p.next().? == .bold);
@@ -599,12 +638,7 @@ test "sgr: unsupported with colon" {
 test "sgr: unsupported with multiple colon" {
     var p: Parser = .{
         .params = &[_]u16{ 0, 4, 2, 1 },
-        .params_sep = sep: {
-            var list = SepList.initEmpty();
-            list.set(0);
-            list.set(1);
-            break :sep list;
-        },
+        .params_sep = testSeps(&.{ 0, 1 }),
     };
     try testing.expect(p.next().? == .unknown);
     try testing.expect(p.next().? == .bold);
@@ -689,11 +723,7 @@ test "sgr: underline styles" {
 test "sgr: underline style with more" {
     var p: Parser = .{
         .params = &[_]u16{ 4, 2, 1 },
-        .params_sep = sep: {
-            var list = SepList.initEmpty();
-            list.set(0);
-            break :sep list;
-        },
+        .params_sep = testSeps(&.{0}),
     };
 
     try testing.expect(p.next().? == .underline);
@@ -704,12 +734,7 @@ test "sgr: underline style with more" {
 test "sgr: underline style with too many colons" {
     var p: Parser = .{
         .params = &[_]u16{ 4, 2, 3, 1 },
-        .params_sep = sep: {
-            var list = SepList.initEmpty();
-            list.set(0);
-            list.set(1);
-            break :sep list;
-        },
+        .params_sep = testSeps(&.{ 0, 1 }),
     };
 
     try testing.expect(p.next().? == .unknown);
@@ -939,11 +964,7 @@ test "sgr: direct fg/bg/underline ignore optional color space" {
 test "sgr: direct fg colon with too many colons" {
     var p: Parser = .{
         .params = &[_]u16{ 38, 2, 0, 1, 2, 3, 4, 1 },
-        .params_sep = sep: {
-            var list = SepList.initEmpty();
-            for (0..6) |idx| list.set(idx);
-            break :sep list;
-        },
+        .params_sep = testSeps(&.{ 0, 1, 2, 3, 4, 5 }),
     };
 
     try testing.expect(p.next().? == .unknown);
@@ -954,11 +975,7 @@ test "sgr: direct fg colon with too many colons" {
 test "sgr: direct fg colon with colorspace and extra param" {
     var p: Parser = .{
         .params = &[_]u16{ 38, 2, 0, 1, 2, 3, 1 },
-        .params_sep = sep: {
-            var list = SepList.initEmpty();
-            for (0..5) |idx| list.set(idx);
-            break :sep list;
-        },
+        .params_sep = testSeps(&.{ 0, 1, 2, 3, 4 }),
     };
 
     {
@@ -976,11 +993,7 @@ test "sgr: direct fg colon with colorspace and extra param" {
 test "sgr: direct fg colon no colorspace and extra param" {
     var p: Parser = .{
         .params = &[_]u16{ 38, 2, 1, 2, 3, 1 },
-        .params_sep = sep: {
-            var list = SepList.initEmpty();
-            for (0..4) |idx| list.set(idx);
-            break :sep list;
-        },
+        .params_sep = testSeps(&.{ 0, 1, 2, 3 }),
     };
 
     {
@@ -1000,16 +1013,7 @@ test "sgr: kakoune input" {
     // This used to crash
     var p: Parser = .{
         .params = &[_]u16{ 0, 4, 3, 38, 2, 175, 175, 215, 58, 2, 0, 190, 80, 70 },
-        .params_sep = sep: {
-            var list = SepList.initEmpty();
-            list.set(1);
-            list.set(8);
-            list.set(9);
-            list.set(10);
-            list.set(11);
-            list.set(12);
-            break :sep list;
-        },
+        .params_sep = testSeps(&.{ 1, 8, 9, 10, 11, 12 }),
     };
 
     {
@@ -1046,11 +1050,7 @@ test "sgr: kakoune input issue underline, fg, and bg" {
     // This used to crash
     var p: Parser = .{
         .params = &[_]u16{ 4, 3, 38, 2, 51, 51, 51, 48, 2, 170, 170, 170, 58, 2, 255, 97, 136 },
-        .params_sep = sep: {
-            var list = SepList.initEmpty();
-            list.set(0);
-            break :sep list;
-        },
+        .params_sep = testSeps(&.{0}),
     };
 
     {
@@ -1094,12 +1094,7 @@ test "sgr: kakoune input issue underline, fg, and bg" {
 test "sgr: underline colon with trailing separator and short slice" {
     var p: Parser = .{
         .params = &[_]u16{ 58, 4 },
-        .params_sep = sep: {
-            var list = SepList.initEmpty();
-            list.set(0);
-            list.set(1);
-            break :sep list;
-        },
+        .params_sep = testSeps(&.{ 0, 1 }),
     };
 
     // 58:4 is not a valid underline color (sub-param 4 is not 2 or 5),
