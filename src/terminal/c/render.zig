@@ -1134,12 +1134,19 @@ fn setStylesRaw(
     buf.clearRetainingCapacity();
     buf.ensureTotalCapacity(it.alloc, styles.len) catch return .out_of_memory;
 
-    for (styles, raws) |s, raw| {
-        const dst = buf.addOneAssumeCapacity();
-        if (raw.hasStyling()) {
-            style_c.Style.write(s, dst);
-        } else {
-            dst.* = style_c.Style.default;
+    // page.Row.styled is a never-false-negative hint: if clear, every cell
+    // in the row is unstyled and the whole row is the default style.
+    if (!it.raws[y].styled) {
+        buf.items.len = styles.len;
+        @memset(buf.items, style_c.Style.default);
+    } else {
+        for (styles, raws) |s, raw| {
+            const dst = buf.addOneAssumeCapacity();
+            if (raw.hasStyling()) {
+                style_c.Style.write(s, dst);
+            } else {
+                dst.* = style_c.Style.default;
+            }
         }
     }
 
