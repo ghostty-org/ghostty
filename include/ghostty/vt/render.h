@@ -865,8 +865,8 @@ GHOSTTY_API bool ghostty_render_state_row_iterator_next_dirty(
  * @param data The data kind to query
  * @param[out] out Pointer to receive the queried value
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if
- *         `iterator` is NULL or the iterator is not positioned on a row,
- *         or GHOSTTY_OUT_OF_MEMORY if a
+ *         `iterator` or `out` is NULL or the iterator is not positioned
+ *         on a row, or GHOSTTY_OUT_OF_MEMORY if a
  *         GHOSTTY_RENDER_STATE_ROW_DATA_STYLES_RAW query cannot grow the
  *         iterator's scratch buffer
  *
@@ -894,7 +894,9 @@ GHOSTTY_API GhosttyResult ghostty_render_state_row_get(
  *               documented output type)
  * @param[out] out_written On return, receives the number of values
  *             successfully written (may be NULL)
- * @return GHOSTTY_SUCCESS if all queries succeed, or
+ * @return GHOSTTY_SUCCESS if all queries succeed, GHOSTTY_INVALID_VALUE
+ *         if `iterator`, `keys`, or a required output pointer is NULL or
+ *         the iterator is not positioned on a row, or
  *         GHOSTTY_OUT_OF_MEMORY if a
  *         GHOSTTY_RENDER_STATE_ROW_DATA_STYLES_RAW query cannot grow the
  *         iterator's scratch buffer

@@ -1063,13 +1063,14 @@ inline fn rowGetDispatch(
         };
     }
 
+    const out_ptr = out orelse return .invalid_value;
     return switch (data) {
         .invalid => .invalid_value,
         inline else => |comptime_data| rowGetTyped(
             it,
             y,
             comptime_data,
-            @ptrCast(@alignCast(out)),
+            @ptrCast(@alignCast(out_ptr)),
         ),
     };
 }
@@ -1492,6 +1493,39 @@ test "render: row get invalid data" {
     try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&iterator)));
     try testing.expect(row_iterator_next(iterator));
     try testing.expectEqual(Result.invalid_value, row_get(iterator, .invalid, null));
+}
+
+test "render: row get null out" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        80,
+        24,
+    ));
+    defer terminal_c.free(terminal);
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var iterator: RowIterator = null;
+    try testing.expectEqual(Result.success, row_iterator_new(
+        &lib.alloc.test_allocator,
+        &iterator,
+    ));
+    defer row_iterator_free(iterator);
+
+    try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&iterator)));
+    try testing.expect(row_iterator_next(iterator));
+
+    try testing.expectEqual(Result.invalid_value, row_get(iterator, .dirty, null));
+    try testing.expectEqual(Result.invalid_value, row_get(iterator, .styles_raw, null));
 }
 
 test "render: row set null" {
@@ -2799,6 +2833,46 @@ test "render: row_get_multi success" {
     try testing.expectEqual(Result.success, row_get_multi(it, keys.len, &keys, &values, &written));
     try testing.expectEqual(keys.len, written);
     try testing.expectEqual(@as(usize, 80), view.len);
+}
+
+test "render: row_get_multi null output writes partial count" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        10,
+        3,
+    ));
+    defer terminal_c.free(terminal);
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var it: RowIterator = null;
+    try testing.expectEqual(Result.success, row_iterator_new(
+        &lib.alloc.test_allocator,
+        &it,
+    ));
+    defer row_iterator_free(it);
+    try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&it)));
+    try testing.expect(row_iterator_next(it));
+
+    var dirty: bool = true;
+    var written: usize = 0;
+    // The first key succeeds; the second has a NULL output and fails, so
+    // out_written reports the failing index.
+    const keys = [_]RowData{ .dirty, .styles_raw };
+    var values = [_]?*anyopaque{ @ptrCast(&dirty), null };
+    try testing.expectEqual(
+        Result.invalid_value,
+        row_get_multi(it, keys.len, &keys, &values, &written),
+    );
+    try testing.expectEqual(@as(usize, 1), written);
 }
 
 test "render: row_get_multi null returns invalid_value" {
