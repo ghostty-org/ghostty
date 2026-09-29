@@ -44,6 +44,23 @@ pub const Writer = extern struct {
     }
 };
 
+/// C: GhosttyMimeReaderFn
+pub const MimeReaderFn = *const fn (
+    userdata: ?*anyopaque,
+    mime: lib.String,
+    writer: Writer,
+) callconv(lib.calling_conv) bool;
+
+/// C: GhosttyMimeReader
+pub const MimeReader = extern struct {
+    read: ?MimeReaderFn = null,
+    userdata: ?*anyopaque = null,
+
+    pub fn valid(self: MimeReader) bool {
+        return self.read != null;
+    }
+};
+
 /// Adapts a `GhosttyReader` to `std.Io.Reader`.
 ///
 /// The adapter must have a stable address while `interface` is in use. Its
@@ -228,10 +245,14 @@ pub const ReaderAdapter = struct {
     }
 };
 
-/// Adapts a `GhosttyWriter` to an unbuffered `std.Io.Writer`.
+/// Adapts a `GhosttyWriter` to a `std.Io.Writer`.
 ///
-/// Keeping the Zig writer unbuffered ensures success means the C callback has
-/// already accepted every byte; there is no hidden flush step at API return.
+/// The adapter may be given a buffer via `initBuffered` so that the many
+/// small writes typical of streaming producers (e.g. the formatter) are
+/// batched into far fewer C callback invocations. A buffered adapter's owner
+/// must call `flush` on the interface before reporting success so that the
+/// public contract holds: success means the C callback has already accepted
+/// every byte.
 pub const WriterAdapter = struct {
     /// Copy of the C callback pair. The pointed-to userdata remains borrowed.
     destination: Writer,
@@ -239,7 +260,8 @@ pub const WriterAdapter = struct {
     /// Zig-facing interface whose drain vtable points back to this adapter.
     interface: std.Io.Writer,
 
-    /// Bytes accepted by successful callback invocations.
+    /// Bytes accepted by successful callback invocations. Buffered bytes are
+    /// counted only once a drain or flush hands them to the callback.
     offset: usize = 0,
 
     /// The callback returned false.
@@ -248,13 +270,27 @@ pub const WriterAdapter = struct {
     /// The callback was NULL or offset accounting overflowed.
     invalid_write: bool = false,
 
+    /// The buffer length used by the C API entry points that stream through
+    /// a callback. 4 KiB amortizes callback overhead while keeping every
+    /// adapter's stack footprint modest, mirroring ReaderAdapter's
+    /// transfer_buffer sizing.
+    pub const recommended_buffer_len = 4096;
+
+    /// An unbuffered adapter: every Zig write reaches the callback
+    /// immediately and no flush is required before returning.
     pub fn init(destination: Writer) WriterAdapter {
+        return initBuffered(destination, &.{});
+    }
+
+    /// A buffered adapter. The buffer must outlive the adapter and remain
+    /// at a stable address (it is referenced, not copied). The owner must
+    /// flush the interface before treating the operation as successful.
+    pub fn initBuffered(destination: Writer, buffer: []u8) WriterAdapter {
         return .{
             .destination = destination,
             .interface = .{
-                // With no buffer, every Zig write reaches `drain` immediately.
                 .vtable = &.{ .drain = drain },
-                .buffer = &.{},
+                .buffer = buffer,
                 .end = 0,
             },
         };
@@ -293,19 +329,49 @@ pub const WriterAdapter = struct {
         };
     }
 
-    /// Implement the sole primitive required by an unbuffered std.Io.Writer.
+    /// Write one slice, batching through the interface buffer when one is
+    /// attached. Slices that fit are parked in the buffer (a later drain or
+    /// flush hands them to the callback); anything larger goes to the
+    /// callback directly after the buffer is emptied to preserve ordering.
+    fn writeSlice(
+        self: *WriterAdapter,
+        writer_: *std.Io.Writer,
+        slice: []const u8,
+    ) std.Io.Writer.Error!void {
+        const buffer = writer_.buffer;
+        if (slice.len <= buffer.len - writer_.end) {
+            @memcpy(buffer[writer_.end..][0..slice.len], slice);
+            writer_.end += slice.len;
+            return;
+        }
+
+        if (writer_.end > 0) {
+            try self.writeAll(buffer[0..writer_.end]);
+            writer_.end = 0;
+        }
+
+        if (slice.len <= buffer.len) {
+            @memcpy(buffer[0..slice.len], slice);
+            writer_.end = slice.len;
+        } else {
+            try self.writeAll(slice);
+        }
+    }
+
+    /// Implement the sole primitive required by a std.Io.Writer.
     ///
     /// Zig represents a vector write as ordinary slices followed by the last
-    /// slice repeated `splat` times. The C callback has no vector form, so this
-    /// method expands that representation into ordered all-or-nothing calls
-    /// and returns the total logical byte count consumed.
+    /// slice repeated `splat` times. The C callback has no vector form, so
+    /// this method expands that representation, batching through the
+    /// interface buffer when one is attached, and returns the total logical
+    /// byte count consumed from `data`. Bytes parked in the buffer count as
+    /// consumed; `std.Io.Writer.flush` drains them via this same method.
     fn drain(
         writer_: *std.Io.Writer,
         data: []const []const u8,
         splat: usize,
     ) std.Io.Writer.Error!usize {
         assert(data.len > 0); // The final element is always the splat pattern.
-        assert(writer_.end == 0); // This adapter intentionally has no buffer.
 
         // The vtable receives the embedded Writer rather than our adapter.
         const self: *WriterAdapter = @alignCast(@fieldParentPtr(
@@ -313,10 +379,16 @@ pub const WriterAdapter = struct {
             writer_,
         ));
 
+        // Buffered bytes must reach the destination before any of `data`.
+        if (writer_.end > 0) {
+            try self.writeAll(writer_.buffer[0..writer_.end]);
+            writer_.end = 0;
+        }
+
         var consumed: usize = 0;
         // Every element except the last is written exactly once.
         for (data[0 .. data.len - 1]) |slice| {
-            try self.writeAll(slice);
+            try self.writeSlice(writer_, slice);
             consumed = std.math.add(usize, consumed, slice.len) catch {
                 self.invalid_write = true;
                 return error.WriteFailed;
@@ -326,8 +398,28 @@ pub const WriterAdapter = struct {
         // std.Io uses the final element as a compact repeated pattern. A
         // splat of zero means the final element is not part of this write.
         const pattern = data[data.len - 1];
-        for (0..splat) |_| {
-            try self.writeAll(pattern);
+        if (pattern.len == 1 and writer_.buffer.len > 0) {
+            // Single-byte splats (e.g. runs of blank cells) are memset
+            // into the buffer in bulk rather than repeated one write at
+            // a time.
+            const buffer = writer_.buffer;
+            var remaining = splat;
+            while (remaining > 0) {
+                if (writer_.end == buffer.len) {
+                    try self.writeAll(buffer);
+                    writer_.end = 0;
+                }
+                const n = @min(remaining, buffer.len - writer_.end);
+                @memset(buffer[writer_.end..][0..n], pattern[0]);
+                writer_.end += n;
+                remaining -= n;
+            }
+            consumed = std.math.add(usize, consumed, splat) catch {
+                self.invalid_write = true;
+                return error.WriteFailed;
+            };
+        } else for (0..splat) |_| {
+            try self.writeSlice(writer_, pattern);
             consumed = std.math.add(usize, consumed, pattern.len) catch {
                 self.invalid_write = true;
                 return error.WriteFailed;
@@ -343,6 +435,8 @@ test "C reader and writer layouts keep callback first" {
     try std.testing.expectEqual(@sizeOf(?ReaderFn) + @sizeOf(?*anyopaque), @sizeOf(Reader));
 
     try std.testing.expectEqual(@as(usize, 0), @offsetOf(Writer, "write"));
+    try std.testing.expectEqual(@as(usize, 0), @offsetOf(MimeReader, "read"));
+    try std.testing.expectEqual(@sizeOf(?MimeReaderFn), @offsetOf(MimeReader, "userdata"));
     try std.testing.expectEqual(@sizeOf(?WriterFn), @offsetOf(Writer, "userdata"));
     try std.testing.expectEqual(@sizeOf(?WriterFn) + @sizeOf(?*anyopaque), @sizeOf(Writer));
 }
@@ -500,6 +594,92 @@ test "WriterAdapter writes vectors and splats" {
     try std.testing.expectEqualStrings("abcd!!", context.data[0..context.len]);
     try std.testing.expectEqual(@as(usize, 6), adapter.offset);
     try std.testing.expect(!adapter.callback_failed);
+}
+
+test "WriterAdapter buffered batches small writes" {
+    const Context = struct {
+        data: [256]u8 = undefined,
+        len: usize = 0,
+        calls: usize = 0,
+
+        fn write(
+            userdata: ?*anyopaque,
+            data: [*]const u8,
+            len: usize,
+        ) callconv(lib.calling_conv) bool {
+            const self: *@This() = @ptrCast(@alignCast(userdata.?));
+            @memcpy(self.data[self.len..][0..len], data[0..len]);
+            self.len += len;
+            self.calls += 1;
+            return true;
+        }
+    };
+
+    var context: Context = .{};
+    var buffer: [64]u8 = undefined;
+    var adapter: WriterAdapter = .initBuffered(.{
+        .write = &Context.write,
+        .userdata = &context,
+    }, &buffer);
+
+    // Many small writes fit in the buffer: no callback yet.
+    for (0..16) |_| try adapter.interface.writeAll("ab");
+    try std.testing.expectEqual(@as(usize, 0), context.calls);
+
+    // Flush delivers everything in a single call.
+    try adapter.interface.flush();
+    try std.testing.expectEqual(@as(usize, 1), context.calls);
+    try std.testing.expectEqualStrings(
+        "ab" ** 16,
+        context.data[0..context.len],
+    );
+    try std.testing.expectEqual(@as(usize, 32), adapter.offset);
+}
+
+test "WriterAdapter buffered splats and large writes" {
+    const Context = struct {
+        data: [256]u8 = undefined,
+        len: usize = 0,
+        calls: usize = 0,
+
+        fn write(
+            userdata: ?*anyopaque,
+            data: [*]const u8,
+            len: usize,
+        ) callconv(lib.calling_conv) bool {
+            const self: *@This() = @ptrCast(@alignCast(userdata.?));
+            @memcpy(self.data[self.len..][0..len], data[0..len]);
+            self.len += len;
+            self.calls += 1;
+            return true;
+        }
+    };
+
+    var context: Context = .{};
+    var buffer: [16]u8 = undefined;
+    var adapter: WriterAdapter = .initBuffered(.{
+        .write = &Context.write,
+        .userdata = &context,
+    }, &buffer);
+
+    // A splat larger than the buffer is chunked, not one call per byte.
+    try adapter.interface.splatByteAll(' ', 40);
+    // A write larger than the buffer flushes and goes to the callback
+    // directly.
+    try adapter.interface.writeAll("0123456789abcdef0"); // 17 > 16
+    try adapter.interface.writeAll("xy");
+    try adapter.interface.flush();
+
+    try std.testing.expectEqualStrings(
+        " " ** 40 ++ "0123456789abcdef0" ++ "xy",
+        context.data[0..context.len],
+    );
+    try std.testing.expectEqual(
+        @as(usize, context.len),
+        adapter.offset,
+    );
+    // Chunked delivery: far fewer calls than bytes.
+    try std.testing.expect(context.calls <= 6);
 }
 
 test "WriterAdapter makes callback failure sticky" {

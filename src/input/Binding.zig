@@ -588,9 +588,6 @@ pub const Action = union(enum) {
     move_tab: isize,
 
     /// Move a tab to a new window.
-    ///
-    /// Only implemented on Linux, but there's a native tab menu provided by
-    /// macOS.
     move_tab_to_new_window,
 
     /// Toggle the tab overview.

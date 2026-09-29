@@ -4,13 +4,12 @@
 # Baurzhan Muftakhidinov <baurthefirst@gmail.com>, 2026.
 # AnmiTaliDev <anmitalidev@nuros.org>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-08-10 10:06-0500\n"
-"PO-Revision-Date: 2026-06-20 17:07+0500\n"
+"PO-Revision-Date: 2026-08-13 00:00+0500\n"
 "Last-Translator: AnmiTaliDev <anmitalidev@nuros.org>\n"
 "Language-Team: Kazakh <kk_KZ@googlegroups.com>\n"
 "Language: kk\n"
@@ -205,7 +204,7 @@ msgstr "Терезе"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:215
 msgid "Change Window Title…"
-msgstr ""
+msgstr "Терезе атауын өзгерту…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:220
 #: src/input/command.zig:421
@@ -223,11 +222,11 @@ msgstr "Конфигурация"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
-msgstr ""
+msgstr "Конфигурацияны ОЖ түзеткішінде ашу"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
-msgstr ""
+msgstr "Конфигурацияны жаңа терезеде ашу"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
@@ -271,27 +270,27 @@ msgstr "Команданы орындау…"
 
 #: src/apprt/gtk/class/application.zig:1767
 msgid "The keybind was revoked by the system."
-msgstr ""
+msgstr "Пернелер тіркесімін жүйе қайтарып алды."
 
 #: src/apprt/gtk/class/application.zig:1769
 msgid "The keybind was denied by the system."
-msgstr ""
+msgstr "Пернелер тіркесіміне жүйе тыйым салды."
 
 #: src/apprt/gtk/class/application.zig:1780
 msgid "Global keybind unavailable"
-msgstr ""
+msgstr "Глобалды пернелер тіркесімі қолжетімсіз"
 
 #: src/apprt/gtk/class/application.zig:2259
 msgid "Export Terminal IO Events"
-msgstr ""
+msgstr "Терминал енгізу/шығару оқиғаларын экспорттау"
 
 #: src/apprt/gtk/class/application.zig:2262
 msgid "Export"
-msgstr ""
+msgstr "Экспорттау"
 
 #: src/apprt/gtk/class/application.zig:2783
 msgid "Editing configuration file"
-msgstr ""
+msgstr "Конфигурация файлын түзету"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
 msgid ""
@@ -377,7 +376,7 @@ msgstr "Бет атауын өзгерту"
 
 #: src/apprt/gtk/class/title_dialog.zig:229
 msgid "Change Window Title"
-msgstr ""
+msgstr "Терезе атауын өзгерту"
 
 #: src/apprt/gtk/class/window.zig:1153
 msgid "Reloaded the configuration"
@@ -397,710 +396,741 @@ msgstr "Ghostty әзірлеушілері"
 
 #: src/input/command.zig:149
 msgid "Reset Terminal"
-msgstr ""
+msgstr "Терминалды қалпына келтіру"
 
 #: src/input/command.zig:150
 msgid "Reset the terminal to a clean state."
-msgstr ""
+msgstr "Терминалды таза күйге келтіру."
 
 #: src/input/command.zig:155
 msgid "Copy to Clipboard"
-msgstr ""
+msgstr "Алмасу буферіне көшіру"
 
 #: src/input/command.zig:156
 msgid ""
 "Copy the selected text to the clipboard in both plain and styled formats."
-msgstr ""
+msgstr "Таңдалған мәтінді жай және пішімделген түрде алмасу буферіне көшіру."
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
-msgstr ""
+msgstr "Таңдауды жай мәтін ретінде алмасу буферіне көшіру"
 
 #: src/input/command.zig:160
 msgid "Copy the selected text as plain text to the clipboard."
-msgstr ""
+msgstr "Таңдалған мәтінді жай мәтін ретінде алмасу буферіне көшіру."
 
 #: src/input/command.zig:163
 msgid "Copy Selection as ANSI Sequences to Clipboard"
-msgstr ""
+msgstr "Таңдауды ANSI тізбектері ретінде алмасу буферіне көшіру"
 
 #: src/input/command.zig:164
 msgid "Copy the selected text as ANSI escape sequences to the clipboard."
 msgstr ""
+"Таңдалған мәтінді ANSI escape-тізбектері ретінде алмасу буферіне көшіру."
 
 #: src/input/command.zig:167
 msgid "Copy Selection as HTML to Clipboard"
-msgstr ""
+msgstr "Таңдауды HTML ретінде алмасу буферіне көшіру"
 
 #: src/input/command.zig:168
 msgid "Copy the selected text as HTML to the clipboard."
-msgstr ""
+msgstr "Таңдалған мәтінді HTML ретінде алмасу буферіне көшіру."
 
 #: src/input/command.zig:173
 msgid "Copy URL to Clipboard"
-msgstr ""
+msgstr "URL адресін алмасу буферіне көшіру"
 
 #: src/input/command.zig:174
 msgid "Copy the URL under the cursor to the clipboard."
-msgstr ""
+msgstr "Курсор астындағы URL адресін алмасу буферіне көшіру."
 
 #: src/input/command.zig:179
 msgid "Copy Terminal Title to Clipboard"
-msgstr ""
+msgstr "Терминал атауын алмасу буферіне көшіру"
 
 #: src/input/command.zig:180
 msgid ""
 "Copy the terminal title to the clipboard. If the terminal title is not set "
 "this has no effect."
 msgstr ""
+"Терминал атауын алмасу буферіне көшіру. Терминал атауы орнатылмаған болса, "
+"бұл әрекеттің әсері болмайды."
 
 #: src/input/command.zig:185
 msgid "Paste from Clipboard"
-msgstr ""
+msgstr "Алмасу буферінен кірістіру"
 
 #: src/input/command.zig:186
 msgid "Paste the contents of the main clipboard."
-msgstr ""
+msgstr "Негізгі алмасу буферінің мазмұнын кірістіру."
 
 #: src/input/command.zig:191
 msgid "Paste from Selection"
-msgstr ""
+msgstr "Таңдаудан кірістіру"
 
 #: src/input/command.zig:192
 msgid "Paste the contents of the selection clipboard."
-msgstr ""
+msgstr "Таңдау алмасу буферінің мазмұнын кірістіру."
 
 #: src/input/command.zig:197
 msgid "Start Search"
-msgstr ""
+msgstr "Іздеуді бастау"
 
 #: src/input/command.zig:198
 msgid "Start a search if one isn't already active."
-msgstr ""
+msgstr "Егер іздеу әлі белсенді болмаса, оны бастау."
 
 #: src/input/command.zig:203
 msgid "Search Selection"
-msgstr ""
+msgstr "Таңдалғанды іздеу"
 
 #: src/input/command.zig:204
 msgid "Start a search for the current text selection."
-msgstr ""
+msgstr "Ағымдағы таңдалған мәтінді іздеуді бастау."
 
 #: src/input/command.zig:209
 msgid "End Search"
-msgstr ""
+msgstr "Іздеуді аяқтау"
 
 #: src/input/command.zig:210
 msgid "End the current search if any and hide any GUI elements."
 msgstr ""
+"Ағымдағы іздеу болса, оны аяқтап, барлық графикалық интерфейс элементтерін "
+"жасыру."
 
 #: src/input/command.zig:215
 msgid "Next Search Result"
-msgstr ""
+msgstr "Келесі іздеу нәтижесі"
 
 #: src/input/command.zig:216
 msgid "Navigate to the next search result, if any."
-msgstr ""
+msgstr "Бар болса, келесі іздеу нәтижесіне өту."
 
 #: src/input/command.zig:219
 msgid "Previous Search Result"
-msgstr ""
+msgstr "Алдыңғы іздеу нәтижесі"
 
 #: src/input/command.zig:220
 msgid "Navigate to the previous search result, if any."
-msgstr ""
+msgstr "Бар болса, алдыңғы іздеу нәтижесіне өту."
 
 #: src/input/command.zig:225
 msgid "Increase Font Size"
-msgstr ""
+msgstr "Қаріп өлшемін үлкейту"
 
 #: src/input/command.zig:226
 msgid "Increase the font size by 1 point."
-msgstr ""
+msgstr "Қаріп өлшемін 1 пунктке үлкейту."
 
 #: src/input/command.zig:231
 msgid "Decrease Font Size"
-msgstr ""
+msgstr "Қаріп өлшемін кішірейту"
 
 #: src/input/command.zig:232
 msgid "Decrease the font size by 1 point."
-msgstr ""
+msgstr "Қаріп өлшемін 1 пунктке кішірейту."
 
 #: src/input/command.zig:237
 msgid "Reset Font Size"
-msgstr ""
+msgstr "Қаріп өлшемін қалпына келтіру"
 
 #: src/input/command.zig:238
 msgid "Reset the font size to the default."
-msgstr ""
+msgstr "Қаріп өлшемін бастапқы мәніне келтіру."
 
 #: src/input/command.zig:243
 msgid "Clear Screen"
-msgstr ""
+msgstr "Экранды тазарту"
 
 #: src/input/command.zig:244
 msgid "Clear the screen and scrollback."
-msgstr ""
+msgstr "Экранды және айналдыру буферін тазарту."
 
 #: src/input/command.zig:249
 msgid "Select All"
-msgstr ""
+msgstr "Барлығын таңдау"
 
 #: src/input/command.zig:250
 msgid "Select all text on the screen."
-msgstr ""
+msgstr "Экрандағы барлық мәтінді таңдау."
 
 #: src/input/command.zig:255
 msgid "Scroll to Top"
-msgstr ""
+msgstr "Жоғарғы жаққа айналдыру"
 
 #: src/input/command.zig:256
 msgid "Scroll to the top of the screen."
-msgstr ""
+msgstr "Экранның жоғарғы жағына айналдыру."
 
 #: src/input/command.zig:261
 msgid "Scroll to Bottom"
-msgstr ""
+msgstr "Төменгі жаққа айналдыру"
 
 #: src/input/command.zig:262
 msgid "Scroll to the bottom of the screen."
-msgstr ""
+msgstr "Экранның төменгі жағына айналдыру."
 
 #: src/input/command.zig:267
 msgid "Scroll to Selection"
-msgstr ""
+msgstr "Таңдалғанға айналдыру"
 
 #: src/input/command.zig:268
 msgid "Scroll to the selected text."
-msgstr ""
+msgstr "Таңдалған мәтінге айналдыру."
 
 #: src/input/command.zig:273
 msgid "Scroll Page Up"
-msgstr ""
+msgstr "Бір бетке жоғары айналдыру"
 
 #: src/input/command.zig:274
 msgid "Scroll the screen up by a page."
-msgstr ""
+msgstr "Экранды бір бетке жоғары айналдыру."
 
 #: src/input/command.zig:279
 msgid "Scroll Page Down"
-msgstr ""
+msgstr "Бір бетке төмен айналдыру"
 
 #: src/input/command.zig:280
 msgid "Scroll the screen down by a page."
-msgstr ""
+msgstr "Экранды бір бетке төмен айналдыру."
 
 #: src/input/command.zig:286
 msgid "Copy Screen to Temporary File and Copy Path"
-msgstr ""
+msgstr "Экранды уақытша файлға көшіріп, жолын көшіру"
 
 #: src/input/command.zig:287
 msgid ""
 "Copy the screen contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
+"Экран мазмұнын уақытша файлға көшіріп, файл жолын алмасу буферіне көшіру."
 
 #: src/input/command.zig:291
 msgid "Copy Screen to Temporary File and Paste Path"
-msgstr ""
+msgstr "Экранды уақытша файлға көшіріп, жолын кірістіру"
 
 #: src/input/command.zig:292
 msgid ""
 "Copy the screen contents to a temporary file and paste the path to the file."
-msgstr ""
+msgstr "Экран мазмұнын уақытша файлға көшіріп, файл жолын кірістіру."
 
 #: src/input/command.zig:296
 msgid "Copy Screen to Temporary File and Open"
-msgstr ""
+msgstr "Экранды уақытша файлға көшіріп, ашу"
 
 #: src/input/command.zig:297
 msgid "Copy the screen contents to a temporary file and open it."
-msgstr ""
+msgstr "Экран мазмұнын уақытша файлға көшіріп, оны ашу."
 
 #: src/input/command.zig:305
 msgid "Copy Screen as HTML to Temporary File and Copy Path"
-msgstr ""
+msgstr "Экранды HTML ретінде уақытша файлға көшіріп, жолын көшіру"
 
 #: src/input/command.zig:306
 msgid ""
 "Copy the screen contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
+"Экран мазмұнын HTML ретінде уақытша файлға көшіріп, файл жолын алмасу "
+"буферіне көшіру."
 
 #: src/input/command.zig:313
 msgid "Copy Screen as HTML to Temporary File and Paste Path"
-msgstr ""
+msgstr "Экранды HTML ретінде уақытша файлға көшіріп, жолын кірістіру"
 
 #: src/input/command.zig:314
 msgid ""
 "Copy the screen contents as HTML to a temporary file and paste the path to "
 "the file."
 msgstr ""
+"Экран мазмұнын HTML ретінде уақытша файлға көшіріп, файл жолын кірістіру."
 
 #: src/input/command.zig:321
 msgid "Copy Screen as HTML to Temporary File and Open"
-msgstr ""
+msgstr "Экранды HTML ретінде уақытша файлға көшіріп, ашу"
 
 #: src/input/command.zig:322
 msgid "Copy the screen contents as HTML to a temporary file and open it."
-msgstr ""
+msgstr "Экран мазмұнын HTML ретінде уақытша файлға көшіріп, оны ашу."
 
 #: src/input/command.zig:330
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
-msgstr ""
+msgstr "Экранды ANSI тізбектері ретінде уақытша файлға көшіріп, жолын көшіру"
 
 #: src/input/command.zig:331
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
+"Экран мазмұнын ANSI escape-тізбектері ретінде уақытша файлға көшіріп, файл "
+"жолын алмасу буферіне көшіру."
 
 #: src/input/command.zig:338
 msgid "Copy Screen as ANSI Sequences to Temporary File and Paste Path"
 msgstr ""
+"Экранды ANSI тізбектері ретінде уақытша файлға көшіріп, жолын кірістіру"
 
 #: src/input/command.zig:339
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
+"Экран мазмұнын ANSI escape-тізбектері ретінде уақытша файлға көшіріп, файл "
+"жолын кірістіру."
 
 #: src/input/command.zig:346
 msgid "Copy Screen as ANSI Sequences to Temporary File and Open"
-msgstr ""
+msgstr "Экранды ANSI тізбектері ретінде уақытша файлға көшіріп, ашу"
 
 #: src/input/command.zig:347
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
+"Экран мазмұнын ANSI escape-тізбектері ретінде уақытша файлға көшіріп, оны "
+"ашу."
 
 #: src/input/command.zig:354
 msgid "Copy Selection to Temporary File and Copy Path"
-msgstr ""
+msgstr "Таңдауды уақытша файлға көшіріп, жолын көшіру"
 
 #: src/input/command.zig:355
 msgid ""
 "Copy the selection contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
+"Таңдау мазмұнын уақытша файлға көшіріп, файл жолын алмасу буферіне көшіру."
 
 #: src/input/command.zig:359
 msgid "Copy Selection to Temporary File and Paste Path"
-msgstr ""
+msgstr "Таңдауды уақытша файлға көшіріп, жолын кірістіру"
 
 #: src/input/command.zig:360
 msgid ""
 "Copy the selection contents to a temporary file and paste the path to the "
 "file."
-msgstr ""
+msgstr "Таңдау мазмұнын уақытша файлға көшіріп, файл жолын кірістіру."
 
 #: src/input/command.zig:364
 msgid "Copy Selection to Temporary File and Open"
-msgstr ""
+msgstr "Таңдауды уақытша файлға көшіріп, ашу"
 
 #: src/input/command.zig:365
 msgid "Copy the selection contents to a temporary file and open it."
-msgstr ""
+msgstr "Таңдау мазмұнын уақытша файлға көшіріп, оны ашу."
 
 #: src/input/command.zig:373
 msgid "Copy Selection as HTML to Temporary File and Copy Path"
-msgstr ""
+msgstr "Таңдауды HTML ретінде уақытша файлға көшіріп, жолын көшіру"
 
 #: src/input/command.zig:374
 msgid ""
 "Copy the selection contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
+"Таңдау мазмұнын HTML ретінде уақытша файлға көшіріп, файл жолын алмасу "
+"буферіне көшіру."
 
 #: src/input/command.zig:381
 msgid "Copy Selection as HTML to Temporary File and Paste Path"
-msgstr ""
+msgstr "Таңдауды HTML ретінде уақытша файлға көшіріп, жолын кірістіру"
 
 #: src/input/command.zig:382
 msgid ""
 "Copy the selection contents as HTML to a temporary file and paste the path "
 "to the file."
 msgstr ""
+"Таңдау мазмұнын HTML ретінде уақытша файлға көшіріп, файл жолын кірістіру."
 
 #: src/input/command.zig:389
 msgid "Copy Selection as HTML to Temporary File and Open"
-msgstr ""
+msgstr "Таңдауды HTML ретінде уақытша файлға көшіріп, ашу"
 
 #: src/input/command.zig:390
 msgid "Copy the selection contents as HTML to a temporary file and open it."
-msgstr ""
+msgstr "Таңдау мазмұнын HTML ретінде уақытша файлға көшіріп, оны ашу."
 
 #: src/input/command.zig:398
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
-msgstr ""
+msgstr "Таңдауды ANSI тізбектері ретінде уақытша файлға көшіріп, жолын көшіру"
 
 #: src/input/command.zig:399
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
+"Таңдау мазмұнын ANSI escape-тізбектері ретінде уақытша файлға көшіріп, файл "
+"жолын алмасу буферіне көшіру."
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
 msgstr ""
+"Таңдауды ANSI тізбектері ретінде уақытша файлға көшіріп, жолын кірістіру"
 
 #: src/input/command.zig:407
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
+"Таңдау мазмұнын ANSI escape-тізбектері ретінде уақытша файлға көшіріп, файл "
+"жолын кірістіру."
 
 #: src/input/command.zig:414
 msgid "Copy Selection as ANSI Sequences to Temporary File and Open"
-msgstr ""
+msgstr "Таңдауды ANSI тізбектері ретінде уақытша файлға көшіріп, ашу"
 
 #: src/input/command.zig:415
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
+"Таңдау мазмұнын ANSI escape-тізбектері ретінде уақытша файлға көшіріп, оны "
+"ашу."
 
 #: src/input/command.zig:422
 msgid "Open a new window."
-msgstr ""
+msgstr "Жаңа терезе ашу."
 
 #: src/input/command.zig:428
 msgid "Open a new tab."
-msgstr ""
+msgstr "Жаңа бет ашу."
 
 #: src/input/command.zig:434
 msgid "Move Tab Left"
-msgstr ""
+msgstr "Бетті солға жылжыту"
 
 #: src/input/command.zig:435
 msgid "Move the current tab to the left."
-msgstr ""
+msgstr "Ағымдағы бетті солға жылжыту."
 
 #: src/input/command.zig:439
 msgid "Move Tab Right"
-msgstr ""
+msgstr "Бетті оңға жылжыту"
 
 #: src/input/command.zig:440
 msgid "Move the current tab to the right."
-msgstr ""
+msgstr "Ағымдағы бетті оңға жылжыту."
 
 #: src/input/command.zig:446
 msgid "Move Tab to New Window"
-msgstr ""
+msgstr "Бетті жаңа терезеге жылжыту"
 
 #: src/input/command.zig:447
 msgid "Move the current tab to a new window."
-msgstr ""
+msgstr "Ағымдағы бетті жаңа терезеге жылжыту."
 
 #: src/input/command.zig:452
 msgid "Toggle Tab Overview"
-msgstr ""
+msgstr "Беттер шолуын іске қосу/сөндіру"
 
 #: src/input/command.zig:453
 msgid "Toggle the tab overview."
-msgstr ""
+msgstr "Беттер шолуын іске қосу немесе сөндіру."
 
 #: src/input/command.zig:458
 msgid "Change Terminal Title…"
-msgstr ""
+msgstr "Терминал атауын өзгерту…"
 
 #: src/input/command.zig:459
 msgid "Prompt for a new title for the current terminal."
-msgstr ""
+msgstr "Ағымдағы терминал үшін жаңа атау сұрау."
 
 #: src/input/command.zig:465
 msgid "Prompt for a new title for the current tab."
-msgstr ""
+msgstr "Ағымдағы бет үшін жаңа атау сұрау."
 
 #: src/input/command.zig:478
 msgid "Split the terminal to the left."
-msgstr ""
+msgstr "Терминалды солға бөлу."
 
 #: src/input/command.zig:483
 msgid "Split the terminal to the right."
-msgstr ""
+msgstr "Терминалды оңға бөлу."
 
 #: src/input/command.zig:488
 msgid "Split the terminal up."
-msgstr ""
+msgstr "Терминалды жоғары қарай бөлу."
 
 #: src/input/command.zig:493
 msgid "Split the terminal down."
-msgstr ""
+msgstr "Терминалды төмен қарай бөлу."
 
 #: src/input/command.zig:500
 msgid "Focus Split: Previous"
-msgstr ""
+msgstr "Фокусты бөлікке ауыстыру: алдыңғы"
 
 #: src/input/command.zig:501
 msgid "Focus the previous split, if any."
-msgstr ""
+msgstr "Бар болса, алдыңғы бөлікке фокусты ауыстыру."
 
 #: src/input/command.zig:505
 msgid "Focus Split: Next"
-msgstr ""
+msgstr "Фокусты бөлікке ауыстыру: келесі"
 
 #: src/input/command.zig:506
 msgid "Focus the next split, if any."
-msgstr ""
+msgstr "Бар болса, келесі бөлікке фокусты ауыстыру."
 
 #: src/input/command.zig:510
 msgid "Focus Split: Left"
-msgstr ""
+msgstr "Фокусты бөлікке ауыстыру: сол жақ"
 
 #: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
-msgstr ""
+msgstr "Бар болса, сол жақтағы бөлікке фокусты ауыстыру."
 
 #: src/input/command.zig:515
 msgid "Focus Split: Right"
-msgstr ""
+msgstr "Фокусты бөлікке ауыстыру: оң жақ"
 
 #: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
-msgstr ""
+msgstr "Бар болса, оң жақтағы бөлікке фокусты ауыстыру."
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
-msgstr ""
+msgstr "Фокусты бөлікке ауыстыру: жоғары"
 
 #: src/input/command.zig:521
 msgid "Focus the split above, if it exists."
-msgstr ""
+msgstr "Бар болса, жоғарыдағы бөлікке фокусты ауыстыру."
 
 #: src/input/command.zig:525
 msgid "Focus Split: Down"
-msgstr ""
+msgstr "Фокусты бөлікке ауыстыру: төмен"
 
 #: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
-msgstr ""
+msgstr "Бар болса, төмендегі бөлікке фокусты ауыстыру."
 
 #: src/input/command.zig:533
 msgid "Focus Window: Previous"
-msgstr ""
+msgstr "Фокусты терезеге ауыстыру: алдыңғы"
 
 #: src/input/command.zig:534
 msgid "Focus the previous window, if any."
-msgstr ""
+msgstr "Бар болса, алдыңғы терезеге фокусты ауыстыру."
 
 #: src/input/command.zig:538
 msgid "Focus Window: Next"
-msgstr ""
+msgstr "Фокусты терезеге ауыстыру: келесі"
 
 #: src/input/command.zig:539
 msgid "Focus the next window, if any."
-msgstr ""
+msgstr "Бар болса, келесі терезеге фокусты ауыстыру."
 
 #: src/input/command.zig:545
 msgid "Toggle Split Zoom"
-msgstr ""
+msgstr "Бөлікті ұлғайтуды іске қосу/сөндіру"
 
 #: src/input/command.zig:546
 msgid "Toggle the zoom state of the current split."
-msgstr ""
+msgstr "Ағымдағы бөліктің ұлғайту күйін іске қосу немесе сөндіру."
 
 #: src/input/command.zig:551
 msgid "Toggle Read-Only Mode"
-msgstr ""
+msgstr "Тек оқу режимін іске қосу/сөндіру"
 
 #: src/input/command.zig:552
 msgid "Toggle read-only mode for the current surface."
-msgstr ""
+msgstr "Ағымдағы терминал үшін тек оқу режимін іске қосу немесе сөндіру."
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
-msgstr ""
+msgstr "Бөліктерді теңестіру"
 
 #: src/input/command.zig:558
 msgid "Equalize the size of all splits."
-msgstr ""
+msgstr "Барлық бөліктердің өлшемін теңестіру."
 
 #: src/input/command.zig:563
 msgid "Reset Window Size"
-msgstr ""
+msgstr "Терезе өлшемін қалпына келтіру"
 
 #: src/input/command.zig:564
 msgid "Reset the window size to the default."
-msgstr ""
+msgstr "Терезе өлшемін бастапқы мәніне келтіру."
 
 #: src/input/command.zig:569
 msgid "Toggle Inspector"
-msgstr ""
+msgstr "Инспекторды іске қосу/сөндіру"
 
 #: src/input/command.zig:570
 msgid "Toggle the inspector."
-msgstr ""
+msgstr "Инспекторды іске қосу немесе сөндіру."
 
 #: src/input/command.zig:575
 msgid "Show the GTK Inspector"
-msgstr ""
+msgstr "GTK инспекторын көрсету"
 
 #: src/input/command.zig:576
 msgid "Show the GTK inspector."
-msgstr ""
+msgstr "GTK инспекторын көрсету."
 
 #: src/input/command.zig:581
 msgid "Show On-Screen Keyboard"
-msgstr ""
+msgstr "Экрандағы пернетақтаны көрсету"
 
 #: src/input/command.zig:582
 msgid "Show the on-screen keyboard if present."
-msgstr ""
+msgstr "Бар болса, экрандағы пернетақтаны көрсету."
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
-msgstr ""
+msgstr "Конфигурацияны ОЖ түзеткішімен ашу"
 
 #: src/input/command.zig:589
 msgid "Open the config file with the OS's default editor."
-msgstr ""
+msgstr "Конфигурация файлын ОЖ бастапқы түзеткішімен ашу."
 
 #: src/input/command.zig:593
 msgid "Open Config in New Terminal Window"
-msgstr ""
+msgstr "Конфигурацияны жаңа терминал терезесінде ашу"
 
 #: src/input/command.zig:594
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
-msgstr ""
+msgstr "Конфигурация файлын $EDITOR немесе $VISUAL арқылы жаңа терезеде ашу."
 
 #: src/input/command.zig:600
 msgid "Reload Config"
-msgstr ""
+msgstr "Конфигурацияны қайта жүктеу"
 
 #: src/input/command.zig:601
 msgid "Reload the config file."
-msgstr ""
+msgstr "Конфигурация файлын қайта жүктеу."
 
 #: src/input/command.zig:606
 msgid "Close Terminal"
-msgstr ""
+msgstr "Терминалды жабу"
 
 #: src/input/command.zig:607
 msgid "Close the current terminal."
-msgstr ""
+msgstr "Ағымдағы терминалды жабу."
 
 #: src/input/command.zig:614
 msgid "Close the current tab."
-msgstr ""
+msgstr "Ағымдағы бетті жабу."
 
 #: src/input/command.zig:618
 msgid "Close Other Tabs"
-msgstr ""
+msgstr "Басқа беттерді жабу"
 
 #: src/input/command.zig:619
 msgid "Close all tabs in this window except the current one."
-msgstr ""
+msgstr "Осы терезедегі ағымдағыдан басқа барлық беттерді жабу."
 
 #: src/input/command.zig:623
 msgid "Close Tabs to the Right"
-msgstr ""
+msgstr "Оң жақтағы беттерді жабу"
 
 #: src/input/command.zig:624
 msgid "Close all tabs to the right of the current one."
-msgstr ""
+msgstr "Ағымдағы беттің оң жағындағы барлық беттерді жабу."
 
 #: src/input/command.zig:631
 msgid "Close the current window."
-msgstr ""
+msgstr "Ағымдағы терезені жабу."
 
 #: src/input/command.zig:636
 msgid "Close All Windows"
-msgstr ""
+msgstr "Барлық терезелерді жабу"
 
 #: src/input/command.zig:637
 msgid "Close all windows."
-msgstr ""
+msgstr "Барлық терезелерді жабу."
 
 #: src/input/command.zig:642
 msgid "Toggle Maximize"
-msgstr ""
+msgstr "Жаюды іске қосу/сөндіру"
 
 #: src/input/command.zig:643
 msgid "Toggle the maximized state of the current window."
-msgstr ""
+msgstr "Ағымдағы терезенің жайылған күйін іске қосу немесе сөндіру."
 
 #: src/input/command.zig:648
 msgid "Toggle Fullscreen"
-msgstr ""
+msgstr "Толық экранды іске қосу/сөндіру"
 
 #: src/input/command.zig:649
 msgid "Toggle the fullscreen state of the current window."
-msgstr ""
+msgstr "Ағымдағы терезенің толық экран күйін іске қосу немесе сөндіру."
 
 #: src/input/command.zig:654
 msgid "Toggle Window Decorations"
-msgstr ""
+msgstr "Терезе безендірулерін іске қосу/сөндіру"
 
 #: src/input/command.zig:655
 msgid "Toggle the window decorations."
-msgstr ""
+msgstr "Терезе безендірулерін іске қосу немесе сөндіру."
 
 #: src/input/command.zig:660
 msgid "Toggle Float on Top"
-msgstr ""
+msgstr "Үстінде қалқып тұруды іске қосу/сөндіру"
 
 #: src/input/command.zig:661
 msgid "Toggle the float on top state of the current window."
-msgstr ""
+msgstr "Ағымдағы терезенің үстінде қалқып тұру күйін іске қосу немесе сөндіру."
 
 #: src/input/command.zig:666
 msgid "Toggle Secure Input"
-msgstr ""
+msgstr "Қауіпсіз енгізуді іске қосу/сөндіру"
 
 #: src/input/command.zig:667
 msgid "Toggle secure input mode."
-msgstr ""
+msgstr "Қауіпсіз енгізу режимін іске қосу немесе сөндіру."
 
 #: src/input/command.zig:672
 msgid "Toggle Mouse Reporting"
-msgstr ""
+msgstr "Тышқан туралы хабарлауды іске қосу/сөндіру"
 
 #: src/input/command.zig:673
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr ""
+"Тышқан оқиғалары терминал қолданбаларына хабарлануын іске қосу немесе "
+"сөндіру."
 
 #: src/input/command.zig:678
 msgid "Toggle Background Opacity"
-msgstr ""
+msgstr "Фон мөлдірсіздігін іске қосу/сөндіру"
 
 #: src/input/command.zig:679
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr ""
+"Мөлдір күйде іске қосылған терезенің фон мөлдірсіздігін іске қосу немесе "
+"сөндіру."
 
 #: src/input/command.zig:684
 msgid "Check for Updates"
-msgstr ""
+msgstr "Жаңартуларды тексеру"
 
 #: src/input/command.zig:685
 msgid "Check for updates to the application."
-msgstr ""
+msgstr "Қолданба жаңартуларын тексеру."
 
 #: src/input/command.zig:690
 msgid "Undo"
-msgstr ""
+msgstr "Болдырмау"
 
 #: src/input/command.zig:691
 msgid "Undo the last action."
-msgstr ""
+msgstr "Соңғы әрекетті болдырмау."
 
 #: src/input/command.zig:696
 msgid "Redo"
-msgstr ""
+msgstr "Қайталау"
 
 #: src/input/command.zig:697
 msgid "Redo the last undone action."
-msgstr ""
+msgstr "Соңғы болдырылмаған әрекетті қайталау."
 
 #: src/input/command.zig:703
 msgid "Quit the application."
-msgstr ""
+msgstr "Қолданбадан шығу."
 
 #: src/input/command.zig:708
 msgid "Ghostty"
-msgstr ""
+msgstr "Ghostty"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."
-msgstr ""
+msgstr "Терминалыңызға аздап Ghostty қосыңыз."

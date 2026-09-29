@@ -226,7 +226,7 @@
       </parameter>
     </command>
 
-    <command name="send key" code="GhstSKey" description="Send a keyboard event to a terminal.">
+    <command name="send key" code="GhstSKey" description="Send a keyboard event to a terminal. Keys are translated once through the current keyboard layout. Dead keys do not compose with subsequent keys.">
       <cocoa class="GhosttyScriptKeyEventCommand"/>
       <direct-parameter type="text" description="The key name (e.g. &quot;enter&quot;, &quot;a&quot;, &quot;space&quot;)."/>
       <parameter name="action" code="GKeA" type="input action" optional="yes" description="Press or release (default: press).">

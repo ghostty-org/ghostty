@@ -58,6 +58,12 @@ pub fn initWasm(
     // There is no entrypoint for this wasm module.
     exe.entry = .disabled;
 
+    // Default Zig stack size in Zig 0.16 is 1MB. Lower to 128 KB since
+    // this has to be preallocated up front in Wasm linear memory. Peak
+    // stack under various artificial loads is 17 KB at the time of this
+    // comment but lets do 128KB to be safe. We can lower later.
+    exe.stack_size = 128 * 1024;
+
     // Zig's WASM linker doesn't support --growable-table, so the table
     // is emitted with max == min and can't be grown from JS. Run a
     // small Zig build tool that patches the binary's table section to
@@ -240,7 +246,9 @@ fn initLib(
 
         // Enable PIC so the static library can be linked into PIE
         // executables, which is the default on most Linux distributions.
-        lib.root_module.pic = true;
+        // Native freestanding targets don't have a dynamic loader and some,
+        // such as Xtensa, don't support PIC relocations.
+        lib.root_module.pic = target.result.os.tag != .freestanding;
     }
 
     if (target.result.os.tag == .windows) {

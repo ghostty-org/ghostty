@@ -57,7 +57,6 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
         super.becomeKey()
 
         updateNewTabButtonOpacity()
-        resetZoomToolbarButton.contentTintColor = .controlAccentColor
         tab.attributedTitle = attributedTitle
     }
 
@@ -65,7 +64,6 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
         super.resignKey()
 
         updateNewTabButtonOpacity()
-        resetZoomToolbarButton.contentTintColor = .tertiaryLabelColor
         tab.attributedTitle = attributedTitle
     }
 
@@ -236,42 +234,6 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 		}
 	}
 
-    // MARK: - Split Zoom Button
-
-    private lazy var resetZoomToolbarButton: NSButton = generateResetZoomButton()
-
-	private func generateResetZoomButton() -> NSButton {
-		let button = NSButton()
-		button.target = nil
-		button.action = #selector(TerminalController.splitZoom(_:))
-		button.isBordered = false
-		button.allowsExpansionToolTips = true
-		button.toolTip = "Reset Zoom"
-		button.contentTintColor = .controlAccentColor
-		button.state = .on
-		button.image = NSImage(named: "ResetZoom")
-		button.frame = NSRect(x: 0, y: 0, width: 20, height: 20)
-		button.translatesAutoresizingMaskIntoConstraints = false
-		button.widthAnchor.constraint(equalToConstant: 20).isActive = true
-		button.heightAnchor.constraint(equalToConstant: 20).isActive = true
-
-		return button
-	}
-
-	@objc private func selectTabAndZoom(_ sender: NSButton) {
-		guard let tabGroup else { return }
-
-		guard let associatedWindow = tabGroup.windows.first(where: {
-			guard let accessoryView = $0.tab.accessoryView else { return false }
-			return accessoryView.subviews.contains(sender)
-		}),
-			  let windowController = associatedWindow.windowController as? TerminalController
-		else { return }
-
-		tabGroup.selectedWindow = associatedWindow
-		windowController.splitZoom(self)
-	}
-
     // MARK: - Titlebar Font
 
     // Used to set the titlebar font.
@@ -321,12 +283,6 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 
         toolbar = terminalToolbar
         toolbarStyle = .unifiedCompact
-        if let resetZoomItem = terminalToolbar.items.first(where: { $0.itemIdentifier == .resetZoom }) {
-            resetZoomItem.view = resetZoomToolbarButton
-            resetZoomItem.view!.removeConstraints(resetZoomItem.view!.constraints)
-            resetZoomItem.view!.widthAnchor.constraint(equalToConstant: 22).isActive = true
-            resetZoomItem.view!.heightAnchor.constraint(equalToConstant: 20).isActive = true
-        }
     }
 
     // For titlebar tabs, we want to hide the separator view so that we get rid
@@ -648,8 +604,6 @@ private class TerminalToolbar: NSToolbar, NSToolbarDelegate {
             ])
 
             item.isEnabled = true
-        case .resetZoom:
-            item = NSToolbarItem(itemIdentifier: .resetZoom)
         default:
             item = NSToolbarItem(itemIdentifier: itemIdentifier)
         }
@@ -658,7 +612,7 @@ private class TerminalToolbar: NSToolbar, NSToolbarDelegate {
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        return [.titleText, .flexibleSpace, .space, .resetZoom]
+        return [.titleText, .flexibleSpace]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -713,6 +667,5 @@ private class CenteredDynamicLabel: NSTextField {
 }
 
 extension NSToolbarItem.Identifier {
-    static let resetZoom = NSToolbarItem.Identifier("ResetZoom")
     static let titleText = NSToolbarItem.Identifier("TitleText")
 }

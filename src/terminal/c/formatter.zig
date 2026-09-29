@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const lib = @import("../lib.zig");
 const CAllocator = lib.alloc.Allocator;
+const io_c = @import("io.zig");
 const terminal_c = @import("terminal.zig");
 const grid_ref = @import("grid_ref.zig");
 const selection_c = @import("selection.zig");
@@ -160,6 +161,32 @@ fn terminal_new_(
     return ptr;
 }
 
+/// Format directly to a synchronous C writer callback.
+pub fn format(
+    formatter_: Formatter,
+    writer: io_c.Writer,
+) callconv(lib.calling_conv) Result {
+    const wrapper = formatter_ orelse return .invalid_value;
+    if (!writer.valid()) return .invalid_value;
+
+    // Batch the formatter's many small writes into few callback calls. The
+    // trailing flush upholds the API contract that success means the
+    // callback has accepted every byte.
+    var buffer: [io_c.WriterAdapter.recommended_buffer_len]u8 = undefined;
+    var adapter: io_c.WriterAdapter = .initBuffered(writer, &buffer);
+    format_: {
+        switch (wrapper.kind) {
+            .terminal => |*t| t.format(adapter.writer()) catch break :format_,
+        }
+        adapter.writer().flush() catch break :format_;
+        return .success;
+    }
+
+    if (adapter.invalid_write) return .limit_exceeded;
+    if (adapter.callback_failed) return .io_error;
+    return .io_error;
+}
+
 pub fn format_buf(
     formatter_: Formatter,
     out_: ?[*]u8,
@@ -207,7 +234,9 @@ pub fn format_alloc(
     }
 
     const buf = aw.toOwnedSlice() catch return .out_of_memory;
-    out_ptr.* = buf.ptr;
+    // Empty Zig slices may contain sentinel pointers that foreign runtimes
+    // reject even when the length is zero (for example Go's stack scanner).
+    out_ptr.* = if (buf.len == 0) null else buf.ptr;
     out_len.* = buf.len;
     return .success;
 }
@@ -254,6 +283,47 @@ test "free null" {
     free(null);
 }
 
+test "format_alloc empty output" {
+    const failing: CAllocator = .fromZig(&std.mem.Allocator.failing);
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        100,
+        40,
+    ));
+    defer terminal_c.free(t);
+
+    // Match a zero-initialized C options struct, including trim = false.
+    const opts: TerminalOptions = std.mem.zeroInit(TerminalOptions, .{});
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+        opts,
+    ));
+    defer free(f);
+
+    for ([_]?*const CAllocator{ null, &failing }) |allocator| {
+        var sentinel: u8 = 0;
+        var ptr: ?[*]u8 = @ptrCast(&sentinel);
+        var len: usize = 123;
+        try testing.expectEqual(Result.success, format_alloc(f, allocator, &ptr, &len));
+        defer @import("allocator.zig").free(allocator, ptr, len);
+        try testing.expectEqual(@as(usize, 0), len);
+        try testing.expectEqual(null, ptr);
+    }
+
+    // Reusing the same formatter must still allocate and return real output.
+    terminal_c.vt_write(t, "hello", 5);
+    var ptr: ?[*]u8 = null;
+    var len: usize = 0;
+    try testing.expectEqual(Result.success, format_alloc(f, null, &ptr, &len));
+    defer @import("allocator.zig").free(null, ptr, len);
+    try testing.expectEqualStrings("hello", ptr.?[0..len]);
+}
+
 test "format plain" {
     var t: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
@@ -279,6 +349,96 @@ test "format plain" {
     var written: usize = 0;
     try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
     try testing.expectEqualStrings("Hello", buf[0..written]);
+}
+
+test "format streams to writer" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    terminal_c.vt_write(t, "Hello\r\nWorld", 12);
+
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+        .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
+    ));
+    defer free(f);
+
+    const Context = struct {
+        destination: []u8,
+        offset: usize = 0,
+        calls: usize = 0,
+
+        fn write(
+            userdata: ?*anyopaque,
+            data: [*]const u8,
+            len: usize,
+        ) callconv(lib.calling_conv) bool {
+            const self: *@This() = @ptrCast(@alignCast(userdata.?));
+            if (len > self.destination.len - self.offset) return false;
+            @memcpy(self.destination[self.offset..][0..len], data[0..len]);
+            self.offset += len;
+            self.calls += 1;
+            return true;
+        }
+    };
+
+    var buf: [1024]u8 = undefined;
+    var context: Context = .{ .destination = &buf };
+    try testing.expectEqual(Result.success, format(f, .{
+        .write = &Context.write,
+        .userdata = &context,
+    }));
+    try testing.expect(context.calls > 0);
+    try testing.expectEqualStrings("Hello\nWorld", buf[0..context.offset]);
+}
+
+test "format writer errors" {
+    const FailWriter = struct {
+        fn write(
+            _: ?*anyopaque,
+            _: [*]const u8,
+            _: usize,
+        ) callconv(lib.calling_conv) bool {
+            return false;
+        }
+    };
+
+    try testing.expectEqual(Result.invalid_value, format(null, .{
+        .write = &FailWriter.write,
+    }));
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+    terminal_c.vt_write(t, "Hello", 5);
+
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+        .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
+    ));
+    defer free(f);
+
+    try testing.expectEqual(Result.invalid_value, format(f, .{}));
+    try testing.expectEqual(Result.io_error, format(f, .{
+        .write = &FailWriter.write,
+    }));
 }
 
 test "format reflects terminal changes" {

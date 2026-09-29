@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const buildpkg = @import("src/build/main.zig");
+const translate_c = @import("translate_c");
 
 /// App version from build.zig.zon.
 const app_zon_version = @import("build.zig.zon").version;
@@ -69,6 +70,14 @@ pub fn build(b: *std.Build) !void {
         "test-lib-vt",
         "Run libghostty-vt tests",
     );
+    const test_lib_vt_build_step = b.step(
+        "test-lib-vt-build",
+        "Build libghostty-vt tests without running them (compile check)",
+    );
+    const test_lib_vt_schema_step = b.step(
+        "test-lib-vt-schema",
+        "Validate the libghostty-vt ABI type manifest",
+    );
     const test_valgrind_step = b.step(
         "test-valgrind",
         "Run tests under valgrind",
@@ -117,20 +126,36 @@ pub fn build(b: *std.Build) !void {
     }
 
     // libghostty-vt
-    const libghostty_vt_shared = shared: {
+    const native_freestanding = config.target.result.os.tag == .freestanding and
+        !config.target.result.cpu.arch.isWasm();
+    const libghostty_vt_shared: ?buildpkg.GhosttyLibVt = shared: {
         if (config.target.result.cpu.arch.isWasm()) {
             break :shared try buildpkg.GhosttyLibVt.initWasm(
                 b,
                 &mod,
             );
         }
+        if (native_freestanding) break :shared null;
 
         break :shared try buildpkg.GhosttyLibVt.initShared(
             b,
             &mod,
         );
     };
-    libghostty_vt_shared.install(b.getInstallStep());
+    if (libghostty_vt_shared) |shared| {
+        shared.install(b.getInstallStep());
+
+        const type_schema_test = b.addSystemCommand(&.{"python3"});
+        type_schema_test.addFileArg(b.path("src/terminal/c/types-schema-verify.py"));
+        type_schema_test.addFileArg(b.path("src/terminal/c/types.schema.json"));
+        type_schema_test.addFileArg(shared.output);
+        test_lib_vt_schema_step.dependOn(&type_schema_test.step);
+    } else {
+        try test_lib_vt_schema_step.addError(
+            "cannot execute the ABI manifest for a native freestanding target",
+            .{},
+        );
+    }
 
     // libghostty-vt static lib
     const libghostty_vt_static = try buildpkg.GhosttyLibVt.initStatic(
@@ -153,6 +178,15 @@ pub fn build(b: *std.Build) !void {
             libghostty_vt_static.output,
             static_lib_name,
         ).step);
+
+        if (native_freestanding) {
+            b.getInstallStep().dependOn(&b.addInstallDirectory(.{
+                .source_dir = b.path("include/ghostty"),
+                .install_dir = .header,
+                .install_subdir = "ghostty",
+                .include_extensions = &.{".h"},
+            }).step);
+        }
     }
 
     // libghostty-vt xcframework (Apple only, universal binary).
@@ -312,6 +346,7 @@ pub fn build(b: *std.Build) !void {
         const run_cmd = b.addSystemCommand(&.{
             "valgrind",
             "--leak-check=full",
+            "--error-exitcode=1",
             "--num-callers=50",
             b.fmt("--suppressions={s}", .{b.pathFromRoot("valgrind.supp")}),
             "--gen-suppressions=all",
@@ -329,6 +364,7 @@ pub fn build(b: *std.Build) !void {
         });
         const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
         test_lib_vt_step.dependOn(&mod_vt_test_run.step);
+        test_lib_vt_build_step.dependOn(&mod_vt_test.step);
 
         const mod_vt_c_test = b.addTest(.{
             .root_module = mod.vt_c,
@@ -336,6 +372,7 @@ pub fn build(b: *std.Build) !void {
         });
         const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
         test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);
+        test_lib_vt_build_step.dependOn(&mod_vt_c_test.step);
     }
 
     // Tests (skip when building libghostty-vt)
@@ -376,6 +413,7 @@ pub fn build(b: *std.Build) !void {
         const valgrind_run = b.addSystemCommand(&.{
             "valgrind",
             "--leak-check=full",
+            "--error-exitcode=1",
             "--num-callers=50",
             b.fmt("--suppressions={s}", .{b.pathFromRoot("valgrind.supp")}),
             "--gen-suppressions=all",
@@ -400,21 +438,12 @@ fn addGhosttyH(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) void {
-    const translate_c = b.lazyImport(@This(), "translate_c") orelse return;
-    const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse return;
-
-    const translated: translate_c.Translator = .init(translate_c_dep, .{
-        .c_source_file = b.addWriteFiles().add(
-            "hb_c.h",
-            \\#include <ghostty.h>
-            ,
-        ),
+    translate_c.addImportToModule(b, "ghostty.h", module, .{
+        .source = .{ .includes = .{ .files = &.{
+            .{ .path = "ghostty.h" },
+        } } },
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
-    });
-
-    translated.addSystemIncludePath(b.path("include"));
-
-    module.addImport("ghostty.h", translated.mod);
+        .system_include_paths = &.{b.path("include")},
+    }) catch unreachable;
 }

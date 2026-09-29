@@ -145,13 +145,10 @@ test "StringMap searchIterator" {
             .y = 1,
         } }).?,
     }).?;
-    var map: StringMap = undefined;
-    const sel_str = try s.selectionString(alloc, .{
+    const map = try s.selectionStringMap(alloc, .{
         .sel = line,
         .trim = false,
-        .map = &map,
     });
-    alloc.free(sel_str);
     defer map.deinit(alloc);
 
     // Get our iterator
@@ -205,13 +202,10 @@ test "StringMap searchIterator URL detection" {
             .y = 0,
         } }).?,
     }).?;
-    var map: StringMap = undefined;
-    const sel_str = try s.selectionString(alloc, .{
+    const map = try s.selectionStringMap(alloc, .{
         .sel = line,
         .trim = false,
-        .map = &map,
     });
-    alloc.free(sel_str);
     defer map.deinit(alloc);
 
     // Search for URL match
@@ -270,13 +264,10 @@ test "StringMap searchIterator URL with click position" {
     const line = s.selectLine(.{
         .pin = click_pin,
     }).?;
-    var map: StringMap = undefined;
-    const sel_str = try s.selectionString(alloc, .{
+    const map = try s.selectionStringMap(alloc, .{
         .sel = line,
         .trim = false,
-        .map = &map,
     });
-    alloc.free(sel_str);
     defer map.deinit(alloc);
 
     // Search for URL match and verify click position is within URL

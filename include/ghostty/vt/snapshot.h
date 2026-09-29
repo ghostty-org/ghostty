@@ -7,6 +7,7 @@
 #ifndef GHOSTTY_VT_SNAPSHOT_H
 #define GHOSTTY_VT_SNAPSHOT_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -131,12 +132,33 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * state. The decoder default matches the largest built-in APC protocol
    * buffer limit, currently 65 MiB.
    *
-   * This is an input validation limit only. It does not configure continuation
-   * tracking on a terminal returned by the decoder.
+   * This is primarily an input validation limit. When
+   * GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION is true, the same value
+   * also becomes the continuation tracking limit on the returned terminal.
    *
    * Input type: size_t *
    */
   GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES = 0,
+
+  /**
+   * Retain the decoded continuation on the returned terminal.
+   *
+   * When true, terminals returned by ghostty_snapshot_decoder_ready() and
+   * ghostty_snapshot_decoder_decode() use
+   * GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES as their continuation
+   * tracking limit. The existing ghostty_terminal_continuation_* APIs can then
+   * export the exact unfinished VT or UTF-8 input restored from the snapshot.
+   *
+   * This is false by default. A maximum continuation size of zero leaves
+   * tracking disabled. With a nonzero maximum, tracking remains enabled even
+   * when the decoded continuation is empty. Exporting an empty continuation
+   * does not disable it. Callers that do not need ongoing tracking must still
+   * set GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to zero after export and
+   * before writing post-snapshot input.
+   *
+   * Input type: bool *
+   */
+  GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION = 1,
 
   GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttySnapshotDecoderOption;
@@ -221,6 +243,15 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Output type: uint32_t *
    */
   GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_REMAINING = 7,
+
+  /**
+   * Whether decoded continuation tracking is retained on returned terminals.
+   *
+   * This value is available in every non-failed decoder state.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_SNAPSHOT_DECODER_DATA_RETAIN_CONTINUATION = 8,
 
   GHOSTTY_SNAPSHOT_DECODER_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttySnapshotDecoderData;
@@ -397,10 +428,16 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_set(
  * immediately usable for rendering and live input. Older scrollback remains
  * to be restored with ghostty_snapshot_decoder_next().
  *
- * The restored parser state may be unfinished, but terminal continuation
- * tracking is disabled; GHOSTTY_TERMINAL_DATA_CONTINUATION_MAX_BYTES returns
- * zero. The decoder's continuation option is an input limit, not terminal
- * runtime policy.
+ * The restored parser state may be unfinished. By default, terminal
+ * continuation tracking is disabled and
+ * GHOSTTY_TERMINAL_DATA_CONTINUATION_MAX_BYTES returns zero. When
+ * GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION is true, the decoder's
+ * maximum continuation size is applied to the terminal, and the terminal
+ * continuation APIs export the exact current continuation when that limit is
+ * nonzero. Tracking remains enabled even if the exported continuation is
+ * empty. Callers that do not need ongoing tracking must set
+ * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to zero after export and before
+ * writing any post-snapshot bytes, because later input may change it.
  *
  * The caller must keep the returned terminal alive until FINISH validates or
  * the decoder is freed. The decoder borrows this terminal handle while it
@@ -455,8 +492,15 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_next(
  * FINISH. It may only be called before decoding starts. Bytes following FINISH
  * are left unread. On success terminal receives a caller-owned terminal with
  * its persistent VT stream restored. Continuation tracking on the returned
- * terminal is disabled and GHOSTTY_TERMINAL_DATA_CONTINUATION_MAX_BYTES
- * returns zero. terminal is set to NULL on every error.
+ * terminal is disabled by default. When
+ * GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION is true, the decoder's
+ * maximum continuation size is applied to the terminal, and the terminal
+ * continuation APIs export the exact current continuation when that limit is
+ * nonzero. Tracking remains enabled even if the exported continuation is
+ * empty. Callers that do not need ongoing tracking must set
+ * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to zero after export and before
+ * writing any post-snapshot bytes, because later input may change it.
+ * terminal is set to NULL on every error.
  * A decoding, I/O, or allocation error after input consumption begins poisons
  * the decoder, after which it must be freed. An invalid argument or
  * lifecycle error detected before the operation consumes input does not

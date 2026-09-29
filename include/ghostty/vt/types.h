@@ -100,6 +100,12 @@ typedef enum GHOSTTY_ENUM_TYPED {
     GHOSTTY_IO_ERROR = -5,
     /** Operation failed because encoded input exceeded a configured limit */
     GHOSTTY_LIMIT_EXCEEDED = -6,
+    /**
+     * Operation was rejected by a safety check (e.g. pasted text that could
+     * inject commands). Nothing was done. Confirm with the user and retry
+     * with the operation's allow flag set.
+     */
+    GHOSTTY_REJECTED = -7,
     GHOSTTY_RESULT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyResult;
 
@@ -183,6 +189,19 @@ typedef struct GhosttyRenderStateRowIteratorImpl* GhosttyRenderStateRowIterator;
 typedef struct GhosttyRenderStateRowCellsImpl* GhosttyRenderStateRowCells;
 
 /**
+ * Opaque handle to a terminal search.
+ *
+ * A search is bound to the terminal it was created with. It borrows the
+ * terminal, so it never frees it, and the search must be freed with
+ * ghostty_search_free(). If the terminal is freed first, the search
+ * detects this: calls that need the terminal fail cleanly and the
+ * search can still be freed.
+ *
+ * @ingroup search
+ */
+typedef struct GhosttySearchImpl* GhosttySearch;
+
+/**
  * Opaque handle to an SGR parser instance.
  *
  * This handle represents an SGR (Select Graphic Rendition) parser that can
@@ -243,6 +262,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  *
  * The memory is not owned by this struct. The pointer is only valid
  * for the lifetime documented by the API that produces or consumes it.
+ * Empty strings produced by the library have a non-NULL pointer to valid
+ * storage.
  */
 typedef struct {
   /** Pointer to the string bytes. */
@@ -332,29 +353,51 @@ typedef struct {
 #endif
 
 /**
- * Return a pointer to a null-terminated JSON string describing the
- * layout of every C API struct for the current target.
+ * Return the versioned libghostty-vt C type manifest for the current target.
  *
- * This is primarily useful for language bindings that can't easily
- * set C struct fields and need to do so via byte offsets. For example,
- * WebAssembly modules can't share struct definitions with the host.
+ * The manifest defines all the public types available in the linked
+ * build. The types contain their layouts, enum values, union fields, and more.
+ *
+ * Language bindings, such as WebAssembly hosts, should obtain offsets,
+ * sizes, alignments, array shapes, enum constants, and tagged-union arms from
+ * this manifest rather than hardcoding them. Consumers should reject unknown
+ * schema versions and verify the descriptors they require at initialization.
+ *
+ * Packed type descriptors define fields using `lsb` and `width`. `lsb` is
+ * relative to bit zero of the containing numerical value; for nested packed
+ * layouts it is relative to the immediate containing field. Tagged packed
+ * unions select an inline arm layout using the named tag field. These layouts
+ * describe the current linked build and are not a cross-version stability
+ * promise.
+ *
+ * The formal format is defined by the
+ * <a href="types.schema.json">libghostty-vt ABI manifest JSON Schema</a>.
  *
  * Example (abbreviated):
  * @code{.json}
  * {
- *   "GhosttyMouseEncoderSize": {
- *     "size": 40,
- *     "align": 8,
- *     "fields": {
- *       "size":           { "offset": 0,  "size": 8, "type": "u64" },
- *       "screen_width":   { "offset": 8,  "size": 4, "type": "u32" },
- *       "screen_height":  { "offset": 12, "size": 4, "type": "u32" },
- *       "cell_width":     { "offset": 16, "size": 4, "type": "u32" },
- *       "cell_height":    { "offset": 20, "size": 4, "type": "u32" },
- *       "padding_top":    { "offset": 24, "size": 4, "type": "u32" },
- *       "padding_bottom": { "offset": 28, "size": 4, "type": "u32" },
- *       "padding_right":  { "offset": 32, "size": 4, "type": "u32" },
- *       "padding_left":   { "offset": 36, "size": 4, "type": "u32" }
+ *   "schema": 1,
+ *   "abi": {
+ *     "target": "wasm32", "os": "freestanding", "environment": "none",
+ *     "pointer_size": 4, "usize_size": 4, "max_alignment": 16,
+ *     "endian": "little"
+ *   },
+ *   "types": {
+ *     "GhosttyRenderStateData": {
+ *       "kind": "enum", "size": 4, "align": 4,
+ *       "underlying": "i32", "prefix": "GHOSTTY_RENDER_STATE_DATA_",
+ *       "values": { "INVALID": 0, "DIRTY": 3, "MAX_VALUE": 2147483647 }
+ *     },
+ *     "GhosttyStyleColor": {
+ *       "kind": "struct", "size": 16, "align": 8,
+ *       "fields": {
+ *         "tag": { "offset": 0, "size": 4,
+ *                  "type": "GhosttyStyleColorTag" },
+ *         "value": { "offset": 8, "size": 8,
+ *                    "type": "GhosttyStyleColorValue", "tag": "tag",
+ *                    "arms": { "NONE": null, "PALETTE": "palette",
+ *                              "RGB": "rgb" } }
+ *       }
  *     }
  *   }
  * }

@@ -14,13 +14,15 @@ struct CommandPaletteFilterTests {
         title: String,
         subtitle: String? = nil,
         description: String? = nil,
-        leadingColor: Color? = nil
+        leadingColor: Color? = nil,
+        sortKey: ObjectIdentifier? = nil
     ) -> CommandOption {
         CommandOption(
             title: title,
             subtitle: subtitle,
             description: description,
-            leadingColor: leadingColor
+            leadingColor: leadingColor,
+            sortKey: sortKey
         ) {}
     }
 
@@ -45,5 +47,25 @@ struct CommandPaletteFilterTests {
 
         #expect([first, second].filteredAndSorted(query: "new") == [first, second])
         #expect([second, first].filteredAndSorted(query: "new") == [second, first])
+    }
+
+    /// Equal titles use their sort keys independent of input order.
+    @Test func equalTitlesUseSortKey() {
+        let firstKey = NSObject()
+        let secondKey = NSObject()
+        let first = option(
+            title: "Focus: Shell",
+            subtitle: "/tmp",
+            sortKey: ObjectIdentifier(firstKey)
+        )
+        let second = option(
+            title: "Focus: Shell",
+            subtitle: "/tmp",
+            sortKey: ObjectIdentifier(secondKey)
+        )
+
+        let forward = sortedTerminalPaletteOptions([first, second])
+        let reverse = sortedTerminalPaletteOptions([second, first])
+        #expect(forward == reverse)
     }
 }

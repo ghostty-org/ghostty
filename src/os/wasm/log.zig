@@ -4,6 +4,22 @@ const wasm = @import("../wasm.zig");
 // Use the correct implementation
 pub const log = Freestanding.log;
 
+/// A log function that discards everything. Since the format string and
+/// scope are comptime parameters, using this compiles out all logging
+/// machinery: call sites, format strings, and the std.fmt code they
+/// reference (~220KB in a ReleaseFast wasm build).
+pub fn noop(
+    comptime level: std.log.Level,
+    comptime scope: @TypeOf(.EnumLiteral),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    _ = level;
+    _ = scope;
+    _ = format;
+    _ = args;
+}
+
 /// Freestanding implementation calls an extern "log" function.
 pub const Freestanding = struct {
     // The function std.log will call.

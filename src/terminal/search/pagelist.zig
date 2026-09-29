@@ -562,3 +562,60 @@ test "feed keeps its tracked pin within a shorter page" {
     try testing.expectEqual(shorter, search.pin.node);
     try testing.expect(pages.pinIsValid(search.pin.*));
 }
+
+test "feed discovers pages prepended after exhaustion" {
+    const alloc = testing.allocator;
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{
+        .cols = 10,
+        .rows = 10,
+        .max_scrollback_bytes = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("Fizz");
+
+    // Exhaust the list: one match on the only page and nothing left to feed.
+    const pages = &t.screens.active.pages;
+    var search: PageListSearch = try .init(
+        alloc,
+        "Fizz",
+        pages,
+        pages.pages.last.?,
+    );
+    defer search.deinit();
+    try testing.expect(search.next() != null);
+    try testing.expect(search.next() == null);
+    try testing.expect(!try search.feed());
+
+    // Prepend an older page the way incremental snapshot history restore
+    // does. The frontier pin names the page that used to be first, and
+    // finalize keeps that node's identity, so the pin now has a `prev`.
+    const old_first = pages.pages.first.?;
+    {
+        var allocation = try pages.allocatePage(.{ .cols = 10, .rows = 2 });
+        defer allocation.deinit();
+        const page = allocation.page();
+        page.size.rows = 2;
+        for ("Fizz", 0..) |c, x| page.getRowAndCell(x, 1).cell.* = .init(c);
+        try allocation.finalize(.prepend);
+    }
+    const prepended = pages.pages.first.?;
+    try testing.expect(prepended != old_first);
+    try testing.expectEqual(old_first, search.pin.node);
+
+    // Feeding resumes into the restored history and finds its match.
+    try testing.expect(try search.feed());
+    try testing.expectEqual(prepended, search.pin.node);
+    const h = search.next().?;
+    const sel = h.untracked();
+    try testing.expectEqual(prepended, sel.start.node);
+    try testing.expectEqual(prepended, sel.end.node);
+    try testing.expectEqual(@as(size.CellCountInt, 1), sel.start.y);
+    try testing.expectEqual(@as(size.CellCountInt, 0), sel.start.x);
+    try testing.expectEqual(@as(size.CellCountInt, 3), sel.end.x);
+    try testing.expect(search.next() == null);
+    try testing.expect(!try search.feed());
+}

@@ -21,19 +21,21 @@ extern "C" {
  * Terminal screen cell and row types.
  *
  * These types represent the contents of a terminal screen. A GhosttyCell
- * is a single grid cell and a GhosttyRow is a single row. Both are opaque
- * values whose fields are accessed via ghostty_cell_get() and
- * ghostty_row_get() respectively.
+ * is a single grid cell and a GhosttyRow is a single row. Cell fields can
+ * be accessed via ghostty_cell_get() or decoded from the packed layout in
+ * ghostty_type_json(). Rows are opaque and accessed via ghostty_row_get().
  *
  * @{
  */
 
 /**
- * Opaque cell value.
+ * Packed cell value.
  *
- * Represents a single terminal cell. The internal layout is opaque and
- * must be queried via ghostty_cell_get(). Obtain cell values from
- * terminal query APIs.
+ * Represents a single terminal cell. Portable callers can query fields via
+ * ghostty_cell_get(). Boundary-sensitive callers can decode the packed value
+ * using the GhosttyCell descriptor returned by ghostty_type_json(). The
+ * manifest is authoritative for the linked build; hardcoding bit positions
+ * is unsupported.
  *
  * @ingroup screen
  */
@@ -49,6 +51,24 @@ typedef uint64_t GhosttyCell;
  * @ingroup screen
  */
 typedef uint64_t GhosttyRow;
+
+/**
+ * A borrowed view of contiguous raw cell values.
+ *
+ * The memory is not owned by this struct. The pointer is only valid
+ * for the lifetime documented by the API that produces it. Each value
+ * can be queried via ghostty_cell_get() or decoded using the GhosttyCell
+ * packed descriptor returned by ghostty_type_json().
+ *
+ * @ingroup screen
+ */
+typedef struct {
+  /** Pointer to len contiguous cell values. */
+  const GhosttyCell* ptr;
+
+  /** Number of cells. */
+  size_t len;
+} GhosttyCellsView;
 
 /**
  * Cell content tag.

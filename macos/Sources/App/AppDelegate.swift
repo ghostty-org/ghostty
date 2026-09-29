@@ -266,6 +266,12 @@ class AppDelegate: NSObject,
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(keyboardSelectionDidChange(_:)),
+            name: NSTextInputContext.keyboardSelectionDidChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(ghosttyBellDidRing(_:)),
             name: .ghosttyBellDidRing,
             object: nil
@@ -438,6 +444,31 @@ class AppDelegate: NSObject,
         // this because we're not ready. This happens sometimes in Xcode runs
         // but I haven't seen it happen in releases. I'm unsure why.
         guard applicationHasBecomeActive else { return true }
+
+#if compiler(>=6.4)
+        if #available(macOS 27.0, *) {
+            // It seems that with macOS 27, running an App Intent against an already
+            // running app (from Shortcuts, Spotlight, the `shortcuts` CLI, ...)
+            // opens the app through LaunchServices in the background before the
+            // intent is delivered, which we receive as a reopen event.
+            //
+            // Ignore reopens from the intents runner unless it asked for us to come to
+            // the front to prevent creating two windows (#14107).
+            let appIntentsRunnerBundleIdentifiers: Set<String> = [
+                "com.apple.WorkflowKit.BackgroundShortcutRunner",
+                "com.apple.shortcuts",
+                "com.apple.siriactionsd",
+            ]
+
+            if let event = NSAppleEventManager.shared().currentAppleEvent,
+               let sender = event.senderBundleIdentifier,
+               appIntentsRunnerBundleIdentifiers.contains(sender),
+               !event.expectsActivation {
+                AppDelegate.logger.info("reopen triggered by shortcuts (\(sender)), ignoring...")
+                return true
+            }
+        }
+#endif
 
         // If the quick terminal is currently active (initialized) AND has at
         // least one tab, show it instead of opening a new window. Otherwise
@@ -661,6 +692,11 @@ class AppDelegate: NSObject,
         ] as? Ghostty.Config else { return }
 
         ghosttyConfigDidChange(config: config)
+    }
+
+    @MainActor @objc private func keyboardSelectionDidChange(_ notification: Notification) {
+        syncMenuShortcuts(ghostty.config)
+        TerminalController.all.forEach { $0.relabelTabs() }
     }
 
     @objc private func ghosttyBellDidRing(_ notification: Notification) {
@@ -1354,13 +1390,9 @@ extension AppDelegate {
 
             return .terminateLater
         } else {
-            let alert = NSAlert()
-            alert.messageText = "You have \(controllersNeedConfirmation.count) windows with running processes. Do you want to review these windows before quitting?"
-            alert.informativeText = "If you don't review your windows, any running processes will be terminated"
-            alert.addButton(withTitle: "Review Windows...")
-            alert.addButton(withTitle: "Terminate Processes")
-            alert.addButton(withTitle: "Cancel")
-            alert.alertStyle = .warning
+            let alert = NSAlert.reviewWindowsAlert(
+                messageText: "You have \(controllersNeedConfirmation.count) windows with running processes. Do you want to review these windows before quitting?"
+            )
 
             switch alert.runModal() {
             case .alertFirstButtonReturn:

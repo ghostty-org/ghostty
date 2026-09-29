@@ -1,9 +1,14 @@
-//! Compiles a blueprint file using `blueprint-compiler`. This performs
-//! additional checks to ensure that various minimum versions are met.
+//! Checks that `libadwaita` is at least the given version and that
+//! `blueprint-compiler` is on the PATH and new enough. The blueprints
+//! themselves are compiled by `blueprint-compiler` directly from the build
+//! system; see `gtkNgDistResources` in `src/build/SharedDeps.zig`.
 //!
-//! Usage: blueprint.zig <major> <minor> <output> <input>
+//! Usage: blueprint.zig <major> <minor> <stamp>
 //!
-//! Example: blueprint.zig 1 5 output.ui input.blp
+//! Example: blueprint.zig 1 5 blueprint-check.stamp
+//!
+//! `<stamp>` is written when every check passes, so the build system has an
+//! output to cache this step by.
 
 const std = @import("std");
 const adw_c = @import("adw_c");
@@ -45,8 +50,7 @@ pub fn main(init: std.process.Init) !void {
     _ = it.next(); // Skip argv0
     const arg_major = it.next() orelse return error.NoMajorVersion;
     const arg_minor = it.next() orelse return error.NoMinorVersion;
-    const output = it.next() orelse return error.NoOutput;
-    const input = it.next() orelse return error.NoInput;
+    const stamp = it.next() orelse return error.NoStamp;
 
     const required_adwaita_version = std.SemanticVersion{
         .major = try std.fmt.parseUnsigned(u8, arg_major, 10),
@@ -58,7 +62,7 @@ pub fn main(init: std.process.Init) !void {
             \\`libadwaita` is too old.
             \\
             \\Ghostty requires a version {f} or newer of `libadwaita` to
-            \\compile this blueprint. Please install it, ensure that it is
+            \\compile its blueprints. Please install it, ensure that it is
             \\available on your PATH, and then retry building Ghostty.
         , .{required_adwaita_version});
         std.process.exit(1);
@@ -104,43 +108,7 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    // Compilation
-    {
-        const blueprint_compiler = std.process.run(alloc, init.io, .{
-            .argv = &.{
-                "blueprint-compiler",
-                "compile",
-                "--output",
-                output,
-                input,
-            },
-        }) catch |err| switch (err) {
-            error.FileNotFound => {
-                std.debug.print(
-                    \\`blueprint-compiler` not found.
-                ++ blueprint_compiler_help,
-                    .{required_blueprint_version},
-                );
-                std.process.exit(1);
-            },
-            else => return err,
-        };
-        defer {
-            alloc.free(blueprint_compiler.stdout);
-            alloc.free(blueprint_compiler.stderr);
-        }
-
-        switch (blueprint_compiler.term) {
-            .exited => |rc| {
-                if (rc != 0) {
-                    std.debug.print("{s}", .{blueprint_compiler.stderr});
-                    std.process.exit(1);
-                }
-            },
-            else => {
-                std.debug.print("{s}", .{blueprint_compiler.stderr});
-                std.process.exit(1);
-            },
-        }
-    }
+    // Everything passed.
+    const file = try std.Io.Dir.cwd().createFile(init.io, stamp, .{});
+    file.close(init.io);
 }

@@ -581,11 +581,7 @@ pub const Config = struct {
 };
 
 const Subprocess = struct {
-    const c = @cImport({
-        @cInclude("errno.h");
-        @cInclude("signal.h");
-        @cInclude("unistd.h");
-    });
+    const c = @import("posix_c");
 
     arena: std.heap.ArenaAllocator,
     cwd: ?[:0]const u8,

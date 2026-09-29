@@ -1,3 +1,1 @@
-pub const c = @cImport({
-    @cInclude("freetype-zig.h");
-});
+pub const c = @import("freetype_c");

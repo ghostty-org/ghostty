@@ -125,6 +125,24 @@ typedef bool (*GhosttySysDecodePngFn)(
     GhosttySysImage* out);
 
 /**
+ * Callback type for secure random bytes.
+ *
+ * Fills @p buf with @p len cryptographically secure random bytes. The
+ * library uses this for secrets, so it must be a real CSPRNG (getrandom,
+ * arc4random_buf, BCryptGenRandom, crypto.getRandomValues, ...); a
+ * predictable source is a security hole.
+ *
+ * @param userdata The userdata pointer set via GHOSTTY_SYS_OPT_USERDATA
+ * @param buf      Buffer to fill
+ * @param len      Number of bytes to fill
+ * @return true if the buffer was filled, false if no entropy is available
+ */
+typedef bool (*GhosttySysRandomSecureFn)(
+    void* userdata,
+    uint8_t* buf,
+    size_t len);
+
+/**
  * System option identifiers for ghostty_sys_set().
  */
 typedef enum GHOSTTY_ENUM_TYPED {
@@ -165,6 +183,21 @@ typedef enum GHOSTTY_ENUM_TYPED {
      * Input type: GhosttySysLogFn (function pointer, or NULL)
      */
     GHOSTTY_SYS_OPT_LOG = 2,
+
+    /**
+     * Override the secure random source.
+     *
+     * By default the library draws secure random bytes from the
+     * platform (getrandom or arc4random_buf on POSIX, CNG on Windows).
+     * Targets without one, such as wasm32-freestanding, have no default
+     * and operations that need entropy fail with GHOSTTY_IO_ERROR until
+     * this is set. When set,
+     * it is used instead of the platform source on every target. When
+     * cleared (NULL value), the platform default is restored.
+     *
+     * Input type: GhosttySysRandomSecureFn (function pointer, or NULL)
+     */
+    GHOSTTY_SYS_OPT_RANDOM_SECURE = 3,
     GHOSTTY_SYS_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttySysOption;
 

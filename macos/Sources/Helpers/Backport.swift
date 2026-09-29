@@ -104,11 +104,11 @@ enum BackportPointerStyle {
     }
 }
 
-enum BackportNSGlassStyle {
+enum BackportGlass {
     case regular, clear
 
     @available(macOS 26, *)
-    var official: NSGlassEffectView.Style {
+    var official: Glass {
         switch self {
         case .regular: return .regular
         case .clear: return .clear

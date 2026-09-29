@@ -1497,7 +1497,7 @@ class BaseTerminalController: NSWindowController,
     }
 
     @IBAction func findPrevious(_ sender: Any) {
-        focusedSurface?.findNext(sender)
+        focusedSurface?.findPrevious(sender)
     }
 
     @IBAction func findHide(_ sender: Any) {
@@ -1669,7 +1669,7 @@ extension BaseTerminalController {
         target.pendingClipboardConfirmation = nil
     }
 
-    func clipboardConfirmationComplete(_ action: ClipboardConfirmationView.Action) {
+    func clipboardConfirmationComplete(_ action: ClipboardConfirmationView.Action, remember: Bool) {
         // End our clipboard confirmation no matter what
         guard let cc = self.clipboardConfirmation else { return }
         dismissClipboardConfirmation(cc)
@@ -1678,7 +1678,7 @@ extension BaseTerminalController {
         case .cancel:
             cc.confirmation.cancel()
         case .confirm:
-            cc.confirmation.complete()
+            cc.confirmation.complete(remember: remember)
         }
 
         // Clear only if this is still the surface's current request. Completing

@@ -363,29 +363,17 @@ pub const Placement = struct {
         image: *const Image,
         cell_width: u32,
         cell_height: u32,
-    ) !struct {
+    ) Error!struct {
         rows: u32,
         columns: u32,
     } {
         // Get the placement. If an ID is specified we look for the exact one.
         // If no ID, then we find the first virtual placement for this image.
-        const placement = if (self.placement_id > 0) storage.placements.get(.{
-            .image_id = self.image_id,
-            .placement_id = .{ .tag = .external, .id = self.placement_id },
-        }) orelse {
-            return Error.PlacementMissingPlacement;
-        } else placement: {
-            var it = storage.placements.iterator();
-            while (it.next()) |entry| {
-                if (entry.key_ptr.image_id == self.image_id and
-                    entry.value_ptr.location == .virtual)
-                {
-                    break :placement entry.value_ptr.*;
-                }
-            }
-
-            return Error.PlacementMissingPlacement;
-        };
+        const target = storage.placeholderTarget(
+            self.image_id,
+            self.placement_id,
+        ) orelse return Error.PlacementMissingPlacement;
+        const placement = target.placement;
 
         // Use requested rows/columns if specified
         // For unspecified rows/columns, calculate based on the image size.

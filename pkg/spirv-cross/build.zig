@@ -1,28 +1,21 @@
 const std = @import("std");
+const translate_c = @import("translate_c");
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const module = b.addModule("spirv_cross", .{ .root_source_file = b.path("main.zig"), .target = target, .optimize = optimize });
-
-    // For dynamic linking, we prefer dynamic linking and to search by
-    // mode first. Mode first will search all paths for a dynamic library
-    // before falling back to static.
-    const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
-        .preferred_link_mode = .dynamic,
-        .search_strategy = .mode_first,
-    };
+    const module = b.addModule("spirv_cross", .{
+        .root_source_file = b.path("main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
     var test_exe: ?*std.Build.Step.Compile = null;
     if (target.query.isNative()) {
         test_exe = b.addTest(.{
             .name = "test",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("main.zig"),
-                .target = target,
-                .optimize = optimize,
-            }),
+            .root_module = module,
         });
         const tests_run = b.addRunArtifact(test_exe.?);
         const test_step = b.step("test", "Run tests");
@@ -31,16 +24,24 @@ pub fn build(b: *std.Build) !void {
         // Uncomment this if we're debugging tests
         // b.installArtifact(test_exe.?);
     }
-    if (b.systemIntegrationOption("spirv-cross", .{})) {
-        module.linkSystemLibrary("spirv-cross-c-shared", dynamic_link_opts);
-        if (test_exe) |exe| {
-            exe.root_module.linkSystemLibrary("spirv-cross-c-shared", dynamic_link_opts);
-        }
-    } else {
-        const lib = try buildSpirvCross(b, module, target, optimize);
-        b.installArtifact(lib);
-        if (test_exe) |exe| exe.root_module.linkLibrary(lib);
-    }
+
+    const lib: union(enum) {
+        system,
+        static: *std.Build.Step.Compile,
+    } = if (b.systemIntegrationOption("spirv-cross", .{}))
+        .system
+    else
+        .{ .static = try buildSpirvCross(b, module, target, optimize) };
+
+    try translate_c.addImportToModule(b, "spirv_cross_c", module, .{
+        .source = .{ .includes = .{
+            .files = &.{.{ .path = "spirv_cross_c.h" }},
+        } },
+        .target = target,
+        .optimize = optimize,
+        .link_system_libs = if (lib == .system) &.{"spirv-cross-c-shared"} else &.{},
+        .link_libs = if (lib == .static) &.{lib.static} else &.{},
+    });
 }
 
 fn buildSpirvCross(
@@ -113,6 +114,8 @@ fn buildSpirvCross(
             .{ .include_extensions = &.{".h"} },
         );
     }
+
+    b.installArtifact(lib);
 
     return lib;
 }

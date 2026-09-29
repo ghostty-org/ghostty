@@ -7,4 +7,5 @@ pub const Result = enum(c_int) {
     no_value = -4,
     io_error = -5,
     limit_exceeded = -6,
+    rejected = -7,
 };

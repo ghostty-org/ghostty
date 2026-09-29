@@ -40,13 +40,17 @@ void on_title_changed(GhosttyTerminal terminal, void* userdata) {
 //! [effects-title-changed]
 
 //! [effects-clipboard-write]
-GhosttyClipboardWriteResult on_clipboard_write(
+void on_clipboard_write(
     GhosttyTerminal terminal,
     void* userdata,
     const GhosttyClipboardWrite* write) {
   (void)terminal;
   (void)userdata;
 
+  // The write is synchronous: a real embedder would ask the user for
+  // permission here (unless write->granted) and the VT stream waits until
+  // this callback returns. The replied result is sent to the program
+  // (OSC 5522) through the write_pty callback.
   printf("  clipboard write (location=%d, contents=%zu)\n",
          (int)write->location, write->contents_len);
   if (write->contents_len == 0) {
@@ -66,9 +70,54 @@ GhosttyClipboardWriteResult on_clipboard_write(
     printf("\n");
   }
 
-  return GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS;
+  GhosttyClipboardWriteReply reply = {
+      .size = sizeof(reply),
+      .result = GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS,
+      .remember = false,
+  };
+  write->reply(write, &reply);
 }
 //! [effects-clipboard-write]
+
+//! [effects-clipboard-read]
+void on_clipboard_read(
+    GhosttyTerminal terminal,
+    void* userdata,
+    const GhosttyClipboardRead* read) {
+  (void)terminal;
+  (void)userdata;
+
+  // The read is synchronous: a real embedder would ask the user for
+  // permission here (unless read->granted) and the VT stream waits until
+  // this callback returns. The reply is sent to the program through the
+  // write_pty callback.
+  printf("  clipboard read (location=%d, mimes=%zu)\n",
+         (int)read->location, read->mimes_len);
+  for (size_t i = 0; i < read->mimes_len; i++) {
+    printf("    ");
+    fwrite(read->mimes[i].ptr, 1, read->mimes[i].len, stdout);
+    printf("\n");
+  }
+
+  // Reply with every requested representation we have. This example only
+  // has text.
+  const char* text = "Hello from the clipboard";
+  GhosttyClipboardContent content = {
+      .mime = {.ptr = (const uint8_t*)"text/plain", .len = 10},
+      .data = {.ptr = (const uint8_t*)text, .len = strlen(text)},
+  };
+  GhosttyClipboardReadReply reply = {
+      .size = sizeof(reply),
+      .result = GHOSTTY_CLIPBOARD_READ_RESULT_SUCCESS,
+      .contents = &content,
+      .contents_len = 1,
+      .available = NULL,
+      .available_len = 0,
+      .remember = false,
+  };
+  read->reply(read, &reply);
+}
+//! [effects-clipboard-read]
 
 //! [effects-unknown-sequence]
 void on_unknown_sequence(
@@ -118,6 +167,8 @@ int main() {
       (const void *)on_title_changed);
   ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE,
       (const void *)on_clipboard_write);
+  ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ,
+      (const void *)on_clipboard_read);
   ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE,
       (const void *)on_unknown_sequence);
 
@@ -154,13 +205,19 @@ int main() {
   ghostty_terminal_vt_write(terminal, (const uint8_t*)clipboard_seq,
                             strlen(clipboard_seq));
 
-  // 5. Unsupported APC sequence
+  // 5. Clipboard read (OSC 52 ; c ; ? ST)
+  printf("Sending clipboard read:\n");
+  const char* clipboard_read_seq = "\x1B]52;c;?\x1B\\";
+  ghostty_terminal_vt_write(terminal, (const uint8_t*)clipboard_read_seq,
+                            strlen(clipboard_read_seq));
+
+  // 6. Unsupported APC sequence
   printf("Sending unknown APC:\n");
   const char* unknown_apc = "\x1B_private-command;payload\x1B\\";
   ghostty_terminal_vt_write(terminal, (const uint8_t*)unknown_apc,
                             strlen(unknown_apc));
 
-  // 6. Another bell to show the counter increments
+  // 7. Another bell to show the counter increments
   printf("Sending another BEL:\n");
   ghostty_terminal_vt_write(terminal, &bel, 1);
 

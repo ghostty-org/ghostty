@@ -24,7 +24,11 @@
   #, vulkan-loader # unused
   vttest,
   wabt,
+  wasm-tools,
   wasmtime,
+  binaryen,
+  twiggy,
+  wizer,
   wraptest,
   zig,
   zip,
@@ -45,6 +49,7 @@
   adwaita-icon-theme,
   hicolor-icon-theme,
   harfbuzz,
+  libglvnd,
   libpng,
   libxkbcommon,
   libX11,
@@ -87,8 +92,10 @@
     inherit pkgs lib stdenv;
   };
   python = python3.withPackages (python-pkgs: [
+    python-pkgs.jsonschema
     python-pkgs.kaitaistruct
     python-pkgs.ucs-detect
+    python-pkgs.wasmtime
   ]);
 in
   mkShell {
@@ -127,8 +134,12 @@ in
         kaitai-struct-compiler
 
         # wasm
+        binaryen
+        twiggy
         wabt
+        wasm-tools
         wasmtime
+        wizer
 
         # Localization
         gettext
@@ -175,6 +186,7 @@ in
         glslang
         spirv-cross
 
+        libglvnd
         libxkbcommon
         libX11
         libXcursor

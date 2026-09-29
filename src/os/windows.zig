@@ -73,12 +73,24 @@ pub const TRUE: windows.BOOL = .fromBool(true);
 
 // Bit-field and enum constant values
 pub const CREATE_UNICODE_ENVIRONMENT = 0x00000400;
+pub const DELETE = 0x00010000;
+pub const ERROR_SUCCESS = 0;
 pub const EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
 pub const FILE_ATTRIBUTE_NORMAL = 0x80;
 pub const FILE_FLAG_FIRST_PIPE_INSTANCE = 0x00080000;
 pub const FILE_FLAG_OVERLAPPED = 0x40000000;
+/// GetFinalPathNameByHandleW dwFlags: normalized name with a DOS drive
+/// letter (both are the zero flag values).
+pub const FILE_NAME_NORMALIZED = 0x0;
 pub const FILE_NON_DIRECTORY_FILE = 0x00000040;
+/// NtCreateFile CreateDisposition: open an existing file, never create.
+/// Distinct from the Win32 CreateFileW value OPEN_EXISTING.
+pub const FILE_OPEN = 0x00000001;
+pub const FILE_OPEN_REPARSE_POINT = 0x00200000;
+pub const FILE_SHARE_DELETE = 0x00000004;
 pub const FILE_SHARE_READ = 0x00000001;
+pub const FILE_SHARE_WRITE = 0x00000002;
+pub const FILE_SYNCHRONOUS_IO_NONALERT = 0x00000020;
 pub const GENERIC_READ = 0x80000000;
 pub const HANDLE_FLAG_INHERIT = 0x00000001;
 pub const MEM_COMMIT = 0x1000;
@@ -93,7 +105,13 @@ pub const PROC_THREAD_ATTRIBUTE_INPUT = 0x00020000;
 pub const PROC_THREAD_ATTRIBUTE_NUMBER = 0x0000FFFF;
 pub const PROC_THREAD_ATTRIBUTE_THREAD = 0x00010000;
 pub const S_OK = 0;
+pub const SYNCHRONIZE = 0x00100000;
+pub const VOLUME_NAME_DOS = 0x0;
 pub const WAIT_FAILED = 0xFFFFFFFF;
+
+/// IOCTL that fills the output buffer with bytes from the kernel CSPRNG
+/// behind `\Device\CNG` (what ProcessPrng and BCryptGenRandom draw from).
+pub const IOCTL_KSEC_GEN_RANDOM: CTL_CODE = windows.IOCTL.KSEC.GEN_RANDOM;
 
 pub const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = ProcThreadAttributeValue(
     .ProcThreadAttributePseudoConsole,
@@ -104,6 +122,14 @@ pub const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = ProcThreadAttributeValue(
 
 // Types needed for ntdll calls
 pub const ACCESS_MASK = windows.ACCESS_MASK;
+pub const CTL_CODE = windows.CTL_CODE;
+pub const FILE_ALL_INFORMATION = windows.FILE.ALL_INFORMATION;
+pub const FILE_ATTRIBUTE_TAG_INFORMATION = windows.FILE.ATTRIBUTE_TAG_INFO;
+pub const FILE_DISPOSITION_INFORMATION = windows.FILE.DISPOSITION.INFORMATION;
+pub const FILE_DISPOSITION_INFORMATION_EX = windows.FILE.DISPOSITION.INFORMATION.EX;
+pub const FILE_INFORMATION_CLASS = windows.FILE.INFORMATION_CLASS;
+pub const FILE_POSITION_INFORMATION = windows.FILE.POSITION_INFORMATION;
+pub const FILE_STANDARD_INFORMATION = windows.FILE.STANDARD_INFORMATION;
 pub const IO_STATUS_BLOCK = windows.IO_STATUS_BLOCK;
 pub const NTSTATUS = windows.NTSTATUS;
 pub const OBJECT_ATTRIBUTES = windows.OBJECT.ATTRIBUTES;
@@ -213,6 +239,11 @@ pub const exp = struct {
             dwSize: SIZE_T,
             dwFreeType: DWORD,
         ) callconv(.winapi) BOOL;
+        /// https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-discardvirtualmemory
+        pub extern "kernel32" fn DiscardVirtualMemory(
+            VirtualAddress: PVOID,
+            Size: SIZE_T,
+        ) callconv(.winapi) DWORD;
         pub extern "kernel32" fn WaitForSingleObject(
             hHandle: HANDLE,
             dwMilliseconds: DWORD,
@@ -236,6 +267,13 @@ pub const exp = struct {
             lpNumberOfBytesRead: ?*DWORD,
             lpOverlapped: ?*OVERLAPPED,
         ) callconv(.winapi) BOOL;
+        /// https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfinalpathnamebyhandlew
+        pub extern "kernel32" fn GetFinalPathNameByHandleW(
+            hFile: HANDLE,
+            lpszFilePath: [*]u16,
+            cchFilePath: DWORD,
+            dwFlags: DWORD,
+        ) callconv(.winapi) DWORD;
     };
     pub const ntdll = struct {
         pub extern "ntdll" fn NtCreateFile(
@@ -251,6 +289,73 @@ pub const exp = struct {
             EaBuffer: ?*anyopaque,
             EaLength: ULONG,
         ) callconv(.winapi) NTSTATUS;
+        pub extern "ntdll" fn NtOpenFile(
+            FileHandle: *HANDLE,
+            DesiredAccess: ACCESS_MASK,
+            ObjectAttributes: *OBJECT_ATTRIBUTES,
+            IoStatusBlock: *IO_STATUS_BLOCK,
+            ShareAccess: ULONG,
+            OpenOptions: ULONG,
+        ) callconv(.winapi) NTSTATUS;
+        pub extern "ntdll" fn NtClose(Handle: HANDLE) callconv(.winapi) NTSTATUS;
+        pub extern "ntdll" fn NtReadFile(
+            FileHandle: HANDLE,
+            Event: ?HANDLE,
+            ApcRoutine: ?*const anyopaque,
+            ApcContext: ?*anyopaque,
+            IoStatusBlock: *IO_STATUS_BLOCK,
+            Buffer: *anyopaque,
+            Length: ULONG,
+            ByteOffset: ?*const LARGE_INTEGER,
+            Key: ?*const ULONG,
+        ) callconv(.winapi) NTSTATUS;
+        pub extern "ntdll" fn NtQueryInformationFile(
+            FileHandle: HANDLE,
+            IoStatusBlock: *IO_STATUS_BLOCK,
+            FileInformation: *anyopaque,
+            Length: ULONG,
+            FileInformationClass: FILE_INFORMATION_CLASS,
+        ) callconv(.winapi) NTSTATUS;
+        pub extern "ntdll" fn NtSetInformationFile(
+            FileHandle: HANDLE,
+            IoStatusBlock: *IO_STATUS_BLOCK,
+            FileInformation: *anyopaque,
+            Length: ULONG,
+            FileInformationClass: FILE_INFORMATION_CLASS,
+        ) callconv(.winapi) NTSTATUS;
+        pub extern "ntdll" fn NtDeviceIoControlFile(
+            FileHandle: HANDLE,
+            Event: ?HANDLE,
+            ApcRoutine: ?*const anyopaque,
+            ApcContext: ?*anyopaque,
+            IoStatusBlock: *IO_STATUS_BLOCK,
+            IoControlCode: CTL_CODE,
+            InputBuffer: ?*const anyopaque,
+            InputBufferLength: ULONG,
+            OutputBuffer: ?*anyopaque,
+            OutputBufferLength: ULONG,
+        ) callconv(.winapi) NTSTATUS;
+        /// Resolves a Win32 path against the process working directory and
+        /// canonicalizes it, keeping any `\\?\` or `\\.\` prefix. Returns
+        /// the byte length written excluding the terminator, the required
+        /// byte length if the buffer is too small, or 0 on failure.
+        pub extern "ntdll" fn RtlGetFullPathName_U(
+            FileName: [*:0]const u16,
+            BufferByteLength: ULONG,
+            Buffer: [*]u16,
+            ShortName: ?*[*:0]const u16,
+        ) callconv(.winapi) ULONG;
+        /// The futex primitives that kernel32's WaitOnAddress and
+        /// WakeByAddress* forward to. Timeout is a relative (negative)
+        /// interval in 100ns units, null to wait forever.
+        pub extern "ntdll" fn RtlWaitOnAddress(
+            Address: *const anyopaque,
+            CompareAddress: *const anyopaque,
+            AddressSize: SIZE_T,
+            Timeout: ?*const LARGE_INTEGER,
+        ) callconv(.winapi) NTSTATUS;
+        pub extern "ntdll" fn RtlWakeAddressSingle(Address: *const anyopaque) callconv(.winapi) void;
+        pub extern "ntdll" fn RtlWakeAddressAll(Address: *const anyopaque) callconv(.winapi) void;
     };
 };
 

@@ -20,6 +20,7 @@ pub const kitty = @import("kitty.zig");
 pub const modes = @import("modes.zig");
 pub const page = @import("page.zig");
 pub const parse_table = @import("parse_table.zig");
+pub const paste = @import("paste.zig");
 pub const search = @import("search.zig");
 pub const snapshot = @import("snapshot/main.zig");
 pub const sgr = @import("sgr.zig");
@@ -60,6 +61,11 @@ pub const TerminalStream = stream_terminal.Stream;
 pub const Stream = stream.Stream;
 pub const StreamAction = stream.Action;
 pub const UnknownSequence = stream_terminal.Handler.UnknownSequence;
+pub const Paste = paste.Request;
+pub const PasteContents = paste.Contents;
+pub const PasteSource = paste.Source;
+pub const MimeReader = clipboard.MimeReader;
+pub const PasteError = stream_terminal.Handler.PasteError;
 pub const Cursor = Screen.Cursor;
 pub const CursorStyle = Screen.CursorStyle;
 pub const CursorStyleReq = ansi.CursorStyle;
@@ -90,6 +96,7 @@ test {
     // Internals
     _ = @import("bitmap_allocator.zig");
     _ = @import("compress.zig");
+    _ = @import("fraction.zig");
     _ = @import("hash_map.zig");
     _ = @import("mem.zig");
     _ = @import("ref_counted_set.zig");
