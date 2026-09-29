@@ -2852,7 +2852,7 @@ pub const Surface = extern struct {
 
         // If we don't have focus, grab it.
         const widget = priv.render_surface.as(gtk.Widget);
-        const had_focus = widget.hasFocus() != 0;
+        const had_focus = widget.isFocus() != 0;
         if (!had_focus) {
             _ = widget.grabFocus();
         }
