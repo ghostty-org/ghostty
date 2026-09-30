@@ -1150,7 +1150,9 @@ palette: Palette = .{},
 ///
 /// This command will be used for all new terminal surfaces, i.e. new windows,
 /// tabs, etc. If you want to run a command only for the first terminal surface
-/// created when Ghostty starts, use the `initial-command` configuration.
+/// created when Ghostty starts, use the `initial-command` configuration. If you
+/// want to run a command only for the quick terminal, use the
+/// `quick-terminal-command` configuration.
 ///
 /// Ghostty supports the common `-e` flag for executing a command with
 /// arguments. For example, `ghostty -e fish --with --custom --args`.
@@ -1160,7 +1162,8 @@ command: ?Command = null,
 
 /// This is the same as "command", but only applies to the first terminal
 /// surface created when Ghostty starts. Subsequent terminal surfaces will use
-/// the `command` configuration.
+/// the `command` configuration. The quick terminal can be configured with its
+/// own command using the `quick-terminal-command` configuration.
 ///
 /// After the first terminal surface is created (or closed), there is no
 /// way to run this initial command again automatically. As such, setting
@@ -2764,6 +2767,9 @@ keybind: Keybinds = .{},
 ///
 /// Note: There is no default keybind for toggling the quick terminal.
 /// To enable this feature, bind the `toggle_quick_terminal` action to a key.
+///
+/// The command run by the quick terminal can be configured with the
+/// `quick-terminal-command` configuration.
 @"quick-terminal-position": QuickTerminalPosition = .top,
 
 /// The size of the quick terminal.
