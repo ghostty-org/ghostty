@@ -150,6 +150,7 @@ gpanders
 guilhermetk
 -guysoft LLM communication (likely automated)
 h3nock
+hackattack
 hakonhagland
 halosatrio
 heaths
