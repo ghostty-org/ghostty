@@ -129,6 +129,7 @@ pub const Inspector = struct {
                     surface.alloc,
                     open,
                 );
+                widgets.renderer.drawFrameTimings(&surface.renderer.frame_timings, open);
             }
         }
 

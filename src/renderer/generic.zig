@@ -108,6 +108,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Allocator that can be used
         alloc: std.mem.Allocator,
 
+        /// Start and end timings for drawing the last N frames
+        frame_timings: renderer.FrameTimings = .{},
+
         /// This mutex must be held whenever any state used in `drawFrame` is
         /// being modified, and also when it's being accessed in `drawFrame`.
         draw_mutex: std.Io.Mutex = .init,
@@ -723,6 +726,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             var result: Self = .{
                 .alloc = alloc,
+                .frame_timings = .{},
                 .config = options.config,
                 .surface_mailbox = options.surface_mailbox,
                 .grid_metrics = font_critical.metrics,
@@ -1771,6 +1775,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Wait for a frame to be available.
             const frame = swap_chain.nextFrame();
             errdefer swap_chain.releaseFrame();
+            const frame_timing = self.frame_timings.begin(
+                std.Io.Timestamp.now(global.io(), .awake),
+            );
             // log.debug("drawing frame index={}", .{swap_chain.frame_index});
 
             // If we need to reinitialize our shaders, do so.
@@ -1866,7 +1873,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Get a frame context from the graphics API.
             var frame_ctx = try self.api.beginFrame(self, &frame.target);
-            defer frame_ctx.complete(sync);
+            defer frame_ctx.complete(sync, frame_timing);
 
             {
                 var pass = frame_ctx.renderPass(&.{.{
@@ -2006,7 +2013,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         pub fn frameCompleted(
             self: *Self,
             health: Health,
+            timing: ?renderer.FrameTimings.InFlight,
         ) void {
+            self.frame_timings.complete(timing, std.Io.Timestamp.now(global.io(), .awake));
             // If our health value hasn't changed, then we do nothing. We don't
             // do a cmpxchg here because strict atomicity isn't important.
             if (self.health.load(.seq_cst) != health) {

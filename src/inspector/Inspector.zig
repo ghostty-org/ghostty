@@ -114,16 +114,21 @@ pub fn render(
     self: *Inspector,
     surface: *Surface,
 ) void {
+
     // Draw the UI
     self.gui.draw(
         surface,
         self.mouse,
     );
 
-    // We always trigger a rebuild of the surface when the inspector
-    // is focused because modifying the inspector can change the terminal
-    // state. This is KIND OF expensive (wasted CPU if nothing was done)
-    // but the inspector is a development tool and it expressly costs
-    // more resources while open so its okay.
-    surface.renderer_thread.wakeup.notify() catch {};
+    // TODO: Strictly, we should trigger a terminal render when either feature
+    // is toggled. For now just render when either is enabled and let a normal
+    // terminal render clear highlight. Instead to make an idle terminal
+    // renderer measurable. Just feature gate redraws.
+    const features = &self.gui.renderer_info.features;
+    if (features.contains(.highlight_hyperlinks) or
+        features.contains(.semantic_prompts))
+    {
+        surface.queueRender() catch {};
+    }
 }

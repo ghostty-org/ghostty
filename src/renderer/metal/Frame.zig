@@ -12,6 +12,7 @@ const Target = @import("Target.zig");
 const RenderPass = @import("RenderPass.zig");
 
 const Health = @import("../../renderer.zig").Health;
+const FrameTimings = @import("../FrameTimings.zig");
 
 const log = std.log.scoped(.metal);
 
@@ -48,6 +49,7 @@ pub fn begin(
             .renderer = renderer,
             .target = target,
             .sync = false,
+            .timing = null,
         },
         &bufferCompleted,
     );
@@ -60,6 +62,7 @@ const CompletionBlock = objc.Block(struct {
     renderer: *Renderer,
     target: *Target,
     sync: bool,
+    timing: ?FrameTimings.InFlight,
 }, .{
     objc.c.id, // MTLCommandBuffer
 }, void);
@@ -87,7 +90,7 @@ fn bufferCompleted(
         };
     }
 
-    block.renderer.frameCompleted(health);
+    block.renderer.frameCompleted(health, block.timing);
 }
 
 /// Add a render pass to this frame with the provided attachments.
@@ -105,7 +108,8 @@ pub inline fn renderPass(
 /// Complete this frame and present the target.
 ///
 /// If `sync` is true, this will block until the frame is presented.
-pub inline fn complete(self: *Self, sync: bool) void {
+pub inline fn complete(self: *Self, sync: bool, timing: ?FrameTimings.InFlight) void {
+    self.block.timing = timing;
     // If we don't need to complete synchronously,
     // we add our block as a completion handler.
     //
