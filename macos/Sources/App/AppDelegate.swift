@@ -88,6 +88,15 @@ class AppDelegate: NSObject,
     /// This is only true before application has become active.
     private var applicationHasBecomeActive: Bool = false
 
+    /// False when AppKit launched us to handle a specific request, such as opening a file
+    /// or performing a Services request, instead of a plain launch from the Dock, Finder,
+    /// Spotlight, etc. Set from `NSApplication.launchIsDefaultUserInfoKey` in
+    /// applicationDidFinishLaunching.
+    private var applicationLaunchIsDefault: Bool = true
+
+    /// True if AppKit restored our saved application state during launch.
+    private var applicationDidRestoreState: Bool = false
+
     /// This is set in applicationDidFinishLaunching with the system uptime so we can determine the
     /// seconds since the process was launched.
     private var applicationLaunchTime: TimeInterval = 0
@@ -220,6 +229,11 @@ class AppDelegate: NSObject,
 
         // Store our start time
         applicationLaunchTime = ProcessInfo.processInfo.systemUptime
+
+        // Store whether this was a plain launch. See `shouldCreateInitialWindow`.
+        if let isDefault = notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool {
+            applicationLaunchIsDefault = isDefault
+        }
 
         // Check if secure input was enabled when we last quit.
         if UserDefaults.ghostty.bool(forKey: "SecureInput") != SecureInput.shared.enabled {
@@ -373,12 +387,32 @@ class AppDelegate: NSObject,
             // is possible to have other windows in a few scenarios:
             //   - if we're opening a URL since `application(_:openFile:)` is called before this.
             //   - if we're restoring from persisted state
-            if TerminalController.all.isEmpty && derivedConfig.initialWindow {
+            if TerminalController.all.isEmpty && shouldCreateInitialWindow {
                 undoManager.disableUndoRegistration()
                 _ = TerminalController.newWindow(ghostty)
                 undoManager.enableUndoRegistration()
             }
         }
+    }
+
+    /// Whether we should create a terminal window when the app first becomes active.
+    private var shouldCreateInitialWindow: Bool {
+        guard derivedConfig.initialWindow else { return false }
+
+        // A plain launch (Dock, Finder, Spotlight, ...) always gets a window.
+        if applicationLaunchIsDefault { return true }
+
+        // AppKit also marks launches that restore saved state as non-default. Restoring
+        // may not bring back any terminal windows (e.g. only the quick terminal was
+        // saved), so we still want a window in that case.
+        if applicationDidRestoreState { return true }
+
+        // Otherwise we were launched to handle a request, such as a Services request,
+        // that creates its own window. On macOS 27, Services requests are delivered
+        // after we become active, so creating a window here would give the user an
+        // extra one (#14299).
+        AppDelegate.logger.info("non-default launch, skipping initial window")
+        return false
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -914,6 +948,7 @@ class AppDelegate: NSObject,
 
     func application(_ app: NSApplication, didDecodeRestorableState coder: NSCoder) {
         Self.logger.debug("application will restore window state")
+        applicationDidRestoreState = true
 
         // Decode our quick terminal state.
         if ghostty.config.windowSaveState != "never",
