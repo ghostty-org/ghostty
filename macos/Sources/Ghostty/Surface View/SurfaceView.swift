@@ -599,6 +599,9 @@ extension Ghostty {
         /// Context for surface creation
         var context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_WINDOW
 
+        /// Whether this surface is the quick terminal.
+        var isQuickTerminal: Bool = false
+
         init() {}
 
         init(from config: ghostty_surface_config_s) {
@@ -621,6 +624,7 @@ extension Ghostty {
                 }
             }
             self.context = config.context
+            self.isQuickTerminal = config.is_quick_terminal
         }
 
         /// Provides a C-compatible ghostty configuration within a closure. The configuration
@@ -642,6 +646,9 @@ extension Ghostty {
 
             // Set context
             config.context = context
+
+            // Set whether this is the quick terminal
+            config.is_quick_terminal = isQuickTerminal
 
             // Use withCString to ensure strings remain valid for the duration of the closure
             return try workingDirectory.withCString { cWorkingDir in

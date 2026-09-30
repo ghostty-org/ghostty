@@ -469,6 +469,36 @@ const DerivedConfig = struct {
     }
 };
 
+/// Determine the command to execute for a new surface.
+///
+/// The precedence is:
+///
+///   1. If the surface is the quick terminal and `quick-terminal-command`
+///      is set, that is used. This lets the quick terminal run a different
+///      command than normal terminals.
+///   2. If this is the first surface ever created and `initial-command` is
+///      set, that is used.
+///   3. Otherwise `command` is used.
+///
+fn commandForSurface(
+    config: *const configpkg.Config,
+    is_first: bool,
+    is_quick_terminal: bool,
+) ?configpkg.Command {
+    // The quick terminal can be configured with its own command that
+    // takes precedence over everything else. If it isn't set then we
+    // fall through to the normal logic below.
+    if (is_quick_terminal) {
+        if (config.@"quick-terminal-command") |command| return command;
+    }
+
+    if (is_first) {
+        if (config.@"initial-command") |command| return command;
+    }
+
+    return config.command;
+}
+
 /// Create a new surface. This must be called from the main thread. The
 /// pointer to the memory for the surface must be provided and must be
 /// stable due to interfacing with various callbacks.
@@ -631,14 +661,11 @@ pub fn init(
     };
 
     // The command we're going to execute
-    const command: ?configpkg.Command = command: {
-        if (app.first) {
-            if (config.@"initial-command") |command| {
-                break :command command;
-            }
-        }
-        break :command config.command;
-    };
+    const command: ?configpkg.Command = commandForSurface(
+        config,
+        app.first,
+        rt_surface.isQuickTerminal(),
+    );
 
     // Start our IO implementation
     // This separate block ({}) is important because our errdefers must
@@ -6688,4 +6715,49 @@ test "promptClickRelativeRow" {
         );
         try testing.expectEqual(case.expected, promptClickRelativeRow(&pages, prompt, click));
     }
+}
+
+test "commandForSurface" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try configpkg.Config.default(alloc);
+    defer cfg.deinit();
+
+    // We use static string literals so that no additional allocations are
+    // required and `deinit` remains safe (it only tears down the arena).
+    const command: configpkg.Command = .{ .shell = "command" };
+    const initial: configpkg.Command = .{ .shell = "initial-command" };
+    const quick: configpkg.Command = .{ .shell = "quick-terminal-command" };
+
+    // Nothing configured: there is no command.
+    try testing.expect(commandForSurface(&cfg, true, false) == null);
+    try testing.expect(commandForSurface(&cfg, false, false) == null);
+    try testing.expect(commandForSurface(&cfg, true, true) == null);
+    try testing.expect(commandForSurface(&cfg, false, true) == null);
+
+    // Only `command`: every surface uses it.
+    cfg.command = command;
+    try testing.expectEqualStrings(commandForSurface(&cfg, true, false).?.shell, "command");
+    try testing.expectEqualStrings(commandForSurface(&cfg, false, false).?.shell, "command");
+    try testing.expectEqualStrings(commandForSurface(&cfg, true, true).?.shell, "command");
+    try testing.expectEqualStrings(commandForSurface(&cfg, false, true).?.shell, "command");
+
+    // Adding `initial-command` only affects the first surface.
+    cfg.@"initial-command" = initial;
+    try testing.expectEqualStrings(commandForSurface(&cfg, true, false).?.shell, "initial-command");
+    try testing.expectEqualStrings(commandForSurface(&cfg, false, false).?.shell, "command");
+
+    // The quick terminal without `quick-terminal-command` still follows the
+    // normal precedence (existing behavior).
+    try testing.expectEqualStrings(commandForSurface(&cfg, true, true).?.shell, "initial-command");
+    try testing.expectEqualStrings(commandForSurface(&cfg, false, true).?.shell, "command");
+
+    // Adding `quick-terminal-command` always wins for the quick terminal and
+    // leaves normal surfaces untouched.
+    cfg.@"quick-terminal-command" = quick;
+    try testing.expectEqualStrings(commandForSurface(&cfg, true, true).?.shell, "quick-terminal-command");
+    try testing.expectEqualStrings(commandForSurface(&cfg, false, true).?.shell, "quick-terminal-command");
+    try testing.expectEqualStrings(commandForSurface(&cfg, true, false).?.shell, "initial-command");
+    try testing.expectEqualStrings(commandForSurface(&cfg, false, false).?.shell, "command");
 }

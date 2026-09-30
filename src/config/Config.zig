@@ -1194,6 +1194,21 @@ command: ?Command = null,
 ///     manually.
 @"initial-command": ?Command = null,
 
+/// This is the same as `command`, but only applies to the quick terminal.
+///
+/// The quick terminal is a special surface that is toggled with a keybinding
+/// and shown as an overlay (see the `quick-terminal-*` configuration options
+/// for more information). When this is set, the quick terminal always uses
+/// this command, taking precedence over the `command` and `initial-command`
+/// configurations. Other terminal surfaces are unaffected and continue to use
+/// `command` and `initial-command` as usual.
+///
+/// If this is not set, the quick terminal is treated like any other surface
+/// and uses the `command` and `initial-command` configurations.
+///
+/// Available since: 1.4.0
+@"quick-terminal-command": ?Command = null,
+
 /// Controls when command finished notifications are sent. There are
 /// three options:
 ///

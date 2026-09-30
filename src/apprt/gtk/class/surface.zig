@@ -1597,6 +1597,12 @@ pub const Surface = extern struct {
         return self.private().cursor_pos;
     }
 
+    /// Returns true if this surface is the quick terminal.
+    pub fn isQuickTerminal(self: *Self) bool {
+        const window = ext.getAncestor(Window, self.as(gtk.Widget)) orelse return false;
+        return window.isQuickTerminal();
+    }
+
     pub fn defaultTermioEnv(self: *Self) !std.process.Environ.Map {
         const app = Application.default();
         const alloc = app.allocator();

@@ -16,4 +16,9 @@ pub const App = struct {
         return false;
     }
 };
-pub const Surface = struct {};
+pub const Surface = struct {
+    /// The "none" runtime has no concept of a quick terminal.
+    pub fn isQuickTerminal(_: *const Surface) bool {
+        return false;
+    }
+};

@@ -454,6 +454,10 @@ pub const Surface = struct {
     cursor_pos: apprt.CursorPos,
     inspector: ?*Inspector = null,
 
+    /// Whether this surface is the quick terminal. This is set from the
+    /// surface options at initialization and never changes.
+    is_quick_terminal: bool = false,
+
     /// The current title of the surface. The embedded apprt saves this so
     /// that getTitle works without the implementer needing to save it.
     title: ?[:0]const u8 = null,
@@ -499,6 +503,9 @@ pub const Surface = struct {
 
         /// Context for the new surface
         context: apprt.surface.NewSurfaceContext = .window,
+
+        /// Whether this surface is the quick terminal.
+        is_quick_terminal: bool = false,
     };
 
     pub fn init(self: *Surface, app: *App, opts: Options) !void {
@@ -513,6 +520,7 @@ pub const Surface = struct {
             },
             .size = .{ .width = 800, .height = 600 },
             .cursor_pos = .{ .x = -1, .y = -1 },
+            .is_quick_terminal = opts.is_quick_terminal,
         };
 
         // Add ourselves to the list of surfaces on the app.
@@ -686,6 +694,10 @@ pub const Surface = struct {
 
     pub fn getContentScale(self: *const Surface) !apprt.ContentScale {
         return self.content_scale;
+    }
+
+    pub fn isQuickTerminal(self: *const Surface) bool {
+        return self.is_quick_terminal;
     }
 
     pub fn getSize(self: *const Surface) !apprt.SurfaceSize {
@@ -1175,6 +1187,7 @@ pub const Surface = struct {
             .font_size = font_size,
             .working_directory = working_directory,
             .context = context,
+            .is_quick_terminal = self.is_quick_terminal,
         };
     }
 

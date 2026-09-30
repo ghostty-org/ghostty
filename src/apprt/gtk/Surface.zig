@@ -49,6 +49,10 @@ pub fn getContentScale(self: *const Self) !apprt.ContentScale {
     return self.surface.getContentScale();
 }
 
+pub fn isQuickTerminal(self: *const Self) bool {
+    return self.surface.isQuickTerminal();
+}
+
 pub fn getSize(self: *const Self) !apprt.SurfaceSize {
     return self.surface.getSize();
 }
