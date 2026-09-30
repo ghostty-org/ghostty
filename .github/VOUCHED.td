@@ -83,6 +83,7 @@ cespare
 charliie-dev
 chernetskyi
 chronologos
+clemg
 cmwetherell
 crayxt
 craziestowl
