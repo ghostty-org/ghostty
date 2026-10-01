@@ -15936,6 +15936,20 @@ test "Terminal: resize less cols with wide char then print" {
     try t.print('😀'); // 0x1F600
 }
 
+test "Terminal: resize less cols without reflow cutting wide char tail" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 3, .rows = 1 });
+    defer t.deinit(alloc);
+
+    try t.print('a');
+    try t.print('一');
+    t.modes.set(.wraparound, false);
+    try t.resize(alloc, .{ .cols = 2, .rows = 1 });
+
+    try testing.expect(t.screens.active.pages.getCell(.{ .active = .{ .x = 1 } }).?.cell.isEmpty());
+}
+
 // https://github.com/mitchellh/ghostty/issues/723
 // This was found via fuzzing so its highly specific.
 test "Terminal: resize with left and right margin set" {
