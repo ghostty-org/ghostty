@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 const wayland = @import("wayland");
 const wl = wayland.client.wl;
 const ext = wayland.client.ext;
+const gtk = wayland.client.gtk;
 const kde = wayland.client.kde;
 const org = wayland.client.org;
 const vicinae = wayland.client.vicinae;
@@ -30,6 +31,7 @@ const Binding = struct {
 pub const Tag = enum {
     compositor,
     ext_background_effect,
+    gtk_shell,
     kde_decoration_manager,
     kde_slide_manager,
     kde_output_order,
@@ -40,6 +42,7 @@ pub const Tag = enum {
         return switch (self) {
             .compositor => wl.Compositor,
             .ext_background_effect => ext.BackgroundEffectManagerV1,
+            .gtk_shell => gtk.Shell1,
             .kde_decoration_manager => org.KdeKwinServerDecorationManager,
             .kde_slide_manager => org.KdeKwinSlideManager,
             .kde_output_order => kde.OutputOrderV1,
@@ -148,6 +151,18 @@ fn registryListener(
                 const T = tag.Type();
                 if (std.mem.orderZ(u8, v.interface, T.interface.name) == .eq) {
                     log.debug("matched {}", .{T});
+
+                    // We bind at the version the bindings were generated
+                    // for. Asking for a version the compositor doesn't
+                    // offer is a protocol error, and binding lower would
+                    // let us send requests it has never heard of.
+                    if (v.version < T.generated_version) {
+                        log.warn(
+                            "compositor offers {s} version {d} but we need {d}; not binding",
+                            .{ v.interface, v.version, T.generated_version },
+                        );
+                        return;
+                    }
 
                     const new_proxy = registry.bind(
                         v.name,

@@ -1552,7 +1552,9 @@ title: ?[:0]const u8 = null,
 ///
 /// Changing this value may break launching Ghostty from `.desktop` files, via
 /// DBus activation, or systemd user services as the system is expecting Ghostty
-/// to connect to DBus using the default `class` when it is launched.
+/// to connect to DBus using the default `class` when it is launched. It also
+/// stops Ghostty's terminals from showing up in the GNOME Shell overview
+/// search, which looks for Ghostty under the default `class`.
 ///
 /// The class name must follow the requirements defined [in the GTK
 /// documentation](https://docs.gtk.org/gio/type_func.Application.id_is_valid.html).

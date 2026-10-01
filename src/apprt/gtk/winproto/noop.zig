@@ -81,4 +81,8 @@ pub const Window = struct {
     pub fn addSubprocessEnv(_: *Window, _: *std.process.Environ.Map) !void {}
 
     pub fn setUrgent(_: *Window, _: bool) !void {}
+
+    pub fn present(_: *Window) bool {
+        return false;
+    }
 };
