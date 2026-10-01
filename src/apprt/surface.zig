@@ -131,6 +131,10 @@ pub const Message = union(enum) {
     /// the viewport to follow the mouse cursor.
     selection_scroll_tick: bool,
 
+    /// The timer started by the `prompt_click_delay` termio message has
+    /// elapsed and a deferred prompt click should now be processed.
+    prompt_click_fire,
+
     /// The terminal has reported a change in the working directory.
     pwd_change: WriteReq,
 

@@ -235,6 +235,10 @@ const Mouse = struct {
     /// pressed or release.
     mods: input.Mods = .{},
 
+    /// A prompt click waiting for the click repeat interval to elapse
+    /// (see `double-click-exclusive`). Holds the position of the click.
+    pending_prompt_click: ?apprt.CursorPos = null,
+
     /// Gesture state for text selection.
     selection_gesture: terminal.SelectionGesture = .init,
 
@@ -316,6 +320,7 @@ const DerivedConfig = struct {
     middle_click_action: configpkg.MiddleClickAction,
     confirm_close_surface: configpkg.ConfirmCloseSurface,
     cursor_click_to_move: bool,
+    double_click_exclusive: bool,
     desktop_notifications: bool,
     font: font.SharedGridSet.DerivedConfig,
     mouse_interval: u64,
@@ -397,6 +402,7 @@ const DerivedConfig = struct {
             .middle_click_action = config.@"middle-click-action",
             .confirm_close_surface = config.@"confirm-close-surface",
             .cursor_click_to_move = config.@"cursor-click-to-move",
+            .double_click_exclusive = config.@"double-click-exclusive",
             .desktop_notifications = config.@"desktop-notifications",
             .font = try font.SharedGridSet.DerivedConfig.init(alloc, config),
             .mouse_interval = config.@"click-repeat-interval" * 1_000_000, // 500ms
@@ -1156,6 +1162,17 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .selection_scroll_tick => |active| {
             self.selection_scroll_active = active;
             try self.selectionScrollTick();
+        },
+
+        .prompt_click_fire => {
+            const pos = self.mouse.pending_prompt_click orelse return;
+            self.mouse.pending_prompt_click = null;
+
+            self.renderer_state.mutex.lockUncancelable(global.io());
+            defer self.renderer_state.mutex.unlock(global.io());
+            _ = self.maybePromptClick(pos, false) catch |err| {
+                log.warn("error processing deferred prompt click err={}", .{err});
+            };
         },
 
         .start_command => {
@@ -4008,7 +4025,11 @@ pub fn mouseButtonCallback(
         // Handle prompt clicking. If we released our mouse on a prompt
         // and we support some kind of click events, then we need to
         // move to it.
-        if (self.maybePromptClick()) |handled| {
+        const click_pos: apprt.CursorPos = release_pos orelse
+            try self.rt_surface.getCursorPos();
+        if (self.maybeDeferPromptClick(click_pos)) {
+            return true;
+        } else if (self.maybePromptClick(click_pos, false)) |handled| {
             if (handled) return true;
         } else |err| {
             log.warn("error processing prompt click err={}", .{err});
@@ -4081,6 +4102,10 @@ pub fn mouseButtonCallback(
 
             break :pin pin;
         };
+
+        // Any new press means the pending prompt click (if any) was the
+        // first half of a repeat click, so it must not run.
+        self.mouse.pending_prompt_click = null;
 
         var press_selection = try self.mouse.selection_gesture.press(t, .{
             .time = std.Io.Timestamp.now(global.io(), .awake),
@@ -4257,8 +4282,39 @@ pub fn mouseButtonCallback(
     return false;
 }
 
+/// If `double-click-exclusive` is enabled and the click at `pos` is a prompt
+/// click, schedule it to run once the click repeat interval since the press
+/// has elapsed (unless another press cancels it) and return true.
+///
 /// Requires the renderer state mutex is held.
-fn maybePromptClick(self: *Surface) !bool {
+fn maybeDeferPromptClick(self: *Surface, pos: apprt.CursorPos) bool {
+    if (!self.config.double_click_exclusive) return false;
+
+    const press_time = self.mouse.selection_gesture.left_click_time orelse return false;
+    const since: u64 = @intCast(press_time.untilNow(global.io(), .awake).toNanoseconds());
+
+    // The interval has already passed so this can't become a repeat click.
+    if (since >= self.config.mouse_interval) return false;
+
+    // Only defer clicks we would actually act on.
+    const would_handle = self.maybePromptClick(pos, true) catch false;
+    if (!would_handle) return false;
+
+    const remaining_ns = self.config.mouse_interval - since;
+    const delay_ms: u32 = @intCast(@min(
+        std.math.maxInt(u32),
+        remaining_ns / std.time.ns_per_ms + 1,
+    ));
+    self.mouse.pending_prompt_click = pos;
+    self.queueIo(.{ .prompt_click_delay = delay_ms }, .locked);
+    return true;
+}
+
+/// Requires the renderer state mutex is held.
+///
+/// If `dry_run` is true nothing is sent to the shell; the return value only
+/// says whether the click would have been handled.
+fn maybePromptClick(self: *Surface, pos: apprt.CursorPos, dry_run: bool) !bool {
     const t: *terminal.Terminal = self.renderer_state.terminal;
     const screen: *terminal.Screen = t.screens.active;
 
@@ -4282,7 +4338,6 @@ fn maybePromptClick(self: *Surface) !bool {
     if (screen.selection != null) return false;
 
     // Get the pin for our mouse click.
-    const pos = try self.rt_surface.getCursorPos();
     const pos_vp = self.posToViewport(pos.x, pos.y);
     const click_pin: terminal.Pin = pin: {
         const pin = screen.pages.pin(.{
@@ -4319,6 +4374,7 @@ fn maybePromptClick(self: *Surface) !bool {
     // click_events=1 since we rely on the shell to validate out of
     // bounds clicks. This matches Kitty's logic as best I can tell.
     if (click_pin.before(prompt_pin)) return false;
+    if (dry_run) return true;
 
     // At this point we've established:
     // - Screen supports prompt clicks

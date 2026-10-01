@@ -923,6 +923,19 @@ palette: Palette = .{},
 /// behavior around edge cases is possible.
 @"cursor-click-to-move": bool = true,
 
+/// When enabled, a click at a prompt (see `cursor-click-to-move`) is not
+/// acted on immediately. Instead, Ghostty waits for `click-repeat-interval`
+/// to elapse after the click and only then moves the cursor, unless a second
+/// click arrives in the meantime. This prevents the first click of a
+/// double-click (word selection) or triple-click (line selection) from also
+/// moving the cursor in the shell.
+///
+/// The tradeoff is that a single click at a prompt moves the cursor with a
+/// delay of up to `click-repeat-interval`.
+///
+/// This has no effect if `cursor-click-to-move` is disabled.
+@"double-click-exclusive": bool = false,
+
 /// Hide the mouse immediately when typing. The mouse becomes visible again
 /// when the mouse is used (button, movement, etc.). Platform-specific behavior
 /// may dictate other scenarios where the mouse is shown. For example on macOS,

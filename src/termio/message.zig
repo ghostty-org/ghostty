@@ -68,6 +68,12 @@ pub const Message = union(enum) {
     /// surface thread doesn't have access to an event loop from libghostty.
     selection_scroll: bool,
 
+    /// Start (or restart) a one-shot timer of the given number of
+    /// milliseconds. When it elapses the termio thread sends a
+    /// `prompt_click_fire` message back to the surface. Used to delay
+    /// prompt clicks until we know they aren't part of a double-click.
+    prompt_click_delay: u32,
+
     /// Jump forward/backward n prompts.
     jump_to_prompt: isize,
 

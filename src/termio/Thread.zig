@@ -61,6 +61,12 @@ scroll: xev.Timer,
 scroll_c: xev.Completion = .{},
 scroll_active: bool = false,
 
+/// One-shot timer used to delay prompt clicks until the click repeat
+/// interval has elapsed.
+prompt_click: xev.Timer,
+prompt_click_c: xev.Completion = .{},
+prompt_click_cancel_c: xev.Completion = .{},
+
 /// This is used to coalesce resize events.
 coalesce: xev.Timer,
 coalesce_c: xev.Completion = .{},
@@ -104,6 +110,10 @@ pub fn init(
     var scroll_h = try xev.Timer.init();
     errdefer scroll_h.deinit();
 
+    // This timer is used to delay prompt clicks.
+    var prompt_click_h = try xev.Timer.init();
+    errdefer prompt_click_h.deinit();
+
     // This timer is used to coalesce resize events.
     var coalesce_h = try xev.Timer.init();
     errdefer coalesce_h.deinit();
@@ -117,6 +127,7 @@ pub fn init(
         .loop = loop,
         .stop = stop_h,
         .scroll = scroll_h,
+        .prompt_click = prompt_click_h,
         .coalesce = coalesce_h,
         .sync_reset = sync_reset_h,
     };
@@ -126,6 +137,7 @@ pub fn init(
 /// completes executing; the caller must join prior to this.
 pub fn deinit(self: *Thread) void {
     self.scroll.deinit();
+    self.prompt_click.deinit();
     self.coalesce.deinit();
     self.sync_reset.deinit();
     self.stop.deinit();
@@ -335,6 +347,15 @@ fn drainMailbox(
                     self.stopScrollTimer();
                 }
             },
+            .prompt_click_delay => |ms| self.prompt_click.reset(
+                &self.loop,
+                &self.prompt_click_c,
+                &self.prompt_click_cancel_c,
+                ms,
+                CallbackData,
+                cb,
+                promptClickCallback,
+            ),
             .jump_to_prompt => |v| try io.jumpToPrompt(v),
             .kitty_clipboard_grant_read => |v| {
                 defer v.alloc.free(v.pw);
@@ -479,6 +500,29 @@ fn stopCallback(
 ) xev.CallbackAction {
     _ = r catch unreachable;
     cb_.?.self.loop.stop();
+    return .disarm;
+}
+
+fn promptClickCallback(
+    cb_: ?*CallbackData,
+    _: *xev.Loop,
+    _: *xev.Completion,
+    r: xev.Timer.RunError!void,
+) xev.CallbackAction {
+    _ = r catch |err| switch (err) {
+        // The timer was restarted by a newer click; that one will fire.
+        error.Canceled => return .disarm,
+        else => {
+            log.warn("error during prompt click callback err={}", .{err});
+            return .disarm;
+        },
+    };
+
+    const cb = cb_ orelse return .disarm;
+    _ = cb.io.surface_mailbox.push(
+        .prompt_click_fire,
+        .{ .instant = {} },
+    );
     return .disarm;
 }
 
