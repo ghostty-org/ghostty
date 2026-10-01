@@ -1369,7 +1369,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 mouse: renderer.State.Mouse,
                 preedit: ?renderer.State.Preedit,
                 scrollbar: terminal.Scrollbar,
-                overlay_features: []const Overlay.Feature,
+                overlay_features: Overlay.FeatureSet,
             };
 
             // Update all our data as tightly as possible within the mutex.
@@ -1510,13 +1510,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     };
                 };
 
-                const overlay_features: []const Overlay.Feature = overlay: {
-                    const insp = state.inspector orelse break :overlay &.{};
-                    const renderer_info = insp.rendererInfo();
-                    break :overlay renderer_info.overlayFeatures(
-                        arena_alloc,
-                    ) catch &.{};
-                };
+                const overlay_features: Overlay.FeatureSet = if (state.inspector) |insp|
+                    insp.rendererInfo().features
+                else
+                    .{};
 
                 break :critical .{
                     .links = links,
@@ -2527,13 +2524,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// overlay currently configured.
         fn rebuildOverlay(
             self: *Self,
-            features: []const Overlay.Feature,
+            features: Overlay.FeatureSet,
         ) Overlay.InitError!void {
             const alloc = self.alloc;
 
             // If we have no features enabled, don't build an overlay.
             // If we had a previous overlay, deallocate it.
-            if (features.len == 0) {
+            if (!features.any()) {
                 if (self.overlay) |*old| {
                     old.deinit(alloc);
                     self.overlay = null;

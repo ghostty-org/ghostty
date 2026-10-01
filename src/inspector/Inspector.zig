@@ -114,6 +114,7 @@ pub fn render(
     self: *Inspector,
     surface: *Surface,
 ) void {
+    const previous_features = self.gui.renderer_info.features;
 
     // Draw the UI
     self.gui.draw(
@@ -121,14 +122,7 @@ pub fn render(
         self.mouse,
     );
 
-    // TODO: Strictly, we should trigger a terminal render when either feature
-    // is toggled. For now just render when either is enabled and let a normal
-    // terminal render clear highlight. Instead to make an idle terminal
-    // renderer measurable. Just feature gate redraws.
-    const features = &self.gui.renderer_info.features;
-    if (features.contains(.highlight_hyperlinks) or
-        features.contains(.semantic_prompts))
-    {
+    if (!std.meta.eql(previous_features, self.gui.renderer_info.features)) {
         surface.queueRender() catch {};
     }
 }
