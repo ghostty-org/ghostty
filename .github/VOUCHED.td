@@ -240,6 +240,7 @@ mistertea
 mitchellh
 miupa
 mjbommar
+mlabbe
 mohshami
 molechowski
 moonmao42
