@@ -24,6 +24,32 @@
 //! shows no results. The `.desktop`, D-Bus service and systemd files have
 //! the same limitation, and the `class` documentation says so.
 //!
+//! ## Where our results appear
+//!
+//! The order of the providers' sections in the overview is the user's to
+//! choose, not ours: nothing in the registration file or the D-Bus
+//! interface lets a provider ask to be placed higher. GNOME Shell lists
+//! the providers named in the `sort-order` key of the
+//! `org.gnome.desktop.search-providers` schema first, in that order, and
+//! every other provider after them, alphabetically by application name.
+//! Ghostty isn't in the default list, so out of the box our results come
+//! after Files, Characters and the other GNOME applications.
+//!
+//! A user who wants terminals nearer the top can drag Ghostty up the list
+//! on the Search page of GNOME Settings, which is also where the provider
+//! can be switched off. That page writes the `sort-order` key, so the same
+//! change can be made with `gsettings`. The entries are desktop file IDs:
+//! `com.mitchellh.ghostty.desktop` for a release build and
+//! `com.mitchellh.ghostty-debug.desktop` for a debug one.
+//!
+//! ```
+//! gsettings get org.gnome.desktop.search-providers sort-order
+//! gsettings set org.gnome.desktop.search-providers sort-order \
+//!   "['com.mitchellh.ghostty.desktop', 'org.gnome.Nautilus.desktop']"
+//! ```
+//!
+//! `set` replaces the whole list, so start from what `get` printed.
+//!
 //! ## Focus stealing prevention
 //!
 //! `ActivateResult` and `LaunchSearch` are handed the timestamp of the
