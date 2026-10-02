@@ -1541,9 +1541,13 @@ pub const StreamHandler = struct {
         }
 
         var host_buffer: [std.Io.net.HostName.max_len]u8 = undefined;
-        const host = uri.getHost(&host_buffer) catch |err| switch (err) {
+        const host = std.Io.net.HostName.fromUri(uri, &host_buffer) catch |err| switch (err) {
             error.UriMissingHost => {
                 log.warn("OSC 7 uri must contain a hostname: {}", .{err});
+                return;
+            },
+            error.NameTooLong, error.InvalidHostName => {
+                log.warn("OSC 7 uri contains an invalid hostname: {}", .{err});
                 return;
             },
         };
