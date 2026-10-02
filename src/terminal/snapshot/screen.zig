@@ -1460,7 +1460,7 @@ test "header encoding rejects invalid state" {
 }
 
 test "header decoding rejects structural values" {
-    const valid = [_]u8{0} ** Header.len;
+    const valid: [Header.len]u8 = @splat(0);
 
     var invalid_key = valid;
     invalid_key[0] = 2;
@@ -1469,7 +1469,7 @@ test "header decoding rejects structural values" {
 }
 
 test "header decoding normalizes unknown semantic values" {
-    var fixture = [_]u8{0} ** Header.len;
+    var fixture: [Header.len]u8 = @splat(0);
 
     fixture[16] = 4; // Unknown cursor style.
     fixture[17] = 0xFF; // Known flags, unknown semantic value, reserved bits.
@@ -1530,7 +1530,7 @@ test "header decoding normalizes unknown semantic values" {
         .{ 2, 4 },
     };
     for (invalid_semantic_clicks) |invalid| {
-        var semantic_fixture = [_]u8{0} ** Header.len;
+        var semantic_fixture: [Header.len]u8 = @splat(0);
         semantic_fixture[50] = invalid[0];
         semantic_fixture[51] = invalid[1];
         var semantic_reader: std.Io.Reader = .fixed(&semantic_fixture);
@@ -1612,7 +1612,7 @@ test "saved cursor encoding rejects and decoding normalizes invalid state" {
         invalid_flags.encode(&flags_writer),
     );
 
-    var invalid = [_]u8{0} ** SavedCursor.len;
+    var invalid: [SavedCursor.len]u8 = @splat(0);
     invalid[4] = 3; // Unknown saved-cursor foreground color kind.
     invalid[20] = 0xF9; // Protected plus reserved bits.
     invalid[22] = 0xD0; // Invalid single shift plus a reserved bit.

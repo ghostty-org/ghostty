@@ -2123,6 +2123,13 @@ fn trackPin(
     }).?);
 }
 
+/// A bunch of stars for a bunch of tests
+fn stars() []u8 {
+    const result = std.testing.allocator.alloc(u8, 64) catch @panic("OOM");
+    @memset(result, '*');
+    return result;
+}
+
 test "storage: add placement with zero placement id" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -3492,17 +3499,17 @@ test "storage: evicts images in priority order" {
 
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 1,
-        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .data = .{ .complete = stars() },
         .metadata = .{ .transient = false },
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 2,
-        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .data = .{ .complete = stars() },
         .metadata = .{ .transient = true },
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 3,
-        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .data = .{ .complete = stars() },
         .metadata = .{ .transient = true },
     });
     try s.addPlacement(
@@ -3538,14 +3545,14 @@ test "storage: eviction releases placement pins" {
     const tracked = t.screens.active.pages.countTrackedPins();
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 1,
-        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .data = .{ .complete = stars() },
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{
         .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) },
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 2,
-        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .data = .{ .complete = stars() },
     });
     try s.addPlacement(io, alloc, t.screens.active, 2, 1, .{
         .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) },
@@ -3556,7 +3563,7 @@ test "storage: eviction releases placement pins" {
     // placement. The newer image's placement and tracked pin remain intact.
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 3,
-        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .data = .{ .complete = stars() },
     });
     try testing.expect(!s.images.contains(1));
     try testing.expect(s.images.contains(2));
@@ -3603,7 +3610,8 @@ test "storage: pending image completes once and preserves age" {
 
     const storage_generation = s.generation;
     s.dirty = false;
-    const pixels = try alloc.dupe(u8, "*" ** 16);
+    const pixels = try alloc.alloc(u8, 16);
+    @memset(pixels, '*');
     try testing.expect(pending.complete(&s, io, pixels));
     try testing.expect(s.dirty);
     try testing.expect(s.generation > storage_generation);
@@ -3611,7 +3619,8 @@ test "storage: pending image completes once and preserves age" {
     try testing.expectEqual(@as(usize, 16), s.total_bytes);
     try testing.expectEqualSlices(u8, pixels, s.imageById(1).?.data.bytes().?);
 
-    const duplicate = try alloc.dupe(u8, "!" ** 16);
+    const duplicate = try alloc.alloc(u8, 16);
+    @memset(duplicate, '!');
     const duplicate_completed = pending.complete(&s, io, duplicate);
     try testing.expect(!duplicate_completed);
     defer alloc.free(duplicate);
@@ -3752,7 +3761,7 @@ test "storage: pending images share exact eviction ordering" {
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 3,
-        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .data = .{ .complete = stars() },
         .metadata = .{ .transient = true },
     });
     try s.addPlacement(io, alloc, t.screens.active, 2, 1, .{

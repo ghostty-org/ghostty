@@ -176,7 +176,7 @@ test "encode: base64 payload chunking" {
     defer aw.deinit();
 
     // Exactly one byte more than a chunk to force two chunks.
-    const data = [_]u8{'A'} ** (max_chunk_raw + 1);
+    const data: [max_chunk_raw + 1]u8 = @splat('A');
     try encode(&aw.writer, "t=r:x=1", 3, &data, .base64, .st);
 
     const out = aw.written();

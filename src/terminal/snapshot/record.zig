@@ -411,7 +411,7 @@ test "golden PAGE record header and checksum" {
 
 test "reject invalid tags" {
     for ([_]u16{ 0, 8, std.math.maxInt(u16) }) |tag| {
-        var fixture = [_]u8{0} ** Header.len;
+        var fixture: [Header.len]u8 = @splat(0);
         std.mem.writeInt(u16, fixture[0..2], tag, .little);
         var reader: std.Io.Reader = .fixed(&fixture);
         try std.testing.expectError(error.InvalidTag, Header.decode(&reader));

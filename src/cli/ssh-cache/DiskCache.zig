@@ -832,7 +832,8 @@ test isValidUser {
     try testing.expect(!isValidUser("user@example"));
     try testing.expect(!isValidUser("user:group"));
     try testing.expect(!isValidUser("user\nname"));
-    try testing.expect(!isValidUser("a" ** 65)); // too long
+    const loooong: [65]u8 = @splat('a');
+    try testing.expect(!isValidUser(&loooong)); // too long
 }
 
 test splitHostPort {

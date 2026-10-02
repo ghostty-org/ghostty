@@ -2003,7 +2003,7 @@ pub const Trigger = struct {
         // then I don't want to handle this.
         var buffer: [1]u21 = undefined;
         const slice = uucode.get(.case_folding_full, cp).with(&buffer, cp);
-        var array: [3]u21 = [_]u21{0} ** 3;
+        var array: [3]u21 = @splat(0);
         @memcpy(array[0..slice.len], slice);
         return array;
     }

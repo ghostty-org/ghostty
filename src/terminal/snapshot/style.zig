@@ -415,7 +415,7 @@ test "decodeOrNull distinguishes semantic errors from truncation" {
 }
 
 test "reject every truncation" {
-    const fixture = [_]u8{0} ** len;
+    const fixture: [len]u8 = @splat(0);
     for (0..len) |fixture_len| {
         var reader: std.Io.Reader = .fixed(fixture[0..fixture_len]);
         try std.testing.expectError(error.EndOfStream, decode(&reader));
