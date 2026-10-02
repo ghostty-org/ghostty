@@ -16,7 +16,7 @@ const fstatat_sym = if (posix.lfs64_abi) posix.system.fstatat64 else posix.syste
 const lseek_sym = if (posix.lfs64_abi) posix.system.lseek64 else posix.system.lseek;
 const preadv_sym = if (posix.lfs64_abi) posix.system.preadv64 else posix.system.preadv;
 
-const have_preadv = switch (builtin.os.tag) {
+const have_preadv = switch (builtin.target.os.tag) {
     .haiku => false,
     else => true,
 };
@@ -31,7 +31,7 @@ pub fn randomSecure(buffer: []u8) Io.RandomSecureError!void {
         return;
     }
 
-    if (builtin.os.tag == .linux) {
+    if (builtin.target.os.tag == .linux) {
         const linux = std.os.linux;
         var i: usize = 0;
         while (i < buffer.len) {
@@ -143,7 +143,7 @@ pub fn fileClose(_: ?*anyopaque, files: []const File) void {
 }
 
 pub fn fileStat(_: ?*anyopaque, file: File) File.StatError!File.Stat {
-    if (builtin.os.tag == .linux) {
+    if (builtin.target.os.tag == .linux) {
         const linux = std.os.linux;
         while (true) {
             var statx = std.mem.zeroes(linux.Statx);
@@ -296,7 +296,7 @@ pub fn fileRealPath(
 }
 
 fn realPathFd(fd: posix.fd_t, out_buffer: []u8) File.RealPathError!usize {
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .dragonfly, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             var sufficient_buffer: [posix.PATH_MAX]u8 = undefined;
             @memset(&sufficient_buffer, 0);
@@ -321,7 +321,7 @@ fn realPathFd(fd: posix.fd_t, out_buffer: []u8) File.RealPathError!usize {
 
         .linux, .serenity, .illumos => {
             var procfs_buf: ["/proc/self/path/-2147483648\x00".len]u8 = undefined;
-            const template = if (builtin.os.tag == .illumos) "/proc/self/path/{d}" else "/proc/self/fd/{d}";
+            const template = if (builtin.target.os.tag == .illumos) "/proc/self/path/{d}" else "/proc/self/fd/{d}";
             const proc_path = std.mem.printSentinel(&procfs_buf, template, .{fd}, 0) catch unreachable;
             while (true) {
                 const rc = posix.system.readlink(proc_path, out_buffer.ptr, out_buffer.len);
@@ -435,7 +435,7 @@ pub fn dirDeleteFile(
             .INTR => continue,
             // Some systems return EPERM when trying to delete a directory;
             // stat to disambiguate from a real permission error.
-            .PERM => switch (builtin.os.tag) {
+            .PERM => switch (builtin.target.os.tag) {
                 .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd, .illumos => {
                     var st = std.mem.zeroes(posix.Stat);
                     while (true) {
@@ -476,7 +476,7 @@ pub fn futexWaitInner(ptr: *const u32, expected: u32, timeout_ns: ?u64) void {
 
     if (builtin.single_threaded) unreachable; // nobody would ever wake us
 
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .linux => {
             const linux = std.os.linux;
             var ts_buffer: linux.timespec = undefined;
@@ -565,7 +565,7 @@ pub fn futexWake(userdata: ?*anyopaque, ptr: *const u32, max_waiters: u32) void 
 
     if (builtin.single_threaded) return; // nothing to wake up
 
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .linux => {
             const linux = std.os.linux;
             _ = linux.futex_3arg(

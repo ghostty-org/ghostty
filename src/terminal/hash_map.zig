@@ -84,7 +84,7 @@ fn AutoContext(comptime K: type) type {
                 // instead: two native i64.mul with full avalanche in
                 // both the low bits (slot index) and high bits
                 // (metadata fingerprint).
-                if (comptime builtin.cpu.arch.isWasm() and @sizeOf(K) <= 8) {
+                if (comptime builtin.target.cpu.arch.isWasm() and @sizeOf(K) <= 8) {
                     var x: u64 = 0;
                     @memcpy(
                         std.mem.asBytes(&x)[0..@sizeOf(K)],

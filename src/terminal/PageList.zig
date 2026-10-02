@@ -29,7 +29,7 @@ const Page = pagepkg.Page;
 const Row = pagepkg.Row;
 
 const log = std.log.scoped(.page_list);
-const native_freestanding = builtin.os.tag == .freestanding and
+const native_freestanding = builtin.target.os.tag == .freestanding and
     !builtin.target.cpu.arch.isWasm();
 
 /// The number of pages we preheat the page pool with. For operating systems
@@ -764,7 +764,7 @@ fn initPages(
         // (WASM), the WasmAllocator reuses freed slots without zeroing since
         // only fresh memory.grow pages are guaranteed zero by the WASM spec.
         // On native, the OS page allocator (mmap) returns zeroed pages.
-        if (comptime std.debug.runtime_safety or builtin.os.tag == .freestanding)
+        if (comptime std.debug.runtime_safety or builtin.target.os.tag == .freestanding)
             @memset(page_buf, 0);
 
         // Initialize the first set of pages to contain our viewport so that
@@ -4642,7 +4642,7 @@ inline fn createPageExt(
     // come from the OS page allocator (zeroed pages), destroyNodeExt
     // zeroes buffers before returning them to the pool, and the pool
     // never writes into its items (see PagePool).
-    if (comptime std.debug.runtime_safety or builtin.os.tag == .freestanding)
+    if (comptime std.debug.runtime_safety or builtin.target.os.tag == .freestanding)
         @memset(page_buf, 0);
 
     page.* = .{

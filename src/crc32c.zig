@@ -23,11 +23,11 @@ const Backend = enum {
 };
 
 const backend: Backend = backend: {
-    switch (builtin.cpu.arch) {
+    switch (builtin.target.cpu.arch) {
         .aarch64,
         .aarch64_be,
         => if (std.Target.aarch64.featureSetHas(
-            builtin.cpu.features,
+            builtin.target.cpu.features,
             .crc,
         )) break :backend .aarch64_crc,
 
@@ -36,7 +36,7 @@ const backend: Backend = backend: {
         // the portable implementation.
         .x86_64 => if (builtin.zig_backend == .stage2_llvm and
             std.Target.x86.featureSetHas(
-                builtin.cpu.features,
+                builtin.target.cpu.features,
                 .sse4_2,
             )) break :backend .x86_64_sse42,
 

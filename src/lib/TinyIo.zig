@@ -34,7 +34,7 @@ const Io = std.Io;
 /// True if this platform has a real TinyIo implementation. On
 /// unsupported platforms `io()` still works but every operation fails
 /// like `std.Io.failing`.
-pub const supported: bool = switch (builtin.os.tag) {
+pub const supported: bool = switch (builtin.target.os.tag) {
     .wasi, .freestanding, .other, .uefi => false,
     else => true,
 };
@@ -190,7 +190,7 @@ const vtable: Io.VTable = if (!supported) std.Io.failing.vtable.* else .{
 /// The platform arm behind the vtable. Each arm exports the same set of
 /// operations; only the selected one is ever analyzed, and `supported`
 /// gates the vtable so unsupported targets never resolve either.
-const impl = switch (builtin.os.tag) {
+const impl = switch (builtin.target.os.tag) {
     .windows => @import("tinyio/windows.zig"),
     else => @import("tinyio/posix.zig"),
 };

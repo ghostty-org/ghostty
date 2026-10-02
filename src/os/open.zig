@@ -23,11 +23,11 @@ pub fn open(
     // native apprt applies its allowlist, confirmation, and file safety policy.
     // If a macOS embedder declines the action, fail closed rather than bypassing
     // that policy by handing producer-controlled terminal output to `open`.
-    if (comptime builtin.os.tag == .macos) {
+    if (comptime builtin.target.os.tag == .macos) {
         if (kind == .osc8) return error.UnsafeOSC8Link;
     }
 
-    var spawn_opts: std.process.SpawnOptions = switch (builtin.os.tag) {
+    var spawn_opts: std.process.SpawnOptions = switch (builtin.target.os.tag) {
         .linux, .freebsd => .{ .argv = &.{ "xdg-open", url } },
         .windows => .{ .argv = &.{ "rundll32", "url.dll,FileProtocolHandler", url } },
         .macos => switch (kind) {
@@ -68,7 +68,7 @@ pub fn open(
 }
 
 test "macOS OSC 8 links have no generic opener fallback" {
-    if (builtin.os.tag != .macos) return error.SkipZigTest;
+    if (builtin.target.os.tag != .macos) return error.SkipZigTest;
 
     try std.testing.expectError(
         error.UnsafeOSC8Link,

@@ -10,7 +10,7 @@ const log = std.log.scoped(.flatpak);
 /// Returns true if we're running in a Flatpak environment.
 pub fn isFlatpak() bool {
     // If we're not on Linux then we'll make this comptime false.
-    if (comptime builtin.os.tag != .linux) return false;
+    if (comptime builtin.target.os.tag != .linux) return false;
     return if (std.Io.Dir.accessAbsolute(global.io(), "/.flatpak-info", .{}))
         true
     else |_|

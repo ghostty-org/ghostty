@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const global = @import("../global.zig");
 
 pub fn getKernelInfo(alloc: std.mem.Allocator) ?[]const u8 {
-    if (comptime builtin.os.tag != .linux) return null;
+    if (comptime builtin.target.os.tag != .linux) return null;
     const path = "/proc/sys/kernel/osrelease";
     var file = std.Io.Dir.openFileAbsolute(global.io(), path, .{}) catch return null;
     defer file.close(global.io());
@@ -19,7 +19,7 @@ pub fn getKernelInfo(alloc: std.mem.Allocator) ?[]const u8 {
 }
 
 test "read /proc/sys/kernel/osrelease" {
-    if (comptime builtin.os.tag != .linux) return null;
+    if (comptime builtin.target.os.tag != .linux) return null;
     const allocator = std.testing.allocator;
 
     const kernel_info = getKernelInfo(allocator).?;

@@ -65,7 +65,7 @@ pub fn restoreMaxFiles(lim: rlimit) void {
 /// without allocating. Always pair with `freeTmpDir` to release any
 /// allocation.
 pub fn allocTmpDir(allocator: std.mem.Allocator, environ: std.process.Environ) std.mem.Allocator.Error![]const u8 {
-    if (builtin.os.tag == .windows) {
+    if (builtin.target.os.tag == .windows) {
         // GetTempPathW guarantees the result fits in MAX_PATH+1.
         var buf: [windows.MAX_PATH + 1:0]u16 = undefined;
         const len = windows.exp.kernel32.GetTempPathW(buf.len, &buf);
@@ -89,7 +89,7 @@ pub fn allocTmpDir(allocator: std.mem.Allocator, environ: std.process.Environ) s
 /// Free a path returned by `allocTmpDir` if it allocated memory.
 /// This is a no-op on POSIX.
 pub fn freeTmpDir(allocator: std.mem.Allocator, dir: []const u8) void {
-    if (builtin.os.tag != .windows) return;
+    if (builtin.target.os.tag != .windows) return;
     allocator.free(dir);
 }
 

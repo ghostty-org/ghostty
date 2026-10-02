@@ -387,7 +387,7 @@ const entries: []const ModeEntry = &.{
         .value = 5522,
         // The macOS app and libghostty-vt can both serve the follow-up
         // Kitty clipboard read that a paste event grants.
-        .disabled = build_options.artifact != .lib and builtin.os.tag != .macos,
+        .disabled = build_options.artifact != .lib and builtin.target.os.tag != .macos,
     },
 };
 

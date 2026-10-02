@@ -178,7 +178,7 @@ pub fn run(gpa: Allocator) !u8 {
     defer env_map.deinit();
 
     // Disable on non-desktop systems.
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .windows, .macos, .linux, .freebsd => {},
         else => return 1,
     }
