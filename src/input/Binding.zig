@@ -3147,7 +3147,7 @@ test "parse: backwards compatibility with <= 1.1.x" {
                 .trigger = .{ .key = v },
                 .action = .{ .ignore = {} },
             },
-            try parseSingle(try std.fmt.bufPrint(&buf, "{s}=ignore", .{k})),
+            try parseSingle(try std.mem.print(&buf, "{s}=ignore", .{k})),
         );
     }
 }

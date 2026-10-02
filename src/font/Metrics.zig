@@ -490,7 +490,7 @@ pub const Modifier = union(enum) {
             .percent => |v| {
                 try formatter.formatEntry(
                     []const u8,
-                    std.fmt.bufPrint(
+                    std.mem.print(
                         &buf,
                         "{d}%",
                         .{(v - 1) * 100},
@@ -501,7 +501,7 @@ pub const Modifier = union(enum) {
             .absolute => |v| {
                 try formatter.formatEntry(
                     []const u8,
-                    std.fmt.bufPrint(
+                    std.mem.print(
                         &buf,
                         "{d}",
                         .{v},

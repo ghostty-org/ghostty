@@ -40,7 +40,7 @@ const Entry = struct {
         const keysym = key.keysymFromTrigger(self.trigger) orelse unreachable;
 
         var desc_buf: [256]u8 = undefined;
-        const desc = std.fmt.bufPrintZ(&desc_buf, "{f}", .{self.action}) catch "";
+        const desc = std.mem.printSentinel(&desc_buf, "{f}", .{self.action}, 0) catch "";
 
         const hotkey = try manager.bind(
             keysym,

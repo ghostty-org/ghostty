@@ -553,7 +553,7 @@ fn tinyPanicImpl(msg: []const u8, ra: ?usize) noreturn {
     // 256 bytes is enough for most messages, so try that first
     // so that we can try to write in a single syscall.
     var buf: [256]u8 = undefined;
-    if (std.fmt.bufPrint(
+    if (std.mem.print(
         &buf,
         "panic: {s}\n",
         .{msg},

@@ -89,10 +89,11 @@ pub const Info = struct {
             };
 
             var title_buf: [128]u8 = undefined;
-            const title = std.fmt.bufPrintZ(
+            const title = std.mem.printSentinel(
                 &title_buf,
                 "Screen: {t}",
                 .{entry.key},
+                0,
             ) catch "Screen";
 
             // Setup our next window so it has some size to it.

@@ -2677,7 +2677,7 @@ fn testTerminalWithLines(
 
     var buf: [32]u8 = undefined;
     for (0..lines) |i| {
-        const line = try std.fmt.bufPrint(
+        const line = try std.mem.print(
             &buf,
             "{s}line {d}",
             .{ if (i == 0) "" else "\r\n", i },

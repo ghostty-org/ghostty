@@ -134,7 +134,7 @@ pub fn maybeDir(
     sub: []const u8,
     suffix: []const u8,
 ) !?[]const u8 {
-    const path = try std.fmt.bufPrint(buf, "{s}/{s}/{s}", .{ base, sub, suffix });
+    const path = try std.mem.print(buf, "{s}/{s}/{s}", .{ base, sub, suffix });
 
     if (std.Io.Dir.accessAbsolute(global.io(), path, .{})) {
         const len = path.len - suffix.len - 1;

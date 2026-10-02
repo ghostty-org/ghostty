@@ -273,7 +273,7 @@ pub const Stream = struct {
                         var md_it = ev.metadata.iterator();
                         while (md_it.next()) |entry| {
                             var buf: [256]u8 = undefined;
-                            const key = std.fmt.bufPrintZ(&buf, "{s}", .{entry.key_ptr.*}) catch
+                            const key = std.mem.printSentinel(&buf, "{s}", .{entry.key_ptr.*}, 0) catch
                                 "<internal error>";
                             cimgui.c.ImGui_TableNextRow();
                             _ = cimgui.c.ImGui_TableNextColumn();
@@ -561,7 +561,7 @@ const VTEvent = struct {
         var it = self.metadata.iterator();
         while (it.next()) |entry| {
             var buf: [256]u8 = undefined;
-            const key = std.fmt.bufPrintZ(&buf, "{s}", .{entry.key_ptr.*}) catch continue;
+            const key = std.mem.printSentinel(&buf, "{s}", .{entry.key_ptr.*}, 0) catch continue;
             if (cimgui.c.ImGuiTextFilter_PassFilter(
                 filter,
                 key.ptr,
