@@ -167,7 +167,7 @@ test "cacheDir paths" {
         try testing.expect(std.mem.indexOf(u8, cache_path, "Caches") != null);
         try testing.expect(std.mem.indexOf(u8, cache_path, build_config.bundle_id) != null);
 
-        const bundle_path = try std.fmt.allocPrint(alloc, "{s}/test", .{build_config.bundle_id});
+        const bundle_path = try alloc.print("{s}/test", .{build_config.bundle_id});
         defer alloc.free(bundle_path);
         try testing.expect(std.mem.indexOf(u8, cache_path, bundle_path) != null);
     }

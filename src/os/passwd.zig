@@ -70,8 +70,7 @@ pub fn get(alloc: Allocator) !Entry {
                 "/bin/sh",
                 "-l",
                 "-c",
-                try std.fmt.allocPrint(
-                    alloc,
+                try alloc.print(
                     "getent passwd {s}",
                     .{std.mem.sliceTo(pw.pw_name, 0)},
                 ),

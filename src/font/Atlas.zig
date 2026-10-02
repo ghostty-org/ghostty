@@ -480,7 +480,7 @@ pub const Wasm = struct {
             try canvas.set("width", self.size);
             try canvas.set("height", self.size);
 
-            const width_str = try std.fmt.allocPrint(alloc, "{d}px", .{self.size});
+            const width_str = try alloc.print("{d}px", .{self.size});
             defer alloc.free(width_str);
 
             const style = try canvas.get(js.Object, "style");

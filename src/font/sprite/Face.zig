@@ -286,8 +286,7 @@ fn testDiffAtlas(
     defer alloc.free(cwd_absolute);
 
     // Get the reference file contents to compare.
-    const ref_path = try std.fmt.allocPrint(
-        alloc,
+    const ref_path = try alloc.print(
         "./src/font/sprite/testdata/U+{X}...U+{X}-{d}x{d}+{d}.png",
         .{ i, i + 0xFF, width, height, thickness },
     );
@@ -301,8 +300,7 @@ fn testDiffAtlas(
 
             // Copy the test PNG in to the CWD so it isn't
             // cleaned up with the rest of the tmp dir files.
-            const test_path = try std.fmt.allocPrint(
-                alloc,
+            const test_path = try alloc.print(
                 "{s}/sprite_face_test-U+{X}...U+{X}-{d}x{d}+{d}.png",
                 .{ cwd_absolute, i, i + 0xFF, width, height, thickness },
             );
@@ -326,8 +324,7 @@ fn testDiffAtlas(
 
     // Copy the test PNG in to the CWD so it isn't
     // cleaned up with the rest of the tmp dir files.
-    const test_path = try std.fmt.allocPrint(
-        alloc,
+    const test_path = try alloc.print(
         "{s}/sprite_face_test-U+{X}...U+{X}-{d}x{d}+{d}.png",
         .{ cwd_absolute, i, i + 0xFF, width, height, thickness },
     );
@@ -390,8 +387,7 @@ fn testDiffAtlas(
     }
 
     // Drop the diff image as a PNG in the cwd.
-    const diff_path = try std.fmt.allocPrint(
-        alloc,
+    const diff_path = try alloc.print(
         "./sprite_face_diff-U+{X}...U+{X}-{d}x{d}+{d}.png",
         .{ i, i + 0xFF, width, height, thickness },
     );
@@ -477,8 +473,7 @@ fn testDrawRanges(
             // current one and clear the surface for the next one.
             if (cp - i >= 0x100) {
                 // Export to our tmp dir.
-                const path = try std.fmt.allocPrint(
-                    alloc,
+                const path = try alloc.print(
                     "{s}/U+{X}...U+{X}-{d}x{d}+{d}.png",
                     .{ tmp_dir, i, i + 0xFF, width, height, thickness },
                 );
@@ -522,8 +517,7 @@ fn testDrawRanges(
         }
     }
 
-    const path = try std.fmt.allocPrint(
-        alloc,
+    const path = try alloc.print(
         "{s}/U+{X}...U+{X}-{d}x{d}+{d}.png",
         .{ tmp_dir, i, i + 0xFF, width, height, thickness },
     );

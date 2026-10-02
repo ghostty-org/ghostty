@@ -642,8 +642,7 @@ const Command = extern struct {
 
         if (regular.action_key) |action_key| return action_key;
 
-        regular.action_key = std.fmt.allocPrintSentinel(
-            priv.arena.allocator(),
+        regular.action_key = priv.arena.allocator().printSentinel(
             "{f}",
             .{regular.command.action},
             0,
@@ -691,8 +690,7 @@ const Command = extern struct {
                 const alloc = priv.arena.allocator();
                 const effective_title = surface.getEffectiveTitle() orelse "Untitled";
 
-                j.title = std.fmt.allocPrintSentinel(
-                    alloc,
+                j.title = alloc.printSentinel(
                     "Focus: {s}",
                     .{effective_title},
                     0,

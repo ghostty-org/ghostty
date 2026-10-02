@@ -320,8 +320,8 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
                 result = win.printSegment(.{ .text = " + " }, .{ .col_offset = result.col });
             }
             const key = switch (trigger.data.key) {
-                .physical => |k| try std.fmt.allocPrint(alloc, "{t}", .{k}),
-                .unicode => |c| try std.fmt.allocPrint(alloc, "{u}", .{c}),
+                .physical => |k| try alloc.print("{t}", .{k}),
+                .unicode => |c| try alloc.print("{u}", .{c}),
                 .catch_all => "catch_all",
             };
             result = win.printSegment(.{ .text = key }, .{ .col_offset = result.col });
@@ -342,7 +342,7 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
                 action_col = chain_result.col;
             }
 
-            const action = try std.fmt.allocPrint(alloc, "{f}", .{act});
+            const action = try alloc.print("{f}", .{act});
             // If our action has an argument, we print the argument in a different color
             if (std.mem.indexOfScalar(u8, action, ':')) |idx| {
                 const print_result = win.print(&.{

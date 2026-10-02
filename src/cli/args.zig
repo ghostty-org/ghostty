@@ -162,8 +162,7 @@ pub fn parse(
                 error.InvalidField => "unknown field",
                 error.ValueRequired => formatValueRequired(T, arena_alloc, key) catch "value required",
                 error.InvalidValue => formatInvalidValue(T, arena_alloc, key, value) catch "invalid value",
-                else => try std.fmt.allocPrintSentinel(
-                    arena_alloc,
+                else => try arena_alloc.printSentinel(
                     "unknown error {}",
                     .{err},
                     0,

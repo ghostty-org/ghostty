@@ -128,8 +128,7 @@ pub fn addImportToModule(
 ) !void {
     var init_opts = options;
     if (init_opts.source == .includes and init_opts.source.includes.generated_name == null) {
-        init_opts.source.includes.generated_name = try std.fmt.allocPrint(
-            b.allocator,
+        init_opts.source.includes.generated_name = try b.allocator.print(
             "{s}.h",
             .{name},
         );

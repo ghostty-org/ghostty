@@ -200,8 +200,7 @@ pub fn threadMain(self: *Thread, io: *termio.Termio) void {
             },
 
             else => {
-                const str = std.fmt.allocPrint(
-                    alloc,
+                const str = alloc.print(
                     \\error starting IO thread: {}
                     \\
                     \\The underlying shell or command was unable to be started.

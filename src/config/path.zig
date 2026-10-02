@@ -174,8 +174,7 @@ pub const Path = union(enum) {
                 &buf,
             ) catch |err| {
                 try diags.append(arena_alloc, .{
-                    .message = try std.fmt.allocPrintSentinel(
-                        arena_alloc,
+                    .message = try arena_alloc.printSentinel(
                         "error expanding home directory for path {s}: {}",
                         .{ path, err },
                         0,
@@ -216,8 +215,7 @@ pub const Path = union(enum) {
                 }
 
                 try diags.append(arena_alloc, .{
-                    .message = try std.fmt.allocPrintSentinel(
-                        arena_alloc,
+                    .message = try arena_alloc.printSentinel(
                         "error resolving file path {s}: {}",
                         .{ path, err },
                         0,
