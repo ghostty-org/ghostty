@@ -269,7 +269,7 @@ pub const Row = packed struct(u8) {
 /// values (for example semantic content 3) without instantiating an invalid
 /// native enum.
 pub const Cell = packed struct(u64) {
-    kind: u2 = @intFromEnum(Kind.codepoint),
+    kind: u2 = @backingInt(Kind.codepoint),
     content: u24 = 0,
     style_id: u16 = 0,
     width: u2 = 0,
@@ -302,7 +302,7 @@ pub const Cell = packed struct(u64) {
 
         /// The number of bytes transporting one cell word.
         pub fn size(self: EncodedWidth) usize {
-            return @as(usize, 1) << @intFromEnum(self);
+            return @as(usize, 1) << @backingInt(self);
         }
 
         /// The integer type transporting one cell word.
@@ -506,7 +506,7 @@ pub fn encode(
         const row_header: Row = .{
             .wrap = row.wrap,
             .wrap_continuation = row.wrap_continuation,
-            .semantic_prompt = @intFromEnum(row.semantic_prompt),
+            .semantic_prompt = @backingInt(row.semantic_prompt),
             .cell_width = cell_width,
         };
 
@@ -1224,11 +1224,11 @@ fn applyCell(
     wire.hyperlink_id = 0;
     wire.hyperlink = false;
 
-    switch (@as(Cell.Kind, @enumFromInt(wire.kind))) {
+    switch (@as(Cell.Kind, @fromBackingInt(wire.kind))) {
         // Kind 1 differs from 0 only by declaring a grapheme suffix section
         // entry, which reattaches through the native grapheme APIs later.
         .codepoint, .codepoint_grapheme => {
-            wire.kind = @intFromEnum(Cell.Kind.codepoint);
+            wire.kind = @backingInt(Cell.Kind.codepoint);
             if (!validScalar(wire.content)) wire.content = 0xFFFD;
 
             // Kitty image and placement state is not part of this snapshot
@@ -1248,7 +1248,7 @@ fn applyCell(
     }
 
     // Reserved semantic content degrades to plain output.
-    wire.semantic_content = @intFromEnum(std.enums.fromInt(
+    wire.semantic_content = @backingInt(std.enums.fromInt(
         TerminalCell.SemanticContent,
         wire.semantic_content,
     ) orelse .output);
@@ -1428,7 +1428,7 @@ fn cellBits(cell: TerminalCell, link_id: TerminalHyperlinkId) u64 {
     }
 
     const wire: Cell = .{
-        .kind = @intFromEnum(cell.content_tag),
+        .kind = @backingInt(cell.content_tag),
         .content = switch (cell.content_tag) {
             .codepoint,
             .codepoint_grapheme,
@@ -1467,7 +1467,7 @@ fn storeCell(cell: *TerminalCell, bits: u64) void {
 
     const wire: Cell = @bitCast(bits);
     var native: TerminalCell = .init(0);
-    switch (@as(Cell.Kind, @enumFromInt(wire.kind))) {
+    switch (@as(Cell.Kind, @fromBackingInt(wire.kind))) {
         .codepoint, .codepoint_grapheme => native.content = .{
             .codepoint = .{ .data = @intCast(wire.content) },
         },
@@ -1487,9 +1487,9 @@ fn storeCell(cell: *TerminalCell, bits: u64) void {
         },
     }
     native.style_id = wire.style_id;
-    native.wide = @enumFromInt(wire.width);
+    native.wide = @fromBackingInt(wire.width);
     native.protected = wire.protected;
-    native.semantic_content = @enumFromInt(wire.semantic_content);
+    native.semantic_content = @fromBackingInt(wire.semantic_content);
     cell.* = native;
 }
 

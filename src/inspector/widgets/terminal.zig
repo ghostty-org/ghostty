@@ -217,7 +217,7 @@ fn screensTable(
         }
         {
             _ = cimgui.c.ImGui_TableSetColumnIndex(2);
-            cimgui.c.ImGui_PushIDInt(@intFromEnum(key));
+            cimgui.c.ImGui_PushIDInt(@backingInt(key));
             defer cimgui.c.ImGui_PopID();
             cimgui.c.ImGui_BeginDisabled(!is_initialized);
             defer cimgui.c.ImGui_EndDisabled();

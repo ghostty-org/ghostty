@@ -197,14 +197,14 @@ pub const Response = union(enum) {
                 }
             },
             .register => |r| {
-                try writer.print("r;cp={x};status={d}", .{ r.cp, @intFromEnum(r.status) });
+                try writer.print("r;cp={x};status={d}", .{ r.cp, @backingInt(r.status) });
                 if (r.reason) |reason| {
                     try writer.writeAll(";reason=");
                     try writer.writeAll(reason.name());
                 }
             },
             .clear => |r| {
-                try writer.print("c;status={d}", .{@intFromEnum(r.status)});
+                try writer.print("c;status={d}", .{@backingInt(r.status)});
                 if (r.reason) |reason| {
                     try writer.writeAll(";reason=");
                     try writer.writeAll(reason);
@@ -306,7 +306,7 @@ test "response register arbitrary status formatWire" {
     var buf: [256]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);
 
-    const resp: Response = .{ .register = .{ .cp = 0xE0A0, .status = @enumFromInt(37), .reason = .payload_too_large } };
+    const resp: Response = .{ .register = .{ .cp = 0xE0A0, .status = @fromBackingInt(37), .reason = .payload_too_large } };
     try resp.formatWire(&writer);
     try testing.expectEqualStrings("\x1b_25a1;r;cp=e0a0;status=37;reason=payload_too_large\x1b\\", writer.buffered());
 }

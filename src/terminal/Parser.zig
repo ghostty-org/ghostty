@@ -255,7 +255,7 @@ pub fn deinit(self: *Parser) void {
 /// Up to 3 actions may need to be executed -- in order -- representing
 /// the state exit, transition, and entry actions.
 pub fn next(self: *Parser, c: u8) [3]?Action {
-    const effect = table[c][@intFromEnum(self.state)];
+    const effect = table[c][@backingInt(self.state)];
 
     // log.info("next: {x}", .{c});
 

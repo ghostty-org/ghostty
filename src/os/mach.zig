@@ -29,7 +29,7 @@ pub const VMTag = enum(u8) {
     /// Converts the tag to the format expected by mach_vm_map/mach_vm_allocate.
     /// Equivalent to C macro: VM_MAKE_TAG(tag)
     pub fn make(self: VMTag) i32 {
-        return @bitCast(@as(u32, @intFromEnum(self)) << 24);
+        return @bitCast(@as(u32, @backingInt(self)) << 24);
     }
 };
 
@@ -38,7 +38,7 @@ pub const VMTag = enum(u8) {
 pub fn taggedPageAllocator(tag: VMTag) Allocator {
     return .{
         // We smuggle the tag in as the context pointer.
-        .ptr = @ptrFromInt(@as(usize, @intFromEnum(tag))),
+        .ptr = @ptrFromInt(@as(usize, @backingInt(tag))),
         .vtable = &TaggedPageAllocator.vtable,
     };
 }
@@ -59,7 +59,7 @@ const TaggedPageAllocator = struct {
     fn alloc(context: *anyopaque, n: usize, alignment: mem.Alignment, ra: usize) ?[*]u8 {
         _ = ra;
         assert(n > 0);
-        const tag: VMTag = @enumFromInt(@as(u8, @truncate(@intFromPtr(context))));
+        const tag: VMTag = @fromBackingInt(@as(u8, @truncate(@intFromPtr(context))));
         return map(n, alignment, tag);
     }
 

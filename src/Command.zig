@@ -131,9 +131,9 @@ pub const Exit = if (builtin.os.tag == .windows) union(enum) {
         return if (posix.W.IFEXITED(status))
             Exit{ .Exited = posix.W.EXITSTATUS(status) }
         else if (posix.W.IFSIGNALED(status))
-            Exit{ .Signal = @intFromEnum(posix.W.TERMSIG(status)) }
+            Exit{ .Signal = @backingInt(posix.W.TERMSIG(status)) }
         else if (posix.W.IFSTOPPED(status))
-            Exit{ .Stopped = @intFromEnum(posix.W.STOPSIG(status)) }
+            Exit{ .Stopped = @backingInt(posix.W.STOPSIG(status)) }
         else
             Exit{ .Unknown = status };
     }

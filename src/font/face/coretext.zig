@@ -422,13 +422,13 @@ pub const Face = struct {
             .color = false,
             .depth = 1,
             .space = try macos.graphics.ColorSpace.createNamed(.linearGray),
-            .context_opts = @intFromEnum(macos.graphics.ImageAlphaInfo.only),
+            .context_opts = @backingInt(macos.graphics.ImageAlphaInfo.only),
         } else .{
             .color = true,
             .depth = 4,
             .space = try macos.graphics.ColorSpace.createNamed(.displayP3),
-            .context_opts = @intFromEnum(macos.graphics.BitmapInfo.byte_order_32_little) |
-                @intFromEnum(macos.graphics.ImageAlphaInfo.premultiplied_first),
+            .context_opts = @backingInt(macos.graphics.BitmapInfo.byte_order_32_little) |
+                @backingInt(macos.graphics.ImageAlphaInfo.premultiplied_first),
         };
         defer color.space.release();
 

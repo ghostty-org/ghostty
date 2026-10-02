@@ -21,7 +21,7 @@ pub const max_color_scheme_report_encode_size = max: {
         var discarding: std.Io.Writer.Discarding = .init(&.{});
         encodeColorSchemeReport(
             &discarding.writer,
-            @enumFromInt(field.value),
+            @fromBackingInt(field.value),
         ) catch unreachable;
         result = @max(result, @as(usize, @intCast(discarding.count)));
     }
@@ -92,7 +92,7 @@ pub fn reqFromInt(v: u16, question: bool) ?Request {
         if (entry.value == v and entry.question == question) {
             const tag: Tag = .{ .question = question, .value = entry.value };
             const int: Tag.Backing = @bitCast(tag);
-            return @enumFromInt(int);
+            return @fromBackingInt(int);
         }
     }
 

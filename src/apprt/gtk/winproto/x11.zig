@@ -378,7 +378,7 @@ pub const Window = struct {
 
         if (actual_type_return == c.None) return error.PropertyNotFound;
         if (typ != actual_type_return) return error.PropertyTypeMismatch;
-        if (@intFromEnum(format) != actual_format_return) return error.PropertyFormatMismatch;
+        if (@backingInt(format) != actual_format_return) return error.PropertyFormatMismatch;
 
         const data_ptr: *T = @ptrCast(prop_return);
         result.* = data_ptr.*;
@@ -405,8 +405,8 @@ pub const Window = struct {
             self.x11_surface.getXid(),
             name,
             typ,
-            @intFromEnum(format),
-            @intFromEnum(options.mode),
+            @backingInt(format),
+            @backingInt(options.mode),
             data,
             @intCast(words_per_elem * values.len),
         );

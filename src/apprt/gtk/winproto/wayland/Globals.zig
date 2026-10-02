@@ -211,7 +211,7 @@ fn decoManagerListener(
 ) void {
     switch (event) {
         .default_mode => |mode| {
-            self.state.default_deco_mode = @enumFromInt(mode.mode);
+            self.state.default_deco_mode = @fromBackingInt(@intCast(mode.mode));
         },
     }
 }

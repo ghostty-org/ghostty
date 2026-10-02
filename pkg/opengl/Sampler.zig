@@ -32,14 +32,14 @@ pub fn parameter(
     switch (T) {
         c.GLint => glad.context.SamplerParameteri.?(
             self.id,
-            @intFromEnum(name),
+            @backingInt(name),
             value,
         ),
         else => switch (@typeInfo(T)) {
             .@"enum" => glad.context.SamplerParameteri.?(
                 self.id,
-                @intFromEnum(name),
-                @intFromEnum(value),
+                @backingInt(name),
+                @backingInt(value),
             ),
             else => @compileLog("unsupported parameter type", T),
         },

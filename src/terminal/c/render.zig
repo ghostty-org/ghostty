@@ -359,8 +359,8 @@ inline fn getDispatch(
     out: ?*anyopaque,
 ) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Data, @intFromEnum(data)) orelse {
-            log.warn("render_state_get invalid data value={d}", .{@intFromEnum(data)});
+        _ = std.enums.fromInt(Data, @backingInt(data)) orelse {
+            log.warn("render_state_get invalid data value={d}", .{@backingInt(data)});
             return .invalid_value;
         };
     }
@@ -447,8 +447,8 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(SetOption, @intFromEnum(option)) orelse {
-            log.warn("render_state_set invalid option value={d}", .{@intFromEnum(option)});
+        _ = std.enums.fromInt(SetOption, @backingInt(option)) orelse {
+            log.warn("render_state_set invalid option value={d}", .{@backingInt(option)});
             return .invalid_value;
         };
     }
@@ -810,8 +810,8 @@ inline fn rowCellsGetDispatch(
     out: ?*anyopaque,
 ) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowCellsData, @intFromEnum(data)) orelse {
-            log.warn("render_state_row_cells_get invalid data value={d}", .{@intFromEnum(data)});
+        _ = std.enums.fromInt(RowCellsData, @backingInt(data)) orelse {
+            log.warn("render_state_row_cells_get invalid data value={d}", .{@backingInt(data)});
             return .invalid_value;
         };
     }
@@ -1047,8 +1047,8 @@ inline fn rowGetDispatch(
     out: ?*anyopaque,
 ) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowData, @intFromEnum(data)) orelse {
-            log.warn("render_state_row_get invalid data value={d}", .{@intFromEnum(data)});
+        _ = std.enums.fromInt(RowData, @backingInt(data)) orelse {
+            log.warn("render_state_row_get invalid data value={d}", .{@backingInt(data)});
             return .invalid_value;
         };
     }
@@ -1115,8 +1115,8 @@ pub fn row_set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowOption, @intFromEnum(option)) orelse {
-            log.warn("render_state_row_set invalid option value={d}", .{@intFromEnum(option)});
+        _ = std.enums.fromInt(RowOption, @backingInt(option)) orelse {
+            log.warn("render_state_row_set invalid option value={d}", .{@backingInt(option)});
             return .invalid_value;
         };
     }

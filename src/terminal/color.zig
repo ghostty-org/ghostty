@@ -15,7 +15,7 @@ pub const default: Palette = default: {
     // Named values
     var i: u8 = 0;
     while (i < 16) : (i += 1) {
-        result[i] = Name.default(@enumFromInt(i)) catch unreachable;
+        result[i] = Name.default(@fromBackingInt(i)) catch unreachable;
     }
 
     // Cube
@@ -488,7 +488,7 @@ pub const Name = enum(u8) {
     pub const C = u8;
 
     pub fn cval(self: Name) C {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     /// Default colors for tagged values.
@@ -533,7 +533,7 @@ pub const Special = enum(u3) {
         // number of colors (e.g., 88 or 256) to these codes in an
         // OSC 4  control" - xterm ctlseqs
         const max = @typeInfo(Palette).array.len;
-        return @as(u16, @intCast(@intFromEnum(self))) + max;
+        return @as(u16, @intCast(@backingInt(self))) + max;
     }
 
     test "osc4" {
@@ -571,7 +571,7 @@ pub const Dynamic = enum(u5) {
     /// "Each successive parameter changes the next color in the list.  The
     /// value of Ps tells the starting point in the list."
     pub fn next(self: Dynamic) ?Dynamic {
-        return std.enums.fromInt(Dynamic, @intFromEnum(self) + 1);
+        return std.enums.fromInt(Dynamic, @backingInt(self) + 1);
     }
 
     test "next" {
@@ -977,7 +977,7 @@ test "palette: default" {
     // Safety check
     var i: u8 = 0;
     while (i < 16) : (i += 1) {
-        try testing.expectEqual(Name.default(@as(Name, @enumFromInt(i))), default[i]);
+        try testing.expectEqual(Name.default(@as(Name, @fromBackingInt(i))), default[i]);
     }
 }
 

@@ -441,7 +441,7 @@ fn mouseTable(
 
             for (surface_mouse.click_state, 0..) |state, i| {
                 if (state != .press) continue;
-                const button: input.MouseButton = @enumFromInt(i);
+                const button: input.MouseButton = @fromBackingInt(@intCast(i));
                 cimgui.c.ImGui_SameLine();
                 cimgui.c.ImGui_Text("%s", @as([*]const u8, @ptrCast(switch (button) {
                     .unknown => "?",

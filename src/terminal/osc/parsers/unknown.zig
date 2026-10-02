@@ -27,7 +27,7 @@ test "OSC unknown: prefix state names are the bytes consumed" {
     // beginUnknown recovers the consumed identifier from the prefix state's
     // name, so every prefix state must be reachable by feeding its name.
     inline for (@typeInfo(Parser.State).@"enum".fields) |field| {
-        const state: Parser.State = @enumFromInt(field.value);
+        const state: Parser.State = @fromBackingInt(field.value);
         switch (state) {
             .start, .invalid, .unknown, .unknown_truncated => {},
             else => {

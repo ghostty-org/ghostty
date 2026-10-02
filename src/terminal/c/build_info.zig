@@ -45,8 +45,8 @@ pub fn get(
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(BuildInfo, @intFromEnum(data)) orelse {
-            log.warn("build_info invalid data value={d}", .{@intFromEnum(data)});
+        _ = std.enums.fromInt(BuildInfo, @backingInt(data)) orelse {
+            log.warn("build_info invalid data value={d}", .{@backingInt(data)});
             return .invalid_value;
         };
     }

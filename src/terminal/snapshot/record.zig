@@ -370,7 +370,7 @@ fn encodeChecksumPrefix(
     payload_len: u32,
     writer: *std.Io.Writer,
 ) std.Io.Writer.Error!void {
-    try io.writeInt(writer, u16, @intFromEnum(tag));
+    try io.writeInt(writer, u16, @backingInt(tag));
     try io.writeInt(writer, u32, payload_len);
 }
 

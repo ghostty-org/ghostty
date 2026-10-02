@@ -148,7 +148,7 @@ pub fn blockShade(
         .y = @intCast(y),
         .width = @intCast(w),
         .height = @intCast(h),
-    }, @as(font.sprite.Color, @enumFromInt(@intFromEnum(shade))));
+    }, @as(font.sprite.Color, @fromBackingInt(@backingInt(shade))));
 }
 
 pub fn fullBlockShade(
@@ -161,7 +161,7 @@ pub fn fullBlockShade(
         0,
         @intCast(metrics.cell_width),
         @intCast(metrics.cell_height),
-        @as(font.sprite.Color, @enumFromInt(@intFromEnum(shade))),
+        @as(font.sprite.Color, @fromBackingInt(@backingInt(shade))),
     );
 }
 

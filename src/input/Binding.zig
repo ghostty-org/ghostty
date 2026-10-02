@@ -285,13 +285,13 @@ pub fn lessThan(_: void, lhs: Binding, rhs: Binding) bool {
 
     const lhs_key: c_int = blk: {
         switch (lhs.trigger.key) {
-            .physical => break :blk @intFromEnum(lhs.trigger.key.physical),
+            .physical => break :blk @backingInt(lhs.trigger.key.physical),
             .unicode => break :blk @intCast(lhs.trigger.key.unicode),
         }
     };
     const rhs_key: c_int = blk: {
         switch (rhs.trigger.key) {
-            .physical => break :blk @intFromEnum(rhs.trigger.key.physical),
+            .physical => break :blk @backingInt(rhs.trigger.key.physical),
             .unicode => break :blk @intCast(rhs.trigger.key.unicode),
         }
     };

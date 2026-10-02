@@ -147,7 +147,7 @@ const ranges: []const Range = ranges: {
 fn getDrawFn(cp: u32) ?*const DrawFn {
     // For special sprites (cursors, underlines, etc.) all sprites are drawn
     // by functions from `Special` that share the name of the enum field.
-    if (cp >= Sprite.start) switch (@as(Sprite, @enumFromInt(cp))) {
+    if (cp >= Sprite.start) switch (@as(Sprite, @fromBackingInt(cp))) {
         inline else => |sprite| {
             return @field(special, @tagName(sprite));
         },
@@ -209,9 +209,9 @@ pub fn renderGlyph(
     // to be affected by `adjust-cursor-height`, so we use `cursor_height` for
     // the height if it's one of the full-height cursors.
     const height = switch (cp) {
-        @intFromEnum(Sprite.cursor_rect),
-        @intFromEnum(Sprite.cursor_hollow_rect),
-        @intFromEnum(Sprite.cursor_bar),
+        @backingInt(Sprite.cursor_rect),
+        @backingInt(Sprite.cursor_hollow_rect),
+        @backingInt(Sprite.cursor_bar),
         => metrics.cursor_height,
         else => metrics.cell_height,
     };
@@ -593,19 +593,19 @@ test "full height cursor sprites respect cursor height metric" {
     face.metrics.cursor_height = 12;
     // bar
     {
-        const glyph = try face.renderGlyph(alloc, &atlas, @intFromEnum(Sprite.cursor_bar), .{ .grid_metrics = face.metrics });
+        const glyph = try face.renderGlyph(alloc, &atlas, @backingInt(Sprite.cursor_bar), .{ .grid_metrics = face.metrics });
         try testing.expectEqual(12, glyph.height);
         try testing.expectEqual(14, glyph.offset_y);
     }
     // rect
     {
-        const glyph = try face.renderGlyph(alloc, &atlas, @intFromEnum(Sprite.cursor_rect), .{ .grid_metrics = face.metrics });
+        const glyph = try face.renderGlyph(alloc, &atlas, @backingInt(Sprite.cursor_rect), .{ .grid_metrics = face.metrics });
         try testing.expectEqual(12, glyph.height);
         try testing.expectEqual(14, glyph.offset_y);
     }
     // hollow rect
     {
-        const glyph = try face.renderGlyph(alloc, &atlas, @intFromEnum(Sprite.cursor_hollow_rect), .{ .grid_metrics = face.metrics });
+        const glyph = try face.renderGlyph(alloc, &atlas, @backingInt(Sprite.cursor_hollow_rect), .{ .grid_metrics = face.metrics });
         try testing.expectEqual(12, glyph.height);
         try testing.expectEqual(14, glyph.offset_y);
     }
@@ -614,19 +614,19 @@ test "full height cursor sprites respect cursor height metric" {
     face.metrics.cursor_height = 16;
     // bar
     {
-        const glyph = try face.renderGlyph(alloc, &atlas, @intFromEnum(Sprite.cursor_bar), .{ .grid_metrics = face.metrics });
+        const glyph = try face.renderGlyph(alloc, &atlas, @backingInt(Sprite.cursor_bar), .{ .grid_metrics = face.metrics });
         try testing.expectEqual(16, glyph.height);
         try testing.expectEqual(16, glyph.offset_y);
     }
     // rect
     {
-        const glyph = try face.renderGlyph(alloc, &atlas, @intFromEnum(Sprite.cursor_rect), .{ .grid_metrics = face.metrics });
+        const glyph = try face.renderGlyph(alloc, &atlas, @backingInt(Sprite.cursor_rect), .{ .grid_metrics = face.metrics });
         try testing.expectEqual(16, glyph.height);
         try testing.expectEqual(16, glyph.offset_y);
     }
     // hollow rect
     {
-        const glyph = try face.renderGlyph(alloc, &atlas, @intFromEnum(Sprite.cursor_hollow_rect), .{ .grid_metrics = face.metrics });
+        const glyph = try face.renderGlyph(alloc, &atlas, @backingInt(Sprite.cursor_hollow_rect), .{ .grid_metrics = face.metrics });
         try testing.expectEqual(16, glyph.height);
         try testing.expectEqual(16, glyph.offset_y);
     }
@@ -635,19 +635,19 @@ test "full height cursor sprites respect cursor height metric" {
     face.metrics.cursor_height = 20;
     // bar
     {
-        const glyph = try face.renderGlyph(alloc, &atlas, @intFromEnum(Sprite.cursor_bar), .{ .grid_metrics = face.metrics });
+        const glyph = try face.renderGlyph(alloc, &atlas, @backingInt(Sprite.cursor_bar), .{ .grid_metrics = face.metrics });
         try testing.expectEqual(20, glyph.height);
         try testing.expectEqual(18, glyph.offset_y);
     }
     // rect
     {
-        const glyph = try face.renderGlyph(alloc, &atlas, @intFromEnum(Sprite.cursor_rect), .{ .grid_metrics = face.metrics });
+        const glyph = try face.renderGlyph(alloc, &atlas, @backingInt(Sprite.cursor_rect), .{ .grid_metrics = face.metrics });
         try testing.expectEqual(20, glyph.height);
         try testing.expectEqual(18, glyph.offset_y);
     }
     // hollow rect
     {
-        const glyph = try face.renderGlyph(alloc, &atlas, @intFromEnum(Sprite.cursor_hollow_rect), .{ .grid_metrics = face.metrics });
+        const glyph = try face.renderGlyph(alloc, &atlas, @backingInt(Sprite.cursor_hollow_rect), .{ .grid_metrics = face.metrics });
         try testing.expectEqual(20, glyph.height);
         try testing.expectEqual(18, glyph.offset_y);
     }

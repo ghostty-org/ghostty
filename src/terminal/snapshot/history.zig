@@ -90,7 +90,7 @@ pub const Header = struct {
         self: Header,
         writer: *std.Io.Writer,
     ) std.Io.Writer.Error!void {
-        try io.writeInt(writer, u16, @intCast(@intFromEnum(self.key)));
+        try io.writeInt(writer, u16, @intCast(@backingInt(self.key)));
         try io.writeInt(writer, u32, self.page_count);
     }
 
@@ -586,7 +586,7 @@ test "HISTORY encodes newest first and restores complete history" {
     std.mem.writeInt(
         u16,
         encoded[second_page_offset..][0..2],
-        @intFromEnum(record.Tag.screen),
+        @backingInt(record.Tag.screen),
         .little,
     );
 

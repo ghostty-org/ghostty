@@ -68,8 +68,8 @@ pub const Primary = struct {
 
     /// Encode the primary DA response into the writer.
     pub fn encode(self: Primary, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        try writer.print("\x1b[?{}", .{@intFromEnum(self.conformance_level)});
-        for (self.features) |feature| try writer.print(";{}", .{@intFromEnum(feature)});
+        try writer.print("\x1b[?{}", .{@backingInt(self.conformance_level)});
+        for (self.features) |feature| try writer.print(";{}", .{@backingInt(feature)});
         try writer.writeAll("c");
     }
 };
@@ -90,7 +90,7 @@ pub const Secondary = struct {
     /// Encode the secondary DA response into the writer.
     pub fn encode(self: Secondary, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("\x1b[>{};{};{}c", .{
-            @intFromEnum(self.device_type),
+            @backingInt(self.device_type),
             self.firmware_version,
             self.rom_cartridge,
         });
