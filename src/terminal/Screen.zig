@@ -11444,8 +11444,8 @@ test "Screen: cursorSetHyperlink OOM + URI too large for string alloc" {
     // Start a hyperlink with a URI that just barely fits in the string alloc.
     // This will ensure that additional string alloc space is needed for the
     // redundant copy of the URI when the page is re-alloced.
-    const uri = "a" ** (pagepkg.std_capacity.string_bytes - 8);
-    try s.startHyperlink(uri, null);
+    const uri: [pagepkg.std_capacity.string_bytes - 8]u8 = @splat('a');
+    try s.startHyperlink(&uri, null);
 
     // Figure out how many cells should can have hyperlinks in this page,
     // and write twice that number, to guarantee the capacity needs to be

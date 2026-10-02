@@ -1411,7 +1411,11 @@ pub const LineIterator = struct {
 
     /// This is the buffer where we store the current entry that
     /// is formatted to be compatible with the parse function.
-    entry: [MAX_LINE_SIZE]u8 = [_]u8{ '-', '-' } ++ ([_]u8{0} ** (MAX_LINE_SIZE - 2)),
+    entry: [MAX_LINE_SIZE]u8 = entry: {
+        var buf: [MAX_LINE_SIZE]u8 = @splat(0);
+        @memcpy(buf[0..2], "--");
+        break :entry buf;
+    },
 
     pub fn init(reader: *std.Io.Reader) Self {
         return .{ .r = reader };

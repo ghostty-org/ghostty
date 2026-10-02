@@ -4026,6 +4026,9 @@ test "stream: osc bulk path matches per-byte path" {
         }
     };
 
+    const ys: [3000]u8 = @splat('y');
+    const xs: [3000]u8 = @splat('x');
+
     const cases = [_][]const u8{
         "\x1b]52;c;aGVsbG8=\x1b\\",
         "\x1b]52;c;aGVsbG8=\x07",
@@ -4045,9 +4048,9 @@ test "stream: osc bulk path matches per-byte path" {
         // Invalid OSC number.
         "\x1b]999;junk\x07",
         // Exceeds the fixed buffer: allocating capture.
-        "\x1b]52;c;" ++ "y" ** 3000 ++ "\x1b\\",
+        "\x1b]52;c;" ++ ys ++ "\x1b\\",
         // Exceeds the fixed buffer: overflow, no dispatch.
-        "\x1b]0;" ++ "x" ** 3000 ++ "\x07",
+        "\x1b]0;" ++ xs ++ "\x07",
     };
 
     for (cases) |case| {

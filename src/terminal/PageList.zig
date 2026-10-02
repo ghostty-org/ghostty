@@ -16957,9 +16957,10 @@ test "PageList resize reflow exceeds hyperlink memory forcing capacity increase"
     // Mark the final row as wrapped.
     {
         const page = s.pages.first.?.page();
+        const uri: [pagepkg.string_bytes_default - 1]u8 = @splat('a');
         const id = try page.insertHyperlink(.{
             .id = .{ .implicit = 0 },
-            .uri = "a" ** (pagepkg.string_bytes_default - 1),
+            .uri = &uri,
         });
         const rac = page.getRowAndCell(page.size.cols - 1, page.size.rows - 1);
         rac.row.wrap = true;
@@ -16981,9 +16982,10 @@ test "PageList resize reflow exceeds hyperlink memory forcing capacity increase"
     // Mark the first row as a wrap continuation.
     {
         const page = s.pages.last.?.page();
+        const uri: [pagepkg.string_bytes_default - 1]u8 = @splat('a');
         const id = try page.insertHyperlink(.{
             .id = .{ .implicit = 1 },
-            .uri = "a" ** (pagepkg.string_bytes_default - 1),
+            .uri = &uri,
         });
         const rac = page.getRowAndCell(0, 0);
         rac.row.wrap_continuation = true;
@@ -17055,9 +17057,9 @@ test "PageList resize reflow hyperlink dupe string alloc chunk rounding" {
     //  …B | <- B is hyperlinked with a 33-byte URI and 31-byte ID.
     //  +--+
 
-    const uri_a = "a" ** (pagepkg.string_bytes_default - 64);
-    const uri_b = "b" ** 33;
-    const id_b = "i" ** 31;
+    const uri_a: [pagepkg.string_bytes_default - 64]u8 = @splat('a');
+    const uri_b: [33]u8 = @splat('b');
+    const id_b: [31]u8 = @splat('i');
 
     // Hyperlink A in the bottom right of the first page. Mark the final
     // row as wrapped.
@@ -17065,7 +17067,7 @@ test "PageList resize reflow hyperlink dupe string alloc chunk rounding" {
         const page = s.pages.first.?.page();
         const id = try page.insertHyperlink(.{
             .id = .{ .implicit = 0 },
-            .uri = uri_a,
+            .uri = &uri_a,
         });
         const rac = page.getRowAndCell(page.size.cols - 1, page.size.rows - 1);
         rac.row.wrap = true;
@@ -17083,8 +17085,8 @@ test "PageList resize reflow hyperlink dupe string alloc chunk rounding" {
         try std.testing.expectError(
             error.StringsOutOfMemory,
             page.insertHyperlink(.{
-                .id = .{ .explicit = id_b },
-                .uri = uri_b,
+                .id = .{ .explicit = &id_b },
+                .uri = &uri_b,
             }),
         );
     }
@@ -17094,8 +17096,8 @@ test "PageList resize reflow hyperlink dupe string alloc chunk rounding" {
     {
         const page = s.pages.last.?.page();
         const id = try page.insertHyperlink(.{
-            .id = .{ .explicit = id_b },
-            .uri = uri_b,
+            .id = .{ .explicit = &id_b },
+            .uri = &uri_b,
         });
         const rac = page.getRowAndCell(0, 0);
         rac.row.wrap_continuation = true;
@@ -17124,11 +17126,11 @@ test "PageList resize reflow hyperlink dupe string alloc chunk rounding" {
                 const entry = page.hyperlink_set.get(page.memory, link_id);
                 const uri = entry.uri.slice(page.memory);
                 switch (entry.id) {
-                    .implicit => try testing.expectEqualStrings(uri_a, uri),
+                    .implicit => try testing.expectEqualStrings(&uri_a, uri),
                     .explicit => |slice| {
-                        try testing.expectEqualStrings(uri_b, uri);
+                        try testing.expectEqualStrings(&uri_b, uri);
                         try testing.expectEqualStrings(
-                            id_b,
+                            &id_b,
                             slice.slice(page.memory),
                         );
                     },

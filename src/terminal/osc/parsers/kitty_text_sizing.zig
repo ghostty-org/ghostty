@@ -258,8 +258,8 @@ test "OSC 66: overlong UTF-8" {
 
     var p: Parser = .init(null);
 
-    const input = "66;;" ++ "bobr" ** 1025;
-    for (input) |ch| p.next(ch);
+    for ("66;;") |ch| p.next(ch);
+    for (0..1025) |_| for ("bobr") |ch| p.next(ch);
 
     try testing.expect(p.end('\x1b') == null);
 }

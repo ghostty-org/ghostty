@@ -392,7 +392,7 @@ test "logFn message exceeding chunk size is split" {
 
     // Format a message larger than the 2048-byte buffer.
     // 'A' repeated 3000 times via a fill format.
-    const fill: [3000]u8 = .{0x41} ** 3000;
+    const fill: [3000]u8 = @splat(0x41);
     logFn(.info, .default, "{s}", .{@as([]const u8, &fill)});
 
     try std.testing.expect(S.call_count >= 2);
@@ -420,7 +420,7 @@ test "logFn message exactly at chunk boundary" {
     }
 
     // Exactly 2048 bytes — should emit one full chunk, no remainder.
-    const fill: [2048]u8 = .{0x42} ** 2048;
+    const fill: [2048]u8 = @splat(0x42);
     logFn(.info, .default, "{s}", .{@as([]const u8, &fill)});
 
     try std.testing.expectEqual(@as(usize, 1), S.call_count);
@@ -448,7 +448,7 @@ test "logFn message exactly double chunk size" {
     }
 
     // Exactly 4096 bytes — should emit exactly two full chunks.
-    const fill: [4096]u8 = .{0x43} ** 4096;
+    const fill: [4096]u8 = @splat(0x43);
     logFn(.info, .default, "{s}", .{@as([]const u8, &fill)});
 
     try std.testing.expectEqual(@as(usize, 2), S.call_count);
