@@ -1125,10 +1125,11 @@ pub const Windows = struct {
             };
 
             var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-            const full_path = std.fmt.bufPrintZ(
+            const full_path = std.mem.printSentinel(
                 &path_buf,
                 "{s}\\{s}",
                 .{ dir_path, name },
+                0,
             ) catch return null;
 
             const is_ttc = std.ascii.endsWithIgnoreCase(name, ".ttc");

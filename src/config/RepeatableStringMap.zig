@@ -114,7 +114,7 @@ pub fn formatEntry(self: RepeatableStringMap, formatter: formatterpkg.EntryForma
     var it = self.map.iterator();
     while (it.next()) |entry| {
         var buf: [256]u8 = undefined;
-        const value = std.fmt.bufPrint(&buf, "{s}={s}", .{ entry.key_ptr.*, entry.value_ptr.* }) catch |err| switch (err) {
+        const value = std.mem.print(&buf, "{s}={s}", .{ entry.key_ptr.*, entry.value_ptr.* }) catch |err| switch (err) {
             error.NoSpaceLeft => return error.OutOfMemory,
         };
         try formatter.formatEntry([]const u8, value);

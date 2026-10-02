@@ -1845,7 +1845,7 @@ fn testIncrementalMatchesFresh(request: RenderState.Overscan) !void {
                 },
 
                 // Cursor movement.
-                5 => s.nextSlice(try std.fmt.bufPrint(&buf, "\x1b[{};{}H", .{
+                5 => s.nextSlice(try std.mem.print(&buf, "\x1b[{};{}H", .{
                     rand.intRangeAtMost(u16, 1, 8),
                     rand.intRangeAtMost(u16, 1, 20),
                 })),
@@ -1868,18 +1868,18 @@ fn testIncrementalMatchesFresh(request: RenderState.Overscan) !void {
                 }),
 
                 // Insert/delete lines (row rotations within regions).
-                8 => s.nextSlice(try std.fmt.bufPrint(&buf, "\x1b[{}L", .{
+                8 => s.nextSlice(try std.mem.print(&buf, "\x1b[{}L", .{
                     rand.intRangeAtMost(u16, 1, 4),
                 })),
-                9 => s.nextSlice(try std.fmt.bufPrint(&buf, "\x1b[{}M", .{
+                9 => s.nextSlice(try std.mem.print(&buf, "\x1b[{}M", .{
                     rand.intRangeAtMost(u16, 1, 4),
                 })),
 
                 // Scroll up/down (page-dirty row rotations).
-                10 => s.nextSlice(try std.fmt.bufPrint(&buf, "\x1b[{}S", .{
+                10 => s.nextSlice(try std.mem.print(&buf, "\x1b[{}S", .{
                     rand.intRangeAtMost(u16, 1, 4),
                 })),
-                11 => s.nextSlice(try std.fmt.bufPrint(&buf, "\x1b[{}T", .{
+                11 => s.nextSlice(try std.mem.print(&buf, "\x1b[{}T", .{
                     rand.intRangeAtMost(u16, 1, 4),
                 })),
 
@@ -1887,7 +1887,7 @@ fn testIncrementalMatchesFresh(request: RenderState.Overscan) !void {
                 12 => {
                     const top = rand.intRangeAtMost(u16, 1, 4);
                     const bot = rand.intRangeAtMost(u16, top + 1, 8);
-                    s.nextSlice(try std.fmt.bufPrint(
+                    s.nextSlice(try std.mem.print(
                         &buf,
                         "\x1b[{};{}r",
                         .{ top, bot },
@@ -1895,10 +1895,10 @@ fn testIncrementalMatchesFresh(request: RenderState.Overscan) !void {
                 },
 
                 // Insert/delete/erase chars within a row.
-                13 => s.nextSlice(try std.fmt.bufPrint(&buf, "\x1b[{}@", .{
+                13 => s.nextSlice(try std.mem.print(&buf, "\x1b[{}@", .{
                     rand.intRangeAtMost(u16, 1, 5),
                 })),
-                14 => s.nextSlice(try std.fmt.bufPrint(&buf, "\x1b[{}P", .{
+                14 => s.nextSlice(try std.mem.print(&buf, "\x1b[{}P", .{
                     rand.intRangeAtMost(u16, 1, 5),
                 })),
 
@@ -2664,7 +2664,7 @@ fn testWriteNumberedLines(t: *Terminal, n: usize) !void {
     var s = t.vtStream();
     defer s.deinit();
     var buf: [32]u8 = undefined;
-    for (0..n) |i| s.nextSlice(try std.fmt.bufPrint(&buf, "{d}\r\n", .{i}));
+    for (0..n) |i| s.nextSlice(try std.mem.print(&buf, "{d}\r\n", .{i}));
 }
 
 /// Returns the number written on the row at `row_data` index `idx` by

@@ -2654,7 +2654,7 @@ test "legacy: f13 through f25" {
         {
             var writer: std.Io.Writer = .fixed(&buf);
             try legacy(&writer, .{ .key = case.key }, .{});
-            const expected = try std.fmt.bufPrint(
+            const expected = try std.mem.print(
                 &expected_buf,
                 "\x1b[{}~",
                 .{case.code},
@@ -2668,7 +2668,7 @@ test "legacy: f13 through f25" {
                 .key = case.key,
                 .mods = .{ .ctrl = true },
             }, .{ .modify_other_keys_state_2 = true });
-            const expected = try std.fmt.bufPrint(
+            const expected = try std.mem.print(
                 &expected_buf,
                 "\x1b[{};5~",
                 .{case.code},
@@ -2691,7 +2691,7 @@ test "legacy: help and context menu" {
         {
             var writer: std.Io.Writer = .fixed(&buf);
             try legacy(&writer, .{ .key = case.key }, .{});
-            const expected = try std.fmt.bufPrint(
+            const expected = try std.mem.print(
                 &expected_buf,
                 "\x1b[{}~",
                 .{case.code},
@@ -2705,7 +2705,7 @@ test "legacy: help and context menu" {
                 .key = case.key,
                 .mods = .{ .ctrl = true },
             }, .{ .modify_other_keys_state_2 = true });
-            const expected = try std.fmt.bufPrint(
+            const expected = try std.mem.print(
                 &expected_buf,
                 "\x1b[{};5~",
                 .{case.code},

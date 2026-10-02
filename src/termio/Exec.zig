@@ -647,7 +647,7 @@ const Subprocess = struct {
             // Assume that the resources directory is adjacent to the terminfo
             // database
             var buf: [std.fs.max_path_bytes]u8 = undefined;
-            const dir = try std.fmt.bufPrint(&buf, "{s}/terminfo", .{
+            const dir = try std.mem.print(&buf, "{s}/terminfo", .{
                 std.fs.path.dirname(base) orelse unreachable,
             });
             try env.put("TERMINFO", dir);
@@ -714,7 +714,7 @@ const Subprocess = struct {
             var buf: [std.fs.max_path_bytes]u8 = undefined;
 
             const xdg_data_dir_key = "XDG_DATA_DIRS";
-            if (std.fmt.bufPrint(&buf, "{s}/..", .{resources_dir})) |data_dir| {
+            if (std.mem.print(&buf, "{s}/..", .{resources_dir})) |data_dir| {
                 try env.put(
                     xdg_data_dir_key,
                     try appendEnv(
@@ -728,7 +728,7 @@ const Subprocess = struct {
             }
 
             const manpath_key = "MANPATH";
-            if (std.fmt.bufPrint(&buf, "{s}/../man", .{resources_dir})) |man_dir| {
+            if (std.mem.print(&buf, "{s}/../man", .{resources_dir})) |man_dir| {
                 // Always append with colon in front, as it mean that if
                 // `MANPATH` is empty, then it should be treated as an extra
                 // path instead of overriding all paths set by OS.

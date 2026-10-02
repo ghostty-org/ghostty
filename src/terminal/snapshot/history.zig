@@ -648,7 +648,7 @@ test "HISTORY decode compresses history pages when requested" {
     while (source_screen.pages.totalPages() < 5) : (line += 1) {
         var buf: [32]u8 = undefined;
         try source_screen.testWriteString(
-            try std.fmt.bufPrint(&buf, "line {d}\n", .{line}),
+            try std.mem.print(&buf, "line {d}\n", .{line}),
         );
     }
     const expected = try source_screen.dumpStringAlloc(alloc, .{ .screen = .{} });

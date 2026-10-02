@@ -224,7 +224,7 @@ pub const LoadingImage = struct {
         // Since we're only supporting posix then max_path_bytes should
         // be enough to stack allocate the path.
         var buf: [std.fs.max_path_bytes]u8 = undefined;
-        const pathz = std.fmt.bufPrintZ(&buf, "{s}", .{path}) catch return error.InvalidData;
+        const pathz = std.mem.printSentinel(&buf, "{s}", .{path}, 0) catch return error.InvalidData;
 
         const fd = std.c.shm_open(pathz, @as(c_int, @bitCast(std.c.O{ .ACCMODE = .RDONLY })), @as(u16, 0));
         switch (std.posix.errno(fd)) {
@@ -605,7 +605,7 @@ pub const LoadingImage = struct {
         if (comptime builtin.mode != .Debug) @compileError("debugDump in non-debug");
 
         var buf: [1024]u8 = undefined;
-        const filename = try std.fmt.bufPrint(
+        const filename = try std.mem.print(
             &buf,
             "image-{s}-{s}-{d}x{d}-{}.data",
             .{

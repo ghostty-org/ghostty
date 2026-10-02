@@ -270,9 +270,9 @@ pub fn logStderr(
     // Large enough for a full logFn chunk plus the level/scope prefix.
     var buffer: [LogEmitter.buffer_size + 128]u8 = undefined;
     const line: ?[]const u8 = if (scope.len > 0)
-        std.fmt.bufPrint(&buffer, "[{s}]({s}): {s}\n", .{ level_text, scope, message }) catch null
+        std.mem.print(&buffer, "[{s}]({s}): {s}\n", .{ level_text, scope, message }) catch null
     else
-        std.fmt.bufPrint(&buffer, "[{s}]: {s}\n", .{ level_text, message }) catch null;
+        std.mem.print(&buffer, "[{s}]: {s}\n", .{ level_text, message }) catch null;
     if (line) |v| {
         stderr.write(v);
         return;

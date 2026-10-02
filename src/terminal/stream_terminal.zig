@@ -863,10 +863,11 @@ pub const Handler = struct {
         // Values are hex-encoded uppercase, matching the static map. The
         // buffer fits any name allowed above, so the print cannot fail.
         var buf: [max_tn_response_bytes]u8 = undefined;
-        self.writePty(std.fmt.bufPrintZ(
+        self.writePty(std.mem.printSentinel(
             &buf,
             "\x1bP1+r" ++ encoded_tn_key ++ "={X}\x1b\\",
             .{name},
+            0,
         ) catch unreachable);
     }
 
@@ -1692,10 +1693,12 @@ pub const Handler = struct {
                 };
 
                 var buf: [64]u8 = undefined;
-                const resp = std.fmt.bufPrintZ(&buf, "\x1B[{};{}R", .{
-                    pos.y + 1,
-                    pos.x + 1,
-                }) catch return;
+                const resp = std.mem.printSentinel(
+                    &buf,
+                    "\x1B[{};{}R",
+                    .{ pos.y + 1, pos.x + 1 },
+                    0,
+                ) catch return;
                 self.writePty(resp);
             },
 
@@ -1740,10 +1743,11 @@ pub const Handler = struct {
     fn reportXtversion(self: *Handler) void {
         const version = if (self.effects.xtversion) |func| func(self) else "";
         var buf: [288]u8 = undefined;
-        const resp = std.fmt.bufPrintZ(
+        const resp = std.mem.printSentinel(
             &buf,
             "\x1BP>|{s}\x1B\\",
             .{if (version.len > 0) version else "libghostty"},
+            0,
         ) catch return;
         self.writePty(resp);
     }
@@ -1893,9 +1897,14 @@ pub const Handler = struct {
     fn queryKittyKeyboard(self: *Handler) void {
         // Max response is "\x1b[?31u\x00" (7 bytes): the flags are a u5 (max 31).
         var buf: [32]u8 = undefined;
-        const resp = std.fmt.bufPrintZ(&buf, "\x1b[?{}u", .{
-            self.terminal.screens.active.kitty_keyboard.current().int(),
-        }) catch return;
+        const resp = std.mem.printSentinel(
+            &buf,
+            "\x1b[?{}u",
+            .{
+                self.terminal.screens.active.kitty_keyboard.current().int(),
+            },
+            0,
+        ) catch return;
         self.writePty(resp);
     }
 
@@ -7289,7 +7298,7 @@ test "paste: mode 5522 sends an event the program can read with" {
 
     // Listing packet: base64 of "text/plain image/png\n".
     var expected_buf: [256]u8 = undefined;
-    const expected = try std.fmt.bufPrint(
+    const expected = try std.mem.print(
         &expected_buf,
         "\x1b]5522;type=read:status=OK:pw={s}\x1b\\" ++
             "\x1b]5522;type=read:status=DATA:mime=Lg==:pw={s};dGV4dC9wbGFpbiBpbWFnZS9wbmcK\x1b\\" ++
@@ -7301,7 +7310,7 @@ test "paste: mode 5522 sends an event the program can read with" {
     // The program reads with the password and the name "Paste event":
     // the read arrives granted, exactly once.
     var read_buf: [256]u8 = undefined;
-    const read = try std.fmt.bufPrint(
+    const read = try std.mem.print(
         &read_buf,
         "\x1b]5522;type=read:pw={s}:name=UGFzdGUgZXZlbnQ=;dGV4dC9wbGFpbg==\x1b\\",
         .{pw_b64},

@@ -137,11 +137,11 @@ pub fn xtgettcapMap(comptime self: Source) std.StaticStringMap([:0]const u8) {
         // The value is more complex. The buffer is zeroed so the byte
         // after the response is already the null terminator.
         var buf: [5 + entry[0].len + 1 + (entry[1].len * 2) + 2 + 1]u8 = @splat(0);
-        const out = if (std.mem.eql(u8, entry[1], "")) std.fmt.bufPrint(
+        const out = if (std.mem.eql(u8, entry[1], "")) std.mem.print(
             &buf,
             "\x1bP1+r{s}\x1b\\",
             .{entry[0]}, // important: hex-encoded name
-        ) catch unreachable else std.fmt.bufPrint(
+        ) catch unreachable else std.mem.print(
             &buf,
             "\x1bP1+r{s}={s}\x1b\\",
             .{ entry[0], hexencode(entry[1]) }, // important: hex-encoded name

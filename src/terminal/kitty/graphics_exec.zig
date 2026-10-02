@@ -2405,7 +2405,7 @@ test "kittygfx relative placement chain depth limit" {
         var buf: [64]u8 = undefined;
         const cmd = try command.Parser.parseString(
             alloc,
-            try std.fmt.bufPrint(&buf, "a=p,i=1,p={},P=1,Q={}", .{ id, id - 1 }),
+            try std.mem.print(&buf, "a=p,i=1,p={},P=1,Q={}", .{ id, id - 1 }),
         );
         defer cmd.deinit(alloc);
         try testing.expect(execute(io, alloc, &t, &cmd).?.ok());

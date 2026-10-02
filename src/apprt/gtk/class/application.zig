@@ -1782,10 +1782,11 @@ pub const Application = extern struct {
         };
 
         var body_buf: [512]u8 = undefined;
-        const body = std.fmt.bufPrintZ(
+        const body = std.mem.printSentinel(
             &body_buf,
             "{s}: {s}",
             .{ label, detail },
+            0,
         ) catch return;
 
         Action.desktopNotification(self, .app, .{

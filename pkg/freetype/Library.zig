@@ -72,7 +72,7 @@ pub const Version = struct {
     /// The returned slice will be a slice of buf that contains the full
     /// version string.
     pub fn toString(self: Version, buf: []u8) ![]const u8 {
-        return try std.fmt.bufPrint(buf, "{d}.{d}.{d}", .{
+        return try std.mem.print(buf, "{d}.{d}.{d}", .{
             self.major, self.minor, self.patch,
         });
     }

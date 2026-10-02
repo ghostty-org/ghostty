@@ -346,13 +346,14 @@ const WindowsPty = struct {
 
         var pipe_path_buf: [128]u8 = undefined;
         var pipe_path_buf_w: [128]u16 = undefined;
-        const pipe_path = std.fmt.bufPrintZ(
+        const pipe_path = std.mem.printSentinel(
             &pipe_path_buf,
             "\\\\.\\pipe\\LOCAL\\ghostty-pty-{d}-{d}",
             .{
                 windows.GetCurrentProcessId(),
                 pipe_name_counter.fetchAdd(1, .monotonic),
             },
+            0,
         ) catch unreachable;
 
         const pipe_path_w_len = std.unicode.utf8ToUtf16Le(

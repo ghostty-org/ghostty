@@ -5721,7 +5721,7 @@ pub const Color = struct {
 
     /// Format the color as a string.
     pub fn formatBuf(self: Color, buf: []u8) Allocator.Error![]const u8 {
-        return std.fmt.bufPrint(
+        return std.mem.print(
             buf,
             "#{x:0>2}{x:0>2}{x:0>2}",
             .{ self.r, self.g, self.b },
@@ -6106,7 +6106,7 @@ pub const Palette = struct {
         for (0.., self.value) |k, v| {
             try formatter.formatEntry(
                 []const u8,
-                std.fmt.bufPrint(
+                std.mem.print(
                     &buf,
                     "{d}=#{x:0>2}{x:0>2}{x:0>2}",
                     .{ k, v.r, v.g, v.b },
@@ -6543,7 +6543,7 @@ pub const RepeatableFontVariation = struct {
 
         var buf: [128]u8 = undefined;
         for (self.list.items) |value| {
-            const str = std.fmt.bufPrint(&buf, "{s}={d}", .{
+            const str = std.mem.print(&buf, "{s}={d}", .{
                 value.id.str(),
                 value.value,
             }) catch return error.OutOfMemory;
@@ -8245,7 +8245,7 @@ pub const RepeatableCodepointMap = struct {
             if (range[0] == range[1]) {
                 try formatter.formatEntry(
                     []const u8,
-                    std.fmt.bufPrint(
+                    std.mem.print(
                         &buf,
                         "U+{X:0>4}={s}",
                         .{
@@ -8257,7 +8257,7 @@ pub const RepeatableCodepointMap = struct {
             } else {
                 try formatter.formatEntry(
                     []const u8,
-                    std.fmt.bufPrint(
+                    std.mem.print(
                         &buf,
                         "U+{X:0>4}-U+{X:0>4}={s}",
                         .{
@@ -8534,14 +8534,14 @@ pub const RepeatableClipboardCodepointMap = struct {
         const replacements = self.map.list.items(.replacement);
         for (ranges, replacements) |range, replacement| {
             const value_str = switch (replacement) {
-                .codepoint => |cp| try std.fmt.bufPrint(&value_buf, "U+{X:0>4}", .{cp}),
+                .codepoint => |cp| try std.mem.print(&value_buf, "U+{X:0>4}", .{cp}),
                 .string => |s| s,
             };
 
             if (range[0] == range[1]) {
                 try formatter.formatEntry(
                     []const u8,
-                    std.fmt.bufPrint(
+                    std.mem.print(
                         &buf,
                         "U+{X:0>4}={s}",
                         .{ range[0], value_str },
@@ -8550,7 +8550,7 @@ pub const RepeatableClipboardCodepointMap = struct {
             } else {
                 try formatter.formatEntry(
                     []const u8,
-                    std.fmt.bufPrint(
+                    std.mem.print(
                         &buf,
                         "U+{X:0>4}-U+{X:0>4}={s}",
                         .{ range[0], range[1], value_str },
@@ -10197,7 +10197,7 @@ pub const Theme = struct {
             return;
         }
 
-        const str = std.fmt.bufPrint(&buf, "light:{s},dark:{s}", .{
+        const str = std.mem.print(&buf, "light:{s},dark:{s}", .{
             self.light,
             self.dark,
         }) catch return error.OutOfMemory;
@@ -10253,11 +10253,11 @@ pub const Theme = struct {
 
             var expected_buf: [std.fs.max_path_bytes]u8 = undefined;
             try testing.expectEqualStrings(
-                try std.fmt.bufPrint(&expected_buf, "{s}foo", .{home}),
+                try std.mem.print(&expected_buf, "{s}foo", .{home}),
                 v.light,
             );
             try testing.expectEqualStrings(
-                try std.fmt.bufPrint(&expected_buf, "{s}bar", .{home}),
+                try std.mem.print(&expected_buf, "{s}bar", .{home}),
                 v.dark,
             );
         }
@@ -10463,7 +10463,7 @@ pub const WindowPadding = struct {
         if (self.top_left == self.bottom_right) {
             try formatter.formatEntry(
                 []const u8,
-                std.fmt.bufPrint(
+                std.mem.print(
                     &buf,
                     "{}",
                     .{self.top_left},
@@ -10472,7 +10472,7 @@ pub const WindowPadding = struct {
         } else {
             try formatter.formatEntry(
                 []const u8,
-                std.fmt.bufPrint(
+                std.mem.print(
                     &buf,
                     "{},{}",
                     .{ self.top_left, self.bottom_right },
@@ -10545,14 +10545,14 @@ pub const NotifyOnCommandFinishAction = packed struct {
 test "parse duration" {
     inline for (Duration.units) |unit| {
         var buf: [16]u8 = undefined;
-        const t = try std.fmt.bufPrint(&buf, "0{s}", .{unit.name});
+        const t = try std.mem.print(&buf, "0{s}", .{unit.name});
         const d = try Duration.parseCLI(t);
         try std.testing.expectEqual(@as(u64, 0), d.duration);
     }
 
     inline for (Duration.units) |unit| {
         var buf: [16]u8 = undefined;
-        const t = try std.fmt.bufPrint(&buf, "1{s}", .{unit.name});
+        const t = try std.mem.print(&buf, "1{s}", .{unit.name});
         const d = try Duration.parseCLI(t);
         try std.testing.expectEqual(unit.factor, d.duration);
     }
@@ -10626,10 +10626,10 @@ test "test format" {
     inline for (Duration.units) |unit| {
         const d: Duration = .{ .duration = unit.factor };
         var actual_buf: [16]u8 = undefined;
-        const actual = try std.fmt.bufPrint(&actual_buf, "{f}", .{d});
+        const actual = try std.mem.print(&actual_buf, "{f}", .{d});
         var expected_buf: [16]u8 = undefined;
         const expected = if (!std.mem.eql(u8, unit.name, "us"))
-            try std.fmt.bufPrint(&expected_buf, "1{s}", .{unit.name})
+            try std.mem.print(&expected_buf, "1{s}", .{unit.name})
         else
             "1µs";
         try std.testing.expectEqualSlices(u8, expected, actual);

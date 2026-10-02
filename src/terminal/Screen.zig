@@ -4003,7 +4003,7 @@ test "Screen read and write no scrollback large" {
 
     for (0..1_000) |i| {
         var buf: [128]u8 = undefined;
-        const str = try std.fmt.bufPrint(&buf, "{}\n", .{i});
+        const str = try std.mem.print(&buf, "{}\n", .{i});
         try s.testWriteString(str);
     }
     try s.testWriteString("1000");
@@ -6237,7 +6237,7 @@ test "Screen: scroll above hyperlink-dense row to fresh page" {
     // page can hold with default hyperlink capacity.
     for (0..s.pages.cols) |i| {
         var buf: [64]u8 = undefined;
-        const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{i});
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{i});
         try s.startHyperlink(uri, null);
         try s.testWriteString("A");
         s.endHyperlink();
@@ -6293,7 +6293,7 @@ test "Screen: scroll above hyperlink-dense row to fresh page" {
         const id = page.lookupHyperlink(list_cell.cell).?;
         const link = page.hyperlink_set.get(page.memory, id);
         var buf: [64]u8 = undefined;
-        const expected = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{x});
+        const expected = try std.mem.print(&buf, "http://example.com/{d}", .{x});
         try testing.expectEqualStrings(expected, link.uri.slice(page.memory));
     }
 }
@@ -6320,7 +6320,7 @@ test "Screen: scroll above hyperlink-dense row to existing page" {
     // more than a page can hold with default hyperlink capacity.
     for (0..s.pages.cols) |i| {
         var buf: [64]u8 = undefined;
-        const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{i});
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{i});
         try s.startHyperlink(uri, null);
         try s.testWriteString("A");
         s.endHyperlink();

@@ -3545,13 +3545,14 @@ pub const Surface = extern struct {
         var buf: [32]u8 = undefined;
         priv.resize_overlay.setLabel(text: {
             const grid_size = surface.size.grid();
-            break :text std.fmt.bufPrintZ(
+            break :text std.mem.printSentinel(
                 &buf,
                 "{d} x {d}",
                 .{
                     grid_size.columns,
                     grid_size.rows,
                 },
+                0,
             ) catch |err| err: {
                 log.warn("unable to format text: {}", .{err});
                 break :err "";
