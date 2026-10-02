@@ -45,44 +45,44 @@ fn writeZshCompletions(writer: *std.Io.Writer) !void {
     try writer.writeAll("  _arguments \\\n");
     try writer.writeAll("    \"--help\" \\\n");
     try writer.writeAll("    \"--version\" \\\n");
-    for (@typeInfo(Config).@"struct".fields) |field| {
-        if (field.name[0] == '_') continue;
+    inline for (@typeInfo(Config).@"struct".field_names) |name| {
+        if (name[0] == '_') continue;
         try writer.writeAll("    \"--");
-        try writer.writeAll(field.name);
+        try writer.writeAll(name);
 
-        if (std.mem.startsWith(u8, field.name, "font-family")) {
+        if (std.mem.startsWith(u8, name, "font-family")) {
             try writer.writeAll(equals_required);
             try writer.writeAll("_fonts");
-        } else if (std.mem.eql(u8, "theme", field.name)) {
+        } else if (std.mem.eql(u8, "theme", name)) {
             try writer.writeAll(equals_required);
             try writer.writeAll("_themes");
-        } else if (std.mem.eql(u8, "working-directory", field.name)) {
+        } else if (std.mem.eql(u8, "working-directory", name)) {
             try writer.writeAll(equals_required);
             try writer.writeAll("{_files -/}");
-        } else if (field.type == Config.RepeatablePath) {
+        } else if (@FieldType(Config, name) == Config.RepeatablePath) {
             try writer.writeAll(equals_required);
             try writer.writeAll("_files"); // todo check if this is needed
         } else {
-            switch (@typeInfo(field.type)) {
+            switch (@typeInfo(@FieldType(Config, name))) {
                 .bool => {},
                 .@"enum" => |info| {
                     try writer.writeAll(equals_required);
                     try writer.writeAll("(");
-                    for (info.fields, 0..) |f, i| {
+                    for (info.field_names, 0..) |enum_name, i| {
                         if (i > 0) try writer.writeAll(" ");
-                        try writer.writeAll(f.name);
+                        try writer.writeAll(enum_name);
                     }
                     try writer.writeAll(")");
                 },
                 .@"struct" => |info| {
                     try writer.writeAll(equals_required);
-                    if (!@hasDecl(field.type, "parseCLI") and info.layout == .@"packed") {
+                    if (!@hasDecl(@FieldType(Config, name), "parseCLI") and info.layout == .@"packed") {
                         try writer.writeAll("(");
-                        for (info.fields, 0..) |f, i| {
+                        for (info.field_names, 0..) |field_name, i| {
                             if (i > 0) try writer.writeAll(" ");
-                            try writer.writeAll(f.name);
+                            try writer.writeAll(field_name);
                             try writer.writeAll(" no-");
-                            try writer.writeAll(f.name);
+                            try writer.writeAll(field_name);
                         }
                         try writer.writeAll(")");
                     } else {
@@ -138,9 +138,9 @@ fn writeZshCompletions(writer: *std.Io.Writer) !void {
         // how to get 'commands'
         var count: usize = 0;
         const padding = "        ";
-        for (@typeInfo(Action).@"enum".fields) |field| {
+        for (@typeInfo(Action).@"enum".field_names) |name| {
             try writer.writeAll(padding ++ "'+");
-            try writer.writeAll(field.name);
+            try writer.writeAll(name);
             try writer.writeAll("'\n");
             count += 1;
         }
@@ -164,27 +164,27 @@ fn writeZshCompletions(writer: *std.Io.Writer) !void {
     );
     {
         const padding = "        ";
-        for (@typeInfo(Action).@"enum".fields) |field| {
-            const options = @field(Action, field.name).options();
+        inline for (@typeInfo(Action).@"enum".field_names) |name| {
+            const options = @field(Action, name).options();
             // assumes options will never be created with only <_name> members
-            if (@typeInfo(options).@"struct".fields.len == 0) continue;
+            if (@typeInfo(options).@"struct".field_names.len == 0) continue;
 
-            try writer.writeAll(padding ++ "(+" ++ field.name ++ ")\n");
+            try writer.writeAll(padding ++ "(+" ++ name ++ ")\n");
             try writer.writeAll(padding ++ "  _arguments \\\n");
-            for (@typeInfo(options).@"struct".fields) |opt| {
-                if (opt.name[0] == '_') continue;
+            inline for (@typeInfo(options).@"struct".field_names) |opt| {
+                if (opt[0] == '_') continue;
 
                 try writer.writeAll(padding ++ "    '--");
-                try writer.writeAll(opt.name);
+                try writer.writeAll(opt);
 
-                switch (@typeInfo(opt.type)) {
+                switch (@typeInfo(@FieldType(options, opt))) {
                     .bool => {},
                     .@"enum" => |info| {
                         try writer.writeAll(equals_required);
                         try writer.writeAll("(");
-                        for (info.fields, 0..) |f, i| {
+                        for (info.field_names, 0..) |enum_name, i| {
                             if (i > 0) try writer.writeAll(" ");
-                            try writer.writeAll(f.name);
+                            try writer.writeAll(enum_name);
                         }
                         try writer.writeAll(")");
                     },
@@ -193,14 +193,14 @@ fn writeZshCompletions(writer: *std.Io.Writer) !void {
                         switch (@typeInfo(optional.child)) {
                             .@"enum" => |info| {
                                 try writer.writeAll("(");
-                                for (info.fields, 0..) |f, i| {
+                                for (info.field_names, 0..) |enum_name, i| {
                                     if (i > 0) try writer.writeAll(" ");
-                                    try writer.writeAll(f.name);
+                                    try writer.writeAll(enum_name);
                                 }
                                 try writer.writeAll(")");
                             },
                             else => {
-                                if (std.mem.eql(u8, "config-file", opt.name)) {
+                                if (std.mem.eql(u8, "config-file", opt)) {
                                     try writer.writeAll("_files");
                                 } else try writer.writeAll("( )");
                             },
@@ -208,7 +208,7 @@ fn writeZshCompletions(writer: *std.Io.Writer) !void {
                     },
                     else => {
                         try writer.writeAll(equals_required);
-                        if (std.mem.eql(u8, "config-file", opt.name)) {
+                        if (std.mem.eql(u8, "config-file", opt)) {
                             try writer.writeAll("_files");
                         } else try writer.writeAll("( )");
                     },

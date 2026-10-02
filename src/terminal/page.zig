@@ -2765,8 +2765,8 @@ test "Page.layout can take a maxed capacity" {
     // overflow. This simplifies some of our handling downstream of the
     // call (relevant to: https://github.com/ghostty-org/ghostty/issues/10258)
     var cap: Capacity = undefined;
-    inline for (@typeInfo(Capacity).@"struct".fields) |field| {
-        @field(cap, field.name) = std.math.maxInt(field.type);
+    inline for (@typeInfo(Capacity).@"struct".field_names, @typeInfo(Capacity).@"struct".field_types) |field, field_type| {
+        @field(cap, field) = std.math.maxInt(field_type);
     }
 
     // Note that a max capacity will exceed our max_page_size so we

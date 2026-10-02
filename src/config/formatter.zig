@@ -97,11 +97,11 @@ pub fn formatEntry(
             // Packed structs we special case.
             .@"packed" => {
                 try writer.print("{s} = ", .{name});
-                inline for (info.fields, 0..) |field, i| {
+                inline for (info.field_names, 0..) |field, i| {
                     if (i > 0) try writer.print(",", .{});
                     try writer.print("{s}{s}", .{
-                        if (!@field(value, field.name)) "no-" else "",
-                        field.name,
+                        if (!@field(value, field)) "no-" else "",
+                        field,
                     });
                 }
                 try writer.print("\n", .{});

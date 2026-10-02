@@ -35,12 +35,12 @@ fn isInternal(name: []const u8) bool {
 fn generateKeywords() []const u8 {
     @setEvalBranchQuota(5000);
     var keywords: []const u8 = "";
-    const config_fields = @typeInfo(Config).@"struct".fields;
+    const config_fields = @typeInfo(Config).@"struct".field_names;
 
     for (config_fields) |field| {
-        if (isInternal(field.name)) continue;
+        if (isInternal(field)) continue;
         if (keywords.len > 0) keywords = keywords ++ "|";
-        keywords = keywords ++ field.name;
+        keywords = keywords ++ field;
     }
 
     return keywords;

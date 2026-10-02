@@ -583,10 +583,10 @@ pub const Notification = union(enum) {
             try writer.writeAll(@tagName(@as(TagType, self)));
             try writer.writeAll(" = ");
 
-            inline for (info.fields) |u_field| {
-                if (self == @field(TagType, u_field.name)) {
-                    const value = @field(self, u_field.name);
-                    switch (u_field.type) {
+            inline for (info.field_names, info.field_types) |field_name, field_type| {
+                if (self == @field(TagType, field_name)) {
+                    const value = @field(self, field_name);
+                    switch (field_type) {
                         []const u8 => try writer.print("\"{s}\"", .{std.mem.trim(u8, value, " \t\r\n")}),
                         else => try writer.print("{any}", .{value}),
                     }

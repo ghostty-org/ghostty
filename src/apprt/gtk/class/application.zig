@@ -3307,10 +3307,10 @@ fn setGtkEnv(config: *const CoreConfig) std.Io.Writer.Error!void {
         var buf: [1024]u8 = undefined;
         var writer: std.Io.Writer = .fixed(&buf);
         var first: bool = true;
-        inline for (@typeInfo(@TypeOf(gdk_debug)).@"struct".fields) |field| {
-            if (@field(gdk_debug, field.name)) {
+        inline for (@typeInfo(@TypeOf(gdk_debug)).@"struct".field_names) |field| {
+            if (@field(gdk_debug, field)) {
                 if (!first) try writer.writeAll(",");
-                try writer.writeAll(field.name);
+                try writer.writeAll(field);
                 first = false;
             }
         }
@@ -3324,10 +3324,10 @@ fn setGtkEnv(config: *const CoreConfig) std.Io.Writer.Error!void {
         var buf: [1024]u8 = undefined;
         var writer: std.Io.Writer = .fixed(&buf);
         var first: bool = true;
-        inline for (@typeInfo(@TypeOf(gdk_disable)).@"struct".fields) |field| {
-            if (@field(gdk_disable, field.name)) {
+        inline for (@typeInfo(@TypeOf(gdk_disable)).@"struct".field_names) |field| {
+            if (@field(gdk_disable, field)) {
                 if (!first) try writer.writeAll(",");
-                try writer.writeAll(field.name);
+                try writer.writeAll(field);
                 first = false;
             }
         }

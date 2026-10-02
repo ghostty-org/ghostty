@@ -444,21 +444,21 @@ pub const Action = union(Key) {
 
     /// Sync with: ghostty_action_u
     pub const CValue = cvalue: {
-        const key_fields = @typeInfo(Key).@"enum".fields;
+        const key_fields = @typeInfo(Key).@"enum".field_names;
         var names: [key_fields.len][]const u8 = undefined;
         var types: [key_fields.len]type = undefined;
-        var attrs: [key_fields.len]std.lang.Type.UnionField.Attributes = undefined;
+        var attrs: [key_fields.len]std.lang.Type.Union.FieldAttributes = undefined;
 
         for (key_fields, &names, &types, &attrs) |field, *name, *ty, *attr| {
-            const action = @unionInit(Action, field.name, undefined);
+            const action = @unionInit(Action, field, undefined);
             const Type = t: {
-                const Type = @TypeOf(@field(action, field.name));
+                const Type = @TypeOf(@field(action, field));
                 // Types can provide custom types for their CValue.
                 if (Type != void and @hasDecl(Type, "C")) break :t Type.C;
                 break :t Type;
             };
 
-            name.* = field.name;
+            name.* = field;
             ty.* = Type;
             attr.* = .{ .@"align" = @alignOf(Type) };
         }
@@ -485,9 +485,9 @@ pub const Action = union(Key) {
 
     /// Returns the value type for the given key.
     pub fn Value(comptime key: Key) type {
-        inline for (@typeInfo(Action).@"union".fields) |field| {
-            const field_key = @field(Key, field.name);
-            if (field_key == key) return field.type;
+        inline for (@typeInfo(Action).@"union".field_names, @typeInfo(Action).@"union".field_types) |field_name, field_type| {
+            const field_key = @field(Key, field_name);
+            if (field_key == key) return field_type;
         }
 
         unreachable;

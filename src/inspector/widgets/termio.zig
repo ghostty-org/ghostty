@@ -311,8 +311,8 @@ pub const Stream = struct {
                 );
                 defer cimgui.c.ImGui_EndTable();
 
-                inline for (@typeInfo(terminal.Parser.Action.Tag).@"enum".fields) |field| {
-                    const tag = @field(terminal.Parser.Action.Tag, field.name);
+                inline for (@typeInfo(terminal.Parser.Action.Tag).@"enum".field_names) |field| {
+                    const tag = @field(terminal.Parser.Action.Tag, field);
                     if (tag == .apc_put or tag == .dcs_put) continue;
 
                     _ = cimgui.c.ImGui_TableNextColumn();
@@ -666,24 +666,24 @@ const VTEvent = struct {
             [:0]const u8,
             => try md.put("data", try alloc.dupeZ(u8, v)),
             else => |T| switch (@typeInfo(T)) {
-                .@"struct" => |info| inline for (info.fields) |field| {
+                .@"struct" => |info| inline for (info.field_names) |field| {
                     try encodeMetadataSingle(
                         alloc,
                         md,
-                        field.name,
-                        @field(v, field.name),
+                        field,
+                        @field(v, field),
                     );
                 },
 
                 .@"union" => |info| {
                     const Tag = info.tag_type orelse @compileError("Unions must have a tag");
                     const tag_name = @tagName(@as(Tag, v));
-                    inline for (info.fields) |field| {
-                        if (std.mem.eql(u8, field.name, tag_name)) {
-                            if (field.type == void) {
+                    inline for (info.field_names, info.field_types) |field_name, field_type| {
+                        if (std.mem.eql(u8, field_name, tag_name)) {
+                            if (field_type == void) {
                                 break try md.put("data", tag_name);
                             } else {
-                                break try encodeMetadataSingle(alloc, md, tag_name, @field(v, field.name));
+                                break try encodeMetadataSingle(alloc, md, tag_name, @field(v, field_name));
                             }
                         }
                     }
@@ -725,19 +725,19 @@ const VTEvent = struct {
             .@"union" => |u| {
                 const Tag = u.tag_type orelse @compileError("Unions must have a tag");
                 const tag_name = @tagName(@as(Tag, value));
-                inline for (u.fields) |field| {
-                    if (std.mem.eql(u8, field.name, tag_name)) {
-                        const s = if (field.type == void)
+                inline for (u.field_names, u.field_types) |field_name, field_type| {
+                    if (std.mem.eql(u8, field_name, tag_name)) {
+                        const s = if (field_type == void)
                             try alloc.dupeZ(u8, tag_name)
-                        else if (field.type == [:0]const u8 or field.type == []const u8)
-                            try std.fmt.allocPrintSentinel(alloc, "{s}={s}", .{
+                        else if (field_type == [:0]const u8 or field_type == []const u8)
+                            try alloc.printSentinel("{s}={s}", .{
                                 tag_name,
-                                @field(value, field.name),
+                                @field(value, field_name),
                             }, 0)
                         else
                             try std.fmt.allocPrintSentinel(alloc, "{s}={}", .{
                                 tag_name,
-                                @field(value, field.name),
+                                @field(value, field_name),
                             }, 0);
 
                         try md.put(key, s);
