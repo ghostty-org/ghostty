@@ -1090,8 +1090,9 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .pwd_change => |w| {
             defer w.deinit();
 
-            var stack = std.heap.stackFallback(256, self.alloc);
-            const alloc = stack.get();
+            var stack_buf: [256]u8 = undefined;
+            var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.alloc);
+            const alloc = stack.allocator();
             const str = try alloc.dupeZ(u8, w.slice());
             defer alloc.free(str);
 
@@ -4955,8 +4956,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .text => |data| {
-            var stack = std.heap.stackFallback(256, self.alloc);
-            const alloc = stack.get();
+            var stack_buf: [256]u8 = undefined;
+            var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.alloc);
+            const alloc = stack.allocator();
             const buf = try alloc.alloc(u8, data.len);
             defer alloc.free(buf);
             const text = configpkg.string.parse(buf, data) catch |err| {
