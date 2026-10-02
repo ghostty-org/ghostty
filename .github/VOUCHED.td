@@ -99,6 +99,7 @@ danneu
 danulqua
 dariogriffo
 dave92082
+-davidpmclaughlin Refusing to follow AI policy and exhibit good faith behavior
 davidsanchez222
 deblasis
 dervedro
