@@ -64,7 +64,7 @@ pub const Version16Dot16 = packed struct(u32) {
 pub const F26Dot6 = FixedPoint(i32, 26, 6);
 
 fn FixedPoint(comptime T: type, int_bits: u64, frac_bits: u64) type {
-    const type_info: std.builtin.Type.Int = @typeInfo(T).int;
+    const type_info: std.lang.Type.Int = @typeInfo(T).int;
     comptime assert(int_bits + frac_bits == type_info.bits);
 
     return packed struct(T) {

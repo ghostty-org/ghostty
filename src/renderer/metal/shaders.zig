@@ -77,7 +77,7 @@ const PipelineDescription = struct {
 
 /// We create a type for the pipeline collection based on our desc array.
 const PipelineCollection = t: {
-    const StructField = std.builtin.Type.StructField;
+    const StructField = std.lang.Type.StructField;
 
     var names: [pipeline_descs.len][]const u8 = undefined;
     var types: [pipeline_descs.len]type = @splat(Pipeline);

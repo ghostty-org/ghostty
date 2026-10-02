@@ -135,7 +135,7 @@ fn getPacked(values: *const ModePacked, mode: Mode) bool {
 /// A packed struct of all the settable modes. This shouldn't
 /// be used directly but rather through the ModeState struct.
 pub const ModePacked = packed_struct: {
-    const StructField = std.builtin.Type.StructField;
+    const StructField = std.lang.Type.StructField;
     var names: [entries.len][]const u8 = undefined;
     var types: [entries.len]type = @splat(bool);
     var attrs: [entries.len]StructField.Attributes = undefined;
