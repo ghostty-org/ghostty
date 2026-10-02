@@ -456,7 +456,7 @@ pub const LoadingImage = struct {
                     else => error.InvalidData,
                 };
             };
-            managed = .{ .items = data, .capacity = data.len };
+            managed = .fromOwnedSlice(data);
         } else {
             reader.appendRemaining(alloc, &managed, .limited(max_size)) catch {
                 log.warn("failed to read image file: {?}", .{buf_reader.err});
@@ -466,7 +466,7 @@ pub const LoadingImage = struct {
 
         // Set our data
         assert(self.data.items.len == 0);
-        self.data = .{ .items = managed.items, .capacity = managed.capacity };
+        self.data = managed;
     }
 
     /// Returns the canonical path of an open file after applying the file
@@ -662,7 +662,7 @@ pub const LoadingImage = struct {
         };
 
         self.data.deinit(alloc);
-        self.data = .{ .items = decompressed, .capacity = decompressed.len };
+        self.data = .fromOwnedSlice(decompressed);
 
         // Make sure we note that our image is no longer compressed
         self.image.compression = .none;
