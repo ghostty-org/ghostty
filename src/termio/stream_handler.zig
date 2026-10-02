@@ -1711,7 +1711,7 @@ pub const StreamHandler = struct {
                             },
                         });
                     }
-                    mask.* = .initEmpty();
+                    mask.* = .empty;
                 },
 
                 .reset_special => log.warn(

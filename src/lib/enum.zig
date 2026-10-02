@@ -119,7 +119,7 @@ pub fn checkGhosttyHEnum(
 
     const c = @import("ghostty.h");
 
-    var set: std.EnumSet(T) = .initFull();
+    var set: std.EnumSet(T) = .full;
 
     const enum_fields = info.@"enum".fields;
 
