@@ -1106,8 +1106,9 @@ pub const Handler = struct {
             data: []const u8,
         ) error{ OutOfMemory, WriteFailed }!void {
             const handler = self.handler;
-            var stack = std.heap.stackFallback(256, handler.terminal.gpa());
-            const alloc = stack.get();
+            var stack_buf: [256]u8 = undefined;
+            var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, handler.terminal.gpa());
+            const alloc = stack.allocator();
 
             var aw: std.Io.Writer.Allocating = .init(alloc);
             defer aw.deinit();
@@ -1337,8 +1338,9 @@ pub const Handler = struct {
 
             // Status packets fit on the stack; DATA packets carry the
             // clipboard contents and fall back to the heap.
-            var stack = std.heap.stackFallback(1024, handler.terminal.gpa());
-            const alloc = stack.get();
+            var stack_buf: [1024]u8 = undefined;
+            var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, handler.terminal.gpa());
+            const alloc = stack.allocator();
             var aw: std.Io.Writer.Allocating = .init(alloc);
             defer aw.deinit();
             try (kitty_clipboard.ReadSuccess{
@@ -1615,8 +1617,9 @@ pub const Handler = struct {
 
         // Our responses carry at most a status and the echoed id so
         // they virtually always fit on the stack.
-        var stack = std.heap.stackFallback(1024, self.terminal.gpa());
-        const alloc = stack.get();
+        var stack_buf: [1024]u8 = undefined;
+        var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.terminal.gpa());
+        const alloc = stack.allocator();
         var aw: std.Io.Writer.Allocating = .init(alloc);
         defer aw.deinit();
         response.encode(&aw.writer) catch return;
@@ -1632,8 +1635,9 @@ pub const Handler = struct {
     ) (Allocator.Error || std.Io.Writer.Error)!void {
         // Responses are usually small (queries, errors) but data
         // serving can produce many chunks, so fall back to the heap.
-        var stack = std.heap.stackFallback(512, self.terminal.gpa());
-        const response_alloc = stack.get();
+        var stack_buf: [512]u8 = undefined;
+        var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.terminal.gpa());
+        const response_alloc = stack.allocator();
         var aw: std.Io.Writer.Allocating = .init(response_alloc);
         defer aw.deinit();
 
@@ -1663,8 +1667,9 @@ pub const Handler = struct {
         const func = self.effects.device_attributes orelse return;
         const attrs = func(self);
 
-        var stack = std.heap.stackFallback(128, self.terminal.gpa());
-        const alloc = stack.get();
+        var stack_buf: [128]u8 = undefined;
+        var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.terminal.gpa());
+        const alloc = stack.allocator();
 
         var aw: std.Io.Writer.Allocating = .init(alloc);
         defer aw.deinit();
@@ -1769,11 +1774,9 @@ pub const Handler = struct {
     fn reportSize(self: *Handler, style: csi.SizeReportStyle) void {
         // Almost all size reports will fit in 256 bytes so try that
         // on the stack before falling back to a heap allocation.
-        var stack = std.heap.stackFallback(
-            256,
-            self.terminal.gpa(),
-        );
-        const alloc = stack.get();
+        var stack_buf: [256]u8 = undefined;
+        var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.terminal.gpa());
+        const alloc = stack.allocator();
 
         // Allocating writing to accumulate the response.
         var aw: std.Io.Writer.Allocating = .init(alloc);
@@ -2034,8 +2037,9 @@ pub const Handler = struct {
     ) !void {
         if (requests.count() == 0) return;
 
-        var stack = std.heap.stackFallback(1024, self.terminal.gpa());
-        const alloc = stack.get();
+        var stack_buf: [1024]u8 = undefined;
+        var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.terminal.gpa());
+        const alloc = stack.allocator();
         var response: std.Io.Writer.Allocating = .init(alloc);
         defer response.deinit();
         const writer = &response.writer;
@@ -2152,8 +2156,9 @@ pub const Handler = struct {
         self: *Handler,
         request: kitty_color.OSC,
     ) !void {
-        var stack = std.heap.stackFallback(1024, self.terminal.gpa());
-        const alloc = stack.get();
+        var stack_buf: [1024]u8 = undefined;
+        var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.terminal.gpa());
+        const alloc = stack.allocator();
         var response: std.Io.Writer.Allocating = .init(alloc);
         defer response.deinit();
         const writer = &response.writer;

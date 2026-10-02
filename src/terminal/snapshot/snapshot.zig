@@ -52,8 +52,9 @@ pub fn encode(
 
     // A measured 512-byte buffer handles our smallest records on the stack
     // before larger records fall back to the heap.
-    var stack_alloc = std.heap.stackFallback(512, alloc);
-    var stream: record.Writer = .init(stack_alloc.get(), destination);
+    var stack_alloc_buf: [512]u8 = undefined;
+    var stack_alloc: std.heap.BufferFirstAllocator = .init(&stack_alloc_buf, alloc);
+    var stream: record.Writer = .init(stack_alloc.allocator(), destination);
     defer stream.deinit();
 
     // 1. Envelope
