@@ -218,7 +218,7 @@ pub fn initStaticAppleUniversal(
 fn initLib(
     b: *std.Build,
     zig: *const GhosttyZig,
-    linkage: std.builtin.LinkMode,
+    linkage: std.lang.LinkMode,
 ) !GhosttyLibVt {
     const kind: Kind = switch (linkage) {
         .static => .static,

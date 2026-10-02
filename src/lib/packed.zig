@@ -118,7 +118,7 @@ pub fn PackedOptions(comptime T: type) type {
 
     var names: [fields.len][]const u8 = undefined;
     var types: [fields.len]type = undefined;
-    var attrs: [fields.len]std.builtin.Type.StructField.Attributes = undefined;
+    var attrs: [fields.len]std.lang.Type.StructField.Attributes = undefined;
 
     for (fields, 0..) |field, i| {
         names[i] = field.name;
@@ -194,7 +194,7 @@ pub fn PackedTaggedUnionOptions(comptime Union: type, comptime Tag: type) type {
 
     var names: [tag_fields.len][]const u8 = undefined;
     var types: [tag_fields.len]type = undefined;
-    var attrs: [tag_fields.len]std.builtin.Type.StructField.Attributes = undefined;
+    var attrs: [tag_fields.len]std.lang.Type.StructField.Attributes = undefined;
 
     for (tag_fields, 0..) |field, i| {
         names[i] = field.name;
@@ -214,7 +214,7 @@ fn PackedTaggedUnionArm(comptime Union: type) type {
 
     var names: [fields.len][]const u8 = undefined;
     var types: [fields.len]type = undefined;
-    var attrs: [fields.len]std.builtin.Type.UnionField.Attributes = undefined;
+    var attrs: [fields.len]std.lang.Type.UnionField.Attributes = undefined;
 
     for (fields, 0..) |field, i| {
         names[i] = field.name;
@@ -225,7 +225,7 @@ fn PackedTaggedUnionArm(comptime Union: type) type {
     return @Union(.auto, Tag, &names, &types, &attrs);
 }
 
-fn packedStructInfo(comptime T: type) std.builtin.Type.Struct {
+fn packedStructInfo(comptime T: type) std.lang.Type.Struct {
     const info = @typeInfo(T).@"struct";
     if (info.layout != .@"packed")
         @compileError("Packed requires a packed struct");
