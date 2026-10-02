@@ -311,7 +311,7 @@ test "continuation record rejects truncation, checksum, and tag" {
     );
 
     var wrong_tag = test_ground_fixture;
-    std.mem.writeInt(u16, wrong_tag[0..2], @intFromEnum(record.Tag.ready), .little);
+    std.mem.writeInt(u16, wrong_tag[0..2], @backingInt(record.Tag.ready), .little);
     var tag_source: std.Io.Reader = .fixed(&wrong_tag);
     try testing.expectError(
         error.UnexpectedRecordTag,

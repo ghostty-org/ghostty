@@ -22,7 +22,7 @@ pub fn create() errors.Error!Texture {
 
 /// glBindTexture
 pub fn bind(v: Texture, target: Target) !Binding {
-    glad.context.BindTexture.?(@intFromEnum(target), v.id);
+    glad.context.BindTexture.?(@backingInt(target), v.id);
     try errors.getError();
     return .{ .target = target };
 }
@@ -137,25 +137,25 @@ pub const Binding = struct {
     target: Target,
 
     pub fn unbind(b: *const Binding) void {
-        glad.context.BindTexture.?(@intFromEnum(b.target), 0);
+        glad.context.BindTexture.?(@backingInt(b.target), 0);
     }
 
     pub fn generateMipmap(b: Binding) void {
-        glad.context.GenerateMipmap.?(@intFromEnum(b.target));
+        glad.context.GenerateMipmap.?(@backingInt(b.target));
     }
 
     pub fn parameter(b: Binding, comptime name: Parameter, value: name.Type()) errors.Error!void {
         switch (name.Type()) {
             c.GLint => glad.context.TexParameteri.?(
-                @intFromEnum(b.target),
-                @intFromEnum(name),
+                @backingInt(b.target),
+                @backingInt(name),
                 value,
             ),
             else => switch (@typeInfo(name.Type())) {
                 .@"enum" => glad.context.TexParameteri.?(
-                    @intFromEnum(b.target),
-                    @intFromEnum(name),
-                    @intFromEnum(value),
+                    @backingInt(b.target),
+                    @backingInt(name),
+                    @backingInt(value),
                 ),
                 else => @compileError("unknown parameter type"),
             },
@@ -174,14 +174,14 @@ pub const Binding = struct {
         data: ?*const anyopaque,
     ) errors.Error!void {
         glad.context.TexImage2D.?(
-            @intFromEnum(b.target),
+            @backingInt(b.target),
             level,
-            @intFromEnum(internal_format),
+            @backingInt(internal_format),
             width,
             height,
             0,
-            @intFromEnum(format),
-            @intFromEnum(typ),
+            @backingInt(format),
+            @backingInt(typ),
             data,
         );
         try errors.getError();
@@ -199,14 +199,14 @@ pub const Binding = struct {
         data: ?*const anyopaque,
     ) errors.Error!void {
         glad.context.TexSubImage2D.?(
-            @intFromEnum(b.target),
+            @backingInt(b.target),
             level,
             xoffset,
             yoffset,
             width,
             height,
-            @intFromEnum(format),
-            @intFromEnum(typ),
+            @backingInt(format),
+            @backingInt(typ),
             data,
         );
         try errors.getError();
@@ -223,7 +223,7 @@ pub const Binding = struct {
         height: c.GLsizei,
     ) errors.Error!void {
         glad.context.CopyTexSubImage2D.?(
-            @intFromEnum(b.target),
+            @backingInt(b.target),
             level,
             xoffset,
             yoffset,

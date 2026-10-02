@@ -118,7 +118,7 @@ pub fn encode(
         .invisible = value.flags.invisible,
         .strikethrough = value.flags.strikethrough,
         .overline = value.flags.overline,
-        .underline = @intFromEnum(value.flags.underline),
+        .underline = @backingInt(value.flags.underline),
     };
     std.mem.writeInt(u16, encoded[12..14], @bitCast(flags), .little);
     try writer.writeAll(&encoded);
@@ -213,13 +213,13 @@ fn encodeColorBuf(
     value: terminal_style.Style.Color,
 ) void {
     switch (value) {
-        .none => encoded[0] = @intFromEnum(ColorKind.none),
+        .none => encoded[0] = @backingInt(ColorKind.none),
         .palette => |index| {
-            encoded[0] = @intFromEnum(ColorKind.palette);
+            encoded[0] = @backingInt(ColorKind.palette);
             encoded[1] = index;
         },
         .rgb => |rgb| {
-            encoded[0] = @intFromEnum(ColorKind.rgb);
+            encoded[0] = @backingInt(ColorKind.rgb);
             encoded[1] = rgb.r;
             encoded[2] = rgb.g;
             encoded[3] = rgb.b;
@@ -308,31 +308,31 @@ test "flag bit layout" {
         .{ .value = .{ .overline = true }, .expected = 1 << 7 },
         .{
             .value = .{
-                .underline = @intFromEnum(sgr.Attribute.Underline.single),
+                .underline = @backingInt(sgr.Attribute.Underline.single),
             },
             .expected = 1 << 8,
         },
         .{
             .value = .{
-                .underline = @intFromEnum(sgr.Attribute.Underline.double),
+                .underline = @backingInt(sgr.Attribute.Underline.double),
             },
             .expected = 2 << 8,
         },
         .{
             .value = .{
-                .underline = @intFromEnum(sgr.Attribute.Underline.curly),
+                .underline = @backingInt(sgr.Attribute.Underline.curly),
             },
             .expected = 3 << 8,
         },
         .{
             .value = .{
-                .underline = @intFromEnum(sgr.Attribute.Underline.dotted),
+                .underline = @backingInt(sgr.Attribute.Underline.dotted),
             },
             .expected = 4 << 8,
         },
         .{
             .value = .{
-                .underline = @intFromEnum(sgr.Attribute.Underline.dashed),
+                .underline = @backingInt(sgr.Attribute.Underline.dashed),
             },
             .expected = 5 << 8,
         },
@@ -361,7 +361,7 @@ test "reject invalid colors" {
     try std.testing.expectError(error.InvalidColor, decode(&none_reader));
 
     var invalid_palette: [len]u8 = @splat(0);
-    invalid_palette[0] = @intFromEnum(ColorKind.palette);
+    invalid_palette[0] = @backingInt(ColorKind.palette);
     invalid_palette[2] = 1;
     var palette_reader: std.Io.Reader = .fixed(&invalid_palette);
     try std.testing.expectError(error.InvalidColor, decode(&palette_reader));

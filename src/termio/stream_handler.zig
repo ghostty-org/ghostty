@@ -1764,7 +1764,7 @@ pub const StreamHandler = struct {
                             .dynamic => |dynamic| try response.writer.print(
                                 "\x1b]{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}",
                                 .{
-                                    @intFromEnum(dynamic),
+                                    @backingInt(dynamic),
                                     @as(u16, color.r) * 257,
                                     @as(u16, color.g) * 257,
                                     @as(u16, color.b) * 257,
@@ -1786,7 +1786,7 @@ pub const StreamHandler = struct {
                             .dynamic => |dynamic| try response.writer.print(
                                 "\x1b]{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}",
                                 .{
-                                    @intFromEnum(dynamic),
+                                    @backingInt(dynamic),
                                     @as(u16, color.r),
                                     @as(u16, color.g),
                                     @as(u16, color.b),

@@ -3974,7 +3974,7 @@ pub fn printAttributes(self: *Terminal, buf: []u8) ![]const u8 {
         // Preserve underline styles. Kind of a hack to special case 4
         // here but its easier than changing how we do all attributes.
         if (attr == 4 and pen.flags.underline != .single) {
-            try writer.print(";4:{}", .{@intFromEnum(pen.flags.underline)});
+            try writer.print(";4:{}", .{@backingInt(pen.flags.underline)});
             continue;
         }
 

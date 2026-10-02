@@ -187,14 +187,14 @@ const ChordBinding = struct {
             // We want catch_all to sort last.
             const lhs_key: c_int = blk: {
                 switch (TriggerNode.get(l_trigger.?).data.key) {
-                    .physical => |key| break :blk @intFromEnum(key),
+                    .physical => |key| break :blk @backingInt(key),
                     .unicode => |key| break :blk @intCast(key),
                     .catch_all => break :blk std.math.maxInt(c_int),
                 }
             };
             const rhs_key: c_int = blk: {
                 switch (TriggerNode.get(r_trigger.?).data.key) {
-                    .physical => |key| break :blk @intFromEnum(key),
+                    .physical => |key| break :blk @backingInt(key),
                     .unicode => |key| break :blk @intCast(key),
                     .catch_all => break :blk std.math.maxInt(c_int),
                 }

@@ -2443,11 +2443,11 @@ pub fn setAttribute(
         },
 
         .@"8_fg" => |n| {
-            self.cursor.style.fg_color = .{ .palette = @intFromEnum(n) };
+            self.cursor.style.fg_color = .{ .palette = @backingInt(n) };
         },
 
         .@"8_bg" => |n| {
-            self.cursor.style.bg_color = .{ .palette = @intFromEnum(n) };
+            self.cursor.style.bg_color = .{ .palette = @backingInt(n) };
         },
 
         .reset_fg => self.cursor.style.fg_color = .none,
@@ -2455,11 +2455,11 @@ pub fn setAttribute(
         .reset_bg => self.cursor.style.bg_color = .none,
 
         .@"8_bright_fg" => |n| {
-            self.cursor.style.fg_color = .{ .palette = @intFromEnum(n) };
+            self.cursor.style.fg_color = .{ .palette = @backingInt(n) };
         },
 
         .@"8_bright_bg" => |n| {
-            self.cursor.style.bg_color = .{ .palette = @intFromEnum(n) };
+            self.cursor.style.bg_color = .{ .palette = @backingInt(n) };
         },
 
         .@"256_fg" => |idx| {

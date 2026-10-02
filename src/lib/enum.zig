@@ -72,7 +72,7 @@ test "stable values when removing a key" {
         const T = Enum(.c, &.{ "a", "b", null, "d" });
         const info = @typeInfo(T).@"enum";
         try testing.expectEqual(c_int, info.tag_type);
-        try testing.expectEqual(3, @intFromEnum(T.d));
+        try testing.expectEqual(3, @backingInt(T.d));
     }
 
     // Zig
@@ -80,7 +80,7 @@ test "stable values when removing a key" {
         const T = Enum(.zig, &.{ "a", "b", null, "d" });
         const info = @typeInfo(T).@"enum";
         try testing.expectEqual(u2, info.tag_type);
-        try testing.expectEqual(3, @intFromEnum(T.d));
+        try testing.expectEqual(3, @backingInt(T.d));
     }
 }
 
@@ -89,7 +89,7 @@ test "zig backing integer includes trailing holes" {
     const T = Enum(.zig, &.{ "a", null, null, null, null });
     const info = @typeInfo(T).@"enum";
     try testing.expectEqual(u3, info.tag_type);
-    try testing.expectEqual(0, @intFromEnum(T.a));
+    try testing.expectEqual(0, @backingInt(T.a));
 }
 
 test "zig values remain stable across multiple holes" {
@@ -97,9 +97,9 @@ test "zig values remain stable across multiple holes" {
     const T = Enum(.zig, &.{ null, "b", null, "d", null, "f" });
     const info = @typeInfo(T).@"enum";
     try testing.expectEqual(u3, info.tag_type);
-    try testing.expectEqual(1, @intFromEnum(T.b));
-    try testing.expectEqual(3, @intFromEnum(T.d));
-    try testing.expectEqual(5, @intFromEnum(T.f));
+    try testing.expectEqual(1, @backingInt(T.b));
+    try testing.expectEqual(3, @backingInt(T.d));
+    try testing.expectEqual(5, @backingInt(T.f));
 }
 
 /// Verify that for every key in enum T, there is a matching declaration in
@@ -142,7 +142,7 @@ pub fn checkGhosttyHEnum(
                 return e;
             };
 
-            set.remove(@enumFromInt(field.value));
+            set.remove(@fromBackingInt(field.value));
         }
     }
 

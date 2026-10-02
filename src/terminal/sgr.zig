@@ -149,7 +149,7 @@ pub const Attribute = union(Tag) {
         pub const C = c_int;
 
         pub fn cval(self: Underline) Underline.C {
-            return @intFromEnum(self);
+            return @backingInt(self);
         }
     };
 
@@ -326,7 +326,7 @@ pub const Parser = struct {
             29 => return .reset_strikethrough,
 
             30...37 => return .{
-                .@"8_fg" = @enumFromInt(slice[0] - 30),
+                .@"8_fg" = @fromBackingInt(@truncate(slice[0] - 30)),
             },
 
             38 => if (slice.len >= 2) {
@@ -360,7 +360,7 @@ pub const Parser = struct {
             39 => return .reset_fg,
 
             40...47 => return .{
-                .@"8_bg" = @enumFromInt(slice[0] - 40),
+                .@"8_bg" = @fromBackingInt(@truncate(slice[0] - 40)),
             },
 
             48 => if (slice.len >= 2) {
@@ -427,11 +427,11 @@ pub const Parser = struct {
 
             90...97 => return .{
                 // 82 instead of 90 to offset to "bright" colors
-                .@"8_bright_fg" = @enumFromInt(slice[0] - 82),
+                .@"8_bright_fg" = @fromBackingInt(@truncate(slice[0] - 82)),
             },
 
             100...107 => return .{
-                .@"8_bright_bg" = @enumFromInt(slice[0] - 92),
+                .@"8_bright_bg" = @fromBackingInt(@truncate(slice[0] - 92)),
             },
 
             else => {},

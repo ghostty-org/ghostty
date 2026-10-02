@@ -440,7 +440,7 @@ pub const Wasm = struct {
             .wc = .{
                 .alloc = alloc,
                 .font_str = font_str,
-                .presentation = @enumFromInt(presentation),
+                .presentation = @fromBackingInt(presentation),
             },
         };
         errdefer face.deinit();

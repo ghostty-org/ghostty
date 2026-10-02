@@ -81,7 +81,7 @@ pub const LocationIterator = struct {
     } {
         const max = @typeInfo(Location).@"enum".fields.len;
         while (self.i < max) {
-            const location: Location = @enumFromInt(self.i);
+            const location: Location = @fromBackingInt(@intCast(self.i));
             self.i += 1;
             if (try location.dir(self.arena_alloc)) |dir|
                 return .{

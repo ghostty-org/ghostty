@@ -171,7 +171,7 @@ pub const ModeTag = packed struct(u16) {
     ansi: bool = false,
 
     pub fn fromMode(mode: Mode) ModeTag {
-        return @bitCast(@intFromEnum(mode));
+        return @bitCast(@backingInt(mode));
     }
 
     test "order" {
@@ -202,7 +202,7 @@ pub fn modeFromInt(v: u16, ansi: bool) ?Mode {
         if (entries_disabled[idx]) return null;
     }
 
-    return @enumFromInt(int);
+    return @fromBackingInt(int);
 }
 
 /// The tag of every entry, in the same order as `entries`. Looking up
@@ -281,7 +281,7 @@ pub const Report = struct {
         try writer.print("\x1B[{s}{};{}$y", .{
             if (self.tag.ansi) "" else "?",
             self.tag.value,
-            @intFromEnum(self.state),
+            @backingInt(self.state),
         });
     }
 };

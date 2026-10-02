@@ -568,8 +568,8 @@ pub const Key = struct {
 
     /// These are the offsets into the descriptors array for
     /// each style. For example, bold is from
-    /// offsets[@intFromEnum(.bold) - 1] to
-    /// offsets[@intFromEnum(.bold)].
+    /// offsets[@backingInt(.bold) - 1] to
+    /// offsets[@backingInt(.bold)].
     style_offsets: StyleOffsets = @splat(0),
 
     /// The codepoint map configuration.
@@ -593,10 +593,10 @@ pub const Key = struct {
     comptime {
         // We assume this throughout this structure. If this changes
         // we may need to change this structure.
-        assert(@intFromEnum(Style.regular) == 0);
-        assert(@intFromEnum(Style.bold) == 1);
-        assert(@intFromEnum(Style.italic) == 2);
-        assert(@intFromEnum(Style.bold_italic) == 3);
+        assert(@backingInt(Style.regular) == 0);
+        assert(@backingInt(Style.bold) == 1);
+        assert(@backingInt(Style.italic) == 2);
+        assert(@backingInt(Style.bold_italic) == 3);
     }
 
     pub fn init(
@@ -727,7 +727,7 @@ pub const Key = struct {
         self: Key,
         style: Style,
     ) []const discovery.Descriptor {
-        const idx = @intFromEnum(style);
+        const idx = @backingInt(style);
         const start: usize = if (idx == 0) 0 else self.style_offsets[idx - 1];
         const end = self.style_offsets[idx];
         return self.descriptors[start..end];

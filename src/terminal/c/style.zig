@@ -30,7 +30,7 @@ pub const Color = extern struct {
     comptime {
         const Tag = std.meta.Tag(style.Style.Color);
         for (@typeInfo(Tag).@"enum".fields) |f| {
-            assert(f.value == @intFromEnum(@field(ColorTag, f.name)));
+            assert(f.value == @backingInt(@field(ColorTag, f.name)));
         }
     }
 
@@ -49,7 +49,7 @@ pub const Color = extern struct {
             .rgb => |rgb| @as(u24, @bitCast(rgb)),
         };
         return .{
-            .tag = @enumFromInt(@intFromEnum(std.meta.activeTag(c))),
+            .tag = @fromBackingInt(@backingInt(std.meta.activeTag(c))),
             .value = .{ ._padding = value },
         };
     }
@@ -135,7 +135,7 @@ pub const Style = extern struct {
             break :bytes @bitCast(bytes);
         };
 
-        out.underline = @intFromEnum(s.flags.underline);
+        out.underline = @backingInt(s.flags.underline);
     }
 
     pub fn fromStyle(s: style.Style) Style {

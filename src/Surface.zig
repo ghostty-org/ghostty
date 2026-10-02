@@ -1039,7 +1039,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 .color_change,
                 .{
                     .kind = switch (change.target) {
-                        .palette => |v| @enumFromInt(v),
+                        .palette => |v| @fromBackingInt(v),
                         .dynamic => |dyn| switch (dyn) {
                             .foreground => .foreground,
                             .background => .background,
@@ -1634,7 +1634,7 @@ fn mouseRefreshLinks(
         // highlight links until the mouse is unclicked. This follows
         // standard macOS and Linux behavior where a click and drag cancels
         // mouse actions.
-        const left_idx = @intFromEnum(input.MouseButton.left);
+        const left_idx = @backingInt(input.MouseButton.left);
         if (self.mouse.click_state[left_idx] == .press) click: {
             const pin = self.mouse.activeLeftClickPin(&self.io.terminal.screens) orelse break :click;
             const click_pt = self.io.terminal.screens.active.pages.pointFromPin(
@@ -3894,7 +3894,7 @@ pub fn mouseButtonCallback(
     }
 
     // Always record our latest mouse state
-    self.mouse.click_state[@intCast(@intFromEnum(button))] = action;
+    self.mouse.click_state[@intCast(@backingInt(button))] = action;
 
     // Always show the mouse again if it is hidden
     if (self.mouse.hidden) self.showMouse();
@@ -4593,7 +4593,7 @@ pub fn mousePressureCallback(
     // button is already down. Treat it as the platform text-selection
     // affordance: select the pressed word, then consume the active gesture so
     // further cursor motion doesn't drag the selection.
-    const left_idx = @intFromEnum(input.MouseButton.left);
+    const left_idx = @backingInt(input.MouseButton.left);
     if (self.mouse.click_state[left_idx] == .press and
         stage == .deep)
     select: {
@@ -4747,7 +4747,7 @@ pub fn cursorPosCallback(
         // since the spec (afaict) does not say...
         const button: ?input.MouseButton = button: for (self.mouse.click_state, 0..) |state, i| {
             if (state == .press)
-                break :button @enumFromInt(i);
+                break :button @fromBackingInt(@intCast(i));
         } else null;
 
         self.mouseReport(button, .motion, self.mouse.mods, pos);
@@ -4758,7 +4758,7 @@ pub fn cursorPosCallback(
     }
 
     // Handle cursor position for text selection
-    if (self.mouse.click_state[@intFromEnum(input.MouseButton.left)] == .press) select: {
+    if (self.mouse.click_state[@backingInt(input.MouseButton.left)] == .press) select: {
         // Left click pressed but count zero can happen if mouse reporting is on.
         // In this scenario, we mark the click state because we need that to
         // properly make some mouse reports, but we don't keep track of the
@@ -5430,7 +5430,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .previous_tab => .previous,
                 .next_tab => .next,
                 .last_tab => .last,
-                .goto_tab => @enumFromInt(v),
+                .goto_tab => @fromBackingInt(@intCast(v)),
                 else => comptime unreachable,
             },
         ),

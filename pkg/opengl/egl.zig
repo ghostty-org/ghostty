@@ -119,7 +119,7 @@ pub const Display = opaque {
         extensions = c.EGL_EXTENSIONS,
     };
     pub fn queryString(self: *Display, name: StringQuery) ?[:0]const u8 {
-        return std.mem.span(c.eglQueryString(self, @intFromEnum(name)));
+        return std.mem.span(c.eglQueryString(self, @backingInt(name)));
     }
 
     /// Make the EGL context current on the calling thread and (re)load
@@ -220,7 +220,7 @@ pub const Image = opaque {
         const image = c.eglCreateImage(
             display,
             context,
-            @intFromEnum(target),
+            @backingInt(target),
             target.toClientBuffer(),
             if (attrs) |a| a.ptr else null,
         ) orelse return mustError();
