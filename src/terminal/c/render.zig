@@ -1883,12 +1883,12 @@ test "render: row cells get graphemes utf8" {
         try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
         try testing.expectEqual(case.expected.len, text.len);
 
-        var small = [_]u8{'x'} ** 32;
+        var small: [32]u8 = @splat('x');
         const small_cap = case.expected.len - 1;
         text = .{ .ptr = small[0..small_cap].ptr, .cap = small_cap };
         try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
         try testing.expectEqual(case.expected.len, text.len);
-        try testing.expectEqualSlices(u8, &([_]u8{'x'} ** 32), &small);
+        try testing.expectEqualSlices(u8, &@as([32]u8, @splat('x')), &small);
 
         var buf: [32]u8 = undefined;
         text = .{ .ptr = &buf, .cap = case.expected.len };

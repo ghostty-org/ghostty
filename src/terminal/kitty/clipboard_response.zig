@@ -365,11 +365,11 @@ test "read success: chunking at read_chunk_size" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    const data = "z" ** (read_chunk_size + 1);
+    const data: [read_chunk_size + 1]u8 = @splat('z');
     var aw: std.Io.Writer.Allocating = .init(alloc);
     defer aw.deinit();
     try (ReadSuccess{
-        .contents = &.{.{ .mime = "text/plain", .data = data }},
+        .contents = &.{.{ .mime = "text/plain", .data = &data }},
     }).encode(&aw.writer);
 
     // OK + 2 DATA packets + DONE = 4 packets.
