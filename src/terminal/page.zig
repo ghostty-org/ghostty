@@ -724,7 +724,7 @@ pub const Page = struct {
         // Track unique IDs using a bitset. Both style IDs and hyperlink IDs
         // are CellCountInt (u16), so we reuse this set for both to save
         // stack memory (~8KB instead of ~16KB).
-        const CellCountSet = std.StaticBitSet(std.math.maxInt(size.CellCountInt) + 1);
+        const CellCountSet = std.bit_set.Static(std.math.maxInt(size.CellCountInt) + 1);
         comptime assert(size.StyleCountInt == size.CellCountInt);
         comptime assert(size.HyperlinkCountInt == size.CellCountInt);
 
