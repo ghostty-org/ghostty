@@ -11,6 +11,7 @@ const GhosttyZig = @import("GhosttyZig.zig");
 const LipoStep = @import("LipoStep.zig");
 const SharedDeps = @import("SharedDeps.zig");
 const XCFrameworkStep = @import("XCFrameworkStep.zig");
+const GhosttyPkgConfig = @import("GhosttyPkgConfig.zig");
 
 /// The step that generates the file.
 step: *std.Build.Step,
@@ -310,7 +311,7 @@ fn initLib(
     // both shared and static libraries are installed. Install a dedicated
     // static module so consumers can request the archive explicitly.
     const pcs: ?PkgConfigFiles = if (kind == .shared)
-        pkgConfigFiles(b, zig, target.result.os.tag)
+        try pkgConfigFiles(b, zig, target.result.os.tag)
     else
         null;
 
@@ -447,19 +448,26 @@ fn initLibApple(
         .lib,
         real_name,
     );
+
     const soname_install = b.addSystemCommand(&.{
         "/bin/ln",
         "-sf",
         real_name,
-        b.getInstallPath(.lib, soname),
     });
+    soname_install.addDirectoryArg2(.{ .relative = .{
+        .base = .install_lib,
+        .sub_path = soname,
+    } }, .{});
     soname_install.step.dependOn(&artifact_install.step);
     const unversioned_install = b.addSystemCommand(&.{
         "/bin/ln",
         "-sf",
         soname,
-        b.getInstallPath(.lib, "libghostty-vt.dylib"),
     });
+    unversioned_install.addDirectoryArg2(.{ .relative = .{
+        .base = .install_lib,
+        .sub_path = "libghostty-vt.dylib",
+    } }, .{});
     unversioned_install.step.dependOn(&soname_install.step);
 
     // The native link is a Run step rather than a Compile step, so install the
@@ -480,7 +488,7 @@ fn initLibApple(
     dsymutil.addArgs(&.{"-o"});
     const dsym = dsymutil.addOutputFileArg("libghostty-vt.dSYM");
 
-    const pcs = pkgConfigFiles(b, zig, target.result.os.tag);
+    const pcs = try pkgConfigFiles(b, zig, target.result.os.tag);
     return .{
         .step = &native_link.step,
         .artifact = &unversioned_install.step,
@@ -510,46 +518,22 @@ fn pkgConfigFiles(
     b: *std.Build,
     zig: *const GhosttyZig,
     os_tag: std.Target.Os.Tag,
-) PkgConfigFiles {
-    const wf = b.addWriteFiles();
-    const libs_private = libsPrivate(zig);
-    const requires_private = requiresPrivate(b);
+) !PkgConfigFiles {
+    const pkg_config: GhosttyPkgConfig = try .init(b, .{
+        .name = "ghostty-vt",
+        .name_static = "ghostty-vt-static",
+        .description = "Ghostty VT library",
+        .description_static = "Ghostty VT library (static)",
+        .version = zig.version,
+        .libs = &.{ "-L${libdir}", "-lghostty-vt" },
+        .libs_static = &.{b.fmt("${{libdir}}/{s}", .{staticLibraryName(os_tag)})},
+        .libs_private = &.{libsPrivate(zig)},
+        .reqs_private = &.{requiresPrivate(b)},
+    });
 
     return .{
-        .shared = wf.add("libghostty-vt.pc", b.fmt(
-            \\prefix={s}
-            \\includedir=${{prefix}}/include
-            \\libdir=${{prefix}}/lib
-            \\
-            \\Name: libghostty-vt
-            \\URL: https://github.com/ghostty-org/ghostty
-            \\Description: Ghostty VT library
-            \\Version: {f}
-            \\Cflags: -I${{includedir}}
-            \\Libs: -L${{libdir}} -lghostty-vt
-            \\Libs.private: {s}
-            \\Requires.private: {s}
-        , .{ b.install_prefix, zig.version, libs_private, requires_private })),
-        .static = wf.add("libghostty-vt-static.pc", b.fmt(
-            \\prefix={s}
-            \\includedir=${{prefix}}/include
-            \\libdir=${{prefix}}/lib
-            \\
-            \\Name: libghostty-vt-static
-            \\URL: https://github.com/ghostty-org/ghostty
-            \\Description: Ghostty VT library (static)
-            \\Version: {f}
-            \\Cflags: -I${{includedir}}
-            \\Libs: ${{libdir}}/{s}
-            \\Libs.private: {s}
-            \\Requires.private: {s}
-        , .{
-            b.install_prefix,
-            zig.version,
-            staticLibraryName(os_tag),
-            libs_private,
-            requires_private,
-        })),
+        .shared = pkg_config.getSharedFile(),
+        .static = pkg_config.getStaticFile(),
     };
 }
 

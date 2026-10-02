@@ -12,8 +12,8 @@
         // Zig libs
         .libxev = .{
             // mitchellh/libxev
-            .url = "https://deps.files.ghostty.org/libxev-9ce8e8e6ff89e583258a7f8e7adeeeaeae8611bf.tar.gz",
-            .hash = "libxev-0.0.0-86vtcwIRFADbH4hk-EjROXxlrKIRPQdA41XiTSytYO-F",
+            .url = "https://github.com/mitchellh/libxev/archive/819ffa180ca20e31c7eded74e2e1aceb1eab557f.tar.gz",
+            .hash = "libxev-0.0.0-86vtc8QQFACz0sVc7U-VDiDIgH-XfBuEY5JpABLjHNpn",
             .lazy = true,
         },
         .vaxis = .{
