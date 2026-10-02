@@ -735,7 +735,7 @@ const VTEvent = struct {
                                 @field(value, field_name),
                             }, 0)
                         else
-                            try std.fmt.allocPrintSentinel(alloc, "{s}={}", .{
+                            try alloc.printSentinel("{s}={}", .{
                                 tag_name,
                                 @field(value, field_name),
                             }, 0);
@@ -758,7 +758,7 @@ const VTEvent = struct {
                 else => |T| switch (@typeInfo(T)) {
                     .int => try md.put(
                         key,
-                        try std.fmt.allocPrintSentinel(alloc, "{}", .{value}, 0),
+                        try alloc.printSentinel("{}", .{value}, 0),
                     ),
                     else => {
                         @compileLog(T);

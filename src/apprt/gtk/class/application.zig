@@ -2687,8 +2687,7 @@ const Action = struct {
                     .direct = &.{ "/bin/sh", "-c", cmd },
                 };
 
-                const title = std.fmt.allocPrintSentinel(
-                    alloc,
+                const title = alloc.printSentinel(
                     "{s} {s}",
                     .{ i18n._("Editing configuration file"), path },
                     0,

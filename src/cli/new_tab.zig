@@ -89,7 +89,7 @@ pub const Options = struct {
             var realpath_buf: [std.fs.max_path_bytes]u8 = undefined;
             const realpath = realpath_buf[0..try cwd.realPathFile(global.io(), expanded, &realpath_buf)];
             self._working_directory_seen = true;
-            return try std.fmt.allocPrintSentinel(alloc, "--working-directory={s}", .{realpath}, 0);
+            return try alloc.printSentinel("--working-directory={s}", .{realpath}, 0);
         }
 
         return try alloc.dupeZ(u8, arg);
@@ -232,8 +232,7 @@ fn runArgs(
         var buf: [std.fs.max_path_bytes]u8 = undefined;
         const wd = buf[0..try cwd.realPathFile(global.io(), ".", &buf)];
         // This should be inserted at the beginning of the list, just in case `-e` was used.
-        try opts._arguments.insert(alloc, 0, try std.fmt.allocPrintSentinel(
-            alloc,
+        try opts._arguments.insert(alloc, 0, try alloc.printSentinel(
             "--working-directory={s}",
             .{wd},
             0,

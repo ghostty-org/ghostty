@@ -43,7 +43,7 @@ pub fn init(alloc: Allocator, target: apprt.ipc.Target, action: [:0]const u8) In
         .class => |class| result: {
             // Force the usage of the class specified on the CLI to determine the
             // bus name and object path.
-            const object_path = try std.fmt.allocPrintSentinel(alloc, "/{s}", .{class}, 0);
+            const object_path = try alloc.printSentinel("/{s}", .{class}, 0);
 
             std.mem.replaceScalar(u8, object_path, '.', '/');
             std.mem.replaceScalar(u8, object_path, '-', '_');

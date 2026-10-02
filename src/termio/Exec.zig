@@ -1940,8 +1940,7 @@ fn execCommand(
                 // Use "exec" to replace the bash process with
                 // our intended command so we don't have a parent
                 // process hanging around.
-                const cmd = try std.fmt.allocPrintSentinel(
-                    alloc,
+                const cmd = try alloc.printSentinel(
                     "exec -l {s}",
                     .{v},
                     0,
@@ -2045,7 +2044,7 @@ fn appendEnvAlways(
     current: []const u8,
     value: []const u8,
 ) Allocator.Error![]u8 {
-    return try std.fmt.allocPrint(alloc, "{s}{c}{s}", .{
+    return try alloc.print("{s}{c}{s}", .{
         current,
         std.fs.path.delimiter,
         value,
