@@ -151,10 +151,10 @@ pub const Action = union(enum) {
             try writer.writeAll(@tagName(@as(TagType, self)));
             try writer.writeAll(" = ");
 
-            inline for (info.fields) |u_field| {
+            inline for (info.field_names) |u_field| {
                 // If this is the active field...
-                if (self == @field(TagType, u_field.name)) {
-                    const value = @field(self, u_field.name);
+                if (self == @field(TagType, u_field)) {
+                    const value = @field(self, u_field);
                     switch (@TypeOf(value)) {
                         // Unicode
                         u21 => try writer.print("'{u}' (U+{X})", .{ value, value }),
@@ -176,7 +176,7 @@ pub const Action = union(enum) {
                         else => try writer.printValue(
                             "any",
                             .{},
-                            @field(self, u_field.name),
+                            @field(self, u_field),
                             1,
                         ),
                     }

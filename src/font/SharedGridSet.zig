@@ -189,15 +189,15 @@ fn collection(
         // A buffer we use to store the font names for logging.
         var name_buf: [256]u8 = undefined;
 
-        inline for (@typeInfo(Style).@"enum".fields) |field| {
-            const style = @field(Style, field.name);
+        inline for (@typeInfo(Style).@"enum".field_names) |field| {
+            const style = @field(Style, field);
             for (key.descriptorsForStyle(style)) |desc| {
                 {
                     var disco_it = try disco.discover(self.alloc, desc);
                     defer disco_it.deinit();
                     if (try disco_it.next()) |face| {
                         log.info("font {s}: {s}", .{
-                            field.name,
+                            field,
                             try face.name(&name_buf),
                         });
 
@@ -228,7 +228,7 @@ fn collection(
                     defer disco_it.deinit();
                     if (try disco_it.next()) |face| {
                         log.info("font {s}: {s}", .{
-                            field.name,
+                            field,
                             try face.name(&name_buf),
                         });
 
@@ -244,7 +244,7 @@ fn collection(
                 }
 
                 log.warn("font-family {s} not found: {s}", .{
-                    field.name,
+                    field,
                     desc.family.?,
                 });
             }
@@ -745,8 +745,8 @@ pub const Key = struct {
         autoHash(hasher, self.metric_modifiers.count());
         autoHash(hasher, self.freetype_load_flags);
         if (self.metric_modifiers.count() > 0) {
-            inline for (@typeInfo(Metrics.Key).@"enum".fields) |field| {
-                const key = @field(Metrics.Key, field.name);
+            inline for (@typeInfo(Metrics.Key).@"enum".field_names) |field| {
+                const key = @field(Metrics.Key, field);
                 if (self.metric_modifiers.get(key)) |value| {
                     autoHash(hasher, key);
                     value.hash(hasher);

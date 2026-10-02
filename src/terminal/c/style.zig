@@ -29,8 +29,8 @@ pub const Color = extern struct {
     // the internal and C tag values to line up.
     comptime {
         const Tag = std.meta.Tag(style.Style.Color);
-        for (@typeInfo(Tag).@"enum".fields) |f| {
-            assert(f.value == @backingInt(@field(ColorTag, f.name)));
+        for (@typeInfo(Tag).@"enum".field_names, @typeInfo(Tag).@"enum".field_values) |f, f_value| {
+            assert(f_value == @backingInt(@field(ColorTag, f)));
         }
     }
 
