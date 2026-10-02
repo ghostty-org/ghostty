@@ -193,7 +193,7 @@ pub const SlidingWindow = struct {
         };
 
         // Search the first slice for the needle.
-        if (std.ascii.indexOfIgnoreCase(slices[0], self.needle)) |idx| {
+        if (std.ascii.findIgnoreCase(slices[0], self.needle)) |idx| {
             return self.highlight(
                 idx,
                 self.needle.len,
@@ -219,7 +219,7 @@ pub const SlidingWindow = struct {
             @memcpy(self.overlap_buf[prefix.len..overlap_len], suffix);
 
             // Search the overlap
-            const idx = std.ascii.indexOfIgnoreCase(
+            const idx = std.ascii.findIgnoreCase(
                 self.overlap_buf[0..overlap_len],
                 self.needle,
             ) orelse break :overlap;
@@ -233,7 +233,7 @@ pub const SlidingWindow = struct {
         }
 
         // Search the last slice for the needle.
-        if (std.ascii.indexOfIgnoreCase(slices[1], self.needle)) |idx| {
+        if (std.ascii.findIgnoreCase(slices[1], self.needle)) |idx| {
             return self.highlight(
                 slices[0].len + idx,
                 self.needle.len,
@@ -631,7 +631,7 @@ pub const SlidingWindow = struct {
             encoded.writer.writeByte('\n') catch return error.OutOfMemory;
             try meta.cell_map.append(
                 self.alloc,
-                meta.cell_map.getLastOrNull() orelse .{
+                meta.cell_map.last() orelse .{
                     .x = 0,
                     .y = 0,
                 },

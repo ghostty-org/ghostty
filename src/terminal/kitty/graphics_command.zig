@@ -21,7 +21,7 @@ const log = std.log.scoped(.kitty_gfx);
 /// A `[52]?u32` table is 416 bytes versus 216 bytes for this layout, and
 /// its larger copies erased the smaller lookup code.
 /// `std.EnumMap` added optional-return lowering,
-/// `std.StaticBitSet(52)` kept the same size but generated larger code
+/// `std.bit_set.Static(52)` kept the same size but generated larger code
 /// for the packed mask. Passing the table by pointer removed the copies
 /// but did not improve end-to-end throughput. Keep this representation
 /// unless a new benchmark shows an improvement in the zig compilers codegen.

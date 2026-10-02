@@ -885,7 +885,7 @@ pub const CoreText = struct {
             const fuzzy_type = @TypeOf(self.fuzzy_style);
             self.fuzzy_style = @intCast(style_str.len);
             for (desired_styles) |s| {
-                if (std.ascii.indexOfIgnoreCase(style_str, s) != null) {
+                if (std.ascii.findIgnoreCase(style_str, s) != null) {
                     self.fuzzy_style -|= @intCast(s.len);
                 }
             }
