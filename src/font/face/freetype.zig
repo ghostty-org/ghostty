@@ -116,7 +116,7 @@ pub const Face = struct {
 
         // In debug mode, we output information about available variation axes,
         // if they exist.
-        if (comptime builtin.mode == .Debug) mm: {
+        if (comptime builtin.mode == .debug) mm: {
             if (!face.hasMultipleMasters()) break :mm;
             var buf: [1024]u8 = undefined;
             log.debug("variation axes font={s}", .{try result.name(&buf)});

@@ -382,7 +382,7 @@ pub fn build(b: *std.Build) !void {
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/main.zig"),
                 .target = config.baselineTarget(b.graph.io),
-                .optimize = .Debug,
+                .optimize = .debug,
                 .strip = false,
                 .omit_frame_pointer = false,
                 .unwind_tables = .sync,
@@ -397,7 +397,7 @@ pub fn build(b: *std.Build) !void {
         }
         _ = try deps.add(test_exe);
 
-        addGhosttyH(b, test_exe.root_module, config.baselineTarget(b.graph.io), .Debug);
+        addGhosttyH(b, test_exe.root_module, config.baselineTarget(b.graph.io), .debug);
 
         // Normal test running
         const test_run = b.addRunArtifact(test_exe);

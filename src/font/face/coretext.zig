@@ -116,7 +116,7 @@ pub const Face = struct {
 
         // In debug mode, we output information about available variation axes,
         // if they exist.
-        if (comptime builtin.mode == .Debug) {
+        if (comptime builtin.mode == .debug) {
             if (ct_font.copyAttribute(.variation_axes)) |axes| {
                 defer axes.release();
 

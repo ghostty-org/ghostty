@@ -41,7 +41,7 @@ pub const App = struct {
 
         const x11_program_name: [:0]const u8 = if (config.@"x11-instance-name") |pn|
             pn
-        else if (builtin.mode == .Debug)
+        else if (builtin.mode == .debug)
             "ghostty-debug"
         else
             "ghostty";

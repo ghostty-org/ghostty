@@ -167,7 +167,7 @@ fn initThread(gpa: Allocator, environ_map_: std.process.Environ.Map) !void {
         cache_dir.len,
     );
 
-    if (comptime builtin.mode == .Debug) {
+    if (comptime builtin.mode == .debug) {
         // Debug logging for Sentry
         sentry.c.sentry_options_set_debug(opts, @intFromBool(true));
     }
