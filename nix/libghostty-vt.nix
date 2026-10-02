@@ -11,7 +11,7 @@
   versionCheckHook,
   darwin,
   xcbuild,
-  zig_0_16,
+  zig_0_17,
   revision ? "dirty",
   optimize ? "Debug",
   simd ? true,
@@ -45,7 +45,7 @@ stdenv.mkDerivation (finalAttrs: {
     [
       git
       pkg-config
-      zig_0_16
+      zig_0_17
     ]
     ++ lib.optionals stdenv.hostPlatform.isDarwin [
       darwin.cctools
@@ -250,7 +250,7 @@ stdenv.mkDerivation (finalAttrs: {
   meta = {
     homepage = "https://ghostty.org";
     license = lib.licenses.mit;
-    platforms = zig_0_16.meta.platforms;
+    platforms = zig_0_17.meta.platforms;
     pkgConfigModules = [
       "libghostty-vt"
       "libghostty-vt-static"
