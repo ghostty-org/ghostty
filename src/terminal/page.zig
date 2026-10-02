@@ -729,7 +729,7 @@ pub const Page = struct {
         comptime assert(size.HyperlinkCountInt == size.CellCountInt);
 
         // Accumulators
-        var id_set: CellCountSet = .initEmpty();
+        var id_set: CellCountSet = .empty;
         var grapheme_bytes: usize = 0;
         var string_bytes: usize = 0;
 
@@ -754,7 +754,7 @@ pub const Page = struct {
         // Second pass: count hyperlinks and string bytes
         // We count both unique hyperlinks (for hyperlink_set) and total
         // hyperlink cells (for hyperlink_map capacity).
-        id_set = .initEmpty();
+        id_set = .empty;
         var hyperlink_cells: usize = 0;
         for (rows) |*row| {
             const cells = row.cells.ptr(self.memory)[0..self.size.cols];

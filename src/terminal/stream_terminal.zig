@@ -2024,7 +2024,7 @@ pub const Handler = struct {
                         self.terminal.flags.dirty.palette = true;
                         self.terminal.colors.palette.reset(@intCast(i));
                     }
-                    mask.* = .initEmpty();
+                    mask.* = .empty;
                 },
 
                 .query => |target| {

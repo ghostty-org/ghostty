@@ -535,7 +535,7 @@ pub fn parseAutoStruct(
     // Keep track of which fields were set so we can error if a required
     // field was not set.
     const FieldSet = std.StaticBitSet(info.fields.len);
-    var fields_set: FieldSet = .initEmpty();
+    var fields_set: FieldSet = .empty;
 
     // We split each value by "," allowing for quoting and escaping.
     var iter: CommaSplitter = .init(v);

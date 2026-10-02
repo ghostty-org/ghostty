@@ -6004,7 +6004,7 @@ pub const Palette = struct {
     value: terminal.color.Palette = terminal.color.default,
 
     /// Keep track of which indexes were manually set by the user.
-    mask: terminal.color.PaletteMask = .initEmpty(),
+    mask: terminal.color.PaletteMask = .empty,
 
     /// ghostty_config_palette_s
     pub const C = extern struct {

@@ -183,7 +183,7 @@ pub const Attribute = union(Tag) {
 /// Parser parses the attributes from a list of SGR parameters.
 pub const Parser = struct {
     params: []const u16 = &.{},
-    params_sep: SepList = .initEmpty(),
+    params_sep: SepList = .empty,
     idx: usize = 0,
 
     /// Empty state parser.
@@ -586,7 +586,7 @@ test "sgr: unsupported with colon" {
     var p: Parser = .{
         .params = &[_]u16{ 0, 4, 1 },
         .params_sep = sep: {
-            var list = SepList.initEmpty();
+            var list = SepList.empty;
             list.set(0);
             break :sep list;
         },
@@ -600,7 +600,7 @@ test "sgr: unsupported with multiple colon" {
     var p: Parser = .{
         .params = &[_]u16{ 0, 4, 2, 1 },
         .params_sep = sep: {
-            var list = SepList.initEmpty();
+            var list = SepList.empty;
             list.set(0);
             list.set(1);
             break :sep list;
@@ -690,7 +690,7 @@ test "sgr: underline style with more" {
     var p: Parser = .{
         .params = &[_]u16{ 4, 2, 1 },
         .params_sep = sep: {
-            var list = SepList.initEmpty();
+            var list = SepList.empty;
             list.set(0);
             break :sep list;
         },
@@ -705,7 +705,7 @@ test "sgr: underline style with too many colons" {
     var p: Parser = .{
         .params = &[_]u16{ 4, 2, 3, 1 },
         .params_sep = sep: {
-            var list = SepList.initEmpty();
+            var list = SepList.empty;
             list.set(0);
             list.set(1);
             break :sep list;
@@ -940,7 +940,7 @@ test "sgr: direct fg colon with too many colons" {
     var p: Parser = .{
         .params = &[_]u16{ 38, 2, 0, 1, 2, 3, 4, 1 },
         .params_sep = sep: {
-            var list = SepList.initEmpty();
+            var list = SepList.empty;
             for (0..6) |idx| list.set(idx);
             break :sep list;
         },
@@ -955,7 +955,7 @@ test "sgr: direct fg colon with colorspace and extra param" {
     var p: Parser = .{
         .params = &[_]u16{ 38, 2, 0, 1, 2, 3, 1 },
         .params_sep = sep: {
-            var list = SepList.initEmpty();
+            var list = SepList.empty;
             for (0..5) |idx| list.set(idx);
             break :sep list;
         },
@@ -977,7 +977,7 @@ test "sgr: direct fg colon no colorspace and extra param" {
     var p: Parser = .{
         .params = &[_]u16{ 38, 2, 1, 2, 3, 1 },
         .params_sep = sep: {
-            var list = SepList.initEmpty();
+            var list = SepList.empty;
             for (0..4) |idx| list.set(idx);
             break :sep list;
         },
@@ -1001,7 +1001,7 @@ test "sgr: kakoune input" {
     var p: Parser = .{
         .params = &[_]u16{ 0, 4, 3, 38, 2, 175, 175, 215, 58, 2, 0, 190, 80, 70 },
         .params_sep = sep: {
-            var list = SepList.initEmpty();
+            var list = SepList.empty;
             list.set(1);
             list.set(8);
             list.set(9);
@@ -1047,7 +1047,7 @@ test "sgr: kakoune input issue underline, fg, and bg" {
     var p: Parser = .{
         .params = &[_]u16{ 4, 3, 38, 2, 51, 51, 51, 48, 2, 170, 170, 170, 58, 2, 255, 97, 136 },
         .params_sep = sep: {
-            var list = SepList.initEmpty();
+            var list = SepList.empty;
             list.set(0);
             break :sep list;
         },
@@ -1095,7 +1095,7 @@ test "sgr: underline colon with trailing separator and short slice" {
     var p: Parser = .{
         .params = &[_]u16{ 58, 4 },
         .params_sep = sep: {
-            var list = SepList.initEmpty();
+            var list = SepList.empty;
             list.set(0);
             list.set(1);
             break :sep list;
