@@ -25,7 +25,11 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn genConfig(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
-    var ast = try std.zig.Ast.parse(alloc, @embedFile("config/Config.zig"), .zig);
+    var ast = try std.zig.Ast.parse(
+        alloc,
+        @embedFile("config/Config.zig"),
+        .{ .mode = .zig },
+    );
     defer ast.deinit(alloc);
 
     try writer.writeAll(
@@ -85,7 +89,11 @@ fn genActions(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
             break :action_file action.file();
         };
 
-        var ast = try std.zig.Ast.parse(alloc, @embedFile(action_file), .zig);
+        var ast = try std.zig.Ast.parse(
+            alloc,
+            @embedFile(action_file),
+            .{ .mode = .zig },
+        );
         defer ast.deinit(alloc);
         const tokens: []std.zig.Token.Tag = ast.tokens.items(.tag);
 
@@ -117,7 +125,11 @@ fn genActions(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
 }
 
 fn genKeybindActions(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
-    var ast = try std.zig.Ast.parse(alloc, @embedFile("input/Binding.zig"), .zig);
+    var ast = try std.zig.Ast.parse(
+        alloc,
+        @embedFile("input/Binding.zig"),
+        .{ .mode = .zig },
+    );
     defer ast.deinit(alloc);
 
     try writer.writeAll(

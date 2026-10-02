@@ -8,7 +8,7 @@ const Result = @import("result.zig").Result;
 pub const PaletteMask = extern struct {
     bits: [4]u64,
 
-    /// Convert to the Zig PaletteMask (std.StaticBitSet(256)).
+    /// Convert to the Zig PaletteMask (std.bit_set.Static(256)).
     pub fn toZig(self: *const PaletteMask) color.PaletteMask {
         var result = color.PaletteMask.empty;
         for (0..256) |i| {

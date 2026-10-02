@@ -145,7 +145,7 @@ test "detect special case action" {
         foo,
         bar,
 
-        fn detectSpecialCase(arg: []const u8) ?SpecialCase(@This()) {
+        pub fn detectSpecialCase(arg: []const u8) ?SpecialCase(@This()) {
             return if (std.mem.eql(u8, arg, "--special"))
                 .{ .action = .foo }
             else
@@ -191,7 +191,7 @@ test "detect special case fallback" {
         foo,
         bar,
 
-        fn detectSpecialCase(arg: []const u8) ?SpecialCase(@This()) {
+        pub fn detectSpecialCase(arg: []const u8) ?SpecialCase(@This()) {
             return if (std.mem.eql(u8, arg, "--special"))
                 .{ .fallback = .foo }
             else
@@ -237,7 +237,7 @@ test "detect special case abort_if_no_action" {
         foo,
         bar,
 
-        fn detectSpecialCase(arg: []const u8) ?SpecialCase(@This()) {
+        pub fn detectSpecialCase(arg: []const u8) ?SpecialCase(@This()) {
             return if (std.mem.eql(u8, arg, "-e"))
                 .abort_if_no_action
             else

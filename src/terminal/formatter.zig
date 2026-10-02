@@ -172,7 +172,7 @@ pub const PinMap = struct {
             alloc: Allocator,
             node: Node,
         ) Allocator.Error!void {
-            if (self.nodes.getLastOrNull()) |last| {
+            if (self.nodes.last()) |last| {
                 if (last.node == node) return;
             }
 
