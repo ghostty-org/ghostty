@@ -10,7 +10,7 @@
   git,
   ncurses,
   pkg-config,
-  zig_0_16,
+  zig_0_17,
   pandoc,
   revision ? "dirty",
   optimize ? "Debug",
@@ -63,7 +63,7 @@ in
         ncurses
         pandoc
         pkg-config
-        zig_0_16
+        zig_0_17
         gobject-introspection
         wrapGAppsHook4
         blueprint-compiler
