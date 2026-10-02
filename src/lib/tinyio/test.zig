@@ -631,7 +631,7 @@ test "dirRealPathFile edge cases" {
     // Missing paths report FileNotFound (libc realpath branch, via an
     // absolute path anchored at cwd).
     var missing_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const missing = std.fmt.bufPrint(&missing_buf, "{s}.missing", .{want}) catch
+    const missing = std.mem.print(&missing_buf, "{s}.missing", .{want}) catch
         return error.SkipZigTest;
     var out_buf: [std.fs.max_path_bytes]u8 = undefined;
     try testing.expectError(error.FileNotFound, Dir.cwd().realPathFile(

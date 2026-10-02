@@ -528,7 +528,7 @@ test "terminal_paste event" {
     const ok_prefix = "\x1b]5522;type=read:status=OK:loc=primary:pw=";
     const pw_end = std.mem.indexOfPos(u8, S.writtenSlice(), ok_prefix.len, "\x1b\\").?;
     var read_buf: [256]u8 = undefined;
-    const read = try std.fmt.bufPrint(
+    const read = try std.mem.print(
         &read_buf,
         "\x1b]5522;type=read:pw={s}:name=UGFzdGUgZXZlbnQ=;dGV4dC9wbGFpbg==\x1b\\",
         .{S.writtenSlice()[ok_prefix.len..pw_end]},

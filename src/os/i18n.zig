@@ -40,7 +40,7 @@ pub fn init(resources_dir: []const u8) InitError!void {
 
             // Build our locale path
             var buf: [std.fs.max_path_bytes]u8 = undefined;
-            const path = std.fmt.bufPrintZ(&buf, "{s}/locale", .{share_dir}) catch
+            const path = std.mem.printSentinel(&buf, "{s}/locale", .{share_dir}, 0) catch
                 return error.OutOfMemory;
 
             // Bind our bundle ID to the given locale path

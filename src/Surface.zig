@@ -657,7 +657,7 @@ pub fn init(
         var buf: [18]u8 = undefined;
         try env.put(
             "GHOSTTY_SURFACE_ID",
-            std.fmt.bufPrint(&buf, "0x{x:0>16}", .{self.id}) catch unreachable,
+            std.mem.print(&buf, "0x{x:0>16}", .{self.id}) catch unreachable,
         );
 
         // Initialize our IO backend
@@ -4339,7 +4339,7 @@ fn maybePromptClick(self: *Surface) !bool {
                 },
             };
             var data: termio.Message.WriteReq.Small.Array = undefined;
-            const resp = try std.fmt.bufPrint(
+            const resp = try std.mem.print(
                 &data,
                 "\x1B[<0;{d};{d}M",
                 .{ pos_vp.x + 1, y },
@@ -4936,8 +4936,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             // as two literals.
             var buf: [128]u8 = undefined;
             const full_data = switch (action) {
-                .csi => try std.fmt.bufPrint(&buf, "\x1b[{s}", .{data}),
-                .esc => try std.fmt.bufPrint(&buf, "\x1b{s}", .{data}),
+                .csi => try std.mem.print(&buf, "\x1b[{s}", .{data}),
+                .esc => try std.mem.print(&buf, "\x1b{s}", .{data}),
                 else => unreachable,
             };
             self.queueIo(try termio.Message.writeReq(
@@ -5806,7 +5806,7 @@ fn writeScreenFile(
     defer if (retain_tmp_dir) tmp_dir.close(.retain) else tmp_dir.deinit();
 
     var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const filename = try std.fmt.bufPrint(
+    const filename = try std.mem.print(
         &filename_buf,
         "{s}.{s}",
         .{
@@ -6382,7 +6382,7 @@ fn completeClipboardReadOSC52(
     };
 
     // Wrap our data with the OSC code
-    const prefix = try std.fmt.bufPrint(buf, "\x1b]52;{c};", .{kind});
+    const prefix = try std.mem.print(buf, "\x1b]52;{c};", .{kind});
     assert(prefix.len == 7);
     buf[buf.len - 2] = '\x1b';
     buf[buf.len - 1] = '\\';

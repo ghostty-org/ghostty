@@ -97,7 +97,7 @@ pub const Path = union(enum) {
     pub fn formatEntry(self: *const Path, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
         const value = switch (self.*) {
-            .optional => |path| std.fmt.bufPrint(
+            .optional => |path| std.mem.print(
                 &buf,
                 "?{s}",
                 .{path},
@@ -417,7 +417,7 @@ pub const RepeatablePath = struct {
         var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
         for (self.value.items) |item| {
             const value = switch (item) {
-                .optional => |path| std.fmt.bufPrint(
+                .optional => |path| std.mem.print(
                     &buf,
                     "?{s}",
                     .{path},

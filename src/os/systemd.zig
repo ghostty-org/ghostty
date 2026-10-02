@@ -30,7 +30,7 @@ pub fn launchedBySystemd() bool {
             // a user systemd daemon. Do that by checking the `/proc/<ppid>/comm`
             // to see if it ends with `systemd`.
             var comm_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-            const comm_path = std.fmt.bufPrint(&comm_path_buf, "/proc/{d}/comm", .{ppid}) catch {
+            const comm_path = std.mem.print(&comm_path_buf, "/proc/{d}/comm", .{ppid}) catch {
                 log.err("unable to format comm path for pid {d}", .{ppid});
                 break :linux false;
             };
@@ -184,7 +184,7 @@ pub const notify = struct {
         const now = std.Io.Timestamp.now(global.io(), .awake).toMicroseconds();
 
         var buffer: [64]u8 = undefined;
-        const message = std.fmt.bufPrint(&buffer, "RELOADING=1\nMONOTONIC_USEC={d}", .{now}) catch |err| {
+        const message = std.mem.print(&buffer, "RELOADING=1\nMONOTONIC_USEC={d}", .{now}) catch |err| {
             log.err("unable to format reloading message: {}", .{err});
             return;
         };

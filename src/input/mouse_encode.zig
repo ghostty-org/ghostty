@@ -589,7 +589,7 @@ test "sgr wheel button mappings" {
         });
 
         var expected: [32]u8 = undefined;
-        const want = try std.fmt.bufPrint(&expected, "\x1B[<{d};1;1M", .{c.code});
+        const want = try std.mem.print(&expected, "\x1B[<{d};1;1M", .{c.code});
         try testing.expectEqualStrings(want, writer.buffered());
     }
 }
