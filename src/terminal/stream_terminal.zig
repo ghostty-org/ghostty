@@ -2052,7 +2052,7 @@ pub const Handler = struct {
                 .background,
                 .cursor,
                 => {
-                    try writer.print("\x1b]{d};", .{@intFromEnum(dynamic)});
+                    try writer.print("\x1b]{d};", .{@backingInt(dynamic)});
                     try c.encodeRgb16(writer);
                     try writer.writeAll(terminator.string());
                 },

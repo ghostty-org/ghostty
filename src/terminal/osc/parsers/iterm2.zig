@@ -55,7 +55,7 @@ const map: Map = .initComptime(
         const fields = @typeInfo(Key).@"enum".fields;
         var tmp: [fields.len]struct { [:0]const u8, Key } = undefined;
         for (fields, 0..) |field, i| {
-            tmp[i] = .{ field.name, @enumFromInt(field.value) };
+            tmp[i] = .{ field.name, @fromBackingInt(field.value) };
         }
         break :map tmp;
     },

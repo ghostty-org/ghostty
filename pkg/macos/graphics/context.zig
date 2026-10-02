@@ -116,7 +116,7 @@ pub fn Context(comptime T: type) type {
         pub fn setTextDrawingMode(self: *T, mode: TextDrawingMode) void {
             c.CGContextSetTextDrawingMode(
                 @ptrCast(self),
-                @intFromEnum(mode),
+                @backingInt(mode),
             );
         }
 

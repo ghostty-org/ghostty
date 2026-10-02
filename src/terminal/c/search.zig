@@ -216,8 +216,8 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Option, @intFromEnum(option)) orelse {
-            log.warn("search_set invalid option value={d}", .{@intFromEnum(option)});
+        _ = std.enums.fromInt(Option, @backingInt(option)) orelse {
+            log.warn("search_set invalid option value={d}", .{@backingInt(option)});
             return .invalid_value;
         };
     }
@@ -294,7 +294,7 @@ fn setTyped(
                 wrapper.select_scroll = .if_needed;
                 return .success;
             };
-            const scroll = std.enums.fromInt(Scroll, @intFromEnum(v.*)) orelse
+            const scroll = std.enums.fromInt(Scroll, @backingInt(v.*)) orelse
                 return .invalid_value;
             wrapper.select_scroll = scroll.toZig();
         },
@@ -317,8 +317,8 @@ pub fn get(
     value: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Data, @intFromEnum(data)) orelse {
-            log.warn("search_get invalid data value={d}", .{@intFromEnum(data)});
+        _ = std.enums.fromInt(Data, @backingInt(data)) orelse {
+            log.warn("search_get invalid data value={d}", .{@backingInt(data)});
             return .invalid_value;
         };
     }

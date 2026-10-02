@@ -85,15 +85,15 @@ pub fn SplitTree(comptime V: type) type {
                 pub const Backing = u16;
 
                 pub inline fn idx(self: Handle) usize {
-                    return @intFromEnum(self);
+                    return @backingInt(self);
                 }
 
                 /// Offset the handle by a given amount.
                 pub fn offset(self: Handle, v: usize) Handle {
-                    const self_usize: usize = @intCast(@intFromEnum(self));
+                    const self_usize: usize = @intCast(@backingInt(self));
                     const final = self_usize + v;
                     assert(final < std.math.maxInt(Backing));
-                    return @enumFromInt(final);
+                    return @fromBackingInt(@intCast(final));
                 }
             };
         };
@@ -213,11 +213,11 @@ pub fn SplitTree(comptime V: type) type {
 
             pub fn next(self: *Iterator) ?ViewEntry {
                 // If we have no nodes, return null.
-                if (@intFromEnum(self.i) >= self.nodes.len) return null;
+                if (@backingInt(self.i) >= self.nodes.len) return null;
 
                 // Get the current node and increment the index.
                 const handle = self.i;
-                self.i = @enumFromInt(handle.idx() + 1);
+                self.i = @fromBackingInt(@intCast(handle.idx() + 1));
                 const node = self.nodes[handle.idx()];
 
                 return switch (node) {
@@ -231,8 +231,8 @@ pub fn SplitTree(comptime V: type) type {
         /// is valid.
         pub fn zoom(self: *Self, handle: ?Node.Handle) void {
             if (handle) |v| {
-                assert(@intFromEnum(v) >= 0);
-                assert(@intFromEnum(v) < self.nodes.len);
+                assert(@backingInt(v) >= 0);
+                assert(@backingInt(v) < self.nodes.len);
             }
             self.zoomed = handle;
         }
@@ -438,7 +438,7 @@ pub fn SplitTree(comptime V: type) type {
                     if (distance >= n.distance) continue;
                 }
                 result = .{
-                    .handle = @enumFromInt(handle),
+                    .handle = @fromBackingInt(@intCast(handle)),
                     .distance = distance,
                 };
             }
@@ -565,8 +565,8 @@ pub fn SplitTree(comptime V: type) type {
             nodes[at.idx()] = .{ .split = .{
                 .layout = layout,
                 .ratio = ratio,
-                .left = @enumFromInt(if (left) self.nodes.len else nodes.len - 1),
-                .right = @enumFromInt(if (left) nodes.len - 1 else self.nodes.len),
+                .left = @fromBackingInt(@intCast(if (left) self.nodes.len else nodes.len - 1)),
+                .right = @fromBackingInt(@intCast(if (left) nodes.len - 1 else self.nodes.len)),
             } };
 
             // We need to increase the reference count of all the nodes.
@@ -637,7 +637,7 @@ pub fn SplitTree(comptime V: type) type {
             if (old.zoomed) |v| {
                 if (v == current) {
                     assert(new.zoomed == null);
-                    new.zoomed = @enumFromInt(new_offset);
+                    new.zoomed = @fromBackingInt(@intCast(new_offset));
                 }
             }
 
@@ -692,8 +692,8 @@ pub fn SplitTree(comptime V: type) type {
                     new_nodes[new_offset] = .{ .split = .{
                         .layout = s.layout,
                         .ratio = s.ratio,
-                        .left = @enumFromInt(new_offset + 1),
-                        .right = @enumFromInt(new_offset + 1 + left),
+                        .left = @fromBackingInt(@intCast(new_offset + 1)),
+                        .right = @fromBackingInt(@intCast(new_offset + 1 + left)),
                     } };
 
                     return left + right + 1;
@@ -1904,7 +1904,7 @@ test "SplitTree: split twice, remove intermediary" {
     // never crash. We don't test the result is correct, this just verifies
     // we don't hit any assertion failures.
     for (0..split2.nodes.len) |i| {
-        var t = try split2.remove(alloc, @enumFromInt(i));
+        var t = try split2.remove(alloc, @fromBackingInt(@intCast(i)));
         t.deinit();
     }
 }

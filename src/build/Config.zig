@@ -124,7 +124,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         {
             var query = result.query;
             query.cpu_features_add.addFeature(
-                @intFromEnum(std.Target.wasm.Feature.simd128),
+                @backingInt(std.Target.wasm.Feature.simd128),
             );
             result = b.resolveTargetQuery(query);
         }

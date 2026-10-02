@@ -36,7 +36,7 @@ pub const Sprite = enum(u32) {
 
     test {
         const testing = std.testing;
-        try testing.expectEqual(start, @intFromEnum(Sprite.underline));
+        try testing.expectEqual(start, @backingInt(Sprite.underline));
     }
 };
 

@@ -1404,7 +1404,7 @@ pub fn Stream(comptime H: type) type {
                 return;
             }
 
-            const c0: ansi.C0 = @enumFromInt(c);
+            const c0: ansi.C0 = @fromBackingInt(@truncate(c));
             if (comptime debug) log.info("execute: {f}", .{c0});
             switch (c0) {
                 // We ignore SOH/STX: https://github.com/microsoft/terminal/issues/10786
@@ -1695,7 +1695,7 @@ pub fn Stream(comptime H: type) type {
 
                     const mode_: ?csi.EraseLine = switch (input.params.len) {
                         0 => .right,
-                        1 => if (input.params[0] < 3) @enumFromInt(input.params[0]) else null,
+                        1 => if (input.params[0] < 3) @fromBackingInt(@truncate(input.params[0])) else null,
                         else => null,
                     };
 
@@ -3392,7 +3392,7 @@ test "stream: cursor right (CUF)" {
 
 test "stream: dec set mode (SM) and reset mode (RM)" {
     const H = struct {
-        mode: modes.Mode = @as(modes.Mode, @enumFromInt(1)),
+        mode: modes.Mode = @as(modes.Mode, @fromBackingInt(1)),
 
         pub fn vt(
             self: *@This(),
@@ -3401,7 +3401,7 @@ test "stream: dec set mode (SM) and reset mode (RM)" {
         ) void {
             switch (action) {
                 .set_mode => self.mode = value.mode,
-                .reset_mode => self.mode = @as(modes.Mode, @enumFromInt(1)),
+                .reset_mode => self.mode = @as(modes.Mode, @fromBackingInt(1)),
                 else => {},
             }
         }
@@ -3412,11 +3412,11 @@ test "stream: dec set mode (SM) and reset mode (RM)" {
     try testing.expectEqual(@as(modes.Mode, .origin), s.handler.mode);
 
     s.nextSlice("\x1B[?6l");
-    try testing.expectEqual(@as(modes.Mode, @enumFromInt(1)), s.handler.mode);
+    try testing.expectEqual(@as(modes.Mode, @fromBackingInt(1)), s.handler.mode);
 
-    s.handler.mode = @as(modes.Mode, @enumFromInt(1));
+    s.handler.mode = @as(modes.Mode, @fromBackingInt(1));
     s.nextSlice("\x1B[6 h");
-    try testing.expectEqual(@as(modes.Mode, @enumFromInt(1)), s.handler.mode);
+    try testing.expectEqual(@as(modes.Mode, @fromBackingInt(1)), s.handler.mode);
 }
 
 test "stream: ansi set mode (SM) and reset mode (RM)" {
@@ -4614,7 +4614,7 @@ test "stream: SGR with 17+ parameters for underline color" {
 
 test "stream: tab clear with overflowing param" {
     // Regression test for a fuzz crash: CSI with a parameter value that
-    // saturates to 65535 (u16 max) causes @enumFromInt to panic when
+    // saturates to 65535 (u16 max) causes @fromBackingInt to panic when
     // converting to TabClear (enum(u8)).
     const H = struct {
         called: bool = false,

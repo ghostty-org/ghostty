@@ -500,7 +500,7 @@ pub const Wasm = struct {
             alloc,
             ptr[0..len],
             .{ .points = pts },
-            @enumFromInt(presentation),
+            @fromBackingInt(presentation),
         );
         errdefer face.deinit();
 

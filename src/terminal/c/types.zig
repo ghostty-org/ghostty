@@ -900,7 +900,7 @@ test "manifest describes enums, arrays, and tagged unions" {
 
     const data = manifest_types.get("GhosttyRenderStateData").?.object;
     try std.testing.expectEqualStrings("enum", data.get("kind").?.string);
-    try std.testing.expectEqual(@as(i64, @intFromEnum(render.Data.dirty)), data.get("values").?.object.get("DIRTY").?.integer);
+    try std.testing.expectEqual(@as(i64, @backingInt(render.Data.dirty)), data.get("values").?.object.get("DIRTY").?.integer);
 
     const colors = manifest_types.get("GhosttyRenderStateColors").?.object;
     const palette = colors.get("fields").?.object.get("palette").?.object;

@@ -569,7 +569,7 @@ fn childExec(argv: []const []const u8) !u8 {
     const term = try child.wait(global.io());
     return switch (term) {
         .exited => |rc| rc,
-        .signal => |sig| @as(u8, 128) + @as(u8, @intCast(@min(@intFromEnum(sig), 127))),
+        .signal => |sig| @as(u8, 128) + @as(u8, @intCast(@min(@backingInt(sig), 127))),
         .stopped, .unknown => 1,
     };
 }
