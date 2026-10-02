@@ -45,7 +45,7 @@ pub const Freestanding = struct {
         var allocated: bool = false;
         const str = nosuspend std.mem.print(&buf, txt, args) catch str: {
             allocated = true;
-            break :str std.fmt.allocPrint(wasm.alloc, txt, args) catch return;
+            break :str wasm.alloc.print(txt, args) catch return;
         };
         defer if (allocated) wasm.alloc.free(str);
 

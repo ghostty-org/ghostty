@@ -1092,8 +1092,7 @@ pub const Windows = struct {
                 "SYSTEMROOT",
             ) catch return null;
             defer self.alloc.free(systemroot);
-            return std.fmt.allocPrintSentinel(
-                self.alloc,
+            return self.alloc.printSentinel(
                 "{s}\\Fonts",
                 .{systemroot},
                 0,
@@ -1106,8 +1105,7 @@ pub const Windows = struct {
                 "LOCALAPPDATA",
             ) catch return null;
             defer self.alloc.free(local_appdata);
-            return std.fmt.allocPrintSentinel(
-                self.alloc,
+            return self.alloc.printSentinel(
                 "{s}\\Microsoft\\Windows\\Fonts",
                 .{local_appdata},
                 0,

@@ -858,7 +858,7 @@ const Preview = struct {
                 const save_instructions = [_][]const u8{
                     "To apply this theme, add the following line to your Ghostty configuration:",
                     "",
-                    try std.fmt.allocPrint(alloc, "theme = {s}", .{theme.theme}),
+                    try alloc.print("theme = {s}", .{theme.theme}),
                     "",
                     "Save the configuration file and then reload it to apply the new theme.",
                     "",
@@ -913,7 +913,7 @@ const Preview = struct {
                 child.fill(.{ .style = self.ui_standard() });
                 const middle = child.height / 2;
                 {
-                    const text = try std.fmt.allocPrint(alloc, "Unable to open {s} from:", .{theme.theme});
+                    const text = try alloc.print("Unable to open {s} from:", .{theme.theme});
                     const text_len: u16 = @intCast(text.len);
                     _ = child.printSegment(
                         .{
@@ -942,7 +942,7 @@ const Preview = struct {
                     );
                 }
                 {
-                    const text = try std.fmt.allocPrint(alloc, "{}", .{err});
+                    const text = try alloc.print("{}", .{err});
                     const text_len: u16 = @intCast(text.len);
                     _ = child.printSegment(
                         .{
@@ -1157,9 +1157,9 @@ const Preview = struct {
                     const r = i / 8;
                     const c = i % 8;
                     const text = if (self.hex)
-                        try std.fmt.allocPrint(alloc, " {x:0>2}", .{i})
+                        try alloc.print(" {x:0>2}", .{i})
                     else
-                        try std.fmt.allocPrint(alloc, "{d:3}", .{i});
+                        try alloc.print("{d:3}", .{i});
                     _ = child.printSegment(
                         .{
                             .text = text,

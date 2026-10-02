@@ -124,8 +124,7 @@ pub fn randomTmpPath(
 ) std.mem.Allocator.Error![]u8 {
     var name_buf: [random_basename_len]u8 = undefined;
     const basename = randomBasename(&name_buf) catch unreachable;
-    return std.fmt.allocPrint(
-        allocator,
+    return allocator.print(
         "{s}{c}{s}{s}",
         .{ global.tmpDirPath(), std.fs.path.sep, prefix, basename },
     );

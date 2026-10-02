@@ -4185,8 +4185,7 @@ test "stream: osc bulk path matches per-byte path" {
         journal: std.ArrayListUnmanaged(u8) = .empty,
 
         fn record(self: *Self, comptime fmt: []const u8, args: anytype) void {
-            const s = std.fmt.allocPrint(
-                self.alloc,
+            const s = self.alloc.print(
                 fmt,
                 args,
             ) catch @panic("OOM");

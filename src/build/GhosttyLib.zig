@@ -134,8 +134,7 @@ pub fn initShared(
                     .aarch64 => "arm64",
                     else => "x64",
                 };
-                const ucrt_lib_path = std.fmt.allocPrint(
-                    b.allocator,
+                const ucrt_lib_path = b.allocator.print(
                     "{s}\\Lib\\{s}\\ucrt\\{s}",
                     .{ w10.path, w10.version, arch_str },
                 ) catch null;

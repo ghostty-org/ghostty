@@ -162,8 +162,7 @@ fn prettyPrint(alloc: Allocator, keys: [][]const u8) !u8 {
             );
             // rgb triple
             result = win.printSegment(.{
-                .text = try std.fmt.allocPrint(
-                    alloc,
+                .text = try alloc.print(
                     "#{x:0>2}{x:0>2}{x:0>2}",
                     .{
                         rgb.r, rgb.g, rgb.b,
