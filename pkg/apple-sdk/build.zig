@@ -125,25 +125,6 @@ pub fn pathsForTarget(b: *std.Build, target: std.Target) !Cache.Value {
             gop.value_ptr.* = null;
             break :init;
         }
-
-        // Fall back to Zig's bundled Darwin headers for libc resolution.
-        const zig_lib_path = b.graph.zig_lib_directory.path.?;
-        const include_dir = b.pathJoin(&.{
-            zig_lib_path, "libc", "include", "any-darwin-any",
-        });
-
-        const wf = b.addWriteFiles();
-        const path = wf.add("libc.txt", b.fmt(
-            \\include_dir={s}
-            \\sys_include_dir={s}
-            \\crt_dir=
-            \\msvc_lib_dir=
-            \\kernel32_lib_dir=
-            \\gcc_dir=
-            \\
-        , .{ include_dir, include_dir }));
-
-        gop.value_ptr.* = .{ .cross = .{ .libc = path } };
     }
 
     return gop.value_ptr.* orelse return switch (target.os.tag) {

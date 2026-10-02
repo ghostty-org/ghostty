@@ -157,10 +157,7 @@ pub fn init(
 
         // Configure how we're launching
         open.setEnvironmentVariable("GHOSTTY_MAC_LAUNCH_SOURCE", "zig_run");
-
-        if (b.args) |args| {
-            open.addArgs(args);
-        }
+        open.addPassthruArgs();
 
         break :open open;
     };
@@ -172,7 +169,7 @@ pub fn init(
         const step = RunStep.create(b, "copy app bundle");
         step.addArgs(&.{ "cp", "-R" });
         step.addFileArg(b.path(app_path));
-        step.addArg(b.fmt("{s}", .{b.install_path}));
+        step.addDirectoryArg2(b.graph.path(.install_prefix, ""), .{});
         step.step.dependOn(&build.step);
         break :copy step;
     };
