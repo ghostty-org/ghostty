@@ -1513,7 +1513,7 @@ fn Remap(comptime Id: type) type {
         /// Tracks IDs that received an entry, including ones mapped to the
         /// default, so callers can give duplicate table entries first-wins
         /// semantics.
-        seen: std.DynamicBitSetUnmanaged,
+        seen: std.bit_set.Dynamic,
 
         /// A remap with no entries at all: every lookup is unmapped. Use
         /// this instead of `init` when the encoded table is empty so pages
@@ -1524,7 +1524,7 @@ fn Remap(comptime Id: type) type {
             const entries = try alloc.alloc(Id, capacity);
             errdefer alloc.free(entries);
             @memset(entries, 0);
-            const seen = try std.DynamicBitSetUnmanaged.initEmpty(
+            const seen = try std.bit_set.Dynamic.initEmpty(
                 alloc,
                 capacity,
             );

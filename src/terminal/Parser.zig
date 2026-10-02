@@ -87,7 +87,7 @@ pub const Action = union(enum) {
         /// bit can be mapped to Sep. The index of this bit set specifies
         /// the separator AFTER that param. For example: 0;4:3 would have
         /// index 1 set.
-        pub const SepList = std.StaticBitSet(MAX_PARAMS);
+        pub const SepList = std.bit_set.Static(MAX_PARAMS);
 
         /// The separator used for CSI params.
         pub const Sep = enum(u1) { semicolon = 0, colon = 1 };
