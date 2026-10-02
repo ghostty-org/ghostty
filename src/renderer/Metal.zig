@@ -58,7 +58,7 @@ pub fn init(
     device: *const Device,
     opts: rendererpkg.Options,
 ) !Metal {
-    comptime switch (builtin.os.tag) {
+    comptime switch (builtin.target.os.tag) {
         .macos, .ios => {},
         else => @compileError("unsupported platform for Metal"),
     };
@@ -102,7 +102,7 @@ pub fn init(
     //
     // On iOS, views are always layer-backed, and `layer`
     // is readonly, so instead we add it as a sublayer.
-    switch (comptime builtin.os.tag) {
+    switch (comptime builtin.target.os.tag) {
         .macos => {
             info.view.setProperty("layer", layer.layer.value);
             info.view.setProperty("wantsLayer", true);

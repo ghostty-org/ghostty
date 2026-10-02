@@ -101,8 +101,8 @@ rt_post_fork_info: RtPostForkInfo,
 
 /// If set, then the process will be created attached to this pseudo console.
 /// `stdin`, `stdout`, and `stderr` will be ignored if set.
-pseudo_console: if (builtin.os.tag == .windows) ?windows.HPCON else void =
-    if (builtin.os.tag == .windows) null else {},
+pseudo_console: if (builtin.target.os.tag == .windows) ?windows.HPCON else void =
+    if (builtin.target.os.tag == .windows) null else {},
 
 /// User data that is sent to the callback. Set with setData and getData
 /// for a more user-friendly API.
@@ -112,7 +112,7 @@ data: ?*anyopaque = null,
 pid: ?posix.system.pid_t = null,
 
 /// The various methods a process may exit.
-pub const Exit = if (builtin.os.tag == .windows) union(enum) {
+pub const Exit = if (builtin.target.os.tag == .windows) union(enum) {
     Exited: u32,
 } else union(enum) {
     /// Exited by normal exit call, value is exit status
@@ -169,7 +169,7 @@ pub fn start(self: *Command, alloc: Allocator) !void {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .windows => try self.startWindows(arena),
         else => try self.startPosix(arena),
     }
@@ -458,7 +458,7 @@ fn setupFd(src: File.Handle, target: i32) !void {
         }
     };
 
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .linux => {
             // We use dup3 so that we can clear CLO_ON_EXEC. We do NOT want this
             // file descriptor to be closed on exec since we're exactly exec-ing after
@@ -484,7 +484,7 @@ fn setupFd(src: File.Handle, target: i32) !void {
 
 /// Wait for the command to exit and return information about how it exited.
 pub fn wait(self: Command, block: bool) !Exit {
-    if (comptime builtin.os.tag == .windows) {
+    if (comptime builtin.target.os.tag == .windows) {
         // Block until the process exits. This returns immediately if the
         // process already exited.
         //
@@ -683,7 +683,7 @@ test "createNullDelimitedEnvMap" {
 }
 
 test "Command: os pre exec 1" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.target.os.tag == .windows) return error.SkipZigTest;
     var cmd: Command = .{
         .path = "/bin/sh",
         .args = &.{ "/bin/sh", "-v" },
@@ -708,7 +708,7 @@ test "Command: os pre exec 1" {
 }
 
 test "Command: os pre exec 2" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.target.os.tag == .windows) return error.SkipZigTest;
     var cmd: Command = .{
         .path = "/bin/sh",
         .args = &.{ "/bin/sh", "-v" },
@@ -733,7 +733,7 @@ test "Command: os pre exec 2" {
 }
 
 test "Command: rt pre exec 1" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.target.os.tag == .windows) return error.SkipZigTest;
     var cmd: Command = .{
         .path = "/bin/sh",
         .args = &.{ "/bin/sh", "-v" },
@@ -758,7 +758,7 @@ test "Command: rt pre exec 1" {
 }
 
 test "Command: rt pre exec 2" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.target.os.tag == .windows) return error.SkipZigTest;
     var cmd: Command = .{
         .path = "/bin/sh",
         .args = &.{ "/bin/sh", "-v" },
@@ -783,7 +783,7 @@ test "Command: rt pre exec 2" {
 }
 
 test "Command: rt post fork 1" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.target.os.tag == .windows) return error.SkipZigTest;
     var cmd: Command = .{
         .path = "/bin/sh",
         .args = &.{ "/bin/sh", "-c", "sleep 1" },
@@ -803,7 +803,7 @@ test "Command: rt post fork 1" {
 
 fn createTestStdout(io: std.Io, dir: std.Io.Dir) !File {
     const file = try dir.createFile(io, "stdout.txt", .{ .read = true });
-    if (builtin.os.tag == .windows) {
+    if (builtin.target.os.tag == .windows) {
         if (windows.exp.kernel32.SetHandleInformation(
             file.handle,
             windows.HANDLE_FLAG_INHERIT,
@@ -818,7 +818,7 @@ fn createTestStdout(io: std.Io, dir: std.Io.Dir) !File {
 
 fn createTestStderr(io: std.Io, dir: std.Io.Dir) !File {
     const file = try dir.createFile(io, "stderr.txt", .{ .read = true });
-    if (builtin.os.tag == .windows) {
+    if (builtin.target.os.tag == .windows) {
         if (windows.exp.kernel32.SetHandleInformation(
             file.handle,
             windows.HANDLE_FLAG_INHERIT,
@@ -837,7 +837,7 @@ test "Command: redirect stdout to file" {
     var stdout = try createTestStdout(testing.io, td.dir);
     defer stdout.close(testing.io);
 
-    var cmd: Command = if (builtin.os.tag == .windows) .{
+    var cmd: Command = if (builtin.target.os.tag == .windows) .{
         .path = "C:\\Windows\\System32\\whoami.exe",
         .args = &.{"C:\\Windows\\System32\\whoami.exe"},
         .stdout = stdout,
@@ -885,7 +885,7 @@ test "Command: custom env vars" {
     defer env.deinit();
     try env.put("VALUE", "hello");
 
-    var cmd: Command = if (builtin.os.tag == .windows) .{
+    var cmd: Command = if (builtin.target.os.tag == .windows) .{
         .path = "C:\\Windows\\System32\\cmd.exe",
         .args = &.{ "C:\\Windows\\System32\\cmd.exe", "/C", "echo %VALUE%" },
         .stdout = stdout,
@@ -923,7 +923,7 @@ test "Command: custom env vars" {
     };
     defer testing.allocator.free(contents);
 
-    if (builtin.os.tag == .windows) {
+    if (builtin.target.os.tag == .windows) {
         try testing.expectEqualStrings("hello\r\n", contents);
     } else {
         try testing.expectEqualStrings("hello\n", contents);
@@ -936,7 +936,7 @@ test "Command: custom working directory" {
     var stdout = try createTestStdout(testing.io, td.dir);
     defer stdout.close(testing.io);
 
-    var cmd: Command = if (builtin.os.tag == .windows) .{
+    var cmd: Command = if (builtin.target.os.tag == .windows) .{
         .path = "C:\\Windows\\System32\\cmd.exe",
         .args = &.{ "C:\\Windows\\System32\\cmd.exe", "/C", "cd" },
         .stdout = stdout,
@@ -974,9 +974,9 @@ test "Command: custom working directory" {
     };
     defer testing.allocator.free(contents);
 
-    if (builtin.os.tag == .windows) {
+    if (builtin.target.os.tag == .windows) {
         try testing.expectEqualStrings("C:\\Windows\\System32\r\n", contents);
-    } else if (builtin.os.tag == .macos) {
+    } else if (builtin.target.os.tag == .macos) {
         try testing.expectEqualStrings("/private/tmp\n", contents);
     } else {
         try testing.expectEqualStrings("/tmp\n", contents);
@@ -990,7 +990,7 @@ test "Command: custom working directory" {
 // zig build test will hang
 // test binary created via -Demit-test-exe will run 2 copies of the test suite
 test "Command: posix fork handles execveZ failure" {
-    if (builtin.os.tag == .windows) {
+    if (builtin.target.os.tag == .windows) {
         return error.SkipZigTest;
     }
     var td = try TempDir.init();

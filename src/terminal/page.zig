@@ -31,7 +31,7 @@ const log = std.log.scoped(.page);
 /// require page-aligned, zeroed memory obtained directly from the OS
 /// (not the Zig allocator) because the allocation fast-path is
 /// performance-critical and the OS guarantees zeroed pages.
-const PageAlloc = switch (builtin.os.tag) {
+const PageAlloc = switch (builtin.target.os.tag) {
     .windows => AllocWindows,
     else => AllocPosix,
 };
@@ -370,8 +370,8 @@ pub const Page = struct {
     /// runtime safety is enabled. This is a no-op when runtime safety is
     /// disabled or the target is freestanding. This uses the libc allocator.
     pub inline fn assertIntegrity(self: *const Page) void {
-        if (comptime build_options.slow_runtime_safety and builtin.os.tag != .freestanding) {
             var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+        if (comptime build_options.slow_runtime_safety and builtin.target.os.tag != .freestanding) {
             defer _ = debug_allocator.deinit();
             const alloc = debug_allocator.allocator();
             self.verifyIntegrity(alloc) catch |err| {

@@ -444,7 +444,7 @@ const native_matches_wire = native: {
 /// Whether rows of cells can be copied between native and wire storage
 /// without per-cell transformation.
 const bulk_codec = native_matches_wire and
-    builtin.cpu.arch.endian() == .little;
+    builtin.target.cpu.arch.endian() == .little;
 
 pub const EncodeError = std.Io.Writer.Error || error{
     /// Wide and spacer cells do not form a valid row.

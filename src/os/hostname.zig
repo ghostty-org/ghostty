@@ -15,7 +15,7 @@ pub fn isLocal(hostname: []const u8) LocalHostnameValidationError!bool {
     if (std.mem.eql(u8, "localhost", hostname)) return true;
 
     // If hostname is not "localhost" it must match our hostname.
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .windows => {
             const windows = @import("windows.zig");
             var buf: [256:0]u8 = undefined;
@@ -37,7 +37,7 @@ test "isLocal returns true when provided hostname is localhost" {
 }
 
 test "isLocal returns true when hostname is local" {
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .windows => {
             const windows = @import("windows.zig");
             var buf: [256:0]u8 = undefined;

@@ -93,7 +93,7 @@ pub const Style = struct {
         // On wasm, eql converts both sides to packed form; the default
         // side is comptime-known, so bake it and convert only self.
         // This is called on every SGR change so it's worth it.
-        if (comptime builtin.cpu.arch.isWasm()) {
+        if (comptime builtin.target.cpu.arch.isWasm()) {
             const d: u128 = comptime @bitCast(PackedStyle.fromStyle(.{}));
             return @as(u128, @bitCast(PackedStyle.fromStyle(self))) == d;
         }
@@ -107,7 +107,7 @@ pub const Style = struct {
         // On native, the branchy early-exit field compare below measures
         // ~5% faster (unequal styles usually differ in the first
         // field or two), so each target keeps its own strategy.
-        if (comptime builtin.cpu.arch.isWasm()) {
+        if (comptime builtin.target.cpu.arch.isWasm()) {
             const a: u128 = @bitCast(PackedStyle.fromStyle(self));
             const b: u128 = @bitCast(PackedStyle.fromStyle(other));
             return a == b;

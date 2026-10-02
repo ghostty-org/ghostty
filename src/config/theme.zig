@@ -41,7 +41,7 @@ pub const Location = enum {
                     // We need to do some comptime tricks to get the right
                     // error set since some platforms don't support some
                     // error types.
-                    const Error = @TypeOf(err) || switch (builtin.os.tag) {
+                    const Error = @TypeOf(err) || switch (builtin.target.os.tag) {
                         .ios => error{BufferTooSmall},
                         else => error{},
                     };

@@ -162,7 +162,7 @@ pub const Path = union(enum) {
         // because we don't support alternate users such as "~alice/"
         if (std.mem.startsWith(u8, path, "~/")) expand: {
             // Windows isn't supported yet
-            if (comptime builtin.os.tag == .windows) break :expand;
+            if (comptime builtin.target.os.tag == .windows) break :expand;
 
             var environ_map = try global.environMap();
             defer environ_map.deinit();

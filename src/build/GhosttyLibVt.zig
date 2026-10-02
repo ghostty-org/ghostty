@@ -288,7 +288,7 @@ fn initLib(
 
         // If we're not cross compiling then we try to find the Apple
         // SDK using standard Apple tooling.
-        if (builtin.os.tag.isDarwin()) try @import("apple_sdk").addPaths(b, lib);
+        if (builtin.target.os.tag.isDarwin()) try @import("apple_sdk").addPaths(b, lib);
     }
 
     // Get our debug symbols (only for shared libs; static libs aren't linked)

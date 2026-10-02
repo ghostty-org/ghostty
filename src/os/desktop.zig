@@ -15,7 +15,7 @@ const c = @import("posix_c");
 ///
 /// For other platforms and app runtimes, this returns false.
 pub fn launchedFromDesktop() bool {
-    return switch (builtin.os.tag) {
+    return switch (builtin.target.os.tag) {
         // macOS apps launched from finder or `open` always have the init
         // process as their parent.
         .macos => macos: {
@@ -79,7 +79,7 @@ pub const DesktopEnvironment = enum {
 /// on Linux and BSD to enable or disable certain features but there may be more uses in
 /// the future.
 pub fn desktopEnvironment(environ_map: *const std.process.Environ.Map) DesktopEnvironment {
-    return switch (comptime builtin.os.tag) {
+    return switch (comptime builtin.target.os.tag) {
         .macos => .macos,
         .windows => .windows,
         .linux, .freebsd => de: {
@@ -114,7 +114,7 @@ test "desktop environment" {
 
     // Always run these tests with a blank evironment map so that we don't get any
     // failures from values in the "real" evironment leaking in.
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         inline .macos, .windows => |tag| {
             var environ_map: std.process.Environ.Map = .init(testing.allocator);
             defer environ_map.deinit();

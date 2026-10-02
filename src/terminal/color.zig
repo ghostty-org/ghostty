@@ -145,7 +145,7 @@ pub fn paletteCvalSlice(src: []const RGB, dst: []RGB.C) void {
 
     // For CPUs that are LE, we can do some clever byte shuffling
     // with vectorization to do a 4-to-3 conversion.
-    if (comptime builtin.cpu.arch.endian() == .little) {
+    if (comptime builtin.target.cpu.arch.endian() == .little) {
         // Process 4 entries at a time: one 16-byte load, one byte
         // shuffle dropping the padding byte of each entry, and one
         // 16-byte store. The store intentionally overlaps the next

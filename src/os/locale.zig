@@ -32,7 +32,7 @@ pub fn ensureLocale() !void {
         return;
     }
 
-    if (builtin.os.tag == .windows) {
+    if (builtin.target.os.tag == .windows) {
         // Exit early for Windows.
         //
         // NOTE: There currently is no official Windows version of Ghostty,

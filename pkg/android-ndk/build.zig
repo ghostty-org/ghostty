@@ -136,13 +136,13 @@ fn findNDKPath(b: *std.Build) ?[]const u8 {
 
     // As a fallback, we assume the most common/default SDK path based on the OS.
     const home = b.graph.environ_map.get(
-        if (builtin.os.tag == .windows) "LOCALAPPDATA" else "HOME",
+        if (builtin.target.os.tag == .windows) "LOCALAPPDATA" else "HOME",
     ) orelse return null;
 
     const default_sdk_path = b.pathJoin(
         &.{
             home,
-            switch (builtin.os.tag) {
+            switch (builtin.target.os.tag) {
                 .linux, .windows => "Android/Sdk",
                 .macos => "Library/Android/Sdk",
                 else => return null,
@@ -182,7 +182,7 @@ fn findLatestNDK(b: *std.Build, sdk_path: []const u8) ?[]const u8 {
 }
 
 fn hostTag() ?[]const u8 {
-    return switch (builtin.os.tag) {
+    return switch (builtin.target.os.tag) {
         .linux => "linux-x86_64",
         // All darwin hosts use the same prebuilt binaries
         // (https://developer.android.com/ndk/guides/other_build_systems).

@@ -48,7 +48,7 @@ pub fn pathsForTarget(b: *std.Build, target: std.Target) !Cache.Value {
     });
 
     if (!gop.found_existing) init: {
-        if (comptime builtin.os.tag.isDarwin()) darwin: {
+        if (comptime builtin.target.os.tag.isDarwin()) darwin: {
             // Detect our SDK using the "findNative" Zig stdlib function.
             // This is really important because it forces using `xcrun` to
             // find the SDK path.

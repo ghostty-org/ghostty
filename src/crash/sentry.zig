@@ -64,7 +64,7 @@ pub fn init(gpa: Allocator, environ_map: std.process.Environ.Map) !void {
     }
 
     // Not supported on Windows currently, doesn't build.
-    if (comptime builtin.os.tag == .windows) {
+    if (comptime builtin.target.os.tag == .windows) {
         var map = environ_map;
         map.deinit();
         return;
@@ -109,7 +109,7 @@ fn initThread(gpa: Allocator, environ_map_: std.process.Environ.Map) !void {
     // Right now, on Darwin, `std.Thread.setName` can only name the current
     // thread, and we have no way to get the current thread from within it,
     // so instead we use this code to name the thread instead.
-    if (builtin.os.tag.isDarwin()) {
+    if (builtin.target.os.tag.isDarwin()) {
         internal_os.macos.pthread_setname_np(&"sentry-init".*);
     }
 
@@ -189,7 +189,7 @@ fn cacheDir(io: std.Io, alloc: Allocator, environ_map: *const std.process.Enviro
     // On macOS, we prefer to use the NSCachesDirectory value to be
     // a more idiomatic macOS application. But if XDG env vars are set
     // we will respect them.
-    if (comptime builtin.os.tag == .macos) macos: {
+    if (comptime builtin.target.os.tag == .macos) macos: {
         const xdg_cache_home = environ_map.get("XDG_CACHE_HOME") orelse break :macos;
         if (xdg_cache_home.len > 0) {
             return try internal_os.macos.cacheDir(
@@ -212,7 +212,7 @@ fn cacheDir(io: std.Io, alloc: Allocator, environ_map: *const std.process.Enviro
 pub fn deinit() void {
     if (comptime !build_options.sentry) return;
 
-    if (comptime builtin.os.tag == .windows) return;
+    if (comptime builtin.target.os.tag == .windows) return;
 
     // If we're still initializing then wait for init to finish. This
     // is highly unlikely since init is a very fast operation but we want
