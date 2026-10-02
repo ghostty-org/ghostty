@@ -36,7 +36,7 @@ pub fn default(c_alloc_: ?*const Allocator) std.mem.Allocator {
 
     // Freestanding targets don't have a default heap. Using the failing
     // allocator makes a missing allocator show up as out-of-memory.
-    if (comptime builtin.os.tag == .freestanding) return std.mem.Allocator.failing;
+    if (comptime builtin.target.os.tag == .freestanding) return std.mem.Allocator.failing;
 
     // No libc, use the preferred allocator for releases which is the
     // Zig SMP allocator.

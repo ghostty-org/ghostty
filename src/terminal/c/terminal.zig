@@ -39,7 +39,7 @@ const assert = @import("../../quirks.zig").inlineAssert;
 
 const Handler = @import("../stream_terminal.zig").Handler;
 
-const max_path_bytes = if (builtin.os.tag == .freestanding) 4096 else std.fs.max_path_bytes;
+const max_path_bytes = if (builtin.target.os.tag == .freestanding) 4096 else std.fs.max_path_bytes;
 
 const log = std.log.scoped(.terminal_c);
 

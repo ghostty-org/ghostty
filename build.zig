@@ -191,7 +191,7 @@ pub fn build(b: *std.Build) !void {
     // xcodebuild is required.
     if (config.emit_lib_vt and
         config.emit_xcframework and
-        builtin.os.tag.isDarwin() and
+        builtin.target.os.tag.isDarwin() and
         config.target.result.os.tag.isDarwin())
     {
         const apple_libs = try buildpkg.GhosttyLibVt.initStaticAppleUniversal(

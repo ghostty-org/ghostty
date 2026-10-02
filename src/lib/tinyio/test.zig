@@ -12,7 +12,7 @@ const Threaded = std.Io.Threaded;
 const TinyIo = @import("../TinyIo.zig");
 const supported = TinyIo.supported;
 
-const is_windows = builtin.os.tag == .windows;
+const is_windows = builtin.target.os.tag == .windows;
 const windows = std.os.windows;
 const os_windows = @import("../../os/windows.zig");
 const ntdll = os_windows.exp.ntdll;
@@ -54,8 +54,8 @@ test "read a file through File.Reader" {
     defer tmp_dir.cleanup();
 
     const txt = "hello minimal test_io\n";
-    var contents: [txt.len * 100] = undefined;
-    for (0..100) |i| @memcpy(contents[i*txt.len..][0..txt.len], txt);
+    var contents: [txt.len * 100]u8 = undefined;
+    for (0..100) |i| @memcpy(contents[i * txt.len ..][0..txt.len], txt);
 
     try tmp_dir.dir.writeFile(testing.io, .{
         .sub_path = "test.txt",
@@ -133,7 +133,7 @@ test "realPath and deleteFile" {
     const testing = std.testing;
 
     // Only platforms with a real implementation.
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .macos, .ios, .linux, .freebsd, .windows => {},
         else => return error.SkipZigTest,
     }
@@ -263,7 +263,7 @@ test "openFile edge cases" {
     ));
 
     // Paths that can't fit in PATH_MAX must not be silently truncated.
-    const long_name: [std.fs.max_path_bytes + 1] = @splat('a');
+    const long_name: [std.fs.max_path_bytes + 1]u8 = @splat('a');
     try testing.expectError(error.NameTooLong, dir.openFile(
         test_io,
         &long_name,
@@ -301,7 +301,7 @@ test "openFile symlink handling" {
 
     // Platforms where we know both symlink creation (via the testing Io)
     // and O_NOFOLLOW behave as expected.
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .macos, .ios, .linux, .freebsd => {},
         else => return error.SkipZigTest,
     }
@@ -601,7 +601,7 @@ test "dirRealPathFile edge cases" {
     const test_io = tio.io();
     const testing = std.testing;
 
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .macos, .ios, .linux, .freebsd, .windows => {},
         else => return error.SkipZigTest,
     }

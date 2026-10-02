@@ -33,12 +33,12 @@ const getConstraint = @import("../font/nerd_font_attributes.zig").getConstraint;
 
 const FileType = @import("../file_type.zig").FileType;
 
-const macos = switch (builtin.os.tag) {
+const macos = switch (builtin.target.os.tag) {
     .macos => @import("macos"),
     else => void,
 };
 
-const DisplayLink = switch (builtin.os.tag) {
+const DisplayLink = switch (builtin.target.os.tag) {
     .macos => *macos.video.DisplayLink,
     else => void,
 };
@@ -1653,7 +1653,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // If we're on macOS and have glass styles, we remove
                 // the background opacity because the glass effect handles
                 // it.
-                if (comptime builtin.os.tag == .macos) switch (self.config.background_blur) {
+                if (comptime builtin.target.os.tag == .macos) switch (self.config.background_blur) {
                     .@"macos-glass-regular",
                     .@"macos-glass-clear",
                     => self.uniforms.bg_color[3] = 0,

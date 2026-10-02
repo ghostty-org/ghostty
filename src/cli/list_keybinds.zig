@@ -236,7 +236,7 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
     try writer.writeAll(vaxis.ctlseqs.unicode_set);
     defer writer.writeAll(vaxis.ctlseqs.unicode_reset) catch {};
 
-    const winsize: vaxis.Winsize = switch (builtin.os.tag) {
+    const winsize: vaxis.Winsize = switch (builtin.target.os.tag) {
         // We use some default, it doesn't really matter for what
         // we're doing because we don't do any wrapping.
         .windows => .{

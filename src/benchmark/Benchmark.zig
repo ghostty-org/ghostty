@@ -139,7 +139,7 @@ test Benchmark {
     // /home/runner/work/ghostty/ghostty/src/benchmark/Benchmark.zig:165:5: 0x3cd2de1 in decltest.Benchmark (ghostty-test)
     //     try testing.expect(result.duration > 0);
     //     ^
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .freebsd,
         .windows,
         => return error.SkipZigTest,

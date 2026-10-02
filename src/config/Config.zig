@@ -268,7 +268,7 @@ language: ?[:0]const u8 = null,
 /// On Linux with GTK, font size is scaled according to both display-wide and
 /// text-specific scaling factors, which are often managed by your desktop
 /// environment (e.g. the GNOME display scale and large text settings).
-@"font-size": f32 = switch (builtin.os.tag) {
+@"font-size": f32 = switch (builtin.target.os.tag) {
     // On macOS we default a little bigger since this tends to look better. This
     // is purely subjective but this is easy to modify.
     .macos => 13,
@@ -406,7 +406,7 @@ language: ?[:0]const u8 = null,
 ///
 /// Available since: 1.1.0
 @"alpha-blending": AlphaBlending =
-    if (builtin.os.tag == .macos)
+    if (builtin.target.os.tag == .macos)
         .native
     else
         .@"linear-corrected",
@@ -2540,7 +2540,7 @@ keybind: Keybinds = .{},
 /// `none`.
 ///
 /// The default value is `primary` on Linux and `none` otherwise.
-@"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
+@"copy-on-select": CopyOnSelect = switch (builtin.target.os.tag) {
     .linux => .primary,
     else => .none,
 },
@@ -2634,7 +2634,7 @@ keybind: Keybinds = .{},
 /// On Linux, if this is `true`, Ghostty can delay quitting fully until a
 /// configurable amount of time has passed after the last window is closed.
 /// See the documentation of `quit-after-last-window-closed-delay`.
-@"quit-after-last-window-closed": bool = builtin.os.tag == .linux,
+@"quit-after-last-window-closed": bool = builtin.target.os.tag == .linux,
 
 /// Controls how long Ghostty will stay running after the last open surface has
 /// been closed. This only has an effect if `quit-after-last-window-closed` is
@@ -2855,7 +2855,7 @@ keybind: Keybinds = .{},
 /// accessible than on macOS, meaning that it is more preferable to keep the
 /// quick terminal open until the user has completed their task.
 /// This default may change in the future.
-@"quick-terminal-autohide": bool = switch (builtin.os.tag) {
+@"quick-terminal-autohide": bool = switch (builtin.target.os.tag) {
     .linux => false,
     .macos => true,
     else => false,
@@ -3716,7 +3716,7 @@ keybind: Keybinds = .{},
 ///   * `always` - Always use cgroups.
 ///   * `single-instance` - Enable cgroups only for Ghostty instances launched
 ///     as single-instance applications (see gtk-single-instance).
-@"linux-cgroup": LinuxCgroup = if (builtin.os.tag == .linux)
+@"linux-cgroup": LinuxCgroup = if (builtin.target.os.tag == .linux)
     .@"single-instance"
 else
     .never,
@@ -4255,7 +4255,7 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
     };
 
     // On macOS load the app support directory as well
-    if (comptime builtin.os.tag == .macos) {
+    if (comptime builtin.target.os.tag == .macos) {
         const legacy_app_support_path = try file_load.legacyDefaultAppSupportPath(alloc);
         defer alloc.free(legacy_app_support_path);
         const app_support_path = try file_load.preferredAppSupportPath(alloc);
@@ -4309,7 +4309,7 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
 
 /// Load and parse the CLI args.
 pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .windows => {},
 
         // Fast-path if we are Linux/BSD and have no args.
@@ -4331,7 +4331,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
     //     styling, etc. based on the command.
     //
     // See: https://github.com/Vladimir-csp/xdg-terminal-exec
-    if ((comptime builtin.os.tag == .linux) or (comptime builtin.os.tag == .freebsd)) {
+    if ((comptime builtin.target.os.tag == .linux) or (comptime builtin.target.os.tag == .freebsd)) {
         if (internal_os.xdg.parseTerminalExec(global.args().vector)) |args| {
             const arena_alloc = self._arena.?.allocator();
 
@@ -4836,7 +4836,7 @@ pub fn finalize(self: *Config) !void {
                 if (wd != .home) break :command;
             }
 
-            switch (builtin.os.tag) {
+            switch (builtin.target.os.tag) {
                 .windows => {
                     if (self.command == null) {
                         log.warn("no default shell found, will default to using cmd", .{});
@@ -5135,7 +5135,7 @@ fn compatCopyOnSelect(
     assert(std.mem.eql(u8, key, "copy-on-select"));
 
     if (std.mem.eql(u8, value orelse "", "true")) {
-        self.@"copy-on-select" = switch (builtin.os.tag) {
+        self.@"copy-on-select" = switch (builtin.target.os.tag) {
             .linux, .freebsd => .primary,
             else => .clipboard,
         };
@@ -5345,7 +5345,7 @@ pub const ChangeIterator = struct {
 /// We should keep the set of behaviors that depend on this as small
 /// as possible because magic sucks, but each place is well documented.
 fn probableCliEnvironment() bool {
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         // Windows has its own problems, just ignore it for now since
         // its not a real supported target and GTK via WSL2 assuming
         // single instance is probably fine.
@@ -10137,7 +10137,7 @@ pub const Theme = struct {
         //
         // On Windows, a colon at index 1 is a drive letter (e.g. C:\...)
         // and should not trigger light/dark pair parsing.
-        const has_colon = if (comptime builtin.os.tag == .windows)
+        const has_colon = if (comptime builtin.target.os.tag == .windows)
             if (std.mem.indexOf(u8, input, ":")) |idx| idx != 1 else false
         else
             std.mem.indexOf(u8, input, ":") != null;

@@ -145,7 +145,7 @@ fn threadMain_(self: *Thread) !void {
     // Right now, on Darwin, `std.Thread.setName` can only name the current
     // thread, and we have no way to get the current thread from within it,
     // so instead we use this code to name the thread instead.
-    if (comptime builtin.os.tag.isDarwin()) {
+    if (comptime builtin.target.os.tag.isDarwin()) {
         internal_os.macos.pthread_setname_np(&"search".*);
 
         // We can run with lower priority than other threads.

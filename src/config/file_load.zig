@@ -103,7 +103,7 @@ pub fn preferredAppSupportPath(alloc: Allocator) ![]const u8 {
 ///
 /// The returned value must be freed by the caller.
 pub fn preferredDefaultFilePath(alloc: Allocator) ![]const u8 {
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .macos => {
             // macOS prefers the Application Support directory
             // if it exists.

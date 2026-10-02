@@ -113,7 +113,7 @@ pub fn decommit(
     // faults them back as zero-filled pages. We deliberately avoid MADV_FREE:
     // it does not reduce RSS until memory pressure and does not guarantee that
     // the next read is zero.
-    if (comptime builtin.os.tag == .linux) {
+    if (comptime builtin.target.os.tag == .linux) {
         if (std.posix.madvise(
             memory.ptr,
             memory.len,
@@ -129,7 +129,7 @@ pub fn decommit(
     // retaining its mapping. Zero mode clears its dirty prefix first because
     // the kernel may preserve the contents. Strict mode avoids that write
     // because its caller will replace the entire mapping after recommit.
-    if (comptime builtin.os.tag.isDarwin()) {
+    if (comptime builtin.target.os.tag.isDarwin()) {
         if (comptime mode == .zero) @memset(memory[0..dirty_len], 0);
 
         if (std.posix.madvise(
@@ -165,7 +165,7 @@ pub fn decommit(
     // that write because its caller replaces the entire mapping after
     // recommit. The call reports failure through its return value rather
     // than the thread's last error.
-    if (comptime builtin.os.tag == .windows) {
+    if (comptime builtin.target.os.tag == .windows) {
         if (comptime mode == .zero) @memset(memory[0..dirty_len], 0);
 
         const rc = windows.exp.kernel32.DiscardVirtualMemory(
@@ -198,7 +198,7 @@ pub fn recommit(memory: []align(std.heap.page_size_min) u8) void {
     assert(memory.len % std.heap.page_size_min == 0);
 
     if (comptime builtin.is_test) return;
-    if (comptime builtin.os.tag.isDarwin()) {
+    if (comptime builtin.target.os.tag.isDarwin()) {
         std.posix.madvise(
             memory.ptr,
             memory.len,
