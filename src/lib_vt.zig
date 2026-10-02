@@ -174,8 +174,8 @@ comptime {
     if (@import("root") == lib) {
         // MSVC requires this marker whenever floating-point code is present.
         // Zig's compiler_rt only provides it when libc is not linked.
-        if (builtin.os.tag == .windows and
-            builtin.abi == .msvc and
+        if (builtin.target.os.tag == .windows and
+            builtin.target.abi == .msvc and
             builtin.link_mode == .static)
         {
             @export(
@@ -508,7 +508,7 @@ else
 /// Runs global constructors when libghostty-vt is built as a Windows
 /// DLL. See `lib/windows_dll.zig`; without it simdutf dispatches through
 /// a null kernel pointer on the first multi-byte UTF-8 sequence.
-pub const DllMain = if (builtin.os.tag == .windows and
+pub const DllMain = if (builtin.target.os.tag == .windows and
     builtin.output_mode == .Lib and
     builtin.link_mode == .dynamic)
     @import("lib/windows_dll.zig").DllMain

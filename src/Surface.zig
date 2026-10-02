@@ -757,7 +757,7 @@ pub fn init(
             .set_title,
             .{ .title = title },
         );
-    } else if ((comptime builtin.os.tag == .linux) and
+    } else if ((comptime builtin.target.os.tag == .linux) and
         config.@"_xdg-terminal-exec")
     xdg: {
         // For xdg-terminal-exec execution we special-case and set the window
@@ -3363,7 +3363,7 @@ fn encodeKeyOpts(self: *const Surface) input.key_encode.Options {
     const t = &self.io.terminal;
 
     var opts: input.key_encode.Options = .fromTerminal(t);
-    if (comptime builtin.os.tag != .macos) return opts;
+    if (comptime builtin.target.os.tag != .macos) return opts;
 
     opts.macos_option_as_alt = self.config.macos_option_as_alt orelse detect: {
         // If we don't have alt pressed, it doesn't matter what this
@@ -5822,7 +5822,7 @@ fn writeScreenFile(
     var file = try tmp_dir.dir.createFile(
         global.io(),
         filename,
-        switch (builtin.os.tag) {
+        switch (builtin.target.os.tag) {
             .windows => .{},
             else => .{ .permissions = .fromMode(0o600) },
         },

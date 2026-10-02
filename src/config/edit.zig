@@ -124,7 +124,7 @@ fn configPathCandidates(alloc_arena: Allocator) ![]const []const u8 {
     var paths: std.ArrayList([]const u8) = try .initCapacity(alloc_arena, 4);
     errdefer paths.deinit(alloc_arena);
 
-    if (comptime builtin.os.tag == .macos) {
+    if (comptime builtin.target.os.tag == .macos) {
         paths.appendAssumeCapacity(try file_load.defaultAppSupportPath(alloc_arena));
         paths.appendAssumeCapacity(try file_load.legacyDefaultAppSupportPath(alloc_arena));
     }

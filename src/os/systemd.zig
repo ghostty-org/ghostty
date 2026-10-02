@@ -11,7 +11,7 @@ const log = std.log.scoped(.systemd);
 ///
 /// For other platforms and app runtimes, this returns false.
 pub fn launchedBySystemd() bool {
-    return switch (builtin.os.tag) {
+    return switch (builtin.target.os.tag) {
         .linux => linux: {
             // On Linux, systemd sets the `INVOCATION_ID` (v232+) and the
             // `JOURNAL_STREAM` (v231+) environment variables. If these
@@ -89,7 +89,7 @@ pub const notify = struct {
     /// not exist then no message is sent.
     fn send(message: []const u8) void {
         // systemd is Linux-only so this is a no-op anywhere else
-        if (comptime builtin.os.tag != .linux) return;
+        if (comptime builtin.target.os.tag != .linux) return;
 
         // Get the socket address that should receive notifications.
         const socket_path = global.environ().getPosix("NOTIFY_SOCKET") orelse return;
@@ -170,7 +170,7 @@ pub const notify = struct {
     /// Tell systemd that we are ready or that we are finished reloading.
     /// See: https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html#READY=1
     pub fn ready() void {
-        if (comptime builtin.os.tag != .linux) return;
+        if (comptime builtin.target.os.tag != .linux) return;
 
         send("READY=1");
     }
@@ -179,7 +179,7 @@ pub const notify = struct {
     /// See: https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html#RELOADING=1
     /// and: https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html#MONOTONIC_USEC=%E2%80%A6
     pub fn reloading() void {
-        if (comptime builtin.os.tag != .linux) return;
+        if (comptime builtin.target.os.tag != .linux) return;
 
         const now = std.Io.Timestamp.now(global.io(), .awake).toMicroseconds();
 

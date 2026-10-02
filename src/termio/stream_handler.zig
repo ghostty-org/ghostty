@@ -1487,7 +1487,7 @@ pub const StreamHandler = struct {
             return;
         }
 
-        if (builtin.os.tag == .windows) {
+        if (builtin.target.os.tag == .windows) {
             log.warn("reportPwd unimplemented on windows", .{});
             return;
         }
@@ -1496,7 +1496,7 @@ pub const StreamHandler = struct {
         // for this OSC 7 context (e.g. kitty-shell-cwd expects the full,
         // unencoded path).
         const uri: std.Uri = internal_os.uri.parse(url, .{
-            .mac_address = comptime builtin.os.tag != .macos,
+            .mac_address = comptime builtin.target.os.tag != .macos,
             .raw_path = std.mem.startsWith(u8, url, "kitty-shell-cwd://"),
         }) catch |e| {
             log.warn("invalid url in OSC 7: {}", .{e});

@@ -14,7 +14,7 @@ const builtin = @import("builtin");
 /// Freestanding targets (e.g. wasm) have no stderr, so this is a no-op
 /// there.
 pub fn write(bytes: []const u8) void {
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .freestanding, .other => {},
 
         .windows => {

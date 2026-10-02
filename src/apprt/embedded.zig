@@ -242,7 +242,7 @@ pub const App = struct {
     /// to run on every keypress.
     pub fn keyboardLayout(self: *App) input.KeyboardLayout {
         // We only support keyboard layout detection on macOS.
-        if (comptime builtin.os.tag != .macos) return .unknown;
+        if (comptime builtin.target.os.tag != .macos) return .unknown;
 
         // Lazily initialize the keymap.
         const keymap: *input.Keymap = keymap: {

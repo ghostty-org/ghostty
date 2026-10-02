@@ -38,7 +38,7 @@ pub const Trigger = Binding.Trigger;
 
 // Keymap is only available on macOS right now. We could implement it
 // in theory for XKB too on Linux but we don't need it right now.
-pub const Keymap = switch (builtin.os.tag) {
+pub const Keymap = switch (builtin.target.os.tag) {
     .macos => @import("input/KeymapDarwin.zig"),
     else => @import("input/KeymapNoop.zig"),
 };

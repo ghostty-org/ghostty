@@ -37,7 +37,7 @@ pub fn create(
     out_name: []const u8,
 ) Result {
     if (!target.result.os.tag.isDarwin() or
-        comptime !builtin.os.tag.isDarwin())
+        comptime !builtin.target.os.tag.isDarwin())
     {
         return .{ .step = null, .output = input };
     }

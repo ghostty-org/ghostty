@@ -35,7 +35,7 @@ pub fn init(self: *Device, alloc: std.mem.Allocator) !void {
     errdefer device.release();
 
     // Grab metadata about the device.
-    const default_storage_mode: mtl.MTLResourceOptions.StorageMode = switch (comptime builtin.os.tag) {
+    const default_storage_mode: mtl.MTLResourceOptions.StorageMode = switch (comptime builtin.target.os.tag) {
         // manage mode is not supported by iOS
         .ios => .shared,
         else => if (device.getProperty(bool, "hasUnifiedMemory")) .shared else .managed,
@@ -99,7 +99,7 @@ pub fn warmup() void {
 fn chooseDevice() error{NoMetalDevice}!objc.Object {
     var chosen_device: ?objc.Object = null;
 
-    switch (comptime builtin.os.tag) {
+    switch (comptime builtin.target.os.tag) {
         .macos => {
             const devices = objc.Object.fromId(mtl.MTLCopyAllDevices());
             defer devices.release();

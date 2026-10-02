@@ -5,7 +5,7 @@ const linux = @import("linux.zig");
 pub fn detect() i64 {
     var t: HwyTargets = .{};
 
-    if (comptime builtin.os.tag != .linux) return @bitCast(t);
+    if (comptime builtin.target.os.tag != .linux) return @bitCast(t);
 
     const AT_HWCAP: usize = 16;
     const AT_HWCAP2: usize = 26;
