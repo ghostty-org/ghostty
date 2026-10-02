@@ -350,7 +350,7 @@ pub const Transport = struct {
         // Build our final path and write to it.
         const path = try std.fs.path.join(alloc, &.{
             state_dir,
-            try std.fmt.allocPrint(alloc, "{s}.ghosttycrash", .{uuid.string()}),
+            try alloc.print("{s}.ghosttycrash", .{uuid.string()}),
         });
         const file = try std.Io.Dir.cwd().createFile(single_threaded.io(), path, .{});
         defer file.close(single_threaded.io());

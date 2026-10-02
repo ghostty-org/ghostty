@@ -1519,8 +1519,7 @@ test "image load: rgb, not compressed, relative regular file" {
             .height = 15,
             .image_id = 31,
         } },
-        .data = try std.fmt.allocPrint(
-            alloc,
+        .data = try alloc.print(
             ".zig-cache/tmp/{s}/image.data",
             .{tmp_dir.sub_path},
         ),
@@ -1874,8 +1873,7 @@ test "image load: windows canonical path check rejects a file reached through a 
     // share, which is how a junction or symlink into a share would look
     // to the post-open check. The share needs the server service and an
     // administrative token, so the test is skipped when the open fails.
-    const unc_path = try std.fmt.allocPrint(
-        alloc,
+    const unc_path = try alloc.print(
         "\\\\localhost\\{c}$\\{s}",
         .{ real_path[0], real_path[3..] },
     );

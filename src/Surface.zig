@@ -1011,8 +1011,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
             const title: ?[:0]const u8 = self.rt_surface.getTitle();
             const data = switch (style) {
-                .csi_21_t => try std.fmt.allocPrint(
-                    self.alloc,
+                .csi_21_t => try self.alloc.print(
                     "\x1b]l{s}\x1b\\",
                     .{title orelse ""},
                 ),
@@ -1354,7 +1353,7 @@ fn childExitedAbnormally(
     const command = try std.mem.join(alloc, " ", switch (self.io.backend) {
         .exec => |*exec| exec.subprocess.args,
     });
-    const runtime_str = try std.fmt.allocPrint(alloc, "{d} ms", .{info.runtime_ms});
+    const runtime_str = try alloc.print("{d} ms", .{info.runtime_ms});
 
     self.renderer_state.mutex.lockUncancelable(global.io());
     defer self.renderer_state.mutex.unlock(global.io());
@@ -1402,7 +1401,7 @@ fn childExitedAbnormally(
     // We don't print this on macOS because the exit code is always 0
     // due to the way we launch the process.
     if (comptime !builtin.target.os.tag.isDarwin()) {
-        const exit_code_str = try std.fmt.allocPrint(alloc, "{d}", .{info.exit_code});
+        const exit_code_str = try alloc.print("{d}", .{info.exit_code});
         t.carriageReturn();
         try t.linefeed();
         try t.printString("Exit Code: ");

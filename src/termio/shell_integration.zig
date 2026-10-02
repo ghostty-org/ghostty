@@ -685,7 +685,7 @@ fn prependEnv(
     // If there is no prior value, we return it as-is
     if (current.len == 0) return try alloc.dupe(u8, value);
 
-    return try std.fmt.allocPrint(alloc, "{s}{c}{s}", .{
+    return try alloc.print("{s}{c}{s}", .{
         value,
         std.fs.path.delimiter,
         current,
@@ -1027,8 +1027,7 @@ const TmpResourcesDir = struct {
         const path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
         errdefer std.testing.allocator.free(path);
 
-        const shell_path = try std.fmt.allocPrint(
-            std.testing.allocator,
+        const shell_path = try std.testing.allocator.print(
             "{s}/{s}",
             .{ path, relative_shell_path },
         );

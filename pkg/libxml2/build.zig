@@ -79,8 +79,8 @@ pub fn build(b: *std.Build) !void {
             field_attr.defaultValue(bool).?;
         if (opt) {
             var nameBuf: [32]u8 = undefined;
-            const name = std.ascii.upperString(&nameBuf, field.name);
-            const define = try std.fmt.allocPrint(b.allocator, "-DLIBXML_{s}_ENABLED=1", .{name});
+            const name = std.ascii.upperString(&nameBuf, field);
+            const define = try b.allocator.print("-DLIBXML_{s}_ENABLED=1", .{name});
             try flags.append(b.allocator, define);
 
             if (std.mem.eql(u8, field, "history")) {

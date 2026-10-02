@@ -4409,8 +4409,7 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
         // We must only load a unique file once
         if (try loaded.fetchPut(path, {}) != null) {
             const diag: cli.Diagnostic = .{
-                .message = try std.fmt.allocPrintSentinel(
-                    arena_alloc,
+                .message = try arena_alloc.printSentinel(
                     "config-file {s}: cycle detected",
                     .{path},
                     0,
@@ -4425,8 +4424,7 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
         var file = std.Io.Dir.openFileAbsolute(global.io(), path, .{}) catch |err| {
             if (err != error.FileNotFound or !optional) {
                 const diag: cli.Diagnostic = .{
-                    .message = try std.fmt.allocPrintSentinel(
-                        arena_alloc,
+                    .message = try arena_alloc.printSentinel(
                         "error opening config-file {s}: {}",
                         .{ path, err },
                         0,
@@ -4445,8 +4443,7 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
             .file => {},
             else => |kind| {
                 const diag: cli.Diagnostic = .{
-                    .message = try std.fmt.allocPrintSentinel(
-                        arena_alloc,
+                    .message = try arena_alloc.printSentinel(
                         "config-file {s}: not reading because file type is {s}",
                         .{ path, @tagName(kind) },
                         0,
@@ -4925,8 +4922,7 @@ pub fn parseManuallyHook(
         if (command.items.len == 0) {
             try self._diagnostics.append(alloc, .{
                 .location = try cli.Location.fromIter(iter, alloc),
-                .message = try std.fmt.allocPrintSentinel(
-                    alloc,
+                .message = try alloc.printSentinel(
                     "missing command after {s}",
                     .{arg},
                     0,
@@ -5106,8 +5102,7 @@ pub fn addDiagnosticFmt(
 ) Allocator.Error!void {
     const alloc = self._arena.?.allocator();
     try self._diagnostics.append(alloc, .{
-        .message = try std.fmt.allocPrintSentinel(
-            alloc,
+        .message = try alloc.printSentinel(
             fmt,
             args,
             0,
@@ -10712,8 +10707,7 @@ test "clone can then change conditional state" {
     var cfg_light = try Config.default(alloc);
     defer cfg_light.deinit();
     var it: TestIterator = .{ .data = &.{
-        try std.fmt.allocPrint(
-            alloc_arena,
+        try alloc_arena.print(
             "--theme=light:{s},dark:{s}",
             .{ light, dark },
         ),
@@ -10867,7 +10861,7 @@ test "theme loading" {
     var cfg = try Config.default(alloc);
     defer cfg.deinit();
     var it: TestIterator = .{ .data = &.{
-        try std.fmt.allocPrint(alloc_arena, "--theme={s}", .{path}),
+        try alloc_arena.print("--theme={s}", .{path}),
     } };
     try cfg.loadIter(alloc, &it);
     try cfg.finalize();
@@ -10907,7 +10901,7 @@ test "theme loading preserves conditional state" {
     defer cfg.deinit();
     cfg._conditional_state = .{ .theme = .dark };
     var it: TestIterator = .{ .data = &.{
-        try std.fmt.allocPrint(alloc_arena, "--theme={s}", .{path}),
+        try alloc_arena.print("--theme={s}", .{path}),
     } };
     try cfg.loadIter(alloc, &it);
     try cfg.finalize();
@@ -10940,7 +10934,7 @@ test "theme priority is lower than config" {
     defer cfg.deinit();
     var it: TestIterator = .{ .data = &.{
         "--background=#ABCDEF",
-        try std.fmt.allocPrint(alloc_arena, "--theme={s}", .{path}),
+        try alloc_arena.print("--theme={s}", .{path}),
     } };
     try cfg.loadIter(alloc, &it);
     try cfg.finalize();
@@ -10987,8 +10981,7 @@ test "theme loading correct light/dark" {
         var cfg = try Config.default(alloc);
         defer cfg.deinit();
         var it: TestIterator = .{ .data = &.{
-            try std.fmt.allocPrint(
-                alloc_arena,
+            try alloc_arena.print(
                 "--theme=light:{s},dark:{s}",
                 .{ light, dark },
             ),
@@ -11009,8 +11002,7 @@ test "theme loading correct light/dark" {
         defer cfg.deinit();
         cfg._conditional_state = .{ .theme = .dark };
         var it: TestIterator = .{ .data = &.{
-            try std.fmt.allocPrint(
-                alloc_arena,
+            try alloc_arena.print(
                 "--theme=light:{s},dark:{s}",
                 .{ light, dark },
             ),
@@ -11030,8 +11022,7 @@ test "theme loading correct light/dark" {
         var cfg = try Config.default(alloc);
         defer cfg.deinit();
         var it: TestIterator = .{ .data = &.{
-            try std.fmt.allocPrint(
-                alloc_arena,
+            try alloc_arena.print(
                 "--theme=light:{s},dark:{s}",
                 .{ light, dark },
             ),

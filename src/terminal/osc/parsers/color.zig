@@ -385,8 +385,7 @@ test "OSC 4:" {
         // Simple color set
         // printf '\e]4;0;red\\'
         {
-            const body = try std.fmt.allocPrint(
-                alloc,
+            const body = try alloc.print(
                 "{d};red",
                 .{idx},
             );
@@ -407,8 +406,7 @@ test "OSC 4:" {
         // Simple color query
         // printf '\e]4;0;?\\'
         {
-            const body = try std.fmt.allocPrint(
-                alloc,
+            const body = try alloc.print(
                 "{d};?",
                 .{idx},
             );
@@ -426,8 +424,7 @@ test "OSC 4:" {
         // Trailing invalid data produces results up to that point
         // printf '\e]4;0;red;\e\\'
         {
-            const body = try std.fmt.allocPrint(
-                alloc,
+            const body = try alloc.print(
                 "{d};red;",
                 .{idx},
             );
@@ -450,8 +447,7 @@ test "OSC 4:" {
         //
         // printf '\e]4;0;red \e\\'
         {
-            const body = try std.fmt.allocPrint(
-                alloc,
+            const body = try alloc.print(
                 "{d};red ",
                 .{idx},
             );
@@ -477,8 +473,7 @@ test "OSC 4:" {
         // Simple color set
         // printf '\e]4;256;red\\'
         {
-            const body = try std.fmt.allocPrint(
-                alloc,
+            const body = try alloc.print(
                 "{d};red",
                 .{256 + i},
             );
@@ -509,8 +504,7 @@ test "OSC 5:" {
         // Simple color set
         // printf '\e]4;256;red\\'
         {
-            const body = try std.fmt.allocPrint(
-                alloc,
+            const body = try alloc.print(
                 "{d};red",
                 .{i},
             );
@@ -595,8 +589,7 @@ test "OSC 104:" {
         // Simple color set
         // printf '\e]104;0\\'
         {
-            const body = try std.fmt.allocPrint(
-                alloc,
+            const body = try alloc.print(
                 "{d}",
                 .{idx},
             );
@@ -619,8 +612,7 @@ test "OSC 104:" {
         // Simple color set
         // printf '\e]104;256\\'
         {
-            const body = try std.fmt.allocPrint(
-                alloc,
+            const body = try alloc.print(
                 "{d}",
                 .{256 + i},
             );
