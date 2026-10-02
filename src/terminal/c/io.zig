@@ -629,9 +629,10 @@ test "WriterAdapter buffered batches small writes" {
     // Flush delivers everything in a single call.
     try adapter.interface.flush();
     try std.testing.expectEqual(@as(usize, 1), context.calls);
-    try std.testing.expectEqualStrings(
-        "ab" ** 16,
-        context.data[0..context.len],
+
+    for (0..16) |i| try std.testing.expectEqualStrings(
+        "ab",
+        context.data[i * 2 ..][0..2],
     );
     try std.testing.expectEqual(@as(usize, 32), adapter.offset);
 }
@@ -670,8 +671,9 @@ test "WriterAdapter buffered splats and large writes" {
     try adapter.interface.writeAll("xy");
     try adapter.interface.flush();
 
+    const blank: [40]u8 = @splat(' ');
     try std.testing.expectEqualStrings(
-        " " ** 40 ++ "0123456789abcdef0" ++ "xy",
+        blank ++ "0123456789abcdef0" ++ "xy",
         context.data[0..context.len],
     );
     try std.testing.expectEqual(

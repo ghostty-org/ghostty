@@ -342,12 +342,23 @@ test "FeatureList.fromString" {
         "last"; // To ensure final element is included correctly.
     var feats = try FeatureList.fromString(testing.allocator, str);
     defer feats.deinit(testing.allocator);
+
+    const expected = [_]Feature{
+        .{ .tag = "kern".*, .value = 1 },
+        .{ .tag = "kern".*, .value = 1 },
+        .{ .tag = "kern".*, .value = 1 },
+        .{ .tag = "kern".*, .value = 1 },
+        .{ .tag = "kern".*, .value = 0 },
+        .{ .tag = "kern".*, .value = 0 },
+        .{ .tag = "kern".*, .value = 0 },
+        .{ .tag = "aalt".*, .value = 2 },
+        .{ .tag = "aalt".*, .value = 2 },
+        .{ .tag = "last".*, .value = 1 },
+    };
+
     try testing.expectEqualSlices(
         Feature,
-        &(.{Feature{ .tag = "kern".*, .value = 1 }} ** 4 ++
-            .{Feature{ .tag = "kern".*, .value = 0 }} ** 3 ++
-            .{Feature{ .tag = "aalt".*, .value = 2 }} ** 2 ++
-            .{Feature{ .tag = "last".*, .value = 1 }}),
+        &expected,
         feats.features.items,
     );
 }

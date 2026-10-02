@@ -339,7 +339,7 @@ fn writeKaitaiMetadata(
         "# Kaitai params:",
         "# Kaitai offset:",
     };
-    var found = [_]bool{false} ** prefixes.len;
+    var found: [prefixes.len]bool = @splat(false);
 
     var lines = std.mem.splitScalar(u8, reference_source, '\n');
     while (lines.next()) |untrimmed| {

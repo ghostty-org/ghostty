@@ -137,7 +137,7 @@ fn getPacked(values: *const ModePacked, mode: Mode) bool {
 pub const ModePacked = packed_struct: {
     const StructField = std.builtin.Type.StructField;
     var names: [entries.len][]const u8 = undefined;
-    var types = [_]type{bool} ** entries.len;
+    var types: [entries.len]type = @splat(bool);
     var attrs: [entries.len]StructField.Attributes = undefined;
 
     for (entries, &names, &attrs) |entry, *name, *attr| {

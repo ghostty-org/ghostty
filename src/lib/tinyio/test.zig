@@ -53,10 +53,13 @@ test "read a file through File.Reader" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const contents = "hello minimal test_io\n" ** 100;
+    const txt = "hello minimal test_io\n";
+    var contents: [txt.len * 100] = undefined;
+    for (0..100) |i| @memcpy(contents[i*txt.len..][0..txt.len], txt);
+
     try tmp_dir.dir.writeFile(testing.io, .{
         .sub_path = "test.txt",
-        .data = contents,
+        .data = &contents,
     });
 
     // Open through our Io. The Dir handle is a plain fd, so it is usable
@@ -80,7 +83,7 @@ test "read a file through File.Reader" {
     var list: std.ArrayList(u8) = .empty;
     defer list.deinit(testing.allocator);
     try reader.interface.appendRemaining(testing.allocator, &list, .unlimited);
-    try testing.expectEqualStrings(contents, list.items);
+    try testing.expectEqualStrings(&contents, list.items);
 }
 
 test "seek" {
@@ -260,10 +263,10 @@ test "openFile edge cases" {
     ));
 
     // Paths that can't fit in PATH_MAX must not be silently truncated.
-    const long_name = "a" ** (std.fs.max_path_bytes + 1);
+    const long_name: [std.fs.max_path_bytes + 1] = @splat('a');
     try testing.expectError(error.NameTooLong, dir.openFile(
         test_io,
-        long_name,
+        &long_name,
         .{},
     ));
 
