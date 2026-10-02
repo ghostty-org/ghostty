@@ -416,9 +416,9 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         "strip",
         "Strip the final executable. Default true for fast and small releases",
     ) orelse switch (optimize) {
-        .Debug => false,
-        .ReleaseSafe => false,
-        .ReleaseFast, .ReleaseSmall => true,
+        .debug => false,
+        .safe => false,
+        .fast, .small => true,
     };
 
     //---------------------------------------------------------------
@@ -508,8 +508,8 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     ) orelse switch (target.result.os.tag) {
         .windows => true,
         else => switch (optimize) {
-            .Debug => true,
-            .ReleaseSafe, .ReleaseFast, .ReleaseSmall => false,
+            .debug => true,
+            .safe, .fast, .small => false,
         },
     };
 
@@ -518,8 +518,8 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         "emit-termcap",
         "Install Ghostty termcap file",
     ) orelse switch (optimize) {
-        .Debug => true,
-        .ReleaseSafe, .ReleaseFast, .ReleaseSmall => false,
+        .debug => true,
+        .safe, .fast, .small => false,
     };
 
     config.emit_themes = b.option(
@@ -726,10 +726,10 @@ pub fn terminalOptions(
             .lib => self.lib_version,
         },
         .slow_runtime_safety = switch (optimize) {
-            .Debug => true,
-            .ReleaseSafe,
-            .ReleaseSmall,
-            .ReleaseFast,
+            .debug => true,
+            .safe,
+            .small,
+            .fast,
             => false,
         },
     };

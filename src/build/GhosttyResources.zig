@@ -248,15 +248,15 @@ fn addLinuxAppResources(
 
     const name = b.fmt("Ghostty{s}", .{
         switch (cfg.optimize) {
-            .Debug, .ReleaseSafe => " (Debug)",
-            .ReleaseFast, .ReleaseSmall => "",
+            .debug, .safe => " (Debug)",
+            .fast, .small => "",
         },
     });
 
     const app_id = b.fmt("com.mitchellh.ghostty{s}", .{
         switch (cfg.optimize) {
-            .Debug, .ReleaseSafe => "-debug",
-            .ReleaseFast, .ReleaseSmall => "",
+            .debug, .safe => "-debug",
+            .fast, .small => "",
         },
     });
 

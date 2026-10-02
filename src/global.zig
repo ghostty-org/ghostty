@@ -92,7 +92,7 @@ pub fn init(opts: InitOpts) !void {
         // can get easy memory leak detection in debug modes.
         if (builtin.link_libc) {
             if (switch (builtin.mode) {
-                .ReleaseSafe, .ReleaseFast => true,
+                .safe, .fast => true,
 
                 // We also use it if we can detect we're running under
                 // Valgrind since Valgrind only instruments the C allocator
