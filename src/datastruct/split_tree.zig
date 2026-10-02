@@ -1282,7 +1282,7 @@ pub fn SplitTree(comptime V: type) type {
                 const label: []const u8 = if (@hasDecl(View, "splitTreeLabel"))
                     node.leaf.splitTreeLabel()
                 else
-                    std.fmt.bufPrint(&buf, "{d}", .{handle}) catch return error.WriteFailed;
+                    std.mem.print(&buf, "{d}", .{handle}) catch return error.WriteFailed;
 
                 // Draw the handle in the center
                 const x_mid = width / 2 + x;
@@ -1290,7 +1290,7 @@ pub fn SplitTree(comptime V: type) type {
                 const label_width = label.len;
                 const label_start = x_mid - label_width / 2;
                 const row = grid[y_mid][label_start..];
-                _ = std.fmt.bufPrint(row, "{s}", .{label}) catch return error.WriteFailed;
+                _ = std.mem.print(row, "{s}", .{label}) catch return error.WriteFailed;
             }
 
             // Output every row

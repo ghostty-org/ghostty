@@ -322,7 +322,7 @@ fn realPathFd(fd: posix.fd_t, out_buffer: []u8) File.RealPathError!usize {
         .linux, .serenity, .illumos => {
             var procfs_buf: ["/proc/self/path/-2147483648\x00".len]u8 = undefined;
             const template = if (builtin.os.tag == .illumos) "/proc/self/path/{d}" else "/proc/self/fd/{d}";
-            const proc_path = std.fmt.bufPrintSentinel(&procfs_buf, template, .{fd}, 0) catch unreachable;
+            const proc_path = std.mem.printSentinel(&procfs_buf, template, .{fd}, 0) catch unreachable;
             while (true) {
                 const rc = posix.system.readlink(proc_path, out_buffer.ptr, out_buffer.len);
                 switch (posix.errno(rc)) {

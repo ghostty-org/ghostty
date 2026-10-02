@@ -678,17 +678,19 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     // accommodate realistic large branch names for dev versions.
     var app_version_buf: [1024]u8 = undefined;
     step.addOption(std.SemanticVersion, "app_version", self.version);
-    step.addOption([:0]const u8, "app_version_string", try std.fmt.bufPrintZ(
+    step.addOption([:0]const u8, "app_version_string", try std.mem.printSentinel(
         &app_version_buf,
         "{f}",
         .{self.version},
+        0,
     ));
     var lib_version_buf: [1024]u8 = undefined;
     step.addOption(std.SemanticVersion, "lib_version", self.lib_version);
-    step.addOption([:0]const u8, "lib_version_string", try std.fmt.bufPrintZ(
+    step.addOption([:0]const u8, "lib_version_string", try std.mem.printSentinel(
         &lib_version_buf,
         "{f}",
         .{self.lib_version},
+        0,
     ));
     step.addOption(
         ReleaseChannel,

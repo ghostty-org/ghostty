@@ -326,7 +326,7 @@ pub const Window = struct {
 
     pub fn addSubprocessEnv(self: *Window, env: *std.process.Environ.Map) !void {
         var buf: [64]u8 = undefined;
-        const window_id = try std.fmt.bufPrint(
+        const window_id = try std.mem.print(
             &buf,
             "{}",
             .{self.x11_surface.getXid()},

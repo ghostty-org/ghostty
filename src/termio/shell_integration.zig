@@ -369,7 +369,7 @@ fn setupBash(
 
     // Set our new ENV to point to our integration script.
     var script_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const script_path = try std.fmt.bufPrint(
+    const script_path = try std.mem.print(
         &script_path_buf,
         "{s}/shell-integration/bash/ghostty.bash",
         .{resource_dir},
@@ -396,7 +396,7 @@ fn setupBash(
         var home_buf: [1024]u8 = undefined;
         if (try homedir.home(global.io(), &environ_map, &home_buf)) |home| {
             var histfile_buf: [std.fs.max_path_bytes]u8 = undefined;
-            const histfile = try std.fmt.bufPrint(
+            const histfile = try std.mem.print(
                 &histfile_buf,
                 "{s}/.bash_history",
                 .{home},
@@ -428,7 +428,7 @@ test "bash" {
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/ghostty.bash", .{res.shell_path}),
+        try std.mem.print(&path_buf, "{s}/ghostty.bash", .{res.shell_path}),
         env.get("ENV").?,
     );
 }
@@ -567,7 +567,7 @@ test "bash: ENV" {
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/ghostty.bash", .{res.shell_path}),
+        try std.mem.print(&path_buf, "{s}/ghostty.bash", .{res.shell_path}),
         env.get("ENV").?,
     );
 }
@@ -631,7 +631,7 @@ fn setupXdgDataDirs(
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
 
     // Get our path to the shell integration directory.
-    const integ_path = try std.fmt.bufPrint(
+    const integ_path = try std.mem.print(
         &path_buf,
         "{s}/shell-integration",
         .{resource_dir},
@@ -712,11 +712,11 @@ test "xdg: empty XDG_DATA_DIRS" {
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
+        try std.mem.print(&path_buf, "{s}/shell-integration", .{res.path}),
         env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR").?,
     );
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration:/usr/local/share:/usr/share", .{res.path}),
+        try std.mem.print(&path_buf, "{s}/shell-integration:/usr/local/share:/usr/share", .{res.path}),
         env.get("XDG_DATA_DIRS").?,
     );
 }
@@ -742,11 +742,11 @@ test "xdg: existing XDG_DATA_DIRS" {
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
+        try std.mem.print(&path_buf, "{s}/shell-integration", .{res.path}),
         env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR").?,
     );
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration:/opt/share", .{res.path}),
+        try std.mem.print(&path_buf, "{s}/shell-integration:/opt/share", .{res.path}),
         env.get("XDG_DATA_DIRS").?,
     );
 }
@@ -859,12 +859,12 @@ test "nushell" {
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
+        try std.mem.print(&path_buf, "{s}/shell-integration", .{res.path}),
         env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR").?,
     );
     try testing.expectStringStartsWith(
         env.get("XDG_DATA_DIRS").?,
-        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
+        try std.mem.print(&path_buf, "{s}/shell-integration", .{res.path}),
     );
 }
 
@@ -929,7 +929,7 @@ fn setupZsh(
 
     // Set our new ZDOTDIR to point to our shell resource directory.
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const integ_path = try std.fmt.bufPrint(
+    const integ_path = try std.mem.print(
         &path_buf,
         "{s}/shell-integration/zsh",
         .{resource_dir},
@@ -1018,7 +1018,7 @@ const TmpResourcesDir = struct {
         errdefer tmp_dir.cleanup();
 
         var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-        const relative_shell_path = try std.fmt.bufPrint(
+        const relative_shell_path = try std.mem.print(
             &path_buf,
             "shell-integration/{s}",
             .{@tagName(shell)},

@@ -8494,7 +8494,7 @@ test "Terminal: insertLines hyperlink-dense row crosses page boundary" {
     t.setCursorPos(3, 1);
     for (0..10) |i| {
         var buf: [64]u8 = undefined;
-        const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{i});
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{i});
         try t.screens.active.startHyperlink(uri, null);
         try t.print(@intCast('A' + i));
         t.screens.active.endHyperlink();
@@ -8535,7 +8535,7 @@ test "Terminal: insertLines hyperlink-dense row crosses page boundary" {
         const id = page.lookupHyperlink(list_cell.cell).?;
         const link = page.hyperlink_set.get(page.memory, id);
         var buf: [64]u8 = undefined;
-        const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{x});
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{x});
         try testing.expectEqualStrings(uri, link.uri.slice(page.memory));
     }
 
@@ -11548,7 +11548,7 @@ test "Terminal: deleteLines hyperlink-dense row crosses page boundary" {
     t.setCursorPos(4, 1);
     for (0..10) |i| {
         var buf: [64]u8 = undefined;
-        const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{i});
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{i});
         try t.screens.active.startHyperlink(uri, null);
         try t.print(@intCast('A' + i));
         t.screens.active.endHyperlink();
@@ -11589,7 +11589,7 @@ test "Terminal: deleteLines hyperlink-dense row crosses page boundary" {
         const id = page.lookupHyperlink(list_cell.cell).?;
         const link = page.hyperlink_set.get(page.memory, id);
         var buf: [64]u8 = undefined;
-        const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{x});
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{x});
         try testing.expectEqualStrings(uri, link.uri.slice(page.memory));
     }
 

@@ -94,11 +94,11 @@ test "OSC: kitty color protocol kind string" {
 
     var buf: [256]u8 = undefined;
     {
-        const actual = try std.fmt.bufPrint(&buf, "{f}", .{Kind{ .special = .foreground }});
+        const actual = try std.mem.print(&buf, "{f}", .{Kind{ .special = .foreground }});
         try testing.expectEqualStrings("foreground", actual);
     }
     {
-        const actual = try std.fmt.bufPrint(&buf, "{f}", .{Kind{ .palette = 42 }});
+        const actual = try std.mem.print(&buf, "{f}", .{Kind{ .palette = 42 }});
         try testing.expectEqualStrings("42", actual);
     }
 

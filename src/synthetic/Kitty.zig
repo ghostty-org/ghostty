@@ -46,7 +46,7 @@ pub fn next(
     max_len: usize,
 ) Generator.Error!void {
     var control_buf: [64]u8 = undefined;
-    const control = std.fmt.bufPrint(
+    const control = std.mem.print(
         &control_buf,
         "a=t,f=100,i={d};",
         .{self.rand.intRangeAtMost(u32, 1, 1_000_000)},

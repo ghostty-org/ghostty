@@ -14676,7 +14676,7 @@ test "PageList eraseRow hyperlink-dense row crosses page boundary" {
         const page = s.pages.last.?.page();
         for (0..link_count) |x| {
             var buf: [64]u8 = undefined;
-            const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{x});
+            const uri = try std.mem.print(&buf, "http://example.com/{d}", .{x});
             const id = try page.insertHyperlink(.{
                 .id = .{ .implicit = @intCast(x) },
                 .uri = uri,
@@ -14724,7 +14724,7 @@ test "PageList eraseRow hyperlink-dense row crosses page boundary" {
         const id = page.lookupHyperlink(list_cell.cell).?;
         const link = page.hyperlink_set.get(page.memory, id);
         var buf: [64]u8 = undefined;
-        const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{x});
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{x});
         try testing.expectEqualStrings(uri, link.uri.slice(page.memory));
     }
 
@@ -14788,7 +14788,7 @@ test "PageList eraseRowBounded hyperlink-dense row crosses page boundary" {
         const page = s.pages.last.?.page();
         for (0..link_count) |x| {
             var buf: [64]u8 = undefined;
-            const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{x});
+            const uri = try std.mem.print(&buf, "http://example.com/{d}", .{x});
             const id = try page.insertHyperlink(.{
                 .id = .{ .implicit = @intCast(x) },
                 .uri = uri,
@@ -14833,7 +14833,7 @@ test "PageList eraseRowBounded hyperlink-dense row crosses page boundary" {
         const id = page.lookupHyperlink(list_cell.cell).?;
         const link = page.hyperlink_set.get(page.memory, id);
         var buf: [64]u8 = undefined;
-        const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{x});
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{x});
         try testing.expectEqualStrings(uri, link.uri.slice(page.memory));
     }
 
