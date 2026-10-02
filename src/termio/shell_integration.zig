@@ -95,8 +95,8 @@ test "force shell" {
     var env = EnvMap.init(alloc);
     defer env.deinit();
 
-    inline for (@typeInfo(Shell).@"enum".fields) |field| {
-        const shell = @field(Shell, field.name);
+    inline for (@typeInfo(Shell).@"enum".field_names) |field| {
+        const shell = @field(Shell, field);
 
         var res: TmpResourcesDir = try .init(shell);
         defer res.deinit();
@@ -191,10 +191,10 @@ pub fn setupFeatures(
     features: config.ShellIntegrationFeatures,
     cursor_blink: bool,
 ) !void {
-    const fields = @typeInfo(@TypeOf(features)).@"struct".fields;
+    const field_names = @typeInfo(@TypeOf(features)).@"struct".field_names;
     const capacity: usize = capacity: {
-        comptime var n: usize = fields.len - 1; // commas
-        inline for (fields) |field| n += field.name.len;
+        comptime var n: usize = field_names.len - 1; // commas
+        inline for (field_names) |name| n += name.len;
         n += ":steady".len; // cursor value
         break :capacity n;
     };
@@ -204,9 +204,8 @@ pub fn setupFeatures(
 
     // Sort the fields so that the output is deterministic. This is
     // done at comptime so it has no runtime cost
-    const fields_sorted: [fields.len][]const u8 = comptime fields: {
-        var fields_sorted: [fields.len][]const u8 = undefined;
-        for (fields, 0..) |field, i| fields_sorted[i] = field.name;
+    const fields_sorted: [field_names.len][]const u8 = comptime fields: {
+        var fields_sorted: [field_names.len][]const u8 = field_names.*;
         std.mem.sortUnstable(
             []const u8,
             &fields_sorted,

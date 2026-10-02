@@ -79,7 +79,7 @@ pub const LocationIterator = struct {
         location: Location,
         dir: []const u8,
     } {
-        const max = @typeInfo(Location).@"enum".fields.len;
+        const max = @typeInfo(Location).@"enum".field_names.len;
         while (self.i < max) {
             const location: Location = @fromBackingInt(@intCast(self.i));
             self.i += 1;

@@ -118,19 +118,19 @@ pub const Action = enum {
             // If help is requested, then we use some comptime trickery
             // to find this action in the help strings and output that.
             help_error => err: {
-                inline for (@typeInfo(Action).@"enum".fields) |field| {
+                inline for (@typeInfo(Action).@"enum".field_names) |field| {
                     // Future note: for now we just output the help text directly
                     // to stdout. In the future we can style this much prettier
                     // for all commands by just changing this one place.
 
-                    if (std.mem.eql(u8, field.name, @tagName(self))) {
+                    if (std.mem.eql(u8, field, @tagName(self))) {
                         var buffer: [1024]u8 = undefined;
                         var stdout_writer = std.Io.File.stdout().writer(
                             global.io(),
                             &buffer,
                         );
                         const stdout = &stdout_writer.interface;
-                        const text = @field(help_strings.Action, field.name) ++ "\n";
+                        const text = @field(help_strings.Action, field) ++ "\n";
                         stdout.writeAll(text) catch |write_err| {
                             std.log.warn("failed to write help text: {}\n", .{write_err});
                             break :err 1;

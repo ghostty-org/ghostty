@@ -1307,7 +1307,7 @@ pub fn SplitTree(comptime V: type) type {
 
         fn viewRef(view: *View, gpa: Allocator) Allocator.Error!*View {
             const func = @typeInfo(@TypeOf(View.ref)).@"fn";
-            return switch (func.params.len) {
+            return switch (func.param_types.len) {
                 1 => view.ref(),
                 2 => try view.ref(gpa),
                 else => @compileError("invalid view ref function"),
@@ -1316,7 +1316,7 @@ pub fn SplitTree(comptime V: type) type {
 
         fn viewUnref(view: *View, gpa: Allocator) void {
             const func = @typeInfo(@TypeOf(View.unref)).@"fn";
-            switch (func.params.len) {
+            switch (func.param_types.len) {
                 1 => view.unref(),
                 2 => view.unref(gpa),
                 else => @compileError("invalid view unref function"),

@@ -35,9 +35,9 @@ fn genConfig(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
         \\
     );
 
-    inline for (@typeInfo(Config).@"struct".fields) |field| {
-        if (field.name[0] == '_') continue;
-        try genConfigField(alloc, writer, ast, field.name);
+    inline for (@typeInfo(Config).@"struct".field_names) |name| {
+        if (name[0] == '_') continue;
+        try genConfigField(alloc, writer, ast, name);
     }
 
     try writer.writeAll("};\n");
@@ -79,9 +79,9 @@ fn genActions(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
         \\
     );
 
-    inline for (@typeInfo(Action).@"enum".fields) |field| {
+    inline for (@typeInfo(Action).@"enum".field_names) |field| {
         const action_file = comptime action_file: {
-            const action = @field(Action, field.name);
+            const action = @field(Action, field);
             break :action_file action.file();
         };
 
@@ -98,14 +98,14 @@ fn genActions(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
             if (tokens[i - 2] != .doc_comment) {
                 std.debug.print(
                     "doc comment must be present on run function of the {s} action!",
-                    .{field.name},
+                    .{field},
                 );
                 std.process.exit(1);
             }
 
             const comment = try extractDocComments(alloc, ast, @intCast(i - 2), tokens);
             try writer.writeAll("pub const @\"");
-            try writer.writeAll(field.name);
+            try writer.writeAll(field);
             try writer.writeAll("\" = \n");
             try writer.writeAll(comment);
             try writer.writeAll("\n\n");
@@ -127,9 +127,9 @@ fn genKeybindActions(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
         \\
     );
 
-    inline for (@typeInfo(KeybindAction).@"union".fields) |field| {
-        if (field.name[0] == '_') continue;
-        try genConfigField(alloc, writer, ast, field.name);
+    inline for (@typeInfo(KeybindAction).@"union".field_names) |field| {
+        if (field[0] == '_') continue;
+        try genConfigField(alloc, writer, ast, field);
     }
 
     try writer.writeAll("};\n");

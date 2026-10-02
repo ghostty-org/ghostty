@@ -98,15 +98,15 @@ pub const defaults: []const Command = defaults: {
     @setEvalBranchQuota(100_000);
 
     var count: usize = 0;
-    for (@typeInfo(Action.Key).@"enum".fields) |field| {
-        const action = @field(Action.Key, field.name);
+    for (@typeInfo(Action.Key).@"enum".field_names) |field| {
+        const action = @field(Action.Key, field);
         count += actionCommands(action).len;
     }
 
     var result: [count]Command = undefined;
     var i: usize = 0;
-    for (@typeInfo(Action.Key).@"enum".fields) |field| {
-        const action = @field(Action.Key, field.name);
+    for (@typeInfo(Action.Key).@"enum".field_names) |field| {
+        const action = @field(Action.Key, field);
         const commands = actionCommands(action);
         for (commands) |cmd| {
             result[i] = cmd;

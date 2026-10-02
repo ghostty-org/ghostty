@@ -209,9 +209,9 @@ fn runArgs(
         var exit: bool = false;
         outer: for (opts._diagnostics.items()) |diagnostic| {
             if (diagnostic.location != .cli) continue :outer;
-            inner: inline for (@typeInfo(Options).@"struct".fields) |field| {
-                if (field.name[0] == '_') continue :inner;
-                if (std.mem.eql(u8, field.name, diagnostic.key)) {
+            inner: inline for (@typeInfo(Options).@"struct".field_names) |field| {
+                if (field[0] == '_') continue :inner;
+                if (std.mem.eql(u8, field, diagnostic.key)) {
                     try stderr.print("config error: {f}\n", .{diagnostic});
                     exit = true;
                 }

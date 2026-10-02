@@ -262,8 +262,8 @@ pub const Style = struct {
 
         var started = false;
 
-        inline for (std.meta.fields(Style)) |f| {
-            if (std.mem.eql(u8, f.name, "flags")) {
+        inline for (@typeInfo(Style).@"struct".field_names, @typeInfo(Style).@"struct".field_types) |f, f_type| {
+            if (std.mem.eql(u8, f, "flags")) {
                 if (started) {
                     _ = try writer.write(", ");
                 }
@@ -272,15 +272,15 @@ pub const Style = struct {
 
                 started = false;
 
-                inline for (std.meta.fields(@TypeOf(self.flags))) |ff| {
-                    const v = @as(ff.type, @field(self.flags, ff.name));
-                    const d = @as(ff.type, @field(dflt.flags, ff.name));
-                    if (ff.type == bool) {
+                inline for (@typeInfo(@TypeOf(self.flags)).@"struct".field_names, @typeInfo(@TypeOf(self.flags)).@"struct".field_types) |ff, ff_type| {
+                    const v = @as(ff_type, @field(self.flags, ff));
+                    const d = @as(ff_type, @field(dflt.flags, ff));
+                    if (ff_type == bool) {
                         if (v) {
                             if (started) {
                                 _ = try writer.write(", ");
                             }
-                            _ = try writer.print("{s}", .{ff.name});
+                            _ = try writer.print("{s}", .{ff});
                             started = true;
                         }
                     } else if (!std.meta.eql(v, d)) {
@@ -289,7 +289,7 @@ pub const Style = struct {
                         }
                         _ = try writer.print(
                             "{s}={any}",
-                            .{ ff.name, v },
+                            .{ ff, v },
                         );
                         started = true;
                     }
@@ -299,15 +299,15 @@ pub const Style = struct {
                 started = true;
                 comptime continue;
             }
-            const value = @as(f.type, @field(self, f.name));
-            const d_val = @as(f.type, @field(dflt, f.name));
+            const value = @as(f_type, @field(self, f));
+            const d_val = @as(f_type, @field(dflt, f));
             if (!std.meta.eql(value, d_val)) {
                 if (started) {
                     _ = try writer.write(", ");
                 }
                 _ = try writer.print(
                     "{s}={any}",
-                    .{ f.name, value },
+                    .{ f, value },
                 );
                 started = true;
             }
@@ -672,8 +672,8 @@ pub const Style = struct {
     comptime {
         assert(@sizeOf(PackedStyle) == 16);
         assert(std.meta.hasUniqueRepresentation(PackedStyle));
-        for (@typeInfo(PackedStyle.Data).@"union".fields) |field| {
-            assert(@bitSizeOf(field.type) == @bitSizeOf(PackedStyle.Data));
+        for (@typeInfo(PackedStyle.Data).@"union".field_types) |field_type| {
+            assert(@bitSizeOf(field_type) == @bitSizeOf(PackedStyle.Data));
         }
     }
 };

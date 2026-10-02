@@ -438,9 +438,9 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         ) orelse break :features .{};
         break :features TerminalBuildOptions.Features.parse(list) catch {
             var valid: std.ArrayList(u8) = .empty;
-            inline for (@typeInfo(TerminalBuildOptions.Features).@"struct".fields) |field| {
+            inline for (@typeInfo(TerminalBuildOptions.Features).@"struct".field_names) |name| {
                 if (valid.items.len > 0) try valid.appendSlice(b.allocator, ", ");
-                try valid.appendSlice(b.allocator, field.name);
+                try valid.appendSlice(b.allocator, name);
             }
             std.log.err(
                 "-Dvt-features={s} contains an unknown feature. Valid features: all, {s}",

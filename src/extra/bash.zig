@@ -96,11 +96,11 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
         \\
     );
 
-    for (@typeInfo(Config).@"struct".fields) |field| {
-        if (field.name[0] == '_') continue;
-        switch (field.type) {
-            bool, ?bool => try writer.writeAll(pad2 ++ "config+=\" '--" ++ field.name ++ " '\"\n"),
-            else => try writer.writeAll(pad2 ++ "config+=\" --" ++ field.name ++ "=\"\n"),
+    inline for (@typeInfo(Config).@"struct".field_names) |field| {
+        if (field[0] == '_') continue;
+        switch (@FieldType(Config, field)) {
+            bool, ?bool => try writer.writeAll(pad2 ++ "config+=\" '--" ++ field ++ " '\"\n"),
+            else => try writer.writeAll(pad2 ++ "config+=\" --" ++ field ++ "=\"\n"),
         }
     }
 
@@ -110,37 +110,38 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
         \\
     );
 
-    for (@typeInfo(Config).@"struct".fields) |field| {
-        if (field.name[0] == '_') continue;
-        try writer.writeAll(pad3 ++ "--" ++ field.name ++ ") ");
+    inline for (@typeInfo(Config).@"struct".field_names) |field| {
+        if (field[0] == '_') continue;
+        try writer.writeAll(pad3 ++ "--" ++ field ++ ") ");
 
-        if (std.mem.startsWith(u8, field.name, "font-family"))
+        if (std.mem.startsWith(u8, field, "font-family"))
             try writer.writeAll("_fonts ;;")
-        else if (std.mem.eql(u8, "theme", field.name))
+        else if (std.mem.eql(u8, "theme", field))
             try writer.writeAll("_themes ;;")
-        else if (std.mem.eql(u8, "working-directory", field.name))
+        else if (std.mem.eql(u8, "working-directory", field))
             try writer.writeAll("_dirs ;;")
-        else if (field.type == Config.RepeatablePath)
+        else if (@FieldType(Config, field) == Config.RepeatablePath)
             try writer.writeAll("_files ;;")
         else {
             const compgenPrefix = "_compreply compgen -W \"";
             const compgenSuffix = "\" -- \"$cur\"; _add_spaces ;;";
-            switch (@typeInfo(field.type)) {
+            const field_type = @FieldType(Config, field);
+            switch (@typeInfo(field_type)) {
                 .bool => try writer.writeAll("return ;;"),
                 .@"enum" => |info| {
                     try writer.writeAll(compgenPrefix);
-                    for (info.fields, 0..) |f, i| {
+                    for (info.field_names, 0..) |f, i| {
                         if (i > 0) try writer.writeAll(" ");
-                        try writer.writeAll(f.name);
+                        try writer.writeAll(f);
                     }
                     try writer.writeAll(compgenSuffix);
                 },
                 .@"struct" => |info| {
-                    if (!@hasDecl(field.type, "parseCLI") and info.layout == .@"packed") {
+                    if (!@hasDecl(field_type, "parseCLI") and info.layout == .@"packed") {
                         try writer.writeAll(compgenPrefix);
-                        for (info.fields, 0..) |f, i| {
+                        for (info.field_names, 0..) |f, i| {
                             if (i > 0) try writer.writeAll(" ");
-                            try writer.writeAll(f.name ++ " no-" ++ f.name);
+                            try writer.writeAll(f ++ " no-" ++ f);
                         }
                         try writer.writeAll(compgenSuffix);
                     } else {
@@ -165,26 +166,26 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
         \\
     );
 
-    for (@typeInfo(Action).@"enum".fields) |field| {
-        const options = @field(Action, field.name).options();
+    inline for (@typeInfo(Action).@"enum".field_names) |field| {
+        const options = @field(Action, field).options();
         // assumes options will never be created with only <_name> members
-        if (@typeInfo(options).@"struct".fields.len == 0) continue;
+        if (@typeInfo(options).@"struct".field_names.len == 0) continue;
 
-        var buffer: [field.name.len]u8 = undefined;
-        const bashName: []u8 = buffer[0..field.name.len];
-        @memcpy(bashName, field.name);
+        var buffer: [field.len]u8 = undefined;
+        const bashName: []u8 = buffer[0..field.len];
+        @memcpy(bashName, field);
 
         std.mem.replaceScalar(u8, bashName, '-', '_');
         try writer.writeAll(pad2 ++ "local " ++ bashName ++ "=\"");
 
         {
             var count = 0;
-            for (@typeInfo(options).@"struct".fields) |opt| {
-                if (opt.name[0] == '_') continue;
+            inline for (@typeInfo(options).@"struct".field_names) |opt| {
+                if (opt[0] == '_') continue;
                 if (count > 0) try writer.writeAll(" ");
-                switch (opt.type) {
-                    bool, ?bool => try writer.writeAll("'--" ++ opt.name ++ " '"),
-                    else => try writer.writeAll("--" ++ opt.name ++ "="),
+                switch (@FieldType(options, opt)) {
+                    bool, ?bool => try writer.writeAll("'--" ++ opt ++ " '"),
+                    else => try writer.writeAll("--" ++ opt ++ "="),
                 }
                 count += 1;
             }
@@ -198,31 +199,32 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
         \\
     );
 
-    for (@typeInfo(Action).@"enum".fields) |field| {
-        const options = @field(Action, field.name).options();
-        if (@typeInfo(options).@"struct".fields.len == 0) continue;
+    inline for (@typeInfo(Action).@"enum".field_names) |field| {
+        const options = @field(Action, field).options();
+        if (@typeInfo(options).@"struct".field_names.len == 0) continue;
 
         // bash doesn't allow variable names containing '-' so replace them
-        var buffer: [field.name.len]u8 = undefined;
-        const bashName: []u8 = buffer[0..field.name.len];
-        _ = std.mem.replace(u8, field.name, "-", "_", bashName);
+        var buffer: [field.len]u8 = undefined;
+        const bashName: []u8 = buffer[0..field.len];
+        _ = std.mem.replace(u8, field, "-", "_", bashName);
 
-        try writer.writeAll(pad3 ++ "+" ++ field.name ++ ")\n");
+        try writer.writeAll(pad3 ++ "+" ++ field ++ ")\n");
         try writer.writeAll(pad4 ++ "case $prev in\n");
-        for (@typeInfo(options).@"struct".fields) |opt| {
-            if (opt.name[0] == '_') continue;
+        inline for (@typeInfo(options).@"struct".field_names) |opt| {
+            if (opt[0] == '_') continue;
 
-            try writer.writeAll(pad5 ++ "--" ++ opt.name ++ ") ");
+            try writer.writeAll(pad5 ++ "--" ++ opt ++ ") ");
 
             const compgenPrefix = "_compreply compgen -W \"";
             const compgenSuffix = "\" -- \"$cur\"; _add_spaces ;;";
-            switch (@typeInfo(opt.type)) {
+            const opt_type = @FieldType(options, opt);
+            switch (@typeInfo(opt_type)) {
                 .bool => try writer.writeAll("return ;;"),
                 .@"enum" => |info| {
                     try writer.writeAll(compgenPrefix);
-                    for (info.fields, 0..) |f, i| {
+                    for (info.field_names, 0..) |f, i| {
                         if (i > 0) try writer.writeAll(" ");
-                        try writer.writeAll(f.name);
+                        try writer.writeAll(f);
                     }
                     try writer.writeAll(compgenSuffix);
                 },
@@ -230,21 +232,21 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
                     switch (@typeInfo(optional.child)) {
                         .@"enum" => |info| {
                             try writer.writeAll(compgenPrefix);
-                            for (info.fields, 0..) |f, i| {
+                            for (info.field_names, 0..) |f, i| {
                                 if (i > 0) try writer.writeAll(" ");
-                                try writer.writeAll(f.name);
+                                try writer.writeAll(f);
                             }
                             try writer.writeAll(compgenSuffix);
                         },
                         else => {
-                            if (std.mem.eql(u8, "config-file", opt.name)) {
+                            if (std.mem.eql(u8, "config-file", opt)) {
                                 try writer.writeAll("return ;;");
                             } else try writer.writeAll("return;;");
                         },
                     }
                 },
                 else => {
-                    if (std.mem.eql(u8, "config-file", opt.name)) {
+                    if (std.mem.eql(u8, "config-file", opt)) {
                         try writer.writeAll("_files ;;");
                     } else try writer.writeAll("return;;");
                 },
@@ -273,8 +275,8 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
         \\
     );
 
-    for (@typeInfo(Action).@"enum".fields) |field| {
-        try writer.writeAll(pad1 ++ "topLevel+=\" +" ++ field.name ++ "\"\n");
+    for (@typeInfo(Action).@"enum".field_names) |field| {
+        try writer.writeAll(pad1 ++ "topLevel+=\" +" ++ field ++ "\"\n");
     }
 
     try writer.writeAll(

@@ -110,11 +110,11 @@ pub const query_reply = "?:states=" ++
 fn names(comptime E: type, comptime skip: []const E) []const u8 {
     comptime {
         var result: []const u8 = "";
-        for (@typeInfo(E).@"enum".fields) |field| {
-            const value = @field(E, field.name);
+        for (@typeInfo(E).@"enum".field_names) |field| {
+            const value = @field(E, field);
             if (std.mem.indexOfScalar(E, skip, value) != null) continue;
             if (result.len > 0) result = result ++ ",";
-            result = result ++ field.name;
+            result = result ++ field;
         }
         return result;
     }

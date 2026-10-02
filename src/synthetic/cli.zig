@@ -110,8 +110,8 @@ fn mainActionImpl(
 
 test {
     // Make sure we ref all our actions
-    inline for (@typeInfo(Action).@"enum".fields) |field| {
-        const action = @field(Action, field.name);
+    inline for (@typeInfo(Action).@"enum".field_names) |field| {
+        const action = @field(Action, field);
         const Impl = Action.Struct(action);
         _ = Impl;
     }

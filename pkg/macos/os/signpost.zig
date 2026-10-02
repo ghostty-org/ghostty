@@ -23,8 +23,8 @@ pub fn init() void {
         // function in our root module. I actually don't know if this is
         // all required or if we can just use the real `__dso_handle` symbol,
         // but this seems to work for now.
-        for (@typeInfo(root).@"struct".decls) |decl_info| {
-            const decl = @field(root, decl_info.name);
+        for (@typeInfo(root).@"struct".decl_names) |decl_name| {
+            const decl = @field(root, decl_name);
             if (@typeInfo(@TypeOf(decl)) == .@"fn") break :sym decl;
         }
 

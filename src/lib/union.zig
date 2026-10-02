@@ -77,15 +77,15 @@ pub fn TaggedUnion(
                 .c => {},
             }
 
-            const tag_fields = @typeInfo(Tag).@"enum".fields;
+            const tag_fields = @typeInfo(Tag).@"enum".field_names;
             var names: [tag_fields.len + 1][]const u8 = undefined;
             var types: [tag_fields.len + 1]type = undefined;
-            var attrs: [tag_fields.len + 1]std.lang.Type.UnionField.Attributes = undefined;
+            var attrs: [tag_fields.len + 1]std.lang.Type.Union.FieldAttributes = undefined;
 
             for (tag_fields, 0..) |field, i| {
-                const action = @unionInit(Union, field.name, undefined);
+                const action = @unionInit(Union, field, undefined);
                 const Type = t: {
-                    const Type = @TypeOf(@field(action, field.name));
+                    const Type = @TypeOf(@field(action, field));
                     // Types can provide custom types for their CValue.
                     switch (@typeInfo(Type)) {
                         .@"enum", .@"struct", .@"union" => if (@hasDecl(Type, "C")) break :t Type.C,
@@ -95,7 +95,7 @@ pub fn TaggedUnion(
                     break :t Type;
                 };
 
-                names[i] = field.name;
+                names[i] = field;
                 types[i] = Type;
                 attrs[i] = .{ .@"align" = @alignOf(Type) };
             }
@@ -140,16 +140,16 @@ pub fn TaggedUnion(
 /// Options for generating the C representation of a tagged union.
 pub fn TaggedUnionOptions(comptime Union: type) type {
     const Tag = @typeInfo(Union).@"union".tag_type.?;
-    const tag_fields = @typeInfo(Tag).@"enum".fields;
+    const tag_fields = @typeInfo(Tag).@"enum".field_names;
     const FieldRenames: type = field_renames: {
         const default_rename: ?[]const u8 = null;
 
         var names: [tag_fields.len][]const u8 = undefined;
         var types: [tag_fields.len]type = undefined;
-        var attrs: [tag_fields.len]std.lang.Type.StructField.Attributes = undefined;
+        var attrs: [tag_fields.len]std.lang.Type.Struct.FieldAttributes = undefined;
 
-        for (tag_fields, 0..) |field, i| {
-            names[i] = field.name;
+        inline for (tag_fields, 0..) |field, i| {
+            names[i] = field;
             types[i] = ?[]const u8;
             attrs[i] = .{ .default_value_ptr = &default_rename };
         }
