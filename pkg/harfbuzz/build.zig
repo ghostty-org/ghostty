@@ -97,7 +97,7 @@ const HarfBuzzC = struct {
         };
 
         target: std.Build.ResolvedTarget,
-        optimize: std.builtin.OptimizeMode,
+        optimize: std.lang.Optimize,
         harfbuzz: LinkMode,
         coretext: bool,
         freetype: ?struct {

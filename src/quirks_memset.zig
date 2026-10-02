@@ -49,7 +49,7 @@ const builtin = @import("builtin");
 comptime {
     // Strong linkage when we control the final link (executables,
     // shared libraries), weak otherwise.
-    const linkage: std.builtin.GlobalLinkage = switch (builtin.output_mode) {
+    const linkage: std.lang.GlobalLinkage = switch (builtin.output_mode) {
         .Exe => .strong,
         .Lib => switch (builtin.link_mode) {
             .dynamic => .strong,

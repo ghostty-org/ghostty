@@ -55,7 +55,7 @@ pub fn launchedFromDesktop() bool {
             break :ul gio_pid == pid;
         },
 
-        // TODO: This should have some logic to detect this. Perhaps std.builtin.subsystem
+        // TODO: This should have some logic to detect this. Perhaps std.lang.subsystem
         .windows => false,
 
         // iPhone/iPad is always launched from the "desktop"

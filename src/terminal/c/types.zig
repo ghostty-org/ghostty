@@ -801,7 +801,7 @@ const Json = struct {
         };
     }
 
-    fn intName(comptime signedness: std.builtin.Signedness, comptime bits: u16) []const u8 {
+    fn intName(comptime signedness: std.lang.Signedness, comptime bits: u16) []const u8 {
         return switch (signedness) {
             .signed => switch (bits) {
                 8 => "i8",

@@ -44,7 +44,7 @@ pub fn build(b: *std.Build) !void {
 fn buildGlslang(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
 ) !*std.Build.Step.Compile {
     const upstream_ = b.lazyDependency("glslang", .{});
     const lib = b.addLibrary(.{

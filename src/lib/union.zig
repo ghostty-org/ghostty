@@ -80,7 +80,7 @@ pub fn TaggedUnion(
             const tag_fields = @typeInfo(Tag).@"enum".fields;
             var names: [tag_fields.len + 1][]const u8 = undefined;
             var types: [tag_fields.len + 1]type = undefined;
-            var attrs: [tag_fields.len + 1]std.builtin.Type.UnionField.Attributes = undefined;
+            var attrs: [tag_fields.len + 1]std.lang.Type.UnionField.Attributes = undefined;
 
             for (tag_fields, 0..) |field, i| {
                 const action = @unionInit(Union, field.name, undefined);
@@ -146,7 +146,7 @@ pub fn TaggedUnionOptions(comptime Union: type) type {
 
         var names: [tag_fields.len][]const u8 = undefined;
         var types: [tag_fields.len]type = undefined;
-        var attrs: [tag_fields.len]std.builtin.Type.StructField.Attributes = undefined;
+        var attrs: [tag_fields.len]std.lang.Type.StructField.Attributes = undefined;
 
         for (tag_fields, 0..) |field, i| {
             names[i] = field.name;
