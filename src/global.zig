@@ -100,7 +100,7 @@ pub fn init(opts: InitOpts) !void {
             }) break :gpa null;
         }
 
-        break :gpa .init;
+        break :gpa .init(std.heap.page_allocator, .{});
     };
 
     self.alloc = if (self.gpa) |*value|
@@ -375,7 +375,7 @@ pub fn action() ?cli.ghostty.Action {
 /// be one of these at any given moment. This is extracted into a dedicated
 /// struct because it is reused by main and the static C lib.
 pub const GlobalState = struct {
-    const GPA = std.heap.DebugAllocator(.{});
+    const GPA = std.heap.SafeAllocator;
 
     io_impl: std.Io.Threaded,
     gpa: ?GPA,
