@@ -301,8 +301,9 @@ fn setupBash(
     resource_dir: []const u8,
     env: *EnvMap,
 ) !?config.Command {
-    var stack_fallback = std.heap.stackFallback(4096, alloc);
-    var cmd = internal_os.shell.ShellCommandBuilder.init(stack_fallback.get());
+    var stack_fallback_buf: [4096]u8 = undefined;
+    var stack_fallback: std.heap.BufferFirstAllocator = .init(&stack_fallback_buf, alloc);
+    var cmd = internal_os.shell.ShellCommandBuilder.init(stack_fallback.allocator());
     defer cmd.deinit();
 
     // Iterator that yields each argument in the original command line.
@@ -655,8 +656,9 @@ fn setupXdgDataDirs(
     // 4K is a reasonable size for this for most cases. However, env
     // vars can be significantly larger so if we have to we fall
     // back to a heap allocated value.
-    var stack_alloc_state = std.heap.stackFallback(4096, alloc);
-    const stack_alloc = stack_alloc_state.get();
+    var stack_alloc_state_buf: [4096]u8 = undefined;
+    var stack_alloc_state: std.heap.BufferFirstAllocator = .init(&stack_alloc_state_buf, alloc);
+    const stack_alloc = stack_alloc_state.allocator();
 
     // If no XDG_DATA_DIRS set use the default value as specified.
     // This ensures that the default directories aren't lost by setting
@@ -786,8 +788,9 @@ fn setupNushell(
     // of the later checks abort the rest of our automatic integration.
     if (!try setupXdgDataDirs(alloc, resource_dir, env)) return null;
 
-    var stack_fallback = std.heap.stackFallback(4096, alloc);
-    var cmd = internal_os.shell.ShellCommandBuilder.init(stack_fallback.get());
+    var stack_fallback_buf: [4096]u8 = undefined;
+    var stack_fallback: std.heap.BufferFirstAllocator = .init(&stack_fallback_buf, alloc);
+    var cmd = internal_os.shell.ShellCommandBuilder.init(stack_fallback.allocator());
     defer cmd.deinit();
 
     // Iterator that yields each argument in the original command line.

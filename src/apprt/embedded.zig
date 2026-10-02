@@ -819,8 +819,9 @@ pub const Surface = struct {
             error.UnauthorizedPaste => {
                 // Convert the would-be contents so the permission
                 // prompt can display exactly what would be written.
-                var stack = std.heap.stackFallback(1024, alloc);
-                const conv_alloc = stack.get();
+                var stack_buf: [1024]u8 = undefined;
+                var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, alloc);
+                const conv_alloc = stack.allocator();
                 const contents = conv_alloc.alloc(
                     CAPI.ClipboardContent,
                     kitty.contents.len,
@@ -871,8 +872,9 @@ pub const Surface = struct {
 
         // Convert the C representations to the core types. Everything
         // remains borrowed from the caller for the duration of the call.
-        var stack = std.heap.stackFallback(1024, alloc);
-        const conv_alloc = stack.get();
+        var stack_buf: [1024]u8 = undefined;
+        var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, alloc);
+        const conv_alloc = stack.allocator();
 
         const raw_contents: []const CAPI.ClipboardContent =
             if (complete.contents) |v| v[0..complete.contents_len] else &.{};
