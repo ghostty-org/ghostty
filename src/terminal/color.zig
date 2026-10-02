@@ -193,7 +193,7 @@ pub fn paletteZval(palette: *const PaletteC) Palette {
 }
 
 /// Mask that can be used to set which palette indexes were set.
-pub const PaletteMask = std.StaticBitSet(@typeInfo(Palette).array.len);
+pub const PaletteMask = std.bit_set.Static(@typeInfo(Palette).array.len);
 
 /// Generate the 256-color palette from the user's base16 theme colors,
 /// terminal background, and terminal foreground.
