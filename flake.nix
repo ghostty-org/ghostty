@@ -77,7 +77,7 @@
       default =
         pkgs.callPackage ./nix/devShell.nix
         {
-          zig = zig.packages.${pkgs.stdenv.hostPlatform.system}."0.16.0";
+          zig = zig.packages.${pkgs.stdenv.hostPlatform.system}."0.17.0";
           wraptest = pkgs.callPackage ./nix/pkgs/wraptest.nix {};
           zon2nix = zon2nix;
 
