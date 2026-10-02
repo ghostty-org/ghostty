@@ -60,8 +60,9 @@ pub fn terminal_paste(
 
     // A paste carries a handful of representations, so keep the common
     // case allocation-free.
-    var sfa = std.heap.stackFallback(256, wrapper.terminal.gpa());
-    const alloc = sfa.get();
+    var sfa_buf: [256]u8 = undefined;
+    var sfa: std.heap.BufferFirstAllocator = .init(&sfa_buf, wrapper.terminal.gpa());
+    const alloc = sfa.allocator();
     const mimes = alloc.alloc([]const u8, c_mimes.len) catch return .out_of_memory;
     defer alloc.free(mimes);
     for (mimes, c_mimes) |*mime, c_mime| mime.* = c_mime.ptr[0..c_mime.len];

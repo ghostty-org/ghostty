@@ -1537,9 +1537,10 @@ pub const StreamHandler = struct {
         // We need the raw path, which might require unescaping. We try to
         // avoid making any heap allocations by using the stack first.
         var arena_alloc: std.heap.ArenaAllocator = .init(self.alloc);
-        var stack_alloc = std.heap.stackFallback(1024, arena_alloc.allocator());
+        var stack_alloc_buf: [1024]u8 = undefined;
+        var stack_alloc: std.heap.BufferFirstAllocator = .init(&stack_alloc_buf, arena_alloc.allocator());
         defer arena_alloc.deinit();
-        const path = try uri.path.toRawMaybeAlloc(stack_alloc.get());
+        const path = try uri.path.toRawMaybeAlloc(stack_alloc.allocator());
 
         log.debug("terminal pwd: {s}", .{path});
         try self.terminal.setPwd(path);
