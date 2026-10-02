@@ -151,10 +151,10 @@ pub export fn ghostty_cli_try_action() void {
 pub export fn ghostty_info() Info {
     return .{
         .mode = switch (builtin.mode) {
-            .Debug => .debug,
-            .ReleaseSafe => .release_safe,
-            .ReleaseFast => .release_fast,
-            .ReleaseSmall => .release_small,
+            .debug => .debug,
+            .safe => .release_safe,
+            .fast => .release_fast,
+            .small => .release_small,
         },
         .version = build_config.version_string.ptr,
         .version_len = build_config.version_string.len,

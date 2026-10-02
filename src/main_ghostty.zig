@@ -58,7 +58,7 @@ pub fn main(minimal: std.process.Init.Minimal) !MainReturn {
     defer global.deinit();
     const alloc = global.alloc();
 
-    if (comptime builtin.mode == .Debug) {
+    if (comptime builtin.mode == .debug) {
         std.log.warn("This is a debug build. Performance will be very poor.", .{});
         std.log.warn("You should only use a debug build for developing Ghostty.", .{});
         std.log.warn("Otherwise, please rebuild in a release mode.", .{});
@@ -150,7 +150,7 @@ fn logFn(
 
     stderr: {
         // don't log debug messages to stderr unless we are a debug build
-        if (comptime builtin.mode != .Debug and level == .debug) break :stderr;
+        if (comptime builtin.mode != .debug and level == .debug) break :stderr;
 
         // skip if we are not logging to stderr
         if (!global.logging().stderr) break :stderr;
@@ -206,7 +206,7 @@ pub const std_options: std.Options = .{
     // calculate and we want to make sure they're optimized out in
     // builds.
     .log_level = switch (builtin.mode) {
-        .Debug => .debug,
+        .debug => .debug,
         else => .info,
     },
 
