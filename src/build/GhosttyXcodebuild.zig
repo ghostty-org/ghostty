@@ -27,10 +27,10 @@ pub fn init(
     deps: Deps,
 ) !Ghostty {
     const xc_config = switch (config.optimize) {
-        .Debug => "Debug",
-        .ReleaseSafe,
-        .ReleaseSmall,
-        .ReleaseFast,
+        .debug => "Debug",
+        .safe,
+        .small,
+        .fast,
         => "ReleaseLocal",
     };
 

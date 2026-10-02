@@ -70,10 +70,10 @@ fn getTyped(
         .kitty_graphics => out.* = build_options.kitty_graphics,
         .tmux_control_mode => out.* = build_options.tmux_control_mode,
         .optimize => out.* = switch (builtin.mode) {
-            .Debug => .debug,
-            .ReleaseSafe => .release_safe,
-            .ReleaseSmall => .release_small,
-            .ReleaseFast => .release_fast,
+            .debug => .debug,
+            .safe => .release_safe,
+            .small => .release_small,
+            .fast => .release_fast,
         },
         .version_string => out.* = .{ .ptr = build_options.version_string.ptr, .len = build_options.version_string.len },
         .version_major => out.* = build_options.version_major,
@@ -124,10 +124,10 @@ test "get optimize" {
     var value: OptimizeMode = undefined;
     try testing.expectEqual(Result.success, get(.optimize, @ptrCast(&value)));
     try testing.expectEqual(switch (builtin.mode) {
-        .Debug => .debug,
-        .ReleaseSafe => .release_safe,
-        .ReleaseSmall => .release_small,
-        .ReleaseFast => .release_fast,
+        .debug => .debug,
+        .safe => .release_safe,
+        .small => .release_small,
+        .fast => .release_fast,
     }, value);
 }
 

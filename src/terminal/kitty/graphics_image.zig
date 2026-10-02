@@ -602,7 +602,7 @@ pub const LoadingImage = struct {
     /// Debug function to write the data to a file. This is useful for
     /// capturing some test data for unit tests.
     pub fn debugDump(io: std.Io, self: LoadingImage) !void {
-        if (comptime builtin.mode != .Debug) @compileError("debugDump in non-debug");
+        if (comptime builtin.mode != .debug) @compileError("debugDump in non-debug");
 
         var buf: [1024]u8 = undefined;
         const filename = try std.mem.print(

@@ -3766,7 +3766,7 @@ else
 /// debug builds, `false` for all others.
 ///
 /// Available since: 1.1.0
-@"gtk-opengl-debug": bool = builtin.mode == .Debug,
+@"gtk-opengl-debug": bool = builtin.mode == .debug,
 
 /// If `true`, the Ghostty GTK application will run in single-instance mode:
 /// each new `ghostty` process launched will result in a new window if there is
