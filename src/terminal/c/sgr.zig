@@ -63,7 +63,7 @@ pub fn setParams(
     parser.params = params_slice;
 
     // If we have separators, set that state too.
-    parser.params_sep = .initEmpty();
+    parser.params_sep = .empty;
     if (seps_) |seps| {
         if (len > @TypeOf(parser.params_sep).bit_length) {
             log.warn("ghostty_sgr_set_params: separators length {} exceeds max supported length {}", .{

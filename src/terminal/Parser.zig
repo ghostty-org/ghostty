@@ -229,7 +229,7 @@ pub fn init() Parser {
     var result: Parser = .{
         .state = .ground,
         .intermediates_idx = 0,
-        .params_sep = .initEmpty(),
+        .params_sep = .empty,
         .params_idx = 0,
         .param_acc = 0,
         .param_acc_idx = 0,
@@ -426,7 +426,7 @@ noinline fn warnCsiSepMismatch(csi: Action.CSI) void {
 pub inline fn clear(self: *Parser) void {
     self.intermediates_idx = 0;
     self.params_idx = 0;
-    self.params_sep = .initEmpty();
+    self.params_sep = .empty;
     self.param_acc = 0;
     self.param_acc_idx = 0;
 }
