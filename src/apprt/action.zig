@@ -447,7 +447,7 @@ pub const Action = union(Key) {
         const key_fields = @typeInfo(Key).@"enum".fields;
         var names: [key_fields.len][]const u8 = undefined;
         var types: [key_fields.len]type = undefined;
-        var attrs: [key_fields.len]std.builtin.Type.UnionField.Attributes = undefined;
+        var attrs: [key_fields.len]std.lang.Type.UnionField.Attributes = undefined;
 
         for (key_fields, &names, &types, &attrs) |field, *name, *ty, *attr| {
             const action = @unionInit(Action, field.name, undefined);

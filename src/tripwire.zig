@@ -218,7 +218,7 @@ pub fn module(
 
         /// Our calling convention is inline if our tripwire module is
         /// NOT enabled, so that all calls to `check` are optimized away.
-        fn callingConvention() std.builtin.CallingConvention {
+        fn callingConvention() std.lang.CallingConvention {
             return if (!enabled) .@"inline" else .auto;
         }
     };

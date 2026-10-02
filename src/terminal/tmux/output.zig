@@ -72,7 +72,7 @@ pub fn format(
 pub fn FormatStruct(comptime vars: []const Variable) type {
     var names: [vars.len][]const u8 = undefined;
     var types: [vars.len]type = undefined;
-    var attrs: [vars.len]std.builtin.Type.StructField.Attributes = undefined;
+    var attrs: [vars.len]std.lang.Type.StructField.Attributes = undefined;
 
     for (vars, &names, &types, &attrs) |variable, *name, *ty, *attr| {
         name.* = @tagName(variable);

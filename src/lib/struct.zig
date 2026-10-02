@@ -22,7 +22,7 @@ pub fn Struct(
             const info = @typeInfo(Zig).@"struct";
             var names: [info.fields.len][]const u8 = undefined;
             var types: [info.fields.len]type = undefined;
-            var attrs: [info.fields.len]std.builtin.Type.StructField.Attributes = undefined;
+            var attrs: [info.fields.len]std.lang.Type.StructField.Attributes = undefined;
 
             for (info.fields, &names, &types, &attrs) |field, *name, *ty, *attr| {
                 name.* = field.name;

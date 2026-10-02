@@ -17,7 +17,7 @@ const gtk = @import("gtk.zig");
 const GitVersion = @import("GitVersion.zig");
 
 /// Standard build configuration options.
-optimize: std.builtin.OptimizeMode,
+optimize: std.lang.Optimize,
 target: std.Build.ResolvedTarget,
 xcframework_target: XCFrameworkTarget = .universal,
 wasm_target: WasmTarget,
@@ -708,7 +708,7 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
 pub fn terminalOptions(
     self: *const Config,
     artifact: TerminalBuildOptions.Artifact,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
 ) TerminalBuildOptions {
     return .{
         .artifact = artifact,

@@ -1228,7 +1228,7 @@ pub const Action = union(enum) {
     }
 
     fn parseParameter(
-        comptime field: std.builtin.Type.UnionField,
+        comptime field: std.lang.Type.UnionField,
         param: []const u8,
     ) !field.type {
         const field_info = @typeInfo(field.type);
@@ -1474,7 +1474,7 @@ pub const Action = union(enum) {
         var i: comptime_int = 0;
         var names: [all_fields.len][]const u8 = undefined;
         var types: [all_fields.len]type = undefined;
-        var attrs: [all_fields.len]std.builtin.Type.UnionField.Attributes = undefined;
+        var attrs: [all_fields.len]std.lang.Type.UnionField.Attributes = undefined;
         var raw_values: [all_fields.len]comptime_int = undefined;
 
         for (all_fields) |field| {

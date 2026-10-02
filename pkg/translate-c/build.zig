@@ -52,7 +52,7 @@ pub const Options = struct {
     target: std.Build.ResolvedTarget,
 
     /// The optimization mode to perform translation as.
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
 
     /// Whether or not to link in libc. Generally you want this.
     link_libc: bool = true,

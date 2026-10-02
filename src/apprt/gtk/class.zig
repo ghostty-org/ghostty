@@ -147,7 +147,7 @@ pub fn Common(
                 /// target instead of the original class.
                 fn ImplementFunc(comptime T: type) type {
                     var types: [fn_info.params.len]type = undefined;
-                    var attrs: [fn_info.params.len]std.builtin.Type.Fn.Param.Attributes = undefined;
+                    var attrs: [fn_info.params.len]std.lang.Type.Fn.Param.Attributes = undefined;
 
                     for (fn_info.params, &types, &attrs) |info, *ty, *attr| {
                         ty.* = info.type.?;
