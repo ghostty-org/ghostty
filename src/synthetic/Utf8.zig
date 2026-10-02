@@ -122,7 +122,7 @@ fn writeValid(
 
         assert(std.unicode.utf8CodepointSequenceLength(
             cp,
-        ) catch unreachable == @intFromEnum(utf8_len));
+        ) catch unreachable == @backingInt(utf8_len));
 
         var buf: [4]u8 = undefined;
         const l = std.unicode.utf8Encode(
@@ -147,10 +147,10 @@ fn utf8Len(self: *Utf8, rem: usize) Utf8Len {
     const idx = self.rand.weightedIndex(f64, &self.p_length.values);
     var utf8_len = Indexer.keyForIndex(idx);
     assert(rem > 0);
-    while (@intFromEnum(utf8_len) > rem) {
+    while (@backingInt(utf8_len) > rem) {
         // If the chosen length can't fit into the remaining buffer,
         // choose a smaller length.
-        utf8_len = @enumFromInt(@intFromEnum(utf8_len) - 1);
+        utf8_len = @fromBackingInt(@backingInt(utf8_len) - 1);
     }
     return utf8_len;
 }

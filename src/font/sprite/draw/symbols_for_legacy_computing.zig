@@ -1395,7 +1395,7 @@ pub fn circle(
     var ctx = canvas.getContext();
     defer ctx.deinit();
     ctx.setSource(.{ .opaque_pattern = .{
-        .pixel = .{ .alpha8 = .{ .a = @intFromEnum(Shade.on) } },
+        .pixel = .{ .alpha8 = .{ .a = @backingInt(Shade.on) } },
     } });
     ctx.setLineWidth(
         @floatFromInt(Thickness.light.height(metrics.box_thickness)),

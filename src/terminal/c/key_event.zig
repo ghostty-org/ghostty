@@ -38,8 +38,8 @@ pub fn free(event_: Event) callconv(lib.calling_conv) void {
 
 pub fn set_action(event_: Event, action: key.Action) callconv(lib.calling_conv) void {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(key.Action, @intFromEnum(action)) orelse {
-            log.warn("set_action invalid action value={d}", .{@intFromEnum(action)});
+        _ = std.enums.fromInt(key.Action, @backingInt(action)) orelse {
+            log.warn("set_action invalid action value={d}", .{@backingInt(action)});
             return;
         };
     }
@@ -55,8 +55,8 @@ pub fn get_action(event_: Event) callconv(lib.calling_conv) key.Action {
 
 pub fn set_key(event_: Event, k: key.Key) callconv(lib.calling_conv) void {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(key.Key, @intFromEnum(k)) orelse {
-            log.warn("set_key invalid key value={d}", .{@intFromEnum(k)});
+        _ = std.enums.fromInt(key.Key, @backingInt(k)) orelse {
+            log.warn("set_key invalid key value={d}", .{@backingInt(k)});
             return;
         };
     }

@@ -47,7 +47,7 @@ pub const Binding = struct {
         _ = self;
         glad.context.RenderbufferStorage.?(
             c.GL_RENDERBUFFER,
-            @intCast(@intFromEnum(format)),
+            @intCast(@backingInt(format)),
             width,
             height,
         );

@@ -238,14 +238,14 @@ pub const Checksum = enum(u16) {
             result +%= c;
         }
 
-        return @enumFromInt(result);
+        return @fromBackingInt(result);
     }
 
     /// Convert the checksum to a 4-character hexadecimal string. This
     /// is always zero-padded to match the tmux implementation
     /// (in layout-custom.c).
     pub fn asString(self: Checksum) [4]u8 {
-        const value = @intFromEnum(self);
+        const value = @backingInt(self);
         const charset = "0123456789abcdef";
         return .{
             charset[(value >> 12) & 0xf],
@@ -557,14 +557,14 @@ test "parseWithChecksum missing comma" {
 
 test "checksum empty string" {
     const checksum = Checksum.calculate("");
-    try testing.expectEqual(@as(u16, 0), @intFromEnum(checksum));
+    try testing.expectEqual(@as(u16, 0), @backingInt(checksum));
     try testing.expectEqualStrings("0000", &checksum.asString());
 }
 
 test "checksum single character" {
     // 'A' = 65, first iteration: csum = 0 >> 1 | 0 = 0, then 0 + 65 = 65
     const checksum = Checksum.calculate("A");
-    try testing.expectEqual(@as(u16, 65), @intFromEnum(checksum));
+    try testing.expectEqual(@as(u16, 65), @backingInt(checksum));
     try testing.expectEqualStrings("0041", &checksum.asString());
 }
 
@@ -573,7 +573,7 @@ test "checksum two characters" {
     // 'B' (66): csum = 65, rotate => (65 >> 1) | ((65 & 1) << 15) = 32 | 32768 = 32800
     //           add 66 => 32800 + 66 = 32866
     const checksum = Checksum.calculate("AB");
-    try testing.expectEqual(@as(u16, 32866), @intFromEnum(checksum));
+    try testing.expectEqual(@as(u16, 32866), @backingInt(checksum));
     try testing.expectEqualStrings("8062", &checksum.asString());
 }
 
@@ -589,25 +589,25 @@ test "checksum horizontal split layout" {
 
 test "checksum asString zero padding" {
     // Value 0x000f should produce "000f"
-    const checksum: Checksum = @enumFromInt(0x000f);
+    const checksum: Checksum = @fromBackingInt(0x000f);
     try testing.expectEqualStrings("000f", &checksum.asString());
 }
 
 test "checksum asString all digits" {
     // Value 0x1234 should produce "1234"
-    const checksum: Checksum = @enumFromInt(0x1234);
+    const checksum: Checksum = @fromBackingInt(0x1234);
     try testing.expectEqualStrings("1234", &checksum.asString());
 }
 
 test "checksum asString with letters" {
     // Value 0xabcd should produce "abcd"
-    const checksum: Checksum = @enumFromInt(0xabcd);
+    const checksum: Checksum = @fromBackingInt(0xabcd);
     try testing.expectEqualStrings("abcd", &checksum.asString());
 }
 
 test "checksum asString max value" {
     // Value 0xffff should produce "ffff"
-    const checksum: Checksum = @enumFromInt(0xffff);
+    const checksum: Checksum = @fromBackingInt(0xffff);
     try testing.expectEqualStrings("ffff", &checksum.asString());
 }
 
@@ -627,7 +627,7 @@ test "checksum deterministic" {
 test "checksum different inputs different outputs" {
     const checksum1 = Checksum.calculate("80x24,0,0,1");
     const checksum2 = Checksum.calculate("80x24,0,0,2");
-    try testing.expect(@intFromEnum(checksum1) != @intFromEnum(checksum2));
+    try testing.expect(@backingInt(checksum1) != @backingInt(checksum2));
 }
 
 test "checksum known tmux layout bb62" {

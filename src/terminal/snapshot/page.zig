@@ -942,7 +942,7 @@ test "framed PAGE rejects a different record tag" {
     std.mem.writeInt(
         u16,
         wrong_tag[0..2],
-        @intFromEnum(record.Tag.screen),
+        @backingInt(record.Tag.screen),
         .little,
     );
     var reader: std.Io.Reader = .fixed(&wrong_tag);

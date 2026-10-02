@@ -119,7 +119,7 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Option, @intFromEnum(option)) orelse {
+        _ = std.enums.fromInt(Option, @backingInt(option)) orelse {
             return .invalid_value;
         };
     }

@@ -587,32 +587,32 @@ fn encodeCharsetState(
 ) error{InvalidCharsetState}!u16 {
     const g0 = std.math.cast(
         u2,
-        @intFromEnum(value.charsets.get(.G0)),
+        @backingInt(value.charsets.get(.G0)),
     ) orelse return error.InvalidCharsetState;
     const g1 = std.math.cast(
         u2,
-        @intFromEnum(value.charsets.get(.G1)),
+        @backingInt(value.charsets.get(.G1)),
     ) orelse return error.InvalidCharsetState;
     const g2 = std.math.cast(
         u2,
-        @intFromEnum(value.charsets.get(.G2)),
+        @backingInt(value.charsets.get(.G2)),
     ) orelse return error.InvalidCharsetState;
     const g3 = std.math.cast(
         u2,
-        @intFromEnum(value.charsets.get(.G3)),
+        @backingInt(value.charsets.get(.G3)),
     ) orelse return error.InvalidCharsetState;
     const gl = std.math.cast(
         u2,
-        @intFromEnum(value.gl),
+        @backingInt(value.gl),
     ) orelse return error.InvalidCharsetState;
     const gr = std.math.cast(
         u2,
-        @intFromEnum(value.gr),
+        @backingInt(value.gr),
     ) orelse return error.InvalidCharsetState;
     const single_shift: u3 = if (value.single_shift) |slot| single_shift: {
         const raw = std.math.cast(
             u2,
-            @intFromEnum(slot),
+            @backingInt(slot),
         ) orelse return error.InvalidCharsetState;
         break :single_shift @as(u3, raw) + 1;
     } else 0;
@@ -954,37 +954,37 @@ pub const Header = struct {
         }
 
         // Screen identity, expected history extent, and cursor position.
-        try io.writeInt(writer, u16, @intCast(@intFromEnum(self.key)));
+        try io.writeInt(writer, u16, @intCast(@backingInt(self.key)));
         try io.writeInt(writer, u16, self.page_count);
         try io.writeInt(writer, u64, self.history_rows);
         try io.writeInt(writer, u16, self.cursor_x);
         try io.writeInt(writer, u16, self.cursor_y);
 
         // Current cursor rendering state.
-        try writer.writeByte(@intCast(@intFromEnum(self.cursor_style)));
+        try writer.writeByte(@intCast(@backingInt(self.cursor_style)));
         try writer.writeByte(@bitCast(self.cursor_flags));
         try style.encode(self.cursor_pen, writer);
         try io.writeInt(writer, u32, self.hyperlink_implicit_id);
 
         // Charset and selective-erase state.
         try io.writeInt(writer, u16, charset);
-        try writer.writeByte(@intCast(@intFromEnum(self.protected_mode)));
+        try writer.writeByte(@intCast(@backingInt(self.protected_mode)));
 
         // Keyboard modes and semantic-click state.
         try writer.writeByte(self.kitty_keyboard.index);
         for (self.kitty_keyboard.flags) |flags| {
             try writer.writeByte(@bitCast(flags));
         }
-        try writer.writeByte(@intCast(@intFromEnum(
+        try writer.writeByte(@intCast(@backingInt(
             std.meta.activeTag(self.semantic_click),
         )));
         switch (self.semantic_click) {
             .none => try writer.writeByte(0),
             .click_events => |value| try writer.writeByte(
-                @intCast(@intFromEnum(value)),
+                @intCast(@backingInt(value)),
             ),
             .cl => |value| try writer.writeByte(
-                @intCast(@intFromEnum(value)),
+                @intCast(@backingInt(value)),
             ),
         }
 
@@ -1263,7 +1263,7 @@ test "native enum values used by the SCREEN format" {
     for (keys, 0..) |value, expected| {
         try std.testing.expectEqual(
             expected,
-            @as(usize, @intCast(@intFromEnum(value))),
+            @as(usize, @intCast(@backingInt(value))),
         );
     }
 
@@ -1276,7 +1276,7 @@ test "native enum values used by the SCREEN format" {
     for (cursor_styles, 0..) |value, expected| {
         try std.testing.expectEqual(
             expected,
-            @as(usize, @intCast(@intFromEnum(value))),
+            @as(usize, @intCast(@backingInt(value))),
         );
     }
 
@@ -1288,7 +1288,7 @@ test "native enum values used by the SCREEN format" {
     for (semantic_contents, 0..) |value, expected| {
         try std.testing.expectEqual(
             expected,
-            @as(usize, @intCast(@intFromEnum(value))),
+            @as(usize, @intCast(@backingInt(value))),
         );
     }
 
@@ -1301,7 +1301,7 @@ test "native enum values used by the SCREEN format" {
     for (charsets, 0..) |value, expected| {
         try std.testing.expectEqual(
             expected,
-            @as(usize, @intCast(@intFromEnum(value))),
+            @as(usize, @intCast(@backingInt(value))),
         );
     }
 
@@ -1309,7 +1309,7 @@ test "native enum values used by the SCREEN format" {
     for (slots, 0..) |value, expected| {
         try std.testing.expectEqual(
             expected,
-            @as(usize, @intCast(@intFromEnum(value))),
+            @as(usize, @intCast(@backingInt(value))),
         );
     }
 
@@ -1321,7 +1321,7 @@ test "native enum values used by the SCREEN format" {
     for (protected_modes, 0..) |value, expected| {
         try std.testing.expectEqual(
             expected,
-            @as(usize, @intCast(@intFromEnum(value))),
+            @as(usize, @intCast(@backingInt(value))),
         );
     }
 
@@ -1333,7 +1333,7 @@ test "native enum values used by the SCREEN format" {
     for (click_kinds, 0..) |value, expected| {
         try std.testing.expectEqual(
             expected,
-            @as(usize, @intCast(@intFromEnum(value))),
+            @as(usize, @intCast(@backingInt(value))),
         );
     }
 
@@ -1344,7 +1344,7 @@ test "native enum values used by the SCREEN format" {
     for (click_events, 0..) |value, expected| {
         try std.testing.expectEqual(
             expected,
-            @as(usize, @intCast(@intFromEnum(value))),
+            @as(usize, @intCast(@backingInt(value))),
         );
     }
 
@@ -1357,7 +1357,7 @@ test "native enum values used by the SCREEN format" {
     for (clicks, 0..) |value, expected| {
         try std.testing.expectEqual(
             expected,
-            @as(usize, @intCast(@intFromEnum(value))),
+            @as(usize, @intCast(@backingInt(value))),
         );
     }
 }

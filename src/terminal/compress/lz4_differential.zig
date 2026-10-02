@@ -408,7 +408,7 @@ fn runSuite(budget: Budget, seed: u64) !void {
     // Small inputs hit the literal-only format edges: below the minimum
     // match sizes, around nibble limits, and around extension steps.
     inline for (@typeInfo(Generator).@"enum".fields) |field| {
-        const gen: Generator = @enumFromInt(field.value);
+        const gen: Generator = @fromBackingInt(field.value);
 
         for (boundary_sizes) |size| {
             const input = ws.input[0..size];

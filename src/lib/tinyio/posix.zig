@@ -377,7 +377,7 @@ pub fn dirRealPathFile(
                 std.debug.assert(redundant_pointer == out_buffer.ptr);
                 return std.mem.indexOfScalar(u8, out_buffer, 0) orelse out_buffer.len;
             }
-            switch (@as(posix.E, @enumFromInt(std.c._errno().*))) {
+            switch (@as(posix.E, @fromBackingInt(@intCast(std.c._errno().*)))) {
                 .INTR => continue,
                 .ACCES => return error.AccessDenied,
                 .NOENT => return error.FileNotFound,
@@ -511,7 +511,7 @@ pub fn futexWaitInner(ptr: *const u32, expected: u32, timeout_ns: ?u64) void {
             };
             const status = c.__ulock_wait(flags, ptr, expected, us);
             if (status >= 0) return;
-            switch (@as(c.E, @enumFromInt(-status))) {
+            switch (@as(c.E, @fromBackingInt(-status))) {
                 .INTR => {}, // spurious wake
                 .FAULT => {}, // futex address paged out; caller retries
                 .TIMEDOUT => {},
@@ -520,7 +520,7 @@ pub fn futexWaitInner(ptr: *const u32, expected: u32, timeout_ns: ?u64) void {
         },
 
         .freebsd => {
-            const flags = @intFromEnum(std.c.UMTX_OP.WAIT_UINT_PRIVATE);
+            const flags = @backingInt(std.c.UMTX_OP.WAIT_UINT_PRIVATE);
             var tm_size: usize = 0;
             var tm: std.c._umtx_time = undefined;
             var tm_ptr: ?*const std.c._umtx_time = null;
@@ -585,7 +585,7 @@ pub fn futexWake(userdata: ?*anyopaque, ptr: *const u32, max_waiters: u32) void 
             while (true) {
                 const status = c.__ulock_wake(flags, ptr, 0);
                 if (status >= 0) return;
-                switch (@as(c.E, @enumFromInt(-status))) {
+                switch (@as(c.E, @fromBackingInt(-status))) {
                     .INTR, .CANCELED => continue, // spurious wake
                     else => return,
                 }
@@ -595,7 +595,7 @@ pub fn futexWake(userdata: ?*anyopaque, ptr: *const u32, max_waiters: u32) void 
         .freebsd => {
             _ = std.c._umtx_op(
                 @intFromPtr(ptr),
-                @intFromEnum(std.c.UMTX_OP.WAKE_PRIVATE),
+                @backingInt(std.c.UMTX_OP.WAKE_PRIVATE),
                 @min(max_waiters, std.math.maxInt(c_ulong)),
                 0,
                 0,

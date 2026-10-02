@@ -191,7 +191,7 @@ pub const Style = struct {
             .palette => |idx| palette: {
                 if (self.flags.bold) {
                     if (opts.bold) |_| {
-                        const bright_offset = @intFromEnum(color.Name.bright_black);
+                        const bright_offset = @backingInt(color.Name.bright_black);
                         if (idx < bright_offset) {
                             break :palette opts.palette[idx + bright_offset];
                         }

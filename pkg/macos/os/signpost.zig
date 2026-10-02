@@ -112,8 +112,8 @@ fn emitWithName(
     c._os_signpost_emit_with_name_impl(
         __dso_handle,
         @ptrCast(log),
-        @intFromEnum(typ),
-        @intFromEnum(id),
+        @backingInt(typ),
+        @backingInt(id),
         name.ptr,
         "".ptr,
         &buf,
@@ -135,7 +135,7 @@ pub const Id = enum(u64) {
     ///
     /// https://developer.apple.com/documentation/os/os_signpost_id_generate?language=objc
     pub fn generate(log: *Log) Id {
-        return @enumFromInt(c.os_signpost_id_generate(@ptrCast(log)));
+        return @fromBackingInt(c.os_signpost_id_generate(@ptrCast(log)));
     }
 
     /// Creates a signpost ID based on a pointer value.
@@ -146,7 +146,7 @@ pub const Id = enum(u64) {
     ///
     /// https://developer.apple.com/documentation/os/os_signpost_id_for_pointer?language=objc
     pub fn forPointer(log: *Log, ptr: ?*anyopaque) Id {
-        return @enumFromInt(c.os_signpost_id_make_with_pointer(
+        return @fromBackingInt(c.os_signpost_id_make_with_pointer(
             @ptrCast(log),
             @ptrCast(ptr),
         ));

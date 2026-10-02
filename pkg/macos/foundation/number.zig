@@ -10,7 +10,7 @@ pub const Number = opaque {
     ) Allocator.Error!*Number {
         return @as(?*Number, @ptrFromInt(@intFromPtr(c.CFNumberCreate(
             null,
-            @intFromEnum(type_),
+            @backingInt(type_),
             value,
         )))) orelse Allocator.Error.OutOfMemory;
     }
@@ -18,7 +18,7 @@ pub const Number = opaque {
     pub fn getValue(self: *const Number, comptime t: NumberType, ptr: *t.ValueType()) bool {
         return c.CFNumberGetValue(
             @ptrCast(self),
-            @intFromEnum(t),
+            @backingInt(t),
             ptr,
         ) == 1;
     }
