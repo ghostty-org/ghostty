@@ -379,12 +379,12 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         if (!(target.result.os.tag == .linux) or !target.query.isNativeCpu()) break :patch_interp;
         if (env.get("IN_NIX_SHELL") == null) break :patch_interp;
 
-        if (b.findProgram(&.{"ld.so"}, &.{})) |ld_so| {
+        if (b.findProgram(.{ .names = &.{"ld.so"} })) |ld_so| {
             PatchElf.setInterp(
                 &config,
                 std.Io.Dir.realPathFileAbsoluteAlloc(b.graph.io, ld_so, b.allocator) catch break :patch_interp,
             );
-        } else |_| {}
+        } else {}
     }
 
     if (b.option(

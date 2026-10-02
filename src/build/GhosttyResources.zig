@@ -86,31 +86,12 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
             run_step.addFileArg(source);
             _ = run_step.captureStdErr(.{}); // so we don't see stderr
 
-            // Ensure that `share/terminfo` is a directory, otherwise the `cp
-            // -R` will create a file named `share/terminfo`
-            const mkdir_step = RunStep.create(b, "make share/terminfo directory");
-            switch (cfg.target.result.os.tag) {
-                // windows mkdir shouldn't need "-p"
-                .windows => mkdir_step.addArgs(&.{"mkdir"}),
-                else => mkdir_step.addArgs(&.{ "mkdir", "-p" }),
-            }
-
-            mkdir_step.addArg(b.fmt(
-                "{s}/share/{s}",
-                .{ b.install_path, terminfo_share_dir },
-            ));
-
-            try steps.append(b.allocator, &mkdir_step.step);
-
-            // Use cp -R instead of Step.InstallDir because we need to preserve
-            // symlinks in the terminfo database. Zig's InstallDir step doesn't
-            // handle symlinks correctly yet.
-            const copy_step = RunStep.create(b, "copy terminfo db");
-            copy_step.addArgs(&.{ "cp", "-R" });
-            copy_step.addFileArg(path);
-            copy_step.addArg(b.fmt("{s}/share", .{b.install_path}));
-            copy_step.step.dependOn(&mkdir_step.step);
-            try steps.append(b.allocator, &copy_step.step);
+            const install_step = b.addInstallDirectory(.{
+                .source_dir = path,
+                .install_dir = .{ .custom = "share" },
+                .install_subdir = terminfo_share_dir,
+            });
+            try steps.append(b.allocator, &install_step.step);
         }
     }
 
@@ -279,11 +260,6 @@ fn addLinuxAppResources(
         },
     });
 
-    const exe_abs_path = b.fmt(
-        "{s}/bin/ghostty",
-        .{b.install_prefix},
-    );
-
     // The templates that we will process. The templates are in
     // cmake format and will be processed and saved to the
     // second element of the tuple.
@@ -352,7 +328,6 @@ fn addLinuxAppResources(
         }, .{
             .NAME = name,
             .APPID = app_id,
-            .GHOSTTY = exe_abs_path,
         });
 
         // Template output has a single header line we want to remove.
