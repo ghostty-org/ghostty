@@ -471,7 +471,7 @@ test "OSC 4:" {
     }
 
     // Test every special color
-    for (0..@typeInfo(SpecialColor).@"enum".fields.len) |i| {
+    for (0..@typeInfo(SpecialColor).@"enum".field_names.len) |i| {
         const special = std.enums.fromInt(SpecialColor, i) orelse return error.InvalidEnumValue;
 
         // Simple color set
@@ -503,7 +503,7 @@ test "OSC 5:" {
     const alloc = testing.allocator;
 
     // Test every special color
-    for (0..@typeInfo(SpecialColor).@"enum".fields.len) |i| {
+    for (0..@typeInfo(SpecialColor).@"enum".field_names.len) |i| {
         const special = std.enums.fromInt(SpecialColor, i) orelse return error.InvalidEnumValue;
 
         // Simple color set
@@ -613,7 +613,7 @@ test "OSC 104:" {
     }
 
     // Test every special color
-    for (0..@typeInfo(SpecialColor).@"enum".fields.len) |i| {
+    for (0..@typeInfo(SpecialColor).@"enum".field_names.len) |i| {
         const special = std.enums.fromInt(SpecialColor, i) orelse return error.InvalidEnumValue;
 
         // Simple color set
@@ -698,12 +698,10 @@ test "OSC 10: OSC 11: OSC 12: OSC: 13: OSC 14: OSC 15: OSC: 16: OSC 17: OSC 18: 
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    inline for (@typeInfo(DynamicColor).@"enum".fields) |field| {
-        const color = @field(DynamicColor, field.name);
-        const op = @field(Operation, std.fmt.comptimePrint(
-            "osc_{d}",
-            .{field.value},
-        ));
+    const info = @typeInfo(DynamicColor).@"enum";
+    inline for (info.field_names, info.field_values) |field, value| {
+        const color = @field(DynamicColor, field);
+        const op = @field(Operation, std.fmt.comptimePrint("osc_{d}", .{value}));
 
         // Example script:
         // printf '\e]10;red\e\\'
@@ -758,12 +756,10 @@ test "OSC 110: OSC 111: OSC 112: OSC: 113: OSC 114: OSC 115: OSC: 116: OSC 117: 
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    inline for (@typeInfo(DynamicColor).@"enum".fields) |field| {
-        const color = @field(DynamicColor, field.name);
-        const op = @field(Operation, std.fmt.comptimePrint(
-            "osc_1{d}",
-            .{field.value},
-        ));
+    const info = @typeInfo(DynamicColor).@"enum";
+    inline for (info.field_names, info.field_values) |field, value| {
+        const color = @field(DynamicColor, field);
+        const op = @field(Operation, std.fmt.comptimePrint("osc_1{d}", .{value}));
 
         // Example script:
         // printf '\e]110\e\\'

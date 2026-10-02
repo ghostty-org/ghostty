@@ -113,7 +113,7 @@ pub fn checkGhosttyHEnum(
 
     try std.testing.expect(info == .@"enum");
     try std.testing.expect(info.@"enum".tag_type == c_int);
-    try std.testing.expect(info.@"enum".is_exhaustive == true);
+    try std.testing.expect(info.@"enum".mode == .exhaustive);
 
     @setEvalBranchQuota(100_000);
 
@@ -121,28 +121,29 @@ pub fn checkGhosttyHEnum(
 
     var set: std.EnumSet(T) = .full;
 
-    const enum_fields = info.@"enum".fields;
+    const enum_fields = info.@"enum".field_names;
+    const enum_values = info.@"enum".field_values;
 
-    inline for (enum_fields) |field| {
-        const expected_name: *const [prefix.len + field.name.len]u8 = comptime e: {
-            var buf: [prefix.len + field.name.len]u8 = undefined;
+    inline for (enum_fields, enum_values) |field, value| {
+        const expected_name: *const [prefix.len + field.len]u8 = comptime e: {
+            var buf: [prefix.len + field.len]u8 = undefined;
             @memcpy(buf[0..prefix.len], prefix);
-            for (buf[prefix.len..], field.name) |*d, s| {
+            for (buf[prefix.len..], field) |*d, s| {
                 d.* = std.ascii.toUpper(s);
             }
             break :e &buf;
         };
 
         if (@hasDecl(c, expected_name)) {
-            std.testing.expectEqual(field.value, @field(c, expected_name)) catch |e| {
+            std.testing.expectEqual(value, @field(c, expected_name)) catch |e| {
                 std.log.err(
                     "{s} key {s} does not have the same backing int as " ++ expected_name,
-                    .{ @typeName(T), field.name },
+                    .{ @typeName(T), field },
                 );
                 return e;
             };
 
-            set.remove(@fromBackingInt(field.value));
+            set.remove(@fromBackingInt(value));
         }
     }
 

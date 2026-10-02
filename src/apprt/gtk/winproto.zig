@@ -33,14 +33,14 @@ pub const App = union(Protocol) {
         app_id: [:0]const u8,
         config: *const Config,
     ) !App {
-        inline for (@typeInfo(App).@"union".fields) |field| {
-            if (try field.type.init(
+        inline for (@typeInfo(App).@"union".field_names, @typeInfo(App).@"union".field_types) |field_name, field_type| {
+            if (try field_type.init(
                 alloc,
                 gdk_display,
                 app_id,
                 config,
             )) |v| {
-                return @unionInit(App, field.name, v);
+                return @unionInit(App, field_name, v);
             }
         }
 
@@ -119,15 +119,15 @@ pub const Window = union(Protocol) {
     ) !Window {
         return switch (app.*) {
             inline else => |*v, tag| {
-                inline for (@typeInfo(Window).@"union".fields) |field| {
+                inline for (@typeInfo(Window).@"union".field_names, @typeInfo(Window).@"union".field_types) |field_name, field_type| {
                     if (comptime std.mem.eql(
                         u8,
-                        field.name,
+                        field_name,
                         @tagName(tag),
                     )) return @unionInit(
                         Window,
-                        field.name,
-                        try field.type.init(
+                        field_name,
+                        try field_type.init(
                             alloc,
                             v,
                             apprt_window,

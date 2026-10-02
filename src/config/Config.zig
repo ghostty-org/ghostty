@@ -4497,15 +4497,15 @@ pub fn changeConditionalState(
     // If the conditional state between the old and new is the same,
     // then we don't need to do anything.
     relevant: {
-        inline for (@typeInfo(conditional.Key).@"enum".fields) |field| {
-            const key: conditional.Key = @field(conditional.Key, field.name);
+        inline for (@typeInfo(conditional.Key).@"enum".field_names) |field| {
+            const key: conditional.Key = @field(conditional.Key, field);
 
             // Conditional set contains the keys that this config uses. So we
             // only continue if we use this key.
             if (self._conditional_set.contains(key) and !deepEqual(
-                @TypeOf(@field(self._conditional_state, field.name)),
-                @field(self._conditional_state, field.name),
-                @field(new, field.name),
+                @TypeOf(@field(self._conditional_state, field)),
+                @field(self._conditional_state, field),
+                @field(new, field),
             )) {
                 break :relevant;
             }
@@ -4545,17 +4545,17 @@ fn expandPaths(self: *Config, base: []const u8) !void {
     );
 
     // Expand all of our paths
-    inline for (@typeInfo(Config).@"struct".fields) |field| {
-        switch (field.type) {
+    inline for (@typeInfo(Config).@"struct".field_names, @typeInfo(Config).@"struct".field_types) |field, field_type| {
+        switch (field_type) {
             RepeatablePath, Path => {
-                try @field(self, field.name).expand(
+                try @field(self, field).expand(
                     arena_alloc,
                     base,
                     &self._diagnostics,
                 );
             },
             ?RepeatablePath, ?Path => {
-                if (@field(self, field.name)) |*path| {
+                if (@field(self, field)) |*path| {
                     try path.expand(
                         arena_alloc,
                         base,
@@ -5155,12 +5155,12 @@ pub fn clone(
     const alloc_arena = result._arena.?.allocator();
 
     // Copy our values
-    inline for (@typeInfo(Config).@"struct".fields) |field| {
-        if (!@hasField(Key, field.name)) continue;
-        @field(result, field.name) = try cloneValue(
+    inline for (@typeInfo(Config).@"struct".field_names, @typeInfo(Config).@"struct".field_types) |field, field_type| {
+        if (!@hasField(Key, field)) continue;
+        @field(result, field) = try cloneValue(
             alloc_arena,
-            field.type,
-            @field(self, field.name),
+            field_type,
+            @field(self, field),
         );
     }
 
@@ -5248,19 +5248,19 @@ pub fn changeIterator(old: *const Config, new: *const Config) ChangeIterator {
 pub fn changed(self: *const Config, new: *const Config, comptime key: Key) bool {
     // Get the field at comptime
     const field = comptime field: {
-        const fields = std.meta.fields(Config);
-        for (fields) |field| {
-            if (@field(Key, field.name) == key) {
-                break :field field;
+        const fields = @typeInfo(Config).@"struct".field_names;
+        for (fields) |field_name| {
+            if (@field(Key, field_name) == key) {
+                break :field field_name;
             }
         }
 
         unreachable;
     };
 
-    const old_value = @field(self, field.name);
-    const new_value = @field(new, field.name);
-    return !deepEqual(field.type, old_value, new_value);
+    const old_value = @field(self, field);
+    const new_value = @field(new, field);
+    return !deepEqual(@FieldType(Config, field), old_value, new_value);
 }
 
 /// This yields a key for every changed field between old and new.
@@ -5270,12 +5270,11 @@ pub const ChangeIterator = struct {
     i: usize = 0,
 
     pub fn next(self: *ChangeIterator) ?Key {
-        const fields = comptime std.meta.fields(Key);
+        const fields = comptime @typeInfo(Key).@"enum".field_names;
         while (self.i < fields.len) {
             switch (self.i) {
                 inline 0...(fields.len - 1) => |i| {
-                    const field = fields[i];
-                    const key = @field(Key, field.name);
+                    const key = @field(Key, fields[i]);
                     self.i += 1;
                     if (self.old.changed(self.new, key)) return key;
                 },
@@ -7577,10 +7576,10 @@ pub const Keybinds = struct {
             if (docs) {
                 try formatter.writer.writeAll("\n");
                 const name = @tagName(v);
-                inline for (@typeInfo(help_strings.KeybindAction).@"struct".decls) |decl| {
-                    if (std.mem.eql(u8, decl.name, name)) {
-                        const help = @field(help_strings.KeybindAction, decl.name);
-                        try formatter.writer.writeAll("# " ++ decl.name ++ "\n");
+                inline for (@typeInfo(help_strings.KeybindAction).@"struct".decl_names) |decl| {
+                    if (std.mem.eql(u8, decl, name)) {
+                        const help = @field(help_strings.KeybindAction, decl);
+                        try formatter.writer.writeAll("# " ++ decl ++ "\n");
                         var lines = std.mem.splitScalar(u8, help, '\n');
                         while (lines.next()) |line| {
                             try formatter.writer.writeAll("#   ");
@@ -9909,7 +9908,7 @@ pub const BackgroundBlur = union(enum) {
         )) |v| switch (v) {
             inline else => |tag| tag: {
                 // We can only parse void types
-                const info_ty = @typeInfo(BackgroundBlur).field_types[@backingInt(tag)];
+                const info_ty = @typeInfo(BackgroundBlur).@"union".field_types[@backingInt(tag)];
                 if (info_ty != void) break :tag;
                 self.* = @unionInit(
                     BackgroundBlur,

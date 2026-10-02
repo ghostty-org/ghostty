@@ -37,19 +37,19 @@ pub const FileFormatter = struct {
             null;
         defer if (default) |*v| v.deinit();
 
-        inline for (@typeInfo(Config).@"struct".fields) |field| {
-            if (field.name[0] == '_') continue;
+        inline for (@typeInfo(Config).@"struct".field_names, @typeInfo(Config).@"struct".field_types) |field, field_type| {
+            if (field[0] == '_') continue;
 
-            const value = @field(self.config, field.name);
+            const value = @field(self.config, field);
             const do_format = if (default) |*d| format: {
-                const key = @field(Key, field.name);
+                const key = @field(Key, field);
                 break :format d.changed(self.config, key);
             } else true;
 
             if (do_format) {
-                const do_docs = self.docs and @hasDecl(help_strings.Config, field.name);
+                const do_docs = self.docs and @hasDecl(help_strings.Config, field);
                 if (do_docs) {
-                    const help = @field(help_strings.Config, field.name);
+                    const help = @field(help_strings.Config, field);
                     var lines = std.mem.splitScalar(u8, help, '\n');
                     while (lines.next()) |line| {
                         try writer.print("# {s}\n", .{line});
@@ -57,8 +57,8 @@ pub const FileFormatter = struct {
                 }
 
                 formatter.formatEntry(
-                    field.type,
-                    field.name,
+                    field_type,
+                    field,
                     value,
                     writer,
                 ) catch return error.WriteFailed;
