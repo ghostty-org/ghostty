@@ -163,7 +163,7 @@ pub const Shaders = struct {
 pub const Uniforms = extern struct {
     /// The projection matrix for turning world coordinates to normalized.
     /// This is calculated based on the size of the screen.
-    projection_matrix: math.Mat align(16),
+    projection_matrix: [4][4]f32 align(16),
 
     /// Size of the screen (render target) in pixels.
     screen_size: [2]f32 align(8),
