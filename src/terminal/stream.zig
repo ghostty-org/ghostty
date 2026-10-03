@@ -5399,6 +5399,9 @@ test "stream: continuation allocation failure recovers" {
     @memset(input[2..], '1');
 
     failing.fail_index = failing.alloc_index;
+    // ArrayList growth remaps in place, which bypasses fail_index, so arm
+    // the resize failure index too.
+    failing.resize_fail_index = failing.resize_index;
     stream.nextSlice(input);
     var unavailable_buf: [1]u8 = undefined;
     var unavailable_writer: std.Io.Writer = .fixed(&unavailable_buf);
@@ -5408,6 +5411,7 @@ test "stream: continuation allocation failure recovers" {
     );
 
     failing.fail_index = std.math.maxInt(usize);
+    failing.resize_fail_index = std.math.maxInt(usize);
     stream.next('m');
     var recovered_buf: [1]u8 = undefined;
     var recovered_writer: std.Io.Writer = .fixed(&recovered_buf);
