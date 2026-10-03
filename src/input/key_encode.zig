@@ -2266,6 +2266,22 @@ test "legacy: ctrl+shift+backspace" {
     try testing.expectEqualStrings("\x08", writer.buffered());
 }
 
+test "legacy: ctrl+alt+shift+backspace" {
+    const event: key.KeyEvent = .{
+        .key = .backspace,
+        .mods = .{ .ctrl = true, .alt = true, .shift = true },
+    };
+
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, event, .{});
+    try testing.expectEqualStrings("\x1b\x08", writer.buffered());
+
+    writer = .fixed(&buf);
+    try legacy(&writer, event, .{ .modify_other_keys_state_2 = true });
+    try testing.expectEqualStrings("\x1b[27;8;127~", writer.buffered());
+}
+
 test "legacy: backspace (DECBKM reset)" {
     var buf: [128]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);
