@@ -491,14 +491,14 @@ const MotifWMHints = extern struct {
         decorations: bool = false,
 
         // We don't really care about the other flags
-        _rest: std.meta.Int(.unsigned, @bitSizeOf(c_ulong) - 2) = 0,
+        _rest: @Int(.unsigned, @bitSizeOf(c_ulong) - 2) = 0,
     } = .{},
     functions: c_ulong = 0,
     decorations: packed struct(c_ulong) {
         all: bool = false,
 
         // We don't really care about the other flags
-        _rest: std.meta.Int(.unsigned, @bitSizeOf(c_ulong) - 1) = 0,
+        _rest: @Int(.unsigned, @bitSizeOf(c_ulong) - 1) = 0,
     } = .{},
     input_mode: c_long = 0,
     status: c_ulong = 0,
