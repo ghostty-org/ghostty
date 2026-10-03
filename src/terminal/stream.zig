@@ -808,7 +808,7 @@ pub fn Stream(comptime H: type) type {
                                 const v: V = cps[end..][0..lanes].*;
                                 const stop = (v & mask) == zero;
                                 if (@reduce(.Or, stop)) {
-                                    const bits: std.meta.Int(.unsigned, lanes) = @bitCast(stop);
+                                    const bits: @Int(.unsigned, lanes) = @bitCast(stop);
                                     end += @ctz(bits);
                                     break :scan;
                                 }

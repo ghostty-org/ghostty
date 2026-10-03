@@ -42,7 +42,7 @@ pub const FlatpakHostCommand = struct {
         clear_env: bool = false,
         /// Kill the sandbox when the caller disappears from the session bus
         watch_bus: bool = false,
-        _reserved: std.meta.Int(.unsigned, @bitSizeOf(c_uint) - 2) = 0,
+        _reserved: @Int(.unsigned, @bitSizeOf(c_uint) - 2) = 0,
     };
 
     /// Argv are the arguments to call on the host with argv[0] being

@@ -2416,7 +2416,7 @@ fn fieldMask(
         }
 
         // The type that fits all the bits we need to set.
-        const Ones = std.meta.Int(.unsigned, @bitSizeOf(Field));
+        const Ones = @Int(.unsigned, @bitSizeOf(Field));
 
         // Mask out the ones
         mask |= @as(Int, std.math.maxInt(Ones)) << offset;
@@ -2581,7 +2581,7 @@ pub fn Mask(
                 return group_len;
             }
 
-            const ok_bits: std.meta.Int(
+            const ok_bits: @Int(
                 .unsigned,
                 group_len,
             ) = @bitCast(ok);
