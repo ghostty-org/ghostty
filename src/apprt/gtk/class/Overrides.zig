@@ -52,7 +52,7 @@ pub fn parse(arena_alloc: Allocator, arguments_it: *glib.VariantIter) ParseError
         log.debug("argument: {d} {s}", .{ i, str });
 
         if (e_seen) {
-            const copy = arena_alloc.dupeZ(u8, str) catch |err| {
+            const copy = arena_alloc.dupeSentinel(u8, str, 0) catch |err| {
                 log.warn("unable to duplicate argument {d} {s}: {t}", .{ i, str, err });
                 return err;
             };
@@ -93,7 +93,7 @@ pub fn parse(arena_alloc: Allocator, arguments_it: *glib.VariantIter) ParseError
         }
 
         if (std.mem.cutPrefix(u8, str, "--working-directory=")) |v| {
-            working_directory = arena_alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| {
+            working_directory = arena_alloc.dupeSentinel(u8, std.mem.trim(u8, v, &std.ascii.whitespace), 0) catch |err| {
                 log.warn("unable to duplicate working directory: {t}", .{err});
                 return err;
             };
@@ -101,7 +101,7 @@ pub fn parse(arena_alloc: Allocator, arguments_it: *glib.VariantIter) ParseError
         }
 
         if (std.mem.cutPrefix(u8, str, "--title=")) |v| {
-            title = arena_alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| {
+            title = arena_alloc.dupeSentinel(u8, std.mem.trim(u8, v, &std.ascii.whitespace), 0) catch |err| {
                 log.warn("unable to duplicate title: {t}", .{err});
                 return err;
             };

@@ -239,7 +239,7 @@ test "ghostty_string_s c string" {
     const testing = std.testing;
 
     const slice: [:0]const u8 = "hello";
-    const allocated_slice = try testing.allocator.dupeZ(u8, slice);
+    const allocated_slice = try testing.allocator.dupeSentinel(u8, slice, 0);
     const c_null_string = String.fromSlice(allocated_slice);
     defer c_null_string.deinit();
 
