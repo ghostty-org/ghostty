@@ -18,6 +18,7 @@
 #include <ghostty/vt/size_report.h>
 #include <ghostty/vt/grid_ref.h>
 #include <ghostty/vt/io.h>
+#include <ghostty/vt/kitty_dnd.h>
 #include <ghostty/vt/kitty_graphics.h>
 #include <ghostty/vt/screen.h>
 #include <ghostty/vt/point.h>
@@ -104,6 +105,7 @@ extern "C" {
  * | `GHOSTTY_TERMINAL_OPT_RENDER_HOLD`      | `GhosttyTerminalRenderHoldFn`     | Synchronized output (mode 2026) begins or ends |
  * | `GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT`  | `GhosttyTerminalSemanticPromptFn` | Shell reports a prompt or command step via OSC 133 |
  * | `GHOSTTY_TERMINAL_OPT_RESET`            | `GhosttyTerminalResetFn`          | Full reset (RIS, ESC c)                   |
+ * | `GHOSTTY_TERMINAL_OPT_KITTY_DND`        | `GhosttyTerminalKittyDndFn`       | Drag and drop via OSC 72 (see @ref kitty_dnd) |
  *
  * ### Defining a write_pty callback
  * @snippet c-vt-effects/src/main.c effects-write-pty
@@ -2145,6 +2147,16 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: GhosttyTerminalResetFn
    */
   GHOSTTY_TERMINAL_OPT_RESET = 43,
+
+  /**
+   * Callback invoked when the running program changes Kitty drag and
+   * drop protocol (OSC 72) state in a way the embedder may need to act
+   * on. Setting it enables the protocol; while it is NULL, OSC 72 is
+   * ignored. See @ref kitty_dnd.
+   *
+   * Input type: GhosttyTerminalKittyDndFn
+   */
+  GHOSTTY_TERMINAL_OPT_KITTY_DND = 44,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 

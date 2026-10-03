@@ -36,6 +36,7 @@
  * - @ref osc "OSC Parser" - Parse OSC (Operating System Command) sequences
  * - @ref sgr "SGR Parser" - Parse SGR (Select Graphic Rendition) sequences
  * - @ref paste "Paste" - Paste into a terminal, validate and encode paste data
+ * - @ref kitty_dnd "Kitty Drag and Drop" - Native drag and drop for programs via OSC 72
  * - @ref unicode "Unicode Utilities" - Codepoint properties for text layout
  * - @ref build_info "Build Info" - Query compile-time build configuration
  * - @ref allocator "Memory Management" - Memory management and custom allocators
@@ -61,6 +62,7 @@
  * - @ref c-vt-grid-ref-tracked/src/main.c - Tracked grid ref example
  * - @ref c-vt-compression/src/main.c - Idle scrollback compression example
  * - @ref c-vt-search/src/main.c - Terminal search example
+ * - @ref c-vt-kitty-dnd/src/main.c - Kitty drag and drop example
  *
  */
 
@@ -127,6 +129,12 @@
  * PNG decoder callback and send a Kitty Graphics Protocol image.
  */
 
+/** @example c-vt-kitty-dnd/src/main.c
+ * This example demonstrates how to connect the Kitty drag and drop
+ * protocol to native drag and drop: forwarding a drop to a program and
+ * serving its data requests, and starting a drag the program offers.
+ */
+
 /** @example c-vt-search/src/main.c
  * This example demonstrates how to search terminal contents for a
  * string, navigate between the matches like a find bar, and read the
@@ -158,6 +166,7 @@ extern "C" {
 #include <ghostty/vt/style.h>
 #include <ghostty/vt/sys.h>
 #include <ghostty/vt/key.h>
+#include <ghostty/vt/kitty_dnd.h>
 #include <ghostty/vt/kitty_graphics.h>
 #include <ghostty/vt/modes.h>
 #include <ghostty/vt/mouse.h>

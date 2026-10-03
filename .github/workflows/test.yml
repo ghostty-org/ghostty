@@ -117,6 +117,7 @@ jobs:
       - test-kaitai
       - test-lib-vt
       - test-lib-vt-pkgconfig
+      - test-kitty-dnd
       - test-macos
       - pinact
       - prettier
@@ -1532,6 +1533,54 @@ jobs:
 
       - name: Validate native ABI manifest
         run: nix develop -c zig build test-lib-vt-schema
+
+  # Runs kitty's own drag and drop client against libghostty-vt's Kitty
+  # drag and drop C API. See test/kitty_dnd/README.md. kitty is not part
+  # of the dev shell, so it comes from the flake's nixpkgs for this job
+  # only.
+  test-kitty-dnd:
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
+    runs-on: namespace-profile-ghostty-sm
+    env:
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+            /zig
+
+      # Install Nix and use that to run our tests so our environment matches exactly.
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Build libghostty-vt
+        run: nix develop -c zig build -Demit-lib-vt
+
+      - name: Test drops
+        run: |
+          mkdir -p "$RUNNER_TEMP/dnd-drop"
+          nix shell --inputs-from . nixpkgs#kitty nixpkgs#python3 -c \
+            python3 test/kitty_dnd/harness.py \
+            zig-out/lib/libghostty-vt.so drop "$RUNNER_TEMP/dnd-drop"
+
+      - name: Test drags
+        run: |
+          mkdir -p "$RUNNER_TEMP/dnd-drag"
+          nix shell --inputs-from . nixpkgs#kitty nixpkgs#python3 -c \
+            python3 test/kitty_dnd/harness.py \
+            zig-out/lib/libghostty-vt.so drag "$RUNNER_TEMP/dnd-drag"
 
   # Runs esctest against libghostty-vt. Report-only: many tests fail today,
   # so this never fails and isn't in the required checks. See

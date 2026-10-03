@@ -216,6 +216,23 @@ pub const Streaming = struct {
         defer self.* = .{};
         if (self.carry_len != 0) return error.Base64Invalid;
     }
+
+    /// Finish a stream that may end without padding: a carried partial
+    /// group of two or three characters is decoded into output (one or
+    /// two bytes), which must be at least three bytes. A single carried
+    /// character or partial padding is still an error. The Kitty drag
+    /// and drop protocol needs this: kitty's decoder emits bytes as soon
+    /// as their bits arrive, so its clients leave streams unpadded. The
+    /// decoder is ready for a fresh stream afterwards either way.
+    pub fn finishUnpadded(
+        self: *Streaming,
+        output: []u8,
+    ) error{Base64Invalid}![]const u8 {
+        assert(output.len >= 3);
+        defer self.* = .{};
+        if (self.carry_len == 0) return output[0..0];
+        return decodeStrict(self.carry[0..self.carry_len], output, .optional);
+    }
 };
 
 // base64.cpp
@@ -364,6 +381,48 @@ test "base64 streaming decode chunk boundaries" {
         }
         try s.finish();
         try testing.expectEqualStrings(expect, result.items);
+    }
+}
+
+test "base64 streaming decode unpadded finish" {
+    const testing = std.testing;
+    var output: [64]u8 = undefined;
+
+    // An unpadded tail is decoded by the unpadded finish.
+    {
+        var s: Streaming = .{};
+        try testing.expectEqualStrings(
+            "dragged from kitte",
+            try s.feed("ZHJhZ2dlZCBmcm9tIGtpdHRl", &output),
+        );
+        try testing.expectEqualStrings("", try s.feed("bgo", &output));
+        try testing.expectEqualStrings("n\n", try s.finishUnpadded(&output));
+    }
+    {
+        var s: Streaming = .{};
+        try testing.expectEqualStrings("", try s.feed("aG", &output));
+        try testing.expectEqualStrings("h", try s.finishUnpadded(&output));
+    }
+
+    // Complete and padded streams finish with nothing left.
+    {
+        var s: Streaming = .{};
+        try testing.expectEqualStrings("good", try s.feed("Z29vZA==", &output));
+        try testing.expectEqualStrings("", try s.finishUnpadded(&output));
+    }
+
+    // A single leftover character or partial padding can't be decoded,
+    // and the decoder resets either way.
+    {
+        var s: Streaming = .{};
+        _ = try s.feed("aGVsb", &output);
+        try testing.expectError(error.Base64Invalid, s.finishUnpadded(&output));
+        try testing.expectEqualStrings("hi", try s.feed("aGk=", &output));
+    }
+    {
+        var s: Streaming = .{};
+        _ = try s.feed("aG=", &output);
+        try testing.expectError(error.Base64Invalid, s.finishUnpadded(&output));
     }
 }
 

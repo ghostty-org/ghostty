@@ -13,6 +13,7 @@ const ScreenSet = @import("../ScreenSet.zig");
 const PageList = @import("../PageList.zig");
 const apc = @import("../apc.zig");
 const kitty = @import("../kitty/key.zig");
+const kitty_dnd = @import("../kitty/dnd.zig");
 const kitty_gfx_c = @import("kitty_graphics.zig");
 const modes = @import("../modes.zig");
 const mouse = @import("../mouse.zig");
@@ -287,6 +288,7 @@ const Effects = struct {
     clipboard_read: ?ClipboardReadFn = null,
     unknown_sequence: ?UnknownSequenceFn = null,
     render_hold: ?RenderHoldFn = null,
+    kitty_dnd: ?KittyDndFn = null,
 
     /// Scratch buffer for DA1 feature codes. The device attributes
     /// trampoline converts C feature codes into this buffer and returns
@@ -336,6 +338,9 @@ const Effects = struct {
 
     /// C function pointer type for the render_hold callback.
     pub const RenderHoldFn = *const fn (Terminal, ?*anyopaque, bool) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the kitty_dnd callback.
+    pub const KittyDndFn = *const fn (Terminal, ?*anyopaque, kitty_dnd.Event) callconv(lib.calling_conv) void;
 
     /// C function pointer type for the pwd_changed callback.
     pub const PwdChangedFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
@@ -632,6 +637,12 @@ const Effects = struct {
         const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.render_hold orelse return;
         func(@ptrCast(wrapper), wrapper.effects.userdata, held);
+    }
+
+    fn kittyDndTrampoline(handler: *Handler, event: kitty_dnd.Event) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.kitty_dnd orelse return;
+        func(@ptrCast(wrapper), wrapper.effects.userdata, event);
     }
 
     fn pwdChangedTrampoline(handler: *Handler) void {
@@ -1252,6 +1263,7 @@ pub const Option = enum(c_int) {
     render_hold = 41,
     semantic_prompt = 42,
     reset = 43,
+    kitty_dnd = 44,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -1274,6 +1286,7 @@ pub const Option = enum(c_int) {
             .render_hold => ?Effects.RenderHoldFn,
             .semantic_prompt => ?Effects.SemanticPromptFn,
             .reset => ?Effects.ResetFn,
+            .kitty_dnd => ?Effects.KittyDndFn,
             .title, .pwd, .terminfo_name => ?*const lib.String,
             .color_foreground, .color_background, .color_cursor => ?*const color.RGB.C,
             .color_palette => ?*const color.PaletteC,
@@ -1356,6 +1369,13 @@ fn setTyped(
             wrapper.effects.clipboard_read = value;
             wrapper.stream.handler.effects.clipboard_read = if (value != null)
                 &Effects.clipboardReadTrampoline
+            else
+                null;
+        },
+        .kitty_dnd => {
+            wrapper.effects.kitty_dnd = value;
+            wrapper.stream.handler.effects.drag_and_drop = if (value != null)
+                &Effects.kittyDndTrampoline
             else
                 null;
         },

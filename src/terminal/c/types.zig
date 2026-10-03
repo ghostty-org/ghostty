@@ -33,6 +33,7 @@ const formatter = @import("formatter.zig");
 const grid_ref = @import("grid_ref.zig");
 const io = @import("io.zig");
 const key_encode = @import("key_encode.zig");
+const kitty_dnd = @import("kitty_dnd.zig");
 const kitty_graphics = @import("kitty_graphics.zig");
 const mouse_encode = @import("mouse_encode.zig");
 const mouse_event = @import("mouse_event.zig");
@@ -192,6 +193,10 @@ const type_decls = [_]TypeDecl{
     .initStruct("GhosttyFormatterTerminalExtra", formatter.TerminalOptions.Extra),
     .initStruct("GhosttyFormatterTerminalOptions", formatter.TerminalOptions),
     .initStruct("GhosttyGridRef", grid_ref.CGridRef),
+    .initStruct("GhosttyKittyDndDataRequest", kitty_dnd.DataRequest),
+    .initStruct("GhosttyKittyDndDragData", kitty_dnd.DragData),
+    .initStruct("GhosttyKittyDndImage", kitty_dnd.Image),
+    .initStruct("GhosttyKittyDndPosition", kitty_dnd.Position),
     .initStruct("GhosttyKittyGraphicsPlacementRenderInfo", kitty_graphics.PlacementRenderInfo),
     .initStruct("GhosttyMimeReader", io.MimeReader),
     .initStruct("GhosttyMouseEncoderSize", mouse_encode.Size),
@@ -262,6 +267,14 @@ const type_decls = [_]TypeDecl{
     .initEnum("GhosttyKey", input_key.Key, "GHOSTTY_KEY_"),
     .initEnum("GhosttyKeyAction", input_key.Action, "GHOSTTY_KEY_ACTION_"),
     .initEnum("GhosttyKeyEncoderOption", key_encode.Option, "GHOSTTY_KEY_ENCODER_OPT_"),
+    .initEnum("GhosttyKittyDndData", kitty_dnd.Data, "GHOSTTY_KITTY_DND_DATA_"),
+    .initEnum("GhosttyKittyDndDataStatus", kitty_dnd.DataStatus, "GHOSTTY_KITTY_DND_DATA_STATUS_"),
+    .initEnum("GhosttyKittyDndErrno", kitty_dnd.Errno, "GHOSTTY_KITTY_DND_ERRNO_"),
+    .initEnum("GhosttyKittyDndEvent", kitty_dnd.Event, "GHOSTTY_KITTY_DND_EVENT_"),
+    .initEnum("GhosttyKittyDndImageFormat", kitty_dnd.ImageFormat, "GHOSTTY_KITTY_DND_IMAGE_FORMAT_"),
+    .initEnum("GhosttyKittyDndOperation", kitty_dnd.Operation, "GHOSTTY_KITTY_DND_OPERATION_"),
+    .initEnum("GhosttyKittyDndPhase", kitty_dnd.Phase, "GHOSTTY_KITTY_DND_PHASE_"),
+    .initEnum("GhosttyKittyDndReport", kitty_dnd.Report, "GHOSTTY_KITTY_DND_REPORT_"),
     .initEnum("GhosttyKittyGraphicsData", kitty_graphics.Data, "GHOSTTY_KITTY_GRAPHICS_DATA_"),
     .initEnum("GhosttyKittyGraphicsImageData", kitty_graphics.ImageData, "GHOSTTY_KITTY_IMAGE_DATA_"),
     .initEnum("GhosttyKittyGraphicsPlacementData", kitty_graphics.PlacementData, "GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_"),

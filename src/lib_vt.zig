@@ -385,6 +385,21 @@ comptime {
             @export(&c.snapshot_decoder_next, .{ .name = "ghostty_snapshot_decoder_next" });
             @export(&c.snapshot_decoder_decode, .{ .name = "ghostty_snapshot_decoder_decode" });
         }
+        @export(&c.kitty_dnd_get, .{ .name = "ghostty_kitty_dnd_get" });
+        @export(&c.kitty_dnd_drop_move, .{ .name = "ghostty_kitty_dnd_drop_move" });
+        @export(&c.kitty_dnd_drop, .{ .name = "ghostty_kitty_dnd_drop" });
+        @export(&c.kitty_dnd_drop_leave, .{ .name = "ghostty_kitty_dnd_drop_leave" });
+        @export(&c.kitty_dnd_drop_respond_data, .{ .name = "ghostty_kitty_dnd_drop_respond_data" });
+        @export(&c.kitty_dnd_drop_respond_end, .{ .name = "ghostty_kitty_dnd_drop_respond_end" });
+        @export(&c.kitty_dnd_drop_respond_error, .{ .name = "ghostty_kitty_dnd_drop_respond_error" });
+        @export(&c.kitty_dnd_drag_mime, .{ .name = "ghostty_kitty_dnd_drag_mime" });
+        @export(&c.kitty_dnd_drag_pre_sent, .{ .name = "ghostty_kitty_dnd_drag_pre_sent" });
+        @export(&c.kitty_dnd_drag_image, .{ .name = "ghostty_kitty_dnd_drag_image" });
+        @export(&c.kitty_dnd_drag_gesture, .{ .name = "ghostty_kitty_dnd_drag_gesture" });
+        @export(&c.kitty_dnd_drag_start_result, .{ .name = "ghostty_kitty_dnd_drag_start_result" });
+        @export(&c.kitty_dnd_drag_report, .{ .name = "ghostty_kitty_dnd_drag_report" });
+        @export(&c.kitty_dnd_drag_request_data, .{ .name = "ghostty_kitty_dnd_drag_request_data" });
+        @export(&c.kitty_dnd_drag_take_data, .{ .name = "ghostty_kitty_dnd_drag_take_data" });
         if (features.kitty_graphics) {
             @export(&c.kitty_graphics_get, .{ .name = "ghostty_kitty_graphics_get" });
             @export(&c.kitty_graphics_image, .{ .name = "ghostty_kitty_graphics_image" });
