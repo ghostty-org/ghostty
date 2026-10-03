@@ -27,15 +27,15 @@ final class GhosttyWindowPositionUITests: GhosttyCustomConfigCase {
 
         app.launch() // window in the center
 
-//        app.menuBarItems["Window"].firstMatch.click()
-//        app.menuItems["_zoomTopLeft:"].firstMatch.click()
-//
-//        // wait for the animation to finish
-//        try await Task.sleep(for: .seconds(0.5))
+        app.menuBarItems["Window"].firstMatch.click()
+        app.menuItems["_zoomTopLeft:"].firstMatch.click()
+
+        // wait for the animation to finish
+        try await Task.sleep(for: .seconds(0.5))
 
         let window = app.windows.firstMatch
         let windowFrame = window.frame
-//        XCTAssertEqual(windowFrame.minX, 0, "Window should be on the left")
+        XCTAssertEqual(windowFrame.minX, 0, "Window should be on the left")
 
         app.typeKey("n", modifierFlags: [.command])
 
