@@ -407,6 +407,8 @@ pub const Adjustment = lib.Enum(lib.target, &.{
     "page_down",
     "beginning_of_line",
     "end_of_line",
+    "word_left",
+    "word_right",
 });
 
 /// Adjust the selection by some given adjustment. An adjustment allows
@@ -415,6 +417,7 @@ pub fn adjust(
     self: *Selection,
     s: *const Screen,
     adjustment: Adjustment,
+    boundary_codepoints: ?[]const u21,
 ) void {
     // Note that we always adjust "end" because end always represents
     // the last point of the selection by mouse, not necessarily the
@@ -425,7 +428,7 @@ pub fn adjust(
         .up => if (end_pin.up(1)) |new_end| {
             end_pin.* = new_end;
         } else {
-            self.adjust(s, .beginning_of_line);
+            self.adjust(s, .beginning_of_line, null);
         },
 
         .down => {
@@ -440,7 +443,7 @@ pub fn adjust(
                 }
             } else {
                 // If we're at the bottom, just go to the end of the line
-                self.adjust(s, .end_of_line);
+                self.adjust(s, .end_of_line, null);
             }
         },
 
@@ -473,13 +476,13 @@ pub fn adjust(
         .page_up => if (end_pin.up(s.pages.rows)) |new_end| {
             end_pin.* = new_end;
         } else {
-            self.adjust(s, .home);
+            self.adjust(s, .home, null);
         },
 
         .page_down => if (end_pin.down(s.pages.rows)) |new_end| {
             end_pin.* = new_end;
         } else {
-            self.adjust(s, .end);
+            self.adjust(s, .end, null);
         },
 
         .home => end_pin.* = s.pages.pin(.{ .screen = .{
@@ -507,6 +510,118 @@ pub fn adjust(
         .beginning_of_line => end_pin.x = 0,
 
         .end_of_line => end_pin.x = end_pin.node.cols() - 1,
+
+        .word_left => {
+            const codepoints = boundary_codepoints orelse return;
+            var it = end_pin.cellIterator(.left_up, null);
+            _ = it.next(); // skip current cell
+
+            // Phase 1: skip boundary characters (whitespace/punctuation) going left.
+            // Empty cells and hard line breaks (non-wrapped rows) are treated
+            // as hard boundaries, consistent with selectWord in Screen.zig.
+            var last_non_boundary: ?Pin = null;
+            while (it.next()) |next| {
+                const rac = next.rowAndCell();
+                const cell = rac.cell;
+
+                // Stop at hard line breaks (landing on last col of a non-wrapped row)
+                if (next.x == next.node.cols() - 1 and !rac.row.wrap) break;
+
+                // Empty cells are hard boundaries
+                if (!cell.hasText()) break;
+
+                const is_boundary = std.mem.indexOfAny(
+                    u21,
+                    codepoints,
+                    &[_]u21{cell.content.codepoint},
+                ) != null;
+                if (!is_boundary) {
+                    last_non_boundary = next;
+                    break;
+                }
+            }
+
+            // Phase 2: skip non-boundary characters (word body) going left
+            // to find the start of the word.
+            if (last_non_boundary != null) {
+                while (it.next()) |next| {
+                    const rac = next.rowAndCell();
+                    const cell = rac.cell;
+
+                    // Stop at hard line breaks
+                    if (next.x == next.node.cols() - 1 and !rac.row.wrap) break;
+
+                    if (!cell.hasText()) break;
+                    const is_boundary = std.mem.indexOfAny(
+                        u21,
+                        codepoints,
+                        &[_]u21{cell.content.codepoint},
+                    ) != null;
+                    if (is_boundary) break;
+                    last_non_boundary = next;
+                }
+            }
+
+            if (last_non_boundary) |pos| {
+                end_pin.* = pos;
+            }
+        },
+
+        .word_right => {
+            const codepoints = boundary_codepoints orelse return;
+            var it = end_pin.cellIterator(.right_down, null);
+            _ = it.next(); // skip current cell
+
+            // Phase 1: skip boundary characters (whitespace/punctuation) going right.
+            // Empty cells and hard line breaks (non-wrapped rows) are treated
+            // as hard boundaries, consistent with selectWord in Screen.zig.
+            var last_non_boundary: ?Pin = null;
+            while (it.next()) |next| {
+                const rac = next.rowAndCell();
+                const cell = rac.cell;
+
+                // Stop at hard line breaks
+                if (next.x == next.node.cols() - 1 and !rac.row.wrap) break;
+
+                // Empty cells are hard boundaries
+                if (!cell.hasText()) break;
+
+                const is_boundary = std.mem.indexOfAny(
+                    u21,
+                    codepoints,
+                    &[_]u21{cell.content.codepoint},
+                ) != null;
+                if (!is_boundary) {
+                    last_non_boundary = next;
+                    break;
+                }
+            }
+
+            // Phase 2: skip non-boundary characters (word body) going right
+            // to find the end of the word.
+            if (last_non_boundary != null) {
+                while (it.next()) |next| {
+                    const rac = next.rowAndCell();
+                    const cell = rac.cell;
+
+                    // Stop at hard line breaks
+                    if (next.x == next.node.cols() - 1 and !rac.row.wrap) break;
+
+                    if (!cell.hasText()) break;
+                    const is_boundary = std.mem.indexOfAny(
+                        u21,
+                        codepoints,
+                        &[_]u21{cell.content.codepoint},
+                    ) != null;
+                    if (is_boundary) break;
+                    last_non_boundary = next;
+                }
+            }
+
+            if (last_non_boundary) |pos| {
+                end_pin.* = pos;
+            }
+        },
     }
 }
 
@@ -524,7 +639,7 @@ test "Selection: adjust right" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .right);
+        sel.adjust(&s, .right, null);
 
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
@@ -544,7 +659,7 @@ test "Selection: adjust right" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .right);
+        sel.adjust(&s, .right, null);
 
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
@@ -564,7 +679,7 @@ test "Selection: adjust right" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .right);
+        sel.adjust(&s, .right, null);
 
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
@@ -591,7 +706,7 @@ test "Selection: adjust left" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .left);
+        sel.adjust(&s, .left, null);
 
         // Start line
         try testing.expectEqual(point.Point{ .screen = .{
@@ -612,7 +727,7 @@ test "Selection: adjust left" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .left);
+        sel.adjust(&s, .left, null);
 
         // Start line
         try testing.expectEqual(point.Point{ .screen = .{
@@ -640,7 +755,7 @@ test "Selection: adjust left skips blanks" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .left);
+        sel.adjust(&s, .left, null);
 
         // Start line
         try testing.expectEqual(point.Point{ .screen = .{
@@ -661,7 +776,7 @@ test "Selection: adjust left skips blanks" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .left);
+        sel.adjust(&s, .left, null);
 
         // Start line
         try testing.expectEqual(point.Point{ .screen = .{
@@ -689,7 +804,7 @@ test "Selection: adjust up" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .up);
+        sel.adjust(&s, .up, null);
 
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
@@ -709,7 +824,7 @@ test "Selection: adjust up" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .up);
+        sel.adjust(&s, .up, null);
 
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
@@ -736,7 +851,7 @@ test "Selection: adjust down" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .down);
+        sel.adjust(&s, .down, null);
 
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
@@ -756,7 +871,7 @@ test "Selection: adjust down" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .down);
+        sel.adjust(&s, .down, null);
 
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
@@ -783,7 +898,7 @@ test "Selection: adjust down with not full screen" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .down);
+        sel.adjust(&s, .down, null);
 
         // Start line
         try testing.expectEqual(point.Point{ .screen = .{
@@ -811,7 +926,7 @@ test "Selection: adjust home" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .home);
+        sel.adjust(&s, .home, null);
 
         // Start line
         try testing.expectEqual(point.Point{ .screen = .{
@@ -839,7 +954,7 @@ test "Selection: adjust end with not full screen" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .end);
+        sel.adjust(&s, .end, null);
 
         // Start line
         try testing.expectEqual(point.Point{ .screen = .{
@@ -867,7 +982,7 @@ test "Selection: adjust beginning of line" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .beginning_of_line);
+        sel.adjust(&s, .beginning_of_line, null);
 
         // Start line
         try testing.expectEqual(point.Point{ .screen = .{
@@ -888,7 +1003,7 @@ test "Selection: adjust beginning of line" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .beginning_of_line);
+        sel.adjust(&s, .beginning_of_line, null);
 
         // Start line
         try testing.expectEqual(point.Point{ .screen = .{
@@ -909,7 +1024,7 @@ test "Selection: adjust beginning of line" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .beginning_of_line);
+        sel.adjust(&s, .beginning_of_line, null);
 
         // Start line
         try testing.expectEqual(point.Point{ .screen = .{
@@ -937,7 +1052,7 @@ test "Selection: adjust end of line" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .end_of_line);
+        sel.adjust(&s, .end_of_line, null);
 
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
@@ -957,7 +1072,7 @@ test "Selection: adjust end of line" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .end_of_line);
+        sel.adjust(&s, .end_of_line, null);
 
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
@@ -977,7 +1092,7 @@ test "Selection: adjust end of line" {
             false,
         );
         defer sel.deinit(&s);
-        sel.adjust(&s, .end_of_line);
+        sel.adjust(&s, .end_of_line, null);
 
         // Start line
         try testing.expectEqual(point.Point{ .screen = .{
@@ -986,6 +1101,187 @@ test "Selection: adjust end of line" {
         } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 7,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+}
+
+test "Selection: adjust word_right" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.allocator, .{ .cols = 20, .rows = 10, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello world foo bar");
+
+    const boundary = &[_]u21{ ' ', '\t' };
+
+    // word_right from middle of "hello" -> end of "hello"
+    {
+        var sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 2, .y = 0 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .word_right, boundary);
+
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+
+    // word_right from end of "hello" -> end of "world"
+    {
+        var sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 4, .y = 0 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .word_right, boundary);
+
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 10,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+
+    // word_right from last word "bar" -> end of "bar"
+    {
+        var sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 16, .y = 0 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .word_right, boundary);
+
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 18,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+}
+
+test "Selection: adjust word_right with multiple spaces" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.allocator, .{ .cols = 20, .rows = 10, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello   world");
+
+    const boundary = &[_]u21{ ' ', '\t' };
+
+    // word_right from middle of "hello" -> end of "hello"
+    {
+        var sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 2, .y = 0 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .word_right, boundary);
+
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+}
+
+test "Selection: adjust word_left" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.allocator, .{ .cols = 20, .rows = 10, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello world foo bar");
+
+    const boundary = &[_]u21{ ' ', '\t' };
+
+    // word_left from middle of "world" -> start of "world"
+    {
+        var sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 8, .y = 0 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .word_left, boundary);
+
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 6,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+
+    // word_left from start of "world" -> start of "hello"
+    {
+        var sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 10, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 6, .y = 0 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .word_left, boundary);
+
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+
+    // word_left from start of "hello" -> stays put (no previous word)
+    {
+        var sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .word_left, boundary);
+
+        // Should stay at x=0 since there's no previous word
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+}
+
+test "Selection: adjust word_left with multiple spaces" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.allocator, .{ .cols = 20, .rows = 10, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello   world");
+
+    const boundary = &[_]u21{ ' ', '\t' };
+
+    // word_left from middle of "world" -> start of "world" (skips within word)
+    {
+        var sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 12, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 10, .y = 0 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .word_left, boundary);
+
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 8,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+
+    // word_left from start of "world" -> start of "hello" (skips multiple spaces)
+    {
+        var sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 12, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 8, .y = 0 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .word_left, boundary);
+
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
             .y = 0,
         } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
