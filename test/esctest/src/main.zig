@@ -103,12 +103,16 @@ pub fn main(init: std.process.Init) !u8 {
     }
 
     const exe_dir = try std.process.executableDirPathAlloc(init.io, alloc);
-    const esctest_dir = try alloc.dupeZ(u8, try std.fs.path.resolve(alloc, &.{
-        exe_dir,
-        "..",
-        "share",
-        "esctest",
-    }));
+    const esctest_dir = try alloc.dupeSentinel(
+        u8,
+        try std.fs.path.resolve(alloc, &.{
+            exe_dir,
+            "..",
+            "share",
+            "esctest",
+        }),
+        0,
+    );
 
     // esctest writes its log to a file rather than the terminal, so we
     // give it one to copy from afterwards.

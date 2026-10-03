@@ -75,7 +75,7 @@ const Entry = struct {
 pub fn init(alloc: Allocator, app_id: [:0]const u8) Allocator.Error!Hotkeys {
     return .{
         .alloc = alloc,
-        .app_id = try alloc.dupeZ(u8, app_id),
+        .app_id = try alloc.dupeSentinel(u8, app_id, 0),
     };
 }
 

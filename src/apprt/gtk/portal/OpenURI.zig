@@ -50,10 +50,10 @@ const RequestData = struct {
         uri: []const u8,
         request_path: []const u8,
     ) Allocator.Error!*RequestData {
-        const uri_copy = try alloc.dupeZ(u8, uri);
+        const uri_copy = try alloc.dupeSentinel(u8, uri, 0);
         errdefer alloc.free(uri_copy);
 
-        const request_path_copy = try alloc.dupeZ(u8, request_path);
+        const request_path_copy = try alloc.dupeSentinel(u8, request_path, 0);
         errdefer alloc.free(request_path_copy);
 
         const data = try alloc.create(RequestData);
@@ -170,7 +170,7 @@ pub fn start(self: *OpenURI, value: apprt.action.OpenUrl) (Allocator.Error || Er
             .start = std.Io.Timestamp.now(global.io(), .awake),
             .token = token,
             .kind = value.kind,
-            .uri = try alloc.dupeZ(u8, value.url),
+            .uri = try alloc.dupeSentinel(u8, value.url, 0),
         };
         errdefer entry.deinit(alloc);
         try self.entries.putNoClobber(alloc, token, entry);

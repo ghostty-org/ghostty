@@ -670,7 +670,7 @@ const Command = extern struct {
             var buf: [64]u8 = undefined;
             const trigger = keybinds.getTrigger(regular.command.action) orelse break :action null;
             const accel = (key.accelFromTrigger(&buf, trigger) catch break :action null) orelse break :action null;
-            break :action alloc.dupeZ(u8, accel) catch return null;
+            break :action alloc.dupeSentinel(u8, accel, 0) catch return null;
         };
 
         return regular.action;
@@ -718,7 +718,7 @@ const Command = extern struct {
 
                 if (pwd) |p| {
                     if (std.mem.indexOf(u8, title, p) == null) {
-                        j.description = alloc.dupeZ(u8, p) catch null;
+                        j.description = alloc.dupeSentinel(u8, p, 0) catch null;
                     }
                 }
 
