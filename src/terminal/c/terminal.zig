@@ -1891,7 +1891,7 @@ fn getTyped(
         .clipboard_write_max_bytes => out.* = wrapper.stream.handler.kitty_clipboard_write_max_bytes,
         .mode => {
             const mode = out.toMode() orelse return .invalid_value;
-            out.value = t.modes.get(mode);
+            out.value = t.getMode(mode);
         },
         .cursor_at_prompt => out.* = t.cursorIsAtPrompt(),
         .memory_usage => {
@@ -2909,6 +2909,69 @@ test "set and get mode" {
     try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
     try testing.expectEqual(Result.success, get(t, .mode, @ptrCast(&config)));
     try testing.expect(config.value);
+}
+
+test "get mode answers the alternate screen modes from the active screen" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const alt_screen_modes = [_]u15{ 47, 1047, 1049 };
+    var config: ModeConfig = .{ .mode = undefined, .value = undefined };
+
+    // Enter with one mode and leave with another. All three have to
+    // follow the active screen. See ghostty-org/ghostty#14199.
+    const enter = "\x1b[?47h";
+    vt_write(t, enter, enter.len);
+    for (alt_screen_modes) |value| {
+        config.mode = @bitCast(modes.ModeTag{ .value = value, .ansi = false });
+        try testing.expectEqual(Result.success, get(t, .mode, @ptrCast(&config)));
+        try testing.expect(config.value);
+    }
+
+    const leave = "\x1b[?1049l";
+    vt_write(t, leave, leave.len);
+    for (alt_screen_modes) |value| {
+        config.mode = @bitCast(modes.ModeTag{ .value = value, .ansi = false });
+        try testing.expectEqual(Result.success, get(t, .mode, @ptrCast(&config)));
+        try testing.expect(!config.value);
+    }
+}
+
+test "get mode 1048 answers from the saved cursor" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    var config: ModeConfig = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 1048, .ansi = false }),
+        .value = undefined,
+    };
+    try testing.expectEqual(Result.success, get(t, .mode, @ptrCast(&config)));
+    try testing.expect(!config.value);
+
+    // A plain DECSC saves the cursor, which mode 1048 reports.
+    const decsc = "\x1b7";
+    vt_write(t, decsc, decsc.len);
+    try testing.expectEqual(Result.success, get(t, .mode, @ptrCast(&config)));
+    try testing.expect(config.value);
+
+    // The alternate screen has its own saved cursor.
+    // Mode 47 goes there without saving one.
+    const alt = "\x1b[?47h";
+    vt_write(t, alt, alt.len);
+    try testing.expectEqual(Result.success, get(t, .mode, @ptrCast(&config)));
+    try testing.expect(!config.value);
 }
 
 test "set mode default updates current and reset value" {
