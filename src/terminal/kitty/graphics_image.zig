@@ -7,8 +7,8 @@ const posix = std.posix;
 
 const fastmem = @import("../../fastmem.zig");
 const animation = @import("graphics_animation.zig");
-const ArcCpuImage = @import("../image.zig").ArcCpuImage;
-const CpuImage = @import("../image.zig").CpuImage;
+const ArcImage = @import("../image.zig").ArcImage;
+const Image = @import("../image.zig").Image;
 const command = @import("graphics_command.zig");
 const kitty_windows = @import("windows.zig");
 const PageList = @import("../PageList.zig");
@@ -65,7 +65,7 @@ pub const LoadingImage = struct {
         height: u32 = 0,
         format: command.Transmission.Format = .rgb,
         compression: command.Transmission.Compression = .none,
-        metadata: Image.Metadata = .{},
+        metadata: KittyImage.Metadata = .{},
     };
 
     pub const FrameContext = struct {
@@ -566,7 +566,7 @@ pub const LoadingImage = struct {
 
     /// Transfer the decoded pixels into an owned CPU image. Transmission
     /// metadata remains available in image until the loading state is discarded.
-    pub fn complete(self: *LoadingImage, alloc: Allocator) !CpuImage {
+    pub fn complete(self: *LoadingImage, alloc: Allocator) !Image {
         const img = &self.image;
 
         // Decompress the data if it is compressed.
@@ -711,14 +711,14 @@ pub const LoadingImage = struct {
     }
 };
 
-/// Image represents a single image whose metadata is fully known.
+/// KittyImage represents a single image whose metadata is fully known.
 ///
 /// Complete image data is always fully decoded raw pixels: loading inflates
 /// any zlib-compressed payload and decodes PNG into RGBA before an image is
 /// completed, so `compression` is always `.none` and `format` is never `.png`
 /// for a stored image. Pending image data reserves the exact decoded byte
 /// length that will be attached later.
-pub const Image = struct {
+pub const KittyImage = struct {
     id: u32 = 0,
     number: u32 = 0,
     width: u32 = 0,
@@ -747,7 +747,7 @@ pub const Image = struct {
     ///
     /// This is only ever attached to images stored in an ImageStorage
     /// and must only be mutated through the storage's own pointer
-    /// (Image values are copied around freely; copies share this
+    /// (KittyImage values are copied around freely; copies share this
     /// pointer and never own it).
     animation: ?*animation.Animation = null,
 
@@ -784,7 +784,7 @@ pub const Image = struct {
 
     pub const Data = union(enum) {
         /// Completed decoded pixels, always reference-counted.
-        ready: *const ArcCpuImage,
+        ready: *const ArcImage,
 
         /// Expected decoded byte length for a payload that has not arrived.
         pending: usize,
@@ -809,16 +809,16 @@ pub const Image = struct {
             return self == .pending;
         }
 
-        pub fn deinit(self: *Data, _: Allocator) void {
+        pub fn deinit(self: *Data, alloc: Allocator) void {
             switch (self.*) {
-                .ready => |image| image.release(),
+                .ready => |image| image.release(alloc),
                 .pending => {},
             }
         }
     };
 
     /// Adopt decoded CPU pixels. On error the caller retains their ownership.
-    pub fn init(alloc: Allocator, info: LoadingImage.Info, pixels: CpuImage) Allocator.Error!Image {
+    pub fn init(alloc: Allocator, info: LoadingImage.Info, pixels: Image) Allocator.Error!KittyImage {
         return .{
             .id = info.id,
             .number = info.number,
@@ -832,50 +832,36 @@ pub const Image = struct {
                 .bgr, .bgra => unreachable,
             },
             .metadata = info.metadata,
-            .data = .{ .ready = try ArcCpuImage.init(alloc, pixels) },
+            .data = .{ .ready = try ArcImage.init(alloc, pixels) },
         };
     }
 
     /// Borrow the immutable displayed frame while terminal state is locked.
     /// Without incrementing the ref-count.
-    pub fn renderImage(self: *const Image) ?*const ArcCpuImage {
+    pub fn renderImage(self: *const KittyImage) ?*const ArcImage {
         return switch (self.renderData()) {
             .ready => |image| image,
             .pending => null,
         };
     }
 
-    /// Compose an owned CPU image while holding the terminal lock, then return
-    /// it to shared storage. Allocation failure leaves the old frame unchanged.
+    /// Edit a frame while holding the terminal lock, copying its pixels if
+    /// shared. Allocation failure leaves the old frame unchanged.
     pub fn editFrame(
-        self: *Image,
+        self: *KittyImage,
         alloc: Allocator,
         number: u32,
         context: anytype,
-        comptime compose: fn (*CpuImage, @TypeOf(context)) void,
+        comptime compose: fn (*Image, @TypeOf(context)) void,
     ) Allocator.Error!void {
         const image = if (number == 1)
-            self.data.ready
+            &self.data.ready
         else
-            self.animation.?.frames.items[number - 2].image;
-        const owned = image.tryOwn() orelse owned: {
-            var copy = image.value;
-            copy.data = try alloc.dupe(u8, image.value.data);
-            errdefer copy.deinit(alloc);
-            const replacement = try ArcCpuImage.init(alloc, copy);
-            image.release();
-            break :owned replacement.tryOwn().?;
-        };
-        compose(&owned.value, context);
-        const replacement = owned.publish();
-        if (number == 1) {
-            self.data = .{ .ready = replacement };
-        } else {
-            self.animation.?.frames.items[number - 2].image = replacement;
-        }
+            &self.animation.?.frames.items[number - 2].image;
+        compose(try ArcImage.makeMut(image, alloc), context);
     }
 
-    pub fn deinit(self: *Image, alloc: Allocator) void {
+    pub fn deinit(self: *KittyImage, alloc: Allocator) void {
         self.data.deinit(alloc);
         if (self.animation) |anim| {
             anim.deinit(alloc);
@@ -887,7 +873,7 @@ pub const Image = struct {
     /// The pixel data that should be displayed for this image. For an
     /// animated image this is the current animation frame; otherwise
     /// (and for the root frame) it is the image's own data.
-    pub fn renderData(self: *const Image) Data {
+    pub fn renderData(self: *const KittyImage) Data {
         if (self.animation) |anim| {
             if (anim.current_index > 0) {
                 return .{ .ready = anim.frames.items[anim.current_index - 1].image };
@@ -904,7 +890,7 @@ pub const Image = struct {
     ///
     /// The returned slice is owned by the image (or its animation)
     /// and remains valid until the image or frame is mutated.
-    pub fn frameData(self: *const Image, number: u32) ?[]const u8 {
+    pub fn frameData(self: *const KittyImage, number: u32) ?[]const u8 {
         switch (number) {
             0 => return null,
             1 => return self.data.bytes(),
@@ -921,14 +907,14 @@ pub const Image = struct {
 
     /// Total bytes of pixel data reserved against the storage limit
     /// for this image: the base data plus any animation frames.
-    pub fn storageSize(self: *const Image) usize {
+    pub fn storageSize(self: *const KittyImage) usize {
         var total: usize = self.data.len();
         if (self.animation) |anim| total += anim.frameBytes();
         return total;
     }
 
     /// Mostly for logging
-    pub fn withoutData(self: *const Image) LoadingImage.Info {
+    pub fn withoutData(self: *const KittyImage) LoadingImage.Info {
         return .{
             .id = self.id,
             .number = self.number,
@@ -2247,13 +2233,14 @@ test "limits: temporary file medium allowed by limits" {
 
 test "kitty image frame editing reuses unique pixels and preserves retained pixels" {
     const testing = std.testing;
-    const alloc = testing.allocator;
+    var failing = testing.FailingAllocator.init(testing.allocator, .{});
+    const alloc = failing.allocator();
     const Edit = struct {
-        fn compose(dst: *CpuImage, index: usize) void {
+        fn compose(dst: *Image, index: usize) void {
             dst.data[index] = std.ascii.toUpper(dst.data[index]);
         }
     };
-    var img = try Image.init(alloc, .{}, .{
+    var img = try KittyImage.init(alloc, .{}, .{
         .width = 1,
         .height = 1,
         .format = .rgba,
@@ -2261,22 +2248,23 @@ test "kitty image frame editing reuses unique pixels and preserves retained pixe
     });
     defer img.deinit(alloc);
     const original = img.data.ready.value.data.ptr;
-    var failing = testing.FailingAllocator.init(alloc, .{ .fail_index = 0 });
+    failing.fail_index = failing.alloc_index;
     const original_arc = img.data.ready;
-    try img.editFrame(failing.allocator(), 1, @as(usize, 0), Edit.compose);
+    try img.editFrame(alloc, 1, @as(usize, 0), Edit.compose);
     try testing.expect(!failing.has_induced_failure);
     try testing.expectEqual(original_arc, img.data.ready);
     try testing.expectEqual(original, img.data.ready.value.data.ptr);
 
     const retained = img.data.ready.clone();
-    defer retained.release();
+    defer retained.release(alloc);
     // Both the replacement wrapper and copied pixels can fail to allocate.
     for (0..2) |fail_index| {
-        var failure = testing.FailingAllocator.init(alloc, .{ .fail_index = fail_index });
-        try testing.expectError(error.OutOfMemory, img.editFrame(failure.allocator(), 1, @as(usize, 1), Edit.compose));
+        failing.fail_index = failing.alloc_index + fail_index;
+        try testing.expectError(error.OutOfMemory, img.editFrame(alloc, 1, @as(usize, 1), Edit.compose));
         try testing.expectEqual(retained, img.data.ready);
         try testing.expectEqualSlices(u8, "Rgba", retained.value.data);
     }
+    failing.fail_index = std.math.maxInt(usize);
     try img.editFrame(alloc, 1, @as(usize, 1), Edit.compose);
     try testing.expect(original != img.data.ready.value.data.ptr);
     try testing.expectEqualSlices(u8, "Rgba", retained.value.data);

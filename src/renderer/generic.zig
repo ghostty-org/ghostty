@@ -194,7 +194,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         font_shaper_cache: font.ShaperCache,
 
         /// The images that we may render.
-        images: ImageState = .empty,
+        images: ImageState,
 
         /// Background image, if we have one.
         bg_image: ?imagepkg.Image = null,
@@ -713,6 +713,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             var result: Self = .{
                 .alloc = alloc,
+                .images = ImageState.init(alloc),
                 .config = options.config,
                 .surface_mailbox = options.surface_mailbox,
                 .grid_metrics = font_critical.metrics,
@@ -890,10 +891,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // occluded or unrealized, and we don't want to
                 // reupload images every time that happens.
                 self.images.deinit(self.alloc);
-                self.images = .empty;
+                self.images = .init(self.images.image_allocator);
 
                 if (self.bg_image) |img| {
-                    img.deinit();
+                    img.deinit(self.images.image_allocator);
                     self.bg_image = null;
                 }
             }
@@ -1805,7 +1806,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             // Upload images to the GPU as necessary.
-            _ = self.images.upload(self.alloc, &self.api);
+            _ = self.images.upload(&self.api);
 
             // Upload the background image to the GPU as necessary.
             try self.uploadBackgroundImage();
@@ -2053,8 +2054,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 // Decode it if we know how.
                 const image_data = switch (file_type) {
-                    .png => try wuffs.png.decode(self.alloc, contents),
-                    .jpeg => try wuffs.jpeg.decode(self.alloc, contents),
+                    .png => try wuffs.png.decode(self.images.image_allocator, contents),
+                    .jpeg => try wuffs.jpeg.decode(self.images.image_allocator, contents),
                     .unknown => {
                         log.warn(
                             "Cannot determine file type for background image file \"{s}\"!",
@@ -2072,13 +2073,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 };
 
                 const image: imagepkg.Image = .{
-                    .pending = imagepkg.ArcCpuImage.init(self.alloc, .{
+                    .pending = imagepkg.ArcImage.init(self.images.image_allocator, .{
                         .width = image_data.width,
                         .height = image_data.height,
                         .format = .rgba,
                         .data = image_data.data,
                     }) catch |err| {
-                        self.alloc.free(image_data.data);
+                        self.images.image_allocator.free(image_data.data);
                         return err;
                     },
                 };
@@ -2086,7 +2087,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // If we have an existing background image, replace it.
                 // Otherwise, set this as our background image directly.
                 if (self.bg_image) |*img| {
-                    img.markForReplace(image);
+                    img.markForReplace(self.images.image_allocator, image);
                 } else {
                     self.bg_image = image;
                 }
@@ -2101,11 +2102,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Make sure our bg image is uploaded if it needs to be.
             if (self.bg_image) |*bg| {
                 if (bg.isUnloading()) {
-                    bg.deinit();
+                    bg.deinit(self.images.image_allocator);
                     self.bg_image = null;
                     return;
                 }
-                if (bg.isPending()) try bg.upload(self.alloc, &self.api);
+                if (bg.isPending()) try bg.upload(self.images.image_allocator, &self.api);
             }
         }
 

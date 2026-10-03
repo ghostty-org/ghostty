@@ -23,7 +23,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArcCpuImage = @import("../image.zig").ArcCpuImage;
+const ArcImage = @import("../image.zig").ArcImage;
 
 /// The gap assigned to a newly created frame when the command doesn't
 /// specify one (z omitted or z=0). Taken from Kitty (DEFAULT_GAP).
@@ -75,7 +75,7 @@ pub const Animation = struct {
     pub const Frame = struct {
         /// Fully composed pixel data, always image width * height * 4
         /// bytes of RGBA.
-        image: *const ArcCpuImage,
+        image: *const ArcImage,
 
         /// Milliseconds this frame is displayed before advancing.
         /// Zero means gapless: skipped during playback.
@@ -83,7 +83,7 @@ pub const Animation = struct {
     };
 
     pub fn deinit(self: *Animation, alloc: Allocator) void {
-        for (self.frames.items) |frame| frame.image.release();
+        for (self.frames.items) |frame| frame.image.release(alloc);
         self.frames.deinit(alloc);
     }
 
@@ -133,7 +133,7 @@ test "animation gap helpers" {
     var anim: Animation = .{};
     defer anim.deinit(alloc);
     try anim.frames.append(alloc, .{
-        .image = try ArcCpuImage.init(alloc, .{
+        .image = try ArcImage.init(alloc, .{
             .width = 1,
             .height = 1,
             .format = .rgba,
