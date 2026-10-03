@@ -2249,12 +2249,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             ).add(self.size.padding);
 
             // Setup our uniforms
-            self.uniforms.projection_matrix = math.ortho2d(
+            self.uniforms.projection_matrix = @bitCast(math.ortho2d(
                 -1 * @as(f32, @floatFromInt(self.size.padding.left)),
                 @floatFromInt(terminal_size.width + self.size.padding.right),
                 @floatFromInt(terminal_size.height + self.size.padding.bottom),
                 -1 * @as(f32, @floatFromInt(self.size.padding.top)),
-            );
+            ));
             self.uniforms.grid_padding = .{
                 @floatFromInt(blank.top),
                 @floatFromInt(blank.right),
