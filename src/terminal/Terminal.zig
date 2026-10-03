@@ -4674,6 +4674,9 @@ test "Terminal: setPwd preserves a sentinel on allocation failure" {
 
     try t.pwd.ensureTotalCapacityPrecise(alloc, 3);
     failing.fail_index = failing.alloc_index;
+    // ArrayList growth remaps in place, which bypasses fail_index, so arm
+    // the resize failure index too.
+    failing.resize_fail_index = failing.resize_index;
     try testing.expectError(error.OutOfMemory, t.setPwd("pwd"));
     try testing.expect(t.getPwd() == null);
 }
@@ -4719,6 +4722,9 @@ test "Terminal: setTitle preserves a sentinel on allocation failure" {
 
     try t.title.ensureTotalCapacityPrecise(alloc, 5);
     failing.fail_index = failing.alloc_index;
+    // ArrayList growth remaps in place, which bypasses fail_index, so arm
+    // the resize failure index too.
+    failing.resize_fail_index = failing.resize_index;
     try testing.expectError(error.OutOfMemory, t.setTitle("title"));
     try testing.expect(t.getTitle() == null);
 }
