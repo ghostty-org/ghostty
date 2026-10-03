@@ -43,8 +43,8 @@ pub const Options = struct {
         size: renderer_size.Size,
     ) Options {
         return .{
-            .event = t.flags.mouse_event,
-            .format = t.flags.mouse_format,
+            .event = t.modes.mouse_event,
+            .format = t.modes.mouse_format,
             .size = size,
         };
     }

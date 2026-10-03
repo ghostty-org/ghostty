@@ -1005,11 +1005,20 @@ pub const Viewer = struct {
             t.modes.set(.origin, data.origin_flag);
 
             // Mouse modes
-            t.modes.set(.mouse_event_any, data.mouse_all_flag);
-            t.modes.set(.mouse_event_button, data.mouse_button_flag);
-            t.modes.set(.mouse_event_normal, data.mouse_standard_flag);
-            t.modes.set(.mouse_format_utf8, data.mouse_utf8_flag);
-            t.modes.set(.mouse_format_sgr, data.mouse_sgr_flag);
+            t.modes.setMouseEvent(if (data.mouse_all_flag)
+                .any
+            else if (data.mouse_button_flag)
+                .button
+            else if (data.mouse_standard_flag)
+                .normal
+            else
+                .none);
+            t.modes.setMouseFormat(if (data.mouse_sgr_flag)
+                .sgr
+            else if (data.mouse_utf8_flag)
+                .utf8
+            else
+                .x10);
 
             // Focus and bracketed paste
             t.modes.set(.focus_event, data.focus_flag);
@@ -2285,6 +2294,8 @@ test "two pane flow with pane state" {
                         try testing.expect(t.modes.get(.mouse_event_button));
                         try testing.expect(!t.modes.get(.mouse_event_normal));
                         try testing.expect(t.modes.get(.mouse_format_sgr));
+                        try testing.expectEqual(.button, t.modes.mouse_event);
+                        try testing.expectEqual(.sgr, t.modes.mouse_format);
                     }
                     // Pane 4: cursor at (10, 5), cursor visible, wraparound on
                     {

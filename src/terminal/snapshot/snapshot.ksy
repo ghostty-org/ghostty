@@ -368,11 +368,11 @@ types:
         valid:
           max: 1
       - id: current_modes
-        type: mode_set
+        type: mode_set(0)
       - id: saved_modes
-        type: mode_set
+        type: mode_set(1)
       - id: default_modes
-        type: mode_set
+        type: mode_set(0)
       - id: background
         type: dynamic_rgb
       - id: foreground
@@ -387,16 +387,22 @@ types:
   mode_set:
     doc: |
       The stable packed registry shared by current, saved, and default modes.
-      Each named instance exposes one bit from the little-endian integer.
+      Each named instance exposes one bit from the little-endian integer. When
+      grouped_mouse is 1, bits 43-51 contain the three grouped mouse XTSAVE
+      enum values and are validated as mouse Event and Format indices. These
+      bits must be zero when grouped_mouse is 0.
       Arithmetic division is used instead of bitwise operations because the
       JavaScript target implements those operations with signed 32-bit values.
-      All values remain exact because the registry occupies only 43 bits,
-      within JavaScript's 53-bit safe integer range.
+      All values remain exact because the highest assigned bit is 51, within
+      JavaScript's 53-bit safe integer range.
+    params:
+      - id: grouped_mouse
+        type: u1
     seq:
       - id: raw
         type: u8
         valid:
-          max: 8796093022207
+          expr: (grouped_mouse == 0 and _ <= 8796093022207) or (grouped_mouse == 1 and _ <= 4503599627370495 and (_ / 8796093022208) % 8 <= 4 and (_ / 70368744177664) % 8 <= 4 and (_ / 562949953421312) % 8 <= 4)
     instances:
       disable_keyboard:
         value: (raw / 1) % 2 != 0
@@ -484,6 +490,15 @@ types:
         value: (raw / 2199023255552) % 2 != 0
       kitty_paste_events:
         value: (raw / 4398046511104) % 2 != 0
+      saved_mouse_event_x10:
+        value: (raw / 8796093022208) % 8
+        enum: mouse_event
+      saved_mouse_event:
+        value: (raw / 70368744177664) % 8
+        enum: mouse_event
+      saved_mouse_format:
+        value: (raw / 562949953421312) % 8
+        enum: mouse_format
 
   tab_stops:
     params:

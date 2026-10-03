@@ -12,6 +12,7 @@ const builtin = @import("builtin");
 const build_options = @import("terminal_options");
 const testing = std.testing;
 const ComptimeIntSet = @import("../datastruct/main.zig").ComptimeIntSet;
+const mouse = @import("mouse.zig");
 
 /// A struct that maintains the state of all the settable modes.
 pub const ModeState = struct {
@@ -28,27 +29,77 @@ pub const ModeState = struct {
     /// the modes to their default values during reset.
     default: ModePacked = .{},
 
+    /// The active mouse selectors. The corresponding packed mode bits are
+    /// synchronized mirrors for snapshots and generic mode consumers.
+    mouse_event: mouse.Event = .none,
+    mouse_format: mouse.Format = .x10,
+
+    // xterm keeps a separate save slot for selector 9, while selectors
+    // 1000–1003 share another. Each stores the complete active tracking
+    // selector rather than one mode bit.
+    saved_mouse_event_x10: mouse.Event = .none,
+    saved_mouse_event: mouse.Event = .none,
+    saved_mouse_format: mouse.Format = .x10,
+
     /// Reset the modes to their default values. This also clears the
     /// saved state.
     pub fn reset(self: *ModeState) void {
         self.values = self.default;
+        self.setMouseEvent(.none);
+        self.setMouseFormat(.x10);
         self.saved = .{};
+        self.saved_mouse_event_x10 = .none;
+        self.saved_mouse_event = .none;
+        self.saved_mouse_format = .x10;
     }
 
     /// Set a mode to a value.
     pub fn set(self: *ModeState, mode: Mode, value: bool) void {
+        if (mouseEventForMode(mode)) |event| {
+            self.setMouseEvent(if (value) event else .none);
+            return;
+        }
+
+        if (mouseFormatForMode(mode)) |format| {
+            // Resetting an inactive encoding selector is a no-op.
+            if (!value and self.mouse_format != format) return;
+            self.setMouseFormat(if (value) format else .x10);
+            return;
+        }
+
         setPacked(&self.values, mode, value);
     }
 
     /// Set the reset default and current value for a mode.
     pub fn setDefault(self: *ModeState, mode: Mode, value: bool) void {
+        std.debug.assert(defaultConfigurable(mode));
         setPacked(&self.values, mode, value);
         setPacked(&self.default, mode, value);
     }
 
     /// Get the value of a mode.
     pub fn get(self: *const ModeState, mode: Mode) bool {
+        if (mouseEventForMode(mode)) |event| return self.mouse_event == event;
+        if (mouseFormatForMode(mode)) |format| return self.mouse_format == format;
         return getPacked(&self.values, mode);
+    }
+
+    /// Set the canonical mouse tracking selector and synchronize its bits.
+    pub fn setMouseEvent(self: *ModeState, value: mouse.Event) void {
+        self.mouse_event = value;
+        self.values.mouse_event_x10 = value == .x10;
+        self.values.mouse_event_normal = value == .normal;
+        self.values.mouse_event_button = value == .button;
+        self.values.mouse_event_any = value == .any;
+    }
+
+    /// Set the canonical mouse encoding selector and synchronize its bits.
+    pub fn setMouseFormat(self: *ModeState, value: mouse.Format) void {
+        self.mouse_format = value;
+        self.values.mouse_format_utf8 = value == .utf8;
+        self.values.mouse_format_sgr = value == .sgr;
+        self.values.mouse_format_urxvt = value == .urxvt;
+        self.values.mouse_format_sgr_pixels = value == .sgr_pixels;
     }
 
     /// Save the state of the given mode. This can then be restored
@@ -56,6 +107,20 @@ pub const ModeState = struct {
     /// mode was saved exactly once and not restored. Otherwise this
     /// will just keep restoring the last stored value in memory.
     pub fn save(self: *ModeState, mode: Mode) void {
+        if (mouseEventForMode(mode) != null) {
+            if (mode == .mouse_event_x10) {
+                self.saved_mouse_event_x10 = self.mouse_event;
+            } else {
+                self.saved_mouse_event = self.mouse_event;
+            }
+            return;
+        }
+
+        if (mouseFormatForMode(mode) != null) {
+            self.saved_mouse_format = self.mouse_format;
+            return;
+        }
+
         switch (mode) {
             inline else => |mode_comptime| {
                 const entry = comptime entryForMode(mode_comptime);
@@ -64,8 +129,25 @@ pub const ModeState = struct {
         }
     }
 
-    /// See save. This will return the restored value.
-    pub fn restore(self: *ModeState, mode: Mode) bool {
+    /// Restore a saved mode.
+    ///
+    /// Null means grouped state was applied directly, so callers must not run
+    /// normal set handling. A boolean must be passed through normal set handling
+    /// to apply the restored mode's side effects.
+    pub fn restore(self: *ModeState, mode: Mode) ?bool {
+        if (mouseEventForMode(mode) != null) {
+            self.setMouseEvent(if (mode == .mouse_event_x10)
+                self.saved_mouse_event_x10
+            else
+                self.saved_mouse_event);
+            return null;
+        }
+
+        if (mouseFormatForMode(mode) != null) {
+            self.setMouseFormat(self.saved_mouse_format);
+            return null;
+        }
+
         switch (mode) {
             inline else => |mode_comptime| {
                 const entry = comptime entryForMode(mode_comptime);
@@ -108,6 +190,35 @@ pub const ModeState = struct {
         try std.testing.expectEqual(8, @sizeOf(ModePacked));
     }
 };
+
+/// A mutually exclusive mouse selector family.
+pub const MouseModeGroup = enum { event, format };
+
+pub fn mouseModeGroup(mode: Mode) ?MouseModeGroup {
+    if (mouseEventForMode(mode) != null) return .event;
+    if (mouseFormatForMode(mode) != null) return .format;
+    return null;
+}
+
+fn mouseEventForMode(mode: Mode) ?mouse.Event {
+    return switch (mode) {
+        .mouse_event_x10 => .x10,
+        .mouse_event_normal => .normal,
+        .mouse_event_button => .button,
+        .mouse_event_any => .any,
+        else => null,
+    };
+}
+
+fn mouseFormatForMode(mode: Mode) ?mouse.Format {
+    return switch (mode) {
+        .mouse_format_utf8 => .utf8,
+        .mouse_format_sgr => .sgr,
+        .mouse_format_urxvt => .urxvt,
+        .mouse_format_sgr_pixels => .sgr_pixels,
+        else => null,
+    };
+}
 
 fn setPacked(values: *ModePacked, mode: Mode, value: bool) void {
     switch (mode) {
@@ -439,7 +550,7 @@ test ModeState {
     state.save(.cursor_keys);
     state.set(.cursor_keys, false);
     try testing.expect(!state.get(.cursor_keys));
-    try testing.expect(state.restore(.cursor_keys));
+    try testing.expect(state.restore(.cursor_keys).?);
     try testing.expect(state.get(.cursor_keys));
 }
 
