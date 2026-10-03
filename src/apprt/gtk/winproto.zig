@@ -173,4 +173,14 @@ pub const Window = union(Protocol) {
             inline else => |*v| try v.setUrgent(urgent),
         }
     }
+
+    /// Raise and focus the window on behalf of a user interaction in
+    /// another process, if the window protocol has a way to do that which
+    /// GTK doesn't. Returns false if it doesn't, and the caller should
+    /// fall back to `gtk_window_present_with_time`.
+    pub fn present(self: *Window) bool {
+        return switch (self.*) {
+            inline else => |*v| v.present(),
+        };
+    }
 };

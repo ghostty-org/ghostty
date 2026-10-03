@@ -533,14 +533,16 @@ pub const Surface = extern struct {
         };
 
         /// Emitted when the focus wants to be brought to the top and
-        /// focused.
+        /// focused. The parameter is the timestamp of the user interaction
+        /// that asked for this, or zero if we don't have one. See
+        /// `Surface.present` for why that matters.
         pub const @"present-request" = struct {
             pub const name = "present-request";
             pub const connect = impl.connect;
             const impl = gobject.ext.defineSignal(
                 name,
                 Self,
-                &.{},
+                &.{c_uint},
                 void,
             );
         };
@@ -1140,11 +1142,20 @@ pub const Surface = extern struct {
 
     /// Request that this terminal come to the front and become focused.
     /// It is up to the embedding widget to react to this.
-    pub fn present(self: *Self) void {
+    ///
+    /// `timestamp` should be the timestamp of the user interaction that
+    /// asked for this if we have one, and zero otherwise. Window managers
+    /// use it for focus stealing prevention: a request that isn't backed
+    /// by a recent enough interaction can be turned into an "is ready"
+    /// hint instead of an actual focus change. Requests that originate
+    /// inside the app (a keybind, the command palette) don't need one
+    /// because we already have the focus, but requests that arrive from
+    /// another process do.
+    pub fn present(self: *Self, timestamp: c_uint) void {
         signals.@"present-request".impl.emit(
             self,
             null,
-            .{},
+            .{timestamp},
             null,
         );
     }

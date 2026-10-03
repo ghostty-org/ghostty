@@ -814,6 +814,9 @@ fn addGtkNg(
         scanner.addCustomProtocol(
             b.path("src/apprt/gtk/winproto/wayland/protocols/vicinae-hotkey-v1.xml"),
         );
+        scanner.addCustomProtocol(
+            b.path("src/apprt/gtk/winproto/wayland/protocols/gtk-shell.xml"),
+        );
 
         scanner.generate("wl_compositor", 1);
         // Only referenced by vicinae_hotkey_manager_v1.bind (nullable arg).
@@ -824,6 +827,8 @@ fn addGtkNg(
         scanner.generate("xdg_activation_v1", 1);
         scanner.generate("ext_background_effect_manager_v1", 1);
         scanner.generate("vicinae_hotkey_manager_v1", 1);
+        // Version 3 is the first with notify_launch, which is all we use.
+        scanner.generate("gtk_shell1", 3);
 
         step.root_module.addImport("wayland", b.createModule(.{
             .root_source_file = scanner.result,
