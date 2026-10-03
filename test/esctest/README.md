@@ -4,9 +4,10 @@ Runs [esctest](https://github.com/ThomasDickey/esctest2), a conformance
 suite for terminal emulators, against libghostty-vt without a GUI.
 
 esctest runs under a pty. Everything it writes is fed through a
-libghostty-vt `Terminal`, and the terminal's replies (device attributes,
-cursor position and size reports) are written back to it. When esctest
-exits, its log is copied to stdout. A full run takes about a minute.
+libghostty-vt `Terminal`, and the terminal's replies (DECRQCRA checksums,
+device attributes, cursor position and size reports) are written back to
+it. When esctest exits, its log is copied to stdout. A full run takes
+about a minute.
 
 CI runs the whole suite in the `test-esctest` job. The job only reports:
 its step summary has esctest's tally and the failing tests, and the full
@@ -48,9 +49,11 @@ runner passes it `--expected-terminal=xterm --xterm-checksum=411
 --xterm-reverse-wrap=411`, and sets up the terminal to match:
 
 - An 80x25 screen, the size esctest resets to before each test.
+- DECRQCRA enabled, with xterm's `checksumExtension: 23` calculation, which
+  is what esctest expects with `--xterm-checksum` 334 or later.
 - Device attributes of a VT520, the highest level esctest tests.
 
-libghostty-vt doesn't implement DECRQCRA, which esctest uses to read back
-the screen, so every test that checks screen contents fails. The terminal
-never resizes either, so the tests that resize it with XTWINOPS or DECCOLM
-fail too.
+esctest resets the terminal with DECSTR before each test, and
+libghostty-vt doesn't implement DECSTR, so modes and margins one test
+leaves behind can make the next one fail. The terminal never resizes
+either, so the tests that resize it with XTWINOPS or DECCOLM fail.

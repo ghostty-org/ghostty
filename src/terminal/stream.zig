@@ -10,6 +10,7 @@ const Parser = @import("Parser.zig");
 const ansi = @import("ansi.zig");
 const charsets = @import("charsets.zig");
 const device_attributes = @import("device_attributes.zig");
+const xt_checksum = @import("xt_checksum.zig");
 const device_status = @import("device_status.zig");
 const csi = @import("csi.zig");
 const kitty = @import("kitty.zig");
@@ -133,6 +134,8 @@ pub const Action = union(Key) {
     resize_window: ResizeWindow,
     osc_unknown: osc.Command.Unknown,
     mouse_shape_reset,
+    request_xt_checksum: xt_checksum.Request,
+    xt_checksum_extension: XtChecksumExtension,
 
     pub const Key = lib.Enum(
         lib.target,
@@ -237,6 +240,8 @@ pub const Action = union(Key) {
             "resize_window",
             "osc_unknown",
             "mouse_shape_reset",
+            "request_xt_checksum",
+            "xt_checksum_extension",
         },
     );
 
@@ -362,6 +367,16 @@ pub const Action = union(Key) {
     pub const ResizeWindow = extern struct {
         rows: u16,
         columns: u16,
+    };
+
+    pub const XtChecksumExtension = struct {
+        flags: xt_checksum.Flags,
+
+        pub const C = u8;
+
+        pub fn cval(self: XtChecksumExtension) XtChecksumExtension.C {
+            return @as(u5, @bitCast(self.flags));
+        }
     };
 
     pub const KittyKeyboardFlags = struct {
@@ -2575,6 +2590,53 @@ pub fn Stream(comptime H: type) type {
                     ),
                 },
 
+                'y' => switch (input.intermediates.len) {
+                    1 => switch (input.intermediates[0]) {
+                        // DECRQCRA - Request Checksum of Rectangular Area.
+                        // The page number (the second parameter) is ignored.
+                        '*' => {
+                            if (input.params.len > 6) {
+                                log.warn("invalid DECRQCRA command: {f}", .{input});
+                                return;
+                            }
+
+                            var params: [6]u16 = @splat(0);
+                            @memcpy(params[0..input.params.len], input.params);
+                            self.handler.vt(.request_xt_checksum, xt_checksum.Request{
+                                .id = params[0],
+                                .top = params[2],
+                                .left = params[3],
+                                .bottom = params[4],
+                                .right = params[5],
+                            });
+                        },
+
+                        // XTCHECKSUM - Select checksum extension. Bits
+                        // beyond the ones we know are ignored, as in xterm.
+                        '#' => {
+                            if (input.params.len > 1) {
+                                log.warn("invalid XTCHECKSUM command: {f}", .{input});
+                                return;
+                            }
+
+                            const bits: u16 = if (input.params.len == 1) input.params[0] else 0;
+                            self.handler.vt(.xt_checksum_extension, .{
+                                .flags = @as(xt_checksum.Flags, @bitCast(@as(u5, @truncate(bits)))),
+                            });
+                        },
+
+                        else => log.warn(
+                            "ignoring unimplemented CSI y: {f}",
+                            .{input},
+                        ),
+                    },
+
+                    else => log.warn(
+                        "ignoring unimplemented CSI y: {f}",
+                        .{input},
+                    ),
+                },
+
                 // DECSASD - Select Active Status Display
                 '}' => decsasd: {
                     // Verify we're getting a DECSASD command
@@ -3446,6 +3508,89 @@ test "stream: ansi set mode (SM) and reset mode (RM)" {
     s.handler.mode = null;
     s.nextSlice("\x1B[>5h");
     try testing.expect(s.handler.mode == null);
+}
+
+test "stream: DECRQCRA dispatch" {
+    const H = struct {
+        calls: usize = 0,
+        req: ?xt_checksum.Request = null,
+
+        pub fn vt(self: *@This(), comptime action: Action.Tag, value: Action.Value(action)) void {
+            switch (action) {
+                .request_xt_checksum => {
+                    self.calls += 1;
+                    self.req = value;
+                },
+                else => {},
+            }
+        }
+    };
+
+    const cases = [_]struct {
+        input: []const u8,
+        req: ?xt_checksum.Request = null,
+    }{
+        .{
+            .input = "\x1b[7;1;2;3;4;5*y",
+            .req = .{ .id = 7, .top = 2, .left = 3, .bottom = 4, .right = 5 },
+        },
+        .{ .input = "\x1b[7*y", .req = .{ .id = 7 } },
+        .{ .input = "\x1b[*y", .req = .{} },
+        .{ .input = "\x1b[1;1;2;3*y", .req = .{ .id = 1, .top = 2, .left = 3 } },
+        .{ .input = "\x1b[1;1;1;1;1;1;1*y" },
+        .{ .input = "\x1b[1;1;1;1;1;1y" },
+        .{ .input = "\x1b[1;1;1;1;1;1\"y" },
+    };
+
+    for (cases) |case| {
+        var s: Stream(H) = .init(.{ .handler = .{} });
+        s.nextSlice(case.input);
+        if (case.req) |req| {
+            try testing.expectEqual(1, s.handler.calls);
+            try testing.expectEqual(req, s.handler.req.?);
+        } else {
+            try testing.expectEqual(0, s.handler.calls);
+        }
+    }
+}
+
+test "stream: XTCHECKSUM dispatch" {
+    const H = struct {
+        calls: usize = 0,
+        flags: ?xt_checksum.Flags = null,
+
+        pub fn vt(self: *@This(), comptime action: Action.Tag, value: Action.Value(action)) void {
+            switch (action) {
+                .xt_checksum_extension => {
+                    self.calls += 1;
+                    self.flags = value.flags;
+                },
+                else => {},
+            }
+        }
+    };
+
+    const cases = [_]struct {
+        input: []const u8,
+        flags: ?xt_checksum.Flags = null,
+    }{
+        .{ .input = "\x1b[#y", .flags = .{} },
+        .{ .input = "\x1b[0#y", .flags = .{} },
+        .{ .input = "\x1b[5#y", .flags = .{ .positive = true, .no_trim = true } },
+        .{ .input = "\x1b[48#y", .flags = .{ .full = true } },
+        .{ .input = "\x1b[1;2#y" },
+    };
+
+    for (cases) |case| {
+        var s: Stream(H) = .init(.{ .handler = .{} });
+        s.nextSlice(case.input);
+        if (case.flags) |flags| {
+            try testing.expectEqual(1, s.handler.calls);
+            try testing.expectEqual(flags, s.handler.flags.?);
+        } else {
+            try testing.expectEqual(0, s.handler.calls);
+        }
+    }
 }
 
 test "stream: DECRQM dispatch" {
