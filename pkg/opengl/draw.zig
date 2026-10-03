@@ -151,5 +151,5 @@ pub const BlitMask = packed struct(c.GLbitfield) {
     stencil_buffer_bit: bool = false,
     _pad3: u3 = 0,
     color_buffer_bit: bool = false,
-    _pad4: std.meta.Int(.unsigned, @bitSizeOf(c.GLbitfield) - 15) = 0,
+    _pad4: @Int(.unsigned, @bitSizeOf(c.GLbitfield) - 15) = 0,
 };

@@ -76,8 +76,8 @@ fn FixedPoint(comptime T: type, int_bits: u64, frac_bits: u64) type {
         ));
         const half = @as(T, 1) << @intCast(frac_bits - 1);
 
-        const Frac = std.meta.Int(.unsigned, frac_bits);
-        const Int = std.meta.Int(type_info.signedness, int_bits);
+        const Frac = @Int(.unsigned, frac_bits);
+        const Int = @Int(type_info.signedness, int_bits);
 
         frac: Frac,
         int: Int,
