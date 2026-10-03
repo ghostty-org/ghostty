@@ -924,7 +924,7 @@ fn printSliceFill(
                     const v: V = cps[idx..][0..lanes].*;
                     const in_range = (v >= lo) & (v <= hi);
                     if (!@reduce(.And, in_range)) {
-                        const bits: std.meta.Int(.unsigned, lanes) = @bitCast(in_range);
+                        const bits: @Int(.unsigned, lanes) = @bitCast(in_range);
                         idx += @ctz(~bits);
                         break;
                     }
