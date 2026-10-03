@@ -715,19 +715,17 @@ fn encodeNarrowInto(
         shift,
         mask,
     );
-    if (j < count) {
-        if (count >= 4) {
-            encodeNarrowStep(width, words, count - 4, out, shift, mask);
-        } else {
-            while (j < count) : (j += 1) {
-                std.mem.writeInt(
-                    width.Int(),
-                    out[j * size ..][0..size],
-                    width.truncate(words[j]),
-                    .little,
-                );
-            }
-        }
+    // The remainder is written scalar-by-scalar. Re-running a vector step
+    // at `count - 4` would overlap stores with the previous step, which
+    // the backend may legally merge into one wider store that runs past
+    // the end of `out` (observed corrupting adjacent allocator metadata).
+    while (j < count) : (j += 1) {
+        std.mem.writeInt(
+            width.Int(),
+            out[j * size ..][0..size],
+            width.truncate(words[j]),
+            .little,
+        );
     }
 }
 
@@ -744,10 +742,13 @@ inline fn encodeNarrowStep(
     const VPtr = *align(@alignOf(u64)) const @Vector(2, u64);
     const lo: @Vector(16, u8) = @bitCast(@as(VPtr, @ptrCast(words + j)).* >> shift);
     const hi: @Vector(16, u8) = @bitCast(@as(VPtr, @ptrCast(words + j + 2)).* >> shift);
-    @as(
-        *align(1) @Vector(size * 4, u8),
-        @ptrCast(out[j * size ..].ptr),
-    ).* = @shuffle(u8, lo, hi, mask);
+
+    // Copy with an explicit length. Storing the shuffle result directly
+    // through a vector pointer lets the backend widen the store past the
+    // end of `out` (observed corrupting adjacent allocator metadata when
+    // the last vector step lands at the destination's buffer end).
+    const encoded: [size * 4]u8 = @bitCast(@shuffle(u8, lo, hi, mask));
+    @memcpy(out[j * size ..][0 .. size * 4], &encoded);
 }
 
 /// Encode the grapheme suffix section for every kind 1 cell in the grid.
