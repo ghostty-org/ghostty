@@ -697,6 +697,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Redo the last undone action."),
         }},
 
+        .clear_broadcast_groups => comptime &.{.{
+            .action = .clear_broadcast_groups,
+            .title = i18n.N_("Clear Broadcast Groups"),
+            .description = i18n.N_("Remove all terminals from broadcast input groups."),
+        }},
+
         .quit => comptime &.{.{
             .action = .quit,
             .title = i18n.N_("Quit"),
@@ -728,6 +734,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .jump_to_prompt,
         .write_scrollback_file,
         .goto_tab,
+        .toggle_broadcast_group,
         .resize_split,
         .activate_key_table,
         .activate_key_table_once,

@@ -48,7 +48,7 @@ msgstr "Genindlæs konfigurationen for at se denne dialog igen"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2263
+#: src/apprt/gtk/class/application.zig:2298
 msgid "Cancel"
 msgstr "Annullér"
 
@@ -76,7 +76,7 @@ msgid "Ignore"
 msgstr "Ignorer"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:13
-#: src/apprt/gtk/ui/1.2/surface.blp:439 src/apprt/gtk/ui/1.5/window.blp:318
+#: src/apprt/gtk/ui/1.2/surface.blp:457 src/apprt/gtk/ui/1.5/window.blp:318
 msgid "Reload Configuration"
 msgstr "Genindlæs konfiguration"
 
@@ -103,15 +103,15 @@ msgstr "Forrige match"
 msgid "Next Match"
 msgstr "Næste match"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:7
+#: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
 msgstr "Åh nej."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:8
+#: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
 msgstr "Det var ikke muligt at anskaffe en OpenGL kontekst for rendering."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:101
+#: src/apprt/gtk/ui/1.2/surface.blp:96
 msgid ""
 "This terminal is in read-only mode. You can still view, select, and scroll "
 "through the content, but no input events will be sent to the running "
@@ -121,110 +121,110 @@ msgstr ""
 "scrolle gennem indholdet, men ingen anslag vil blive sendt til det kørende "
 "program."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:112
+#: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
 msgstr "Skrivebeskyttet"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:316 src/apprt/gtk/ui/1.5/window.blp:203
+#: src/apprt/gtk/ui/1.2/surface.blp:334 src/apprt/gtk/ui/1.5/window.blp:203
 msgid "Copy"
 msgstr "Kopiér"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:321 src/apprt/gtk/ui/1.5/window.blp:208
+#: src/apprt/gtk/ui/1.2/surface.blp:339 src/apprt/gtk/ui/1.5/window.blp:208
 msgid "Paste"
 msgstr "Sæt ind"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:326
+#: src/apprt/gtk/ui/1.2/surface.blp:344
 msgid "Notify on Next Command Finish"
 msgstr "Giv mig besked når den næste kommando er færdig"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
+#: src/apprt/gtk/ui/1.2/surface.blp:351 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
 msgstr "Ryd"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:338 src/apprt/gtk/ui/1.5/window.blp:286
+#: src/apprt/gtk/ui/1.2/surface.blp:356 src/apprt/gtk/ui/1.5/window.blp:286
 msgid "Reset"
 msgstr "Nulstil"
 
 # I de andre oversættelser af 'split' bruges 'del' i stedet for 'opdel', men tror det er for tvetydigt at have 'del' stående alene.
-#: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:250
+#: src/apprt/gtk/ui/1.2/surface.blp:363 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split"
 msgstr "Opdel"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:348 src/apprt/gtk/ui/1.5/window.blp:253
+#: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:253
 msgid "Change Title…"
 msgstr "Skift titel…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:353 src/apprt/gtk/ui/1.5/window.blp:180
+#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:180
 #: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:487
 msgid "Split Up"
 msgstr "Del opad"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:359 src/apprt/gtk/ui/1.5/window.blp:185
+#: src/apprt/gtk/ui/1.2/surface.blp:377 src/apprt/gtk/ui/1.5/window.blp:185
 #: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:492
 msgid "Split Down"
 msgstr "Del nedad"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:365 src/apprt/gtk/ui/1.5/window.blp:190
+#: src/apprt/gtk/ui/1.2/surface.blp:383 src/apprt/gtk/ui/1.5/window.blp:190
 #: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
 msgid "Split Left"
 msgstr "Del mod venstre"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:195
+#: src/apprt/gtk/ui/1.2/surface.blp:389 src/apprt/gtk/ui/1.5/window.blp:195
 #: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
 msgid "Split Right"
 msgstr "Del mod højre"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:377
+#: src/apprt/gtk/ui/1.2/surface.blp:395
 msgid "Close Split"
 msgstr "Luk deling"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:383
+#: src/apprt/gtk/ui/1.2/surface.blp:401
 msgid "Tab"
 msgstr "Fane"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:386 src/apprt/gtk/ui/1.5/window.blp:232
+#: src/apprt/gtk/ui/1.2/surface.blp:404 src/apprt/gtk/ui/1.5/window.blp:232
 #: src/apprt/gtk/ui/1.5/window.blp:339 src/input/command.zig:464
 msgid "Change Tab Title…"
 msgstr "Skift fanetitel…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:391 src/apprt/gtk/ui/1.5/window.blp:60
+#: src/apprt/gtk/ui/1.2/surface.blp:409 src/apprt/gtk/ui/1.5/window.blp:60
 #: src/apprt/gtk/ui/1.5/window.blp:110 src/apprt/gtk/ui/1.5/window.blp:237
 #: src/input/command.zig:427
 msgid "New Tab"
 msgstr "Ny fane"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:396 src/apprt/gtk/ui/1.5/window.blp:242
+#: src/apprt/gtk/ui/1.2/surface.blp:414 src/apprt/gtk/ui/1.5/window.blp:242
 #: src/input/command.zig:613
 msgid "Close Tab"
 msgstr "Luk fane"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:403
+#: src/apprt/gtk/ui/1.2/surface.blp:421
 msgid "Window"
 msgstr "Vindue"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:215
+#: src/apprt/gtk/ui/1.2/surface.blp:424 src/apprt/gtk/ui/1.5/window.blp:215
 msgid "Change Window Title…"
 msgstr "Skift titel på vindue…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:220
+#: src/apprt/gtk/ui/1.2/surface.blp:429 src/apprt/gtk/ui/1.5/window.blp:220
 #: src/input/command.zig:421
 msgid "New Window"
 msgstr "Nyt vindue"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:416 src/apprt/gtk/ui/1.5/window.blp:225
+#: src/apprt/gtk/ui/1.2/surface.blp:434 src/apprt/gtk/ui/1.5/window.blp:225
 #: src/input/command.zig:630
 msgid "Close Window"
 msgstr "Luk vindue"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:424 src/apprt/gtk/ui/1.5/window.blp:303
+#: src/apprt/gtk/ui/1.2/surface.blp:442 src/apprt/gtk/ui/1.5/window.blp:303
 msgid "Config"
 msgstr "Konfiguration"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
+#: src/apprt/gtk/ui/1.2/surface.blp:445 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
 msgstr "Åben konfigurering i styresystemets redigeringsprogram"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
+#: src/apprt/gtk/ui/1.2/surface.blp:451 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
 msgstr "Åben konfigurering i nyt vindue"
 
@@ -257,11 +257,11 @@ msgstr "Kommandopalet"
 msgid "Terminal Inspector"
 msgstr "Terminalinspektør"
 
-#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1991
+#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1997
 msgid "About Ghostty"
 msgstr "Om Ghostty"
 
-#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:708
 msgid "Quit"
 msgstr "Luk ned"
 
@@ -269,27 +269,27 @@ msgstr "Luk ned"
 msgid "Execute a command…"
 msgstr "Eksekver en kommando…"
 
-#: src/apprt/gtk/class/application.zig:1767
+#: src/apprt/gtk/class/application.zig:1781
 msgid "The keybind was revoked by the system."
 msgstr "Tastaturgenvejen blev ophævet af systemet."
 
-#: src/apprt/gtk/class/application.zig:1769
+#: src/apprt/gtk/class/application.zig:1783
 msgid "The keybind was denied by the system."
 msgstr "Tastaturgenvejen blev afvist af systemet."
 
-#: src/apprt/gtk/class/application.zig:1780
+#: src/apprt/gtk/class/application.zig:1794
 msgid "Global keybind unavailable"
 msgstr "Global tastaturgenvej utilgængelig"
 
-#: src/apprt/gtk/class/application.zig:2259
+#: src/apprt/gtk/class/application.zig:2294
 msgid "Export Terminal IO Events"
 msgstr "Eksportér terminal IO-begivenheder"
 
-#: src/apprt/gtk/class/application.zig:2262
+#: src/apprt/gtk/class/application.zig:2297
 msgid "Export"
 msgstr "Eksportér"
 
-#: src/apprt/gtk/class/application.zig:2783
+#: src/apprt/gtk/class/application.zig:2837
 msgid "Editing configuration file"
 msgstr "Redigerer konfigurationsfil"
 
@@ -354,16 +354,16 @@ msgstr "Alle terminalsessioner i dette vindue vil blive afsluttet."
 msgid "The currently running process in this split will be terminated."
 msgstr "Den kørende proces i denne opdeling vil blive afsluttet."
 
-#: src/apprt/gtk/class/surface.zig:1181
+#: src/apprt/gtk/class/surface.zig:1193
 msgid "Command Finished"
 msgstr "Kommandoen er færdig"
 
-#: src/apprt/gtk/class/surface.zig:1182
+#: src/apprt/gtk/class/surface.zig:1194
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
 msgstr "Kommandoen lykkedes"
 
-#: src/apprt/gtk/class/surface.zig:1183
+#: src/apprt/gtk/class/surface.zig:1195
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
 msgstr "Kommandoen fejlede"
@@ -380,19 +380,19 @@ msgstr "Skift fanetitel"
 msgid "Change Window Title"
 msgstr "Skift vinduestitel"
 
-#: src/apprt/gtk/class/window.zig:1153
+#: src/apprt/gtk/class/window.zig:1159
 msgid "Reloaded the configuration"
 msgstr "Konfigurationen blev genindlæst"
 
-#: src/apprt/gtk/class/window.zig:1830
+#: src/apprt/gtk/class/window.zig:1836
 msgid "Copied to clipboard"
 msgstr "Kopieret til udklipsholder"
 
-#: src/apprt/gtk/class/window.zig:1832
+#: src/apprt/gtk/class/window.zig:1838
 msgid "Cleared clipboard"
 msgstr "Udklipsholderen blev ryddet"
 
-#: src/apprt/gtk/class/window.zig:1972
+#: src/apprt/gtk/class/window.zig:1978
 msgid "Ghostty Developers"
 msgstr "Ghostty udviklerne"
 
@@ -1125,14 +1125,22 @@ msgstr "Gentag"
 msgid "Redo the last undone action."
 msgstr "Gentag den sidste fortrudte handling."
 
+#: src/input/command.zig:702
+msgid "Clear Broadcast Groups"
+msgstr ""
+
 #: src/input/command.zig:703
+msgid "Remove all terminals from broadcast input groups."
+msgstr ""
+
+#: src/input/command.zig:709
 msgid "Quit the application."
 msgstr "Luk ned for programmet."
 
-#: src/input/command.zig:708
+#: src/input/command.zig:714
 msgid "Ghostty"
 msgstr "Ghostty"
 
-#: src/input/command.zig:709
+#: src/input/command.zig:715
 msgid "Put a little Ghostty in your terminal."
 msgstr "Sæt en lille Ghostty i din terminal."
