@@ -10,7 +10,7 @@ const pixel = @import("graphics_pixel.zig");
 const Command = command.Command;
 const Response = command.Response;
 const LoadingImage = image.LoadingImage;
-const Image = image.Image;
+const KittyImage = image.KittyImage;
 const ImageStorage = @import("graphics_storage.zig").ImageStorage;
 
 const log = std.log.scoped(.kitty_gfx);
@@ -119,14 +119,12 @@ pub fn execute(
 
         .control_animation => controlAnimation(
             io,
-            alloc,
             terminal,
             cmd,
         ),
 
         .compose_animation => composeAnimation(
             io,
-            alloc,
             terminal,
             cmd,
         ),
@@ -290,7 +288,7 @@ fn display(
 
     // Verify the requested image exists if we have an ID
     const storage = &terminal.screens.active.kitty_images;
-    const img_: ?Image = if (d.image_id != 0)
+    const img_: ?KittyImage = if (d.image_id != 0)
         storage.imageById(d.image_id)
     else
         storage.imageByNumber(d.image_number);
@@ -613,14 +611,20 @@ fn completeAnimationFrame(
     if (frame_img.format != .rgba) {
         const rgba = pixel.rgbaFromFormat(
             alloc,
-            frame_img.format,
-            frame_img.data.bytes().?,
+            switch (frame_img.format) {
+                .gray => .gray,
+                .gray_alpha => .gray_alpha,
+                .rgb => .rgb,
+                .rgba => .rgba,
+                .bgr, .bgra => unreachable,
+            },
+            frame_img.data,
         ) catch |err| {
             encodeError(&result, err);
             return result;
         };
-        frame_img.data.deinit(alloc);
-        frame_img.data = .{ .complete = rgba };
+        alloc.free(frame_img.data);
+        frame_img.data = rgba;
         frame_img.format = .rgba;
     }
     storage.convertImageToRgba(io, alloc, img) catch |err| {
@@ -645,7 +649,7 @@ fn completeAnimationFrame(
     };
     result.frame = number;
 
-    const src = frame_img.data.bytes().?;
+    const src = frame_img.data;
     if (number == count + 1) {
         // Creating a new frame. The gap defaults to 40ms when omitted
         // and a negative gap creates a gapless (never shown) frame.
@@ -968,7 +972,7 @@ fn composeAnimation(
 /// Get or lazily create the animation state for an image.
 fn ensureAnimation(
     alloc: Allocator,
-    img: *Image,
+    img: *KittyImage,
 ) Allocator.Error!*animation.Animation {
     if (img.animation) |anim| return anim;
     const anim = try alloc.create(animation.Animation);
@@ -976,7 +980,7 @@ fn ensureAnimation(
     switch (img.data) {
         .ready => |shared| {
             const data = try alloc.dupe(u8, shared.value.data);
-            shared.release();
+            shared.release(alloc);
             img.data = .{ .complete = data };
         },
         .complete, .pending => {},
@@ -997,7 +1001,7 @@ fn delete(
 
     // Every delete command aborts an incomplete chunked upload.
     if (storage.loading) |loading| {
-        loading.destroy(alloc);
+        loading.destroy(storage.image_allocator);
         storage.loading = null;
     }
 
@@ -1015,7 +1019,7 @@ fn delete(
 
 fn loadAndAddImage(
     io: std.Io,
-    alloc: Allocator,
+    meta_alloc: Allocator,
     terminal: *Terminal,
     cmd: *const Command,
 ) !struct {
@@ -1025,12 +1029,13 @@ fn loadAndAddImage(
 } {
     const t = cmd.transmission().?;
     const storage = &terminal.screens.active.kitty_images;
+    const image_alloc = storage.image_allocator;
 
     // Determine our image. This also handles chunking and early exit.
     var loading: LoadingImage = if (storage.loading) |loading| loading: {
         // Note: we do NOT want to call "cmd.toOwnedData" here because
         // we're _copying_ the data. We want the command data to be freed.
-        try loading.addData(alloc, cmd.data);
+        try loading.addData(image_alloc, cmd.data);
 
         // If we have more then we're done
         if (t.more_chunks) return .{ .image = loading.image, .more = true };
@@ -1039,7 +1044,7 @@ fn loadAndAddImage(
         // image so we want to destroy the pointer to the loading
         // image and copy it out.
         defer {
-            alloc.destroy(loading);
+            image_alloc.destroy(loading);
             storage.loading = null;
         }
 
@@ -1048,19 +1053,19 @@ fn loadAndAddImage(
         // Reusing a specific image ID deletes the old image and all of its
         // placements when the new transmission begins, not when it completes.
         if (t.image_id > 0) {
-            storage.delete(io, alloc, terminal, .{ .id = .{
+            storage.delete(io, meta_alloc, terminal, .{ .id = .{
                 .image_id = t.image_id,
                 .delete = true,
             } });
         }
 
-        break :loading try .init(io, alloc, cmd, storage.image_limits);
+        break :loading try .init(io, image_alloc, cmd, storage.image_limits);
     };
 
     // We only want to deinit on error. If we're chunking, then we don't
     // want to deinit at all. If we're not chunking, then we'll deinit
     // after we've copied the image out.
-    errdefer loading.deinit(alloc);
+    errdefer loading.deinit(image_alloc);
 
     // If the image has no ID, we assign one
     if (loading.image.id == 0) {
@@ -1077,8 +1082,8 @@ fn loadAndAddImage(
     if (t.more_chunks) {
         // We allocate the pointer on the heap because its rare and we
         // don't want to always pay the memory cost to keep it around.
-        const loading_ptr = try alloc.create(LoadingImage);
-        errdefer alloc.destroy(loading_ptr);
+        const loading_ptr = try image_alloc.create(LoadingImage);
+        errdefer image_alloc.destroy(loading_ptr);
         loading_ptr.* = loading;
         storage.loading = loading_ptr;
         return .{ .image = loading.image, .more = true };
@@ -1088,24 +1093,24 @@ fn loadAndAddImage(
     // loading.debugDump() catch unreachable;
 
     // Validate and store our image
-    var pixels = try loading.complete(alloc);
-    var img = Image.init(alloc, loading.image, pixels) catch |err| {
-        pixels.deinit(alloc);
+    var pixels = try loading.complete(image_alloc);
+    var img = KittyImage.init(image_alloc, loading.image, pixels) catch |err| {
+        pixels.deinit(image_alloc);
         return err;
     };
-    errdefer img.deinit(alloc);
-    try storage.addImage(io, alloc, terminal.screens.active, img);
+    errdefer img.deinit(image_alloc);
+    try storage.addImage(io, meta_alloc, terminal.screens.active, img);
 
     // Get our display settings
     const display_ = loading.display;
 
     // Completion transferred the decoded pixels out of the loading buffer.
-    loading.deinit(alloc);
+    loading.deinit(image_alloc);
 
     return .{ .image = img.withoutData(), .display = display_ };
 }
 
-const EncodeableError = Image.Error || Allocator.Error;
+const EncodeableError = KittyImage.Error || Allocator.Error;
 
 /// Encode an error code into a message for a response.
 fn encodeError(r: *Response, err: EncodeableError) void {

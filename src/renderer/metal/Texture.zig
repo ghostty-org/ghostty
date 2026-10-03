@@ -3,7 +3,7 @@ const Self = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const CpuImage = @import("../../terminal/image.zig").CpuImage;
+const Image = @import("../../terminal/image.zig").Image;
 const assert = @import("../../quirks.zig").inlineAssert;
 const objc = @import("objc");
 
@@ -41,7 +41,7 @@ pub const Error = error{
 /// Null requires conversion before uploading.
 ///
 /// Metal documents the acceptable pixel formats at https://developer.apple.com/documentation/metal/mtlpixelformat
-pub fn imageTextureFormat(format: CpuImage.Format) ?Metal.ImageTextureFormat {
+pub fn imageTextureFormat(format: Image.Format) ?Metal.ImageTextureFormat {
     return switch (format) {
         .rgba => .rgba,
         .bgra => .bgra,

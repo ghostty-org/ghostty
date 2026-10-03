@@ -6,7 +6,7 @@ const assert = @import("../../quirks.zig").inlineAssert;
 const testing = std.testing;
 const terminal = @import("../main.zig");
 const kitty_gfx = terminal.kitty.graphics;
-const Image = kitty_gfx.Image;
+const KittyImage = kitty_gfx.KittyImage;
 const ImageStorage = kitty_gfx.ImageStorage;
 const RenderPlacement = kitty_gfx.RenderPlacement;
 
@@ -48,7 +48,7 @@ pub const Placement = struct {
     pub fn renderPlacement(
         self: *const Placement,
         target: *const ImageStorage.Placement,
-        img: *const Image,
+        img: *const KittyImage,
         cell_width: u32,
         cell_height: u32,
     ) Error!RenderPlacement {
@@ -276,7 +276,7 @@ pub const Placement = struct {
     // dumbly fitting the image into the grid size -- possibly user specified.
     fn grid(
         placement: *const ImageStorage.Placement,
-        image: *const Image,
+        image: *const KittyImage,
         cell_width: u32,
         cell_height: u32,
     ) Error!struct {
@@ -850,10 +850,10 @@ test "unicode render placement: dog 4x2" {
 
     var t = try terminal.Terminal.init(io, alloc, .{ .cols = 100, .rows = 100 });
     defer t.deinit(alloc);
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
 
-    const image: Image = .{ .id = 1, .width = 500, .height = 306 };
+    const image: KittyImage = .{ .id = 1, .width = 500, .height = 306 };
     try s.addImage(io, alloc, t.screens.active, image);
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
         .location = .{ .virtual = {} },
@@ -918,10 +918,10 @@ test "unicode render placement: dog 2x2 with blank cells" {
 
     var t = try terminal.Terminal.init(io, alloc, .{ .cols = 100, .rows = 100 });
     defer t.deinit(alloc);
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
 
-    const image: Image = .{ .id = 1, .width = 500, .height = 306 };
+    const image: KittyImage = .{ .id = 1, .width = 500, .height = 306 };
     try s.addImage(io, alloc, t.screens.active, image);
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
         .location = .{ .virtual = {} },
@@ -985,10 +985,10 @@ test "unicode render placement: dog 1x1" {
 
     var t = try terminal.Terminal.init(io, alloc, .{ .cols = 100, .rows = 100 });
     defer t.deinit(alloc);
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
 
-    const image: Image = .{ .id = 1, .width = 500, .height = 306 };
+    const image: KittyImage = .{ .id = 1, .width = 500, .height = 306 };
     try s.addImage(io, alloc, t.screens.active, image);
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
         .location = .{ .virtual = {} },

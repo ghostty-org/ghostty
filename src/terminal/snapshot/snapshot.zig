@@ -1040,6 +1040,7 @@ fn testHistoryTerminal(history_pages: u8) !Terminal {
         break :replacement .{
             .io = testing.io,
             .alloc = testing.allocator,
+            .kitty_images = if (build_options.kitty_graphics) .init(testing.allocator) else .{},
             .pages = pages,
             .cursor = .{
                 .page_pin = cursor_pin,
@@ -1120,6 +1121,7 @@ test "complete snapshot round trip with history and alternate screen" {
         break :replacement .{
             .io = testing.io,
             .alloc = testing.allocator,
+            .kitty_images = if (build_options.kitty_graphics) .init(testing.allocator) else .{},
             .pages = pages,
             .cursor = .{
                 .page_pin = cursor_pin,
