@@ -1,0 +1,37 @@
+<!-- The persistent shell: the sidebar table of contents next to a content
+     iframe. The sidebar is rendered exactly once and all navigation happens
+     inside the iframe, so switching pages never re-renders it. Marked
+     NOINDEX so the repeated topic names don't pollute the hiutil search
+     index; search results open the standalone topic pages, which redirect
+     themselves into this shell. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ghostty Help</title>
+<meta name="AppleTitle" content="Ghostty Help">
+<meta name="ROBOTS" content="NOINDEX">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="shell">
+<nav class="sidebar" aria-label="Table of Contents">
+<p class="sidebar-title"><a href="home.html" target="content">Ghostty Help</a></p>
+<details open><summary>Documentation</summary>
+<ul>
+<li><a id="docs.config" href="docs.config.html" target="content">Configuration File</a></li>
+<li><a id="docs.cli" href="docs.cli.html" target="content">Command Line Interface</a></li>
+</ul>
+</details>
+<details><summary>Configuration Options</summary>
+<ul>
+{{options_toc}}</ul>
+</details>
+<details><summary>Keybind Actions</summary>
+<ul>
+{{actions_toc}}</ul>
+</details>
+</nav>
+<iframe id="content" name="content" class="content" title="Content" src="home.html"></iframe>
+<script src="shell.js"></script>
+</body>
+</html>
