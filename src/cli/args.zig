@@ -114,7 +114,7 @@ pub fn parse(
 
             // Add our diagnostic
             try dst._diagnostics.append(arena_alloc, .{
-                .key = try arena_alloc.dupeZ(u8, arg),
+                .key = try arena_alloc.dupeSentinel(u8, arg, 0),
                 .message = "invalid field",
                 .location = try diags.Location.fromIter(iter, arena_alloc),
             });
@@ -171,7 +171,7 @@ pub fn parse(
 
             // Add our diagnostic
             try dst._diagnostics.append(arena_alloc, .{
-                .key = try arena_alloc.dupeZ(u8, key),
+                .key = try arena_alloc.dupeSentinel(u8, key, 0),
                 .message = message,
                 .location = try diags.Location.fromIter(iter, arena_alloc),
             });

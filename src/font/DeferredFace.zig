@@ -433,7 +433,7 @@ pub const Wasm = struct {
     }
 
     fn deferred_face_new_(ptr: [*]const u8, len: usize, presentation: u16) !*DeferredFace {
-        const font_str = try alloc.dupeZ(u8, ptr[0..len]);
+        const font_str = try alloc.dupeSentinel(u8, ptr[0..len], 0);
         errdefer alloc.free(font_str);
 
         var face: DeferredFace = .{
