@@ -799,6 +799,12 @@ pub fn init(
 }
 
 pub fn deinit(self: *Surface) void {
+    // Our search, renderer and IO threads can all be blocked pushing into
+    // the app mailbox, which only this thread drains. Keep it draining
+    // until they're joined.
+    var drain: App.TeardownDrain = .{ .app = self.app, .surface = self };
+    drain.start();
+
     // Stop search thread
     if (self.search) |*s| s.deinit();
 
@@ -815,6 +821,8 @@ pub fn deinit(self: *Surface) void {
             log.err("error notifying io thread to stop, may stall err={}", .{err});
         self.io_thr.join();
     }
+
+    drain.finish();
 
     // We need to deinit AFTER everything is stopped, since there are
     // shared values between the two threads.

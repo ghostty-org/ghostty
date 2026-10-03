@@ -50,6 +50,12 @@ focused_surface: ?*Surface = null,
 /// this is a blocking queue so if it is full you will get errors (or block).
 mailbox: Mailbox.Queue,
 
+/// Messages a `TeardownDrain` took off the mailbox while a surface was
+/// being torn down. They're older than anything still in the mailbox, so
+/// they're handled first. Only the app thread touches this, except while
+/// a `TeardownDrain` is running, when only the drain's thread does.
+deferred: std.ArrayList(Message) = .empty,
+
 /// The set of font GroupCache instances shared by surfaces with the
 /// same font configuration.
 font_grid_set: font.SharedGridSet,
@@ -146,6 +152,7 @@ pub fn deinit(self: *App) void {
     // Clean up all our surfaces
     for (self.surfaces.items) |surface| surface.deinit();
     self.surfaces.deinit(self.alloc);
+    self.deferred.deinit(self.alloc);
 
     // Clean up our font group cache
     // We should have zero items in the grid set at this point because
@@ -280,38 +287,51 @@ pub fn needsConfirmQuit(self: *const App) bool {
 
 /// Drain the mailbox.
 fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
-    while (self.mailbox.pop(global.io())) |message| {
-        if (comptime std.log.logEnabled(.debug, .app)) {
-            switch (message) {
-                // these tend to be way too verbose for normal debugging
-                else => log.debug("mailbox message={t}", .{message}),
-            }
-        }
-        switch (message) {
-            .open_config => |v| try self.performAction(
-                rt_app,
-                .{
-                    .open_config = switch (v) {
-                        .os_open => .os_open,
-                        .new_window => .new_window,
-                    },
-                },
-            ),
-            .new_window => |msg| try self.newWindow(rt_app, msg),
-            .close => |surface| self.closeSurface(surface),
-            .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
+    while (self.deferred.items.len > 0) {
+        const message = self.deferred.orderedRemove(0);
+        if (!try self.processMessage(rt_app, message)) return;
+    }
 
-            // If we're quitting, then we set the quit flag and stop
-            // draining the mailbox immediately. This lets us defer
-            // mailbox processing to the next tick so that the apprt
-            // can try to quit as quickly as possible.
-            .quit => {
-                log.info("quit message received, short circuiting mailbox drain", .{});
-                try self.performAction(rt_app, .quit);
-                return;
-            },
+    while (self.mailbox.pop(global.io())) |message| {
+        if (!try self.processMessage(rt_app, message)) return;
+    }
+}
+
+/// Process a single mailbox message. Returns false if draining should
+/// stop.
+fn processMessage(self: *App, rt_app: *apprt.App, message: Message) !bool {
+    if (comptime std.log.logEnabled(.debug, .app)) {
+        switch (message) {
+            // these tend to be way too verbose for normal debugging
+            else => log.debug("mailbox message={t}", .{message}),
         }
     }
+    switch (message) {
+        .open_config => |v| try self.performAction(
+            rt_app,
+            .{
+                .open_config = switch (v) {
+                    .os_open => .os_open,
+                    .new_window => .new_window,
+                },
+            },
+        ),
+        .new_window => |msg| try self.newWindow(rt_app, msg),
+        .close => |surface| self.closeSurface(surface),
+        .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
+
+        // If we're quitting, then we set the quit flag and stop
+        // draining the mailbox immediately. This lets us defer
+        // mailbox processing to the next tick so that the apprt
+        // can try to quit as quickly as possible.
+        .quit => {
+            log.info("quit message received, short circuiting mailbox drain", .{});
+            try self.performAction(rt_app, .quit);
+            return false;
+        },
+    }
+
+    return true;
 }
 
 pub fn closeSurface(self: *App, surface: *Surface) void {
@@ -611,6 +631,72 @@ pub const Mailbox = struct {
     }
 };
 
+/// Keeps the mailbox moving while a surface joins its threads.
+///
+/// The app thread is the only consumer of the mailbox, and it's also the
+/// thread that tears surfaces down. A surface's search, renderer and IO
+/// threads can all be blocked pushing into a full mailbox, so if the app
+/// thread simply joined them nothing would ever make room and the join
+/// would never return (#14245). While this runs, another thread takes
+/// messages off the mailbox and sets them aside in `deferred`, and the
+/// app thread handles them on its next tick. Every one of them was pushed
+/// with a wakeup, so that tick is already on its way.
+///
+/// Messages for the surface being torn down are dropped instead: by the
+/// next tick another surface may have been allocated at the same address.
+pub const TeardownDrain = struct {
+    app: *App,
+    surface: *const Surface,
+    stop: std.atomic.Value(bool) = .init(false),
+    thread: ?std.Thread = null,
+
+    /// Start draining. This must not be moved until `finish` returns.
+    pub fn start(self: *TeardownDrain) void {
+        self.thread = std.Thread.spawn(.{}, run, .{self}) catch |err| thread: {
+            log.warn("teardown drain thread spawn failed, may stall err={}", .{err});
+            break :thread null;
+        };
+    }
+
+    /// Stop draining. Call this once every thread that might push
+    /// messages for the surface has been joined, so that the last pass
+    /// catches everything they left for it.
+    pub fn finish(self: *TeardownDrain) void {
+        const thread = self.thread orelse return;
+        self.stop.store(true, .release);
+        thread.join();
+        self.thread = null;
+    }
+
+    fn run(self: *TeardownDrain) void {
+        const io = global.io();
+        while (true) {
+            // Read the flag before draining so that the last pass comes
+            // after every push made before `finish` was called.
+            const stopping = self.stop.load(.acquire);
+            while (self.app.mailbox.pop(io)) |message| self.keep(message);
+            if (stopping) return;
+            std.Io.sleep(io, .fromMilliseconds(1), .awake) catch {};
+        }
+    }
+
+    fn keep(self: *TeardownDrain, message: Message) void {
+        var kept = message;
+        switch (kept) {
+            .close => |surface| if (surface == self.surface) return,
+            .surface_message => |msg| if (msg.surface == self.surface) return,
+            .new_window => |*msg| if (msg.parent == self.surface) {
+                msg.parent = null;
+            },
+            .open_config, .quit => {},
+        }
+
+        self.app.deferred.append(self.app.alloc, kept) catch |err| {
+            log.warn("dropping app message during surface teardown err={}", .{err});
+        };
+    }
+};
+
 // Wasm API.
 pub const Wasm = if (!builtin.target.isWasm()) struct {} else struct {
     const wasm = @import("os/wasm.zig");
@@ -638,3 +724,63 @@ pub const Wasm = if (!builtin.target.isWasm()) struct {} else struct {
     //     }
     // }
 };
+
+test "TeardownDrain releases a producer blocked on a full mailbox" {
+    const testing = std.testing;
+    if (builtin.single_threaded) return error.SkipZigTest;
+    const io = global.io();
+    const capacity = @typeInfo(@FieldType(Mailbox.Queue, "data")).array.len;
+
+    // Only the fields the drain touches are set up.
+    var app: App = undefined;
+    app.alloc = testing.allocator;
+    app.mailbox = .{};
+    app.deferred = .empty;
+    defer app.deferred.deinit(app.alloc);
+
+    // Stand-ins for two surfaces. They're only compared, never used.
+    var closing_storage: u8 align(@alignOf(Surface)) = 0;
+    var other_storage: u8 align(@alignOf(Surface)) = 0;
+    const closing: *Surface = @ptrCast(&closing_storage);
+    const other: *Surface = @ptrCast(&other_storage);
+
+    // Fill the mailbox with messages for both surfaces and the app.
+    for (0..capacity) |i| {
+        const message: Message = switch (i % 4) {
+            0 => .{ .surface_message = .{ .surface = closing, .message = .ring_bell } },
+            1 => .{ .surface_message = .{ .surface = other, .message = .ring_bell } },
+            2 => .{ .new_window = .{ .parent = closing } },
+            else => .{ .close = closing },
+        };
+        try testing.expect(app.mailbox.push(io, message, .instant) > 0);
+    }
+
+    // What the closing surface's IO thread does in #14245: block pushing
+    // into a mailbox nobody is draining.
+    const S = struct {
+        fn producer(mailbox: *Mailbox.Queue, surface: *Surface) void {
+            _ = mailbox.push(global.io(), .{ .surface_message = .{
+                .surface = surface,
+                .message = .ring_bell,
+            } }, .forever);
+            _ = mailbox.push(global.io(), .quit, .forever);
+        }
+    };
+    const thread = try std.Thread.spawn(.{}, S.producer, .{ &app.mailbox, closing });
+
+    var drain: TeardownDrain = .{ .app = &app, .surface = closing };
+    drain.start();
+    thread.join();
+    drain.finish();
+
+    // Everything was taken off the mailbox, and only what wasn't for the
+    // closing surface was kept, in order.
+    try testing.expect(app.mailbox.pop(io) == null);
+    const kept = app.deferred.items;
+    try testing.expectEqual(capacity / 4 * 2 + 1, kept.len);
+    for (kept[0 .. kept.len - 1], 0..) |message, i| switch (i % 2) {
+        0 => try testing.expect(message.surface_message.surface == other),
+        else => try testing.expect(message.new_window.parent == null),
+    };
+    try testing.expect(kept[kept.len - 1] == .quit);
+}
