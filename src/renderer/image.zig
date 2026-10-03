@@ -11,12 +11,17 @@ const Texture = GraphicsAPI.Texture;
 const CellSize = @import("size.zig").CellSize;
 const Overlay = @import("Overlay.zig");
 
+pub const ArcImage = terminal.ArcImage;
+
 const log = std.log.scoped(.renderer_image);
 
 /// Generic image rendering state for the renderer. This stores all
 /// images and their placements and exposes only a limited public API
 /// for adding images and placements and drawing them.
 pub const State = struct {
+    /// Shared with Kitty storage; must outlive all pending image references.
+    image_allocator: Allocator,
+
     /// The full image state for the renderer that specifies what images
     /// need to be uploaded, pruned, etc.
     images: ImageMap,
@@ -37,19 +42,23 @@ pub const State = struct {
     /// Overlays
     overlay_placements: std.ArrayListUnmanaged(Placement),
 
-    pub const empty: State = .{
-        .images = .empty,
-        .kitty_placements = .empty,
-        .kitty_bg_end = 0,
-        .kitty_text_end = 0,
-        .kitty_virtual = false,
-        .overlay_placements = .empty,
-    };
+    /// Use the same image allocator as the terminal's Kitty storages.
+    pub fn init(image_allocator: Allocator) State {
+        return .{
+            .image_allocator = image_allocator,
+            .images = .empty,
+            .kitty_placements = .empty,
+            .kitty_bg_end = 0,
+            .kitty_text_end = 0,
+            .kitty_virtual = false,
+            .overlay_placements = .empty,
+        };
+    }
 
     pub fn deinit(self: *State, alloc: Allocator) void {
         {
             var it = self.images.iterator();
-            while (it.next()) |kv| kv.value_ptr.image.deinit(alloc);
+            while (it.next()) |kv| kv.value_ptr.image.deinit(self.image_allocator);
             self.images.deinit(alloc);
         }
         self.kitty_placements.deinit(alloc);
@@ -64,7 +73,6 @@ pub const State = struct {
     /// or not (false).
     pub fn upload(
         self: *State,
-        alloc: Allocator,
         api: *GraphicsAPI,
     ) bool {
         var success: bool = true;
@@ -72,14 +80,14 @@ pub const State = struct {
         while (image_it.next()) |kv| {
             const img = &kv.value_ptr.image;
             if (img.isUnloading()) {
-                img.deinit(alloc);
+                img.deinit(self.image_allocator);
                 self.images.removeByPtr(kv.key_ptr);
                 continue;
             }
 
             if (img.isPending()) {
                 img.upload(
-                    alloc,
+                    self.image_allocator,
                     api,
                 ) catch |err| {
                     log.warn("error uploading image to GPU err={}", .{err});
@@ -204,7 +212,11 @@ pub const State = struct {
         try self.overlay_placements.ensureUnusedCapacity(alloc, 1);
 
         // Setup our image.
-        const pending = overlay.pendingImage();
+        const pending = overlay.pendingImage(self.image_allocator) catch |err| {
+            if (self.images.getPtr(.overlay)) |data| data.image.markForUnload();
+            return err;
+        };
+        defer pending.release(self.image_allocator);
         try self.prepImage(
             alloc,
             .overlay,
@@ -219,14 +231,14 @@ pub const State = struct {
             .x = 0,
             .y = 0,
             .z = 0,
-            .width = pending.width,
-            .height = pending.height,
+            .width = pending.value.width,
+            .height = pending.value.height,
             .cell_offset_x = 0,
             .cell_offset_y = 0,
             .source_x = 0,
             .source_y = 0,
-            .source_width = pending.width,
-            .source_height = pending.height,
+            .source_width = pending.value.width,
+            .source_height = pending.value.height,
         });
     }
 
@@ -527,7 +539,6 @@ pub const State = struct {
 
     const PrepImageError = error{
         OutOfMemory,
-        ImageConversionError,
     };
 
     /// Where a placement is anchored on screen: a pin, plus cell
@@ -549,7 +560,7 @@ pub const State = struct {
         t: *const terminal.Terminal,
         top_y: u32,
         bot_y: u32,
-        image: *const terminal.kitty.graphics.Image,
+        image: *const terminal.kitty.graphics.KittyImage,
         p: *const terminal.kitty.graphics.ImageStorage.Placement,
         origin: Origin,
     ) PrepImageError!void {
@@ -598,7 +609,7 @@ pub const State = struct {
         self: *State,
         alloc: Allocator,
         t: *const terminal.Terminal,
-        image: *const terminal.kitty.graphics.Image,
+        image: *const terminal.kitty.graphics.KittyImage,
         p: *const terminal.kitty.graphics.ImageStorage.Placement,
         x: i32,
         y: i32,
@@ -699,7 +710,7 @@ pub const State = struct {
         alloc: Allocator,
         id: Id,
         generation: u64,
-        pending: Image.Pending,
+        pending: *const ArcImage,
     ) PrepImageError!void {
         // If this image exists and its generation is the same it is the
         // identical image so we don't need to send it to the GPU.
@@ -711,22 +722,8 @@ pub const State = struct {
         }
 
         // Store it in the map
-        const new_image: Image = if (pending.convertCopy(alloc)) |v| v else |_| {
-            if (!gop.found_existing) {
-                // If this is a new entry we can just remove it since it
-                // was never sent to the GPU.
-                _ = self.images.remove(id);
-            } else {
-                // If this was an existing entry, it is invalid and
-                // we must unload it.
-                gop.value_ptr.image.markForUnload();
-            }
-
-            return error.OutOfMemory;
-        };
-        // Note: we don't need to errdefer free the data because it is
-        // put into the map immediately below and our errdefer to
-        // handle our map state will fix this up.
+        const new_image: Image = .{ .pending = pending.clone() };
+        // Transfer the new reference into the map. No fallible work remains.
 
         if (!gop.found_existing) {
             gop.value_ptr.* = .{
@@ -734,54 +731,35 @@ pub const State = struct {
                 .generation = 0,
             };
         } else {
-            gop.value_ptr.image.markForReplace(
-                alloc,
-                new_image,
-            );
+            gop.value_ptr.image.markForReplace(self.image_allocator, new_image);
         }
 
-        // If any error happens, we unload the image and it is invalid.
-        errdefer gop.value_ptr.image.markForUnload();
-
-        gop.value_ptr.image.getPendingPointer().?.prepForUpload(alloc) catch |err| {
-            log.warn("error preparing image for upload err={}", .{err});
-            return error.ImageConversionError;
-        };
         gop.value_ptr.generation = generation;
     }
 
-    /// Prepare the provided Kitty image for upload to the GPU by copying its
-    /// data with our allocator and setting it to the pending state.
+    /// Prepare the provided Kitty image for GPU upload by cloning a shared
+    /// reference to its current frame as pending state in the renderer.
     fn prepKittyImage(
         self: *State,
         alloc: Allocator,
-        image: *const terminal.kitty.graphics.Image,
+        image: *const terminal.kitty.graphics.KittyImage,
     ) PrepImageError!void {
-        // For animated images this is the current animation frame;
-        // the image generation changes whenever the current frame
-        // does, so the upload cache stays coherent.
-        const data = image.renderData().bytes() orelse unreachable;
-        try self.prepImage(
-            alloc,
-            .{ .kitty = image.id },
-            image.generation,
-            .{
-                .width = image.width,
-                .height = image.height,
-                .pixel_format = switch (image.format) {
-                    .gray => .gray,
-                    .gray_alpha => .gray_alpha,
-                    .rgb => .rgb,
-                    .rgba => .rgba,
-                    .png => unreachable, // should be decoded by now
-                },
-
-                // constCasts are always gross but this one is safe is because
-                // the data is only read from here and copied into its own
-                // buffer.
-                .data = @constCast(data.ptr),
-            },
-        );
+        const pixels =
+            image.renderImage() orelse return;
+        const gop = try self.images.getOrPut(alloc, .{ .kitty = image.id });
+        if (gop.found_existing and gop.value_ptr.generation == image.generation) {
+            gop.value_ptr.image.cancelUnload();
+            return;
+        }
+        const next: Image =
+            .{ .pending = pixels.clone() };
+        if (gop.found_existing) {
+            gop.value_ptr.image.markForReplace(self.image_allocator, next);
+        } else {
+            gop.value_ptr.* = .{ .image = next, .generation = 0 };
+        }
+        gop.value_ptr.generation =
+            image.generation;
     }
 };
 
@@ -855,7 +833,7 @@ pub const ImageMap = std.AutoHashMapUnmanaged(Id, struct {
     image: Image,
 
     /// The generation of the terminal image this was created from
-    /// (see terminal.kitty.graphics.Image.generation). Used to detect
+    /// (see terminal.kitty.graphics.KittyImage.generation). Used to detect
     /// staleness: a differing generation for the same ID means the
     /// contents changed and the texture must be replaced. Zero is
     /// never a valid stored generation so it marks "not yet uploaded".
@@ -889,114 +867,46 @@ pub const Image = union(enum) {
         pending: Pending,
     };
 
-    /// Pending image data that needs to be uploaded to the GPU.
-    pub const Pending = struct {
-        height: u32,
-        width: u32,
-        pixel_format: PixelFormat,
+    pub const Pending = *const ArcImage;
 
-        /// Data is always expected to be (width * height * bpp).
-        data: [*]u8,
-
-        pub fn dataSlice(self: Pending) []u8 {
-            return self.data[0..self.len()];
-        }
-
-        pub fn len(self: Pending) usize {
-            return self.width * self.height * self.pixel_format.bpp();
-        }
-
-        pub const PixelFormat = enum {
-            /// 1 byte per pixel grayscale.
-            gray,
-            /// 2 bytes per pixel grayscale + alpha.
-            gray_alpha,
-            /// 3 bytes per pixel RGB.
-            rgb,
-            /// 3 bytes per pixel BGR.
-            bgr,
-            /// 4 byte per pixel RGBA.
-            rgba,
-            /// 4 byte per pixel BGRA.
-            bgra,
-
-            /// Get bytes per pixel for this format.
-            pub inline fn bpp(self: PixelFormat) usize {
-                return switch (self) {
-                    .gray => 1,
-                    .gray_alpha => 2,
-                    .rgb => 3,
-                    .bgr => 3,
-                    .rgba => 4,
-                    .bgra => 4,
-                };
-            }
+    /// Convert layouts without native backend support into RGBA.
+    /// A Graphics API may accept more than the shared format of RGBA
+    fn convertForUpload(alloc: Allocator, shared: *const ArcImage) wuffs.Error!*const ArcImage {
+        const source = &shared.value;
+        const rgba = try switch (source.format) {
+            .gray => wuffs.swizzle.gToRgba(alloc, source.data),
+            .gray_alpha => wuffs.swizzle.gaToRgba(alloc, source.data),
+            .rgb => wuffs.swizzle.rgbToRgba(alloc, source.data),
+            .bgr => wuffs.swizzle.bgrToRgba(alloc, source.data),
+            .rgba, .bgra => unreachable, // both backends upload these directly
         };
+        errdefer alloc.free(rgba);
+        return ArcImage.init(alloc, .{
+            .width = source.width,
+            .height = source.height,
+            .format = .rgba,
+            .data = rgba,
+        });
+    }
 
-        /// Converts the image data and replaces it with a format that can be uploaded to the GPU.
-        /// If the data is already in a format that can be uploaded, this is a
-        /// no-op.
-        /// Use `convertCopy()` to convert and copy in a single-pass, such as for owning the data to upload.
-        fn convertReplace(self: *Image.Pending, alloc: Allocator) wuffs.Error!void {
-            // As things stand, we currently convert all images to RGBA before
-            // uploading to the GPU. This just makes things easier. In the future
-            // we may want to support other formats.
-            if (self.pixel_format == .rgba) return;
-            // If the pending data isn't RGBA we'll need to swizzle it.
-            const data = self.dataSlice();
-            const rgba = try switch (self.pixel_format) {
-                .gray => wuffs.swizzle.gToRgba(alloc, data),
-                .gray_alpha => wuffs.swizzle.gaToRgba(alloc, data),
-                .rgb => wuffs.swizzle.rgbToRgba(alloc, data),
-                .bgr => wuffs.swizzle.bgrToRgba(alloc, data),
-                .rgba => unreachable,
-                .bgra => wuffs.swizzle.bgraToRgba(alloc, data),
-            };
-            alloc.free(data);
-            self.data = rgba.ptr;
-            self.pixel_format = .rgba;
-        }
-
-        /// Converts the image data to a copy with a format that can be uploaded to the GPU.
-        /// If the data is already owned, use `convertReplace()` to be a no-op for data already
-        /// in a format that can be uploaded.
-        fn convertCopy(self: *const Image.Pending, alloc: Allocator) wuffs.Error!Image {
-            // As things stand, we currently convert all images to RGBA before
-            // uploading to the GPU. This just makes things easier. In the future
-            // we may want to support other formats.
-            const data = self.dataSlice();
-            const rgba = try switch (self.pixel_format) {
-                .gray => wuffs.swizzle.gToRgba(alloc, data),
-                .gray_alpha => wuffs.swizzle.gaToRgba(alloc, data),
-                .rgb => wuffs.swizzle.rgbToRgba(alloc, data),
-                .bgr => wuffs.swizzle.bgrToRgba(alloc, data),
-                .rgba => alloc.dupe(u8, data),
-                .bgra => wuffs.swizzle.bgraToRgba(alloc, data),
-            };
-            const result: Image = .{ .pending = .{
-                .height = self.height,
-                .width = self.width,
-                .pixel_format = .rgba,
-                .data = rgba.ptr,
-            } };
-            return result;
-        }
-
-        /// Prepare the pending image data for upload to the GPU.
-        /// This doesn't need GPU access so is safe to call any time.
-        fn prepForUpload(self: *Image.Pending, alloc: Allocator) wuffs.Error!void {
-            try self.convertReplace(alloc);
-        }
-    };
+    /// Prepare the pending image data for upload to the GPU. This doesn't
+    /// need GPU access and is a no-op for formats the graphics API accepts.
+    fn prepForUpload(self: *Image, alloc: Allocator) wuffs.Error!void {
+        const pending = self.getPendingPointer().?;
+        if (Texture.imageTextureFormat(pending.*.value.format) != null) return;
+        const converted = try convertForUpload(alloc, pending.*);
+        pending.*.release(alloc);
+        pending.* = converted;
+    }
 
     pub fn deinit(self: Image, alloc: Allocator) void {
         switch (self) {
             .pending,
             .unload_pending,
-            => |p| alloc.free(p.dataSlice()),
+            => |p| p.release(alloc),
 
             .replace, .unload_replace => |r| {
-                alloc.free(r.pending.dataSlice());
+                r.pending.release(alloc);
                 r.texture.deinit();
             },
 
@@ -1020,6 +930,15 @@ pub const Image = union(enum) {
         };
     }
 
+    fn cancelUnload(self: *Image) void {
+        self.* = switch (self.*) {
+            .unload_pending => |p| .{ .pending = p },
+            .unload_replace => |r| .{ .replace = r },
+            .unload_ready => |t| .{ .ready = t },
+            else => return,
+        };
+    }
+
     /// Mark the current image to be replaced with a pending one. This will
     /// attempt to update the existing texture if we have one, otherwise it
     /// will act like a new upload.
@@ -1028,7 +947,7 @@ pub const Image = union(enum) {
 
         // If we have pending data right now, free it.
         if (self.getPending()) |p| {
-            alloc.free(p.dataSlice());
+            p.release(alloc);
         }
         // If we have an existing texture, use it in the replace.
         if (self.getTexture()) |t| {
@@ -1082,16 +1001,15 @@ pub const Image = union(enum) {
         // Get our pending info
         const p = self.getPendingPointer().?;
 
-        // No error recover is required after this call because it just
-        // converts in place and is idempotent.
-        try p.prepForUpload(alloc);
+        // This allocates a copy of the image data, and converts the pixel format
+        try self.prepForUpload(alloc);
 
         // Create our texture
         const texture = Texture.init(
-            api.imageTextureOptions(.rgba, true),
-            @intCast(p.width),
-            @intCast(p.height),
-            p.dataSlice(),
+            api.imageTextureOptions(Texture.imageTextureFormat(p.*.value.format).?, true),
+            @intCast(p.*.value.width),
+            @intCast(p.*.value.height),
+            p.*.value.data,
         ) catch return error.UploadFailed;
         errdefer comptime unreachable;
 
@@ -1162,7 +1080,7 @@ test "kitty renderer ignores pending payloads and removes replaced placements" {
     t.width_px = 30;
     t.height_px = 30;
 
-    var state: State = .empty;
+    var state: State = .init(alloc);
     defer state.deinit(alloc);
 
     const storage = &t.screens.active.kitty_images;
@@ -1223,7 +1141,7 @@ test "kitty renderer uses the intersected source rectangle" {
     t.width_px = 30;
     t.height_px = 30;
 
-    var state: State = .empty;
+    var state: State = .init(alloc);
     defer state.deinit(alloc);
 
     const storage = &t.screens.active.kitty_images;
@@ -1234,7 +1152,12 @@ test "kitty renderer uses the intersected source rectangle" {
         .width = 4,
         .height = 3,
         .format = .rgb,
-        .data = .{ .complete = pixels },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 4,
+            .height = 3,
+            .format = .rgb,
+            .data = pixels,
+        }) },
     });
     const pin = try t.screens.active.pages.trackPin(
         t.screens.active.cursor.page_pin.*,
@@ -1267,7 +1190,7 @@ test "kitty renderer positions relative placements from the parent pin" {
     t.width_px = 100;
     t.height_px = 100;
 
-    var state: State = .empty;
+    var state: State = .init(alloc);
     defer state.deinit(alloc);
 
     const storage = &t.screens.active.kitty_images;
@@ -1278,7 +1201,12 @@ test "kitty renderer positions relative placements from the parent pin" {
         .width = 1,
         .height = 1,
         .format = .rgb,
-        .data = .{ .complete = pixels },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgb,
+            .data = pixels,
+        }) },
     });
 
     // Parent at (2, 1).
@@ -1331,7 +1259,7 @@ test "kitty renderer relative placement with negative offsets" {
     t.width_px = 100;
     t.height_px = 100;
 
-    var state: State = .empty;
+    var state: State = .init(alloc);
     defer state.deinit(alloc);
 
     const storage = &t.screens.active.kitty_images;
@@ -1342,7 +1270,12 @@ test "kitty renderer relative placement with negative offsets" {
         .width = 1,
         .height = 1,
         .format = .rgb,
-        .data = .{ .complete = pixels },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgb,
+            .data = pixels,
+        }) },
     });
 
     const pin = try t.screens.active.pages.trackPin(
@@ -1402,7 +1335,7 @@ test "kitty renderer positions relative placements from virtual parent placehold
     t.height_px = 50;
     t.modes.set(.grapheme_cluster, true);
 
-    var state: State = .empty;
+    var state: State = .init(alloc);
     defer state.deinit(alloc);
 
     const storage = &t.screens.active.kitty_images;
@@ -1413,7 +1346,12 @@ test "kitty renderer positions relative placements from virtual parent placehold
         .width = 10,
         .height = 10,
         .format = .rgb,
-        .data = .{ .complete = pixels },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 10,
+            .height = 10,
+            .format = .rgb,
+            .data = pixels,
+        }) },
     });
     try storage.addPlacement(io, alloc, t.screens.active, 1, 1, .{
         .location = .{ .virtual = {} },
@@ -1465,7 +1403,7 @@ test "kitty renderer uploads the current animation frame" {
     t.width_px = 30;
     t.height_px = 30;
 
-    var state: State = .empty;
+    var state: State = .init(alloc);
     defer state.deinit(alloc);
 
     const storage = &t.screens.active.kitty_images;
@@ -1474,7 +1412,12 @@ test "kitty renderer uploads the current animation frame" {
         .width = 1,
         .height = 1,
         .format = .rgba,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }),
+        }) },
     });
     const pin = try t.screens.active.pages.trackPin(
         t.screens.active.cursor.page_pin.*,
@@ -1490,7 +1433,7 @@ test "kitty renderer uploads the current animation frame" {
     try testing.expectEqualSlices(
         u8,
         &.{ 255, 0, 0, 255 },
-        state.images.get(.{ .kitty = 1 }).?.image.pending.dataSlice(),
+        state.images.get(.{ .kitty = 1 }).?.image.pending.value.data,
     );
 
     // Attach an animation and make its extra frame current, the way
@@ -1500,7 +1443,12 @@ test "kitty renderer uploads the current animation frame" {
     anim.* = .{};
     img.animation = anim;
     try anim.frames.append(alloc, .{
-        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        .image = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        }),
         .gap_ms = 40,
     });
     anim.current_index = 1;
@@ -1514,6 +1462,166 @@ test "kitty renderer uploads the current animation frame" {
     try testing.expectEqualSlices(
         u8,
         &.{ 0, 0, 255, 255 },
-        entry.image.pending.dataSlice(),
+        entry.image.pending.value.data,
     );
+}
+
+test "kitty renderer retains pixels and converts outside storage" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+    var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+    const storage = &t.screens.active.kitty_images;
+    const pixels = try alloc.dupe(u8, &.{ 1, 2 });
+    try storage.addImage(io, alloc, t.screens.active, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .gray_alpha,
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .gray_alpha,
+            .data = pixels,
+        }) },
+    });
+    const source = storage.imageById(1).?;
+    const retained = source.renderImage().?.clone();
+    defer retained.release(alloc);
+    var state: State = .init(alloc);
+    defer state.deinit(alloc);
+    try state.prepKittyImage(alloc, &source);
+    const entry = state.images.getPtr(.{ .kitty = 1 }).?;
+    try testing.expectEqual(retained, entry.image.pending);
+    try testing.expectEqual(pixels.ptr, entry.image.pending.value.data.ptr);
+    // Removing storage cannot invalidate the pending upload.
+    storage.setLimit(io, alloc, t.screens.active, 0);
+    // Both the converted-pixel allocation and its control block can fail.
+    for (0..2) |fail_index| {
+        var failing_conversion = testing.FailingAllocator.init(alloc, .{ .fail_index = fail_index });
+        try testing.expectError(error.OutOfMemory, entry.image.prepForUpload(failing_conversion.allocator()));
+        try testing.expectEqual(retained, entry.image.pending);
+    }
+    try entry.image.prepForUpload(alloc);
+    try testing.expectEqual(terminal.Image.Format.rgba, entry.image.pending.value.format);
+    try testing.expectEqualSlices(u8, &.{ 1, 1, 1, 2 }, entry.image.pending.value.data);
+    try testing.expectEqualSlices(u8, &.{ 1, 2 }, retained.value.data);
+    const converted = entry.image.pending;
+    // Already-RGBA conversion requires no allocator and preserves identity.
+    var failing = testing.FailingAllocator.init(alloc, .{ .fail_index = 0 });
+    try entry.image.prepForUpload(failing.allocator());
+    try testing.expect(!failing.has_induced_failure);
+    try testing.expectEqual(converted, entry.image.pending);
+}
+
+test "kitty renderer releases pending replacement and canceled unload" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const first = try ArcImage.init(alloc, .{
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, "1234"),
+    });
+    defer first.release(alloc);
+    var image: Image = .{ .pending = first.clone() };
+    defer image.deinit(alloc);
+    image.markForUnload();
+    image.cancelUnload();
+    try testing.expectEqual(first, image.pending);
+    const second = try ArcImage.init(alloc, .{
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, "5678"),
+    });
+    image.markForReplace(alloc, .{ .pending = second });
+    try testing.expectEqual(second, image.pending);
+    try testing.expectEqualSlices(u8, "1234", first.value.data);
+}
+
+test "kitty renderer overlay snapshot survives drawing and teardown" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const snapshot = snapshot: {
+        var overlay = try Overlay.init(alloc, .{
+            .screen = .{ .width = 1, .height = 1 },
+            .cell = .{ .width = 1, .height = 1 },
+            .padding = .{},
+        });
+        defer overlay.deinit(alloc);
+        overlay.surface.paintPixel(.{ .rgba = .{ .r = 255, .g = 0, .b = 0, .a = 255 } });
+        for (0..2) |fail_index| {
+            var failure = testing.FailingAllocator.init(alloc, .{ .fail_index = fail_index });
+            try testing.expectError(error.OutOfMemory, overlay.pendingImage(failure.allocator()));
+        }
+        const pending = try overlay.pendingImage(alloc);
+        overlay.reset();
+        break :snapshot pending;
+    };
+    defer snapshot.release(alloc);
+    try testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255 }, snapshot.value.data);
+    var state: State = .init(alloc);
+    defer state.deinit(alloc);
+    try state.prepImage(alloc, .overlay, 1, snapshot);
+    try testing.expectEqual(snapshot, state.images.get(.overlay).?.image.pending);
+}
+
+test "kitty renderer uploads native formats without copying" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    for (std.enums.values(terminal.Image.Format)) |format| {
+        if (Texture.imageTextureFormat(format) == null) continue;
+        const shared = try ArcImage.init(alloc, .{
+            .width = 3,
+            .height = 2,
+            .format = format,
+            .data = try alloc.alloc(u8, 3 * 2 * format.bpp()),
+        });
+        defer shared.release(alloc);
+        var image: Image = .{ .pending = shared.clone() };
+        defer image.deinit(alloc);
+        var failing = testing.FailingAllocator.init(alloc, .{ .fail_index = 0 });
+        try image.prepForUpload(failing.allocator());
+        try testing.expect(!failing.has_induced_failure);
+        try testing.expectEqual(shared, image.pending);
+        try testing.expectEqual(shared.value.data.ptr, image.pending.value.data.ptr);
+        try testing.expectEqual(format, image.pending.value.format);
+    }
+}
+
+test "kitty renderer uses the image allocator after storage eviction" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+    var tracked = testing.FailingAllocator.init(alloc, .{});
+    const image_alloc = tracked.allocator();
+    {
+        var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
+        defer t.deinit(alloc);
+        const storage = &t.screens.active.kitty_images;
+        storage.image_allocator = image_alloc;
+        const pending = try storage.addPendingImage(io, alloc, t.screens.active, .{
+            .id = 1,
+            .width = 1,
+            .height = 1,
+            .format = .gray_alpha,
+            .data = .{ .pending = 2 },
+        });
+        const pixels = try image_alloc.dupe(u8, &.{ 1, 2 });
+        if (!pending.complete(storage, io, pixels)) {
+            image_alloc.free(pixels);
+            return error.TestUnexpectedResult;
+        }
+        var state: State = .init(image_alloc);
+        defer state.deinit(alloc);
+        const source = storage.imageById(1).?;
+        try state.prepKittyImage(alloc, &source);
+        storage.setLimit(io, alloc, t.screens.active, 0);
+        const entry = state.images.getPtr(.{ .kitty = 1 }).?;
+        try entry.image.prepForUpload(image_alloc);
+        try testing.expectEqualSlices(u8, &.{ 1, 1, 1, 2 }, entry.image.pending.value.data);
+    }
+    try testing.expectEqual(tracked.allocated_bytes, tracked.freed_bytes);
 }

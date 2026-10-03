@@ -5,7 +5,7 @@ const lib = @import("../lib.zig");
 const CAllocator = lib.alloc.Allocator;
 const kitty_storage = @import("../kitty/graphics_storage.zig");
 const kitty_cmd = @import("../kitty/graphics_command.zig");
-const Image = @import("../kitty/graphics_image.zig").Image;
+const KittyImage = @import("../kitty/graphics_image.zig").KittyImage;
 const grid_ref = @import("grid_ref.zig");
 const selection_c = @import("selection.zig");
 const terminal_c = @import("terminal.zig");
@@ -21,7 +21,7 @@ else
 
 /// C: GhosttyKittyGraphicsImage
 pub const ImageHandle = if (build_options.kitty_graphics)
-    ?*const Image
+    ?*const KittyImage
 else
     ?*const anyopaque;
 
@@ -599,7 +599,7 @@ pub fn placement_render_info(
 /// at or below the viewport's last row).
 fn computeViewportPos(
     p: *const kitty_storage.ImageStorage.Placement,
-    image: *const Image,
+    image: *const KittyImage,
     t: *Terminal,
 ) struct { col: i32, row: i32, visible: bool } {
     // Virtual placements use unicode placeholders and don't have a

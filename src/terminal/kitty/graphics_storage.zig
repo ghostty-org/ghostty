@@ -12,14 +12,15 @@ const command = @import("graphics_command.zig");
 const PageList = @import("../PageList.zig");
 const Screen = @import("../Screen.zig");
 const LoadingImage = @import("graphics_image.zig").LoadingImage;
-const Image = @import("graphics_image.zig").Image;
+const KittyImage = @import("graphics_image.zig").KittyImage;
+const ArcImage = @import("../image.zig").ArcImage;
 const Rect = @import("graphics_image.zig").Rect;
 const Command = command.Command;
 
 const log = std.log.scoped(.kitty_gfx);
 
 /// Process-global counter backing all generation stamps (see
-/// ImageStorage.generation and Image.generation). This is global rather
+/// ImageStorage.generation and KittyImage.generation). This is global rather
 /// than per-storage so that stamps are unique across every storage in
 /// the process: two mutation events never produce the same value, even
 /// across separate screens (main vs. alt), storage resets, or separate
@@ -70,8 +71,9 @@ const GenerationCounter = if (@bitSizeOf(usize) >= 64) struct {
 /// screen, alt screen) and contains all the transmitted images and
 /// placements.
 pub const ImageStorage = struct {
-    const ImageMap = std.AutoHashMapUnmanaged(u32, Image);
-    const PlacementMap = std.AutoHashMapUnmanaged(PlacementKey, Placement);
+    /// Allocator for image loading, pixels, shared ownership, and animation.
+    /// Its backing state must outlive all retained image references.
+    image_allocator: Allocator,
 
     /// Dirty is set to true if placements or images change. This is
     /// purely informational for the renderer and doesn't affect the
@@ -127,11 +129,18 @@ pub const ImageStorage = struct {
     /// The limits of what medium types are allowed for image loading.
     image_limits: LoadingImage.Limits = .direct,
 
-    /// The total bytes of image data that have been loaded and the limit.
-    /// If the limit is reached, the oldest images will be evicted to make
-    /// space. Unused images take priority.
+    /// Bytes reserved by storage and its limit. Eviction releases storage's
+    /// references, preferring unused images. Readers might keep evicted pixels
+    /// alive outside this quota until they release their shared references.
     total_bytes: usize = 0,
     total_limit: usize = 320 * 1000 * 1000, // 320MB
+
+    const ImageMap = std.AutoHashMapUnmanaged(u32, KittyImage);
+    const PlacementMap = std.AutoHashMapUnmanaged(PlacementKey, Placement);
+
+    pub fn init(image_allocator: Allocator) ImageStorage {
+        return .{ .image_allocator = image_allocator };
+    }
 
     /// Identifies one exact pending image transmission. The generation is
     /// assigned by this storage when the pending image is inserted, so a
@@ -144,22 +153,35 @@ pub const ImageStorage = struct {
         /// still resident. On true, storage owns `data`; on false, the caller
         /// retains ownership. Completion preserves the image generation (and
         /// therefore eviction age) while marking storage content as mutated.
+        /// The bytes must be allocated with storage.image_allocator.
         pub fn complete(
             self: PendingImage,
             storage: *ImageStorage,
             io: std.Io,
-            data: []const u8,
+            data: []u8,
         ) bool {
             const img = storage.images.getPtr(self.id) orelse return false;
             if (img.generation != self.generation) return false;
 
             const expected_len = switch (img.data) {
-                .complete => return false,
+                .ready => return false,
                 .pending => |len| len,
             };
             if (data.len != expected_len) return false;
 
-            img.data = .{ .complete = data };
+            const image = ArcImage.init(storage.image_allocator, .{
+                .width = img.width,
+                .height = img.height,
+                .format = switch (img.format) {
+                    .gray => .gray,
+                    .gray_alpha => .gray_alpha,
+                    .rgb => .rgb,
+                    .rgba => .rgba,
+                    .png => unreachable,
+                },
+                .data = data,
+            }) catch return false;
+            img.data = .{ .ready = image };
             storage.markMutated(io);
             return true;
         }
@@ -170,13 +192,13 @@ pub const ImageStorage = struct {
         alloc: Allocator,
         s: *terminal.Screen,
     ) void {
-        if (self.loading) |loading| loading.destroy(alloc);
+        if (self.loading) |loading| loading.destroy(self.image_allocator);
 
         self.clearPlacements(s);
         self.placements.deinit(alloc);
 
         var it = self.images.iterator();
-        while (it.next()) |kv| kv.value_ptr.deinit(alloc);
+        while (it.next()) |kv| kv.value_ptr.deinit(self.image_allocator);
         self.images.deinit(alloc);
     }
 
@@ -213,8 +235,9 @@ pub const ImageStorage = struct {
         // Special case disabling by quickly deleting all
         if (limit == 0) {
             const image_limits = self.image_limits;
+            const image_allocator = self.image_allocator;
             self.deinit(alloc, s);
-            self.* = .{ .image_limits = image_limits };
+            self.* = .{ .image_allocator = image_allocator, .image_limits = image_limits };
             self.markMutated(io);
         }
 
@@ -266,13 +289,15 @@ pub const ImageStorage = struct {
 
     /// Add an image to the storage. This will automatically free any existing
     /// image with the same ID. Prefer addPendingImage for pending data so the
-    /// caller receives a completion token.
+    /// caller receives a completion token. Completed payloads already own an
+    /// ArcImage. On success storage owns img; on error the caller retains it.
+    /// The image and its owned allocations must use self.image_allocator.
     pub fn addImage(
         self: *ImageStorage,
         io: std.Io,
         alloc: Allocator,
         s: *terminal.Screen,
-        img: Image,
+        img: KittyImage,
     ) Allocator.Error!void {
         const new_len = img.data.len();
 
@@ -322,7 +347,7 @@ pub const ImageStorage = struct {
             // implementing the protocol rule that retransmitting the
             // base image resets the animation.
             self.total_bytes -= gop.value_ptr.storageSize();
-            gop.value_ptr.deinit(alloc);
+            gop.value_ptr.deinit(self.image_allocator);
         }
 
         gop.value_ptr.* = img;
@@ -344,7 +369,7 @@ pub const ImageStorage = struct {
         io: std.Io,
         alloc: Allocator,
         s: *terminal.Screen,
-        img: Image,
+        img: KittyImage,
     ) Allocator.Error!PendingImage {
         assert(img.data == .pending);
         try self.addImage(io, alloc, s, img);
@@ -912,13 +937,13 @@ pub const ImageStorage = struct {
     }
 
     /// Get an image by its ID. If the image doesn't exist, null is returned.
-    pub fn imageById(self: *const ImageStorage, image_id: u32) ?Image {
+    pub fn imageById(self: *const ImageStorage, image_id: u32) ?KittyImage {
         return self.images.get(image_id);
     }
 
     /// Get an image by its number. If the image doesn't exist, return null.
-    pub fn imageByNumber(self: *const ImageStorage, image_number: u32) ?Image {
-        var newest: ?Image = null;
+    pub fn imageByNumber(self: *const ImageStorage, image_number: u32) ?KittyImage {
+        var newest: ?KittyImage = null;
 
         var it = self.images.iterator();
         while (it.next()) |kv| {
@@ -943,10 +968,10 @@ pub const ImageStorage = struct {
         self: *const ImageStorage,
         image_id: u32,
         image_number: u32,
-    ) ?*Image {
+    ) ?*KittyImage {
         if (image_id != 0) return self.images.getPtr(image_id);
 
-        var newest: ?*Image = null;
+        var newest: ?*KittyImage = null;
         var it = self.images.iterator();
         while (it.next()) |kv| {
             if (kv.value_ptr.number != image_number) continue;
@@ -969,7 +994,7 @@ pub const ImageStorage = struct {
     pub fn markImageContentChanged(
         self: *ImageStorage,
         io: std.Io,
-        img: *Image,
+        img: *KittyImage,
     ) void {
         self.markMutated(io);
         img.generation = self.generation;
@@ -984,17 +1009,24 @@ pub const ImageStorage = struct {
     pub fn convertImageToRgba(
         self: *ImageStorage,
         io: std.Io,
-        alloc: Allocator,
-        img: *Image,
+        img: *KittyImage,
     ) Allocator.Error!void {
+        const alloc = self.image_allocator;
         if (img.format == .rgba) return;
         const old = img.data.bytes() orelse return;
 
         const rgba = try pixel.rgbaFromFormat(alloc, img.format, old);
+        errdefer alloc.free(rgba);
+        const image = try ArcImage.init(alloc, .{
+            .width = img.width,
+            .height = img.height,
+            .format = .rgba,
+            .data = rgba,
+        });
         self.total_bytes -= old.len;
         self.total_bytes += rgba.len;
-        img.data.deinit(alloc);
-        img.data = .{ .complete = rgba };
+        img.data.deinit(self.image_allocator);
+        img.data = .{ .ready = image };
         img.format = .rgba;
         self.markImageContentChanged(io, img);
     }
@@ -1059,7 +1091,7 @@ pub const ImageStorage = struct {
 
         var it = self.images.iterator();
         while (it.next()) |entry| {
-            const img: *Image = entry.value_ptr;
+            const img: *KittyImage = entry.value_ptr;
 
             // The gates below mirror Kitty's image_is_animatable.
 
@@ -1487,7 +1519,7 @@ pub const ImageStorage = struct {
     fn deleteAnimationFrame(
         self: *ImageStorage,
         io: std.Io,
-        alloc: Allocator,
+        _: Allocator,
         s: *terminal.Screen,
         v: command.Delete.Action.AnimationFrames,
     ) void {
@@ -1518,7 +1550,7 @@ pub const ImageStorage = struct {
             self.removePlacementsByImageId(s, img.id);
             const entry = self.images.getEntry(img.id).?;
             self.total_bytes -= entry.value_ptr.storageSize();
-            entry.value_ptr.deinit(alloc);
+            entry.value_ptr.deinit(self.image_allocator);
             self.images.removeByPtr(entry.key_ptr);
             return;
         };
@@ -1534,14 +1566,14 @@ pub const ImageStorage = struct {
             // promoted frame's bytes stay reserved; only the old root
             // data is freed.
             self.releaseAnimationBytes(img.data.len());
-            img.data.deinit(alloc);
+            img.data.deinit(self.image_allocator);
             const promoted = anim.frames.orderedRemove(0);
-            img.data = .{ .complete = promoted.data };
+            img.data = .{ .ready = promoted.image };
             anim.root_gap_ms = promoted.gap_ms;
         } else {
             const removed = anim.frames.orderedRemove(number - 2);
-            self.releaseAnimationBytes(removed.data.len);
-            alloc.free(removed.data);
+            self.releaseAnimationBytes(removed.image.value.data.len);
+            removed.image.release(self.image_allocator);
         }
 
         // Fix up the current frame.
@@ -1563,12 +1595,12 @@ pub const ImageStorage = struct {
     }
 
     /// Delete an image if it is unused.
-    fn deleteIfUnused(self: *ImageStorage, alloc: Allocator, image_id: u32) void {
+    fn deleteIfUnused(self: *ImageStorage, _: Allocator, image_id: u32) void {
         const entry = self.images.getEntry(image_id) orelse return;
         if (entry.value_ptr.metadata.placement_count > 0) return;
 
         self.total_bytes -= entry.value_ptr.storageSize();
-        entry.value_ptr.deinit(alloc);
+        entry.value_ptr.deinit(self.image_allocator);
         self.images.removeByPtr(entry.key_ptr);
     }
 
@@ -1618,7 +1650,7 @@ pub const ImageStorage = struct {
     fn evictImageExcept(
         self: *ImageStorage,
         io: std.Io,
-        alloc: Allocator,
+        _: Allocator,
         s: *terminal.Screen,
         req: usize,
         exclude_id: ?u32,
@@ -1636,7 +1668,7 @@ pub const ImageStorage = struct {
             // 3: not transient, used
             priority: u2,
 
-            fn init(img: *const Image) @This() {
+            fn init(img: *const KittyImage) @This() {
                 return .{
                     .id = img.id,
                     .generation = img.generation,
@@ -1693,7 +1725,7 @@ pub const ImageStorage = struct {
             evicted += image_len;
             self.total_bytes -= image_len;
 
-            entry.value_ptr.deinit(alloc);
+            entry.value_ptr.deinit(self.image_allocator);
             self.images.removeByPtr(entry.key_ptr);
         }
 
@@ -1845,7 +1877,7 @@ pub const ImageStorage = struct {
         /// Returns the requested source rectangle intersected with the image.
         /// A zero width or height requests the full corresponding image
         /// dimension before intersection, as defined by the Kitty protocol.
-        pub fn sourceRect(self: Placement, image: Image) SourceRect {
+        pub fn sourceRect(self: Placement, image: KittyImage) SourceRect {
             const x = @min(self.source_x, image.width);
             const y = @min(self.source_y, image.height);
             return .{
@@ -1892,7 +1924,7 @@ pub const ImageStorage = struct {
         /// rows/columns, and aspect ratio.
         pub fn pixelSize(
             self: Placement,
-            image: Image,
+            image: KittyImage,
             t: *const terminal.Terminal,
         ) struct {
             width: u32,
@@ -1969,7 +2001,7 @@ pub const ImageStorage = struct {
         /// Returns the size in grid cells that this placement takes up.
         pub fn gridSize(
             self: Placement,
-            image: Image,
+            image: KittyImage,
             t: *const terminal.Terminal,
         ) struct {
             cols: u32,
@@ -2011,7 +2043,7 @@ pub const ImageStorage = struct {
         /// unmodified and should be deleted.
         fn clipTop(
             self: *Placement,
-            image: Image,
+            image: KittyImage,
             t: *const terminal.Terminal,
             count: u32,
             span: u32,
@@ -2038,7 +2070,7 @@ pub const ImageStorage = struct {
         /// clipTop, but clipping `count` rows off the bottom.
         fn clipBottom(
             self: *Placement,
-            image: Image,
+            image: KittyImage,
             t: *const terminal.Terminal,
             count: u32,
             span: u32,
@@ -2079,7 +2111,7 @@ pub const ImageStorage = struct {
         /// They are instead removed when their parent chain is removed.
         pub fn rect(
             self: Placement,
-            image: Image,
+            image: KittyImage,
             t: *const terminal.Terminal,
         ) ?Rect {
             const grid_size = self.gridSize(image, t);
@@ -2132,7 +2164,7 @@ test "storage: add placement with zero placement id" {
     t.width_px = 100;
     t.height_px = 100;
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1, .width = 50, .height = 50 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2, .width = 25, .height = 25 });
@@ -2160,7 +2192,7 @@ test "storage: replacing placement releases tracked pin" {
     var t = try terminal.Terminal.init(io, alloc, .{ .cols = 3, .rows = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
 
@@ -2198,7 +2230,7 @@ test "storage: adding placement reclaims garbage placements" {
     var t = try terminal.Terminal.init(io, alloc, .{ .cols = 3, .rows = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
 
@@ -2235,7 +2267,7 @@ test "storage: placement count limit permits replacement" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{ .location = .{ .virtual = {} } });
@@ -2258,7 +2290,7 @@ test "storage: delete all visible placements and matching images" {
     defer t.deinit(alloc);
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2 });
@@ -2283,7 +2315,7 @@ test "storage: delete all placements and images preserves limit" {
     defer t.deinit(alloc);
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     s.total_limit = 5000;
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
@@ -2315,7 +2347,7 @@ test "storage: delete all visible placements preserves scrollback" {
     t.width_px = 2;
     t.height_px = 2;
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1, .width = 1, .height = 1 });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{
@@ -2356,7 +2388,7 @@ test "storage: delete all includes placements spanning into active area" {
     t.width_px = 2;
     t.height_px = 2;
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 1,
@@ -2395,7 +2427,7 @@ test "storage: delete all placements" {
     defer t.deinit(alloc);
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2 });
@@ -2419,7 +2451,7 @@ test "storage: delete all placements by image id" {
     defer t.deinit(alloc);
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2 });
@@ -2443,7 +2475,7 @@ test "storage: delete all placements by image id and unused images" {
     defer t.deinit(alloc);
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2 });
@@ -2467,7 +2499,7 @@ test "storage: delete placement by specific id" {
     defer t.deinit(alloc);
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2 });
@@ -2495,7 +2527,7 @@ test "storage: uppercase id delete preserves image when placement does not match
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
 
@@ -2520,7 +2552,7 @@ test "storage: uppercase id delete frees image after placement matches" {
     defer t.deinit(alloc);
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addPlacement(io, alloc, t.screens.active, 1, 9, .{
@@ -2547,7 +2579,7 @@ test "storage: uppercase id delete without placement frees unplaced image" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
 
@@ -2571,7 +2603,7 @@ test "storage: delete intersecting cursor" {
     t.height_px = 100;
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1, .width = 50, .height = 50 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2, .width = 25, .height = 25 });
@@ -2603,7 +2635,7 @@ test "storage: delete intersecting cursor checks interior row column" {
     t.width_px = 100;
     t.height_px = 100;
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1, .width = 10, .height = 10 });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
@@ -2630,7 +2662,7 @@ test "storage: delete intersecting cell checks interior row column" {
     t.width_px = 100;
     t.height_px = 100;
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1, .width = 10, .height = 10 });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
@@ -2659,7 +2691,7 @@ test "storage: delete intersecting cursor plus unused" {
     t.height_px = 100;
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1, .width = 50, .height = 50 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2, .width = 25, .height = 25 });
@@ -2692,7 +2724,7 @@ test "storage: delete intersecting cursor hits multiple" {
     t.height_px = 100;
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1, .width = 50, .height = 50 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2, .width = 25, .height = 25 });
@@ -2719,7 +2751,7 @@ test "storage: delete by column" {
     t.height_px = 100;
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1, .width = 50, .height = 50 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2, .width = 25, .height = 25 });
@@ -2752,7 +2784,7 @@ test "storage: delete by column 1x1" {
     t.width_px = 100;
     t.height_px = 100;
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1, .width = 1, .height = 1 });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
@@ -2787,7 +2819,7 @@ test "storage: delete by row" {
     t.height_px = 100;
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1, .width = 50, .height = 50 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2, .width = 25, .height = 25 });
@@ -2820,7 +2852,7 @@ test "storage: delete by row 1x1" {
     t.width_px = 100;
     t.height_px = 100;
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1, .width = 1, .height = 1 });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .y = 0 }) } });
@@ -2853,7 +2885,7 @@ test "storage: delete images by range 1" {
     defer t.deinit(alloc);
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2 });
@@ -2879,7 +2911,7 @@ test "storage: delete images by range 2" {
     defer t.deinit(alloc);
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2 });
@@ -2905,7 +2937,7 @@ test "storage: delete images by range 3" {
     defer t.deinit(alloc);
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2 });
@@ -2940,7 +2972,7 @@ test "storage: delete images by range 4" {
     defer t.deinit(alloc);
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2 });
@@ -2974,7 +3006,7 @@ test "storage: uppercase range deletes unplaced image data" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2 });
@@ -3002,7 +3034,7 @@ test "storage: delete images by empty range" {
     defer t.deinit(alloc);
     const tracked = t.screens.active.pages.countTrackedPins();
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2 });
@@ -3019,7 +3051,7 @@ test "storage: delete images by empty range" {
     try testing.expectEqual(@as(usize, 2), s.images.count());
     try testing.expectEqual(@as(usize, 2), s.placements.count());
 
-    // Both bounds omitted. Image IDs are never zero so this matches nothing.
+    // Both bounds omitted. KittyImage IDs are never zero so this matches nothing.
     s.delete(io, alloc, &t, .{ .range = .{ .delete = true, .first = 0, .last = 0 } });
     try testing.expectEqual(@as(usize, 2), s.images.count());
     try testing.expectEqual(@as(usize, 2), s.placements.count());
@@ -3137,14 +3169,14 @@ test "storage: aspect ratio calculation when only columns or rows specified" {
 
     // Case 1: Only columns specified
     {
-        const image = Image{ .id = 1, .width = 16, .height = 9 };
+        const image = KittyImage{ .id = 1, .width = 16, .height = 9 };
         var placement = ImageStorage.Placement{
             .location = .{ .virtual = {} },
             .columns = 10,
             .rows = 0,
         };
 
-        // Image is 16x9, set to a width of 10 columns, at 10px per column
+        // KittyImage is 16x9, set to a width of 10 columns, at 10px per column
         // that's 100px width. 100px * (9 / 16) = 56.25, which should round
         // to a height of 56px.
 
@@ -3155,14 +3187,14 @@ test "storage: aspect ratio calculation when only columns or rows specified" {
 
     // Case 2: Only rows specified
     {
-        const image = Image{ .id = 2, .width = 16, .height = 9 };
+        const image = KittyImage{ .id = 2, .width = 16, .height = 9 };
         var placement = ImageStorage.Placement{
             .location = .{ .virtual = {} },
             .columns = 0,
             .rows = 5,
         };
 
-        // Image is 16x9, set to a height of 5 rows, at 20px per row that's
+        // KittyImage is 16x9, set to a height of 5 rows, at 20px per row that's
         // 100px height. 100px * (16 / 9) = 177.77..., which should round to
         // a width of 178px.
 
@@ -3330,7 +3362,7 @@ test "storage: generation stamps on image add and replace" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
 
     // Fresh storage has generation zero (never mutated).
@@ -3357,7 +3389,7 @@ test "storage: generation stamps on image add and replace" {
     try testing.expect(gen3 > gen2);
     try testing.expectEqual(gen3, s.imageById(1).?.generation);
 
-    // Image 2 kept its stamp.
+    // KittyImage 2 kept its stamp.
     try testing.expectEqual(gen2, s.imageById(2).?.generation);
 }
 
@@ -3368,7 +3400,7 @@ test "storage: generation bumps on placement and delete" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     const gen_add = s.generation;
@@ -3393,7 +3425,7 @@ test "storage: generation bumps when setLimit evicts or disables" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
 
     const data = try alloc.dupe(u8, "1234");
@@ -3401,7 +3433,12 @@ test "storage: generation bumps when setLimit evicts or disables" {
         .id = 1,
         .width = 1,
         .height = 1,
-        .data = .{ .complete = data },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgb,
+            .data = data,
+        }) },
     });
     const gen_add = s.generation;
 
@@ -3427,7 +3464,7 @@ test "storage: imageByNumber returns most recently transmitted" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
 
     // Two images sharing a number: the newest transmission wins,
@@ -3456,7 +3493,7 @@ test "storage: no-op delete does not mark a mutation" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
 
     // A delete-all on an empty storage (this runs on every screen
@@ -3487,22 +3524,37 @@ test "storage: evicts images in priority order" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{ .total_limit = 192 };
+    var s: ImageStorage = .{ .image_allocator = alloc, .total_limit = 192 };
     defer s.deinit(alloc, t.screens.active);
 
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 1,
-        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "*" ** 64),
+        }) },
         .metadata = .{ .transient = false },
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 2,
-        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "*" ** 64),
+        }) },
         .metadata = .{ .transient = true },
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 3,
-        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "*" ** 64),
+        }) },
         .metadata = .{ .transient = true },
     });
     try s.addPlacement(
@@ -3532,20 +3584,30 @@ test "storage: eviction releases placement pins" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{ .total_limit = 128 };
+    var s: ImageStorage = .{ .image_allocator = alloc, .total_limit = 128 };
     defer s.deinit(alloc, t.screens.active);
 
     const tracked = t.screens.active.pages.countTrackedPins();
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 1,
-        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "*" ** 64),
+        }) },
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{
         .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) },
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 2,
-        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "*" ** 64),
+        }) },
     });
     try s.addPlacement(io, alloc, t.screens.active, 2, 1, .{
         .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) },
@@ -3556,7 +3618,12 @@ test "storage: eviction releases placement pins" {
     // placement. The newer image's placement and tracked pin remain intact.
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 3,
-        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "*" ** 64),
+        }) },
     });
     try testing.expect(!s.images.contains(1));
     try testing.expect(s.images.contains(2));
@@ -3576,7 +3643,7 @@ test "storage: pending image completes once and preserves age" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{ .total_limit = 16 };
+    var s: ImageStorage = .{ .image_allocator = alloc, .total_limit = 16 };
     defer s.deinit(alloc, t.screens.active);
 
     const pending = try s.addPendingImage(io, alloc, t.screens.active, .{
@@ -3624,7 +3691,7 @@ test "storage: stale pending completion loses to delete replacement and eviction
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{ .total_limit = 8 };
+    var s: ImageStorage = .{ .image_allocator = alloc, .total_limit = 8 };
     defer s.deinit(alloc, t.screens.active);
 
     const deleted = try s.addPendingImage(io, alloc, t.screens.active, .{
@@ -3643,7 +3710,12 @@ test "storage: stale pending completion loses to delete replacement and eviction
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 2,
-        .data = .{ .complete = try alloc.dupe(u8, "live") },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "live"),
+        }) },
     });
     const replaced_data = try alloc.dupe(u8, "late");
     const replaced_completed = replaced.complete(&s, io, replaced_data);
@@ -3657,7 +3729,12 @@ test "storage: stale pending completion loses to delete replacement and eviction
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 4,
-        .data = .{ .complete = try alloc.dupe(u8, "12345678") },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "12345678"),
+        }) },
     });
     try testing.expect(s.imageById(3) == null);
     const evicted_data = try alloc.dupe(u8, "late");
@@ -3673,7 +3750,7 @@ test "storage: replacement reuses pending reservation and removes placements" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{ .total_limit = 12 };
+    var s: ImageStorage = .{ .image_allocator = alloc, .total_limit = 12 };
     defer s.deinit(alloc, t.screens.active);
     const tracked = t.screens.active.pages.countTrackedPins();
 
@@ -3689,7 +3766,12 @@ test "storage: replacement reuses pending reservation and removes placements" {
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 2,
-        .data = .{ .complete = try alloc.dupe(u8, "keep") },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "keep"),
+        }) },
     });
 
     try s.addImage(io, alloc, t.screens.active, .{
@@ -3697,7 +3779,12 @@ test "storage: replacement reuses pending reservation and removes placements" {
         .width = 2,
         .height = 1,
         .format = .rgba,
-        .data = .{ .complete = try alloc.dupe(u8, "12345678") },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 2,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, "12345678"),
+        }) },
     });
     try testing.expect(s.images.contains(1));
     try testing.expect(s.images.contains(2));
@@ -3718,7 +3805,12 @@ test "storage: replacement reuses pending reservation and removes placements" {
     // excluded. The other image supplies the needed bytes.
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 1,
-        .data = .{ .complete = try alloc.dupe(u8, "1234567890") },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "1234567890"),
+        }) },
     });
     try testing.expect(s.images.contains(1));
     try testing.expect(!s.images.contains(2));
@@ -3737,7 +3829,7 @@ test "storage: pending images share exact eviction ordering" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{ .total_limit = 192 };
+    var s: ImageStorage = .{ .image_allocator = alloc, .total_limit = 192 };
     defer s.deinit(alloc, t.screens.active);
 
     _ = try s.addPendingImage(io, alloc, t.screens.active, .{
@@ -3752,7 +3844,12 @@ test "storage: pending images share exact eviction ordering" {
     });
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 3,
-        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 0,
+            .height = 0,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, "*" ** 64),
+        }) },
         .metadata = .{ .transient = true },
     });
     try s.addPlacement(io, alloc, t.screens.active, 2, 1, .{
@@ -3774,7 +3871,7 @@ test "storage: nextImageId number matches Kitty get_free_client_id" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
 
     // Empty storage returns 1, as does Kitty.
@@ -3803,7 +3900,7 @@ test "storage: nextImageId implicit skips in-use ids and zero" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
 
     // A client image already sits on the counter's first two values.
@@ -4248,7 +4345,7 @@ test "storage: resolveChain accumulates offsets to the pin root" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 5, .cols = 5 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{
@@ -4296,7 +4393,7 @@ test "storage: resolveChain finds virtual roots" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 5, .cols = 5 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{
@@ -4333,22 +4430,27 @@ test "storage: eviction removes orphaned relative placements" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 5, .cols = 5 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     s.total_limit = 8;
 
-    // Image 1 holds most of the byte budget and has a pin placement.
+    // KittyImage 1 holds most of the byte budget and has a pin placement.
     try s.addImage(io, alloc, t.screens.active, .{
         .id = 1,
         .width = 2,
         .height = 1,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 0, 0, 0, 0, 0, 0 }) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 2,
+            .height = 1,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 0, 0, 0, 0 }),
+        }) },
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{
         .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) },
     });
 
-    // Image 2's placement is relative to image 1's placement.
+    // KittyImage 2's placement is relative to image 1's placement.
     try s.addImage(io, alloc, t.screens.active, .{ .id = 2 });
     try s.addPlacement(io, alloc, t.screens.active, 2, 1, .{
         .location = .{ .relative = .{ .parent = .{
@@ -4363,7 +4465,12 @@ test "storage: eviction removes orphaned relative placements" {
         .id = 3,
         .width = 2,
         .height = 1,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 0, 0, 0, 0, 0, 0 }) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 2,
+            .height = 1,
+            .format = .rgb,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 0, 0, 0, 0 }),
+        }) },
     });
 
     try testing.expect(s.imageById(1) == null);
@@ -4378,7 +4485,7 @@ test "storage: placeholderTarget lookup" {
     var t = try terminal.Terminal.init(io, alloc, .{ .rows = 5, .cols = 5 });
     defer t.deinit(alloc);
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1 });
     try s.addPlacement(io, alloc, t.screens.active, 1, 5, .{
@@ -4432,7 +4539,7 @@ test "storage: animation tick advances and schedules" {
     t.width_px = 100;
     t.height_px = 100;
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
 
     // A running 1x1 RGBA image whose animation has one extra frame.
@@ -4441,14 +4548,24 @@ test "storage: animation tick advances and schedules" {
         .width = 1,
         .height = 1,
         .format = .rgba,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }),
+        }) },
     });
     const img = s.images.getPtr(1).?;
     const anim = try alloc.create(animation.Animation);
     anim.* = .{ .state = .running };
     img.animation = anim;
     try anim.frames.append(alloc, .{
-        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        .image = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        }),
         .gap_ms = 40,
     });
 
@@ -4491,7 +4608,7 @@ test "storage: animation tick loading state parks on last frame" {
     t.width_px = 100;
     t.height_px = 100;
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
 
     // A placed 1x1 RGBA image in the loading state (a=a s=2) whose
@@ -4501,13 +4618,23 @@ test "storage: animation tick loading state parks on last frame" {
         .width = 1,
         .height = 1,
         .format = .rgba,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }),
+        }) },
     });
     const anim = try alloc.create(animation.Animation);
     anim.* = .{ .state = .loading };
     s.images.getPtr(1).?.animation = anim;
     try anim.frames.append(alloc, .{
-        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        .image = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        }),
         .gap_ms = 40,
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
@@ -4524,7 +4651,12 @@ test "storage: animation tick loading state parks on last frame" {
 
     // A new frame arriving un-parks playback.
     try anim.frames.append(alloc, .{
-        .data = try alloc.dupe(u8, &.{ 0, 255, 0, 255 }),
+        .image = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 0, 255, 0, 255 }),
+        }),
         .gap_ms = 25,
     });
     try testing.expectEqual(@as(?u64, 25), s.animationTick(io, 150));
@@ -4540,7 +4672,7 @@ test "storage: animation tick exhausts loop budget" {
     t.width_px = 100;
     t.height_px = 100;
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
 
     // A placed, running 1x1 RGBA image with a gapped root frame, one
@@ -4550,7 +4682,12 @@ test "storage: animation tick exhausts loop budget" {
         .width = 1,
         .height = 1,
         .format = .rgba,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }),
+        }) },
     });
     const anim = try alloc.create(animation.Animation);
     anim.* = .{
@@ -4560,7 +4697,12 @@ test "storage: animation tick exhausts loop budget" {
     };
     s.images.getPtr(1).?.animation = anim;
     try anim.frames.append(alloc, .{
-        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        .image = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        }),
         .gap_ms = 40,
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
@@ -4587,7 +4729,7 @@ test "storage: animation tick ignores ineligible animations" {
     t.width_px = 100;
     t.height_px = 100;
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
 
     // A placed 1x1 RGBA image with one extra frame, in the default
@@ -4597,13 +4739,23 @@ test "storage: animation tick ignores ineligible animations" {
         .width = 1,
         .height = 1,
         .format = .rgba,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }),
+        }) },
     });
     const anim = try alloc.create(animation.Animation);
     anim.* = .{};
     s.images.getPtr(1).?.animation = anim;
     try anim.frames.append(alloc, .{
-        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        .image = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        }),
         .gap_ms = 40,
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
@@ -4629,7 +4781,7 @@ test "storage: animation tick re-anchors a restarted clock" {
     t.width_px = 100;
     t.height_px = 100;
 
-    var s: ImageStorage = .{};
+    var s: ImageStorage = .init(alloc);
     defer s.deinit(alloc, t.screens.active);
 
     // A placed, running 1x1 RGBA image displaying its extra frame,
@@ -4639,7 +4791,12 @@ test "storage: animation tick re-anchors a restarted clock" {
         .width = 1,
         .height = 1,
         .format = .rgba,
-        .data = .{ .complete = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }) },
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }),
+        }) },
     });
     const anim = try alloc.create(animation.Animation);
     anim.* = .{
@@ -4649,7 +4806,12 @@ test "storage: animation tick re-anchors a restarted clock" {
     };
     s.images.getPtr(1).?.animation = anim;
     try anim.frames.append(alloc, .{
-        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        .image = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        }),
         .gap_ms = 40,
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
@@ -4661,4 +4823,44 @@ test "storage: animation tick re-anchors a restarted clock" {
     // timestamp comes around again.
     try testing.expectEqual(@as(?u64, 40), s.animationTick(io, 5));
     try testing.expectEqual(@as(?u64, 5), anim.frame_shown_at_ms);
+}
+
+test "storage: retained CPU image survives replacement and teardown" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+    var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+    var s: ImageStorage = .init(alloc);
+    defer s.deinit(alloc, t.screens.active);
+    const pixels = try alloc.dupe(u8, &.{ 1, 2, 3, 4 });
+    try s.addImage(io, alloc, t.screens.active, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = pixels,
+        }) },
+    });
+    const retained = s.imageById(1).?.renderImage().?.clone();
+    defer retained.release(alloc);
+    try testing.expectEqual(pixels.ptr, retained.value.data.ptr);
+    try s.addImage(io, alloc, t.screens.active, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = .{ .ready = try ArcImage.init(alloc, .{
+            .width = 1,
+            .height = 1,
+            .format = .rgba,
+            .data = try alloc.dupe(u8, &.{ 5, 6, 7, 8 }),
+        }) },
+    });
+    s.setLimit(io, alloc, t.screens.active, 0);
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, retained.value.data);
 }
