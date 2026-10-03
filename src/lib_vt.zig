@@ -95,6 +95,7 @@ pub const Terminal = terminal.Terminal;
 pub const TerminalStream = terminal.TerminalStream;
 pub const Stream = terminal.Stream;
 pub const StreamAction = terminal.StreamAction;
+pub const SemanticPrompt = terminal.SemanticPrompt;
 pub const UnknownSequence = terminal.UnknownSequence;
 
 pub const Paste = terminal.Paste;
@@ -240,6 +241,7 @@ comptime {
         @export(&c.osc_next, .{ .name = "ghostty_osc_next" });
         @export(&c.osc_reset, .{ .name = "ghostty_osc_reset" });
         @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
+        @export(&c.osc_set, .{ .name = "ghostty_osc_set" });
         @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
         @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
         @export(&c.color_scheme_report_encode, .{ .name = "ghostty_color_scheme_report_encode" });
@@ -502,6 +504,15 @@ pub const panic: type = if (debug_machinery)
     std.debug.FullPanic(std.debug.defaultPanic)
 else
     std.debug.FullPanic(tinyPanicImpl);
+
+/// Runs global constructors when libghostty-vt is built as a Windows
+/// DLL. See `lib/windows_dll.zig`; without it simdutf dispatches through
+/// a null kernel pointer on the first multi-byte UTF-8 sequence.
+pub const DllMain = if (builtin.os.tag == .windows and
+    builtin.output_mode == .Lib and
+    builtin.link_mode == .dynamic)
+    @import("lib/windows_dll.zig").DllMain
+else {};
 
 /// Guards release builds against accidentally reintroducing the std
 /// debug Io machinery.

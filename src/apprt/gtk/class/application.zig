@@ -195,6 +195,11 @@ pub const Application = extern struct {
         /// only be set by the main loop thread.
         running: bool = false,
 
+        /// True once we've told systemd that startup is complete. Reloads
+        /// before then (e.g. syncing the color scheme during startup) must
+        /// not notify systemd, or it sees READY=1 before we're ready.
+        systemd_ready: bool = false,
+
         /// The timer used to quit the application after the last window is
         /// closed. Even if there is no quit delay set, this is the state
         /// used to determine to close the app.
@@ -556,6 +561,7 @@ pub const Application = extern struct {
 
         // Tell systemd that we are ready.
         systemd.notify.ready();
+        priv.systemd_ready = true;
 
         log.debug("entering runloop", .{});
         defer log.debug("exiting runloop", .{});
@@ -761,6 +767,8 @@ pub const Application = extern struct {
             .render => Action.render(target),
 
             .resize_split => return Action.resizeSplit(target, value),
+
+            .resize_window => return Action.resizeWindow(target, value),
 
             .ring_bell => Action.ringBell(target),
 
@@ -1376,11 +1384,13 @@ pub const Application = extern struct {
         // Setup our event loop
         self.startupXev();
 
+        // Setup some signal handlers. This must happen before anything
+        // that might notify systemd, since with Type=notify-reload systemd
+        // refuses to start us if our reload signal has no handler.
+        self.startupSignals();
+
         // Setup our style manager (light/dark mode)
         self.startupStyleManager();
-
-        // Setup some signal handlers
-        self.startupSignals();
 
         // Setup our action map
         self.startupActionMap();
@@ -2820,11 +2830,13 @@ const Action = struct {
         target: apprt.Target,
         opts: apprt.action.ReloadConfig,
     ) !void {
-        // Tell systemd that reloading has started.
-        systemd.notify.reloading();
+        // Tell systemd that reloading has started, but only once startup
+        // is complete. A reload during startup is not a reload to systemd.
+        const notify_systemd = self.private().systemd_ready;
+        if (notify_systemd) systemd.notify.reloading();
 
         // When we exit this function tell systemd that reloading has finished.
-        defer systemd.notify.ready();
+        defer if (notify_systemd) systemd.notify.ready();
 
         // Get our config object.
         const config: *Config = config: {
@@ -2898,6 +2910,30 @@ const Action = struct {
                         return false;
                     },
                 };
+            },
+        }
+    }
+
+    pub fn resizeWindow(
+        target: apprt.Target,
+        value: apprt.action.ResizeWindow,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("resize_window to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring resize_window", .{});
+                    return false;
+                };
+
+                return window.resizeSurface(surface, value);
             },
         }
     }

@@ -15,6 +15,7 @@ const apc = @import("../apc.zig");
 const kitty = @import("../kitty/key.zig");
 const kitty_gfx_c = @import("kitty_graphics.zig");
 const modes = @import("../modes.zig");
+const mouse = @import("../mouse.zig");
 const point = @import("../point.zig");
 const size = @import("../size.zig");
 const device_attributes = @import("../device_attributes.zig");
@@ -32,6 +33,7 @@ const clipboard = @import("../clipboard.zig");
 const kitty_clipboard = @import("../kitty/clipboard.zig");
 const c_io = @import("io.zig");
 const snapshot_core = @import("../snapshot/main.zig");
+const terminal_mem = @import("../mem.zig");
 const Result = @import("result.zig").Result;
 const assert = @import("../../quirks.zig").inlineAssert;
 
@@ -190,6 +192,25 @@ pub const ProgressReport = extern struct {
     progress: i8,
 };
 
+/// C: GhosttySemanticPromptKind
+pub const SemanticPromptKind = Handler.SemanticPrompt.Kind;
+
+/// C: GhosttySemanticPromptPromptKind
+pub const SemanticPromptPromptKind = Handler.SemanticPrompt.PromptKind;
+
+/// A shell integration event. See `Handler.SemanticPrompt`.
+///
+/// C: GhosttyTerminalSemanticPrompt
+pub const SemanticPrompt = extern struct {
+    size: usize,
+    kind: SemanticPromptKind,
+    prompt_kind: SemanticPromptPromptKind,
+    has_exit_code: bool,
+    exit_code: i32,
+    command: lib.String,
+    @"error": lib.String,
+};
+
 /// A borrowed unsupported string sequence.
 ///
 /// C: GhosttyTerminalUnknownStringSequence
@@ -198,14 +219,20 @@ pub const UnknownStringSequence = extern struct {
     content: lib.String,
 };
 
+/// An OSC sequence whose number is not implemented.
+///
+/// C: GhosttyTerminalUnknownOscSequence
+pub const UnknownOscSequence = osc.Command.Unknown.C;
+
 /// An unsupported terminal sequence reported to the C callback.
 ///
 /// C: GhosttyTerminalUnknownSequence
 pub const UnknownSequence = union(Tag) {
     apc: UnknownStringSequence,
+    osc: UnknownOscSequence,
 
     /// C: GhosttyTerminalUnknownSequenceTag
-    pub const Tag = lib.Enum(lib.target, &.{"apc"});
+    pub const Tag = lib.Enum(lib.target, &.{ "apc", "osc" });
 
     const c_union = lib.TaggedUnion(
         lib.target,
@@ -253,6 +280,8 @@ const Effects = struct {
     title_changed: ?TitleChangedFn = null,
     pwd_changed: ?PwdChangedFn = null,
     progress_report: ?ProgressReportFn = null,
+    semantic_prompt: ?SemanticPromptFn = null,
+    reset: ?ResetFn = null,
     size_cb: ?SizeFn = null,
     clipboard_write: ?ClipboardWriteFn = null,
     clipboard_read: ?ClipboardReadFn = null,
@@ -313,6 +342,13 @@ const Effects = struct {
 
     /// C function pointer type for the progress_report callback.
     pub const ProgressReportFn = *const fn (Terminal, ?*anyopaque, *const ProgressReport) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the semantic_prompt callback. The event
+    /// and its strings are borrowed for the callback duration.
+    pub const SemanticPromptFn = *const fn (Terminal, ?*anyopaque, *const SemanticPrompt) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the reset callback.
+    pub const ResetFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
 
     /// C function pointer type for the unknown_sequence callback. The request
     /// and its content are borrowed for the callback duration.
@@ -618,6 +654,30 @@ const Effects = struct {
         func(@ptrCast(wrapper), wrapper.effects.userdata, &c_report);
     }
 
+    fn semanticPromptTrampoline(
+        handler: *Handler,
+        event: Handler.SemanticPrompt,
+    ) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.semantic_prompt orelse return;
+        const c_event: SemanticPrompt = .{
+            .size = @sizeOf(SemanticPrompt),
+            .kind = event.kind,
+            .prompt_kind = event.prompt_kind,
+            .has_exit_code = event.exit_code != null,
+            .exit_code = event.exit_code orelse 0,
+            .command = .init(event.command),
+            .@"error" = .init(event.err),
+        };
+        func(@ptrCast(wrapper), wrapper.effects.userdata, &c_event);
+    }
+
+    fn resetTrampoline(handler: *Handler) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.reset orelse return;
+        func(@ptrCast(wrapper), wrapper.effects.userdata);
+    }
+
     fn unknownSequenceTrampoline(
         handler: *Handler,
         sequence: Handler.UnknownSequence,
@@ -631,6 +691,7 @@ const Effects = struct {
                     .content = .init(apc_value.content),
                 },
             },
+            .osc => |osc_value| .{ .osc = osc_value.cval() },
         });
         func(@ptrCast(wrapper), wrapper.effects.userdata, &value);
     }
@@ -683,6 +744,8 @@ fn wrap(
         .title_changed = &Effects.titleChangedTrampoline,
         .pwd_changed = &Effects.pwdChangedTrampoline,
         .progress_report = &Effects.progressReportTrampoline,
+        .semantic_prompt = &Effects.semanticPromptTrampoline,
+        .reset = &Effects.resetTrampoline,
         .size = &Effects.sizeTrampoline,
         .render_hold = &Effects.renderHoldTrampoline,
 
@@ -1187,6 +1250,8 @@ pub const Option = enum(c_int) {
     clipboard_write_max_bytes = 39,
     resize_pull_scrollback = 40,
     render_hold = 41,
+    semantic_prompt = 42,
+    reset = 43,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -1207,6 +1272,8 @@ pub const Option = enum(c_int) {
             .clipboard_read => ?Effects.ClipboardReadFn,
             .unknown_sequence => ?Effects.UnknownSequenceFn,
             .render_hold => ?Effects.RenderHoldFn,
+            .semantic_prompt => ?Effects.SemanticPromptFn,
+            .reset => ?Effects.ResetFn,
             .title, .pwd, .terminfo_name => ?*const lib.String,
             .color_foreground, .color_background, .color_cursor => ?*const color.RGB.C,
             .color_palette => ?*const color.PaletteC,
@@ -1276,6 +1343,8 @@ fn setTyped(
         .progress_report => wrapper.effects.progress_report = value,
         .size_cb => wrapper.effects.size_cb = value,
         .render_hold => wrapper.effects.render_hold = value,
+        .semantic_prompt => wrapper.effects.semantic_prompt = value,
+        .reset => wrapper.effects.reset = value,
         .clipboard_write => {
             wrapper.effects.clipboard_write = value;
             wrapper.stream.handler.effects.clipboard_write = if (value != null)
@@ -1434,8 +1503,12 @@ fn setTyped(
             wrapper,
             if (value) |ptr| ptr.* else default_continuation_max_bytes,
         ),
-        .unknown_max_bytes => wrapper.stream.handler.apc_handler.unknown_max_bytes =
-            if (value) |ptr| ptr.* else 0,
+        .unknown_max_bytes => {
+            // One limit applies to every unknown sequence type.
+            const max_bytes = if (value) |ptr| ptr.* else 0;
+            wrapper.stream.handler.apc_handler.unknown_max_bytes = max_bytes;
+            wrapper.stream.parser.osc_parser.unknown_max_bytes = max_bytes;
+        },
         .clipboard_write_max_bytes => wrapper.stream.handler.kitty_clipboard_write_max_bytes =
             if (value) |ptr| ptr.* else kitty_clipboard.max_write_size,
         .resize_pull_scrollback => wrapper.terminal.flags.resize_pull_scrollback =
@@ -1536,6 +1609,61 @@ pub const TerminalScreen = ScreenSet.Key;
 /// C: GhosttyTerminalScrollbar
 pub const TerminalScrollbar = PageList.Scrollbar.C;
 
+/// C: GhosttyTerminalMemoryUsage
+///
+/// This is a sized struct, so new fields may only be added to the end.
+/// The figures for each screen are separate fields rather than a nested
+/// struct per screen, because only the outermost struct can grow. Add a
+/// new per-screen field as a primary and alternate pair.
+pub const TerminalMemoryUsage = extern struct {
+    size: usize = @sizeOf(TerminalMemoryUsage),
+    compression_supported: bool = false,
+    primary_pages: u64 = 0,
+    primary_virtual_bytes: u64 = 0,
+    primary_resident_bytes: u64 = 0,
+    primary_compressed_pages: u64 = 0,
+    primary_compressed_bytes: u64 = 0,
+    primary_image_bytes: u64 = 0,
+    alternate_pages: u64 = 0,
+    alternate_virtual_bytes: u64 = 0,
+    alternate_resident_bytes: u64 = 0,
+    alternate_compressed_pages: u64 = 0,
+    alternate_compressed_bytes: u64 = 0,
+    alternate_image_bytes: u64 = 0,
+
+    /// Gather the memory usage of `t`. The size field is set to
+    /// `caller_size` instead of our own size, so that copying the result
+    /// into the caller's struct keeps the size they passed in.
+    fn init(t: *const ZigTerminal, caller_size: usize) TerminalMemoryUsage {
+        var result: TerminalMemoryUsage = .{
+            .size = caller_size,
+            .compression_supported = terminal_mem.canReclaim(.strict),
+        };
+
+        const primary = t.screens.get(.primary).?.memoryUsage();
+        result.primary_pages = primary.pages.pages;
+        result.primary_virtual_bytes = primary.pages.virtual_bytes;
+        result.primary_resident_bytes = primary.pages.resident_bytes;
+        result.primary_compressed_pages = primary.pages.compressed_pages;
+        result.primary_compressed_bytes = primary.pages.compressed_bytes;
+        result.primary_image_bytes = primary.image_bytes;
+
+        // The alternate screen is created on first use. Until then its
+        // fields stay zero.
+        if (t.screens.get(.alternate)) |screen| {
+            const alternate = screen.memoryUsage();
+            result.alternate_pages = alternate.pages.pages;
+            result.alternate_virtual_bytes = alternate.pages.virtual_bytes;
+            result.alternate_resident_bytes = alternate.pages.resident_bytes;
+            result.alternate_compressed_pages = alternate.pages.compressed_pages;
+            result.alternate_compressed_bytes = alternate.pages.compressed_bytes;
+            result.alternate_image_bytes = alternate.image_bytes;
+        }
+
+        return result;
+    }
+};
+
 /// C: GhosttyTerminalData
 pub const TerminalData = enum(c_int) {
     invalid = 0,
@@ -1579,6 +1707,8 @@ pub const TerminalData = enum(c_int) {
     vt_ground = 38,
     cursor_at_prompt = 39,
     clipboard_write_max_bytes = 40,
+    mouse_shape = 41,
+    memory_usage = 42,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: TerminalData) type {
@@ -1593,6 +1723,7 @@ pub const TerminalData = enum(c_int) {
             .vt_ground,
             .cursor_at_prompt,
             => bool,
+            .mouse_shape => mouse.Shape,
             .active_screen => TerminalScreen,
             .kitty_keyboard_flags => u8,
             .scrollbar => TerminalScrollbar,
@@ -1622,6 +1753,7 @@ pub const TerminalData = enum(c_int) {
             .kitty_graphics => KittyGraphics,
             .selection => selection_c.CSelection,
             .mode => ModeConfig,
+            .memory_usage => TerminalMemoryUsage,
         };
     }
 };
@@ -1694,6 +1826,7 @@ fn getTyped(
             t.modes.get(.mouse_event_normal) or
             t.modes.get(.mouse_event_button) or
             t.modes.get(.mouse_event_any),
+        .mouse_shape => out.* = t.mouse_shape,
         .title => {
             const title = t.getTitle() orelse "";
             out.* = .{ .ptr = title.ptr, .len = title.len };
@@ -1761,6 +1894,19 @@ fn getTyped(
             out.value = t.modes.get(mode);
         },
         .cursor_at_prompt => out.* = t.cursorIsAtPrompt(),
+        .memory_usage => {
+            // A smaller size means the caller doesn't have every field of
+            // the first version of this struct, so reject it. A larger size
+            // means the caller was built against a newer version with more
+            // fields. We write only the fields we know and leave the rest
+            // alone.
+            //
+            // When fields are added later, compare against the size of the
+            // first version here, and copy only min(out.size, current size)
+            // bytes.
+            if (out.size < @sizeOf(TerminalMemoryUsage)) return .invalid_value;
+            out.* = .init(t, out.size);
+        },
     }
 
     return .success;
@@ -2416,6 +2562,138 @@ test "scroll_viewport row alt screen" {
     try testing.expectEqual(@as(u64, 2), scrollbar_data.total);
     try testing.expectEqual(@as(u64, 0), scrollbar_data.offset);
     try testing.expectEqual(@as(u64, 2), scrollbar_data.len);
+}
+
+test "get memory_usage" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    var fresh: TerminalMemoryUsage = .{};
+    try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&fresh)));
+    try testing.expectEqual(@sizeOf(TerminalMemoryUsage), fresh.size);
+    try testing.expectEqual(terminal_mem.canReclaim(.strict), fresh.compression_supported);
+    try testing.expect(fresh.primary_pages > 0);
+    try testing.expect(fresh.primary_virtual_bytes > 0);
+    try testing.expect(fresh.primary_resident_bytes <= fresh.primary_virtual_bytes);
+    try testing.expectEqual(@as(u64, 0), fresh.primary_compressed_pages);
+    try testing.expectEqual(@as(u64, 0), fresh.primary_compressed_bytes);
+    try testing.expectEqual(@as(u64, 0), fresh.primary_image_bytes);
+
+    // The alternate screen doesn't exist yet.
+    try testing.expectEqual(@as(u64, 0), fresh.alternate_pages);
+    try testing.expectEqual(@as(u64, 0), fresh.alternate_virtual_bytes);
+    try testing.expectEqual(@as(u64, 0), fresh.alternate_resident_bytes);
+    try testing.expectEqual(@as(u64, 0), fresh.alternate_compressed_pages);
+    try testing.expectEqual(@as(u64, 0), fresh.alternate_compressed_bytes);
+    try testing.expectEqual(@as(u64, 0), fresh.alternate_image_bytes);
+
+    // Write compressible history.
+    const line = "repeated and compressible terminal history\r\n";
+    const repeat = 4_000;
+    const input = try testing.allocator.alloc(u8, line.len * repeat);
+    defer testing.allocator.free(input);
+    for (0..repeat) |i|
+        @memcpy(input[i * line.len ..][0..line.len], line);
+    vt_write(t, input.ptr, input.len);
+
+    var history: TerminalMemoryUsage = .{};
+    try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&history)));
+    try testing.expect(history.primary_pages > fresh.primary_pages);
+    try testing.expect(history.primary_resident_bytes > fresh.primary_resident_bytes);
+
+    var compression_result: CompressionResult = undefined;
+    try testing.expectEqual(
+        Result.success,
+        compress(t, @intFromEnum(CompressionMode.full), &compression_result),
+    );
+    try testing.expectEqual(
+        history.compression_supported,
+        compression_result == .complete,
+    );
+
+    var compressed: TerminalMemoryUsage = .{};
+    try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&compressed)));
+    try testing.expectEqual(history.primary_pages, compressed.primary_pages);
+    try testing.expectEqual(history.primary_virtual_bytes, compressed.primary_virtual_bytes);
+    if (compressed.compression_supported) {
+        try testing.expect(compressed.primary_compressed_pages > 0);
+        try testing.expect(compressed.primary_compressed_bytes > 0);
+        try testing.expect(compressed.primary_resident_bytes < history.primary_resident_bytes);
+    } else {
+        try testing.expectEqual(@as(u64, 0), compressed.primary_compressed_pages);
+    }
+
+    // The query never restores a compressed page.
+    var again: TerminalMemoryUsage = .{};
+    try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&again)));
+    try testing.expectEqual(compressed, again);
+
+    // Kitty images are counted separately from pages.
+    if (comptime build_options.kitty_graphics) {
+        // 1x2 RGB image, 6 bytes of pixel data.
+        const transmit = "\x1b_Ga=t,t=d,f=24,i=1,s=1,v=2;////////\x1b\\";
+        vt_write(t, transmit.ptr, transmit.len);
+        var images: TerminalMemoryUsage = .{};
+        try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&images)));
+        try testing.expect(images.primary_image_bytes > 0);
+
+        const delete = "\x1b_Ga=d,d=I,i=1\x1b\\";
+        vt_write(t, delete.ptr, delete.len);
+        try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&images)));
+        try testing.expectEqual(@as(u64, 0), images.primary_image_bytes);
+    }
+
+    // Entering the alternate screen creates it.
+    vt_write(t, "\x1b[?1049h", 8);
+    var alternate: TerminalMemoryUsage = .{};
+    try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&alternate)));
+    try testing.expect(alternate.alternate_pages > 0);
+    try testing.expect(alternate.alternate_virtual_bytes > 0);
+    try testing.expect(alternate.alternate_resident_bytes > 0);
+    try testing.expect(alternate.alternate_resident_bytes <= alternate.alternate_virtual_bytes);
+    try testing.expectEqual(compressed.primary_pages, alternate.primary_pages);
+}
+
+test "get memory_usage size rule" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    // A size smaller than the first layout is rejected and nothing is
+    // written.
+    var small: TerminalMemoryUsage = .{
+        .size = @sizeOf(TerminalMemoryUsage) - 1,
+        .primary_pages = 1234,
+    };
+    try testing.expectEqual(Result.invalid_value, get(t, .memory_usage, @ptrCast(&small)));
+    try testing.expectEqual(@sizeOf(TerminalMemoryUsage) - 1, small.size);
+    try testing.expectEqual(@as(u64, 1234), small.primary_pages);
+
+    // A size larger than ours, from a caller built against a newer
+    // layout, gets the known prefix and the rest is left untouched.
+    const Larger = extern struct {
+        usage: TerminalMemoryUsage,
+        extra: u64,
+    };
+    var large: Larger = .{
+        .usage = .{ .size = @sizeOf(Larger) },
+        .extra = 0xDEADBEEF,
+    };
+    try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&large)));
+    try testing.expectEqual(@sizeOf(Larger), large.usage.size);
+    try testing.expect(large.usage.primary_pages > 0);
+    try testing.expectEqual(@as(u64, 0xDEADBEEF), large.extra);
 }
 
 test "scroll_viewport null" {
@@ -4597,6 +4875,142 @@ test "set progress_report callback" {
     try testing.expectEqual(@as(usize, cases.len), S.count);
 }
 
+test "set semantic_prompt callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var count: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+        var last_size: usize = 0;
+        var last_kind: SemanticPromptKind = .invalid;
+        var last_prompt_kind: SemanticPromptPromptKind = .primary;
+        var last_has_exit_code: bool = false;
+        var last_exit_code: i32 = 0;
+        var command_buf: [64]u8 = undefined;
+        var command_len: usize = 0;
+        var error_buf: [64]u8 = undefined;
+        var error_len: usize = 0;
+
+        fn semanticPrompt(
+            _: Terminal,
+            ud: ?*anyopaque,
+            event: *const SemanticPrompt,
+        ) callconv(lib.calling_conv) void {
+            count += 1;
+            last_userdata = ud;
+            last_size = event.size;
+            last_kind = event.kind;
+            last_prompt_kind = event.prompt_kind;
+            last_has_exit_code = event.has_exit_code;
+            last_exit_code = event.exit_code;
+            command_len = event.command.len;
+            @memcpy(command_buf[0..command_len], event.command.ptr[0..command_len]);
+            error_len = event.@"error".len;
+            @memcpy(error_buf[0..error_len], event.@"error".ptr[0..error_len]);
+        }
+    };
+    S.count = 0;
+    S.last_userdata = null;
+    S.last_size = 0;
+
+    var sentinel: u8 = 100;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(
+        t,
+        .semantic_prompt,
+        @ptrCast(&S.semanticPrompt),
+    ));
+
+    const prompt = "\x1B]133;P;k=r\x07";
+    vt_write(t, prompt, prompt.len);
+    try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+    try testing.expectEqual(@sizeOf(SemanticPrompt), S.last_size);
+    try testing.expectEqual(SemanticPromptKind.prompt_start, S.last_kind);
+    try testing.expectEqual(SemanticPromptPromptKind.right, S.last_prompt_kind);
+    try testing.expect(!S.last_has_exit_code);
+
+    const input = "\x1B]133;B\x07";
+    vt_write(t, input, input.len);
+    try testing.expectEqual(@as(usize, 2), S.count);
+    try testing.expectEqual(SemanticPromptKind.input_start, S.last_kind);
+    try testing.expectEqual(SemanticPromptPromptKind.primary, S.last_prompt_kind);
+
+    const output = "\x1B]133;C;cmdline_url=ls%20-la\x07";
+    vt_write(t, output, output.len);
+    try testing.expectEqual(@as(usize, 3), S.count);
+    try testing.expectEqual(SemanticPromptKind.output_start, S.last_kind);
+    try testing.expectEqualStrings("ls -la", S.command_buf[0..S.command_len]);
+
+    const end = "\x1B]133;D;-1;err=boom\x07";
+    vt_write(t, end, end.len);
+    try testing.expectEqual(@as(usize, 4), S.count);
+    try testing.expectEqual(SemanticPromptKind.command_end, S.last_kind);
+    try testing.expect(S.last_has_exit_code);
+    try testing.expectEqual(@as(i32, -1), S.last_exit_code);
+    try testing.expectEqualStrings("boom", S.error_buf[0..S.error_len]);
+    try testing.expectEqual(@as(usize, 0), S.command_len);
+
+    const end_no_code = "\x1B]133;D\x07";
+    vt_write(t, end_no_code, end_no_code.len);
+    try testing.expectEqual(@as(usize, 5), S.count);
+    try testing.expect(!S.last_has_exit_code);
+    try testing.expectEqual(@as(i32, 0), S.last_exit_code);
+    try testing.expectEqual(@as(usize, 0), S.error_len);
+
+    try testing.expectEqual(Result.success, set(t, .semantic_prompt, null));
+    vt_write(t, prompt, prompt.len);
+    try testing.expectEqual(@as(usize, 5), S.count);
+}
+
+test "set reset callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var count: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+
+        fn reset(_: Terminal, ud: ?*anyopaque) callconv(lib.calling_conv) void {
+            count += 1;
+            last_userdata = ud;
+        }
+    };
+    S.count = 0;
+    S.last_userdata = null;
+
+    var sentinel: u8 = 100;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(t, .reset, @ptrCast(&S.reset)));
+
+    // A soft reset (DECSTR) doesn't report a reset.
+    const soft = "\x1B[!p";
+    vt_write(t, soft, soft.len);
+    try testing.expectEqual(@as(usize, 0), S.count);
+
+    const full = "\x1Bc";
+    vt_write(t, full, full.len);
+    try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+
+    try testing.expectEqual(Result.success, set(t, .reset, null));
+    vt_write(t, full, full.len);
+    try testing.expectEqual(@as(usize, 1), S.count);
+}
+
 test "set unknown_sequence callback" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
@@ -4613,6 +5027,7 @@ test "set unknown_sequence callback" {
         var last_userdata: ?*anyopaque = null;
         var last_tag: UnknownSequence.Tag = .apc;
         var last_truncated: bool = false;
+        var last_terminator: osc.Terminator.C = .st;
         var content: [64]u8 = undefined;
         var content_len: usize = 0;
 
@@ -4625,10 +5040,21 @@ test "set unknown_sequence callback" {
             last_terminal = terminal_;
             last_userdata = ud;
             last_tag = sequence.tag;
-            const apc_value = sequence.value.apc;
-            last_truncated = apc_value.truncated;
-            content_len = @min(apc_value.content.len, content.len);
-            @memcpy(content[0..content_len], apc_value.content.ptr[0..content_len]);
+            const str: lib.String = switch (sequence.tag) {
+                .apc => str: {
+                    const apc_value = sequence.value.apc;
+                    last_truncated = apc_value.truncated;
+                    break :str apc_value.content;
+                },
+                .osc => str: {
+                    const osc_value = sequence.value.osc;
+                    last_truncated = osc_value.truncated;
+                    last_terminator = osc_value.terminator;
+                    break :str osc_value.content;
+                },
+            };
+            content_len = @min(str.len, content.len);
+            @memcpy(content[0..content_len], str.ptr[0..content_len]);
         }
     };
     S.count = 0;
@@ -4648,6 +5074,7 @@ test "set unknown_sequence callback" {
         @ptrCast(&max_bytes),
     ));
     try testing.expectEqual(max_bytes, t.?.stream.handler.apc_handler.unknown_max_bytes);
+    try testing.expectEqual(max_bytes, t.?.stream.parser.osc_parser.unknown_max_bytes);
 
     // A byte limit without a callback performs no external effect.
     const before_callback = "\x1B_abc;xy\x1B\\";
@@ -4687,11 +5114,34 @@ test "set unknown_sequence callback" {
     vt_write(t, aborted, aborted.len);
     try testing.expectEqual(@as(usize, 2), S.count);
 
+    // Unknown OSCs share the callback and the byte limit.
+    const osc_st = "\x1B]7400;x\x1B\\";
+    vt_write(t, osc_st, osc_st.len);
+    try testing.expectEqual(@as(usize, 3), S.count);
+    try testing.expectEqual(UnknownSequence.Tag.osc, S.last_tag);
+    try testing.expect(!S.last_truncated);
+    try testing.expectEqual(osc.Terminator.C.st, S.last_terminator);
+    try testing.expectEqualStrings("7400;x", S.content[0..S.content_len]);
+
+    const osc_bel = "\x1B]7400;abcdef\x07";
+    vt_write(t, osc_bel, osc_bel.len);
+    try testing.expectEqual(@as(usize, 4), S.count);
+    try testing.expectEqual(UnknownSequence.Tag.osc, S.last_tag);
+    try testing.expect(S.last_truncated);
+    try testing.expectEqual(osc.Terminator.C.bel, S.last_terminator);
+    try testing.expectEqualStrings("7400;abc", S.content[0..S.content_len]);
+
+    // Aborted unknown OSCs and supported OSCs are not reported.
+    const osc_aborted = "\x1B]7400;x\x18\x1B]2;title\x07";
+    vt_write(t, osc_aborted, osc_aborted.len);
+    try testing.expectEqual(@as(usize, 4), S.count);
+
     // Clearing the callback restores the null fast path immediately.
     try testing.expectEqual(Result.success, set(t, .unknown_sequence, null));
     try testing.expect(t.?.stream.handler.unknown_sequence == null);
     vt_write(t, before_callback, before_callback.len);
-    try testing.expectEqual(@as(usize, 2), S.count);
+    vt_write(t, osc_st, osc_st.len);
+    try testing.expectEqual(@as(usize, 4), S.count);
 
     // A NULL limit disables capture even after reinstalling the callback.
     try testing.expectEqual(Result.success, set(
@@ -4701,8 +5151,10 @@ test "set unknown_sequence callback" {
     ));
     try testing.expectEqual(Result.success, set(t, .unknown_max_bytes, null));
     try testing.expectEqual(@as(usize, 0), t.?.stream.handler.apc_handler.unknown_max_bytes);
+    try testing.expectEqual(@as(usize, 0), t.?.stream.parser.osc_parser.unknown_max_bytes);
     vt_write(t, before_callback, before_callback.len);
-    try testing.expectEqual(@as(usize, 2), S.count);
+    vt_write(t, osc_st, osc_st.len);
+    try testing.expectEqual(@as(usize, 4), S.count);
 }
 
 test "set pwd_changed callback" {
@@ -6341,4 +6793,40 @@ test "get_multi null keys returns invalid_value" {
     var cols: u16 = 0;
     var values = [_]?*anyopaque{@ptrCast(&cols)};
     try testing.expectEqual(Result.invalid_value, get_multi(null, 1, null, &values, null));
+}
+
+test "get mouse_shape" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(&lib.alloc.test_allocator, &t, 80, 24));
+    defer free(t);
+
+    var shape: mouse.Shape = undefined;
+    try testing.expectEqual(Result.success, get(t, .mouse_shape, @ptrCast(&shape)));
+    try testing.expectEqual(mouse.Shape.text, shape);
+
+    const cases = .{
+        .{ "\x1b]22;pointer\x07", mouse.Shape.pointer },
+        .{ "\x1b]22;crosshair\x1b\\", mouse.Shape.crosshair },
+        // Invalid names leave the last accepted shape unchanged.
+        .{ "\x1b]22;not-a-pointer-shape\x07", mouse.Shape.crosshair },
+        // Hyperlinks don't override the application's requested shape.
+        .{ "\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\", mouse.Shape.crosshair },
+        .{ "\x1b]22;\x1b\\", mouse.Shape.text },
+        .{ "\x1b]22;default\x07", mouse.Shape.default },
+        .{ "\x1b]22;text\x07", mouse.Shape.text },
+    };
+    inline for (cases) |case| {
+        vt_write(t, case[0], case[0].len);
+        try testing.expectEqual(Result.success, get(t, .mouse_shape, @ptrCast(&shape)));
+        try testing.expectEqual(case[1], shape);
+    }
+
+    // An incomplete OSC must not update the shape before its terminator.
+    const prefix = "\x1b]22;wait";
+    vt_write(t, prefix, prefix.len);
+    try testing.expectEqual(Result.success, get(t, .mouse_shape, @ptrCast(&shape)));
+    try testing.expectEqual(mouse.Shape.text, shape);
+    vt_write(t, "\x07", 1);
+    try testing.expectEqual(Result.success, get(t, .mouse_shape, @ptrCast(&shape)));
+    try testing.expectEqual(mouse.Shape.wait, shape);
 }

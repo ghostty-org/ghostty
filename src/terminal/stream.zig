@@ -130,6 +130,9 @@ pub const Action = union(Key) {
     semantic_prompt: SemanticPrompt,
     kitty_clipboard: KittyClipboard,
     kitty_dnd: KittyDnd,
+    resize_window: ResizeWindow,
+    osc_unknown: osc.Command.Unknown,
+    mouse_shape_reset,
 
     pub const Key = lib.Enum(
         lib.target,
@@ -231,6 +234,9 @@ pub const Action = union(Key) {
             "semantic_prompt",
             "kitty_clipboard",
             "kitty_dnd",
+            "resize_window",
+            "osc_unknown",
+            "mouse_shape_reset",
         },
     );
 
@@ -347,6 +353,15 @@ pub const Action = union(Key) {
     pub const Margin = extern struct {
         top_left: u16,
         bottom_right: u16,
+    };
+
+    /// A request to resize the window's text area (CSI 8 t). A value
+    /// of zero means the parameter was omitted or zero, and the current
+    /// size for that dimension should be kept. xterm treats an explicit
+    /// zero as the screen size, but we can't distinguish it from omitted.
+    pub const ResizeWindow = extern struct {
+        rows: u16,
+        columns: u16,
     };
 
     pub const KittyKeyboardFlags = struct {
@@ -511,6 +526,17 @@ pub fn Stream(comptime H: type) type {
             /// unfinished state without repeating committed terminal effects.
             /// Continuation tracking is only supported by TerminalStream.
             continuation_max_bytes: ?usize = null,
+
+            /// The most bytes to keep from each OSC sequence whose number
+            /// the OSC parser does not implement. Zero, the default,
+            /// discards these sequences. Any other value sends them to the
+            /// handler as `osc_unknown` actions. See
+            /// `osc.Parser.unknown_max_bytes` for how the limit behaves.
+            ///
+            /// This only affects OSC. Other kinds of unknown sequences,
+            /// such as APC, are collected by the handler and have their own
+            /// limits there.
+            osc_unknown_max_bytes: usize = 0,
         };
 
         /// Initialize a stream. Without an allocator, operations that require
@@ -526,6 +552,7 @@ pub fn Stream(comptime H: type) type {
             // Initialize the parser
             var parser: Parser = .init();
             if (options.allocator) |alloc| parser.osc_parser.alloc = alloc;
+            parser.osc_parser.unknown_max_bytes = options.osc_unknown_max_bytes;
 
             // Initialize the continuation tracker if one is requested.
             var tracker: ?continuationpkg.Tracker = null;
@@ -2381,6 +2408,16 @@ pub fn Stream(comptime H: type) type {
                     0 => {
                         if (input.params.len > 0) {
                             switch (input.params[0]) {
+                                8 => if (input.params.len <= 3) {
+                                    // resize the text area in characters
+                                    self.handler.vt(.resize_window, .{
+                                        .rows = if (input.params.len > 1) input.params[1] else 0,
+                                        .columns = if (input.params.len > 2) input.params[2] else 0,
+                                    });
+                                } else log.warn(
+                                    "ignoring CSI 8 t with extra parameters: {f}",
+                                    .{input},
+                                ),
                                 14 => if (input.params.len == 1) {
                                     // report the text area size in pixels
                                     self.handler.vt(.size_report, .csi_14_t);
@@ -2629,6 +2666,11 @@ pub fn Stream(comptime H: type) type {
                 },
 
                 .mouse_shape => |v| {
+                    if (v.value.len == 0) {
+                        self.handler.vt(.mouse_shape_reset, {});
+                        return;
+                    }
+
                     const shape = MouseShape.fromString(v.value) orelse {
                         @branchHint(.unlikely);
                         log.warn("unknown cursor shape: {s}", .{v.value});
@@ -2681,6 +2723,11 @@ pub fn Stream(comptime H: type) type {
 
                 .kitty_dnd_protocol => |v| {
                     self.handler.vt(.kitty_dnd, v);
+                },
+
+                .unknown => |v| {
+                    @branchHint(.unlikely);
+                    self.handler.vt(.osc_unknown, v);
                 },
 
                 .conemu_sleep,
@@ -4210,6 +4257,47 @@ test "stream: send report with CSI t" {
 
     s.nextSlice("\x1b[21t");
     try testing.expectEqual(csi.SizeReportStyle.csi_21_t, s.handler.style);
+}
+
+test "stream: CSI 8 t resize window" {
+    const H = struct {
+        size: ?streampkg.Action.ResizeWindow = null,
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: streampkg.Action.Tag,
+            value: streampkg.Action.Value(action),
+        ) void {
+            switch (action) {
+                .resize_window => self.size = value,
+                else => {},
+            }
+        }
+    };
+
+    var s: Stream(H) = .init(.{ .handler = .{} });
+
+    s.nextSlice("\x1b[8;40;120t");
+    try testing.expectEqual(40, s.handler.size.?.rows);
+    try testing.expectEqual(120, s.handler.size.?.columns);
+
+    // Omitted parameters keep the current size
+    s.nextSlice("\x1b[8;;100t");
+    try testing.expectEqual(0, s.handler.size.?.rows);
+    try testing.expectEqual(100, s.handler.size.?.columns);
+
+    s.nextSlice("\x1b[8;30t");
+    try testing.expectEqual(30, s.handler.size.?.rows);
+    try testing.expectEqual(0, s.handler.size.?.columns);
+
+    s.nextSlice("\x1b[8t");
+    try testing.expectEqual(0, s.handler.size.?.rows);
+    try testing.expectEqual(0, s.handler.size.?.columns);
+
+    // Extra parameters are invalid
+    s.handler.size = null;
+    s.nextSlice("\x1b[8;30;100;1t");
+    try testing.expect(s.handler.size == null);
 }
 
 test "stream: invalid CSI t" {

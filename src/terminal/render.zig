@@ -62,6 +62,52 @@ const Terminal = @import("Terminal.zig");
 /// The render state must be treated as incomplete between the two calls.
 /// `update` is a convenience that performs both phases in one call.
 ///
+/// ## Overscan
+///
+/// By default the render state captures exactly the rows of the viewport.
+/// A renderer that draws the grid at a fractional row offset, such as for
+/// smooth scrolling, also needs the rows just outside the viewport so that
+/// partially visible rows at the top and bottom edges can be drawn. Set
+/// `overscan_request` to ask for extra rows above and below the viewport:
+///
+///     var state: RenderState = .empty;
+///     defer state.deinit(alloc);
+///     state.overscan_request = .{ .above = 1, .below = 1 };
+///     try state.update(alloc, &terminal);
+///
+/// With overscan, `row_data` holds more than `rows` entries, laid out
+/// like this for a request of one row above and one below:
+///
+///     index 0            overscan above   (viewport y = -1)
+///     index 1            viewport row 0   <- viewportStart()
+///     ...
+///     index rows         viewport row rows - 1
+///     index rows + 1     overscan below   (viewport y = rows)
+///
+/// The viewport always begins at `viewportStart()`, so viewport rows never
+/// move within `row_data` from one update to the next. The overscan rows
+/// are only captured if they exist. There is nothing above the first row
+/// of scrollback, and nothing below the viewport while it follows the
+/// active area (the usual case when not scrolled). Missing rows leave
+/// their entries unused, and `overscan` reports how many rows were
+/// actually captured. Always read rows through `rowDataRange()`:
+///
+///     const range = state.rowDataRange();
+///     const rows = state.row_data.slice();
+///     for (range.start..range.end) |i| {
+///         const y = state.viewportY(i); // negative above the viewport
+///         const cells = rows.items(.cells)[i];
+///         // draw `cells` at row `y` shifted by the scroll offset
+///     }
+///
+/// Overscan rows carry the same data as viewport rows (cells, styles,
+/// dirty flags, selection, and highlights). The cursor is only reported
+/// in `cursor.viewport` when it is inside the viewport itself. `string`
+/// and `linkCells` only look at the viewport.
+///
+/// With no overscan requested (the default), `row_data` holds exactly
+/// the viewport and indices are viewport y values, as before.
+///
 /// ## Memory
 ///
 /// Note: the render state retains as much memory as possible between updates
@@ -78,7 +124,7 @@ pub const RenderState = struct {
     /// handle.
     ///
     /// The viewport is always exactly equal to the active area size so this
-    /// is also the viewport size.
+    /// is also the viewport size. It does not include overscan rows.
     rows: size.CellCountInt,
     cols: size.CellCountInt,
 
@@ -88,7 +134,13 @@ pub const RenderState = struct {
     /// Cursor state within the viewport.
     cursor: Cursor,
 
-    /// The rows (y=0 is top) of the viewport. Guaranteed to be `rows` length.
+    /// The captured rows, from top to bottom.
+    ///
+    /// Without overscan this has exactly `rows` entries and the index is
+    /// the viewport y. With overscan it has room for the requested rows
+    /// above and below the viewport, and the viewport starts at
+    /// `viewportStart()`. Only the entries in `rowDataRange()` hold data
+    /// from the last update. See "Overscan" in the `RenderState` docs.
     ///
     /// This is a MultiArrayList because only the update cares about
     /// the allocators. Callers care about all the other properties, and
@@ -109,6 +161,28 @@ pub const RenderState = struct {
     /// a tracked pin and is generally NOT safe to read other than the direct
     /// values for comparison.
     viewport_pin: ?PageList.Pin = null,
+
+    /// The number of rows to capture above and below the viewport. This is
+    /// for renderers that draw partially visible rows, such as during
+    /// smooth scrolling. The default of zero captures only the viewport.
+    /// See "Overscan" in the `RenderState` docs.
+    ///
+    /// Only change this immediately before an update, because
+    /// `viewportStart()` reads it and `row_data` is laid out for it by the
+    /// update. Changing it causes the next update to be a full redraw.
+    overscan_request: Overscan = .{},
+
+    /// The number of rows above and below the viewport that the last
+    /// update actually captured. This is never more than
+    /// `overscan_request`, and is less when those rows don't exist:
+    ///
+    ///   - `above` is less near the top of the scrollback.
+    ///   - `below` is less when the viewport is close to the bottom of
+    ///     the screen, and is zero when the viewport follows the active
+    ///     area.
+    ///
+    /// This is set by the update and should not be modified.
+    overscan: Overscan = .{},
 
     /// The cached selection so we can avoid expensive selection calculations
     /// if possible.
@@ -200,7 +274,23 @@ pub const RenderState = struct {
         };
     };
 
-    /// A row within the viewport.
+    /// A number of rows above and below the viewport. Used both to request
+    /// overscan (`overscan_request`) and to report what was captured
+    /// (`overscan`).
+    pub const Overscan = struct {
+        /// Rows above the top of the viewport.
+        above: size.CellCountInt = 0,
+
+        /// Rows below the bottom of the viewport.
+        below: size.CellCountInt = 0,
+
+        pub fn eql(a: Overscan, b: Overscan) bool {
+            return a.above == b.above and a.below == b.below;
+        }
+    };
+
+    /// A captured row. This is either a viewport row or an overscan row,
+    /// depending on its index in `row_data`.
     pub const Row = struct {
         /// Arena used for any heap allocations for cell contents
         /// in this row. Importantly, this is NOT used for the MultiArrayList
@@ -250,6 +340,54 @@ pub const RenderState = struct {
         /// because it must survive row rebuilds. `endUpdate` cannot
         /// allocate, so `beginUpdate` reserves the capacity.
         applied_styles: std.ArrayList(StyleRun),
+
+        /// Identifies a row of terminal content across updates, independent
+        /// of where the row is in `row_data`. Get it with `id`.
+        ///
+        /// When the viewport scrolls, rows move to different `row_data`
+        /// indices but keep their ids. This lets a renderer keep per-row
+        /// work (such as shaped text or cached geometry) and look it up by
+        /// id after each update rather than rebuilding everything:
+        ///
+        ///     const range = state.rowDataRange();
+        ///     for (range.start..range.end) |i| {
+        ///         const row = state.row_data.get(i);
+        ///         if (!row.dirty) {
+        ///             if (cache.get(row.id())) |cached| {
+        ///                 // reuse `cached` at the new position
+        ///                 continue;
+        ///             }
+        ///         }
+        ///         // rebuild this row and cache it under row.id()
+        ///     }
+        ///
+        /// The guarantee is: if a row has the same id as a row from the
+        /// previous update of the same render state and is not marked dirty,
+        /// its contents are unchanged. An id that no longer appears means
+        /// the row scrolled out of the captured rows, was removed from
+        /// scrollback, or was rearranged in place by the terminal (for
+        /// example, scrolling within a scroll region). Ids are never reused,
+        /// so a stale id never matches a different row.
+        pub const Id = struct {
+            /// The generation of the page holding the row
+            /// (`PageList.List.Node.serial`).
+            serial: u64,
+
+            /// The row index within its page.
+            y: size.CellCountInt,
+
+            pub fn eql(a: Id, b: Id) bool {
+                return a.serial == b.serial and a.y == b.y;
+            }
+        };
+
+        /// Returns the identity of this row. See `Id`.
+        ///
+        /// This only reads values copied during the update, so it is safe
+        /// to call without access to the terminal.
+        pub fn id(self: *const Row) Id {
+            return .{ .serial = self.serial, .y = self.pin.y };
+        }
     };
 
     pub const Highlight = struct {
@@ -304,7 +442,7 @@ pub const RenderState = struct {
     /// the (potentially large) denormalization of styles into cells
     /// can happen outside of any terminal locks. See `beginUpdate`.
     pub const StyleRun = struct {
-        /// The viewport row.
+        /// The `row_data` index of the row.
         y: size.CellCountInt,
 
         /// Start (inclusive) and end (exclusive) x coordinates.
@@ -377,6 +515,41 @@ pub const RenderState = struct {
     ) Allocator.Error!void {
         const s: *Screen = t.screens.active;
         const viewport_pin = s.pages.getTopLeft(.viewport);
+
+        // The overscan rows to capture beyond the viewport. The request
+        // decides the layout of row_data, and the actual counts are
+        // limited to the rows that exist. With no request, everything
+        // below behaves exactly as it does without overscan.
+        const above_req: usize = self.overscan_request.above;
+        const below_req: usize = self.overscan_request.below;
+        const row_data_len: usize = above_req + s.pages.rows + below_req;
+
+        // The first captured row and how many rows above the viewport
+        // we actually got.
+        const top: struct { pin: PageList.Pin, above: usize } = if (above_req == 0)
+            .{ .pin = viewport_pin, .above = 0 }
+        else switch (viewport_pin.upOverflow(above_req)) {
+            .offset => |p| .{ .pin = p, .above = above_req },
+            .overflow => |o| .{ .pin = o.end, .above = above_req - o.remaining },
+        };
+
+        // How many rows below the viewport we actually get. The page list
+        // ends at the last active row, so this is zero whenever the
+        // viewport follows the active area. This is computed before the
+        // loop below so that a change can force a redraw. When new output
+        // appears below a scrolled viewport, it can land in an entry that
+        // was never built or that held a different row.
+        const below: usize = if (below_req == 0) 0 else below: {
+            const bottom = viewport_pin.down(s.pages.rows - 1).?;
+            break :below switch (bottom.downOverflow(below_req)) {
+                .offset => below_req,
+                .overflow => |o| below_req - o.remaining,
+            };
+        };
+
+        // The index of top.pin in row_data.
+        const first: usize = above_req - top.above;
+
         const redraw = redraw: {
             // If our screen key changed, we need to do a full rebuild
             // because our render state is viewport-specific.
@@ -404,6 +577,16 @@ pub const RenderState = struct {
             {
                 break :redraw true;
             }
+
+            // If our row_data layout changed (overscan request changed),
+            // we do a full rebuild.
+            if (self.row_data.len != row_data_len) break :redraw true;
+
+            // If the captured overscan changed, rows may have entered
+            // row_data that were never built. This only happens when the
+            // viewport is scrolled, so it's cheap to be safe.
+            if (self.overscan.above != top.above or
+                self.overscan.below != below) break :redraw true;
 
             // If our viewport pin changed, we do a full rebuild.
             if (self.viewport_pin) |old| {
@@ -456,22 +639,22 @@ pub const RenderState = struct {
             }
         }
 
-        // Ensure our row length is exactly our height, freeing or allocating
-        // data as necessary. In most cases we'll have a perfectly matching
-        // size.
-        if (self.row_data.len != self.rows) {
+        // Ensure our row length is exactly our height plus requested
+        // overscan, freeing or allocating data as necessary. In
+        // most cases we'll have a perfectly matching size.
+        if (self.row_data.len != row_data_len) {
             @branchHint(.unlikely);
 
-            if (self.row_data.len < self.rows) {
+            if (self.row_data.len < row_data_len) {
                 // Resize our rows to the desired length, marking any added
                 // values undefined.
                 const old_len = self.row_data.len;
-                try self.row_data.resize(alloc, self.rows);
+                try self.row_data.resize(alloc, row_data_len);
 
                 // Initialize all our values. Its faster to use slice() + set()
                 // because appendAssumeCapacity does this multiple times.
                 var row_data = self.row_data.slice();
-                for (old_len..self.rows) |y| {
+                for (old_len..row_data_len) |y| {
                     row_data.set(y, .{
                         .arena = .{},
                         .pin = undefined,
@@ -487,16 +670,16 @@ pub const RenderState = struct {
             } else {
                 const row_data = self.row_data.slice();
                 for (
-                    row_data.items(.arena)[self.rows..],
-                    row_data.items(.cells)[self.rows..],
-                    row_data.items(.applied_styles)[self.rows..],
+                    row_data.items(.arena)[row_data_len..],
+                    row_data.items(.cells)[row_data_len..],
+                    row_data.items(.applied_styles)[row_data_len..],
                 ) |state, *cell, *applied| {
                     var arena: ArenaAllocator = state.promote(alloc);
                     arena.deinit();
                     cell.deinit(alloc);
                     applied.deinit(alloc);
                 }
-                self.row_data.shrinkRetainingCapacity(self.rows);
+                self.row_data.shrinkRetainingCapacity(row_data_len);
             }
         }
 
@@ -535,21 +718,22 @@ pub const RenderState = struct {
             .pending_styles = &self.pending_styles,
             .applied_styles = row_applied,
         };
-        var y: usize = 0;
+        const row_data_end: usize = first + top.above + self.rows + below;
+        var y: usize = first;
         var any_dirty: bool = false;
-        var page_it = viewport_pin.pageIterator(.right_down, null);
-        while (y < self.rows) {
+        var page_it = top.pin.pageIterator(.right_down, null);
+        while (y < row_data_end) {
             const chunk = page_it.next() orelse break;
             const node = chunk.node;
             const node_serial = node.serial;
             const p: *page.Page = node.page();
 
             // The number of rows we consume from this chunk. The chunk
-            // may extend beyond the viewport (the viewport is always
-            // exactly `rows` tall) so we clamp.
+            // may extend beyond what we capture (the viewport is always
+            // exactly `rows` tall, plus any overscan) so we clamp.
             const take: usize = @min(
                 @as(usize, chunk.end - chunk.start),
-                self.rows - y,
+                row_data_end - y,
             );
 
             // Find our cursor if we haven't found it yet. We do this even
@@ -560,8 +744,14 @@ pub const RenderState = struct {
             cursor: {
                 const cy = s.cursor.page_pin.y;
                 if (cy < chunk.start or cy >= chunk.start + take) break :cursor;
+
+                // The cursor may be in an overscan row, in which case it
+                // is not visible in the viewport.
+                const idx = y + (cy - chunk.start);
+                const vp_start = self.viewportStart();
+                if (idx < vp_start or idx >= vp_start + self.rows) break :cursor;
                 self.cursor.viewport = .{
-                    .y = @intCast(y + (cy - chunk.start)),
+                    .y = @intCast(idx - vp_start),
                     .x = s.cursor.x,
 
                     // Future: we should use our own state here to look this
@@ -650,7 +840,12 @@ pub const RenderState = struct {
 
             y += take;
         }
-        assert(y == self.rows);
+        assert(y == row_data_end);
+
+        self.overscan = .{
+            .above = @intCast(top.above),
+            .below = @intCast(below),
+        };
 
         // If our screen has a selection, then mark the rows with the
         // selection. We do this outside of the loop above because its unlikely
@@ -703,10 +898,11 @@ pub const RenderState = struct {
             // We need to determine if our selection is within the viewport.
             // The viewport is generally very small so the efficient way to
             // do this is to traverse the viewport pages and check for the
-            // matching selection pages.
+            // matching selection pages. Unused entries are skipped.
+            const range = self.rowDataRange();
             for (
-                row_pins,
-                row_sels,
+                row_pins[range.start..range.end],
+                row_sels[range.start..range.end],
             ) |pin, *sel_bounds| {
                 const p = s.pages.pointFromPin(.screen, pin).?.screen;
                 const row_sel = sel.containedRowCached(
@@ -820,6 +1016,45 @@ pub const RenderState = struct {
         @memset(self.row_data.items(.dirty), false);
     }
 
+    /// Returns the `row_data` index of the top row of the viewport.
+    ///
+    /// This is `overscan_request.above`, so it is zero without overscan
+    /// and does not change from one update to the next. The viewport is
+    /// the `rows` entries starting here.
+    pub fn viewportStart(self: *const RenderState) usize {
+        return self.overscan_request.above;
+    }
+
+    /// Converts a `row_data` index into a y position relative to the top
+    /// of the viewport. Rows above the viewport are negative, and rows
+    /// below it are `rows` or greater. For example, with one row of
+    /// overscan above, index 0 is y = -1 and index 1 is y = 0.
+    pub fn viewportY(self: *const RenderState, index: usize) isize {
+        return @as(isize, @intCast(index)) - @as(isize, @intCast(self.viewportStart()));
+    }
+
+    /// A range of `row_data` indices. `start` is inclusive and `end` is
+    /// exclusive, so it can be used directly as `range.start..range.end`.
+    pub const RowDataRange = struct {
+        start: usize,
+        end: usize,
+    };
+
+    /// Returns the range of `row_data` that holds rows from the last
+    /// update: the captured overscan rows above, the viewport, and the
+    /// captured overscan rows below.
+    ///
+    /// Entries outside this range are unused. They contain leftover or
+    /// uninitialized data and must not be read. Without overscan, this
+    /// is always `0..rows`.
+    pub fn rowDataRange(self: *const RenderState) RowDataRange {
+        const vp = self.viewportStart();
+        return .{
+            .start = vp - self.overscan.above,
+            .end = vp + self.rows + self.overscan.below,
+        };
+    }
+
     /// Fill a slice of styles with one value.
     ///
     /// This is equivalent to `@memset(dst, value)` but manually vectorized:
@@ -896,12 +1131,13 @@ pub const RenderState = struct {
         const row_pins = row_data.items(.pin);
         const row_serials = row_data.items(.serial);
         const row_highlights_slice = row_data.items(.highlights);
+        const range = self.rowDataRange();
         for (
-            row_arenas,
-            row_pins,
-            row_serials,
-            row_highlights_slice,
-            row_dirties,
+            row_arenas[range.start..range.end],
+            row_pins[range.start..range.end],
+            row_serials[range.start..range.end],
+            row_highlights_slice[range.start..range.end],
+            row_dirties[range.start..range.end],
         ) |*row_arena, row_pin, row_serial, *row_highlights, *dirty| {
             for (hls) |hl| {
                 const chunks_slice = hl.chunks.slice();
@@ -962,6 +1198,9 @@ pub const RenderState = struct {
     /// blank lines. This is fine for our current usage (link search) but
     /// we can adjust this later.
     ///
+    /// Only viewport rows are included, never overscan rows. The `y`
+    /// values in `map` are viewport rows.
+    ///
     /// NOTE: There is a limitation in that wrapped lines before/after
     /// the top/bottom line of the viewport are not included, since
     /// the render state cuts them off.
@@ -973,9 +1212,11 @@ pub const RenderState = struct {
             map: *StringMap,
         },
     ) (Allocator.Error || std.Io.Writer.Error)!void {
+        // This only covers the viewport, never overscan rows.
         const row_slice = self.row_data.slice();
-        const row_rows = row_slice.items(.raw);
-        const row_cells = row_slice.items(.cells);
+        const vp_start = self.viewportStart();
+        const row_rows = row_slice.items(.raw)[vp_start..][0..self.rows];
+        const row_cells = row_slice.items(.cells)[vp_start..][0..self.rows];
 
         for (
             0..,
@@ -1027,6 +1268,9 @@ pub const RenderState = struct {
     ///
     /// For example, you may want to hold a lock for the duration of the
     /// update and hyperlink lookup to ensure no updates happen in between.
+    ///
+    /// Only viewport rows are searched, never overscan rows. Both the
+    /// given point and the returned cells use viewport coordinates.
     pub fn linkCells(
         self: *const RenderState,
         alloc: Allocator,
@@ -1035,15 +1279,17 @@ pub const RenderState = struct {
         var result: CellSet = .empty;
         errdefer result.deinit(alloc);
 
+        // This only covers the viewport, never overscan rows.
         const row_slice = self.row_data.slice();
-        const row_pins = row_slice.items(.pin);
-        const row_cells = row_slice.items(.cells);
+        const vp_start = self.viewportStart();
+        const row_pins = row_slice.items(.pin)[vp_start..][0..self.rows];
+        const row_cells = row_slice.items(.cells)[vp_start..][0..self.rows];
 
         // Our viewport point is sent in by the caller and can't be trusted.
         // If it is outside the valid area then just return empty because
         // we can't possibly have a link there.
         if (viewport_point.x >= self.cols or
-            viewport_point.y >= row_pins.len) return result;
+            viewport_point.y >= self.rows) return result;
 
         // Grab our link ID
         const link_pin: PageList.Pin = row_pins[viewport_point.y];
@@ -1484,10 +1730,16 @@ fn testCompareStates(
         @as(page.Cell.Backing, @bitCast(incremental.cursor.cell)),
     );
 
+    // Unused entries (outside rowDataRange) may hold anything, so
+    // we only compare the populated range.
+    try testing.expectEqual(fresh.overscan, incremental.overscan);
+    try testing.expectEqual(fresh.rowDataRange(), incremental.rowDataRange());
+    const range = fresh.rowDataRange();
+
     const inc_data = incremental.row_data.slice();
     const new_data = fresh.row_data.slice();
     try testing.expectEqual(new_data.len, inc_data.len);
-    for (0..new_data.len) |y| {
+    for (range.start..range.end) |y| {
         errdefer std.log.warn("mismatch on row y={}", .{y});
 
         // Pins must match exactly.
@@ -1547,6 +1799,14 @@ fn testCompareStates(
 }
 
 test "incremental updates match full rebuild" {
+    try testIncrementalMatchesFresh(.{});
+}
+
+test "incremental updates match full rebuild with overscan" {
+    try testIncrementalMatchesFresh(.{ .above = 2, .below = 1 });
+}
+
+fn testIncrementalMatchesFresh(request: RenderState.Overscan) !void {
     const testing = std.testing;
     const alloc = testing.allocator;
     const io = testing.io;
@@ -1567,6 +1827,7 @@ test "incremental updates match full rebuild" {
 
     var inc: RenderState = .empty;
     defer inc.deinit(alloc);
+    inc.overscan_request = request;
 
     var buf: [64]u8 = undefined;
     for (0..300) |_| {
@@ -1677,6 +1938,7 @@ test "incremental updates match full rebuild" {
 
         var fresh: RenderState = .empty;
         defer fresh.deinit(alloc);
+        fresh.overscan_request = request;
         try fresh.update(alloc, &t);
 
         try testCompareStates(&inc, &fresh);
@@ -2394,4 +2656,378 @@ test "dirty row resets highlights" {
         const row_highlights = row_data.items(.highlights);
         try testing.expectEqual(0, row_highlights[0].items.len);
     }
+}
+
+/// Writes lines "0", "1", ... up to `n - 1` into the terminal, each
+/// followed by a newline, so the cursor ends on an empty row below them.
+fn testWriteNumberedLines(t: *Terminal, n: usize) !void {
+    var s = t.vtStream();
+    defer s.deinit();
+    var buf: [32]u8 = undefined;
+    for (0..n) |i| s.nextSlice(try std.fmt.bufPrint(&buf, "{d}\r\n", .{i}));
+}
+
+/// Returns the number written on the row at `row_data` index `idx` by
+/// testWriteNumberedLines, or null if the row is empty.
+fn testRowNumber(state: *const RenderState, idx: usize) ?usize {
+    const cells = state.row_data.items(.cells)[idx].items(.raw);
+    var result: ?usize = null;
+    for (cells) |cell| {
+        const cp = cell.codepoint();
+        if (cp < '0' or cp > '9') break;
+        result = (result orelse 0) * 10 + (cp - '0');
+    }
+    return result;
+}
+
+test "overscan zero request unchanged" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 10,
+        .max_scrollback_bytes = 1_000_000,
+    });
+    defer t.deinit(alloc);
+    try testWriteNumberedLines(&t, 50);
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+
+    for ([_]bool{ false, true }) |scrolled| {
+        if (scrolled) t.scrollViewport(.{ .delta = -5 });
+        try state.update(alloc, &t);
+        try testing.expectEqual(10, state.row_data.len);
+        try testing.expectEqual(0, state.rowDataRange().start);
+        try testing.expectEqual(10, state.rowDataRange().end);
+        try testing.expect(state.overscan.eql(.{}));
+        try testing.expectEqual(0, state.viewportStart());
+    }
+
+    // Viewport row 0 is at index 0.
+    try testing.expectEqual(36, testRowNumber(&state, 0).?);
+}
+
+test "overscan row_data layout" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 10,
+        .max_scrollback_bytes = 1_000_000,
+    });
+    defer t.deinit(alloc);
+
+    // Screen rows 0..49 hold "0".."49" and screen row 50 is the empty
+    // cursor row. The active area (and bottom viewport) is 41..50.
+    try testWriteNumberedLines(&t, 50);
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    state.overscan_request = .{ .above = 3, .below = 2 };
+
+    // Viewport follows the active area: nothing exists below.
+    {
+        try state.update(alloc, &t);
+        try testing.expect(state.overscan.eql(.{ .above = 3, .below = 0 }));
+        try testing.expectEqual(15, state.row_data.len);
+        try testing.expectEqual(0, state.rowDataRange().start);
+        try testing.expectEqual(13, state.rowDataRange().end);
+        try testing.expectEqual(3, state.viewportStart());
+        try testing.expectEqual(-3, state.viewportY(0));
+        try testing.expectEqual(0, state.viewportY(3));
+
+        // Viewport row 0 matches a state with no request.
+        var plain: RenderState = .empty;
+        defer plain.deinit(alloc);
+        try plain.update(alloc, &t);
+        const vp = state.viewportStart();
+        for (0..state.rows) |y| {
+            const a = state.row_data.get(vp + y);
+            const b = plain.row_data.get(y);
+            try testing.expectEqual(b.pin.node, a.pin.node);
+            try testing.expectEqual(b.pin.y, a.pin.y);
+            try testing.expectEqual(
+                @as(page.Row.Backing, @bitCast(b.raw)),
+                @as(page.Row.Backing, @bitCast(a.raw)),
+            );
+            for (b.cells.items(.raw), a.cells.items(.raw)) |bc, ac| {
+                try testing.expectEqual(
+                    @as(page.Cell.Backing, @bitCast(bc)),
+                    @as(page.Cell.Backing, @bitCast(ac)),
+                );
+            }
+        }
+        try testing.expectEqual(41, testRowNumber(&state, vp).?);
+        try testing.expectEqual(38, testRowNumber(&state, 0).?);
+        try testing.expectEqual(40, testRowNumber(&state, vp - 1).?);
+    }
+
+    // Scrolled into history: both sides are fully captured.
+    {
+        t.scrollViewport(.{ .delta = -5 });
+        try state.update(alloc, &t);
+        try testing.expect(state.overscan.eql(.{ .above = 3, .below = 2 }));
+        try testing.expectEqual(15, state.row_data.len);
+        try testing.expectEqual(0, state.rowDataRange().start);
+        try testing.expectEqual(15, state.rowDataRange().end);
+
+        const vp = state.viewportStart();
+        try testing.expectEqual(36, testRowNumber(&state, vp).?);
+        try testing.expectEqual(35, testRowNumber(&state, vp - 1).?);
+        try testing.expectEqual(46, testRowNumber(&state, vp + state.rows).?);
+        try testing.expectEqual(47, testRowNumber(&state, vp + state.rows + 1).?);
+    }
+
+    // At the top of history: nothing exists above.
+    {
+        t.scrollViewport(.top);
+        try state.update(alloc, &t);
+        try testing.expectEqual(0, state.overscan.above);
+        try testing.expectEqual(2, state.overscan.below);
+        try testing.expectEqual(state.viewportStart(), state.rowDataRange().start);
+        try testing.expectEqual(15, state.row_data.len);
+        try testing.expectEqual(0, testRowNumber(&state, state.viewportStart()).?);
+
+        t.scrollViewport(.{ .row = 1 });
+        try state.update(alloc, &t);
+        try testing.expectEqual(1, state.overscan.above);
+        try testing.expectEqual(2, state.rowDataRange().start);
+        try testing.expectEqual(15, state.row_data.len);
+        try testing.expectEqual(0, testRowNumber(&state, 2).?);
+        try testing.expectEqual(1, testRowNumber(&state, 3).?);
+    }
+
+    // Partially scrolled: fewer rows below than requested.
+    {
+        t.scrollViewport(.bottom);
+        t.scrollViewport(.{ .delta = -1 });
+        try state.update(alloc, &t);
+        try testing.expect(state.overscan.eql(.{ .above = 3, .below = 1 }));
+        try testing.expectEqual(14, state.rowDataRange().end);
+        try testing.expectEqual(15, state.row_data.len);
+    }
+}
+
+test "overscan request change forces redraw" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 10,
+        .max_scrollback_bytes = 1_000_000,
+    });
+    defer t.deinit(alloc);
+    try testWriteNumberedLines(&t, 50);
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+    state.clean();
+
+    // No change is not dirty.
+    try state.update(alloc, &t);
+    try testing.expectEqual(.false, state.dirty);
+
+    state.overscan_request = .{ .above = 4, .below = 1 };
+    try state.update(alloc, &t);
+    try testing.expectEqual(.full, state.dirty);
+    try testing.expectEqual(15, state.row_data.len);
+    try testing.expectEqual(4, state.viewportStart());
+    try testing.expectEqual(41, testRowNumber(&state, 4).?);
+
+    // And back to nothing.
+    state.clean();
+    state.overscan_request = .{};
+    try state.update(alloc, &t);
+    try testing.expectEqual(.full, state.dirty);
+    try testing.expectEqual(10, state.row_data.len);
+    try testing.expectEqual(41, testRowNumber(&state, 0).?);
+}
+
+test "overscan row ids stable" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 10,
+        .max_scrollback_bytes = 1_000_000,
+    });
+    defer t.deinit(alloc);
+    try testWriteNumberedLines(&t, 50);
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    state.overscan_request = .{ .above = 3, .below = 2 };
+    try state.update(alloc, &t);
+
+    // Record all populated ids.
+    const range = state.rowDataRange();
+    try testing.expectEqual(0, range.start);
+    try testing.expectEqual(13, range.end);
+    var ids: [13]RenderState.Row.Id = undefined;
+    for (&ids, range.start..) |*id, i| id.* = state.row_data.get(i).id();
+
+    // Ids within one update are distinct.
+    for (ids, 0..) |a, i| for (ids[i + 1 ..]) |b| {
+        try testing.expect(!a.eql(b));
+    };
+
+    // Write a line while following the active area. Every row moves up
+    // one index and the top row is no longer captured.
+    try testWriteNumberedLines(&t, 1);
+    try state.update(alloc, &t);
+    try testing.expectEqual(13, state.rowDataRange().end);
+    for (ids[1..], 0..) |id, i| {
+        try testing.expect(id.eql(state.row_data.get(i).id()));
+    }
+
+    // Scroll up one row: the recorded ids are back at their original
+    // indices, and one more row is captured below.
+    t.scrollViewport(.{ .delta = -1 });
+    try state.update(alloc, &t);
+    try testing.expectEqual(14, state.rowDataRange().end);
+    for (ids, 0..) |id, i| {
+        try testing.expect(id.eql(state.row_data.get(i).id()));
+    }
+}
+
+test "overscan row ids and dirty on in-place rewrite" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Alternate screen has no scrollback, so scrolling a region rewrites
+    // rows in place (eraseRowBounded) rather than moving the viewport.
+    s.nextSlice("\x1b[?1049h");
+    s.nextSlice("0\r\n1\r\n2\r\n3\r\n4");
+    s.nextSlice("\x1b[2;5r\x1b[5;2H");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    state.overscan_request = .{ .above = 2, .below = 2 };
+    try state.update(alloc, &t);
+    try testing.expect(state.overscan.eql(.{}));
+
+    const vp = state.viewportStart();
+    var ids: [5]RenderState.Row.Id = undefined;
+    var nums: [5]?usize = undefined;
+    for (&ids, &nums, vp..) |*id, *num, i| {
+        id.* = state.row_data.get(i).id();
+        num.* = testRowNumber(&state, i);
+    }
+    state.clean();
+
+    // Scroll the region up one row.
+    s.nextSlice("\r\n5");
+    try state.update(alloc, &t);
+    try testing.expect(state.dirty != .false);
+
+    // The id contract: a row with an unchanged id and no dirty mark has
+    // unchanged content, and every row whose content changed is dirty.
+    for (ids, nums, vp..) |id, num, i| {
+        const row = state.row_data.get(i);
+        const new_num = testRowNumber(&state, i);
+        try testing.expectEqual(if (i == vp) 0 else i - vp + 1, new_num.?);
+        if (id.eql(row.id()) and !row.dirty) {
+            try testing.expectEqual(num, new_num);
+        }
+        if (num != new_num) try testing.expect(row.dirty);
+    }
+
+    // At the time of writing, rotating rows in place invalidates the
+    // page serial (PageList.invalidateNodeLayout), so no id survives.
+    for (ids, vp..) |id, i| {
+        try testing.expect(!id.eql(state.row_data.get(i).id()));
+    }
+}
+
+test "overscan cursor in overscan row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 10,
+        .max_scrollback_bytes = 1_000_000,
+    });
+    defer t.deinit(alloc);
+
+    // The cursor is on the last active row.
+    try testWriteNumberedLines(&t, 50);
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    state.overscan_request = .{ .below = 2 };
+
+    t.scrollViewport(.{ .delta = -1 });
+    try state.update(alloc, &t);
+    try testing.expectEqual(1, state.overscan.below);
+    try testing.expect(state.cursor.viewport == null);
+
+    t.scrollViewport(.bottom);
+    try state.update(alloc, &t);
+    try testing.expectEqual(state.rows - 1, state.cursor.viewport.?.y);
+    try testing.expectEqual(0, state.cursor.viewport.?.x);
+}
+
+test "overscan selection on overscan rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 10,
+        .max_scrollback_bytes = 1_000_000,
+    });
+    defer t.deinit(alloc);
+    try testWriteNumberedLines(&t, 50);
+
+    // Select the last two active rows.
+    const screen: *Screen = t.screens.active;
+    try screen.select(.init(
+        screen.pages.pin(.{ .active = .{ .x = 0, .y = 8 } }).?,
+        screen.pages.pin(.{ .active = .{ .x = 2, .y = 9 } }).?,
+        false,
+    ));
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    state.overscan_request = .{ .below = 2 };
+
+    // Scroll so the last active row is overscan-below.
+    t.scrollViewport(.{ .delta = -1 });
+    try state.update(alloc, &t);
+    try testing.expectEqual(1, state.overscan.below);
+
+    const vp = state.viewportStart();
+    const sels = state.row_data.items(.selection);
+    try testing.expectEqual(
+        [2]size.CellCountInt{ 0, 9 },
+        sels[vp + state.rows - 1].?,
+    );
+    try testing.expectEqual(
+        [2]size.CellCountInt{ 0, 2 },
+        sels[vp + state.rows].?,
+    );
+    try testing.expect(sels[vp + state.rows - 2] == null);
 }

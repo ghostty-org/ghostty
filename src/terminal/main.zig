@@ -62,6 +62,7 @@ pub const Terminal = @import("Terminal.zig");
 pub const TerminalStream = stream_terminal.Stream;
 pub const Stream = stream.Stream;
 pub const StreamAction = stream.Action;
+pub const SemanticPrompt = stream_terminal.Handler.SemanticPrompt;
 pub const UnknownSequence = stream_terminal.Handler.UnknownSequence;
 pub const Paste = paste.Request;
 pub const PasteContents = paste.Contents;

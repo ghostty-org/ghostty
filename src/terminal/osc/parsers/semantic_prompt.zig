@@ -168,7 +168,7 @@ pub const Option = enum {
             // If we're looking for exit_code we special case it.
             // as the first value.
             if (comptime self == .exit_code) {
-                return std.fmt.parseInt(
+                return lib.parseInt(
                     i32,
                     full,
                     10,
@@ -1289,4 +1289,11 @@ test "Option.read exit_code" {
     try testing.expect(Option.exit_code.read("-1").? == -1);
     try testing.expect(Option.exit_code.read("abc") == null);
     try testing.expect(Option.exit_code.read("127;aid=foo").? == 127);
+}
+
+test "OSC 133: exit codes reject digit separators" {
+    var p: Parser = .init(null);
+    for ("133;D;-4_2;aid=foo") |ch| p.next(ch);
+    const cmd = p.end(null).?.*;
+    try std.testing.expectEqual(null, cmd.semantic_prompt.readOption(.exit_code));
 }

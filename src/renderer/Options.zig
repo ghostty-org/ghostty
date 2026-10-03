@@ -4,6 +4,10 @@ const apprt = @import("../apprt.zig");
 const font = @import("../font/main.zig");
 const renderer = @import("../renderer.zig");
 
+/// The device state that corresponds to the physical GPU
+/// we'd like to render to.
+device: *renderer.Device,
+
 /// The derived configuration for this renderer implementation.
 config: renderer.Renderer.DerivedConfig,
 

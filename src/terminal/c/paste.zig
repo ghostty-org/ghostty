@@ -117,12 +117,14 @@ fn readTrampoline(
 ) clipboard.MimeReader.Error!void {
     const req: *const Request = @ptrCast(@alignCast(ctx.?));
     var sink: Sink = .{ .writer = writer };
-    if (!req.reader.read.?(req.reader.userdata, .init(mime), .{
+    const ok = req.reader.read.?(req.reader.userdata, .init(mime), .{
         .write = &Sink.write,
         .userdata = &sink,
-    })) {
-        return if (sink.write_failed) error.WriteFailed else error.ReadFailed;
-    }
+    });
+    // A reader that ignores a refused write would otherwise paste what
+    // was written with the refused data missing.
+    if (sink.write_failed) return error.WriteFailed;
+    if (!ok) return error.ReadFailed;
 }
 
 pub fn is_safe(data: ?[*]const u8, len: usize) callconv(lib.calling_conv) bool {
@@ -302,6 +304,9 @@ const TerminalPasteCapture = struct {
         len: usize = 0,
         reads: [2]usize = @splat(0),
         fail: bool = false,
+        /// Keep writing and report success after a refused write, which
+        /// the contract forbids.
+        ignore_refused: bool = false,
 
         fn init(entries: []const struct { []const u8, []const u8 }) Contents {
             var self: Contents = .{};
@@ -337,7 +342,8 @@ const TerminalPasteCapture = struct {
             var offset: usize = 0;
             while (offset < data.len) {
                 const n = @min(3, data.len - offset);
-                if (!writer.write.?(writer.userdata, data[offset..].ptr, n)) return false;
+                const accepted = writer.write.?(writer.userdata, data[offset..].ptr, n);
+                if (!accepted and !self.ignore_refused) return false;
                 offset += n;
             }
             return true;
@@ -450,6 +456,33 @@ test "terminal_paste text and unsafe" {
     S.reset();
     contents.fail = true;
     try testing.expectEqual(Result.io_error, terminal_paste(t, &req, &written));
+    try testing.expectEqual(@as(usize, 0), S.write_count);
+}
+
+test "terminal_paste refused write ignored by the reader" {
+    const testing = std.testing;
+    const S = TerminalPasteCapture;
+    S.reset();
+
+    // A write is only refused when the buffer the text is read into
+    // fails to grow, so the terminal's allocator is the lever.
+    var failing: std.testing.FailingAllocator = .init(testing.allocator, .{});
+    const zig_alloc = failing.allocator();
+    const alloc: lib.alloc.Allocator = .fromZig(&zig_alloc);
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(&alloc, &t, 80, 24));
+    defer terminal_c.free(t);
+    try testing.expectEqual(Result.success, terminal_c.set(t, .write_pty, @ptrCast(&S.writePty)));
+
+    var contents: S.Contents = .init(&.{.{ "text/plain", "hello" }});
+    contents.ignore_refused = true;
+    const req = contents.request();
+
+    // Every allocation from here on is refused, the first write's
+    // included. The reader ignores that and reports success.
+    failing.fail_index = failing.alloc_index;
+    try testing.expectEqual(Result.out_of_memory, terminal_paste(t, &req, null));
+    try testing.expectEqual(@as(usize, 1), contents.reads[0]);
     try testing.expectEqual(@as(usize, 0), S.write_count);
 }
 

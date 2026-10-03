@@ -1,8 +1,7 @@
 """
 This file extracts the patch sets from the nerd fonts font patcher file in order to
 extract scaling rules and attributes for different codepoint ranges which it then
-codegens in to a Zig file with a function that switches over codepoints and returns the
-attributes and scaling rules.
+codegens into a 3-level lookup table, the same layout as src/unicode/lut.zig.
 
 This does include an `eval` call! This is spooky, but we trust the nerd fonts code to
 be safe and not malicious or anything.
@@ -17,26 +16,12 @@ import sys
 import math
 from fontTools.ttLib import TTFont, TTLibError
 from fontTools.pens.boundsPen import BoundsPen
-from collections import defaultdict
-from contextlib import suppress
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Literal, TypedDict, cast
 from urllib.request import urlretrieve
 
 type PatchSetAttributes = dict[Literal["default"] | int, PatchSetAttributeEntry]
-type AttributeHash = tuple[
-    str | None,
-    str | None,
-    str,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-]
 type ResolvedSymbol = PatchSetAttributes | PatchSetScaleRules | int | None
 
 
@@ -183,40 +168,13 @@ def parse_alignment(val: str) -> str | None:
     }.get(val, ".none")
 
 
-def attr_key(attr: PatchSetAttributeEntry) -> AttributeHash:
-    """Convert attributes to a hashable key for grouping."""
-    params = attr.get("params", {})
-    return (
-        parse_alignment(attr.get("align", "")),
-        parse_alignment(attr.get("valign", "")),
-        attr.get("stretch", ""),
-        float(params.get("overlap", 0.0)),
-        float(params.get("xy-ratio", -1.0)),
-        float(params.get("ypadding", 0.0)),
-        float(attr.get("relative_x", 0.0)),
-        float(attr.get("relative_y", 0.0)),
-        float(attr.get("relative_width", 1.0)),
-        float(attr.get("relative_height", 1.0)),
-    )
+# lut.zig walks every u21 and stores one stage1 entry per 256-codepoint page.
+STAGE1_LEN = 0x2000  # (maxInt(u21) >> 8) + 1
+BLOCK_SIZE = 256
 
 
-def coalesce_codepoints_to_ranges(codepoints: list[int]) -> list[tuple[int, int]]:
-    """Convert a sorted list of integers to a list of single values and ranges."""
-    ranges: list[tuple[int, int]] = []
-    cp_iter = iter(sorted(codepoints))
-    with suppress(StopIteration):
-        start = prev = next(cp_iter)
-        for cp in cp_iter:
-            if cp == prev + 1:
-                prev = cp
-            else:
-                ranges.append((start, prev))
-                start = prev = cp
-        ranges.append((start, prev))
-    return ranges
-
-
-def emit_zig_entry_multikey(codepoints: list[int], attr: PatchSetAttributeEntry) -> str:
+def emit_constraint_literal(attr: PatchSetAttributeEntry) -> str:
+    """Zig literal for one constraint value. stage3 index 0 is null, not this."""
     align = parse_alignment(attr.get("align", ""))
     valign = parse_alignment(attr.get("valign", ""))
     stretch = attr.get("stretch", "")
@@ -231,25 +189,19 @@ def emit_zig_entry_multikey(codepoints: list[int], attr: PatchSetAttributeEntry)
     xy_ratio = params.get("xy-ratio", -1.0)
     y_padding = params.get("ypadding", 0.0)
 
-    ranges = coalesce_codepoints_to_ranges(codepoints)
-    keys = "\n".join(
-        f"        {start:#x}...{end:#x}," if start != end else f"        {start:#x},"
-        for start, end in ranges
-    )
+    s = ".{\n"
 
-    s = f"{keys}\n        => .{{\n"
-
-    # This maps the font_patcher stretch rules to a Constrain instance
+    # This maps the font_patcher stretch rules to a Constraint.
     # NOTE: some comments in font_patcher indicate that only x or y
     # would also be a valid spec, but no icons use it, so we won't
     # support it until we have to.
     if "pa" in stretch:
         if "!" in stretch or overlap:
-            s += "            .size = .cover,\n"
+            s += "    .size = .cover,\n"
         else:
-            s += "            .size = .fit_cover1,\n"
+            s += "    .size = .fit_cover1,\n"
     elif "xy" in stretch:
-        s += "            .size = .stretch,\n"
+        s += "    .size = .stretch,\n"
     else:
         print(f"Warning: Unknown stretch rule {stretch}")
 
@@ -257,48 +209,128 @@ def emit_zig_entry_multikey(codepoints: list[int], attr: PatchSetAttributeEntry)
     # full cell height, not just the icon height,
     # even when the constraint width is 1
     if "^" not in stretch:
-        s += "            .height = .icon,\n"
+        s += "    .height = .icon,\n"
 
     # There are two cases where we want to limit the constraint width to 1:
     # - If there's a `1` in the stretch mode string.
     # - If the stretch mode is not `pa` and there's not an explicit `2`.
     if "1" in stretch or ("pa" not in stretch and "2" not in stretch):
-        s += "            .max_constraint_width = 1,\n"
+        s += "    .max_constraint_width = 1,\n"
 
     if align is not None:
-        s += f"            .align_horizontal = {align},\n"
+        s += f"    .align_horizontal = {align},\n"
     if valign is not None:
-        s += f"            .align_vertical = {valign},\n"
+        s += f"    .align_vertical = {valign},\n"
 
     if relative_width != 1.0:
-        s += f"            .relative_width = {relative_width:.16f},\n"
+        s += f"    .relative_width = {relative_width:.16f},\n"
     if relative_height != 1.0:
-        s += f"            .relative_height = {relative_height:.16f},\n"
+        s += f"    .relative_height = {relative_height:.16f},\n"
     if relative_x != 0.0:
-        s += f"            .relative_x = {relative_x:.16f},\n"
+        s += f"    .relative_x = {relative_x:.16f},\n"
     if relative_y != 0.0:
-        s += f"            .relative_y = {relative_y:.16f},\n"
+        s += f"    .relative_y = {relative_y:.16f},\n"
 
     # `overlap` and `ypadding` are mutually exclusive,
     # this is asserted in the nerd fonts patcher itself.
     if overlap:
         pad = -overlap / 2
-        s += f"            .pad_left = {pad},\n"
-        s += f"            .pad_right = {pad},\n"
+        s += f"    .pad_left = {pad},\n"
+        s += f"    .pad_right = {pad},\n"
         # In the nerd fonts patcher, overlap values
         # are capped at 0.01 in the vertical direction.
         v_pad = -min(0.01, overlap) / 2
-        s += f"            .pad_top = {v_pad},\n"
-        s += f"            .pad_bottom = {v_pad},\n"
+        s += f"    .pad_top = {v_pad},\n"
+        s += f"    .pad_bottom = {v_pad},\n"
     elif y_padding:
-        s += f"            .pad_top = {y_padding / 2},\n"
-        s += f"            .pad_bottom = {y_padding / 2},\n"
+        s += f"    .pad_top = {y_padding / 2},\n"
+        s += f"    .pad_bottom = {y_padding / 2},\n"
 
     if xy_ratio > 0:
-        s += f"            .max_xy_ratio = {xy_ratio},\n"
+        s += f"    .max_xy_ratio = {xy_ratio},\n"
 
-    s += "        },"
+    s += "}"
     return s
+
+
+def build_lut(literals_by_cp: dict[int, str]) -> tuple[list[int], list[int], list[str]]:
+    """3-level table, same dedup as lut.zig. stage3[0] is null.
+
+    Stage2 offset 0 is the shared page whose every codepoint is null.
+    """
+    literal_index: dict[str, int] = {}
+    stage3 = ["null"]
+    cp_index: dict[int, int] = {}
+    for cp in sorted(literals_by_cp):
+        literal = literals_by_cp[cp]
+        idx = literal_index.get(literal)
+        if idx is None:
+            idx = len(stage3)
+            if idx > 0xFFFF:
+                raise ValueError("stage3 exceeds u16")
+            literal_index[literal] = idx
+            stage3.append(literal)
+        cp_index[cp] = idx
+
+    null_block = (0,) * BLOCK_SIZE
+    block_offset: dict[tuple[int, ...], int] = {null_block: 0}
+    stage2 = list(null_block)
+    pages: dict[int, dict[int, int]] = {}
+    for cp, idx in cp_index.items():
+        if cp > 0x1FFFFF:
+            raise ValueError(f"codepoint {cp:#x} does not fit in u21")
+        pages.setdefault(cp >> 8, {})[cp & 0xFF] = idx
+
+    stage1: list[int] = []
+    for page in range(STAGE1_LEN):
+        lows = pages.get(page)
+        if not lows:
+            stage1.append(0)
+            continue
+        block_list = [0] * BLOCK_SIZE
+        for low, idx in lows.items():
+            block_list[low] = idx
+        block = tuple(block_list)
+        offset = block_offset.get(block)
+        if offset is None:
+            offset = len(stage2)
+            if offset > 0xFFFF:
+                raise ValueError("stage2 exceeds u16")
+            block_offset[block] = offset
+            stage2.extend(block_list)
+        stage1.append(offset)
+
+    if len(stage2) > 0xFFFF:
+        raise ValueError("stage2 exceeds u16")
+    return stage1, stage2, stage3
+
+
+def emit_tables_file(literals_by_cp: dict[int, str]) -> str:
+    stage1, stage2, stage3 = build_lut(literals_by_cp)
+    print(
+        "Info: nerd font LUT "
+        f"stage1={len(stage1)} stage2={len(stage2)} stage3={len(stage3)}"
+    )
+    stage3_body = ",\n".join(stage3)
+    return f"""//! This is a generated file, produced by nerd_font_codegen.py
+//! DO NOT EDIT BY HAND!
+//!
+//! 3-level lookup from a codepoint to a Nerd Font glyph constraint.
+//! The layout matches src/unicode/lut.zig. stage3 index 0 is null.
+//! Stage2 offset 0 is the shared page with no constrained glyphs.
+
+pub fn Tables(comptime Elem: type) type {{
+    return struct {{
+        pub const stage1: [{len(stage1)}]u16 = .{{{",".join(str(v) for v in stage1)}}};
+
+        pub const stage2: [{len(stage2)}]u16 = .{{{",".join(str(v) for v in stage2)}}};
+
+        pub const stage3: [{len(stage3)}]Elem = .{{
+{stage3_body},
+        }};
+    }};
+}}
+"""
 
 
 def generate_codepoint_tables(
@@ -411,11 +443,11 @@ def generate_codepoint_tables(
     return cp_tables
 
 
-def generate_zig_switch_arms(
+def collect_entries(
     patch_sets: list[PatchSet],
     nerd_font: TTFont,
     nf_version: str,
-) -> str:
+) -> dict[int, PatchSetAttributeEntry]:
     cmap = nerd_font.getBestCmap()
     glyphs = nerd_font.getGlyphSet()
     cp_tables = generate_codepoint_tables(patch_sets, nerd_font, nf_version)
@@ -531,19 +563,7 @@ def generate_zig_switch_arms(
                         ) / group_width
         entries |= patch_set_entries
 
-    # Group codepoints by attribute key
-    grouped = defaultdict[AttributeHash, list[int]](list)
-    for cp, attr in entries.items():
-        grouped[attr_key(attr)].append(cp)
-
-    # Emit zig switch arms
-    result: list[str] = []
-    for codepoints in sorted(grouped.values()):
-        # Use one of the attrs in the group to emit the value
-        attr = entries[codepoints[0]]
-        result.append(emit_zig_entry_multikey(codepoints, attr))
-
-    return "\n".join(result)
+    return entries
 
 
 if __name__ == "__main__":
@@ -557,20 +577,9 @@ if __name__ == "__main__":
     source = patcher_path.read_text(encoding="utf-8")
     patch_set, nf_version = extract_patch_set_values(source)
 
-    out_path = project_root / "src" / "font" / "nerd_font_attributes.zig"
+    entries = collect_entries(patch_set, nerd_font, nf_version)
+    literals = {cp: emit_constraint_literal(attr) for cp, attr in entries.items()}
 
-    with out_path.open("w", encoding="utf-8") as f:
-        f.write("""//! This is a generated file, produced by nerd_font_codegen.py
-//! DO NOT EDIT BY HAND!
-//!
-//! This file provides info extracted from the nerd fonts patcher script,
-//! specifying the scaling/positioning attributes of various glyphs.
-
-const Constraint = @import("Glyph.zig").RenderOptions.Constraint;
-
-/// Get the constraints for the provided codepoint.
-pub fn getConstraint(cp: u21) ?Constraint {
-    return switch (cp) {
-""")
-        f.write(generate_zig_switch_arms(patch_set, nerd_font, nf_version))
-        f.write("\n        else => null,\n    };\n}\n")
+    out_path = project_root / "src" / "font" / "nerd_font_tables.zig"
+    out_path.write_text(emit_tables_file(literals), encoding="utf-8")
+    print(f"Info: wrote {out_path}")

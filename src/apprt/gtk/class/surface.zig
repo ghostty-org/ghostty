@@ -40,6 +40,7 @@ const i18n = @import("../../../os/i18n.zig");
 const global = @import("../../../global.zig");
 const gtk_version = @import("../gtk_version.zig");
 const Overrides = @import("Overrides.zig");
+const scale_util = @import("../scale.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
@@ -1492,9 +1493,7 @@ pub const Surface = extern struct {
         y: f64,
     ) struct { x: f64, y: f64 } {
         const widget = self.private().render_surface;
-        const scale_factor: f64 = @floatFromInt(
-            widget.as(gtk.Widget).getScaleFactor(),
-        );
+        const scale_factor = scale_util.widgetSurfaceScale(widget.as(gtk.Widget));
 
         return .{
             .x = x * scale_factor,
@@ -1542,14 +1541,12 @@ pub const Surface = extern struct {
         const widget = priv.render_surface.as(gtk.Widget);
 
         const gtk_scale: f32 = scale: {
-            // Future: detect GTK version 4.12+ and use gdk_surface_get_scale so we
-            // can support fractional scaling.
-            const scale = widget.getScaleFactor();
-            if (scale <= 0) {
-                log.warn("gtk_widget_get_scale_factor returned a non-positive number: {}", .{scale});
+            const surface_scale = scale_util.widgetSurfaceScale(widget);
+            if (surface_scale <= 0) {
+                logWarnOnce("widget surface scale was non-positive: {d}", .{surface_scale});
                 break :scale 1.0;
             }
-            break :scale @floatFromInt(scale);
+            break :scale @floatCast(surface_scale);
         };
 
         // Also scale using font-specific DPI, which is often exposed to the user
@@ -1558,7 +1555,7 @@ pub const Surface = extern struct {
             // gtk-xft-dpi is font DPI multiplied by 1024. See
             // https://docs.gtk.org/gtk4/property.Settings.gtk-xft-dpi.html
             const gtk_xft_dpi = gsettings.get(.@"gtk-xft-dpi") orelse {
-                log.warn("gtk-xft-dpi was not set, using default value", .{});
+                logWarnOnce("gtk-xft-dpi was not set, using default value", .{});
                 break :xft_scale 1.0;
             };
 
@@ -1570,7 +1567,7 @@ pub const Surface = extern struct {
                 // -1 is a valid value which specifies default scale.
                 // https://docs.gtk.org/gtk4/property.Settings.gtk-xft-dpi.html
                 if (gtk_xft_dpi != -1) {
-                    log.warn("gtk-xft-dpi has invalid value ({}), using default", .{gtk_xft_dpi});
+                    logWarnOnce("gtk-xft-dpi has invalid value ({}), using default", .{gtk_xft_dpi});
                 }
                 break :xft_scale 1.0;
             }
@@ -2188,8 +2185,8 @@ pub const Surface = extern struct {
 
         const font_size: font.face.DesiredSize = .{
             .points = config.@"font-size",
-            .xdpi = @intFromFloat(x_dpi),
-            .ydpi = @intFromFloat(y_dpi),
+            .xdpi = @intFromFloat(@round(x_dpi)),
+            .ydpi = @intFromFloat(@round(y_dpi)),
         };
 
         // Get font grid for cell metrics
@@ -3389,19 +3386,11 @@ pub const Surface = extern struct {
         // Some debug output to help understand what GTK is telling us.
         {
             const widget = self.private().render_surface.as(gtk.Widget);
-            const scale_factor = widget.getScaleFactor();
-            const window_scale_factor = scale: {
-                const root = widget.getRoot() orelse break :scale 0;
-                const gtk_native = root.as(gtk.Native);
-                const gdk_surface = gtk_native.getSurface() orelse break :scale 0;
-                break :scale gdk_surface.getScaleFactor();
-            };
-
-            log.debug("gl resize width={} height={} scale={} window_scale={}", .{
+            log.debug("gl resize width={} height={} scale={d} scale_factor={}", .{
                 width,
                 height,
-                scale_factor,
-                window_scale_factor,
+                scale_util.widgetSurfaceScale(widget),
+                widget.getScaleFactor(),
             });
         }
 
@@ -3491,6 +3480,15 @@ pub const Surface = extern struct {
             try wd_val.finalize(config_alloc);
             config.@"working-directory" = wd_val;
         }
+
+        const content_scale = self.getContentScale();
+        log.info("surface content scale: x={d} y={d} dpi={}x{} font_size={}", .{
+            content_scale.x,
+            content_scale.y,
+            @round(content_scale.x * font.face.default_dpi),
+            @round(content_scale.y * font.face.default_dpi),
+            config.@"font-size",
+        });
 
         // Initialize the surface
         surface.init(
@@ -3946,6 +3944,23 @@ pub const Surface = extern struct {
         );
     };
 };
+
+/// Logs a warning once-ish for the given format string and argument types. It may log duplicates if called from
+/// multiple threads but will eventually stop.
+fn logWarnOnce(comptime format: []const u8, args: anytype) void {
+    const Static = struct {
+        /// key forces the compiler to instantiate this container per (format, argument type) i.e. roughly per call
+        /// site.
+        const key = .{ format, @TypeOf(args) };
+        var flag = false;
+    };
+    if (Static.flag) return else {
+        @branchHint(.unlikely);
+        // Don't care about load/store orders here. A few duplicates aren't critical.
+        Static.flag = true;
+    }
+    log.warn(format, args);
+}
 
 /// The state of the key event while we're doing IM composition.
 /// See gtkKeyPressed for detailed descriptions.

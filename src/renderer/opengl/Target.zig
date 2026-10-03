@@ -165,19 +165,15 @@ pub fn exportDmabuf(
     const draw_bind = try self.export_framebuffer.bind(.draw);
     defer draw_bind.unbind();
 
-    // Flip the Y axis during the blit so apprts don't have to
-    // handle this. We do this explicitly in OpenGL only
-    // because it's the only one that thinks +Y should point up
-    // for some reason.
     try gl.blitFramebuffer(
         0,
         0,
         @intCast(self.width),
         @intCast(self.height),
         0,
-        @intCast(self.height),
-        @intCast(self.width),
         0,
+        @intCast(self.width),
+        @intCast(self.height),
         .{ .color_buffer_bit = true },
         .nearest,
     );

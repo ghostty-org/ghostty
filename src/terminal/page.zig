@@ -1281,14 +1281,8 @@ pub const Page = struct {
         }
 
         if (comptime build_options.kitty_graphics) {
-            if (row.kitty_virtual_placeholder and
-                cells.len == self.size.cols)
-            {
-                for (cells) |c| {
-                    if (c.codepoint() == kitty.graphics.unicode.placeholder) {
-                        break;
-                    }
-                } else row.kitty_virtual_placeholder = false;
+            if (cells.len == self.size.cols) {
+                row.kitty_virtual_placeholder = false;
             }
         }
 
@@ -3043,6 +3037,24 @@ test "Page clearGrapheme not all cells" {
     try testing.expect(rac.row.grapheme);
     try testing.expect(!rac.cell.hasGrapheme());
     try testing.expect(rac2.cell.hasGrapheme());
+}
+
+test "Page clearCells full row clears kitty placeholder flag" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const rac = page.getRowAndCell(0, 0);
+    rac.cell.* = .init(kitty.graphics.unicode.placeholder);
+    rac.row.kitty_virtual_placeholder = true;
+
+    page.clearCells(rac.row, 0, page.size.cols);
+    try testing.expect(!rac.row.kitty_virtual_placeholder);
 }
 
 test "Page clone" {

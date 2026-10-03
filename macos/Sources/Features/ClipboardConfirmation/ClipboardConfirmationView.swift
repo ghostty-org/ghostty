@@ -33,10 +33,6 @@ struct ClipboardConfirmationView: View {
     /// The type of the clipboard request
     let request: Ghostty.ClipboardRequest
 
-    /// The human friendly name of the requesting program, when the
-    /// protocol carries one.
-    var programName: String?
-
     /// True when the user's decision may be remembered as a session
     /// grant, showing the remember toggle.
     var canRemember: Bool = false
@@ -63,7 +59,7 @@ struct ClipboardConfirmationView: View {
                     .padding()
                     .frame(alignment: .center)
 
-                Text(request.text(name: programName))
+                Text(request.text())
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
             }

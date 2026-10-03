@@ -71,9 +71,32 @@ pub fn bindApi(api: c.EGLenum) Error!void {
     }
 }
 
+/// Returns the client extensions, which are those that are independent
+/// of any display, such as the platforms that can be passed to
+/// `Display.initPlatform`. Returns null if the implementation does not
+/// support EGL_EXT_client_extensions or no driver could be loaded.
+pub fn queryClientExtensions() ?[:0]const u8 {
+    const exts = c.eglQueryString(null, c.EGL_EXTENSIONS) orelse return null;
+    return std.mem.span(exts);
+}
+
+/// Returns true if `name` appears in the space-separated
+/// extension string `exts`.
+pub fn hasExtension(exts: []const u8, name: []const u8) bool {
+    var it = std.mem.tokenizeScalar(u8, exts, ' ');
+    while (it.next()) |ext| {
+        if (std.mem.eql(u8, ext, name)) return true;
+    }
+    return false;
+}
+
 pub const Display = opaque {
-    pub fn init(id: c.EGLNativeDisplayType) Error!*Display {
-        const display = c.eglGetDisplay(id) orelse return mustError();
+    pub fn initPlatform(
+        platform: c.EGLenum,
+        id: c.EGLNativeDisplayType,
+        attribs: ?[*:c.EGL_NONE]const c.EGLAttrib,
+    ) Error!*Display {
+        const display = c.eglGetPlatformDisplay(platform, id, attribs) orelse return mustError();
         return initialize(display);
     }
 

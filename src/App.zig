@@ -54,6 +54,9 @@ mailbox: Mailbox.Queue,
 /// same font configuration.
 font_grid_set: font.SharedGridSet,
 
+/// The app-scoped render device, shared by the renderers of all surfaces.
+device: renderer.Device,
+
 // Used to rate limit desktop notifications. Some platforms (notably macOS) will
 // run out of resources if desktop notifications are sent too fast and the OS
 // will kill Ghostty.
@@ -70,7 +73,9 @@ config_conditional_state: configpkg.ConditionalState,
 /// if they are the first surface.
 first: bool = true,
 
-pub const CreateError = Allocator.Error || font.SharedGridSet.InitError;
+pub const CreateError = Allocator.Error ||
+    font.SharedGridSet.InitError ||
+    error{DeviceFailed};
 
 /// Create a new app instance. This returns a stable pointer to the app
 /// instance which is required for callbacks.
@@ -94,10 +99,10 @@ pub fn create(alloc: Allocator) CreateError!*App {
 
     // Same for the renderer's graphics API (e.g. Metal), which pays
     // one-time framework initialization costs on first use.
-    if (comptime @hasDecl(renderer.Renderer.API, "warmup")) {
+    if (comptime @hasDecl(renderer.Device, "warmup")) {
         if (std.Thread.spawn(
             .{},
-            renderer.Renderer.API.warmup,
+            renderer.Device.warmup,
             .{},
         )) |thr| thr.detach() else |err| {
             log.warn("renderer warmup thread spawn failed err={}", .{err});
@@ -125,8 +130,16 @@ pub fn init(
         .surfaces = .empty,
         .mailbox = .{},
         .font_grid_set = font_grid_set,
+        .device = undefined,
         .config_conditional_state = .{},
     };
+
+    // Initialize our render device.
+    self.device.init(alloc) catch |err| {
+        log.err("failed to initialize render device err={}", .{err});
+        return error.DeviceFailed;
+    };
+    errdefer self.device.deinit();
 }
 
 pub fn deinit(self: *App) void {
@@ -140,6 +153,10 @@ pub fn deinit(self: *App) void {
     // should gracefully close all surfaces.
     assert(self.font_grid_set.count() == 0);
     self.font_grid_set.deinit();
+
+    // Clean up our render device. This must happen after all surfaces
+    // are gone since their renderers borrow it.
+    self.device.deinit();
 }
 
 pub fn destroy(self: *App) void {

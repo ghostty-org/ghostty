@@ -12,6 +12,7 @@ const configpkg = @import("../config.zig");
 const rendererpkg = @import("../renderer.zig");
 const Renderer = rendererpkg.GenericRenderer(OpenGL);
 const Dmabuf = @import("Dmabuf.zig");
+pub const Device = @import("opengl/Device.zig");
 
 pub const GraphicsAPI = OpenGL;
 pub const Target = @import("opengl/Target.zig");
@@ -43,39 +44,25 @@ alloc: std.mem.Allocator,
 /// Alpha blending mode
 blending: configpkg.Config.AlphaBlending,
 
-egl_display: *gl.egl.Display,
+/// The shared render device.
+device: *const Device,
+
 egl_context: *gl.egl.Context,
 
-pub fn init(alloc: Allocator, opts: rendererpkg.Options) !OpenGL {
-    try egl.load();
+pub fn init(
+    alloc: Allocator,
+    device: *const Device,
+    opts: rendererpkg.Options,
+) !OpenGL {
+    const display = device.display;
 
-    const display: *egl.Display = try .init(egl.c.EGL_DEFAULT_DISPLAY);
-
-    log.info("EGL vendor={s}", .{display.queryString(.vendor) orelse "(unknown)"});
-    log.info("EGL extensions={s}", .{display.queryString(.extensions) orelse "(unknown)"});
-
+    // Bind to OpenGL API explicitly before we create the context,
+    // as otherwise it might fallback to OpenGL ES
     try egl.bindApi(egl.c.EGL_OPENGL_API);
 
-    // Choose a config. We need a config that is renderable with
-    // OpenGL and a RGBA8 color buffer.
-    const config = egl.Config.choose(display, &.{
-        // EGL_SURFACE_TYPE defaults to EGL_WINDOW_BIT even though
-        // we are rendering exclusively through surfaceless mode.
-        // This is no problem on Mesa but we need to specify this
-        // explicitly for proprietary Nvidia drivers.
-        egl.c.EGL_SURFACE_TYPE,    0,
-        egl.c.EGL_RENDERABLE_TYPE, egl.c.EGL_OPENGL_BIT,
-        egl.c.EGL_RED_SIZE,        8,
-        egl.c.EGL_GREEN_SIZE,      8,
-        egl.c.EGL_BLUE_SIZE,       8,
-        egl.c.EGL_ALPHA_SIZE,      8,
-    }) catch |err| {
-        log.warn("failed to choose config err={}", .{err});
-        return err;
-    };
-
-    // Create our context.
-    const context = egl.Context.create(display, config, null, &.{
+    // Create our context. Contexts are surface-scoped because a
+    // context can only be current on one thread at a time.
+    const context = egl.Context.create(display, device.config, null, &.{
         egl.c.EGL_CONTEXT_MAJOR_VERSION,       MIN_VERSION_MAJOR,
         egl.c.EGL_CONTEXT_MINOR_VERSION,       MIN_VERSION_MINOR,
         egl.c.EGL_CONTEXT_OPENGL_PROFILE_MASK, egl.c.EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
@@ -97,18 +84,14 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !OpenGL {
     return .{
         .alloc = alloc,
         .blending = opts.config.blending,
-        .egl_display = display,
+        .device = device,
         .egl_context = context,
     };
 }
 
 pub fn deinit(self: *OpenGL) void {
-    self.egl_display.releaseCurrent();
-    self.egl_context.destroy(self.egl_display) catch {};
-
-    // Do not destroy the EGL display here as
-    // it is shared across the entire process.
-    // It will get automatically torn down by the OS.
+    self.device.display.releaseCurrent();
+    self.egl_context.destroy(self.device.display) catch {};
     self.* = undefined;
 }
 
@@ -217,7 +200,7 @@ fn prepareContext(getProcAddress: anytype) !void {
 /// function pointers so all subsequent GL work on this thread is valid.
 pub fn threadEnter(self: *OpenGL, surface: *apprt.Surface) !void {
     _ = surface;
-    try self.egl_display.makeCurrent(null, null, self.egl_context);
+    try self.device.display.makeCurrent(null, null, self.egl_context);
     // Load our function pointers for this thread's threadlocal.
     try prepareContext(&gl.egl.getProcAddress);
 }
@@ -226,7 +209,7 @@ pub fn threadEnter(self: *OpenGL, surface: *apprt.Surface) !void {
 /// thread; unbinds the context from this thread so it can be destroyed on
 /// the main thread.
 pub fn threadExit(self: *OpenGL) void {
-    self.egl_display.releaseCurrent();
+    self.device.display.releaseCurrent();
     gl.glad.unload();
 }
 
@@ -291,18 +274,27 @@ pub fn initTarget(self: *const OpenGL, width: usize, height: usize) !Target {
 /// of the frame and is responsible for freeing it.
 ///
 /// This runs on the render thread.
-pub fn present(self: *OpenGL, target: Target) !ExportedFrame {
-    if (target.exportDmabuf(self.egl_display, self.egl_context)) |dmabuf| {
-        return .{ .dmabuf = dmabuf };
-    } else |_| {
-        // If DMABUFs fail, then use CPU buffers
-        return .{ .memory = .{
-            .width = @intCast(target.width),
-            .height = @intCast(target.height),
-            .pixels = try target.readPixelsAlloc(self.alloc),
-            .alloc = self.alloc,
-        } };
+pub fn present(
+    self: *OpenGL,
+    target: Target,
+    presentation_health: rendererpkg.Health,
+) !ExportedFrame {
+    // We only export DMABUFs when the apprt can present them.
+    // Otherwise, use CPU buffers.
+    if (presentation_health == .healthy) {
+        if (target.exportDmabuf(self.device.display, self.egl_context)) |dmabuf| {
+            return .{ .dmabuf = dmabuf };
+        } else |_| {
+            log.warn("failed to export DMABUF, falling back to CPU presentation", .{});
+        }
     }
+
+    return .{ .memory = .{
+        .width = @intCast(target.width),
+        .height = @intCast(target.height),
+        .pixels = try target.readPixelsAlloc(self.alloc),
+        .alloc = self.alloc,
+    } };
 }
 
 /// A finished frame exported for presentation by the apprt.
