@@ -44,15 +44,15 @@ pub const ReadableIO = union(enum) {
             // Invalid values in the tagged union are interpreted as
             // raw values. This lets users pass in simple string values
             // without needing to tag them.
-            error.InvalidValue => .{ .raw = try alloc.dupeZ(u8, input) },
+            error.InvalidValue => .{ .raw = try alloc.dupeSentinel(u8, input, 0) },
             else => return err,
         };
     }
 
     pub fn clone(self: Self, alloc: Allocator) Allocator.Error!Self {
         return switch (self) {
-            .raw => |v| .{ .raw = try alloc.dupeZ(u8, v) },
-            .path => |v| .{ .path = try alloc.dupeZ(u8, v) },
+            .raw => |v| .{ .raw = try alloc.dupeSentinel(u8, v, 0) },
+            .path => |v| .{ .path = try alloc.dupeSentinel(u8, v, 0) },
         };
     }
 
@@ -66,7 +66,7 @@ pub const ReadableIO = union(enum) {
         switch (self) {
             inline else => |v, tag| {
                 // Parsing can't fail because we validate it in parseCLI
-                const copied = try alloc.dupeZ(u8, v);
+                const copied = try alloc.dupeSentinel(u8, v, 0);
                 const parsed = string.parse(copied, v) catch unreachable;
                 assert(copied.ptr == parsed.ptr);
 

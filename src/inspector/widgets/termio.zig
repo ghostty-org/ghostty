@@ -664,7 +664,7 @@ const VTEvent = struct {
             void => {},
             []const u8,
             [:0]const u8,
-            => try md.put("data", try alloc.dupeZ(u8, v)),
+            => try md.put("data", try alloc.dupeSentinel(u8, v, 0)),
             else => |T| switch (@typeInfo(T)) {
                 .@"struct" => |info| inline for (info.field_names) |field| {
                     try encodeMetadataSingle(
@@ -709,17 +709,17 @@ const VTEvent = struct {
             .optional => if (value) |unwrapped| {
                 try encodeMetadataSingle(alloc, md, key, unwrapped);
             } else {
-                try md.put(key, try alloc.dupeZ(u8, "(unset)"));
+                try md.put(key, try alloc.dupeSentinel(u8, "(unset)", 0));
             },
 
             .bool => try md.put(
                 key,
-                try alloc.dupeZ(u8, if (value) "true" else "false"),
+                try alloc.dupeSentinel(u8, if (value) "true" else "false", 0),
             ),
 
             .@"enum" => try md.put(
                 key,
-                try alloc.dupeZ(u8, @tagName(value)),
+                try alloc.dupeSentinel(u8, @tagName(value), 0),
             ),
 
             .@"union" => |u| {
@@ -728,7 +728,7 @@ const VTEvent = struct {
                 inline for (u.field_names, u.field_types) |field_name, field_type| {
                     if (std.mem.eql(u8, field_name, tag_name)) {
                         const s = if (field_type == void)
-                            try alloc.dupeZ(u8, tag_name)
+                            try alloc.dupeSentinel(u8, tag_name, 0)
                         else if (field_type == [:0]const u8 or field_type == []const u8)
                             try alloc.printSentinel("{s}={s}", .{
                                 tag_name,
@@ -747,13 +747,13 @@ const VTEvent = struct {
 
             .@"struct" => try md.put(
                 key,
-                try alloc.dupeZ(u8, @typeName(Value)),
+                try alloc.dupeSentinel(u8, @typeName(Value), 0),
             ),
 
             else => switch (Value) {
                 []const u8,
                 [:0]const u8,
-                => try md.put(key, try alloc.dupeZ(u8, value)),
+                => try md.put(key, try alloc.dupeSentinel(u8, value, 0)),
 
                 else => |T| switch (@typeInfo(T)) {
                     .int => try md.put(

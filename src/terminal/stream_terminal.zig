@@ -3297,7 +3297,7 @@ test "glyph protocol APC with write_pty callback" {
         var last_response: ?[:0]const u8 = null;
         fn writePty(_: *Handler, data: []const u8) void {
             if (last_response) |old| testing.allocator.free(old);
-            last_response = testing.allocator.dupeZ(u8, data) catch @panic("OOM");
+            last_response = testing.allocator.dupeSentinel(u8, data, 0) catch @panic("OOM");
         }
     };
     S.last_response = null;
@@ -3476,7 +3476,7 @@ test "OSC color query responses" {
 
         fn writePty(_: *Handler, data: []const u8) void {
             reset();
-            last_response = testing.allocator.dupeZ(u8, data) catch @panic("OOM");
+            last_response = testing.allocator.dupeSentinel(u8, data, 0) catch @panic("OOM");
         }
     };
     S.last_response = null;
@@ -3627,7 +3627,7 @@ test "kitty color protocol query responses" {
 
         fn writePty(_: *Handler, data: []const u8) void {
             reset();
-            last_response = testing.allocator.dupeZ(u8, data) catch @panic("OOM");
+            last_response = testing.allocator.dupeSentinel(u8, data, 0) catch @panic("OOM");
         }
     };
     S.last_response = null;
@@ -5505,7 +5505,7 @@ test "request mode DECRQM with write_pty callback" {
             var last_response: ?[:0]const u8 = null;
             fn writePty(_: *Handler, data: []const u8) void {
                 if (last_response) |old| testing.allocator.free(old);
-                last_response = testing.allocator.dupeZ(u8, data) catch @panic("OOM");
+                last_response = testing.allocator.dupeSentinel(u8, data, 0) catch @panic("OOM");
             }
         };
         S.last_response = null;

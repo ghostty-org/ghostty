@@ -60,7 +60,7 @@ pub fn openPath(alloc_gpa: Allocator) ![:0]const u8 {
         };
     }
 
-    return try alloc_gpa.dupeZ(u8, config_path.name);
+    return try alloc_gpa.dupeSentinel(u8, config_path.name, 0);
 }
 
 const ConfigPathResult = struct {

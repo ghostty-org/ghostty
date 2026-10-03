@@ -113,26 +113,26 @@ pub fn get(alloc: Allocator) !Entry {
 
         // Shell and home are the last two entries
         var it = std.mem.splitBackwardsScalar(u8, std.mem.trimEnd(u8, output, " \r\n"), ':');
-        result.shell = if (it.next()) |v| try alloc.dupeZ(u8, v) else null;
-        result.home = if (it.next()) |v| try alloc.dupeZ(u8, v) else null;
+        result.shell = if (it.next()) |v| try alloc.dupeSentinel(u8, v, 0) else null;
+        result.home = if (it.next()) |v| try alloc.dupeSentinel(u8, v, 0) else null;
         return result;
     }
 
     if (pw.pw_shell) |ptr| {
         const source = std.mem.sliceTo(ptr, 0);
-        const value = try alloc.dupeZ(u8, source);
+        const value = try alloc.dupeSentinel(u8, source, 0);
         result.shell = value;
     }
 
     if (pw.pw_dir) |ptr| {
         const source = std.mem.sliceTo(ptr, 0);
-        const value = try alloc.dupeZ(u8, source);
+        const value = try alloc.dupeSentinel(u8, source, 0);
         result.home = value;
     }
 
     if (pw.pw_name) |ptr| {
         const source = std.mem.sliceTo(ptr, 0);
-        const value = try alloc.dupeZ(u8, source);
+        const value = try alloc.dupeSentinel(u8, source, 0);
         result.name = value;
     }
 

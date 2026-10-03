@@ -106,8 +106,8 @@ pub const Descriptor = struct {
         // cleaned up somewhere else.
 
         var copy = self.*;
-        copy.family = if (self.family) |src| try alloc.dupeZ(u8, src) else null;
-        copy.style = if (self.style) |src| try alloc.dupeZ(u8, src) else null;
+        copy.family = if (self.family) |src| try alloc.dupeSentinel(u8, src, 0) else null;
+        copy.style = if (self.style) |src| try alloc.dupeSentinel(u8, src, 0) else null;
         copy.variations = try alloc.dupe(Variation, self.variations);
         return copy;
     }
@@ -1170,7 +1170,7 @@ pub const Windows = struct {
             full_path: []const u8,
             face_index: i32,
         ) !DeferredFace {
-            const path_owned = try self.alloc.dupeZ(u8, full_path);
+            const path_owned = try self.alloc.dupeSentinel(u8, full_path, 0);
             errdefer self.alloc.free(path_owned);
 
             const presentation: Presentation =

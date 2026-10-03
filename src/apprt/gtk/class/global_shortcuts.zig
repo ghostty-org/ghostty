@@ -246,7 +246,7 @@ pub const GlobalShortcuts = extern struct {
 
             try priv.map.put(
                 alloc,
-                try alloc.dupeZ(u8, trigger),
+                try alloc.dupeSentinel(u8, trigger, 0),
                 actions[0],
             );
         }
@@ -342,7 +342,7 @@ pub const GlobalShortcuts = extern struct {
                     const priv = shortcuts.private();
                     const dbus = priv.dbus_connection.?;
                     const alloc = priv.arena.?.allocator();
-                    priv.handle = alloc.dupeZ(u8, std.mem.span(handle.?)) catch {
+                    priv.handle = alloc.dupeSentinel(u8, std.mem.span(handle.?), 0) catch {
                         log.warn("out of memory: failed to clone session handle", .{});
                         return;
                     };
