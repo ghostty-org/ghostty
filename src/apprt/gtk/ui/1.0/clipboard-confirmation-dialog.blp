@@ -30,23 +30,41 @@ template $GhosttyClipboardConfirmationDialog: $GhosttyDialog {
         "clipboard-overlay",
       ]
 
-      ScrolledWindow text_view_scroll {
-        width-request: 500;
-        height-request: 200;
+      Stack {
+        visible-child-name: bind $preview_page(template.clipboard-image) as <string>;
 
-        TextView text_view {
-          styles [
-            "clipboard-contents",
-          ]
+        StackPage {
+          name: "text";
 
-          cursor-visible: false;
-          editable: false;
-          monospace: true;
-          top-margin: 8;
-          left-margin: 8;
-          bottom-margin: 8;
-          right-margin: 8;
-          buffer: bind template.clipboard-contents;
+          child: ScrolledWindow text_view_scroll {
+            width-request: 500;
+            height-request: 200;
+
+            TextView text_view {
+              styles [
+                "clipboard-contents",
+              ]
+
+              cursor-visible: false;
+              editable: false;
+              monospace: true;
+              buffer: bind template.clipboard-contents;
+            }
+          };
+        }
+
+        StackPage {
+          name: "image";
+
+          child: Picture {
+            styles [
+              "clipboard-image",
+            ]
+
+            paintable: bind template.clipboard-image;
+            can-shrink: true;
+            content-fit: contain;
+          };
         }
       }
 
