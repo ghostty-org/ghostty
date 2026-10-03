@@ -49,6 +49,12 @@ extern "C" {
  * The `data` buffer must be allocated through the allocator provided to
  * the decode callback. The library takes ownership and will free it
  * with the same allocator.
+ *
+ * The allocator requires the allocation length to free, so a decoder that
+ * allocates more than it fills must report the surplus in `data_extra`.
+ * This lets a decoder over-allocate (round up to a block size, reuse a
+ * buffer sized for the largest image it expects, and so on) instead of
+ * sizing every allocation exactly.
  */
 typedef struct {
     /** Image width in pixels. */
@@ -62,6 +68,15 @@ typedef struct {
 
     /** Length of the pixel data in bytes. */
     size_t data_len;
+
+    /**
+     * Number of bytes allocated beyond `data_len`, when the decoder
+     * allocated more than it filled. The library frees the buffer with
+     * `data_len + data_extra` bytes.
+     *
+     * Leave this as 0 when the allocation is exactly `data_len` bytes.
+     */
+    size_t data_extra;
 } GhosttySysImage;
 
 /**
@@ -109,6 +124,9 @@ typedef void (*GhosttySysLogFn)(
  * Decodes raw PNG data into RGBA pixels. The output pixel data must be
  * allocated through the provided allocator. The library takes ownership
  * of the buffer and will free it with the same allocator.
+ *
+ * Set `out->data_extra` if the allocation is larger than the pixel data,
+ * otherwise leave it at 0. See GhosttySysImage.
  *
  * @param userdata  The userdata pointer set via GHOSTTY_SYS_OPT_USERDATA
  * @param allocator The allocator to use for the output pixel buffer
