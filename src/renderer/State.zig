@@ -76,7 +76,7 @@ pub fn lockDemand(self: *State, io: std.Io) void {
 pub fn unlockDemand(self: *State, io: std.Io) void {
     self.mutex.unlock(io);
     _ = self.handoff_gen.fetchAdd(1, .monotonic);
-    io.futexWake(@TypeOf(self.handoff_gen), &self.handoff_gen, 1);
+    io.futexWake(u32, &self.handoff_gen.raw, 1);
 }
 
 /// Called by hot lock/unlock loops between critical sections, with
@@ -97,9 +97,9 @@ pub fn yieldToDemand(self: *State, io: std.Io) void {
     const gen = self.handoff_gen.load(.monotonic);
     if (self.demand.load(.monotonic) == 0) return;
     io.futexWaitTimeout(
-        @TypeOf(self.handoff_gen),
-        &self.handoff_gen,
-        .init(gen),
+        u32,
+        &self.handoff_gen.raw,
+        gen,
         .{ .duration = .{ .raw = .fromNanoseconds(handoff_timeout_ns), .clock = .awake } },
     ) catch {};
 }
