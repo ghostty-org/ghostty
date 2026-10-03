@@ -43,6 +43,7 @@
   gtk4-layer-shell,
   gobject-introspection,
   gst_all_1,
+  graphene,
   libadwaita,
   blueprint-compiler,
   gettext,
@@ -83,6 +84,7 @@
   # developer shell
   glycin-loaders,
   librsvg,
+  runCommandLocal,
 }: let
   # See package.nix. Keep in sync.
   ld_library_path = import ./build-support/ld-library-path.nix {
@@ -97,6 +99,16 @@
     python-pkgs.ucs-detect
     python-pkgs.wasmtime
   ]);
+
+  # FIXME: Zig 0.17's pkg-config parser is much stricter than before
+  # and rejects any C flags it does not recognize.
+  patchedPkgConfig = runCommandLocal "patched-pkg-config" {} ''
+    mkdir $out
+    substitute ${graphene.dev}/lib/pkgconfig/graphene-1.0.pc $out/graphene-1.0.pc \
+      --replace-fail '-mfpmath=sse -msse -msse2' ""
+    substitute ${glib.dev}/lib/pkgconfig/gmodule-2.0.pc $out/gmodule-2.0.pc \
+      --replace-fail '-Wl,--export-dynamic' ""
+  '';
 in
   mkShell {
     name = "ghostty";
@@ -231,6 +243,8 @@ in
         # Minimal subset of env set by wrapGAppsHook4 for icons and global settings
         export XDG_DATA_DIRS=$XDG_DATA_DIRS:${hicolor-icon-theme}/share:${adwaita-icon-theme}/share
         export XDG_DATA_DIRS=$XDG_DATA_DIRS:$GSETTINGS_SCHEMAS_PATH # from glib setup hook
+
+        export PKG_CONFIG_PATH=${patchedPkgConfig}:$PKG_CONFIG_PATH
       '')
       + (lib.optionalString stdenv.hostPlatform.isDarwin ''
         # On macOS, we unset the macOS SDK env vars that Nix sets up because
