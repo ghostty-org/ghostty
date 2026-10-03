@@ -160,6 +160,7 @@ extension Ghostty {
         // surface has been closed or no inspector is active.
         var inspector: Ghostty.Inspector? {
             guard let surface = self.surface else { return nil }
+            guard inspectorVisible else { return nil }
             guard let cInspector = ghostty_surface_inspector(surface) else { return nil }
             return Ghostty.Inspector(cInspector: cInspector)
         }
