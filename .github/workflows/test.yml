@@ -152,7 +152,7 @@ jobs:
           exit 1
 
   build-bench:
-    # We build benchmarks on large because it uses ReleaseFast
+    # We build benchmarks on large because it uses fast mode
     runs-on: namespace-profile-ghostty-lg
     needs: test
     env:
@@ -713,14 +713,14 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-      - name: Build ReleaseFast WASM
+      - name: Build fast WASM
         run: |
           nix develop -c zig build \
             -Demit-lib-vt \
             -Dtarget=wasm32-freestanding \
-            -Doptimize=ReleaseFast
+            -Doptimize=fast
 
-      - name: Optimize ReleaseFast WASM
+      - name: Optimize fast WASM
         run: |
           nix develop -c wasm-opt -O3 --strip-dwarf \
             --enable-simd \
@@ -1075,7 +1075,7 @@ jobs:
         run: nix build .#ghostty-releasefast
 
       - name: Check version
-        run: result/bin/ghostty +version | grep -q '.ReleaseFast'
+        run: result/bin/ghostty +version | grep -q '.fast'
 
       - name: Check to see if the binary has been stripped
         run: nm result/bin/.ghostty-wrapped 2>&1 | grep -q 'no symbols'
@@ -1084,12 +1084,12 @@ jobs:
         run: nix build .#ghostty-debug
 
       - name: Check version
-        run: result/bin/ghostty +version | grep -q '.Debug'
+        run: result/bin/ghostty +version | grep -q '.debug'
 
       - name: Check to see if the binary has not been stripped
         run: nm result/bin/.ghostty-wrapped 2>&1 | grep -q 'main_ghostty.main'
 
-      - name: Test ReleaseFast build of libghostty-vt
+      - name: Test fast build of libghostty-vt
         run: |
           nix build .#libghostty-vt-releasefast
           nix build .#libghostty-vt-releasefast.tests.sanity-check
@@ -1098,7 +1098,7 @@ jobs:
           nix build .#libghostty-vt-releasefast.tests.build-with-static
           nix build .#libghostty-vt-releasefast.tests.build-example-c-vt-build-info
 
-      - name: Test ReleaseFast (no SIMD) build of libghostty-vt
+      - name: Test fast (no SIMD) build of libghostty-vt
         run: |
           nix build .#libghostty-vt-releasefast-no-simd
           nix build .#libghostty-vt-releasefast-no-simd.tests.sanity-check
@@ -1107,7 +1107,7 @@ jobs:
           nix build .#libghostty-vt-releasefast-no-simd.tests.build-with-static
           nix build .#libghostty-vt-releasefast-no-simd.tests.build-example-c-vt-build-info
 
-      - name: Test Debug build of libghostty-vt
+      - name: Test debug build of libghostty-vt
         run: |
           nix build .#libghostty-vt-debug
           nix build .#libghostty-vt-debug.tests.sanity-check
@@ -1116,7 +1116,7 @@ jobs:
           nix build .#libghostty-vt-debug.tests.build-with-static
           nix build .#libghostty-vt-debug.tests.build-example-c-vt-build-info
 
-      - name: Test Debug (no SIMD) build of libghostty-vt
+      - name: Test debug (no SIMD) build of libghostty-vt
         run: |
           nix build .#libghostty-vt-debug-no-simd
           nix build .#libghostty-vt-debug-no-simd.tests.sanity-check
@@ -1261,7 +1261,7 @@ jobs:
   #         name: ghostty
   #         authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-  #     - name: Test ReleaseFast build of libghostty-vt
+  #     - name: Test fast build of libghostty-vt
   #       run: |
   #         nix build .#libghostty-vt-releasefast
   #         nix build .#libghostty-vt-releasefast.tests.sanity-check
@@ -1270,7 +1270,7 @@ jobs:
   #         nix build .#libghostty-vt-releasefast.tests.build-with-static
   #         nix build .#libghostty-vt-releasefast.tests.build-example-c-vt-build-info
 
-  #     - name: Test ReleaseFast (no SIMD) build of libghostty-vt
+  #     - name: Test fast (no SIMD) build of libghostty-vt
   #       run: |
   #         nix build .#libghostty-vt-releasefast-no-simd
   #         nix build .#libghostty-vt-releasefast-no-simd.tests.sanity-check
@@ -1279,7 +1279,7 @@ jobs:
   #         nix build .#libghostty-vt-releasefast-no-simd.tests.build-with-static
   #         nix build .#libghostty-vt-releasefast-no-simd.tests.build-example-c-vt-build-info
 
-  #     - name: Test Debug build of libghostty-vt
+  #     - name: Test debug build of libghostty-vt
   #       run: |
   #         nix build .#libghostty-vt-debug
   #         nix build .#libghostty-vt-debug.tests.sanity-check
@@ -1288,7 +1288,7 @@ jobs:
   #         nix build .#libghostty-vt-debug.tests.build-with-static
   #         nix build .#libghostty-vt-debug.tests.build-example-c-vt-build-info
 
-  #     - name: Test Debug (no SIMD) build of libghostty-vt
+  #     - name: Test debug (no SIMD) build of libghostty-vt
   #       run: |
   #         nix build .#libghostty-vt-debug-no-simd
   #         nix build .#libghostty-vt-debug-no-simd.tests.sanity-check
