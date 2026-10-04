@@ -62,20 +62,6 @@ pub fn pathsForTarget(b: *std.Build, target: std.Target) !Cache.Value {
                 },
             ) catch break :darwin;
 
-            // Xcode 27's math.h requests infinity and NaN definitions from
-            // Clang's float.h using the __need_infinity_nan protocol. Zig
-            // 0.16's bundled Clang resource headers predate that protocol, so
-            // compiling Zig's bundled libc++ against the new SDK fails.
-            //
-            // Put our compatibility include directory between Zig's resource
-            // headers and the selected SDK headers. Its math.h forwards to the
-            // SDK with #include_next, then supplies the definitions missing
-            // from Zig's float.h. This can be removed once Zig's bundled Clang
-            // headers implement __need_infinity_nan.
-            libc.include_dir = b.dependency("apple_sdk", .{})
-                .path("include")
-                .getPath(b);
-
             // Render the file compatible with the `--libc` Zig flag.
             var stream: std.Io.Writer.Allocating = .init(b.allocator);
             defer stream.deinit();
