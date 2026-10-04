@@ -596,7 +596,7 @@ pub fn xcframework(
 
     return XCFrameworkStep.create(b, .{
         .name = "ghostty-vt",
-        .out_path = b.pathJoin(&.{ b.install_prefix, "lib/ghostty-vt.xcframework" }),
+        .out_path = .{ .install_prefix = "lib/ghostty-vt.xcframework" },
         .libraries = libraries[0..lib_count],
     });
 }
