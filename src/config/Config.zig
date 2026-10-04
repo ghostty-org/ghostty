@@ -3416,46 +3416,35 @@ keybind: Keybinds = .{},
 /// Available since: 1.2.0
 @"macos-window-buttons": MacWindowButtons = .visible,
 
-/// The style of the macOS titlebar. Available values are: "native",
-/// "transparent", "tabs", and "hidden".
+/// The style of the macOS titlebar.
 ///
-/// The "native" style uses the native macOS titlebar with zero customization.
-/// The titlebar will match your window theme (see `window-theme`).
+/// **Default:** `transparent`
 ///
-/// The "transparent" style is the same as "native" but the titlebar will
-/// be transparent and allow your window background color to come through.
-/// This makes a more seamless window appearance but looks a little less
-/// typical for a macOS application and may not work well with all themes.
+/// **Values:**
 ///
-/// The "transparent" style will also update in real-time to dynamic
-/// changes to the window background color, e.g. via OSC 11. To make this
-/// more aesthetically pleasing, this only happens if the terminal is
-/// a window, tab, or split that borders the top of the window. This
-/// avoids a disjointed appearance where the titlebar color changes
-/// but all the topmost terminals don't match.
+/// * `native` — Use the standard macOS titlebar, following `window-theme`.
+/// * `transparent` — Show the terminal background color through a native
+///   titlebar. This may not work well with every theme. Tracks dynamic
+///   background changes, such as OSC 11, when a terminal borders the top of
+///   the window.
+/// * `tabs` — Integrate the tab bar into a custom titlebar that matches the
+///   terminal background color. Saved tabs may not restore on macOS 13 or
+///   earlier; macOS 14 does not have this issue. Other macOS versions have
+///   not been tested.
+/// * `hidden` — Hide the titlebar while retaining the window frame and
+///   rounded corners, unlike `window-decoration = none`. Use Option-click on
+///   resizable frame areas to drag the window, since the titlebar area no
+///   longer supports dragging.
 ///
-/// The "tabs" style is a completely custom titlebar that integrates the
-/// tab bar into the titlebar. This titlebar always matches the background
-/// color of the terminal. There are some limitations to this style:
-/// On macOS 13 and below, saved window state will not restore tabs correctly.
-/// macOS 14 does not have this issue and any other macOS version has not
-/// been tested.
+/// **Platforms:** macOS
 ///
-/// The "hidden" style hides the titlebar. Unlike `window-decoration = none`,
-/// however, it does not remove the frame from the window or cause it to have
-/// squared corners. Changing to or from this option at run-time may affect
-/// existing windows in buggy ways.
+/// **Changes:** Changes apply to new windows. Switching to or from `hidden`
+/// at runtime may also affect existing windows unexpectedly.
 ///
-/// When "hidden", the top titlebar area can no longer be used for dragging
-/// the window. To drag the window, you can use option+click on the resizable
-/// areas of the frame to drag the window. This is a standard macOS behavior
-/// and not something Ghostty enables.
+/// **Details:** The `transparent` titlebar changes color only when a terminal
+/// borders the top of the window, so it does not disagree with the topmost
+/// terminals. Option-click dragging with `hidden` is standard macOS behavior.
 ///
-/// The default value is "transparent". This is an opinionated choice
-/// but its one I think is the most aesthetically pleasing and works in
-/// most cases.
-///
-/// Changing this option at runtime only applies to new windows.
 @"macos-titlebar-style": MacTitlebarStyle = .transparent,
 
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
