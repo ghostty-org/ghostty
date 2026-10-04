@@ -30,7 +30,7 @@ pub const Framesetter = opaque {
             ?*text.Frame,
             @ptrFromInt(@intFromPtr(c.CTFramesetterCreateFrame(
                 @ptrCast(self),
-                @bitCast(range),
+                range.cval(),
                 @ptrCast(path),
                 @ptrCast(attrs),
             ))),
