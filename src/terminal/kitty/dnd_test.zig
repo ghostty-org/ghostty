@@ -16,6 +16,7 @@ const dnd = @import("dnd.zig");
 /// output collector.
 const Harness = struct {
     state: ?*dnd.State = null,
+    sides: dnd.Sides = .{},
     output: std.Io.Writer.Allocating,
 
     fn init() Harness {
@@ -32,6 +33,11 @@ const Harness = struct {
         return &self.state.?.drop;
     }
 
+    /// The drag source; asserts the state exists.
+    fn drag(self: *Harness) *dnd.DragSource {
+        return &self.state.?.drag;
+    }
+
     fn writer(self: *Harness) *std.Io.Writer {
         return &self.output.writer;
     }
@@ -39,7 +45,7 @@ const Harness = struct {
     /// Feed one client command, as it would arrive from the OSC parser,
     /// returning the events the stream handler would pass to its effect.
     fn command(self: *Harness, metadata: []const u8, payload: ?[]const u8) !dnd.Events {
-        return try dnd.handleCommand(&self.state, testing.allocator, &self.output.writer, .{
+        return try dnd.handleCommand(&self.state, testing.allocator, &self.output.writer, self.sides, .{
             .metadata = metadata,
             .payload = payload,
             .terminator = .st,
@@ -71,6 +77,20 @@ const Harness = struct {
     fn setupDrop(self: *Harness, mimes: []const []const u8) !void {
         _ = try self.command("t=a", "");
         _ = try self.drop().dragDrop(testing.allocator, self.writer(), origin, mimes);
+        self.clear();
+    }
+
+    /// Enable drags and build an offer, discarding the output.
+    fn setupOffer(self: *Harness, mimes: []const u8) !void {
+        _ = try self.command("t=o:x=1", null);
+        _ = try self.command("t=o:o=1", mimes);
+        self.clear();
+    }
+
+    /// Start the offered drag successfully, discarding the output.
+    fn startDrag(self: *Harness) !void {
+        try self.expectEvents("t=P:x=-1", null, &.{.drag_start});
+        try self.drag().startResult(testing.allocator, self.writer(), null);
         self.clear();
     }
 };
@@ -605,7 +625,7 @@ test "dnd: bel terminator echoed in responses" {
     var h: Harness = .init();
     defer h.deinit();
 
-    _ = try dnd.handleCommand(&h.state, testing.allocator, h.writer(), .{
+    _ = try dnd.handleCommand(&h.state, testing.allocator, h.writer(), h.sides, .{
         .metadata = "t=q",
         .payload = null,
         .terminator = .bel,
@@ -614,7 +634,7 @@ test "dnd: bel terminator echoed in responses" {
 
     // Including replies served after the command was processed.
     try h.setupDrop(&.{"text/plain"});
-    _ = try dnd.handleCommand(&h.state, testing.allocator, h.writer(), .{
+    _ = try dnd.handleCommand(&h.state, testing.allocator, h.writer(), h.sides, .{
         .metadata = "t=r:x=1",
         .payload = null,
         .terminator = .bel,
@@ -724,9 +744,590 @@ test "dnd: over-cap registration list never completes" {
     }
 }
 
-test "dnd: drag out refused" {
+// Drag source tests. Most are ported from kitty_tests/dnd.py (0.49.0),
+// which checks error names; the full bytes here are ours.
+
+test "dnd drag: enable and disable offers" {
     var h: Harness = .init();
     defer h.deinit();
+
+    // Enabling allocates the state and is reported once.
+    try h.expectEvents("t=o:x=1", null, &.{.offers});
+    try h.expectEvents("t=o:x=1", "1:machine-id", &.{});
+    try testing.expect(h.drag().enabled);
+
+    // Disabling frees it.
+    try h.expectEvents("t=o:x=2", null, &.{.offers});
+    try h.expectEvents("t=o:x=2", null, &.{});
+    try h.expectOutput("");
+    try testing.expect(h.state == null);
+}
+
+test "dnd drag: drops and drags share the state" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    _ = try h.command("t=a", "");
+    _ = try h.command("t=o:x=1", null);
+    const state = h.state.?;
+
+    // The state lives while either side is active.
+    _ = try h.command("t=A", null);
+    try testing.expect(h.state.? == state);
+    _ = try h.command("t=a", "");
+    _ = try h.command("t=o:x=2", null);
+    try testing.expect(h.state.? == state);
+    _ = try h.command("t=A", null);
+    try testing.expect(h.state == null);
+}
+
+test "dnd drag: offer without enabling" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    try h.expectEvents("t=o:o=1", "text/plain", &.{});
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;EINVAL:cannot add drag source mimes as not offerring drag\x1b\\",
+    );
+    try testing.expect(h.state == null);
+}
+
+test "dnd drag: offer needs operations" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    _ = try h.command("t=o:x=1", null);
+    _ = try h.command("t=o:o=0", "text/plain");
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;EINVAL:cannot add drag source mimes as allowed operations are not set\x1b\\",
+    );
+}
+
+test "dnd drag: offer mime list" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    _ = try h.command("t=o:x=1", null);
+    try h.expectEvents("t=o:o=3", "text/plain text/uri-list application/json", &.{});
+    try h.expectOutput("");
+    try testing.expectEqual(dnd.Phase.building, h.drag().phase);
+    try testing.expectEqual(dnd.Operations{ .copy = true, .move = true }, h.drag().operations());
+    try testing.expectEqual(@as(usize, 3), h.drag().mimeCount());
+    try testing.expectEqualStrings("text/plain", h.drag().mime(0).?);
+    try testing.expectEqualStrings("application/json", h.drag().mime(2).?);
+    try testing.expect(h.drag().mime(3) == null);
+}
+
+test "dnd drag: chunked offer" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    _ = try h.command("t=o:x=1", null);
+    _ = try h.command("t=o:o=1:m=1", "text/plain ");
+
+    // The continuation's metadata is ignored, as for all chunks.
+    _ = try h.command("t=o", "text/html");
+    try h.expectOutput("");
+    try testing.expectEqual(@as(usize, 2), h.drag().mimeCount());
+    try testing.expectEqualStrings("text/html", h.drag().mime(1).?);
+
+    _ = try h.command("t=p:x=1", "aHRtbA==");
+    try h.expectOutput("");
+}
+
+test "dnd drag: over-cap offer" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    _ = try h.command("t=o:x=1", null);
+    const big = try testing.allocator.alloc(u8, dnd.max_mime_list_bytes + 1);
+    defer testing.allocator.free(big);
+    @memset(big, 'x');
+    _ = try h.command("t=o:o=1", big);
+    try h.expectOutput("\x1b]72;t=E:m=0;EFBIG:drag source mimes size too large\x1b\\");
+    try testing.expectEqual(dnd.Phase.none, h.drag().phase);
+}
+
+test "dnd drag: second offer replaces the first" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    try h.setupOffer("text/plain");
+    _ = try h.command("t=p:x=0", "Zmlyc3Q=");
+    try h.setupOffer("text/html");
+    try testing.expectEqual(@as(usize, 1), h.drag().mimeCount());
+    try testing.expectEqualStrings("text/html", h.drag().mime(0).?);
+    try testing.expect(h.drag().preSent(0) == null);
+}
+
+test "dnd drag: pre-sent data" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    try h.setupOffer("text/plain text/html image/png");
+    _ = try h.command("t=p:x=0", "cGxhaW4gdGV4dCBkYXRh");
+
+    // Chunked at an arbitrary boundary.
+    _ = try h.command("t=p:x=1:m=1", "PGgxP");
+    _ = try h.command("t=p:x=1", "mh0bWw8L2gxPg==");
+    try h.expectOutput("");
+
+    try testing.expectEqualStrings("plain text data", h.drag().preSent(0).?);
+    try testing.expectEqualStrings("<h1>html</h1>", h.drag().preSent(1).?);
+    try testing.expect(h.drag().preSent(2) == null);
+}
+
+test "dnd drag: pre-sent data errors" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    // Without an offer.
+    _ = try h.command("t=p:x=0", "ZGF0YQ==");
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;EINVAL:pre-sent data item idx too large\x1b\\",
+    );
+
+    // Out of range.
+    try h.setupOffer("text/plain");
+    _ = try h.command("t=p:x=5", "ZGF0YQ==");
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;EINVAL:pre-sent data item idx too large\x1b\\",
+    );
+
+    // The error freed the offer.
+    _ = try h.command("t=p:x=0", "ZGF0YQ==");
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;EINVAL:pre-sent data item idx too large\x1b\\",
+    );
+
+    // Invalid base64.
+    try h.setupOffer("text/plain");
+    _ = try h.command("t=p:x=0", "!@#$%^&*()");
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;EINVAL:error while decoding base64 pre-sent data\x1b\\",
+    );
+}
+
+test "dnd drag: images" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    try h.setupOffer("text/plain");
+
+    // RGBA, RGB, and text images, numbered from 1.
+    _ = try h.command("t=p:x=-1:y=32:X=2:Y=1", "/wAA/wD/AP8=");
+    _ = try h.command("t=p:x=-2:y=24:X=1:Y=1:m=1", "AA");
+    _ = try h.command("t=p:x=-2", "D/");
+    _ = try h.command("t=p:x=-3:y=0:X=0:Y=0:o=512", "8J+TgQ==");
+    try h.expectOutput("");
+
+    try testing.expectEqual(@as(usize, 3), h.drag().imageCount());
+    const rgba = h.drag().image(0).?;
+    try testing.expectEqual(dnd.ImageFormat.rgba, rgba.format);
+    try testing.expectEqual(@as(u32, 2), rgba.width);
+    try testing.expectEqualSlices(u8, "\xff\x00\x00\xff\x00\xff\x00\xff", rgba.data);
+    const text = h.drag().image(2).?;
+    try testing.expectEqual(dnd.ImageFormat.text, text.format);
+    try testing.expectEqual(@as(u32, 512), text.opacity);
+    try testing.expectEqualStrings("📁", text.data);
+
+    // The first image is the default; out of range means no image.
+    try testing.expectEqual(@as(u32, 0), h.drag().currentImage().?);
+    try h.expectEvents("t=P:x=2", null, &.{});
+    try testing.expectEqual(@as(u32, 2), h.drag().currentImage().?);
+    try h.expectEvents("t=P:x=999", null, &.{});
+    try testing.expect(h.drag().currentImage() == null);
+
+    // Starting the drag expands RGB to RGBA.
+    _ = try h.command("t=P:x=0", null);
+    try h.expectEvents("t=P:x=-1", null, &.{.drag_start});
+    try h.expectOutput("");
+    const rgb = h.drag().image(1).?;
+    try testing.expectEqual(dnd.ImageFormat.rgba, rgb.format);
+    try testing.expectEqualSlices(u8, "\x00\x00\xff\xff", rgb.data);
+}
+
+test "dnd drag: image errors" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    // Without an offer.
+    _ = try h.command("t=p:x=-1:y=32:X=1:Y=1", "/wAA/w==");
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;EINVAL:cannot add drag thumbnail as drag source not currently being built\x1b\\",
+    );
+
+    // Unknown format.
+    try h.setupOffer("text/plain");
+    _ = try h.command("t=p:x=-1:y=16:X=1:Y=1", "/wAA");
+    try h.expectOutput("\x1b]72;t=E:m=0;EINVAL:unknown drag thumbnail format\x1b\\");
+
+    // Bad dimensions.
+    try h.setupOffer("text/plain");
+    _ = try h.command("t=p:x=-1:y=24:X=0:Y=2", "/wAA");
+    try h.expectOutput("\x1b]72;t=E:m=0;EINVAL:invalid drag thumbnail image dimensions\x1b\\");
+
+    // Invalid base64.
+    try h.setupOffer("text/plain");
+    _ = try h.command("t=p:x=-1:y=32:X=1:Y=1", "!@#$%^&*()");
+    try h.expectOutput("\x1b]72;t=E:m=0;EINVAL:could not base64 decode drag thumbnail data\x1b\\");
+
+    // Images 1 through 14 are accepted, 15 is too many.
+    try h.setupOffer("text/plain");
+    for (1..15) |i| {
+        var buf: [64]u8 = undefined;
+        const meta = try std.mem.print(&buf, "t=p:x=-{d}:y=32:X=1:Y=1", .{i});
+        _ = try h.command(meta, "/wAA/w==");
+    }
+    try h.expectOutput("");
+    _ = try h.command("t=p:x=-15:y=32:X=1:Y=1", "/wAA/w==");
+    try h.expectOutput("\x1b]72;t=E:m=0;EFBIG:too many drag thumbnails\x1b\\");
+}
+
+test "dnd drag: image size checked at start" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    // 2x2 RGBA needs 16 bytes, not 8.
+    try h.setupOffer("text/plain");
+    _ = try h.command("t=p:x=-1:y=32:X=2:Y=2", "/wAA//8AAP8=");
+    try h.expectEvents("t=P:x=-1", null, &.{});
+    try h.expectOutput("\x1b]72;t=E:m=0;EINVAL:drag thumbnail size incorrect\x1b\\");
+
+    // 2x2 RGB needs 12 bytes, not 8.
+    try h.setupOffer("text/plain");
+    _ = try h.command("t=p:x=-1:y=24:X=2:Y=2", "/wAA/wAAAAA=");
+    try h.expectEvents("t=P:x=-1", null, &.{});
+    try h.expectOutput("\x1b]72;t=E:m=0;EINVAL:drag thumbnail RGB data not correct size\x1b\\");
+}
+
+test "dnd drag: start" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    // Without an offer.
+    _ = try h.command("t=P:x=-1", null);
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;EINVAL:cannot start drag as drag source is not being built\x1b\\",
+    );
+
+    // The embedder reads the offer when asked to start, then reports
+    // the native drag started, which frees the pre-sent data.
+    try h.setupOffer("text/plain");
+    _ = try h.command("t=p:x=0", "aGVsbG8=");
+    try h.expectEvents("t=P:x=-1", null, &.{.drag_start});
+    try h.expectOutput("");
+    try testing.expectEqual(dnd.Phase.starting, h.drag().phase);
+    try testing.expectEqualStrings("hello", h.drag().preSent(0).?);
+    try h.drag().startResult(testing.allocator, h.writer(), null);
+    try h.expectOutput("\x1b]72;t=E:m=0;OK\x1b\\");
+    try testing.expectEqual(dnd.Phase.started, h.drag().phase);
+    try testing.expect(h.drag().preSent(0) == null);
+    try testing.expectEqualStrings("text/plain", h.drag().mime(0).?);
+
+    // Only once.
+    try testing.expectError(
+        error.WrongPhase,
+        h.drag().startResult(testing.allocator, h.writer(), null),
+    );
+}
+
+test "dnd drag: start refused by the OS" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    // The client id comes from the offer.
+    _ = try h.command("t=o:x=1", null);
+    _ = try h.command("t=o:o=1:i=99", "text/plain");
+    _ = try h.command("t=P:x=-1:i=99", null);
+    try h.drag().startResult(testing.allocator, h.writer(), .EPERM);
+    try h.expectOutput(
+        "\x1b]72;t=E:i=99:m=0;EPERM:permission to start drag denied, this can happen if the user has already released the drag or if the mouse has moved out of the window\x1b\\",
+    );
+    try testing.expectEqual(dnd.Phase.none, h.drag().phase);
+    try testing.expect(h.drag().enabled);
+}
+
+test "dnd drag: gesture asks the client to offer a drag" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    _ = try h.command("t=o:x=1", null);
+    const pos: dnd.Position = .{ .cell_x = 3, .cell_y = 4, .pixel_x = 30, .pixel_y = 70 };
+    try h.drag().gesture(h.writer(), pos);
+    try h.expectOutput("\x1b]72;t=o:x=3:y=4:X=30:Y=70\x1b\\");
+
+    _ = try h.command("t=o:x=2", null);
+    var empty: dnd.DragSource = .{};
+    try testing.expectError(error.NotEnabled, empty.gesture(h.writer(), pos));
+}
+
+test "dnd drag: reports to the client" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    try h.setupOffer("text/plain text/html");
+
+    // Ignored until the drag started, matching kitty.
+    try h.drag().report(testing.allocator, h.writer(), .dropped);
+    try h.expectOutput("");
+
+    try h.startDrag();
+    try h.drag().report(testing.allocator, h.writer(), .{ .accepted = 1 });
+    try h.drag().report(testing.allocator, h.writer(), .{ .accepted = null });
+    try h.drag().report(testing.allocator, h.writer(), .{ .operation = .move });
+    try h.drag().report(testing.allocator, h.writer(), .{ .operation = .copy });
+    try h.drag().report(testing.allocator, h.writer(), .dropped);
+    try testing.expectEqual(dnd.Phase.dropped, h.drag().phase);
+    try h.drag().report(testing.allocator, h.writer(), .{ .finished = false });
+    try h.expectOutput(
+        "\x1b]72;t=e:x=1:y=1\x1b\\" ++
+            "\x1b]72;t=e:x=1\x1b\\" ++
+            "\x1b]72;t=e:x=2:o=2\x1b\\" ++
+            "\x1b]72;t=e:x=2:o=1\x1b\\" ++
+            "\x1b]72;t=e:x=3\x1b\\" ++
+            "\x1b]72;t=e:x=4:y=0\x1b\\",
+    );
+
+    // Finishing freed the offer.
+    try testing.expectEqual(dnd.Phase.none, h.drag().phase);
+    try testing.expectEqual(@as(usize, 0), h.drag().mimeCount());
+}
+
+test "dnd drag: data requested during the drag" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    _ = try h.command("t=o:x=1", null);
+    _ = try h.command("t=o:o=1:i=2", "text/plain text/html");
+    try h.startDrag();
+
+    // The request is sent once.
+    try h.drag().requestData(h.writer(), 1);
+    try h.drag().requestData(h.writer(), 1);
+    try h.expectOutput("\x1b]72;t=e:x=5:y=1:i=2\x1b\\");
+    try testing.expectError(error.NotFound, h.drag().requestData(h.writer(), 2));
+
+    // Data is available as it arrives.
+    try h.expectEvents("t=e:y=1:m=1", "PGh0", &.{.drag_data});
+    {
+        const data = try h.drag().takeData(1);
+        try testing.expectEqualStrings("<ht", data.bytes);
+        try testing.expect(data.status == .pending);
+    }
+    try h.expectEvents("t=e:y=1:m=1", "bWw+", &.{.drag_data});
+    try h.expectEvents("t=e:y=1:m=0", "", &.{.drag_data});
+    {
+        const data = try h.drag().takeData(1);
+        try testing.expectEqualStrings("ml>", data.bytes);
+        try testing.expect(data.status == .complete);
+    }
+
+    // Once complete it can be requested again.
+    try h.drag().requestData(h.writer(), 1);
+    try h.expectOutput("\x1b]72;t=e:x=5:y=1:i=2\x1b\\");
+
+    // The client can fail a request.
+    try h.drag().requestData(h.writer(), 0);
+    h.clear();
+    try h.expectEvents("t=E:y=0", "ENOENT:no such file", &.{.drag_data});
+    {
+        const data = try h.drag().takeData(0);
+        try testing.expectEqualStrings("", data.bytes);
+        try testing.expectEqual(dnd.Errno.ENOENT, data.status.failed);
+    }
+    try h.expectOutput("");
+}
+
+test "dnd drag: data before the drag started" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    try h.setupOffer("text/plain");
+    _ = try h.command("t=e:y=0", "ZGF0YQ==");
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;EINVAL:cannot process drag source item data as drag has not been started\x1b\\",
+    );
+
+    try h.setupOffer("text/plain");
+    _ = try h.command("t=E:y=0", "EIO");
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;EINVAL:cannot process drag source item data as drag has not been started\x1b\\",
+    );
+}
+
+test "dnd drag: client cancels" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    // While building, the offer is freed silently.
+    try h.setupOffer("text/plain");
+    try h.expectEvents("t=E:y=-1", null, &.{});
+    try h.expectOutput("");
+    _ = try h.command("t=P:x=-1", null);
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;EINVAL:cannot start drag as drag source is not being built\x1b\\",
+    );
+
+    // While the native drag is in progress, it must be canceled.
+    try h.setupOffer("text/plain");
+    try h.startDrag();
+    try h.expectEvents("t=E:y=-1", null, &.{.drag_cancel});
+    try h.expectOutput("");
+    try testing.expectEqual(dnd.Phase.none, h.drag().phase);
+}
+
+test "dnd drag: disabling offers cancels the drag" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    try h.setupOffer("text/plain");
+    try h.startDrag();
+    try h.expectEvents("t=o:x=2", null, &.{ .drag_cancel, .offers });
+    try h.expectOutput("");
+    try testing.expect(h.state == null);
+}
+
+test "dnd drag: errors during the drag cancel it" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    try h.setupOffer("text/plain");
+    try h.startDrag();
+
+    // A new offer can't replace a drag in progress.
+    try h.expectEvents("t=o:o=1", "text/html", &.{.drag_cancel});
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;EINVAL:cannot add drag source mimes as drag source is not being built\x1b\\",
+    );
+    try testing.expectEqual(dnd.Phase.none, h.drag().phase);
+
+    // Nor can data for an unknown index arrive.
+    try h.setupOffer("text/plain");
+    try h.startDrag();
+    try h.expectEvents("t=e:y=3", "ZGF0YQ==", &.{.drag_cancel});
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;EINVAL:cannot process drag source item data as item index is out of bounds\x1b\\",
+    );
+}
+
+test "dnd drag: image change during the drag" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    try h.setupOffer("text/plain");
+    _ = try h.command("t=p:x=-1:y=32:X=1:Y=1", "/wAA/w==");
+    _ = try h.command("t=p:x=-2:y=32:X=1:Y=1", "AP8A/w==");
+    try h.startDrag();
+
+    // The embedder copied the images at start; it is told the index.
+    try testing.expectEqual(@as(usize, 0), h.drag().imageCount());
+    try h.expectEvents("t=P:x=1", null, &.{.drag_image});
+    try testing.expectEqual(@as(u32, 1), h.drag().currentImage().?);
+}
+
+test "dnd drag: freeing the offer releases everything" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    // The testing allocator reports leaks from any phase.
+    try h.setupOffer("text/plain text/html");
+    _ = try h.command("t=p:x=0", "cGFydGlhbA==");
+    _ = try h.command("t=p:x=-1:y=32:X=1:Y=1", "/wAA/w==");
+    _ = try h.command("t=p:x=-2:y=100:X=1:Y=1", "iVBO");
+    try h.expectEvents("t=o:x=2", null, &.{.offers});
+
+    try h.setupOffer("text/plain");
+    try h.startDrag();
+    try h.drag().requestData(h.writer(), 0);
+    _ = try h.command("t=e:y=0:m=1", "cGFydGlhbA==");
+}
+
+test "dnd drag: kitten 0.49 conversation replay" {
+    // This replays the client side of a drag recorded from the reference
+    // client (`kitten dnd --drag text/plain:in.txt`, kitten 0.49.0)
+    // driven over a pty by a harness using libghostty-vt as the
+    // terminal. The kitten offered its data when asked, received the
+    // drag's progress, and served the data for the drop; its client
+    // bytes are frozen here as an interop regression test.
+    var h: Harness = .init();
+    defer h.deinit();
+
+    const machine_id = "1:336353752f4a4c9599d03e4196a20682cbba909067044416486329929abf09c3";
+    try h.expectEvents("t=a:m=0", "text/uri-list", &.{.registration});
+    try h.expectEvents("t=a:x=1:m=0", machine_id, &.{});
+    try h.expectEvents("t=o:x=1:m=0", machine_id, &.{.offers});
+    try h.expectOutput("");
+
+    // The user drags over the terminal and the kitten offers its data,
+    // with a text drag image (no y key) and no pre-sent data.
+    try h.drag().gesture(h.writer(), .{ .cell_x = 2, .cell_y = 1, .pixel_x = 25, .pixel_y = 30 });
+    try h.expectOutput("\x1b]72;t=o:x=2:y=1:X=25:Y=30\x1b\\");
+    try h.expectEvents("t=o:o=3:m=0", "text/plain", &.{});
+    try h.expectEvents("t=p:x=-1:X=6:Y=1:m=0", "74Wc", &.{});
+    try h.expectEvents("t=p:x=-1:X=6:Y=1", null, &.{});
+    try h.expectEvents("t=P:x=-1", null, &.{.drag_start});
+    try h.expectOutput("");
+    try testing.expectEqualStrings("text/plain", h.drag().mime(0).?);
+    try testing.expect(h.drag().preSent(0) == null);
+    const img = h.drag().image(0).?;
+    try testing.expectEqual(dnd.ImageFormat.text, img.format);
+    try testing.expectEqualStrings("\u{f15c}", img.data);
+
+    try h.drag().startResult(testing.allocator, h.writer(), null);
+    try h.drag().report(testing.allocator, h.writer(), .{ .accepted = 0 });
+    try h.drag().report(testing.allocator, h.writer(), .{ .operation = .copy });
+    try h.drag().report(testing.allocator, h.writer(), .dropped);
+    try h.drag().requestData(h.writer(), 0);
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;OK\x1b\\" ++
+            "\x1b]72;t=e:x=1:y=0\x1b\\" ++
+            "\x1b]72;t=e:x=2:o=1\x1b\\" ++
+            "\x1b]72;t=e:x=3\x1b\\" ++
+            "\x1b]72;t=e:x=5:y=0\x1b\\",
+    );
+
+    // The kitten's data ends with unpadded base64.
+    try h.expectEvents("t=e:m=0", "ZHJhZ2dlZCBmcm9tIGtpdHRl", &.{.drag_data});
+    try h.expectEvents("t=e:m=0", "bgo", &.{.drag_data});
+    try h.expectEvents("t=e", null, &.{.drag_data});
+    const data = try h.drag().takeData(0);
+    try testing.expectEqualStrings("dragged from kitten\n", data.bytes);
+    try testing.expect(data.status == .complete);
+
+    try h.drag().report(testing.allocator, h.writer(), .{ .finished = false });
+    try h.expectOutput("\x1b]72;t=e:x=4:y=0\x1b\\");
+}
+
+test "dnd drag: unpadded pre-sent data and images end at start" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    // Pre-sent data and images have no end-of-data message, so a tail
+    // sent without padding, as kitty's clients do, is decoded when the
+    // drag starts.
+    try h.setupOffer("text/plain");
+    _ = try h.command("t=p:x=0", "aGVsbG8gd29ybA");
+    _ = try h.command("t=p:x=-1:y=32:X=1:Y=1", "AAAM/w");
+    try h.expectEvents("t=P:x=-1", null, &.{.drag_start});
+    try h.expectOutput("");
+    try testing.expectEqualStrings("hello worl", h.drag().preSent(0).?);
+    try testing.expectEqualSlices(u8, "\x00\x00\x0c\xff", h.drag().image(0).?.data);
+
+    // A single leftover character can't be decoded.
+    try h.expectEvents("t=E:y=-1", null, &.{.drag_cancel});
+    try h.setupOffer("text/plain");
+    _ = try h.command("t=p:x=0", "aGVsb");
+    try h.expectEvents("t=P:x=-1", null, &.{});
+    try h.expectOutput(
+        "\x1b]72;t=E:m=0;EINVAL:error while decoding base64 pre-sent data\x1b\\",
+    );
+}
+
+test "dnd: drag out refused without drag support" {
+    var h: Harness = .init();
+    defer h.deinit();
+    h.sides = .{ .drag = false };
 
     // Enabling and disabling offers is accepted silently and allocates
     // nothing.
@@ -748,6 +1349,25 @@ test "dnd: drag out refused" {
         "\x1b]72;t=E:i=9:m=0;EPERM:drag out is not supported by this terminal\x1b\\",
     );
     try testing.expect(h.state == null);
+
+    // Drops still work.
+    try h.expectEvents("t=a", null, &.{.registration});
+}
+
+test "dnd: drops ignored without drop support" {
+    var h: Harness = .init();
+    defer h.deinit();
+    h.sides = .{ .drop = false };
+
+    try h.expectEvents("t=a", "text/plain", &.{});
+    try h.expectEvents("t=r:x=1", null, &.{});
+    try h.expectOutput("");
+    try testing.expect(h.state == null);
+
+    // Queries and drags still work.
+    try h.expectEvents("t=q", null, &.{});
+    try h.expectOutput("\x1b]72;t=q\x1b\\");
+    try h.expectEvents("t=o:x=1", null, &.{.offers});
 }
 
 test "dnd embed: drop input and follow-up events" {
@@ -788,4 +1408,48 @@ test "dnd embed: drop input and follow-up events" {
     // A new drag replacing the unconcluded drop concludes it.
     const ev = (try dnd.dropInput(h.state.?, testing.allocator, h.writer(), .{ .move = motion })).?;
     try testing.expectEqual(@import("../dnd.zig").Operation.none, ev.concluded);
+}
+
+test "dnd embed: drag input" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    // Registering for drops doesn't offer drags.
+    _ = try h.command("t=a", null);
+    try testing.expectError(error.Inactive, dnd.dragInput(h.state.?, testing.allocator, h.writer(), .{ .dropped = {} }));
+
+    try h.expectEvents("t=o:x=1", null, &.{.offers});
+    try dnd.dragInput(h.state.?, testing.allocator, h.writer(), .{ .gesture = .{
+        .cell_x = 3,
+        .cell_y = 4,
+        .pixel_x = 30,
+        .pixel_y = 40,
+    } });
+    try h.expectOutput("\x1b]72;t=o:x=3:y=4:X=30:Y=40\x1b\\");
+
+    // Nothing asked to start.
+    try testing.expectError(error.Rejected, dnd.dragInput(h.state.?, testing.allocator, h.writer(), .{ .start_result = .started }));
+    try testing.expectError(error.Inactive, dnd.dragInput(h.state.?, testing.allocator, h.writer(), .{ .request_data = 0 }));
+
+    _ = try h.command("t=o:o=1", "text/plain");
+    _ = try h.command("t=p:x=0", "aGk=");
+    try h.expectEvents("t=P:x=-1", null, &.{.drag_start});
+
+    // The start event carries the offer.
+    const Collect = struct {
+        var mime: []const u8 = "";
+        var pre_sent: []const u8 = "";
+        fn emit(_: void, ev: @import("../dnd.zig").DragEvent) void {
+            mime = ev.start.items[0].mime;
+            pre_sent = ev.start.items[0].pre_sent.?;
+        }
+    };
+    try dnd.dragEvents(&h.state, testing.allocator, .drag_start, {}, Collect.emit);
+    try testing.expectEqualStrings("text/plain", Collect.mime);
+    try testing.expectEqualStrings("hi", Collect.pre_sent);
+
+    try dnd.dragInput(h.state.?, testing.allocator, h.writer(), .{ .start_result = .denied });
+    try h.expectOutput("\x1b]72;t=E:m=0;EPERM:permission to start drag denied, " ++
+        "this can happen if the user has already released the drag or if the " ++
+        "mouse has moved out of the window\x1b\\");
 }

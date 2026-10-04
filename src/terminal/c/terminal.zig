@@ -869,6 +869,7 @@ fn wrap(
         .color_scheme = &Effects.colorSchemeTrampoline,
         .desktop_notification = &Effects.desktopNotificationTrampoline,
         .drop = null,
+        .drag = null,
         .device_attributes = &Effects.deviceAttributesTrampoline,
         .enquiry = &Effects.enquiryTrampoline,
         .xtversion = &Effects.xtversionTrampoline,

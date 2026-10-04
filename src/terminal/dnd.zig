@@ -98,6 +98,108 @@ pub const DropEvent = union(enum) {
     };
 };
 
+/// A change in the drag the program offers out of the terminal that the
+/// embedder may need to act on. Everything borrowed is only valid for the
+/// duration of the effect callback.
+pub const DragEvent = union(enum) {
+    /// The program started or stopped offering drags. While it offers
+    /// them, the platform's drag gesture over the terminal goes to it so
+    /// it can offer a drag, rather than being handled as it would be
+    /// without it (e.g. selecting text).
+    offers: bool,
+
+    /// The program asked to start a drag. The embedder copies what it
+    /// needs of the offer, starts the native drag, and reports whether
+    /// it started.
+    start: Offer,
+
+    /// The program changed the image of the started drag to the image at
+    /// this index of the offer, or to no image.
+    image: ?u32,
+
+    /// Data a drop target wanted that the embedder requested from the
+    /// program arrived or failed.
+    data: Data,
+
+    /// The native drag in progress must be canceled.
+    cancel,
+
+    pub const Offer = struct {
+        /// The operations the drag allows.
+        operations: Operations,
+
+        /// The MIME types offered, in order. Data for a type that
+        /// wasn't pre-sent is requested from the program during the drag.
+        items: []const Item,
+
+        /// The images the program supplied for the drag, if any.
+        images: []const Image,
+
+        /// The index of the image to show, or null for no image.
+        image: ?u32,
+
+        pub const Item = struct {
+            mime: []const u8,
+
+            /// The data the program sent ahead of the drag, if any.
+            pre_sent: ?[]const u8 = null,
+        };
+    };
+
+    pub const Data = struct {
+        /// Index into the offer's items.
+        index: u32,
+
+        /// Data received since the last event for this item.
+        bytes: []const u8,
+
+        status: Status,
+
+        /// C: GhosttyDragDataStatus
+        pub const Status = enum(c_int) {
+            /// More data may follow.
+            pending = 0,
+
+            /// All data has been received.
+            complete = 1,
+
+            /// The program failed to provide the data.
+            failed = 2,
+        };
+    };
+};
+
+/// A drag image.
+pub const Image = struct {
+    format: Format,
+
+    /// Width in pixels, or for text the numerator of the font size scale
+    /// (zero meaning one).
+    width: u32,
+
+    /// Height in pixels, or for text the denominator of the font size
+    /// scale (zero meaning one).
+    height: u32,
+
+    /// Background opacity for text, 0 (transparent) through 1024
+    /// (opaque).
+    opacity: u32,
+
+    data: []const u8,
+
+    /// C: GhosttyDragImageFormat
+    pub const Format = enum(c_int) {
+        /// 32-bit RGBA pixels.
+        rgba = 0,
+
+        /// A PNG image, for the embedder to decode.
+        png = 1,
+
+        /// UTF-8 text for the embedder to render as the image.
+        text = 2,
+    };
+};
+
 /// A position on the terminal.
 pub const Position = struct {
     /// Grid cell, zero-based from the top-left.
@@ -159,6 +261,45 @@ pub const DropInput = union(enum) {
         denied = 2,
         too_large = 3,
         out_of_memory = 4,
+    };
+};
+
+/// Native drag activity the embedder reports for a drag the program
+/// offers.
+pub const DragInput = union(enum) {
+    /// The user started the platform's drag gesture over the terminal.
+    gesture: Position,
+
+    /// The result of starting the native drag the program asked for.
+    start_result: StartResult,
+
+    /// A drop target accepted the drag, preferring the offered MIME type
+    /// at this index if known.
+    accepted: ?u32,
+
+    /// The operation the drag would perform changed.
+    operation: Operation,
+
+    /// The drag was dropped onto a target.
+    dropped,
+
+    /// The drag finished, which ends it. True if it was canceled.
+    finished: bool,
+
+    /// A drop target wants data for the offered MIME type at this index
+    /// that wasn't pre-sent.
+    request_data: u32,
+
+    /// C: GhosttyDragStartResult
+    pub const StartResult = enum(c_int) {
+        /// The native drag started.
+        started = 0,
+
+        /// The user already let go of the drag.
+        denied = 1,
+
+        /// The native drag couldn't be started.
+        failed = 2,
     };
 };
 
