@@ -992,17 +992,23 @@ palette: Palette = .{},
 
 /// Multiplier for scrolling distance with the mouse wheel.
 ///
-/// A prefix of `precision:` or `discrete:` can be used to set the multiplier
-/// only for scrolling with the specific type of devices. These can be
-/// comma-separated to set both types of multipliers at the same time, e.g.
-/// `precision:0.1,discrete:3`. If no prefix is used, the multiplier applies
-/// to all scrolling devices. Specifying a prefix was introduced in Ghostty
-/// 1.2.1.
+/// **Default:** `precision:1,discrete:3`
 ///
-/// The value will be clamped to [0.01, 10,000]. Both of these are extreme
-/// and you're likely to have a bad experience if you set either extreme.
+/// **Syntax:**
 ///
-/// The default value is "3" for discrete devices and "1" for precision devices.
+/// * A number in the range [0.01, 10,000] applying to both device types.
+/// * `precision:<number>` applying to precision devices, such as
+///   trackpads. **Since:** 1.2.1.
+/// * `discrete:<number>` applying to devices with discrete scroll steps,
+///   such as mouse wheels. **Since:** 1.2.1.
+///
+/// **Platforms:** macOS, GTK
+///
+/// **Details:** Both limits are extreme and are likely to make scrolling
+/// difficult to use.
+///
+/// **Changed in:** 1.2.1 added precision-device support and the
+/// `precision:` and `discrete:` prefixes.
 @"mouse-scroll-multiplier": MouseScrollMultiplier = .default,
 
 /// The opacity level (opposite of transparency) of the background. A value of
