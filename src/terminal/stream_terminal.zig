@@ -180,11 +180,13 @@ pub const Handler = struct {
 
         /// Called when drag and drop protocol state changes in a way the
         /// embedder may need to act on: the running program registering
-        /// or unregistering to accept drops, answering a drag, or
-        /// concluding a drop. The event says what changed; the details
-        /// are read from `handler.terminal.kitty_dnd` (Kitty's OSC 72 is
-        /// the only drag and drop protocol today). Native drag events
-        /// flow the other way, by calling `kitty.dnd.State` directly.
+        /// or unregistering to accept drops, answering a drag, requesting
+        /// dropped data, or concluding a drop. The event says what changed;
+        /// the details are read from `handler.terminal.kitty_dnd` (Kitty's
+        /// OSC 72 is the only drag and drop protocol today). Native drag
+        /// events flow the other way, by calling `kitty.dnd.State`
+        /// directly and writing to the pty (see `ptyWriter`); that may be
+        /// done from within this callback.
         drag_and_drop: ?*const fn (*Handler, kitty_dnd.Event) void,
 
         /// Called in response to a color scheme DSR query (CSI ? 996 n).
@@ -604,6 +606,14 @@ pub const Handler = struct {
             error.Canceled,
             => |e| e,
         };
+    }
+
+    /// A writer to the pty for responding to the program outside of
+    /// processing its output, e.g. reporting native drag and drop
+    /// activity with `kitty.dnd.State`. Use it in place (it must not be
+    /// copied after use begins) and flush it when done.
+    pub fn ptyWriter(self: *Handler, buffer: []u8) PtyWriter {
+        return .init(self, buffer);
     }
 
     pub fn vt(
@@ -1679,8 +1689,8 @@ pub const Handler = struct {
         self: *Handler,
         v: Action.KittyDnd,
     ) (Allocator.Error || std.Io.Writer.Error)!void {
-        // Responses are usually small (queries, errors) but data
-        // serving can produce many chunks, so fall back to the heap.
+        // Responses are usually small (queries, errors), so fall back
+        // to the heap only when needed.
         var stack_buf: [512]u8 = undefined;
         var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.terminal.gpa());
         const response_alloc = stack.allocator();
@@ -1690,7 +1700,7 @@ pub const Handler = struct {
         // The state is allocated on registration and owned by the
         // terminal, so it uses the terminal's allocator, not the
         // response's.
-        const event = try kitty_dnd.handleCommand(
+        const events = try kitty_dnd.handleCommand(
             &self.terminal.kitty_dnd,
             self.terminal.gpa(),
             &aw.writer,
@@ -1703,10 +1713,10 @@ pub const Handler = struct {
             self.writePty(written);
         }
 
-        if (event) |ev| {
-            const func = self.effects.drag_and_drop orelse return;
-            func(self, ev);
-        }
+        // Delivered after the responses are written so the effect may
+        // write its own (e.g. serving a data request immediately).
+        const func = self.effects.drag_and_drop orelse return;
+        for (events.slice()) |ev| func(self, ev);
     }
 
     fn reportDeviceAttributes(self: *Handler, req: device_attributes.Req) void {
@@ -2346,11 +2356,11 @@ pub const Handler = struct {
 /// A writer that delivers everything through the write_pty effect:
 /// the buffer as it fills, and data that doesn't fit it directly.
 /// Never fails, since the effect can't.
-const PtyWriter = struct {
+pub const PtyWriter = struct {
     handler: *Handler,
     writer: std.Io.Writer,
 
-    fn init(handler: *Handler, buffer: []u8) PtyWriter {
+    pub fn init(handler: *Handler, buffer: []u8) PtyWriter {
         return .{
             .handler = handler,
             .writer = .{
@@ -7044,11 +7054,29 @@ test "kitty dnd: query response" {
     try testing.expectEqualStrings("\x1b]72;t=q:i=3\x1b\\", S.pty.items);
 }
 
-test "kitty dnd: register, drop, and serve data" {
+test "kitty dnd: register, drop, and serve data from the effect" {
     const S = struct {
         var pty: std.ArrayList(u8) = .empty;
         fn writePty(_: *Handler, data: []const u8) void {
             pty.appendSlice(testing.allocator, data) catch unreachable;
+        }
+
+        // Serves data requests immediately, from within the effect,
+        // as an embedder with synchronous access to the data would.
+        fn dragAndDrop(handler: *Handler, ev: kitty_dnd.Event) void {
+            if (ev != .data_request) return;
+            const target = handler.terminal.kitty_dnd.?;
+            var buf: [64]u8 = undefined;
+            var pty_writer = handler.ptyWriter(&buf);
+            defer pty_writer.writer.flush() catch unreachable;
+            const req = target.request().?;
+            testing.expectEqualStrings("text/plain", req.mime) catch unreachable;
+            var id: ?u32 = req.id;
+            while (id) |i| {
+                target.respondData(&pty_writer.writer, i, "hello") catch unreachable;
+                const next = target.respondEnd(&pty_writer.writer, i) catch unreachable;
+                id = if (next) |r| r.id else null;
+            }
         }
     };
     S.pty = .empty;
@@ -7059,6 +7087,7 @@ test "kitty dnd: register, drop, and serve data" {
 
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
+    handler.effects.drag_and_drop = &S.dragAndDrop;
     var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
@@ -7072,22 +7101,21 @@ test "kitty dnd: register, drop, and serve data" {
     {
         var aw: std.Io.Writer.Allocating = .init(testing.allocator);
         defer aw.deinit();
-        try t.kitty_dnd.?.dragDrop(testing.allocator, &aw.writer, .{
+        try testing.expect(!try t.kitty_dnd.?.dragDrop(testing.allocator, &aw.writer, .{
             .cell_x = 2,
             .cell_y = 1,
             .pixel_x = 20,
             .pixel_y = 18,
             .operations = .{ .copy = true },
-        }, &.{
-            .{ .mime = "text/plain", .data = "hello" },
-        });
+        }, &.{"text/plain"}));
         try testing.expectEqualStrings(
             "\x1b]72;t=M:x=2:y=1:X=20:Y=18:o=1:m=0;text/plain \x1b\\",
             aw.written(),
         );
     }
 
-    // The client requests the data and concludes.
+    // The client requests the data, which the effect serves, and
+    // concludes.
     s.nextSlice("\x1B]72;t=r:x=1\x1B\\");
     try testing.expectEqualStrings(
         "\x1b]72;t=r:x=1:m=0;aGVsbG8=\x1b\\" ++ "\x1b]72;t=r:x=1\x1b\\",
@@ -7097,7 +7125,8 @@ test "kitty dnd: register, drop, and serve data" {
 
     s.nextSlice("\x1B]72;t=r\x1B\\");
     try testing.expectEqualStrings("", S.pty.items);
-    try testing.expect(t.kitty_dnd.?.drop.items == null);
+    try testing.expect(t.kitty_dnd.?.request() == null);
+    try testing.expect(!t.kitty_dnd.?.drop.dropped);
 }
 
 test "kitty dnd: state updates work without write_pty effect" {
@@ -7165,15 +7194,17 @@ test "kitty dnd: effect reports registration, acceptance, and conclusion" {
 
         fn dragAndDrop(handler: *Handler, ev: kitty_dnd.Event) void {
             events.append(testing.allocator, ev) catch unreachable;
-            // Registration details are read from the terminal state.
-            if (ev == .registration) {
-                mimes.clearRetainingCapacity();
-                const state = handler.terminal.kitty_dnd orelse return;
-                var it = state.registeredMimes();
-                while (it.next()) |m| {
-                    mimes.appendSlice(testing.allocator, m) catch unreachable;
-                    mimes.append(testing.allocator, ',') catch unreachable;
-                }
+            // The details are read from the terminal state.
+            mimes.clearRetainingCapacity();
+            const state = handler.terminal.kitty_dnd orelse return;
+            var it = switch (ev) {
+                .registration => state.registeredMimes(),
+                .acceptance => state.acceptedMimes(),
+                else => return,
+            };
+            while (it.next()) |m| {
+                mimes.appendSlice(testing.allocator, m) catch unreachable;
+                mimes.append(testing.allocator, ',') catch unreachable;
             }
         }
     };
@@ -7188,7 +7219,7 @@ test "kitty dnd: effect reports registration, acceptance, and conclusion" {
     var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
-    // Registration with a MIME list, read back from the state.
+    // Registration with a MIME list.
     s.nextSlice("\x1B]72;t=a;image/png text/plain\x1B\\");
     try testing.expectEqual(@as(usize, 1), S.events.items.len);
     try testing.expect(S.events.items[0] == .registration);
@@ -7198,24 +7229,25 @@ test "kitty dnd: effect reports registration, acceptance, and conclusion" {
     {
         var aw: std.Io.Writer.Allocating = .init(testing.allocator);
         defer aw.deinit();
-        try t.kitty_dnd.?.dragDrop(testing.allocator, &aw.writer, .{
+        _ = try t.kitty_dnd.?.dragDrop(testing.allocator, &aw.writer, .{
             .cell_x = 0,
             .cell_y = 0,
             .pixel_x = 0,
             .pixel_y = 0,
             .operations = .{ .copy = true },
-        }, &.{.{ .mime = "text/plain", .data = "x" }});
+        }, &.{"text/plain"});
     }
     s.nextSlice("\x1B]72;t=m:o=2;text/plain\x1B\\");
     try testing.expectEqual(@as(usize, 2), S.events.items.len);
     try testing.expect(S.events.items[1] == .acceptance);
+    try testing.expectEqualStrings("text/plain,", S.mimes.items);
 
     // Conclusion carries the performed operation.
     s.nextSlice("\x1B]72;t=r:o=2\x1B\\");
     try testing.expectEqual(@as(usize, 3), S.events.items.len);
     try testing.expectEqual(kitty_dnd.Event.concluded_move, S.events.items[2]);
 
-    // Unregistration reports with the state gone.
+    // Unregistration reports with no MIME types.
     s.nextSlice("\x1B]72;t=A\x1B\\");
     try testing.expectEqual(@as(usize, 4), S.events.items.len);
     try testing.expect(S.events.items[3] == .registration);

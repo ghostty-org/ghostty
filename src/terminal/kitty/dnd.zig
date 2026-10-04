@@ -12,14 +12,6 @@
 //!
 //! These will be fixed in the future:
 //!
-//!   * Dropped data is captured eagerly at drop time from a curated
-//!     set of representations the embedder can serve (typically
-//!     text/uri-list and text/plain), rather than fetched from the OS
-//!     on demand. Consequently the native drag session concludes at
-//!     drop time and the client's concluding operation (t=r with
-//!     x=y=Y=0) only frees the held data, and kitty's 128-entry
-//!     request queue and EMFILE overflow handling are unnecessary
-//!     because requests are served synchronously in order.
 //!   * Every client is treated as local: machine IDs (t=a:x=1) are
 //!     accepted and ignored, responses never carry the X=1 remote
 //!     marker, and remote file transfer requests (t=r with y or Y
@@ -55,11 +47,13 @@ pub const encode = dnd_response.encode;
 pub const encodeError = dnd_response.encodeError;
 
 pub const State = dnd_drop.State;
-pub const Item = dnd_drop.State.Item;
 pub const MoveEvent = dnd_drop.State.MoveEvent;
+pub const DataRequest = dnd_drop.DataRequest;
 pub const max_mime_list_bytes = dnd_drop.max_mime_list_bytes;
+pub const max_requests = dnd_drop.max_requests;
 pub const handleCommand = dnd_drop.handleCommand;
 pub const Event = dnd_drop.Event;
+pub const Events = dnd_drop.Events;
 
 test {
     _ = dnd_command;
