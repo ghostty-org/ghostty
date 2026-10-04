@@ -28,6 +28,17 @@ set -eu
 in="$1"
 out="$2"
 
+# Zig 0.17 passes generated paths relative to the build root. Preserve
+# their meaning when we change into the temporary directory below.
+case "$in" in
+/*) ;;
+*) in="$PWD/$in" ;;
+esac
+case "$out" in
+/*) ;;
+*) out="$PWD/$out" ;;
+esac
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
