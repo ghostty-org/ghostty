@@ -11,8 +11,9 @@
 //!
 //! The embedder connects the protocol to the OS: `handleCommand`
 //! processes client commands and returns `Event`s saying what changed,
-//! with the details read from the `DropTarget`, and the embedder reports
-//! native activity with the `DropTarget` functions of `State`.
+//! which `dropEvent` turns into protocol independent `terminal.dnd`
+//! events, and the embedder reports native activity with `dropInput`
+//! (or the `DropTarget` functions of `State` directly).
 //!
 //! ## Divergences
 //!
@@ -40,6 +41,7 @@ const dnd_command = @import("dnd_command.zig");
 const dnd_response = @import("dnd_response.zig");
 const dnd_state = @import("dnd_state.zig");
 const dnd_drop = @import("dnd_drop.zig");
+const dnd_embed = @import("dnd_embed.zig");
 
 pub const EventType = dnd_command.EventType;
 pub const Metadata = dnd_command.Metadata;
@@ -58,6 +60,10 @@ pub const Event = dnd_state.Event;
 pub const Events = dnd_state.Events;
 pub const handleCommand = dnd_state.handleCommand;
 
+pub const dropEvent = dnd_embed.dropEvent;
+pub const dropInput = dnd_embed.dropInput;
+pub const InputError = dnd_embed.InputError;
+
 pub const DropTarget = dnd_drop.DropTarget;
 pub const MoveEvent = dnd_drop.MoveEvent;
 pub const DataRequest = dnd_drop.DataRequest;
@@ -69,5 +75,6 @@ test {
     _ = dnd_response;
     _ = dnd_state;
     _ = dnd_drop;
+    _ = dnd_embed;
     _ = @import("dnd_test.zig");
 }

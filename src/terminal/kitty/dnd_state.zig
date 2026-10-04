@@ -16,8 +16,8 @@ const Operation = command.Operation;
 const log = std.log.scoped(.kitty_dnd);
 
 /// A protocol state change an embedder may need to act on, returned by
-/// `handleCommand`. The stream handler passes each to its effect; the
-/// details are read from the state.
+/// `handleCommand`. The stream handler delivers each as a protocol
+/// independent `dnd.DropEvent`, with its details read from the state.
 pub const Event = enum {
     /// The client registered (t=a), re-registered, or unregistered
     /// (t=A) to accept drops. An embedder may want to use this

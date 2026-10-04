@@ -113,7 +113,7 @@ test "dnd: register and unregister" {
     try h.expectEvents("t=a", "text/plain text/uri-list", &.{.registration});
     try h.expectOutput("");
     {
-        var it = h.drop().registeredMimes();
+        var it = h.drop().registeredMimes().iterator();
         try testing.expectEqualStrings("text/plain", it.next().?);
         try testing.expectEqualStrings("text/uri-list", it.next().?);
         try testing.expect(it.next() == null);
@@ -127,7 +127,7 @@ test "dnd: register and unregister" {
     // Re-registration replaces the list.
     try h.expectEvents("t=a", "image/png", &.{.registration});
     {
-        var it = h.drop().registeredMimes();
+        var it = h.drop().registeredMimes().iterator();
         try testing.expectEqualStrings("image/png", it.next().?);
         try testing.expect(it.next() == null);
     }
@@ -135,7 +135,7 @@ test "dnd: register and unregister" {
     // Registering without a list is the common case.
     try h.expectEvents("t=a", null, &.{.registration});
     {
-        var it = h.drop().registeredMimes();
+        var it = h.drop().registeredMimes().iterator();
         try testing.expect(it.next() == null);
     }
 
@@ -275,7 +275,7 @@ test "dnd: chunked client acceptance" {
         "text/plain\x00text/html\x00",
         h.drop().accepted_mimes.items,
     );
-    var it = h.drop().acceptedMimes();
+    var it = h.drop().acceptedMimes().iterator();
     try testing.expectEqualStrings("text/plain", it.next().?);
     try testing.expectEqualStrings("text/html", it.next().?);
     try testing.expect(it.next() == null);
@@ -577,7 +577,7 @@ test "dnd: chunked registration reuses first chunk metadata" {
     try h.expectOutput("");
     try testing.expectEqual(@as(u32, 4), h.drop().client_id);
     {
-        var it = h.drop().registeredMimes();
+        var it = h.drop().registeredMimes().iterator();
         try testing.expectEqualStrings("text/plain", it.next().?);
     }
 
@@ -719,7 +719,7 @@ test "dnd: over-cap registration list never completes" {
     try h.expectEvents("t=a", big, &.{});
     try testing.expect(h.state != null);
     {
-        var it = h.drop().registeredMimes();
+        var it = h.drop().registeredMimes().iterator();
         try testing.expect(it.next() == null);
     }
 }
@@ -748,4 +748,44 @@ test "dnd: drag out refused" {
         "\x1b]72;t=E:i=9:m=0;EPERM:drag out is not supported by this terminal\x1b\\",
     );
     try testing.expect(h.state == null);
+}
+
+test "dnd embed: drop input and follow-up events" {
+    var h: Harness = .init();
+    defer h.deinit();
+
+    const motion: @import("../dnd.zig").DropInput.Motion = .{
+        .position = .{ .cell_x = 1, .cell_y = 2, .pixel_x = 10, .pixel_y = 20 },
+        .operations = .{ .copy = true },
+        .mimes = &.{"text/plain"},
+    };
+
+    // Nothing to report to before registration.
+    _ = try h.command("t=q", null);
+    h.clear();
+    try h.expectEvents("t=a", null, &.{.registration});
+    try testing.expect(dnd.dropEvent(h.state, .registration).?.registration.accepting);
+
+    try testing.expect(try dnd.dropInput(h.state.?, testing.allocator, h.writer(), .{ .drop = motion }) == null);
+    try h.expectOutput("\x1b]72;t=M:x=1:y=2:X=10:Y=20:o=1:m=0;text/plain \x1b\\");
+
+    // Two requests: answering the first hands out the second.
+    try h.expectEvents("t=r:x=1", null, &.{.data_request});
+    try h.expectEvents("t=r:x=1", null, &.{});
+    const first = dnd.dropEvent(h.state, .data_request).?.data_request;
+    _ = try dnd.dropInput(h.state.?, testing.allocator, h.writer(), .{ .data = .{ .id = first.id, .bytes = "hi" } });
+    const next = (try dnd.dropInput(h.state.?, testing.allocator, h.writer(), .{ .end = first.id })).?;
+    try testing.expect(next.data_request.id != first.id);
+    try testing.expectError(error.Rejected, dnd.dropInput(h.state.?, testing.allocator, h.writer(), .{ .end = first.id }));
+    try testing.expect(try dnd.dropInput(h.state.?, testing.allocator, h.writer(), .{ .fail = .{
+        .id = next.data_request.id,
+        .reason = .not_found,
+    } }) == null);
+    try h.expectOutput("\x1b]72;t=r:x=1:m=0;aGk=\x1b\\" ++
+        "\x1b]72;t=r:x=1\x1b\\" ++
+        "\x1b]72;t=R:x=1:m=0;ENOENT:drop data request failed to read data\x1b\\");
+
+    // A new drag replacing the unconcluded drop concludes it.
+    const ev = (try dnd.dropInput(h.state.?, testing.allocator, h.writer(), .{ .move = motion })).?;
+    try testing.expectEqual(@import("../dnd.zig").Operation.none, ev.concluded);
 }
