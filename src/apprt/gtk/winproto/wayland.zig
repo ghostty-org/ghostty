@@ -324,7 +324,7 @@ pub const Window = struct {
 
         // The protocol requests uint instead of enum so we have
         // to convert it.
-        deco.requestMode(@intCast(@intFromEnum(self.getDecorationMode())));
+        deco.requestMode(@intCast(@backingInt(self.getDecorationMode())));
     }
 
     fn getDecorationMode(self: Window) org.KdeKwinServerDecorationManager.Mode {
@@ -411,7 +411,7 @@ pub const Window = struct {
                 .right => .right,
             };
 
-            slide.setLocation(@intCast(@intFromEnum(slide_location)));
+            slide.setLocation(@intCast(@backingInt(slide_location)));
             slide.commit();
             break :slide slide;
         } else null;

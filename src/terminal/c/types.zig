@@ -439,17 +439,17 @@ const Json = struct {
                 if (decl.union_field_names_T != null) {
                     try writeMappedUnionFields(decl, jws);
                 } else {
-                    const fields = switch (decl.kind) {
-                        .@"struct" => @typeInfo(decl.T).@"struct".fields,
-                        .@"union" => @typeInfo(decl.T).@"union".fields,
+                    const info = switch (decl.kind) {
+                        .@"struct" => @typeInfo(decl.T).@"struct",
+                        .@"union" => @typeInfo(decl.T).@"union",
                         else => unreachable,
                     };
-                    inline for (fields) |field| {
+                    inline for (info.field_names, info.field_types) |name, ty| {
                         try writeField(
                             decl,
-                            field.name,
-                            field.type,
-                            if (decl.kind == .@"union") 0 else @offsetOf(decl.T, field.name),
+                            name,
+                            ty,
+                            if (decl.kind == .@"union") 0 else @offsetOf(decl.T, name),
                             jws,
                         );
                     }
@@ -464,9 +464,10 @@ const Json = struct {
                 try jws.write(decl.prefix);
                 try jws.objectField("values");
                 try jws.beginObject();
-                inline for (@typeInfo(decl.T).@"enum".fields) |field| {
-                    try writeEnumObjectField(decl.name, field.name, jws);
-                    try jws.write(field.value);
+                const info = @typeInfo(decl.T).@"enum";
+                inline for (info.field_names, info.field_values) |field, value| {
+                    try writeEnumObjectField(decl.name, field, jws);
+                    try jws.write(value);
                 }
                 try jws.objectField(decl.sentinel_suffix);
                 try jws.write(std.math.maxInt(c_int));
@@ -500,8 +501,8 @@ const Json = struct {
         comptime Layout: type,
         jws: *std.json.Stringify,
     ) std.Io.Writer.Error!void {
-        inline for (@typeInfo(Layout.Zig).@"struct".fields) |field| {
-            const field_tag = @field(Layout.Field, field.name);
+        inline for (@typeInfo(Layout.Zig).@"struct".field_names) |field| {
+            const field_tag = @field(Layout.Field, field);
             const name = comptime Layout.fieldName(field_tag) orelse continue;
             const options = Layout.fieldOptions(field_tag);
 
@@ -515,7 +516,7 @@ const Json = struct {
             switch (options.encoding) {
                 .scalar => {
                     try jws.objectField("type");
-                    try jws.write(options.type_name orelse publicTypeName(field.type));
+                    try jws.write(options.type_name orelse publicTypeName(@FieldType(Layout.Zig, field)));
                 },
                 .@"packed" => |Nested| {
                     try jws.objectField("kind");
@@ -545,9 +546,9 @@ const Json = struct {
 
         const tag_options = Layout.fieldOptions(UnionLayout.tag_field);
         const tag_type_name = tag_options.type_name orelse publicTypeName(UnionLayout.Tag);
-        inline for (@typeInfo(UnionLayout.Tag).@"enum".fields) |tag| {
-            try writeEnumObjectField(tag_type_name, tag.name, jws);
-            const arm = UnionLayout.arm(@field(UnionLayout.Tag, tag.name)) orelse {
+        inline for (@typeInfo(UnionLayout.Tag).@"enum".field_names) |tag| {
+            try writeEnumObjectField(tag_type_name, tag, jws);
+            const arm = UnionLayout.arm(@field(UnionLayout.Tag, tag)) orelse {
                 try jws.write(null);
                 continue;
             };
@@ -605,12 +606,12 @@ const Json = struct {
     ) std.Io.Writer.Error!void {
         const FieldNames = decl.union_field_names_T.?;
         const Tag = @FieldType(FieldNames, "tag");
-        const tag_fields = @typeInfo(Tag).@"enum".fields;
+        const tag_fields = @typeInfo(Tag).@"enum".field_names;
 
         inline for (tag_fields, 0..) |field, i| {
-            const name = comptime FieldNames.cFieldRename(@field(Tag, field.name)) orelse continue;
+            const name = comptime FieldNames.cFieldRename(@field(Tag, field)) orelse continue;
             if (comptime mappedUnionFieldIsDuplicate(decl, i, name)) continue;
-            try writeField(decl, name, @FieldType(decl.T, field.name), 0, jws);
+            try writeField(decl, name, @FieldType(decl.T, field), 0, jws);
         }
 
         if (@hasField(decl.T, "_padding"))
@@ -624,13 +625,13 @@ const Json = struct {
     ) bool {
         const FieldNames = decl.union_field_names_T.?;
         const Tag = @FieldType(FieldNames, "tag");
-        const tag_fields = @typeInfo(Tag).@"enum".fields;
-        const T = @FieldType(decl.T, tag_fields[index].name);
+        const tag_fields = @typeInfo(Tag).@"enum".field_names;
+        const T = @FieldType(decl.T, tag_fields[index]);
 
         inline for (tag_fields[0..index]) |previous| {
-            const previous_name = FieldNames.cFieldRename(@field(Tag, previous.name)) orelse continue;
+            const previous_name = FieldNames.cFieldRename(@field(Tag, previous)) orelse continue;
             if (std.mem.eql(u8, previous_name, name)) {
-                if (@FieldType(decl.T, previous.name) != T)
+                if (@FieldType(decl.T, previous) != T)
                     @compileError("tagged union metadata maps different field types to " ++ name);
                 return true;
             }
@@ -700,7 +701,7 @@ const Json = struct {
         try jws.objectField("elem");
         try jws.write(publicTypeName(info.child));
         try jws.objectField("const");
-        try jws.write(info.is_const);
+        try jws.write(info.attrs.@"const");
         if (nullable) {
             try jws.objectField("nullable");
             try jws.write(true);
@@ -724,7 +725,7 @@ const Json = struct {
         try jws.objectField("elem");
         try jws.write(elem);
         try jws.objectField("const");
-        try jws.write(info.is_const);
+        try jws.write(info.attrs.@"const");
         if (nullable) {
             try jws.objectField("nullable");
             try jws.write(true);
@@ -759,9 +760,9 @@ const Json = struct {
         const Tag = @FieldType(decl.T, tagged.tag_field);
         try jws.objectField("arms");
         try jws.beginObject();
-        inline for (@typeInfo(Tag).@"enum".fields) |field| {
-            try writeEnumObjectField(publicTypeName(Tag), field.name, jws);
-            if (comptime taggedArm(decl, field.name)) |arm| try jws.write(arm) else try jws.write(null);
+        inline for (@typeInfo(Tag).@"enum".field_names) |field| {
+            try writeEnumObjectField(publicTypeName(Tag), field, jws);
+            if (comptime taggedArm(decl, field)) |arm| try jws.write(arm) else try jws.write(null);
         }
         try jws.endObject();
     }
@@ -801,7 +802,7 @@ const Json = struct {
         };
     }
 
-    fn intName(comptime signedness: std.builtin.Signedness, comptime bits: u16) []const u8 {
+    fn intName(comptime signedness: std.lang.Signedness, comptime bits: u16) []const u8 {
         return switch (signedness) {
             .signed => switch (bits) {
                 8 => "i8",
@@ -900,7 +901,7 @@ test "manifest describes enums, arrays, and tagged unions" {
 
     const data = manifest_types.get("GhosttyRenderStateData").?.object;
     try std.testing.expectEqualStrings("enum", data.get("kind").?.string);
-    try std.testing.expectEqual(@as(i64, @intFromEnum(render.Data.dirty)), data.get("values").?.object.get("DIRTY").?.integer);
+    try std.testing.expectEqual(@as(i64, @backingInt(render.Data.dirty)), data.get("values").?.object.get("DIRTY").?.integer);
 
     const colors = manifest_types.get("GhosttyRenderStateColors").?.object;
     const palette = colors.get("fields").?.object.get("palette").?.object;
@@ -960,21 +961,21 @@ test "manifest describes the complete packed cell layout" {
     try std.testing.expectEqualStrings("u64", descriptor.get("underlying").?.string);
 
     const bits = descriptor.get("bits").?.object;
-    inline for (@typeInfo(page.Cell.CLayout.Zig).@"struct".fields) |field| {
-        const field_tag = @field(page.Cell.CLayout.Field, field.name);
+    inline for (@typeInfo(page.Cell.CLayout.Zig).@"struct".field_names) |field| {
+        const field_tag = @field(page.Cell.CLayout.Field, field);
         const name = comptime page.Cell.CLayout.fieldName(field_tag);
         if (name) |public_name| {
             const bit = bits.get(public_name).?.object;
             try std.testing.expectEqual(
-                @as(i64, @intCast(@bitOffsetOf(page.Cell.CLayout.Zig, field.name))),
+                @as(i64, @intCast(@bitOffsetOf(page.Cell.CLayout.Zig, field))),
                 bit.get("lsb").?.integer,
             );
             try std.testing.expectEqual(
-                @as(i64, @intCast(@bitSizeOf(field.type))),
+                @as(i64, @intCast(@bitSizeOf(@FieldType(page.Cell.CLayout.Zig, field)))),
                 bit.get("width").?.integer,
             );
         } else {
-            try std.testing.expect(!bits.contains(field.name));
+            try std.testing.expect(!bits.contains(field));
         }
     }
 
@@ -999,8 +1000,8 @@ test "manifest describes the complete packed cell layout" {
 
     const rgb = arms.get("BG_COLOR_RGB").?.object;
     const Rgb = @FieldType(Content, "color_rgb");
-    inline for (@typeInfo(Rgb).@"struct".fields) |field|
-        try expectPackedArmField(rgb, field.name, Rgb, field.name, "u8");
+    inline for (@typeInfo(Rgb).@"struct".field_names) |field|
+        try expectPackedArmField(rgb, field, Rgb, field, "u8");
 }
 
 test "manifest packed cell layouts decode real values" {

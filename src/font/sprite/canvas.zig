@@ -268,7 +268,7 @@ pub const Canvas = struct {
         self.sfc.putPixel(
             x + @as(i32, @intCast(self.padding_x)),
             y + @as(i32, @intCast(self.padding_y)),
-            .{ .alpha8 = .{ .a = @intFromEnum(color) } },
+            .{ .alpha8 = .{ .a = @backingInt(color) } },
         );
     }
 
@@ -368,7 +368,7 @@ pub const Canvas = struct {
             self.alloc,
             &self.sfc,
             &.{ .opaque_pattern = .{
-                .pixel = .{ .alpha8 = .{ .a = @intFromEnum(color) } },
+                .pixel = .{ .alpha8 = .{ .a = @backingInt(color) } },
             } },
             path.nodes.items,
             opts,
@@ -399,7 +399,7 @@ pub const Canvas = struct {
             self.alloc,
             &self.sfc,
             &.{ .opaque_pattern = .{
-                .pixel = .{ .alpha8 = .{ .a = @intFromEnum(color) } },
+                .pixel = .{ .alpha8 = .{ .a = @backingInt(color) } },
             } },
             path.nodes.items,
             opts,

@@ -112,16 +112,19 @@ test parse {
 
     // Digits past the 15th are ignored: long fractions stay finite and
     // equal their 15-digit truncation.
+    var overlong_fraction: [400]u8 = @splat('3');
+    @memcpy(overlong_fraction[0..2], "0.");
     try testing.expectEqual(
         parse("0.333333333333333").?,
-        parse("0." ++ "3" ** 400).?,
+        parse(&overlong_fraction).?,
     );
 
     // Out of range
     try testing.expectEqual(null, parse("1.0000001"));
     try testing.expectEqual(null, parse("2"));
     try testing.expectEqual(null, parse("255"));
-    try testing.expectEqual(null, parse("1" ** 400));
+    const overlong_int: [400]u8 = @splat('1');
+    try testing.expectEqual(null, parse(&overlong_int));
 
     // Invalid syntax
     try testing.expectEqual(null, parse(""));

@@ -246,14 +246,14 @@ fn keyboardTable(
 
     if (kitty_flags.int() != 0) {
         const Flags = @TypeOf(kitty_flags);
-        inline for (@typeInfo(Flags).@"struct".fields) |field| {
+        inline for (@typeInfo(Flags).@"struct".field_names) |field| {
             {
-                const value = @field(kitty_flags, field.name);
+                const value = @field(kitty_flags, field);
 
                 cimgui.c.ImGui_TableNextRow();
                 {
                     _ = cimgui.c.ImGui_TableSetColumnIndex(0);
-                    const field_name = std.fmt.comptimePrint("{s}", .{field.name});
+                    const field_name = std.fmt.comptimePrint("{s}", .{field});
                     cimgui.c.ImGui_Text("%s", field_name.ptr);
                 }
                 {

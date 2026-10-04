@@ -113,8 +113,8 @@ pub fn setopt(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) void {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Option, @intFromEnum(option)) orelse {
-            log.warn("setopt invalid option value={d}", .{@intFromEnum(option)});
+        _ = std.enums.fromInt(Option, @backingInt(option)) orelse {
+            log.warn("setopt invalid option value={d}", .{@backingInt(option)});
             return;
         };
     }
@@ -137,8 +137,8 @@ fn setoptTyped(
     switch (option) {
         .event => {
             if (comptime std.debug.runtime_safety) {
-                _ = std.enums.fromInt(TrackingMode, @intFromEnum(value.*)) orelse {
-                    log.warn("setopt invalid TrackingMode value={d}", .{@intFromEnum(value.*)});
+                _ = std.enums.fromInt(TrackingMode, @backingInt(value.*)) orelse {
+                    log.warn("setopt invalid TrackingMode value={d}", .{@backingInt(value.*)});
                     return;
                 };
             }
@@ -149,8 +149,8 @@ fn setoptTyped(
 
         .format => {
             if (comptime std.debug.runtime_safety) {
-                _ = std.enums.fromInt(Format, @intFromEnum(value.*)) orelse {
-                    log.warn("setopt invalid Format value={d}", .{@intFromEnum(value.*)});
+                _ = std.enums.fromInt(Format, @backingInt(value.*)) orelse {
+                    log.warn("setopt invalid Format value={d}", .{@backingInt(value.*)});
                     return;
                 };
             }

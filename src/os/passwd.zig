@@ -17,7 +17,7 @@ comptime {
 }
 
 /// Used to determine the default shell and directory on Unixes.
-const c = if (builtin.os.tag != .windows) @import("posix_c") else {};
+const c = if (builtin.target.os.tag != .windows) @import("posix_c") else {};
 
 // Entry that is retrieved from the passwd API. This only contains the fields
 // we care about.
@@ -29,7 +29,7 @@ pub const Entry = struct {
 
 /// Get the passwd entry for the currently executing user.
 pub fn get(alloc: Allocator) !Entry {
-    if (builtin.os.tag == .windows) @compileError("passwd is not available on windows");
+    if (builtin.target.os.tag == .windows) @compileError("passwd is not available on windows");
 
     var buf: [1024]u8 = undefined;
     var pw: c.struct_passwd = undefined;
@@ -70,8 +70,7 @@ pub fn get(alloc: Allocator) !Entry {
                 "/bin/sh",
                 "-l",
                 "-c",
-                try std.fmt.allocPrint(
-                    alloc,
+                try alloc.print(
                     "getent passwd {s}",
                     .{std.mem.sliceTo(pw.pw_name, 0)},
                 ),
@@ -114,26 +113,26 @@ pub fn get(alloc: Allocator) !Entry {
 
         // Shell and home are the last two entries
         var it = std.mem.splitBackwardsScalar(u8, std.mem.trimEnd(u8, output, " \r\n"), ':');
-        result.shell = if (it.next()) |v| try alloc.dupeZ(u8, v) else null;
-        result.home = if (it.next()) |v| try alloc.dupeZ(u8, v) else null;
+        result.shell = if (it.next()) |v| try alloc.dupeSentinel(u8, v, 0) else null;
+        result.home = if (it.next()) |v| try alloc.dupeSentinel(u8, v, 0) else null;
         return result;
     }
 
     if (pw.pw_shell) |ptr| {
         const source = std.mem.sliceTo(ptr, 0);
-        const value = try alloc.dupeZ(u8, source);
+        const value = try alloc.dupeSentinel(u8, source, 0);
         result.shell = value;
     }
 
     if (pw.pw_dir) |ptr| {
         const source = std.mem.sliceTo(ptr, 0);
-        const value = try alloc.dupeZ(u8, source);
+        const value = try alloc.dupeSentinel(u8, source, 0);
         result.home = value;
     }
 
     if (pw.pw_name) |ptr| {
         const source = std.mem.sliceTo(ptr, 0);
-        const value = try alloc.dupeZ(u8, source);
+        const value = try alloc.dupeSentinel(u8, source, 0);
         result.name = value;
     }
 
@@ -141,7 +140,7 @@ pub fn get(alloc: Allocator) !Entry {
 }
 
 test {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.target.os.tag == .windows) return error.SkipZigTest;
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

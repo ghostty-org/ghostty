@@ -17,7 +17,7 @@ pub fn readSkipUntilDelimiterOrEof(reader: *std.Io.Reader, delimiter: u8) std.Io
 pub fn readStructEndian(
     reader: *std.Io.Reader,
     comptime T: type,
-    endian: std.builtin.Endian,
+    endian: std.lang.Endian,
 ) std.Io.Reader.Error!T {
     var result: [1]T = undefined;
     try reader.readSliceEndian(T, &result, endian);
@@ -25,7 +25,7 @@ pub fn readStructEndian(
 }
 
 /// Pulled from old stdlib as this function has been removed.
-pub fn readerInt(reader: *std.Io.Reader, comptime T: type, endian: std.builtin.Endian) std.Io.Reader.Error!T {
+pub fn readerInt(reader: *std.Io.Reader, comptime T: type, endian: std.lang.Endian) std.Io.Reader.Error!T {
     const bytes = try readBytesNoEof(reader, @divExact(@typeInfo(T).int.bits, 8));
     return std.mem.readInt(T, &bytes, endian);
 }

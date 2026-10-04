@@ -439,11 +439,11 @@ pub const Header = struct {
         try io.writeInt(writer, u16, self.scrolling_region_right);
 
         // Status display, screen routing, and character context.
-        try writer.writeByte(@intCast(@intFromEnum(self.status_display)));
+        try writer.writeByte(@intCast(@backingInt(self.status_display)));
         try io.writeInt(
             writer,
             u16,
-            @intCast(@intFromEnum(self.active_screen_key)),
+            @intCast(@backingInt(self.active_screen_key)),
         );
         try io.writeInt(writer, u16, self.screen_count);
         try io.writeInt(
@@ -458,17 +458,17 @@ pub const Header = struct {
         // Cursor presentation defaults shared by the screens.
         try writer.writeByte(@intFromBool(self.cursor_is_default));
         try writer.writeByte(
-            @intCast(@intFromEnum(self.cursor_default_style)),
+            @intCast(@backingInt(self.cursor_default_style)),
         );
         try writer.writeByte(encodeOptionalBool(self.cursor_default_blink));
 
         // Terminal input, semantic redraw, and pointer behavior.
-        try writer.writeByte(@intCast(@intFromEnum(self.shell_redraw)));
+        try writer.writeByte(@intCast(@backingInt(self.shell_redraw)));
         try writer.writeByte(@intFromBool(self.modify_other_keys_2));
-        try writer.writeByte(@intCast(@intFromEnum(self.mouse_event)));
-        try writer.writeByte(@intCast(@intFromEnum(self.mouse_format)));
+        try writer.writeByte(@intCast(@backingInt(self.mouse_event)));
+        try writer.writeByte(@intCast(@backingInt(self.mouse_format)));
         try writer.writeByte(encodeOptionalBool(self.mouse_shift_capture));
-        try writer.writeByte(@intCast(@intFromEnum(self.mouse_shape)));
+        try writer.writeByte(@intCast(@backingInt(self.mouse_shape)));
         try writer.writeByte(@intFromBool(self.password_input));
 
         // Runtime, saved, and reset mode sets. ModePacked occupies 43 bits;

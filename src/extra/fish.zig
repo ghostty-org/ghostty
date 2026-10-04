@@ -27,10 +27,10 @@ fn writeCompletions(writer: *std.Io.Writer) !void {
     {
         try writer.writeAll("set -l commands \"");
         var count: usize = 0;
-        for (@typeInfo(Action).@"enum".fields) |field| {
+        for (@typeInfo(Action).@"enum".field_names) |field| {
             if (count > 0) try writer.writeAll(" ");
             try writer.writeAll("+");
-            try writer.writeAll(field.name);
+            try writer.writeAll(field);
             count += 1;
         }
         try writer.writeAll("\"\n");
@@ -41,38 +41,38 @@ fn writeCompletions(writer: *std.Io.Writer) !void {
     try writer.writeAll("complete -c ghostty -s e -l help -f\n");
     try writer.writeAll("complete -c ghostty -n \"not __fish_seen_subcommand_from $commands\" -l version -f\n");
 
-    for (@typeInfo(Config).@"struct".fields) |field| {
-        if (field.name[0] == '_') continue;
+    inline for (@typeInfo(Config).@"struct".field_names, @typeInfo(Config).@"struct".field_types) |field, field_type| {
+        if (field[0] == '_') continue;
 
         try writer.writeAll("complete -c ghostty -n \"not __fish_seen_subcommand_from $commands\" -l ");
-        try writer.writeAll(field.name);
-        try writer.writeAll(if (field.type != bool) " -r" else " ");
-        if (std.mem.startsWith(u8, field.name, "font-family"))
+        try writer.writeAll(field);
+        try writer.writeAll(if (field_type != bool) " -r" else " ");
+        if (std.mem.startsWith(u8, field, "font-family"))
             try writer.writeAll(" -f  -a \"(ghostty +list-fonts | grep '^[A-Z]')\"")
-        else if (std.mem.eql(u8, "theme", field.name))
+        else if (std.mem.eql(u8, "theme", field))
             try writer.writeAll(" -f -a \"(ghostty +list-themes | sed -E 's/^(.*) \\(.*\\$/\\1/')\"")
-        else if (std.mem.eql(u8, "working-directory", field.name))
+        else if (std.mem.eql(u8, "working-directory", field))
             try writer.writeAll(" -f -k -a \"(__fish_complete_directories)\"")
         else {
-            try writer.writeAll(if (field.type != Config.RepeatablePath) " -f" else " -F");
-            switch (@typeInfo(field.type)) {
+            try writer.writeAll(if (field_type != Config.RepeatablePath) " -f" else " -F");
+            switch (@typeInfo(field_type)) {
                 .bool => {},
                 .@"enum" => |info| {
                     try writer.writeAll(" -a \"");
-                    for (info.fields, 0..) |f, i| {
+                    for (info.field_names, 0..) |f, i| {
                         if (i > 0) try writer.writeAll(" ");
-                        try writer.writeAll(f.name);
+                        try writer.writeAll(f);
                     }
                     try writer.writeAll("\"");
                 },
                 .@"struct" => |info| {
-                    if (!@hasDecl(field.type, "parseCLI") and info.layout == .@"packed") {
+                    if (!@hasDecl(field_type, "parseCLI") and info.layout == .@"packed") {
                         try writer.writeAll(" -a \"");
-                        for (info.fields, 0..) |f, i| {
+                        for (info.field_names, 0..) |f, i| {
                             if (i > 0) try writer.writeAll(" ");
-                            try writer.writeAll(f.name);
+                            try writer.writeAll(f);
                             try writer.writeAll(" no-");
-                            try writer.writeAll(f.name);
+                            try writer.writeAll(f);
                         }
                         try writer.writeAll("\"");
                     }
@@ -81,8 +81,8 @@ fn writeCompletions(writer: *std.Io.Writer) !void {
             }
         }
 
-        if (@hasDecl(help_strings.Config, field.name)) {
-            const help = @field(help_strings.Config, field.name);
+        if (@hasDecl(help_strings.Config, field)) {
+            const help = @field(help_strings.Config, field);
             const desc = getDescription(help);
             try writer.writeAll(" -d \"");
             try writer.writeAll(desc);
@@ -95,38 +95,38 @@ fn writeCompletions(writer: *std.Io.Writer) !void {
     {
         try writer.writeAll("complete -c ghostty -n \"string match -q -- '+*' (commandline -pt)\" -f -a \"");
         var count: usize = 0;
-        for (@typeInfo(Action).@"enum".fields) |field| {
+        for (@typeInfo(Action).@"enum".field_names) |field| {
             if (count > 0) try writer.writeAll(" ");
             try writer.writeAll("+");
-            try writer.writeAll(field.name);
+            try writer.writeAll(field);
             count += 1;
         }
         try writer.writeAll("\"\n");
     }
 
-    for (@typeInfo(Action).@"enum".fields) |field| {
-        if (std.mem.eql(u8, "help", field.name)) continue;
-        if (std.mem.eql(u8, "version", field.name)) continue;
+    inline for (@typeInfo(Action).@"enum".field_names) |field| {
+        if (std.mem.eql(u8, "help", field)) continue;
+        if (std.mem.eql(u8, "version", field)) continue;
 
-        const options = @field(Action, field.name).options();
-        for (@typeInfo(options).@"struct".fields) |opt| {
-            if (opt.name[0] == '_') continue;
-            try writer.writeAll("complete -c ghostty -n \"__fish_seen_subcommand_from +" ++ field.name ++ "\" -l ");
-            try writer.writeAll(opt.name);
-            try writer.writeAll(if (opt.type != bool) " -r" else "");
+        const options = @field(Action, field).options();
+        inline for (@typeInfo(options).@"struct".field_names, @typeInfo(options).@"struct".field_types) |opt, opt_type| {
+            if (opt[0] == '_') continue;
+            try writer.writeAll("complete -c ghostty -n \"__fish_seen_subcommand_from +" ++ field ++ "\" -l ");
+            try writer.writeAll(opt);
+            try writer.writeAll(if (opt_type != bool) " -r" else "");
 
             // special case +validate_config --config-file
-            if (std.mem.eql(u8, "config-file", opt.name)) {
+            if (std.mem.eql(u8, "config-file", opt)) {
                 try writer.writeAll(" -F");
             } else try writer.writeAll(" -f");
 
-            switch (@typeInfo(opt.type)) {
+            switch (@typeInfo(opt_type)) {
                 .bool => {},
                 .@"enum" => |info| {
                     try writer.writeAll(" -a \"");
-                    for (info.fields, 0..) |f, i| {
+                    for (info.field_names, 0..) |f, i| {
                         if (i > 0) try writer.writeAll(" ");
-                        try writer.writeAll(f.name);
+                        try writer.writeAll(f);
                     }
                     try writer.writeAll("\"");
                 },
@@ -134,9 +134,9 @@ fn writeCompletions(writer: *std.Io.Writer) !void {
                     switch (@typeInfo(optional.child)) {
                         .@"enum" => |info| {
                             try writer.writeAll(" -a \"");
-                            for (info.fields, 0..) |f, i| {
+                            for (info.field_names, 0..) |f, i| {
                                 if (i > 0) try writer.writeAll(" ");
-                                try writer.writeAll(f.name);
+                                try writer.writeAll(f);
                             }
                             try writer.writeAll("\"");
                         },

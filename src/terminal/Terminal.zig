@@ -889,7 +889,7 @@ fn printSliceFill(
                     const v: V = cps[idx..][0..lanes].*;
                     const in_range = (v >= lo) & (v <= hi);
                     if (!@reduce(.And, in_range)) {
-                        const bits: std.meta.Int(.unsigned, lanes) = @bitCast(in_range);
+                        const bits: @Int(.unsigned, lanes) = @bitCast(in_range);
                         idx += @ctz(~bits);
                         break;
                     }
@@ -3922,7 +3922,7 @@ pub fn printAttributes(self: *Terminal, buf: []u8) ![]const u8 {
         // Preserve underline styles. Kind of a hack to special case 4
         // here but its easier than changing how we do all attributes.
         if (attr == 4 and pen.flags.underline != .single) {
-            try writer.print(";4:{}", .{@intFromEnum(pen.flags.underline)});
+            try writer.print(";4:{}", .{@backingInt(pen.flags.underline)});
             continue;
         }
 
@@ -4674,6 +4674,9 @@ test "Terminal: setPwd preserves a sentinel on allocation failure" {
 
     try t.pwd.ensureTotalCapacityPrecise(alloc, 3);
     failing.fail_index = failing.alloc_index;
+    // ArrayList growth remaps in place, which bypasses fail_index, so arm
+    // the resize failure index too.
+    failing.resize_fail_index = failing.resize_index;
     try testing.expectError(error.OutOfMemory, t.setPwd("pwd"));
     try testing.expect(t.getPwd() == null);
 }
@@ -4719,6 +4722,9 @@ test "Terminal: setTitle preserves a sentinel on allocation failure" {
 
     try t.title.ensureTotalCapacityPrecise(alloc, 5);
     failing.fail_index = failing.alloc_index;
+    // ArrayList growth remaps in place, which bypasses fail_index, so arm
+    // the resize failure index too.
+    failing.resize_fail_index = failing.resize_index;
     try testing.expectError(error.OutOfMemory, t.setTitle("title"));
     try testing.expect(t.getTitle() == null);
 }
@@ -8494,7 +8500,7 @@ test "Terminal: insertLines hyperlink-dense row crosses page boundary" {
     t.setCursorPos(3, 1);
     for (0..10) |i| {
         var buf: [64]u8 = undefined;
-        const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{i});
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{i});
         try t.screens.active.startHyperlink(uri, null);
         try t.print(@intCast('A' + i));
         t.screens.active.endHyperlink();
@@ -8535,7 +8541,7 @@ test "Terminal: insertLines hyperlink-dense row crosses page boundary" {
         const id = page.lookupHyperlink(list_cell.cell).?;
         const link = page.hyperlink_set.get(page.memory, id);
         var buf: [64]u8 = undefined;
-        const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{x});
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{x});
         try testing.expectEqualStrings(uri, link.uri.slice(page.memory));
     }
 
@@ -11548,7 +11554,7 @@ test "Terminal: deleteLines hyperlink-dense row crosses page boundary" {
     t.setCursorPos(4, 1);
     for (0..10) |i| {
         var buf: [64]u8 = undefined;
-        const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{i});
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{i});
         try t.screens.active.startHyperlink(uri, null);
         try t.print(@intCast('A' + i));
         t.screens.active.endHyperlink();
@@ -11589,7 +11595,7 @@ test "Terminal: deleteLines hyperlink-dense row crosses page boundary" {
         const id = page.lookupHyperlink(list_cell.cell).?;
         const link = page.hyperlink_set.get(page.memory, id);
         var buf: [64]u8 = undefined;
-        const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{x});
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{x});
         try testing.expectEqualStrings(uri, link.uri.slice(page.memory));
     }
 

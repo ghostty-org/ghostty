@@ -99,17 +99,20 @@ pub fn main(init: std.process.Init) !u8 {
     }
 
     const exe_dir = try std.process.executableDirPathAlloc(init.io, alloc);
-    const esctest_dir = try alloc.dupeZ(u8, try std.fs.path.resolve(alloc, &.{
-        exe_dir,
-        "..",
-        "share",
-        "esctest",
-    }));
+    const esctest_dir = try alloc.dupeSentinel(
+        u8,
+        try std.fs.path.resolve(alloc, &.{
+            exe_dir,
+            "..",
+            "share",
+            "esctest",
+        }),
+        0,
+    );
 
     // esctest writes its log to a file rather than the terminal, so we
     // give it one to copy from afterwards.
-    const log_path = try std.fmt.allocPrintSentinel(
-        alloc,
+    const log_path = try alloc.printSentinel(
         "/tmp/esctest-libghostty-{d}.log",
         .{std.c.getpid()},
         0,
@@ -120,8 +123,7 @@ pub fn main(init: std.process.Init) !u8 {
     try argv.append(alloc, "python3");
     try argv.append(alloc, "esctest.py");
     for (esctest_args) |arg| try argv.append(alloc, arg);
-    try argv.append(alloc, try std.fmt.allocPrintSentinel(
-        alloc,
+    try argv.append(alloc, try alloc.printSentinel(
         "--logfile={s}",
         .{log_path},
         0,

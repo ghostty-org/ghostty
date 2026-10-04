@@ -45,19 +45,19 @@ pub fn initForWindow(window: *gtk.Window) void {
 }
 
 pub fn setLayer(window: *gtk.Window, layer: ShellLayer) void {
-    c.gtk_layer_set_layer(@ptrCast(window), @intFromEnum(layer));
+    c.gtk_layer_set_layer(@ptrCast(window), @backingInt(layer));
 }
 
 pub fn setAnchor(window: *gtk.Window, edge: ShellEdge, anchor_to_edge: bool) void {
-    c.gtk_layer_set_anchor(@ptrCast(window), @intFromEnum(edge), @intFromBool(anchor_to_edge));
+    c.gtk_layer_set_anchor(@ptrCast(window), @backingInt(edge), @intFromBool(anchor_to_edge));
 }
 
 pub fn setMargin(window: *gtk.Window, edge: ShellEdge, margin_size: c_int) void {
-    c.gtk_layer_set_margin(@ptrCast(window), @intFromEnum(edge), margin_size);
+    c.gtk_layer_set_margin(@ptrCast(window), @backingInt(edge), margin_size);
 }
 
 pub fn setKeyboardMode(window: *gtk.Window, mode: KeyboardMode) void {
-    c.gtk_layer_set_keyboard_mode(@ptrCast(window), @intFromEnum(mode));
+    c.gtk_layer_set_keyboard_mode(@ptrCast(window), @backingInt(mode));
 }
 
 pub fn setMonitor(window: *gtk.Window, monitor: ?*gdk.Monitor) void {

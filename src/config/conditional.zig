@@ -39,12 +39,12 @@ pub const State = struct {
 /// An enum of the available conditional configuration keys.
 pub const Key = key: {
     const stateInfo = @typeInfo(State).@"struct";
-    const TagInt = std.math.IntFittingRange(0, stateInfo.fields.len - 1);
-    var names: [stateInfo.fields.len][]const u8 = undefined;
-    var values: [stateInfo.fields.len]TagInt = undefined;
+    const TagInt = std.math.IntFittingRange(0, stateInfo.field_names.len - 1);
+    var names: [stateInfo.field_names.len][]const u8 = undefined;
+    var values: [stateInfo.field_names.len]TagInt = undefined;
 
-    for (stateInfo.fields, &names, &values, 0..) |field, *name, *v, i| {
-        name.* = field.name;
+    for (stateInfo.field_names, &names, &values, 0..) |field, *name, *v, i| {
+        name.* = field;
         v.* = @intCast(i);
     }
 

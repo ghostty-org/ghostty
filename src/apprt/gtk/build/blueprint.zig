@@ -40,7 +40,7 @@ const required_blueprint_version = std.SemanticVersion{
 };
 
 pub fn main(init: std.process.Init) !void {
-    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    var debug_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     defer _ = debug_allocator.deinit();
     const alloc = debug_allocator.allocator();
 

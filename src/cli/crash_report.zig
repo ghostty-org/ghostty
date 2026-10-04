@@ -85,7 +85,7 @@ fn runInner(
         const diff = now - report.mtime;
         const since = if (diff <= 0) "now" else s: {
             const d = Config.Duration{ .duration = @intCast(diff) };
-            break :s try std.fmt.bufPrint(&buf, "{f} ago", .{d.round(std.time.ns_per_s)});
+            break :s try std.mem.print(&buf, "{f} ago", .{d.round(std.time.ns_per_s)});
         };
         try stdout.print("{s} ({s})\n", .{ report.name, since });
     }

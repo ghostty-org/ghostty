@@ -84,17 +84,17 @@ fn autoAttribute(
         .constant => std.math.maxInt(gl.c.GLuint),
     };
 
-    inline for (@typeInfo(T).@"struct".fields, 0..) |field, i| {
+    inline for (@typeInfo(T).@"struct".field_names, @typeInfo(T).@"struct".field_types, 0..) |field_name, field_type, i| {
         try vaobind.enableAttribArray(i);
         try vaobind.attributeBinding(i, 0);
         try vaobind.bindingDivisor(i, divisor);
 
-        const offset = @offsetOf(T, field.name);
+        const offset = @offsetOf(T, field_name);
 
-        const FT = switch (@typeInfo(field.type)) {
+        const FT = switch (@typeInfo(field_type)) {
             .@"struct" => |s| s.backing_integer.?,
             .@"enum" => |e| e.tag_type,
-            else => field.type,
+            else => field_type,
         };
 
         const size, const IT = switch (@typeInfo(FT)) {

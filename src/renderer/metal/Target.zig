@@ -71,7 +71,7 @@ pub fn init(opts: Options) !Self {
     // Set our properties
     desc.setProperty("width", @as(c_ulong, @intCast(opts.width)));
     desc.setProperty("height", @as(c_ulong, @intCast(opts.height)));
-    desc.setProperty("pixelFormat", @intFromEnum(opts.pixel_format));
+    desc.setProperty("pixelFormat", @backingInt(opts.pixel_format));
     desc.setProperty("usage", mtl.MTLTextureUsage{ .render_target = true });
     desc.setProperty(
         "resourceOptions",

@@ -246,7 +246,7 @@ pub const GlobalShortcuts = extern struct {
 
             try priv.map.put(
                 alloc,
-                try alloc.dupeZ(u8, trigger),
+                try alloc.dupeSentinel(u8, trigger, 0),
                 actions[0],
             );
         }
@@ -302,10 +302,11 @@ pub const GlobalShortcuts = extern struct {
                     var it = priv.map.iterator();
                     while (it.next()) |entry| {
                         const trigger = entry.key_ptr.*.ptr;
-                        const action = std.fmt.bufPrintZ(
+                        const action = std.mem.printSentinel(
                             &action_buf,
                             "{f}",
                             .{entry.value_ptr.*},
+                            0,
                         ) catch continue;
 
                         binds.addParsed(
@@ -341,7 +342,7 @@ pub const GlobalShortcuts = extern struct {
                     const priv = shortcuts.private();
                     const dbus = priv.dbus_connection.?;
                     const alloc = priv.arena.?.allocator();
-                    priv.handle = alloc.dupeZ(u8, std.mem.span(handle.?)) catch {
+                    priv.handle = alloc.dupeSentinel(u8, std.mem.span(handle.?), 0) catch {
                         log.warn("out of memory: failed to clone session handle", .{});
                         return;
                     };
@@ -687,12 +688,13 @@ const Token = [16]u8;
 fn generateToken(buf: *Token) [:0]const u8 {
     // u28 takes up 7 bytes in hex, 8 bytes for "ghostty_" and 1 byte for NUL
     // 7 + 8 + 1 = 16
-    return std.fmt.bufPrintZ(
+    return std.mem.printSentinel(
         buf,
         "ghostty_{x:0<7}",
         .{rand_int: {
             const rng_impl: std.Random.IoSource = .{ .io = global.io() };
             break :rand_int rng_impl.interface().int(u28);
         }},
+        0,
     ) catch unreachable;
 }

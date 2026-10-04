@@ -49,12 +49,12 @@ pub const Options = struct {
         // Gather up the rest of the arguments to use as the command.
         while (iter.next()) |param| {
             if (e_seen) {
-                try self._arguments.append(alloc, try alloc.dupeZ(u8, param));
+                try self._arguments.append(alloc, try alloc.dupeSentinel(u8, param, 0));
                 continue;
             }
             if (std.mem.eql(u8, param, "-e")) {
                 e_seen = true;
-                try self._arguments.append(alloc, try alloc.dupeZ(u8, param));
+                try self._arguments.append(alloc, try alloc.dupeSentinel(u8, param, 0));
                 continue;
             }
             if (try self.checkArg(alloc, param)) |a| try self._arguments.append(alloc, a);
@@ -70,14 +70,14 @@ pub const Options = struct {
 
     fn checkArg(self: *Options, alloc: Allocator, arg: []const u8) CheckArgError!?[:0]const u8 {
         if (std.mem.cutPrefix(u8, arg, "--class=")) |rest| {
-            self.class = try alloc.dupeZ(u8, std.mem.trim(u8, rest, &std.ascii.whitespace));
+            self.class = try alloc.dupeSentinel(u8, std.mem.trim(u8, rest, &std.ascii.whitespace), 0);
             return null;
         }
 
         if (std.mem.cutPrefix(u8, arg, "--working-directory=")) |rest| {
             const stripped = std.mem.trim(u8, rest, &std.ascii.whitespace);
-            if (std.mem.eql(u8, stripped, "home")) return try alloc.dupeZ(u8, arg);
-            if (std.mem.eql(u8, stripped, "inherit")) return try alloc.dupeZ(u8, arg);
+            if (std.mem.eql(u8, stripped, "home")) return try alloc.dupeSentinel(u8, arg, 0);
+            if (std.mem.eql(u8, stripped, "inherit")) return try alloc.dupeSentinel(u8, arg, 0);
             const cwd: std.Io.Dir = .cwd();
             var expandhome_buf: [std.fs.max_path_bytes]u8 = undefined;
             const expanded = expanded: {
@@ -88,10 +88,10 @@ pub const Options = struct {
             var realpath_buf: [std.fs.max_path_bytes]u8 = undefined;
             const realpath = realpath_buf[0..try cwd.realPathFile(self._io, expanded, &realpath_buf)];
             self._working_directory_seen = true;
-            return try std.fmt.allocPrintSentinel(alloc, "--working-directory={s}", .{realpath}, 0);
+            return try alloc.printSentinel("--working-directory={s}", .{realpath}, 0);
         }
 
-        return try alloc.dupeZ(u8, arg);
+        return try alloc.dupeSentinel(u8, arg, 0);
     }
 
     pub fn deinit(self: *Options) void {
@@ -209,9 +209,9 @@ fn runArgs(
         var exit: bool = false;
         outer: for (opts._diagnostics.items()) |diagnostic| {
             if (diagnostic.location != .cli) continue :outer;
-            inner: inline for (@typeInfo(Options).@"struct".fields) |field| {
-                if (field.name[0] == '_') continue :inner;
-                if (std.mem.eql(u8, field.name, diagnostic.key)) {
+            inner: inline for (@typeInfo(Options).@"struct".field_names) |field| {
+                if (field[0] == '_') continue :inner;
+                if (std.mem.eql(u8, field, diagnostic.key)) {
                     try stderr.print("config error: {f}\n", .{diagnostic});
                     exit = true;
                 }
@@ -226,8 +226,7 @@ fn runArgs(
         var buf: [std.fs.max_path_bytes]u8 = undefined;
         const wd = buf[0..try cwd.realPathFile(global.io(), ".", &buf)];
         // This should be inserted at the beginning of the list, just in case `-e` was used.
-        try opts._arguments.insert(alloc, 0, try std.fmt.allocPrintSentinel(
-            alloc,
+        try opts._arguments.insert(alloc, 0, try alloc.printSentinel(
             "--working-directory={s}",
             .{wd},
             0,

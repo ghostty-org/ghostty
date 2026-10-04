@@ -371,7 +371,7 @@ pub fn ProcThreadAttributeValue(
     comptime input: bool,
     comptime additive: bool,
 ) DWORD {
-    return (@intFromEnum(attribute) & PROC_THREAD_ATTRIBUTE_NUMBER) |
+    return (@backingInt(attribute) & PROC_THREAD_ATTRIBUTE_NUMBER) |
         (if (thread) PROC_THREAD_ATTRIBUTE_THREAD else 0) |
         (if (input) PROC_THREAD_ATTRIBUTE_INPUT else 0) |
         (if (additive) PROC_THREAD_ATTRIBUTE_ADDITIVE else 0);

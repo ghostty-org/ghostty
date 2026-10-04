@@ -228,7 +228,7 @@ fn findVTReplayStart(input: []const u8) ?usize {
     // vector chunks; pure payload inputs (no ESC at all) still scan quickly.
     if (comptime std.simd.suggestVectorLength(u8)) |lanes| {
         const V = @Vector(lanes, u8);
-        const Bits = std.meta.Int(.unsigned, lanes);
+        const Bits = @Int(.unsigned, lanes);
         const needle: V = @splat(esc);
 
         // Process several vectors per iteration so long inputs without ESC

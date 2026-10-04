@@ -43,9 +43,9 @@ pub const Freestanding = struct {
         // Format. We attempt to use a stack-allocated string first and if that
         // fails we'll try to allocate.
         var allocated: bool = false;
-        const str = nosuspend std.fmt.bufPrint(&buf, txt, args) catch str: {
+        const str = nosuspend std.mem.print(&buf, txt, args) catch str: {
             allocated = true;
-            break :str std.fmt.allocPrint(wasm.alloc, txt, args) catch return;
+            break :str wasm.alloc.print(txt, args) catch return;
         };
         defer if (allocated) wasm.alloc.free(str);
 

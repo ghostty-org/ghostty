@@ -359,8 +359,8 @@ inline fn getDispatch(
     out: ?*anyopaque,
 ) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Data, @intFromEnum(data)) orelse {
-            log.warn("render_state_get invalid data value={d}", .{@intFromEnum(data)});
+        _ = std.enums.fromInt(Data, @backingInt(data)) orelse {
+            log.warn("render_state_get invalid data value={d}", .{@backingInt(data)});
             return .invalid_value;
         };
     }
@@ -447,8 +447,8 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(SetOption, @intFromEnum(option)) orelse {
-            log.warn("render_state_set invalid option value={d}", .{@intFromEnum(option)});
+        _ = std.enums.fromInt(SetOption, @backingInt(option)) orelse {
+            log.warn("render_state_set invalid option value={d}", .{@backingInt(option)});
             return .invalid_value;
         };
     }
@@ -810,8 +810,8 @@ inline fn rowCellsGetDispatch(
     out: ?*anyopaque,
 ) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowCellsData, @intFromEnum(data)) orelse {
-            log.warn("render_state_row_cells_get invalid data value={d}", .{@intFromEnum(data)});
+        _ = std.enums.fromInt(RowCellsData, @backingInt(data)) orelse {
+            log.warn("render_state_row_cells_get invalid data value={d}", .{@backingInt(data)});
             return .invalid_value;
         };
     }
@@ -1047,8 +1047,8 @@ inline fn rowGetDispatch(
     out: ?*anyopaque,
 ) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowData, @intFromEnum(data)) orelse {
-            log.warn("render_state_row_get invalid data value={d}", .{@intFromEnum(data)});
+        _ = std.enums.fromInt(RowData, @backingInt(data)) orelse {
+            log.warn("render_state_row_get invalid data value={d}", .{@backingInt(data)});
             return .invalid_value;
         };
     }
@@ -1115,8 +1115,8 @@ pub fn row_set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowOption, @intFromEnum(option)) orelse {
-            log.warn("render_state_row_set invalid option value={d}", .{@intFromEnum(option)});
+        _ = std.enums.fromInt(RowOption, @backingInt(option)) orelse {
+            log.warn("render_state_row_set invalid option value={d}", .{@backingInt(option)});
             return .invalid_value;
         };
     }
@@ -1883,12 +1883,12 @@ test "render: row cells get graphemes utf8" {
         try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
         try testing.expectEqual(case.expected.len, text.len);
 
-        var small = [_]u8{'x'} ** 32;
+        var small: [32]u8 = @splat('x');
         const small_cap = case.expected.len - 1;
         text = .{ .ptr = small[0..small_cap].ptr, .cap = small_cap };
         try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
         try testing.expectEqual(case.expected.len, text.len);
-        try testing.expectEqualSlices(u8, &([_]u8{'x'} ** 32), &small);
+        try testing.expectEqualSlices(u8, &@as([32]u8, @splat('x')), &small);
 
         var buf: [32]u8 = undefined;
         text = .{ .ptr = &buf, .cap = case.expected.len };
@@ -2677,7 +2677,7 @@ fn testTerminalWithLines(
 
     var buf: [32]u8 = undefined;
     for (0..lines) |i| {
-        const line = try std.fmt.bufPrint(
+        const line = try std.mem.print(
             &buf,
             "{s}line {d}",
             .{ if (i == 0) "" else "\r\n", i },

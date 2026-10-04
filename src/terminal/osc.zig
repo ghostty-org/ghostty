@@ -273,7 +273,7 @@ pub const Command = union(Key) {
 
         pub fn cval(self: ProgressReport) C {
             return .{
-                .state = @intFromEnum(self.state),
+                .state = @backingInt(self.state),
                 .progress = if (self.progress) |progress| @intCast(std.math.clamp(
                     progress,
                     0,
