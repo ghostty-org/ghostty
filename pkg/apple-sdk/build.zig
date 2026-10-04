@@ -111,6 +111,24 @@ pub fn pathsForTarget(b: *std.Build, target: std.Target) !Cache.Value {
             gop.value_ptr.* = null;
             break :init;
         }
+
+        // Fall back to Zig's bundled Darwin headers for libc resolution.
+        // The Zig library directory is only known to the build script as
+        // a lazy path, so a build tool renders the libc txt file at run
+        // time instead of us templating it at configuration time.
+        const sdk_dep = b.dependency("apple_sdk", .{});
+        const tool = sdk_dep.builder.addExecutable(.{
+            .name = "gen_libc",
+            .root_module = sdk_dep.builder.createModule(.{
+                .root_source_file = sdk_dep.path("gen_libc.zig"),
+                .target = b.graph.host,
+            }),
+        });
+        const run = sdk_dep.builder.addRunArtifact(tool);
+        run.addDirectoryArg2(.zig_lib, .{});
+        const path = run.captureStdOut(.{ .basename = "libc.txt" });
+
+        gop.value_ptr.* = .{ .cross = .{ .libc = path } };
     }
 
     return gop.value_ptr.* orelse return switch (target.os.tag) {
