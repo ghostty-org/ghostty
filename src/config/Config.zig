@@ -1011,15 +1011,23 @@ palette: Palette = .{},
 /// `precision:` and `discrete:` prefixes.
 @"mouse-scroll-multiplier": MouseScrollMultiplier = .default,
 
-/// The opacity level (opposite of transparency) of the background. A value of
-/// 1 is fully opaque and a value of 0 is fully transparent. A value less than 0
-/// or greater than 1 will be clamped to the nearest valid value.
+/// The opacity level (opposite of transparency) of the background.
 ///
-/// On macOS, background opacity is disabled when the terminal enters native
-/// fullscreen. This is because the background becomes gray and it can cause
-/// widgets to show through which isn't generally desirable.
+/// **Default:** `1`
 ///
-/// On macOS, changing this configuration requires restarting Ghostty completely.
+/// **Values:**
+///
+/// * A number in the range [0, 1], from full transparent to fully opaque.
+///
+/// **Platforms:** macOS, GTK
+///
+/// **Changes:** On macOS, changing this option requires a complete restart
+/// of Ghostty.
+///
+/// **Details:** On macOS, background opacity is disabled when a terminal
+/// enters native fullscreen. The background would otherwise become gray and
+/// might allow widgets to show through.
+///
 @"background-opacity": f64 = 1.0,
 
 /// Applies background opacity to cells with an explicit background color
