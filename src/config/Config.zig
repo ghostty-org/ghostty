@@ -865,21 +865,27 @@ palette: Palette = .{},
 /// make it difficult to find the cursor.
 @"cursor-opacity": f64 = 1.0,
 
-/// The style of the cursor. This sets the default style. A running program can
-/// still request an explicit cursor style using escape sequences (such as `CSI
-/// q`). Shell configurations will often request specific cursor styles.
+/// The style of the cursor.
 ///
-/// Note that shell integration will automatically set the cursor to a bar at
-/// a prompt, regardless of this configuration. You can disable that behavior
-/// by specifying `shell-integration-features = no-cursor` or disabling shell
-/// integration entirely.
+/// **Default:** `block`
 ///
-/// Valid values are:
+/// **Values:**
 ///
-///   * `block`
-///   * `bar`
-///   * `underline`
-///   * `block_hollow`
+/// * `block` — A filled block cursor.
+/// * `bar` — A vertical bar cursor.
+/// * `underline` — A horizontal line beneath the cell.
+/// * `block_hollow` — A block outline with an empty center.
+///
+/// **Platforms:** ghostty
+///
+/// **Details:** This sets the default style. Running programs can request a
+/// different cursor style with escape sequences such as `CSI q`, and shell
+/// configurations may also request a specific style.
+///
+/// Shell integration sets the cursor to a bar at prompts regardless of this
+/// option. To disable that behavior, set
+/// `shell-integration-features = no-cursor` or disable shell integration
+/// entirely.
 @"cursor-style": terminal.CursorStyle = .block,
 
 /// Sets the default blinking state of the cursor. This is just the default
