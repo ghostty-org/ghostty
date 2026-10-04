@@ -27,9 +27,9 @@ const Harness = struct {
         self.output.deinit();
     }
 
-    /// The drop target state; asserts it exists.
-    fn drop(self: *Harness) *dnd.State {
-        return self.state.?;
+    /// The drop target; asserts the state exists.
+    fn drop(self: *Harness) *dnd.DropTarget {
+        return &self.state.?.drop;
     }
 
     fn writer(self: *Harness) *std.Io.Writer {
@@ -273,7 +273,7 @@ test "dnd: chunked client acceptance" {
     try testing.expectEqualSlices(
         u8,
         "text/plain\x00text/html\x00",
-        h.drop().drop.accepted_mimes.items,
+        h.drop().accepted_mimes.items,
     );
     var it = h.drop().acceptedMimes();
     try testing.expectEqualStrings("text/plain", it.next().?);
@@ -575,7 +575,7 @@ test "dnd: chunked registration reuses first chunk metadata" {
     try testing.expect(h.state != null);
     try h.expectEvents("t=q:m=0", "in", &.{.registration});
     try h.expectOutput("");
-    try testing.expectEqual(@as(u32, 4), h.drop().drop.client_id);
+    try testing.expectEqual(@as(u32, 4), h.drop().client_id);
     {
         var it = h.drop().registeredMimes();
         try testing.expectEqualStrings("text/plain", it.next().?);
@@ -682,7 +682,7 @@ test "dnd: kitten 0.47 conversation replay" {
     );
     try h.expectEvents("t=r:o=1", null, &.{.concluded_copy});
     try h.expectOutput("");
-    try testing.expect(!h.drop().drop.dropped);
+    try testing.expect(!h.drop().dropped);
 }
 
 test "dnd: large data served in chunks" {

@@ -7065,7 +7065,7 @@ test "kitty dnd: register, drop, and serve data from the effect" {
         // as an embedder with synchronous access to the data would.
         fn dragAndDrop(handler: *Handler, ev: kitty_dnd.Event) void {
             if (ev != .data_request) return;
-            const target = handler.terminal.kitty_dnd.?;
+            const target = &handler.terminal.kitty_dnd.?.drop;
             var buf: [64]u8 = undefined;
             var pty_writer = handler.ptyWriter(&buf);
             defer pty_writer.writer.flush() catch unreachable;
@@ -7101,7 +7101,7 @@ test "kitty dnd: register, drop, and serve data from the effect" {
     {
         var aw: std.Io.Writer.Allocating = .init(testing.allocator);
         defer aw.deinit();
-        try testing.expect(!try t.kitty_dnd.?.dragDrop(testing.allocator, &aw.writer, .{
+        try testing.expect(!try t.kitty_dnd.?.drop.dragDrop(testing.allocator, &aw.writer, .{
             .cell_x = 2,
             .cell_y = 1,
             .pixel_x = 20,
@@ -7125,7 +7125,7 @@ test "kitty dnd: register, drop, and serve data from the effect" {
 
     s.nextSlice("\x1B]72;t=r\x1B\\");
     try testing.expectEqualStrings("", S.pty.items);
-    try testing.expect(t.kitty_dnd.?.request() == null);
+    try testing.expect(t.kitty_dnd.?.drop.request() == null);
     try testing.expect(!t.kitty_dnd.?.drop.dropped);
 }
 
@@ -7198,8 +7198,8 @@ test "kitty dnd: effect reports registration, acceptance, and conclusion" {
             mimes.clearRetainingCapacity();
             const state = handler.terminal.kitty_dnd orelse return;
             var it = switch (ev) {
-                .registration => state.registeredMimes(),
-                .acceptance => state.acceptedMimes(),
+                .registration => state.drop.registeredMimes(),
+                .acceptance => state.drop.acceptedMimes(),
                 else => return,
             };
             while (it.next()) |m| {
@@ -7229,7 +7229,7 @@ test "kitty dnd: effect reports registration, acceptance, and conclusion" {
     {
         var aw: std.Io.Writer.Allocating = .init(testing.allocator);
         defer aw.deinit();
-        _ = try t.kitty_dnd.?.dragDrop(testing.allocator, &aw.writer, .{
+        _ = try t.kitty_dnd.?.drop.dragDrop(testing.allocator, &aw.writer, .{
             .cell_x = 0,
             .cell_y = 0,
             .pixel_x = 0,
