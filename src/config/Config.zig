@@ -2124,58 +2124,40 @@ keybind: Keybinds = .{},
 /// configuration `font-size` will be used.
 @"window-inherit-font-size": bool = true,
 
-/// Configure a preference for window decorations. This setting specifies
-/// a _preference_; the actual OS, desktop environment, window manager, etc.
-/// may override this preference. Ghostty will do its best to respect this
-/// preference but it may not always be possible.
+/// Configure a preference for window decorations.
 ///
-/// Valid values:
+/// **Default:** `auto`
 ///
-///  * `none`
+/// **Values:**
 ///
-///    All window decorations will be disabled. Titlebar, borders, etc. will
-///    not be shown. On macOS, this will also disable tabs (enforced by the
-///    system).
+/// * `none` — Disable the titlebar, borders, and other decorations. On macOS,
+///   this also disables tabs. **Since:** 1.1.0.
+/// * `auto` — Choose client-side or server-side decorations based on the OS
+///   and desktop environment. On macOS, keep the native decorations.
+///   **Since:** 1.1.0.
+/// * `client` — Prefer client-side decorations on GTK; on macOS, keep the
+///   native decorations. **Since:** 1.1.0.
+/// * `server` — Prefer window-manager decorations on GTK. On X11, this uses
+///   window-manager hints; on Wayland, it requires a compositor supporting
+///   `org_kde_kwin_server_decoration`. On macOS, keep the native decorations.
+///   **Since:** 1.1.0.
+/// * `true` — Alias for `auto`.
+/// * `false` — Alias for `none`.
 ///
-///  * `auto`
+/// **Platforms:** macOS, GTK
 ///
-///    Automatically decide to use either client-side or server-side
-///    decorations based on the detected preferences of the current OS and
-///    desktop environment. This option usually makes Ghostty look the most
-///    "native" for your desktop.
+/// **Details:** This is a preference. The OS, desktop environment, or window
+/// manager may override it. If `server` is selected but server-side
+/// decorations are unavailable, Ghostty uses client-side decorations.
 ///
-///  * `client`
+/// The `toggle_window_decorations` keybind action toggles this setting at
+/// runtime.
 ///
-///    Prefer client-side decorations.
+/// On macOS, use `macos-titlebar-style = hidden` to hide the titlebar while
+/// retaining the native window borders and rounded corners.
 ///
-///    Available since: 1.1.0
-///
-///  * `server`
-///
-///    Prefer server-side decorations. This is only relevant on Linux with GTK,
-///    either on X11, or Wayland on a compositor that supports the
-///    `org_kde_kwin_server_decoration` protocol (e.g. KDE Plasma, but almost
-///    any non-GNOME desktop supports this protocol).
-///
-///    If `server` is set but the environment doesn't support server-side
-///    decorations, client-side decorations will be used instead.
-///
-///    Available since: 1.1.0
-///
-/// The default value is `auto`.
-///
-/// For the sake of backwards compatibility and convenience, this setting also
-/// accepts boolean true and false values. If set to `true`, this is equivalent
-/// to `auto`. If set to `false`, this is equivalent to `none`.
-/// This is convenient for users who live primarily on systems that don't
-/// differentiate between client and server-side decorations (e.g. macOS and
-/// Windows).
-///
-/// The "toggle_window_decorations" keybind action can be used to create
-/// a keybinding to toggle this setting at runtime.
-///
-/// macOS: To hide the titlebar without removing the native window borders
-///        or rounded corners, use `macos-titlebar-style = hidden` instead.
+/// **Changed in:** 1.1.0 added the named values and retained the former
+/// boolean values as aliases.
 @"window-decoration": WindowDecoration = .auto,
 
 /// The font that will be used for the application's window and tab titles.
