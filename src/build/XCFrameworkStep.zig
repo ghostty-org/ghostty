@@ -50,29 +50,39 @@ pub fn create(b: *std.Build, opts: Options) *XCFrameworkStep {
         run.addArg("-library");
         run.addFileArg(lib.library);
         run.addArg("-headers");
-        run.addFileArg(lib.headers);
+        run.addDirectoryArg(lib.headers);
         if (lib.dsym) |dsym| {
             run.addArg("-debug-symbols");
-            run.addFileArg(dsym);
+            run.addDirectoryArg(dsym);
         }
     }
     run.addArg("-output");
-    const out = run.addOutputFileArg2("xcframework", .{});
+    const out = run.addOutputFileArg2(b.fmt("{s}.xcframework", .{opts.name}), .{});
     run.expectExitCode(0);
     _ = run.captureStdOut(.{});
     _ = run.captureStdErr(.{});
 
     const step = switch (opts.out_path) {
         .install_prefix => |v| s: {
-            const install_step = b.addInstallFile(out, v);
+            const install_step = b.addInstallDirectory(.{
+                .source_dir = out,
+                .install_dir = .prefix,
+                .install_subdir = v,
+            });
             break :s &install_step.step;
         },
         .source_tree => |v| s: {
-            // This is a rather cursed use of UpdateSourceFiles, but I'm
-            // not really interested in redesigning the macOS build system
-            const usf = b.addUpdateSourceFiles();
-            usf.addCopyFileToSource(out, v);
-            break :s &usf.step;
+            const delete = RunStep.create(b, b.fmt("xcframework delete {s}", .{opts.name}));
+            delete.has_side_effects = true;
+            delete.addArgs(&.{ "rm", "-rf", v });
+
+            const copy = RunStep.create(b, b.fmt("xcframework copy {s}", .{opts.name}));
+            copy.has_side_effects = true;
+            copy.addArgs(&.{ "cp", "-R" });
+            copy.addDirectoryArg(out);
+            copy.addArg(v);
+            copy.step.dependOn(&delete.step);
+            break :s &copy.step;
         },
     };
 
