@@ -57,13 +57,17 @@ pub fn init(b: *Build, opts: Options) !GhosttyPkgConfig {
 
 pub fn getSharedFile(self: *const GhosttyPkgConfig) LazyPath {
     const run = self.owner.addRunArtifact(self.generator);
-    run.addDirectoryArg2(self.owner.graph.path(.install_prefix, ""), .{});
+    run.addDirectoryArg2(self.owner.graph.path(.install_prefix, ""), .{
+        .make_absolute = true,
+    });
     return run.captureStdOut(.{});
 }
 
 pub fn getStaticFile(self: *const GhosttyPkgConfig) LazyPath {
     const run = self.owner.addRunArtifact(self.generator);
     run.setEnvironmentVariable("IS_STATIC", "1");
-    run.addDirectoryArg2(self.owner.graph.path(.install_prefix, ""), .{});
+    run.addDirectoryArg2(self.owner.graph.path(.install_prefix, ""), .{
+        .make_absolute = true,
+    });
     return run.captureStdOut(.{});
 }

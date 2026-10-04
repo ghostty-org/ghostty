@@ -260,18 +260,25 @@ fn addLinuxAppResources(
         },
     });
 
+    // Variables used by the templates.
+    // Fields are nullable since unused fields trigger a build failure.
+    const Variables = struct {
+        NAME: ?[]const u8 = null,
+        APPID: ?[]const u8 = null,
+    };
+
     // The templates that we will process. The templates are in
     // cmake format and will be processed and saved to the
     // second element of the tuple.
-    const Template = struct { std.Build.LazyPath, []const u8 };
+    const Template = struct { std.Build.LazyPath, []const u8, Variables };
     const templates: []const Template = templates: {
         var ts: std.ArrayList(Template) = .empty;
         defer ts.deinit(b.allocator);
 
         // Desktop file so that we have an icon and other metadata
         try ts.append(b.allocator, .{
-            b.path("dist/linux/app.desktop.in"),
-            b.fmt("share/applications/{s}.desktop", .{app_id}),
+            b.path("dist/linux/app.desktop.in"), b.fmt("share/applications/{s}.desktop", .{app_id}),
+            .{ .NAME = name, .APPID = app_id },
         });
 
         // Service for DBus activation.
@@ -281,6 +288,7 @@ fn addLinuxAppResources(
             else
                 b.path("dist/linux/dbus.service.in"),
             b.fmt("share/dbus-1/services/{s}.service", .{app_id}),
+            .{ .APPID = app_id },
         });
 
         // `systemd` user service. This is kind of nasty but `systemd` looks for
@@ -309,6 +317,7 @@ fn addLinuxAppResources(
                     app_id,
                 },
             ),
+            .{ .NAME = name, .APPID = app_id },
         });
 
         // AppStream metainfo so that application has rich metadata
@@ -316,6 +325,7 @@ fn addLinuxAppResources(
         try ts.append(b.allocator, .{
             b.path("dist/linux/com.mitchellh.ghostty.metainfo.xml.in"),
             b.fmt("share/metainfo/{s}.metainfo.xml", .{app_id}),
+            .{ .NAME = name, .APPID = app_id },
         });
 
         break :templates try ts.toOwnedSlice(b.allocator);
@@ -323,12 +333,15 @@ fn addLinuxAppResources(
 
     // Process all our templates
     for (templates) |template| {
-        const tpl = b.addConfigHeader(.{
-            .style = .{ .cmake = template[0] },
-        }, .{
-            .NAME = name,
-            .APPID = app_id,
-        });
+        const tpl = b.addConfigHeader(
+            .{ .style = .{ .cmake = template[0] } },
+            .{},
+        );
+        inline for (@typeInfo(Variables).@"struct".field_names) |field| {
+            if (@field(template[2], field)) |v| {
+                tpl.addValue(field, @FieldType(Variables, field), v);
+            }
+        }
 
         // Template output has a single header line we want to remove.
         // We use `tail` to do it since its part of the POSIX standard.
