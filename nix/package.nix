@@ -13,7 +13,7 @@
   zig_0_17,
   pandoc,
   revision ? "dirty",
-  optimize ? "Debug",
+  optimize ? "debug",
   enableX11 ? true,
   enableWayland ? true,
   wayland-protocols,
@@ -26,7 +26,7 @@
   buildInputs = import ./build-support/build-inputs.nix {
     inherit pkgs lib stdenv enableX11 enableWayland;
   };
-  strip = optimize != "Debug" && optimize != "ReleaseSafe";
+  strip = optimize != "debug" && optimize != "safe";
 in
   stdenv.mkDerivation (finalAttrs: {
     pname = "ghostty";
