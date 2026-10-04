@@ -18,7 +18,7 @@ pub const Frame = opaque {
     ) void {
         c.CTFrameGetLineOrigins(
             @ptrCast(self),
-            @bitCast(range),
+            range.cval(),
             @ptrCast(points.ptr),
         );
     }
