@@ -24,7 +24,6 @@
   #, vulkan-loader # unused
   vttest,
   wasm-tools,
-  wasmtime,
   binaryen,
   twiggy,
   wizer,
@@ -151,7 +150,6 @@ in
         binaryen
         twiggy
         wasm-tools
-        wasmtime
         wizer
 
         # Localization
