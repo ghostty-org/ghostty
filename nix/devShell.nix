@@ -164,12 +164,6 @@ in
 
         # Scripting
         nushell
-
-        # We need these GTK-related deps on all platform so we can build
-        # dist tarballs.
-        blueprint-compiler
-        libadwaita
-        gtk4
       ]
       ++ lib.optionals stdenv.hostPlatform.isLinux [
         # My nix shell environment installs the non-interactive version
@@ -211,6 +205,9 @@ in
         libXrandr
 
         # Only needed for GTK builds
+        blueprint-compiler
+        libadwaita
+        gtk4
         gtk4-layer-shell
         glib
         gobject-introspection
