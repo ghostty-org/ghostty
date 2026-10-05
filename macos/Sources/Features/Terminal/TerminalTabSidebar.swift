@@ -14,6 +14,9 @@ extension Notification.Name {
 final class TerminalTabSidebarModel: ObservableObject {
     struct Tab: Identifiable, Equatable {
         let id: ObjectIdentifier
+
+        /// The 1-based position of the tab in its window.
+        let index: Int
         let title: String
         let keyEquivalent: String?
         let color: TerminalTabColor
@@ -55,11 +58,12 @@ final class TerminalTabSidebarModel: ObservableObject {
     }
 
     func refresh() {
-        let newTabs = tabWindows.map { tabWindow in
+        let newTabs = tabWindows.enumerated().map { offset, tabWindow in
             let terminalWindow = tabWindow as? TerminalWindow
             let keyEquivalent = terminalWindow?.keyEquivalent ?? ""
             return Tab(
                 id: ObjectIdentifier(tabWindow),
+                index: offset + 1,
                 title: tabWindow.title,
                 keyEquivalent: keyEquivalent.isEmpty ? nil : keyEquivalent,
                 color: terminalWindow?.tabColor ?? .none,
@@ -201,8 +205,16 @@ struct TerminalTabSidebar: View {
                     newTabButton
                 }
                 .padding(.top, 4)
+                .padding(.bottom, 4)
 
-                Spacer(minLength: 0)
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: 2) {
+                        ForEach(model.tabs) { tab in
+                            TerminalTabSidebarRow(model: model, tab: tab, isCompact: true)
+                        }
+                    }
+                    .padding(.bottom, 6)
+                }
             } else {
                 HStack {
                     collapseButton
@@ -215,7 +227,7 @@ struct TerminalTabSidebar: View {
                 ScrollView {
                     LazyVStack(spacing: 2) {
                         ForEach(model.tabs) { tab in
-                            TerminalTabSidebarRow(model: model, tab: tab)
+                            TerminalTabSidebarRow(model: model, tab: tab, isCompact: false)
                         }
                     }
                     .padding(.horizontal, 6)
@@ -272,13 +284,62 @@ private struct TerminalTabSidebarButton: View {
     }
 }
 
+/// One tab in the sidebar: a full row when the sidebar is expanded, or a numbered tile
+/// in the collapsed rail.
 private struct TerminalTabSidebarRow: View {
     let model: TerminalTabSidebarModel
     let tab: TerminalTabSidebarModel.Tab
+    let isCompact: Bool
 
     @State private var isHovering = false
 
     var body: some View {
+        content
+            .font(.system(size: 12))
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.primary.opacity(tab.isSelected ? 0.14 : (isHovering ? 0.07 : 0)))
+            )
+            .contentShape(Rectangle())
+            .onTapGesture { model.select(tab) }
+            .onHover { isHovering = $0 }
+            .help(isCompact ? tab.title : "")
+            .contextMenu {
+                Button("Close Tab") { model.close(tab) }
+                Button("Close Other Tabs") { model.closeOthers(tab) }
+                Divider()
+                Button("Change Tab Title...") { model.promptTitle(tab) }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(tab.title)
+            .accessibilityAddTraits(tab.isSelected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityAction { model.select(tab) }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if isCompact {
+            tile
+        } else {
+            row
+        }
+    }
+
+    private var tile: some View {
+        Text("\(tab.index)")
+            .foregroundStyle(tab.isSelected ? .primary : .secondary)
+            .frame(width: 28, height: 28)
+            .overlay(alignment: .topTrailing) {
+                if let color = tab.color.displayColor {
+                    Circle()
+                        .fill(Color(nsColor: color))
+                        .frame(width: 6, height: 6)
+                        .padding(3)
+                }
+            }
+    }
+
+    private var row: some View {
         HStack(spacing: 6) {
             if let color = tab.color.displayColor {
                 Circle()
@@ -307,26 +368,8 @@ private struct TerminalTabSidebarRow: View {
                     .padding(.trailing, 5)
             }
         }
-        .font(.system(size: 12))
         .padding(.leading, 8)
         .padding(.trailing, 3)
         .frame(height: 28)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.primary.opacity(tab.isSelected ? 0.14 : (isHovering ? 0.07 : 0)))
-        )
-        .contentShape(Rectangle())
-        .onTapGesture { model.select(tab) }
-        .onHover { isHovering = $0 }
-        .contextMenu {
-            Button("Close Tab") { model.close(tab) }
-            Button("Close Other Tabs") { model.closeOthers(tab) }
-            Divider()
-            Button("Change Tab Title...") { model.promptTitle(tab) }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(tab.title)
-        .accessibilityAddTraits(tab.isSelected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityAction { model.select(tab) }
     }
 }
