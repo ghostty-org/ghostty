@@ -23,7 +23,6 @@
   valgrind,
   #, vulkan-loader # unused
   vttest,
-  wabt,
   wasm-tools,
   wasmtime,
   binaryen,
@@ -151,7 +150,6 @@ in
         # wasm
         binaryen
         twiggy
-        wabt
         wasm-tools
         wasmtime
         wizer
