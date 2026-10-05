@@ -11,17 +11,19 @@ const log = std.log.scoped(.gtk_ghostty_overrides);
 const Overrides = @This();
 const ParseError = Allocator.Error || error{ValueRequired};
 
-command: ?configpkg.Command,
-shell_integration: ?configpkg.Config.ShellIntegration,
-working_directory: ?[:0]const u8,
-title: ?[:0]const u8,
+command: ?configpkg.Command = null,
+shell_integration: ?configpkg.Config.ShellIntegration = null,
+working_directory: ?[:0]const u8 = null,
+title: ?[:0]const u8 = null,
 
-pub const none: Overrides = .{
-    .command = null,
-    .shell_integration = null,
-    .working_directory = null,
-    .title = null,
-};
+/// `KEY=VALUE` entries applied on top of the `env` configuration.
+env: []const [:0]const u8 = &.{},
+
+/// When true, the surface stays open after its command exits, even if
+/// `wait-after-command` is off. False leaves the configuration alone.
+wait_after_command: bool = false,
+
+pub const none: Overrides = .{};
 
 pub fn parse(arena_alloc: Allocator, arguments_it: *glib.VariantIter) ParseError!Overrides {
     var args: std.ArrayList([:0]const u8) = .empty;
