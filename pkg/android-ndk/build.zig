@@ -90,14 +90,18 @@ pub fn addPaths(b: *std.Build, step: *std.Build.Step.Compile) !void {
             "v1",
         });
 
+        // Every field must be present as a key; Zig 0.17's parser errors
+        // on missing keys regardless of target, and requires `cc_dir` to
+        // be non-empty for Linux targets (Android included).
         const libc_txt = b.fmt(
             \\include_dir={s}
             \\sys_include_dir={s}
+            \\cc_dir={s}
             \\crt_dir={s}
             \\msvc_lib_dir=
             \\kernel32_lib_dir=
-            \\gcc_dir=
-        , .{ include_dir, sys_include_dir, c_runtime_dir });
+            \\darwin_sdk_dir=
+        , .{ include_dir, sys_include_dir, c_runtime_dir, c_runtime_dir });
 
         const wf = b.addWriteFiles();
         const libc_path = wf.add("libc.txt", libc_txt);
