@@ -2771,6 +2771,16 @@ keybind: Keybinds = .{},
 /// together: for instance, a size of `50%,500px` for a top-positioned quick
 /// terminal would be half a screen tall, and 500 pixels wide.
 ///
+/// On macOS, the quick terminal remembers its size when it is resized
+/// manually, and the remembered size is used instead of the configured size
+/// the next time the quick terminal is shown. Whether the remembered size
+/// also survives across launches depends on this setting: if no size is
+/// configured, it is saved and restored according to `window-save-state`
+/// (Available since 1.3.0). If a size is configured, the remembered size is
+/// discarded on every launch and whenever this setting changes on a config
+/// reload, so the quick terminal returns to the configured size the next time
+/// the quick terminal is shown (Available since 1.4.0).
+///
 /// Available since: 1.2.0
 @"quick-terminal-size": QuickTerminalSize = .{},
 
