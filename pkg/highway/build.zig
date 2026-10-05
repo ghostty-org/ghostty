@@ -106,6 +106,11 @@ pub fn build(b: *std.Build) !void {
             "-fno-autolink",
             "-fno-stack-protector",
         });
+
+        // When the C stack protector is disabled we must also disable stack
+        // protection for the Zig code, since otherwise Zig will link to
+        // undefined security cookie symbols.
+        lib.root_module.stack_protector = false;
     }
 
     lib.root_module.addCSourceFiles(.{ .flags = flags.items, .files = &.{
