@@ -31,7 +31,6 @@
   zip,
   aflplusplus,
   llvmPackages_22,
-  llvmPackages_latest,
   bzip2,
   expat,
   fontconfig,
@@ -118,7 +117,6 @@ in
         cmake
         doxygen
         jq
-        llvmPackages_latest.llvm
         minisign
         ncurses
         pandoc
