@@ -33,8 +33,8 @@ pub fn init(b: *Build, opts: Options) !GhosttyPkgConfig {
         }),
     });
 
-    const libs = try std.mem.concat(b.allocator, u8, opts.libs);
-    const libs_static = if (opts.libs_static) |s| try std.mem.concat(b.allocator, u8, s) else libs;
+    const libs = try std.mem.join(b.allocator, " ", opts.libs);
+    const libs_static = if (opts.libs_static) |s| try std.mem.join(b.allocator, " ", s) else libs;
 
     const options = b.addOptions();
     options.addOption([]const u8, "name", opts.name);
@@ -44,8 +44,8 @@ pub fn init(b: *Build, opts: Options) !GhosttyPkgConfig {
     options.addOption(std.SemanticVersion, "version", opts.version);
     options.addOption([]const u8, "libs", libs);
     options.addOption([]const u8, "libs_static", libs_static);
-    options.addOption([]const u8, "libs_private", try std.mem.concat(b.allocator, u8, opts.libs_private));
-    options.addOption([]const u8, "reqs_private", try std.mem.concat(b.allocator, u8, opts.reqs_private));
+    options.addOption([]const u8, "libs_private", try std.mem.join(b.allocator, " ", opts.libs_private));
+    options.addOption([]const u8, "reqs_private", try std.mem.join(b.allocator, " ", opts.reqs_private));
     generator.root_module.addOptions("options", options);
 
     return .{

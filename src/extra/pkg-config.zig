@@ -36,7 +36,7 @@ pub fn main(init: std.process.Init) !void {
         .name = if (is_static) options.name_static else options.name,
         .description = if (is_static) options.description_static else options.description,
         .version = options.version,
-        .libs = if (is_static) options.libs else options.libs_static,
+        .libs = if (is_static) options.libs_static else options.libs,
         .libs_private = options.libs_private,
         .reqs_private = options.reqs_private,
     });
