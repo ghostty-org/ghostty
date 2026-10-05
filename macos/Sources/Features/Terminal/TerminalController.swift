@@ -61,6 +61,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
+    /// The tabs listed by this window's vertical tab sidebar.
+    private let tabSidebarModel = TerminalTabSidebarModel()
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -613,6 +616,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             }
         }
+
+        NotificationCenter.default.post(name: .terminalTabsDidChange, object: nil)
     }
 
     private func fixTabBar() {
@@ -1112,16 +1117,23 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             focusedSurface = view
         }
 
-        // Initialize our content view to the SwiftUI root
+        // Initialize our content view to the SwiftUI root, with the vertical
+        // tab sidebar beside the terminal.
+        tabSidebarModel.window = window
         let container = TerminalViewContainer {
-            TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+            TerminalTabSidebarLayout(model: tabSidebarModel, ghostty: ghostty) {
+                TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+            }
         }
 
         // Set the initial content size on the container so that
         // intrinsicContentSize returns the correct value immediately,
         // without waiting for @FocusedValue to propagate through the
-        // SwiftUI focus chain.
-        container.initialContentSize = focusedSurface?.initialSize
+        // SwiftUI focus chain. The sidebar takes its width on top of
+        // the terminal's.
+        container.initialContentSize = focusedSurface?.initialSize.map {
+            NSSize(width: $0.width + TerminalTabSidebar.occupiedWidth, height: $0.height)
+        }
 
         window.contentView = container
 
@@ -1605,6 +1617,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         selectedWindow.makeKey()
 
         NSAnimationContext.endGrouping()
+
+        // The window was already key, so nothing else relabels the reordered tabs.
+        relabelTabs()
     }
 
     @objc private func onGotoTab(notification: SwiftUI.Notification) {
