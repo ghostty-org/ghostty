@@ -59,6 +59,18 @@
     # Our supported systems are the same supported systems as the Zig binaries.
     platforms = lib.attrNames zig.packages;
 
+    # Backport https://codeberg.org/ziglang/zig/commit/0bfd34342b so
+    # cross-compiling C/C++ sources for iOS doesn't instantiate unsupported
+    # process spawning code in Zig 0.17's standard library.
+    zig_0_17 = system:
+      zig.packages.${system}."0.17.0".overrideAttrs (previousAttrs: {
+        patches =
+          (previousAttrs.patches or [])
+          ++ [
+            ./nix/patches/zig-0.17-ios-process-replace.patch
+          ];
+      });
+
     # It's not always possible to build Ghostty with Nix for each system,
     # one such example being macOS due to missing Swift 6 and xcodebuild
     # support in the Nix ecosystem. Therefore for things like package outputs
@@ -77,7 +89,7 @@
       default =
         pkgs.callPackage ./nix/devShell.nix
         {
-          zig = zig.packages.${pkgs.stdenv.hostPlatform.system}."0.17.0";
+          zig = zig_0_17 pkgs.stdenv.hostPlatform.system;
           wraptest = pkgs.callPackage ./nix/pkgs/wraptest.nix {};
           zon2nix = zon2nix;
 
