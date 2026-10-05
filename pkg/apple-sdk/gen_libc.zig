@@ -27,7 +27,7 @@ pub fn main(init: std.process.Init) !void {
     });
 
     // Render the file compatible with the `--libc` Zig flag.
-    const stdout = try std.Io.File.stdout().writer(init.io, &.{});
+    var stdout = std.Io.File.stdout().writer(init.io, &.{});
     try stdout.interface.print(
         \\include_dir={[include_dir]s}
         \\sys_include_dir={[include_dir]s}
