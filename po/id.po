@@ -413,7 +413,7 @@ msgstr ""
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
-msgstr "Salin Seleksi sebagai Teks Biasa ke Papan Klip"
+msgstr "Salin Pilihan sebagai Teks Biasa ke Papan Klip"
 
 #: src/input/command.zig:160
 msgid "Copy the selected text as plain text to the clipboard."
@@ -469,11 +469,11 @@ msgstr "Tempel dari Pilihan"
 
 #: src/input/command.zig:192
 msgid "Paste the contents of the selection clipboard."
-msgstr "Tempel isi dari papan klip seleksi."
+msgstr "Tempel isi dari papan klip pilihan."
 
 #: src/input/command.zig:197
 msgid "Start Search"
-msgstr "Mulai pencarian"
+msgstr "Mulai Pencarian"
 
 #: src/input/command.zig:198
 msgid "Start a search if one isn't already active."
@@ -481,11 +481,11 @@ msgstr "Mulai pencarian jika belum ada pencarian aktif."
 
 #: src/input/command.zig:203
 msgid "Search Selection"
-msgstr "Cari Seleksi"
+msgstr "Cari Pilihan"
 
 #: src/input/command.zig:204
 msgid "Start a search for the current text selection."
-msgstr "Mulai pencarian untuk teks yang dipilih."
+msgstr "Mulai pencarian untuk pilihan teks saat ini."
 
 #: src/input/command.zig:209
 msgid "End Search"
@@ -715,7 +715,7 @@ msgstr ""
 
 #: src/input/command.zig:364
 msgid "Copy Selection to Temporary File and Open"
-msgstr "Salin Seleksi ke Berkas Sementara dan Buka"
+msgstr "Salin Pilihan ke Berkas Sementara dan Buka"
 
 #: src/input/command.zig:365
 msgid "Copy the selection contents to a temporary file and open it."
@@ -723,7 +723,7 @@ msgstr "Salin isi pilihan ke berkas sementara dan buka berkasnya."
 
 #: src/input/command.zig:373
 msgid "Copy Selection as HTML to Temporary File and Copy Path"
-msgstr "Salin Seleksi sebagai HTML ke Berkas Sementara dan Salin Jalur"
+msgstr "Salin Pilihan sebagai HTML ke Berkas Sementara dan Salin Jalur"
 
 #: src/input/command.zig:374
 msgid ""
@@ -735,7 +735,7 @@ msgstr ""
 
 #: src/input/command.zig:381
 msgid "Copy Selection as HTML to Temporary File and Paste Path"
-msgstr "Salin Seleksi sebagai HTML ke Berkas Sementara dan Tempel Jalur"
+msgstr "Salin Pilihan sebagai HTML ke Berkas Sementara dan Tempel Jalur"
 
 #: src/input/command.zig:382
 msgid ""
@@ -971,11 +971,11 @@ msgstr "Tampilkan inspektur GTK."
 
 #: src/input/command.zig:581
 msgid "Show On-Screen Keyboard"
-msgstr "Tampilkan Papan Ketik Layar"
+msgstr "Tampilkan Keyboard Layar"
 
 #: src/input/command.zig:582
 msgid "Show the on-screen keyboard if present."
-msgstr "Tampilkan papan ketik layar jika tersedia."
+msgstr "Tampilkan keyboard layar jika tersedia."
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
@@ -987,7 +987,7 @@ msgstr "Buka berkas konfigurasi dengan editor bawaan Sistem Operasi."
 
 #: src/input/command.zig:593
 msgid "Open Config in New Terminal Window"
-msgstr "Buka Konfigurasi di Jendela Terminal Baru"
+msgstr "Buka Konfigurasi dalam Jendela Terminal Baru"
 
 #: src/input/command.zig:594
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
@@ -1019,7 +1019,7 @@ msgstr "Tutup Tab Lainnya"
 
 #: src/input/command.zig:619
 msgid "Close all tabs in this window except the current one."
-msgstr "Tutup semua tab pada jendela ini kecuali saat ini."
+msgstr "Tutup semua tab pada jendela ini kecuali tab saat ini."
 
 #: src/input/command.zig:623
 msgid "Close Tabs to the Right"
@@ -1051,7 +1051,7 @@ msgstr "Alihkan kondisi maksimal jendela saat ini."
 
 #: src/input/command.zig:648
 msgid "Toggle Fullscreen"
-msgstr "Alihkan Layar Penuh"
+msgstr "Alihkan Mode Layar Penuh"
 
 #: src/input/command.zig:649
 msgid "Toggle the fullscreen state of the current window."
@@ -1083,7 +1083,7 @@ msgstr "Alihkan mode input aman."
 
 #: src/input/command.zig:672
 msgid "Toggle Mouse Reporting"
-msgstr "ALihkan Pelaporan Tetikus"
+msgstr "Alihkan Pelaporan Tetikus"
 
 #: src/input/command.zig:673
 msgid "Toggle whether mouse events are reported to terminal applications."
