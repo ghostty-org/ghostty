@@ -32,6 +32,8 @@
   wraptest,
   zig,
   zip,
+  aflplusplus,
+  llvmPackages_22,
   llvmPackages_latest,
   bzip2,
   expat,
@@ -85,6 +87,7 @@
   glycin-loaders,
   librsvg,
   runCommandLocal,
+  withAfl ? false,
 }: let
   # See package.nix. Keep in sync.
   ld_library_path = import ./build-support/ld-library-path.nix {
@@ -225,6 +228,13 @@ in
 
         # for benchmarking
         poop
+      ]
+      ++ lib.optionals (stdenv.hostPlatform.isLinux && withAfl) [
+        (aflplusplus.override {
+          clang = llvmPackages_22.clang;
+          llvm = llvmPackages_22.llvm;
+          llvmPackages = llvmPackages_22;
+        })
       ]
       ++ lib.optionals stdenv.hostPlatform.isDarwin [
         swiftlint
