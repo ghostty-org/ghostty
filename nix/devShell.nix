@@ -18,7 +18,6 @@
   pkg-config,
   python3,
   qemu,
-  scdoc,
   # snapcraft,
   valgrind,
   #, vulkan-loader # unused
@@ -124,7 +123,6 @@ in
         ncurses
         pandoc
         pkg-config
-        scdoc
         zig
         zip
         zon2nix.packages.${stdenv.hostPlatform.system}.zon2nix
