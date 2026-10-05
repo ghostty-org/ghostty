@@ -329,6 +329,9 @@ fn byteStrings(alloc: Allocator, value: *glib.Variant) ParseError![]const [:0]co
 fn testParse(alloc: Allocator, text: [:0]const u8) ParseError!Request {
     const value = glib.Variant.parse(null, text, null, null, null) orelse
         return error.InvalidArgs;
+    // `g_variant_parse` returns a full reference, not a floating one, so
+    // the message's `ref_sink` takes a second reference rather than ours.
+    defer value.unref();
 
     const message = gio.DBusMessage.newMethodCall(
         "com.mitchellh.ghostty",
