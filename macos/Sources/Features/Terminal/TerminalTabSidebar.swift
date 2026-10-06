@@ -11,6 +11,7 @@ extension Notification.Name {
 ///
 /// Every tab is its own window, so each window owns a model and shows its own copy of the
 /// sidebar. Only the selected tab's window is on screen, so that is the copy the user sees.
+@MainActor
 final class TerminalTabSidebarModel: ObservableObject {
     struct Tab: Identifiable, Equatable {
         let id: ObjectIdentifier
@@ -38,10 +39,13 @@ final class TerminalTabSidebarModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refresh()
+            // The observer is delivered on the main queue.
+            MainActor.assumeIsolated {
+                self?.refresh()
 
-            // The tab group takes an event loop cycle to settle after a tab is added or closed.
-            DispatchQueue.main.async { self?.refresh() }
+                // The tab group takes an event loop cycle to settle after a tab is added or closed.
+                DispatchQueue.main.async { self?.refresh() }
+            }
         }
     }
 
@@ -58,15 +62,18 @@ final class TerminalTabSidebarModel: ObservableObject {
     }
 
     func refresh() {
+        // The window only carries a key equivalent label while it is in a tab group, so a
+        // lone tab would have none. Look the shortcuts up from the keybinds instead.
+        let config = (window?.windowController as? BaseTerminalController)?.ghostty.config
         let newTabs = tabWindows.enumerated().map { offset, tabWindow in
-            let terminalWindow = tabWindow as? TerminalWindow
-            let keyEquivalent = terminalWindow?.keyEquivalent ?? ""
+            let index = offset + 1
+            let shortcut = index <= 9 ? config?.keyboardShortcut(for: "goto_tab:\(index)") : nil
             return Tab(
                 id: ObjectIdentifier(tabWindow),
-                index: offset + 1,
+                index: index,
                 title: tabWindow.title,
-                keyEquivalent: keyEquivalent.isEmpty ? nil : keyEquivalent,
-                color: terminalWindow?.tabColor ?? .none,
+                keyEquivalent: shortcut.map { "\($0)" },
+                color: (tabWindow as? TerminalWindow)?.tabColor ?? .none,
                 // Our window is only on screen while it is the selected tab.
                 isSelected: tabWindow === window
             )
@@ -363,7 +370,7 @@ private extension View {
 }
 
 /// One tab in the sidebar: a pill-shaped row when the sidebar is expanded, or a round
-/// numbered tile in the collapsed rail. The selected tab is drawn on glass like a native tab.
+/// tile showing its key equivalent in the collapsed rail. The selected tab is drawn on glass like a native tab.
 private struct TerminalTabSidebarRow: View {
     let model: TerminalTabSidebarModel
     let tab: TerminalTabSidebarModel.Tab
@@ -411,7 +418,9 @@ private struct TerminalTabSidebarRow: View {
     }
 
     private var tile: some View {
-        Text("\(tab.index)")
+        // The key equivalent that selects the tab (e.g. ⌘1), or its position when it has none.
+        Text(tab.keyEquivalent ?? "\(tab.index)")
+            .font(.system(size: 11))
             .frame(width: 30, height: 30)
             .overlay(alignment: .topTrailing) {
                 if let color = tab.color.displayColor {
