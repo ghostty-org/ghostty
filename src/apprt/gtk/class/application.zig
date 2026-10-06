@@ -10,6 +10,7 @@ const glibunix = @import("glibunix");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
+const build_options = @import("build_options");
 const build_config = @import("../../../build_config.zig");
 const build_info = @import("../build/info.zig");
 const cli = @import("../../../cli.zig");
@@ -360,6 +361,8 @@ pub const Application = extern struct {
             log.warn("gdk display is null, exiting", .{});
             std.process.exit(1);
         };
+
+        matchRenderDevice(display, &core_app.device);
 
         // Setup our windowing protocol logic
         var wp: winprotopkg.App = winprotopkg.App.init(
@@ -3277,6 +3280,43 @@ const Action = struct {
         }
     }
 };
+
+/// Render on the GPU that GDK imports our DMABUFs with.
+fn matchRenderDevice(display: *gdk.Display, device: *@FieldType(CoreApp, "device")) void {
+    var err_: ?*glib.Error = null;
+    if (display.prepareGl(&err_) == 0) {
+        if (err_) |err| {
+            log.warn("failed to prepare GDK GL err={s}", .{err.f_message orelse "(unknown)"});
+            err.free();
+        }
+        return;
+    }
+
+    const egl_display = egl_display: {
+        if (comptime build_options.wayland) {
+            const gdk_wayland = @import("gdk_wayland");
+            if (gobject.ext.cast(gdk_wayland.WaylandDisplay, display) != null)
+                break :egl_display gdk_wayland_display_get_egl_display(display);
+        }
+        if (comptime build_options.x11) {
+            const gdk_x11 = @import("gdk_x11");
+            if (gobject.ext.cast(gdk_x11.X11Display, display) != null)
+                break :egl_display gdk_x11_display_get_egl_display(display);
+        }
+        break :egl_display null;
+    } orelse {
+        log.debug("GDK is not using EGL, keeping default render device", .{});
+        return;
+    };
+
+    device.matchDisplay(.fromHandle(egl_display)) catch |err| {
+        log.warn("failed to match GDK render device, keeping default err={}", .{err});
+    };
+}
+
+// Not exposed by GObject introspection.
+extern fn gdk_wayland_display_get_egl_display(*gdk.Display) ?*anyopaque;
+extern fn gdk_x11_display_get_egl_display(*gdk.Display) ?*anyopaque;
 
 /// This sets various GTK-related environment variables as necessary
 /// given the runtime environment or configuration.

@@ -42,9 +42,40 @@ pub fn init(self: *Device, alloc: Allocator) !void {
     log.info("EGL vendor={s}", .{display.queryString(.vendor) orelse "(unknown)"});
     log.info("EGL extensions={s}", .{display.queryString(.extensions) orelse "(unknown)"});
 
+    self.* = .{
+        .display = display,
+        .config = try chooseConfig(display),
+    };
+}
+
+/// Move to the GPU backing `other`. Surfaceless may pick another GPU,
+/// which misreads our implicit-modifier DMABUFs. Call before creating
+/// any renderer.
+pub fn matchDisplay(self: *Device, other: *egl.Display) !void {
+    const exts = egl.queryClientExtensions() orelse return error.Unsupported;
+    if (!egl.hasExtension(exts, "EGL_EXT_platform_device") or
+        !(egl.hasExtension(exts, "EGL_EXT_device_query") or
+            egl.hasExtension(exts, "EGL_EXT_device_base")))
+        return error.Unsupported;
+
+    const device = try other.device();
+    const display = try egl.Display.initPlatform(
+        egl.PLATFORM_DEVICE_EXT,
+        @ptrCast(device),
+        null,
+    );
+
+    // The old display is process-wide; leave it, as in `deinit`.
+    self.* = .{
+        .display = display,
+        .config = try chooseConfig(display),
+    };
+}
+
+fn chooseConfig(display: *egl.Display) !*egl.Config {
     // Choose a config. We need a config that is renderable with
     // OpenGL and a RGBA8 color buffer.
-    const config = egl.Config.choose(display, &.{
+    return egl.Config.choose(display, &.{
         egl.c.EGL_SURFACE_TYPE,    0,
         egl.c.EGL_RENDERABLE_TYPE, egl.c.EGL_OPENGL_BIT,
         egl.c.EGL_RED_SIZE,        8,
@@ -54,11 +85,6 @@ pub fn init(self: *Device, alloc: Allocator) !void {
     }) catch |err| {
         log.warn("failed to choose config err={}", .{err});
         return err;
-    };
-
-    self.* = .{
-        .display = display,
-        .config = config,
     };
 }
 
