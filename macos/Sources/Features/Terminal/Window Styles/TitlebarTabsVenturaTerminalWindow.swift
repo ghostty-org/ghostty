@@ -6,8 +6,6 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
     /// the native tabs back into the menu bar.
     override var supportsUpdateAccessory: Bool { false }
 
-    override var hostsTitlebarTabs: Bool { titlebarTabs }
-
     /// This is used to determine if certain elements should be drawn light or dark and should
     /// be updated whenever the window background color or surrounding elements changes.
     fileprivate var isLightTheme: Bool = false

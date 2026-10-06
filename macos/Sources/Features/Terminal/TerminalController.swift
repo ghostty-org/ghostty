@@ -18,17 +18,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return defaultValue
         }
 
-        // Titlebar tabs and the vertical tab sidebar can't share a window, so with
-        // vertical tabs on, the tabs style falls back to the transparent titlebar.
-        var titlebarStyle = config.macosTitlebarStyle
-        if titlebarStyle == .tabs && config.macosVerticalTabs {
-            titlebarStyle = .transparent
-        }
-
-        let nib = switch titlebarStyle {
+        let nib = switch config.macosTitlebarStyle {
         case .native: "Terminal"
         case .hidden: "TerminalHiddenTitlebar"
-        case .transparent: "TerminalTransparentTitlebar"
+        case .transparent, .verticalTabs: "TerminalTransparentTitlebar"
         case .tabs:
 #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
@@ -574,7 +567,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             // Update our derived config
             self.derivedConfig = DerivedConfig(config)
             syncRestoration(config)
-            (window as? TerminalWindow)?.syncTabSidebar(config)
 
             // If we have no surfaces in our window (is that possible?) then we update
             // our window appearance based on the root config. If we have surfaces, we

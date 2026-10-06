@@ -34,9 +34,9 @@ final class TerminalTabSidebarModel: ObservableObject {
         }
     }
 
-    /// Windows that draw their tabs in the titlebar never show the sidebar.
-    var supportsSidebar: Bool {
-        !((window as? TerminalWindow)?.hostsTitlebarTabs ?? false)
+    /// Whether the window uses `macos-titlebar-style = vertical-tabs`.
+    var showsSidebar: Bool {
+        (window as? TerminalWindow)?.showsTabSidebar ?? false
     }
 
     private var observer: NSObjectProtocol?
@@ -254,9 +254,7 @@ struct TerminalTabSidebarLayout<Content: View>: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // The content keeps its slot either way, so toggling `macos-vertical-tabs`
-            // doesn't recreate the terminal view.
-            if ghostty.config.macosVerticalTabs && model.supportsSidebar {
+            if model.showsSidebar {
                 TerminalTabSidebar(model: model, isCollapsed: $isCollapsed)
                     .frame(width: isCollapsed ? TerminalTabSidebar.collapsedWidth : width)
                     .background(ghostty.config.backgroundColor.opacity(ghostty.config.backgroundOpacity))

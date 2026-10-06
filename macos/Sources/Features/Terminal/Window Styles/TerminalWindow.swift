@@ -51,18 +51,9 @@ class TerminalWindow: NSWindow {
         true
     }
 
-    /// Whether this window draws its tabs in the titlebar. Those windows never show the
-    /// vertical tab sidebar, so tabs are never listed twice.
-    var hostsTitlebarTabs: Bool { false }
-
-    /// Whether the vertical tab sidebar replaces the native tab bar in this window.
-    var showsTabSidebar: Bool {
-        showsTabSidebar(with: (NSApp.delegate as? AppDelegate)?.ghostty.config)
-    }
-
-    private func showsTabSidebar(with config: Ghostty.Config?) -> Bool {
-        (config?.macosVerticalTabs ?? false) && !hostsTitlebarTabs
-    }
+    /// Whether the vertical tab sidebar replaces the native tab bar in this window
+    /// (`macos-titlebar-style = vertical-tabs`). Fixed when the window is created.
+    private(set) var showsTabSidebar = false
 
     /// Glass effect view for liquid glass background when transparency is enabled
     private var glassEffectView: NSView?
@@ -123,6 +114,7 @@ class TerminalWindow: NSWindow {
 
         // Setup our initial config
         derivedConfig = .init(config)
+        showsTabSidebar = config.macosTitlebarStyle == .verticalTabs
 
         // If there is a hardcoded title in the configuration, we set that
         // immediately. Future `set_title` apprt actions will override this
@@ -274,24 +266,16 @@ class TerminalWindow: NSWindow {
         // it. This has been verified to work on macOS 12 to 26
         if isTabBar(childViewController) {
             childViewController.identifier = Self.tabBarIdentifier
-            setTabBar(childViewController, hidden: showsTabSidebar)
+
+            // The vertical tab sidebar replaces the native tab bar. Hiding the controller
+            // gives the bar no room in the titlebar and hiding its view stops it drawing.
+            if showsTabSidebar {
+                childViewController.isHidden = true
+                childViewController.view.isHidden = true
+            }
+
             tabBarDidAppear()
         }
-    }
-
-    /// Re-applies `macos-vertical-tabs` to the tab bar this window has, if any.
-    func syncTabSidebar(_ config: Ghostty.Config) {
-        let hidden = showsTabSidebar(with: config)
-        for childViewController in titlebarAccessoryViewControllers where isTabBar(childViewController) {
-            setTabBar(childViewController, hidden: hidden)
-        }
-    }
-
-    /// The vertical tab sidebar replaces the native tab bar. Hiding the controller gives
-    /// the bar no room in the titlebar and hiding its view stops it drawing.
-    private func setTabBar(_ childViewController: NSTitlebarAccessoryViewController, hidden: Bool) {
-        childViewController.isHidden = hidden
-        childViewController.view.isHidden = hidden
     }
 
     override func removeTitlebarAccessoryViewController(at index: Int) {
@@ -694,7 +678,7 @@ class TerminalWindow: NSWindow {
             self.macosTitlebarStyle = config.macosTitlebarStyle
 
             // Set corner radius based on macos-titlebar-style
-            // Native, transparent, and hidden styles use 16pt radius
+            // Native, transparent, vertical-tabs, and hidden styles use 16pt radius
             // Tabs style uses 20pt radius
             switch config.macosTitlebarStyle {
             case .tabs:

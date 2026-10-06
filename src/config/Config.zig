@@ -3439,6 +3439,11 @@ keybind: Keybinds = .{},
 /// macOS 14 does not have this issue and any other macOS version has not
 /// been tested.
 ///
+/// The "vertical-tabs" style is the same as "transparent" but lists tabs in
+/// a sidebar on the left of the window instead of the native tab bar. The
+/// tabs are still native macOS window tabs, so tab keybinds, "Show All Tabs",
+/// and saved window state work the same. Available since: 1.4.0
+///
 /// The "hidden" style hides the titlebar. Unlike `window-decoration = none`,
 /// however, it does not remove the frame from the window or cause it to have
 /// squared corners. Changing to or from this option at run-time may affect
@@ -3476,22 +3481,6 @@ keybind: Keybinds = .{},
 /// usually `cd` to a different directory, open a different file in an
 /// editor, etc.
 @"macos-titlebar-proxy-icon": MacTitlebarProxyIcon = .visible,
-
-/// Show tabs in a vertical sidebar on the left of the window instead of
-/// the native tab bar.
-///
-/// The tabs are still native macOS window tabs, so tab keybinds,
-/// "Show All Tabs", and window state restoration work the same either way.
-///
-/// Titlebar tabs and the sidebar can't share a window, so while this is
-/// enabled, `macos-titlebar-style = tabs` uses the `transparent` style.
-///
-/// Changing this at runtime shows or hides the sidebar in open windows.
-/// Windows that already draw tabs in their titlebar keep them; new windows
-/// use the sidebar.
-///
-/// Available since: 1.4.0
-@"macos-vertical-tabs": bool = false,
 
 /// Controls the windowing behavior when dropping a file or folder
 /// onto the Ghostty icon in the macOS dock.
@@ -9282,6 +9271,7 @@ pub const MacTitlebarStyle = enum {
     native,
     transparent,
     tabs,
+    @"vertical-tabs",
     hidden,
 };
 
