@@ -595,25 +595,25 @@ msgstr "Desplaça la pantalla una pàgina avall."
 
 #: src/input/command.zig:286
 msgid "Copy Screen to Temporary File and Copy Path"
-msgstr "Copia la pantalla a un fitxer temporal i copia'n el camí"
+msgstr "Copia la pantalla a un fitxer temporal i copia'n la ruta"
 
 #: src/input/command.zig:287
 msgid ""
 "Copy the screen contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
-"Copia el contingut de la pantalla a un fitxer temporal i copia el camí al "
+"Copia el contingut de la pantalla a un fitxer temporal i copia la ruta al "
 "porta-retalls."
 
 #: src/input/command.zig:291
 msgid "Copy Screen to Temporary File and Paste Path"
-msgstr "Copia la pantalla a un fitxer temporal i enganxa'n el camí"
+msgstr "Copia la pantalla a un fitxer temporal i enganxa'n la ruta"
 
 #: src/input/command.zig:292
 msgid ""
 "Copy the screen contents to a temporary file and paste the path to the file."
 msgstr ""
-"Copia el contingut de la pantalla a un fitxer temporal i enganxa el camí "
+"Copia el contingut de la pantalla a un fitxer temporal i enganxa la ruta "
 "del fitxer."
 
 #: src/input/command.zig:296
@@ -626,7 +626,7 @@ msgstr "Copia el contingut de la pantalla a un fitxer temporal i l'obre."
 
 #: src/input/command.zig:305
 msgid "Copy Screen as HTML to Temporary File and Copy Path"
-msgstr "Copia la pantalla com a HTML a un fitxer temporal i copia'n el camí"
+msgstr "Copia la pantalla com a HTML a un fitxer temporal i copia'n la ruta"
 
 #: src/input/command.zig:306
 msgid ""
@@ -634,11 +634,11 @@ msgid ""
 "the clipboard."
 msgstr ""
 "Copia el contingut de la pantalla com a HTML a un fitxer temporal i copia "
-"el camí al porta-retalls."
+"la ruta al porta-retalls."
 
 #: src/input/command.zig:313
 msgid "Copy Screen as HTML to Temporary File and Paste Path"
-msgstr "Copia la pantalla com a HTML a un fitxer temporal i enganxa'n el camí"
+msgstr "Copia la pantalla com a HTML a un fitxer temporal i enganxa'n la ruta"
 
 #: src/input/command.zig:314
 msgid ""
@@ -646,7 +646,7 @@ msgid ""
 "the file."
 msgstr ""
 "Copia el contingut de la pantalla com a HTML a un fitxer temporal i enganxa "
-"el camí del fitxer."
+"la ruta del fitxer."
 
 #: src/input/command.zig:321
 msgid "Copy Screen as HTML to Temporary File and Open"
@@ -660,7 +660,7 @@ msgstr "Copia el contingut de la pantalla com a HTML a un fitxer temporal i l'ob
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
 msgstr ""
 "Copia la pantalla com a seqüències ANSI a un fitxer temporal i copia'n el "
-"camí"
+"ruta"
 
 #: src/input/command.zig:331
 msgid ""
@@ -668,13 +668,13 @@ msgid ""
 "copy the path to the clipboard."
 msgstr ""
 "Copia el contingut de la pantalla com a seqüències d'escapada ANSI a un "
-"fitxer temporal i copia el camí al porta-retalls."
+"fitxer temporal i copia la ruta al porta-retalls."
 
 #: src/input/command.zig:338
 msgid "Copy Screen as ANSI Sequences to Temporary File and Paste Path"
 msgstr ""
 "Copia la pantalla com a seqüències ANSI a un fitxer temporal i enganxa'n "
-"el camí"
+"la ruta"
 
 #: src/input/command.zig:339
 msgid ""
@@ -682,7 +682,7 @@ msgid ""
 "paste the path to the file."
 msgstr ""
 "Copia el contingut de la pantalla com a seqüències d'escapada ANSI a un "
-"fitxer temporal i enganxa el camí del fitxer."
+"fitxer temporal i enganxa la ruta del fitxer."
 
 #: src/input/command.zig:346
 msgid "Copy Screen as ANSI Sequences to Temporary File and Open"
@@ -698,26 +698,26 @@ msgstr ""
 
 #: src/input/command.zig:354
 msgid "Copy Selection to Temporary File and Copy Path"
-msgstr "Copia la selecció a un fitxer temporal i copia'n el camí"
+msgstr "Copia la selecció a un fitxer temporal i copia'n la ruta"
 
 #: src/input/command.zig:355
 msgid ""
 "Copy the selection contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
-"Copia el contingut de la selecció a un fitxer temporal i copia el camí al "
+"Copia el contingut de la selecció a un fitxer temporal i copia la ruta al "
 "porta-retalls."
 
 #: src/input/command.zig:359
 msgid "Copy Selection to Temporary File and Paste Path"
-msgstr "Copia la selecció a un fitxer temporal i enganxa'n el camí"
+msgstr "Copia la selecció a un fitxer temporal i enganxa'n la ruta"
 
 #: src/input/command.zig:360
 msgid ""
 "Copy the selection contents to a temporary file and paste the path to the "
 "file."
 msgstr ""
-"Copia el contingut de la selecció a un fitxer temporal i enganxa el camí "
+"Copia el contingut de la selecció a un fitxer temporal i enganxa la ruta "
 "del fitxer."
 
 #: src/input/command.zig:364
@@ -730,7 +730,7 @@ msgstr "Copia el contingut de la selecció a un fitxer temporal i l'obre."
 
 #: src/input/command.zig:373
 msgid "Copy Selection as HTML to Temporary File and Copy Path"
-msgstr "Copia la selecció com a HTML a un fitxer temporal i copia'n el camí"
+msgstr "Copia la selecció com a HTML a un fitxer temporal i copia'n la ruta"
 
 #: src/input/command.zig:374
 msgid ""
@@ -738,11 +738,11 @@ msgid ""
 "the clipboard."
 msgstr ""
 "Copia el contingut de la selecció com a HTML a un fitxer temporal i copia "
-"el camí al porta-retalls."
+"la ruta al porta-retalls."
 
 #: src/input/command.zig:381
 msgid "Copy Selection as HTML to Temporary File and Paste Path"
-msgstr "Copia la selecció com a HTML a un fitxer temporal i enganxa'n el camí"
+msgstr "Copia la selecció com a HTML a un fitxer temporal i enganxa'n la ruta"
 
 #: src/input/command.zig:382
 msgid ""
@@ -750,7 +750,7 @@ msgid ""
 "to the file."
 msgstr ""
 "Copia el contingut de la selecció com a HTML a un fitxer temporal i enganxa "
-"el camí del fitxer."
+"la ruta del fitxer."
 
 #: src/input/command.zig:389
 msgid "Copy Selection as HTML to Temporary File and Open"
@@ -764,7 +764,7 @@ msgstr "Copia el contingut de la selecció com a HTML a un fitxer temporal i l'o
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
 msgstr ""
 "Copia la selecció com a seqüències ANSI a un fitxer temporal i copia'n el "
-"camí"
+"ruta"
 
 #: src/input/command.zig:399
 msgid ""
@@ -772,13 +772,13 @@ msgid ""
 "copy the path to the clipboard."
 msgstr ""
 "Copia el contingut de la selecció com a seqüències d'escapada ANSI a un "
-"fitxer temporal i copia el camí al porta-retalls."
+"fitxer temporal i copia la ruta al porta-retalls."
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
 msgstr ""
 "Copia la selecció com a seqüències ANSI a un fitxer temporal i enganxa'n "
-"el camí"
+"la ruta"
 
 #: src/input/command.zig:407
 msgid ""
@@ -786,7 +786,7 @@ msgid ""
 "paste the path to the file."
 msgstr ""
 "Copia el contingut de la selecció com a seqüències d'escapada ANSI a un "
-"fitxer temporal i enganxa el camí del fitxer."
+"fitxer temporal i enganxa la ruta del fitxer."
 
 #: src/input/command.zig:414
 msgid "Copy Selection as ANSI Sequences to Temporary File and Open"
