@@ -137,7 +137,7 @@ msgstr "Enganxa"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:326
 msgid "Notify on Next Command Finish"
-msgstr "Notifica en finalitzar la propera comanda"
+msgstr "Notifica en finalitzar la propera ordre"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
@@ -251,7 +251,7 @@ msgstr "Menú principal"
 
 #: src/apprt/gtk/ui/1.5/window.blp:293
 msgid "Command Palette"
-msgstr "Paleta de comandes"
+msgstr "Paleta d'ordres"
 
 #: src/apprt/gtk/ui/1.5/window.blp:298
 msgid "Terminal Inspector"
@@ -355,17 +355,17 @@ msgstr "El procés actualment en execució en aquesta divisió es tancarà."
 
 #: src/apprt/gtk/class/surface.zig:1181
 msgid "Command Finished"
-msgstr "Comanda finalitzada"
+msgstr "Ordre finalitzada"
 
 #: src/apprt/gtk/class/surface.zig:1182
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
-msgstr "Comanda completada amb èxit"
+msgstr "Ordre completada amb èxit"
 
 #: src/apprt/gtk/class/surface.zig:1183
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
-msgstr "Comanda fallida"
+msgstr "Ordre fallida"
 
 #: src/apprt/gtk/class/title_dialog.zig:227
 msgid "Change Terminal Title"
