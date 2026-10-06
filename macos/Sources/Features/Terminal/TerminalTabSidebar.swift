@@ -180,7 +180,7 @@ struct TerminalTabSidebar: View {
     static let widthKey = "TerminalTabSidebarWidth"
     static let defaultWidth: Double = 200
     static let widthRange: ClosedRange<Double> = 120...400
-    static let collapsedWidth: Double = 36
+    static let collapsedWidth: Double = 40
     static let dividerWidth: Double = 1
 
     /// The width the sidebar and its divider currently take out of a window's content.
@@ -200,12 +200,12 @@ struct TerminalTabSidebar: View {
     var body: some View {
         VStack(spacing: 0) {
             if isCollapsed {
-                VStack(spacing: 2) {
+                VStack(spacing: 4) {
                     collapseButton
                     newTabButton
                 }
-                .padding(.top, 4)
-                .padding(.bottom, 4)
+                .padding(.top, 5)
+                .padding(.bottom, 6)
 
                 ScrollView(showsIndicators: false) {
                     LazyVStack(spacing: 2) {
@@ -222,7 +222,7 @@ struct TerminalTabSidebar: View {
                     newTabButton
                 }
                 .padding(.horizontal, 6)
-                .frame(height: 36)
+                .frame(height: 40)
 
                 ScrollView {
                     LazyVStack(spacing: 2) {
@@ -254,38 +254,82 @@ struct TerminalTabSidebar: View {
     }
 }
 
-/// An icon button in the tab sidebar. The click target is the whole padded square, not
-/// just the glyph, and it highlights on hover so the target is visible.
+/// A round icon button in the tab sidebar, drawn like the native tab bar's buttons.
 private struct TerminalTabSidebarButton: View {
+    enum Kind {
+        /// Like the tab bar's new tab button: a large circle darker than its surroundings.
+        case bar
+
+        /// Like a tab's close button: a small circle lighter than the tab it sits on.
+        case close
+    }
+
     let systemName: String
     let label: String
-    var glyphSize: CGFloat = 13
-    var targetSize: CGFloat = 28
+    var kind: Kind = .bar
     let action: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: glyphSize, weight: .medium))
+                .font(.system(size: glyphSize, weight: glyphWeight))
+                .frame(width: diameter, height: diameter)
+                .background(Circle().fill(fill))
+                // The click target can be larger than the circle that is drawn.
                 .frame(width: targetSize, height: targetSize)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.primary.opacity(isHovering ? 0.12 : 0))
-                )
-                .contentShape(Rectangle())
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(.primary)
         .onHover { isHovering = $0 }
         .help(label)
         .accessibilityLabel(label)
     }
+
+    private var diameter: CGFloat {
+        switch kind {
+        case .bar: 30
+        case .close: 16
+        }
+    }
+
+    private var targetSize: CGFloat {
+        switch kind {
+        case .bar: 30
+        case .close: 22
+        }
+    }
+
+    private var glyphSize: CGFloat {
+        switch kind {
+        case .bar: 14
+        case .close: 8.5
+        }
+    }
+
+    private var glyphWeight: Font.Weight {
+        switch kind {
+        case .bar: .medium
+        case .close: .bold
+        }
+    }
+
+    private var fill: Color {
+        switch kind {
+        case .bar:
+            if isHovering { return Color.primary.opacity(0.14) }
+            return Color.black.opacity(colorScheme == .dark ? 0.28 : 0.07)
+        case .close:
+            return Color.primary.opacity(isHovering ? 0.30 : 0.16)
+        }
+    }
 }
 
-/// One tab in the sidebar: a full row when the sidebar is expanded, or a numbered tile
-/// in the collapsed rail.
+/// One tab in the sidebar: a pill-shaped row when the sidebar is expanded, or a round
+/// numbered tile in the collapsed rail.
 private struct TerminalTabSidebarRow: View {
     let model: TerminalTabSidebarModel
     let tab: TerminalTabSidebarModel.Tab
@@ -295,12 +339,10 @@ private struct TerminalTabSidebarRow: View {
 
     var body: some View {
         content
-            .font(.system(size: 12))
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.primary.opacity(tab.isSelected ? 0.14 : (isHovering ? 0.07 : 0)))
-            )
-            .contentShape(Rectangle())
+            .font(.system(size: 13))
+            .foregroundStyle(Color.primary.opacity(tab.isSelected ? 1 : 0.75))
+            .background(Capsule().fill(highlight))
+            .contentShape(Capsule())
             .onTapGesture { model.select(tab) }
             .onHover { isHovering = $0 }
             .help(isCompact ? tab.title : "")
@@ -316,6 +358,10 @@ private struct TerminalTabSidebarRow: View {
             .accessibilityAction { model.select(tab) }
     }
 
+    private var highlight: Color {
+        Color.primary.opacity(tab.isSelected ? 0.14 : (isHovering ? 0.08 : 0))
+    }
+
     @ViewBuilder
     private var content: some View {
         if isCompact {
@@ -327,8 +373,7 @@ private struct TerminalTabSidebarRow: View {
 
     private var tile: some View {
         Text("\(tab.index)")
-            .foregroundStyle(tab.isSelected ? .primary : .secondary)
-            .frame(width: 28, height: 28)
+            .frame(width: 30, height: 30)
             .overlay(alignment: .topTrailing) {
                 if let color = tab.color.displayColor {
                     Circle()
@@ -340,12 +385,21 @@ private struct TerminalTabSidebarRow: View {
     }
 
     private var row: some View {
-        HStack(spacing: 6) {
-            if let color = tab.color.displayColor {
-                Circle()
-                    .fill(Color(nsColor: color))
-                    .frame(width: 8, height: 8)
+        HStack(spacing: 4) {
+            // Like a native tab, the close button is on the leading side and only shows
+            // on hover. Its slot is always reserved so the title doesn't shift.
+            ZStack {
+                if isHovering {
+                    TerminalTabSidebarButton(systemName: "xmark", label: "Close Tab", kind: .close) {
+                        model.close(tab)
+                    }
+                } else if let color = tab.color.displayColor {
+                    Circle()
+                        .fill(Color(nsColor: color))
+                        .frame(width: 8, height: 8)
+                }
             }
+            .frame(width: 22, height: 22)
 
             Text(tab.title)
                 .lineLimit(1)
@@ -353,23 +407,14 @@ private struct TerminalTabSidebarRow: View {
 
             Spacer(minLength: 4)
 
-            if isHovering {
-                TerminalTabSidebarButton(
-                    systemName: "xmark",
-                    label: "Close Tab",
-                    glyphSize: 9,
-                    targetSize: 22
-                ) {
-                    model.close(tab)
-                }
-            } else if let keyEquivalent = tab.keyEquivalent {
+            if let keyEquivalent = tab.keyEquivalent {
                 Text(keyEquivalent)
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-                    .padding(.trailing, 5)
             }
         }
-        .padding(.leading, 8)
-        .padding(.trailing, 3)
+        .padding(.leading, 4)
+        .padding(.trailing, 10)
         .frame(height: 28)
     }
 }
