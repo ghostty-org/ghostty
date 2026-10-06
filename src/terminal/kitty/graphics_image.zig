@@ -500,24 +500,46 @@ pub const LoadingImage = struct {
         dir: []const u8,
         path: []const u8,
     ) Allocator.Error!bool {
-        if (isPathInDir("/tmp", path)) return true;
-        if (isPathInDir("/dev/shm", path)) return true;
-        if (isPathInDir(dir, path)) return true;
+        // /tmp and /dev/shm are POSIX directories. On Windows they would
+        // resolve against the current drive (e.g. C:\tmp), which is not
+        // a temporary directory, so only the configured one counts.
+        if (comptime builtin.os.tag == .windows) {
+            return isPathInAnyDir(io, alloc, &.{dir}, path);
+        }
 
-        // The temporary dir is sometimes a symlink. On macOS for
-        // example /tmp is /private/var/... On Windows the directory a
-        // host passes (typically GetTempPath output) regularly differs
-        // from the canonical path in case or uses 8.3 short names, and
-        // resolving it covers both. The buffer is heap allocated for
-        // the reason given in readFile.
+        return isPathInAnyDir(io, alloc, &.{ "/tmp", "/dev/shm", dir }, path);
+    }
+
+    /// Returns true if path is inside any of dirs, either as given or
+    /// after resolving the directory to its canonical path.
+    fn isPathInAnyDir(
+        io: std.Io,
+        alloc: Allocator,
+        dirs: []const []const u8,
+        path: []const u8,
+    ) Allocator.Error!bool {
+        for (dirs) |dir| {
+            if (isPathInDir(dir, path)) return true;
+        }
+
+        // The path is canonical (see validatedFilePath) but a directory
+        // may not be. On macOS for example /tmp is a symlink to
+        // /private/tmp and $TMPDIR is under /var, a symlink to
+        // /private/var. On Windows the directory a host passes
+        // (typically GetTempPath output) regularly differs from the
+        // canonical path in case or uses 8.3 short names, and resolving
+        // it covers both. The buffer is heap allocated for the reason
+        // given in readFile.
         const buf = try alloc.alloc(u8, std.fs.max_path_bytes);
         defer alloc.free(buf);
-        const real_dir = buf[0 .. std.Io.Dir.cwd().realPathFile(
-            io,
-            dir,
-            buf,
-        ) catch return false];
-        if (isPathInDir(real_dir, path)) return true;
+        for (dirs) |dir| {
+            const real_dir = buf[0 .. std.Io.Dir.cwd().realPathFile(
+                io,
+                dir,
+                buf,
+            ) catch continue];
+            if (isPathInDir(real_dir, path)) return true;
+        }
 
         return false;
     }
@@ -1314,6 +1336,107 @@ test "image load: temporary file outside directory prefix is rejected" {
 
     // Rejection must happen before temporary-file cleanup is armed.
     try outside_dir.access(io, filename, .{});
+}
+
+test "image load: temporary directory reached through a symlink" {
+    // Creating symlinks on Windows needs a privilege that plain users
+    // and CI lack.
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    // The same layout as /tmp on macOS, which is a symlink to
+    // /private/tmp: "link" points at "real", and "real-evil" is a
+    // sibling that shares its prefix.
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    try tmp_dir.dir.createDir(io, "real", .default_dir);
+    try tmp_dir.dir.createDir(io, "real-evil", .default_dir);
+    try tmp_dir.dir.symLink(io, "real", "link", .{});
+
+    const filename = "tty-graphics-protocol-image.data";
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = "real/" ++ filename, .data = "" });
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = "real-evil/" ++ filename, .data = "" });
+
+    var base_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const base = base_buf[0..try tmp_dir.dir.realPath(io, &base_buf)];
+    const link = try std.fs.path.join(alloc, &.{ base, "link" });
+    defer alloc.free(link);
+
+    var inside_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const inside = inside_buf[0..try tmp_dir.dir.realPathFile(io, "link/" ++ filename, &inside_buf)];
+    var evil_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const evil = evil_buf[0..try tmp_dir.dir.realPathFile(io, "real-evil/" ++ filename, &evil_buf)];
+
+    // The canonical path of a file in the linked directory never starts
+    // with the link, so only the resolved directory can match.
+    try testing.expect(!isPathInDir(link, inside));
+    try testing.expect(try LoadingImage.isPathInAnyDir(io, alloc, &.{link}, inside));
+
+    // Directory boundaries still apply to the resolved directory.
+    try testing.expect(!try LoadingImage.isPathInAnyDir(io, alloc, &.{link}, evil));
+
+    // A directory that does not exist is skipped rather than ending
+    // the search.
+    try testing.expect(try LoadingImage.isPathInAnyDir(
+        io,
+        alloc,
+        &.{ "/nonexistent-ghostty-temp-dir", link },
+        inside,
+    ));
+}
+
+test "image load: temporary file in /tmp on macOS" {
+    // /tmp is a symlink to /private/tmp on macOS, so the canonical path
+    // of a file in it does not start with /tmp.
+    if (builtin.os.tag != .macos) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    // The configured temporary directory does not contain /tmp, so the
+    // file can only be accepted through the /tmp root.
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    var dir_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dir_path = dir_path_buf[0..try tmp_dir.dir.realPath(io, &dir_path_buf)];
+
+    const path = try std.fmt.allocPrint(
+        alloc,
+        "/tmp/ghostty-test-{s}-tty-graphics-protocol-image.data",
+        .{tmp_dir.sub_path},
+    );
+    defer alloc.free(path);
+    const data = @embedFile("testdata/image-rgb-none-20x15-2147483647-raw.data");
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = data });
+    defer std.Io.Dir.cwd().deleteFile(io, path) catch {};
+
+    var cmd: command.Command = .{
+        .control = .{ .transmit = .{
+            .format = .rgb,
+            .medium = .temporary_file,
+            .compression = .none,
+            .width = 20,
+            .height = 15,
+            .image_id = 31,
+        } },
+        .data = try alloc.dupe(u8, path),
+    };
+    defer cmd.deinit(alloc);
+    var loading = try LoadingImage.init(io, alloc, &cmd, .allWithTempDir(dir_path));
+    defer loading.deinit(alloc);
+    var img = try loading.complete(alloc);
+    defer img.deinit(alloc);
+    try testing.expect(img.compression == .none);
+
+    // Temporary file should be gone
+    try testing.expectError(
+        error.FileNotFound,
+        std.Io.Dir.cwd().access(io, path, .{}),
+    );
 }
 
 test "image load: rgb, not compressed, temporary file" {
