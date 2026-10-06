@@ -13,6 +13,8 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
     /// the native tabs back into the menu bar.
     override var supportsUpdateAccessory: Bool { false }
 
+    override var hostsTitlebarTabs: Bool { true }
+
     deinit {
         tabBarObserver = nil
     }

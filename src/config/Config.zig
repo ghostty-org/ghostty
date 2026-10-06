@@ -3477,6 +3477,22 @@ keybind: Keybinds = .{},
 /// editor, etc.
 @"macos-titlebar-proxy-icon": MacTitlebarProxyIcon = .visible,
 
+/// Show tabs in a vertical sidebar on the left of the window instead of
+/// the native tab bar.
+///
+/// The tabs are still native macOS window tabs, so tab keybinds,
+/// "Show All Tabs", and window state restoration work the same either way.
+///
+/// Titlebar tabs and the sidebar can't share a window, so while this is
+/// enabled, `macos-titlebar-style = tabs` uses the `transparent` style.
+///
+/// Changing this at runtime shows or hides the sidebar in open windows.
+/// Windows that already draw tabs in their titlebar keep them; new windows
+/// use the sidebar.
+///
+/// Available since: 1.4.0
+@"macos-vertical-tabs": bool = false,
+
 /// Controls the windowing behavior when dropping a file or folder
 /// onto the Ghostty icon in the macOS dock.
 ///

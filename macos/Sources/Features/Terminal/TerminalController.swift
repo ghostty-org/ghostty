@@ -18,7 +18,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return defaultValue
         }
 
-        let nib = switch config.macosTitlebarStyle {
+        // Titlebar tabs and the vertical tab sidebar can't share a window, so with
+        // vertical tabs on, the tabs style falls back to the transparent titlebar.
+        var titlebarStyle = config.macosTitlebarStyle
+        if titlebarStyle == .tabs && config.macosVerticalTabs {
+            titlebarStyle = .transparent
+        }
+
+        let nib = switch titlebarStyle {
         case .native: "Terminal"
         case .hidden: "TerminalHiddenTitlebar"
         case .transparent: "TerminalTransparentTitlebar"
@@ -567,6 +574,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             // Update our derived config
             self.derivedConfig = DerivedConfig(config)
             syncRestoration(config)
+            (window as? TerminalWindow)?.syncTabSidebar(config)
 
             // If we have no surfaces in our window (is that possible?) then we update
             // our window appearance based on the root config. If we have surfaces, we
@@ -1129,10 +1137,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Set the initial content size on the container so that
         // intrinsicContentSize returns the correct value immediately,
         // without waiting for @FocusedValue to propagate through the
-        // SwiftUI focus chain. The sidebar takes its width on top of
-        // the terminal's.
+        // SwiftUI focus chain. A visible sidebar takes its width on top
+        // of the terminal's.
+        let sidebarWidth = (window as? TerminalWindow)?.showsTabSidebar == true ? TerminalTabSidebar.occupiedWidth : 0
         container.initialContentSize = focusedSurface?.initialSize.map {
-            NSSize(width: $0.width + TerminalTabSidebar.occupiedWidth, height: $0.height)
+            NSSize(width: $0.width + sidebarWidth, height: $0.height)
         }
 
         window.contentView = container

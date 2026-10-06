@@ -391,6 +391,14 @@ extension Ghostty {
             return v
         }
 
+        var macosVerticalTabs: Bool {
+            guard let config = self.config else { return false }
+            var v = false
+            let key = "macos-vertical-tabs"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
         var macosIcon: MacOSIcon {
             let defaultValue = MacOSIcon.official
             guard let config = self.config else { return defaultValue }

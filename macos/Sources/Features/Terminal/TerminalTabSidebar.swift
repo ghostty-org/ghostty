@@ -28,10 +28,19 @@ final class TerminalTabSidebarModel: ObservableObject {
 
     /// The window this sidebar is shown in.
     weak var window: NSWindow? {
-        didSet { refresh() }
+        didSet {
+            observeWindowClose()
+            refresh()
+        }
+    }
+
+    /// Windows that draw their tabs in the titlebar never show the sidebar.
+    var supportsSidebar: Bool {
+        !((window as? TerminalWindow)?.hostsTitlebarTabs ?? false)
     }
 
     private var observer: NSObjectProtocol?
+    private var closeObserver: NSObjectProtocol?
 
     init() {
         observer = NotificationCenter.default.addObserver(
@@ -52,6 +61,29 @@ final class TerminalTabSidebarModel: ObservableObject {
     deinit {
         if let observer {
             NotificationCenter.default.removeObserver(observer)
+        }
+        if let closeObserver {
+            NotificationCenter.default.removeObserver(closeObserver)
+        }
+    }
+
+    /// Forgets the window once it closes. Asking AppKit for a closed window's tabs (as a
+    /// late refresh would) registers it with a tab group again, which keeps it alive.
+    private func observeWindowClose() {
+        if let closeObserver {
+            NotificationCenter.default.removeObserver(closeObserver)
+            self.closeObserver = nil
+        }
+        guard let window else { return }
+
+        closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.window = nil
+            }
         }
     }
 
@@ -136,7 +168,7 @@ final class TerminalTabSidebarModel: ObservableObject {
         menu.addItem(menuItem("Close Other Tabs", symbol: "xmark", isEnabled: hasOtherTabs) { [weak self] in
             self?.closeOthers(tab)
         })
-        menu.addItem(menuItem("Close Tabs Below", symbol: "xmark", isEnabled: tab.index < tabs.count) { [weak self] in
+        menu.addItem(menuItem("Close Tabs to the Right", symbol: "xmark", isEnabled: tab.index < tabs.count) { [weak self] in
             self?.closeBelow(tab)
         })
         menu.addItem(menuItem("Move Tab to New Window", symbol: "macwindow.badge.plus", isEnabled: hasOtherTabs) { [weak self] in
@@ -222,12 +254,16 @@ struct TerminalTabSidebarLayout<Content: View>: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            TerminalTabSidebar(model: model, isCollapsed: $isCollapsed)
-                .frame(width: isCollapsed ? TerminalTabSidebar.collapsedWidth : width)
-                .background(ghostty.config.backgroundColor.opacity(ghostty.config.backgroundOpacity))
-                .environment(\.colorScheme, NSColor(ghostty.config.backgroundColor).isLightColor ? .light : .dark)
+            // The content keeps its slot either way, so toggling `macos-vertical-tabs`
+            // doesn't recreate the terminal view.
+            if ghostty.config.macosVerticalTabs && model.supportsSidebar {
+                TerminalTabSidebar(model: model, isCollapsed: $isCollapsed)
+                    .frame(width: isCollapsed ? TerminalTabSidebar.collapsedWidth : width)
+                    .background(ghostty.config.backgroundColor.opacity(ghostty.config.backgroundOpacity))
+                    .environment(\.colorScheme, NSColor(ghostty.config.backgroundColor).isLightColor ? .light : .dark)
 
-            divider
+                divider
+            }
 
             content
         }
