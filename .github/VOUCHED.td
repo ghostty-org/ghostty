@@ -220,6 +220,7 @@ luisnquin
 lynicis
 mac0ne
 maddythewisp
+magnussp
 mahnokropotkinvich
 marijagjorgjieva
 markdorison
