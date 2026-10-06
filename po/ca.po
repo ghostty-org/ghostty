@@ -69,7 +69,7 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"S'han trobat un o més errors de configuració. Si us plau, revisa els errors "
+"S'han trobat un o més errors de configuració. Revisa els errors "
 "a continuació i torna a carregar la configuració o ignora aquests errors."
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:12
@@ -87,7 +87,7 @@ msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr ""
 "⚠️ Estàs executant una versió de depuració de Ghostty! El rendiment es veurà "
-"afectat."
+"reduït."
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
 msgid "Ghostty: Terminal Inspector"
@@ -231,7 +231,7 @@ msgstr "Obre la configuració en una finestra nova"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
-msgstr "Deixa en blanc per restaurar el títol per defecte."
+msgstr "Deixa-ho en blanc per restaurar el títol per defecte."
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:9
 msgid "OK"
@@ -659,7 +659,7 @@ msgstr "Copia el contingut de la pantalla com a HTML a un fitxer temporal i l'ob
 #: src/input/command.zig:330
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
 msgstr ""
-"Copia la pantalla com a seqüències ANSI a un fitxer temporal i copia'n el "
+"Copia la pantalla com a seqüències ANSI a un fitxer temporal i copia'n la "
 "ruta"
 
 #: src/input/command.zig:331
@@ -763,7 +763,7 @@ msgstr "Copia el contingut de la selecció com a HTML a un fitxer temporal i l'o
 #: src/input/command.zig:398
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
 msgstr ""
-"Copia la selecció com a seqüències ANSI a un fitxer temporal i copia'n el "
+"Copia la selecció com a seqüències ANSI a un fitxer temporal i copia'n la "
 "ruta"
 
 #: src/input/command.zig:399
@@ -1034,7 +1034,7 @@ msgstr "Tanca totes les pestanyes d'aquesta finestra excepte l'actual."
 
 #: src/input/command.zig:623
 msgid "Close Tabs to the Right"
-msgstr "Tanca les pestanyes de la dreta"
+msgstr "Tanca les pestanyes a la dreta"
 
 #: src/input/command.zig:624
 msgid "Close all tabs to the right of the current one."
