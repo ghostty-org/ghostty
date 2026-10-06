@@ -329,6 +329,7 @@ const DerivedConfig = struct {
     selection_clear_on_copy: bool,
     selection_clear_on_typing: bool,
     selection_word_chars: []const u21,
+    bidi: configpkg.Config.Bidi,
     vt_kam_allowed: bool,
     wait_after_command: bool,
     window_padding_top: u32,
@@ -410,6 +411,7 @@ const DerivedConfig = struct {
             .selection_clear_on_copy = config.@"selection-clear-on-copy",
             .selection_clear_on_typing = config.@"selection-clear-on-typing",
             .selection_word_chars = try alloc.dupe(u21, config.@"selection-word-chars".codepoints),
+            .bidi = config.bidi,
             .vt_kam_allowed = config.@"vt-kam-allowed",
             .wait_after_command = config.@"wait-after-command",
             .window_padding_top = config.@"window-padding-y".top_left,
@@ -1222,16 +1224,20 @@ fn selectionScrollTick(self: *Surface) !void {
     }
 
     const pos = try self.rt_surface.getCursorPos();
-    const pos_vp = self.posToViewport(pos.x, pos.y);
 
     // We need our locked state for the remainder
     self.renderer_state.mutex.lockUncancelable(global.io());
     defer self.renderer_state.mutex.unlock(global.io());
     const t: *terminal.Terminal = self.renderer_state.terminal;
 
+    // Note: autoscrolling scrolls the viewport before resolving this
+    // position, so the bidi mapping may be for the previous row contents.
+    // It is corrected on the next mouse movement.
+    const logical_pos = self.posToLogical(pos);
+
     const selection = self.mouse.selection_gesture.autoscrollTick(t, .{
-        .viewport = pos_vp,
-        .xpos = pos.x,
+        .viewport = logical_pos.vp,
+        .xpos = logical_pos.xpos,
         .ypos = pos.y,
         .rectangle = SurfaceMouse.isRectangleSelectState(self.mouse.mods),
         .word_boundary_codepoints = self.config.selection_word_chars,
@@ -2836,7 +2842,7 @@ pub fn keyCallback(
             defer self.renderer_state.mutex.unlock(global.io());
             self.mouseRefreshLinks(
                 pos,
-                self.posToViewport(pos.x, pos.y),
+                self.posToLogical(pos).vp,
                 self.mouse.over_link,
             ) catch |err| {
                 log.warn("failed to refresh links err={}", .{err});
@@ -3957,7 +3963,7 @@ pub fn mouseButtonCallback(
         // gesture can conservatively treat the release as having moved away
         // from the pressed cell.
         const release_pin: ?terminal.Pin = if (release_pos) |pos| pin: {
-            const release_vp = self.posToViewport(pos.x, pos.y);
+            const release_vp = self.posToLogical(pos).vp;
             break :pin self.io.terminal.screens.active.pages.pin(.{ .viewport = .{
                 .x = release_vp.x,
                 .y = release_vp.y,
@@ -4063,8 +4069,9 @@ pub fn mouseButtonCallback(
         const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
 
         const pos = try self.rt_surface.getCursorPos();
+        const logical_pos = self.posToLogical(pos);
         const pin = pin: {
-            const pt_viewport = self.posToViewport(pos.x, pos.y);
+            const pt_viewport = logical_pos.vp;
             const pin = screen.pages.pin(.{
                 .viewport = .{
                     .x = pt_viewport.x,
@@ -4085,7 +4092,7 @@ pub fn mouseButtonCallback(
         var press_selection = try self.mouse.selection_gesture.press(t, .{
             .time = std.Io.Timestamp.now(global.io(), .awake),
             .pin = pin,
-            .xpos = pos.x,
+            .xpos = logical_pos.xpos,
             .ypos = pos.y,
             .max_distance = @floatFromInt(self.size.cell.width),
             .repeat_interval = self.config.mouse_interval,
@@ -4164,7 +4171,7 @@ pub fn mouseButtonCallback(
         const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
         const pos = try self.rt_surface.getCursorPos();
         const pin = pin: {
-            const pt_viewport = self.posToViewport(pos.x, pos.y);
+            const pt_viewport = self.posToLogical(pos).vp;
             const pin = screen.pages.pin(.{
                 .viewport = .{
                     .x = pt_viewport.x,
@@ -4283,7 +4290,7 @@ fn maybePromptClick(self: *Surface) !bool {
 
     // Get the pin for our mouse click.
     const pos = try self.rt_surface.getCursorPos();
-    const pos_vp = self.posToViewport(pos.x, pos.y);
+    const pos_vp = self.posToLogical(pos).vp;
     const click_pin: terminal.Pin = pin: {
         const pin = screen.pages.pin(.{
             .viewport = .{
@@ -4407,7 +4414,7 @@ fn linkAtPos(
     // Convert our cursor position to a screen point.
     const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
     const mouse_pin: terminal.Pin = mouse_pin: {
-        const point = self.posToViewport(pos.x, pos.y);
+        const point = self.posToLogical(pos).vp;
         const pin = screen.pages.pin(.{ .viewport = point }) orelse {
             log.warn("failed to get pin for clicked point", .{});
             return null;
@@ -4680,9 +4687,6 @@ pub fn cursorPosCallback(
     // Update our modifiers if they changed
     if (mods) |v| self.modsChanged(v);
 
-    // The mouse position in the viewport
-    const pos_vp = self.posToViewport(pos.x, pos.y);
-
     // We always reset the over link status because it will be reprocessed
     // below. But we need the old value to know if we need to undo mouse
     // shape changes.
@@ -4692,6 +4696,10 @@ pub fn cursorPosCallback(
     // We are reading/writing state for the remainder
     self.renderer_state.mutex.lockUncancelable(global.io());
     defer self.renderer_state.mutex.unlock(global.io());
+
+    // The mouse position in the (logical) viewport
+    const logical_pos = self.posToLogical(pos);
+    const pos_vp = logical_pos.vp;
 
     // Update our mouse state. We set this to null initially because we only
     // want to set it when we're not selecting or doing any other mouse
@@ -4790,7 +4798,7 @@ pub fn cursorPosCallback(
         // Perform our drag behavior in our gesture handler.
         const drag_selection = self.mouse.selection_gesture.drag(t, .{
             .pin = pin,
-            .xpos = pos.x,
+            .xpos = logical_pos.xpos,
             .ypos = pos.y,
             .rectangle = SurfaceMouse.isRectangleSelectState(self.mouse.mods),
             .word_boundary_codepoints = self.config.selection_word_chars,
@@ -4851,6 +4859,56 @@ pub fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Coordin
     const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = xpos, .y = ypos } };
     const grid = coord.convert(.grid, self.size).grid;
     return .{ .x = grid.x, .y = grid.y };
+}
+
+/// A mouse position mapped to the logical terminal grid.
+const LogicalPos = struct {
+    /// The logical viewport cell under the mouse.
+    vp: terminal.point.Coordinate,
+
+    /// The x position (in surface pixels) of the mouse as if the
+    /// logical cell were displayed at its logical position, left-to-right.
+    /// Selection uses the position within a cell to determine whether
+    /// to include the cell, so for right-to-left cells this mirrors the
+    /// position within the cell.
+    xpos: f64,
+};
+
+/// Like posToViewport but accounts for bidirectional text: rows with
+/// right-to-left text are displayed in a different (visual) order than
+/// they are stored (logical order), so the cell displayed under the mouse
+/// isn't necessarily the cell at the same column in the terminal. This
+/// maps the mouse position to the logical cell that is displayed under it.
+///
+/// Requires the renderer mutex is held.
+fn posToLogical(self: *Surface, pos: apprt.CursorPos) LogicalPos {
+    const vp = self.posToViewport(pos.x, pos.y);
+    const identity: LogicalPos = .{ .vp = vp, .xpos = pos.x };
+    if (self.config.bidi == .false) return identity;
+
+    const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
+    const pin = screen.pages.pin(.{ .viewport = vp }) orelse return identity;
+
+    var reorder: rendererpkg.BidiReorder = .{};
+    defer reorder.deinit(self.alloc);
+    const logical = (reorder.visualToLogical(
+        self.alloc,
+        self.config.bidi,
+        pin.cells(.all),
+        vp.x,
+    ) catch return identity) orelse return identity;
+
+    // Map the position within the cell.
+    const cell_width: f64 = @floatFromInt(self.size.cell.width);
+    const padding: f64 = @floatFromInt(self.size.padding.left);
+    const visual_start = padding + @as(f64, @floatFromInt(vp.x)) * cell_width;
+    const frac = std.math.clamp(pos.x - visual_start, 0, cell_width - 1);
+    const logical_frac = if (logical.rtl) cell_width - 1 - frac else frac;
+
+    return .{
+        .vp = .{ .x = @intCast(logical.x), .y = vp.y },
+        .xpos = padding + @as(f64, @floatFromInt(logical.x)) * cell_width + logical_frac,
+    };
 }
 
 /// Scroll to the bottom of the viewport.

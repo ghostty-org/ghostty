@@ -15,6 +15,7 @@ const size = @import("renderer/size.zig");
 pub const shadertoy = @import("renderer/shadertoy.zig");
 pub const Backend = @import("renderer/backend.zig").Backend;
 pub const GenericRenderer = @import("renderer/generic.zig").Renderer;
+pub const BidiReorder = @import("renderer/bidi.zig");
 pub const Metal = @import("renderer/Metal.zig");
 pub const OpenGL = @import("renderer/OpenGL.zig");
 pub const Options = @import("renderer/Options.zig");
@@ -62,6 +63,7 @@ test {
 
     _ = cursor;
     _ = message;
+    _ = BidiReorder;
     _ = shadertoy;
     _ = size;
     _ = Thread;

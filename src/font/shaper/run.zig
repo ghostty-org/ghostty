@@ -44,10 +44,20 @@ pub const RunIterator = struct {
     opts: shape.RunOptions,
     i: usize = 0,
 
+    /// Whether the shaper supports shaping right-to-left runs. Shapers
+    /// that support it must implement `setDirection` on their hooks and
+    /// produce cells in visual (left-to-right) order with increasing x.
+    const shaper_rtl = @hasDecl(font.Shaper.RunIteratorHook, "setDirection");
+
+    /// Font info for a single cell.
+    const FontInfo = struct {
+        idx: font.Collection.Index,
+        fallback: ?u32 = null,
+    };
+
     pub fn next(self: *RunIterator, alloc: Allocator) !?TextRun {
         const slice = &self.opts.cells;
         const cells: []const terminal.page.Cell = slice.items(.raw);
-        const graphemes: []const []const u21 = slice.items(.grapheme);
         const styles: []const terminal.Style = slice.items(.style);
 
         // Trim the right side of a row that might be empty
@@ -81,6 +91,17 @@ pub const RunIterator = struct {
         // Let's get our style that we'll expect for the run.
         const style: terminal.Style = if (cells[self.i].hasStyling()) styles[self.i] else .{};
 
+        // The direction of this run. If the cells have been reordered for
+        // bidi and this run is right-to-left, then the cells are in visual
+        // order but the shaper needs them in logical order, so we add the
+        // codepoints in reverse once we know the extent of the run. Shapers
+        // that don't support RTL get the cells in visual order instead.
+        const run_rtl = self.isRtl(self.i);
+        const rtl = shaper_rtl and run_rtl;
+        if (comptime shaper_rtl) {
+            if (rtl) self.hooks.setDirection(.rtl);
+        }
+
         // Go through cell by cell and accumulate while we build our run.
         var j: usize = self.i;
         while (j < max) : (j += 1) {
@@ -105,6 +126,10 @@ pub const RunIterator = struct {
                 .narrow, .wide => {},
                 .spacer_head, .spacer_tail => continue,
             }
+
+            // If the direction changes then we split the run. A run
+            // is always shaped in a single direction.
+            if (j > self.i and self.isRtl(j) != run_rtl) break;
 
             // If our cell attributes are changing, then we split the run.
             // This prevents a single glyph for ">=" to be rendered with
@@ -148,32 +173,7 @@ pub const RunIterator = struct {
 
             // Text runs break when font styles change so we need to get
             // the proper style.
-            const font_style: font.Style = style: {
-                if (style.flags.bold) {
-                    if (style.flags.italic) break :style .bold_italic;
-                    break :style .bold;
-                }
-
-                if (style.flags.italic) break :style .italic;
-                break :style .regular;
-            };
-
-            // Determine the presentation format for this glyph.
-            const presentation: ?font.Presentation = if (cell.hasGrapheme()) p: {
-                // We only check the FIRST codepoint because I believe the
-                // presentation format must be directly adjacent to the codepoint.
-                const cps = graphemes[j];
-                assert(cps.len > 0);
-                if (cps[0] == 0xFE0E) break :p .text;
-                if (cps[0] == 0xFE0F) break :p .emoji;
-                break :p null;
-            } else emoji: {
-                // If we're not a grapheme, our individual char could be
-                // an emoji so we want to check if we expect emoji presentation.
-                // The font grid indexForCodepoint we use below will do this
-                // automatically.
-                break :emoji null;
-            };
+            const font_style = fontStyle(style);
 
             // If our cursor is on this line then we break the run around the
             // cursor. This means that any row with a cursor has at least
@@ -185,8 +185,14 @@ pub const RunIterator = struct {
             // such as a skin-tone emoji is fine, but hovering over the
             // joiners will show the joiners allowing you to modify the
             // emoji.
-            if (!cell.hasGrapheme()) {
-                if (self.opts.cursor_x) |cursor_x| {
+            //
+            // We also don't break right-to-left runs, or around a cursor
+            // on right-to-left text, because RTL scripts such as Arabic
+            // are joined and breaking them would change the letter forms.
+            if (!cell.hasGrapheme() and !run_rtl) {
+                if (self.opts.cursor_x) |cursor_x| cursor: {
+                    if (cursor_x < cells.len and self.isRtl(cursor_x)) break :cursor;
+
                     // Exactly: self.i is the cursor and we iterated once. This
                     // means that we started exactly at the cursor and did at
                     // exactly one iteration. Why exactly one? Because we may
@@ -208,77 +214,32 @@ pub const RunIterator = struct {
                 }
             }
 
-            // We need to find a font that supports this character. If
-            // there are additional zero-width codepoints (to form a single
-            // grapheme, i.e. combining characters), we need to find a font
-            // that supports all of them.
-            const font_info: struct {
-                idx: font.Collection.Index,
-                fallback: ?u32 = null,
-            } = font_info: {
-                // If we find a font that supports this entire grapheme
-                // then we use that.
-                if (try self.indexForCell(
-                    alloc,
-                    cell,
-                    graphemes[j],
-                    font_style,
-                    presentation,
-                )) |idx| break :font_info .{ .idx = idx };
-
-                // Otherwise we need a fallback character. Prefer the
-                // official replacement character.
-                if (try self.opts.grid.getIndex(
-                    alloc,
-                    0xFFFD, // replacement char
-                    font_style,
-                    presentation,
-                )) |idx| break :font_info .{ .idx = idx, .fallback = 0xFFFD };
-
-                // Fallback to space
-                if (try self.opts.grid.getIndex(
-                    alloc,
-                    ' ',
-                    font_style,
-                    presentation,
-                )) |idx| break :font_info .{ .idx = idx, .fallback = ' ' };
-
-                // We can't render at all. This is a bug, we should always
-                // have a font that can render a space.
-                unreachable;
-            };
-
-            //log.warn("char={x} info={}", .{ cell.char, font_info });
+            const font_info = try self.fontInfo(alloc, j, font_style);
             if (j == self.i) current_font = font_info.idx;
 
             // If our fonts are not equal, then we're done with our run.
             if (font_info.idx != current_font) break;
 
-            // If we're a fallback character, add that and continue; we
-            // don't want to add the entire grapheme.
-            if (font_info.fallback) |cp| {
-                try self.addCodepoint(&hasher, cp, @intCast(cluster));
-                continue;
-            }
+            // RTL runs are added in reverse below.
+            if (rtl) continue;
 
-            // If we're a Kitty unicode placeholder then we add a blank.
-            if (cell.codepoint() == terminal.kitty.graphics.unicode.placeholder) {
-                try self.addCodepoint(&hasher, ' ', @intCast(cluster));
-                continue;
-            }
+            try self.addCell(&hasher, j, @intCast(cluster), font_info);
+        }
 
-            // Add all the codepoints for our grapheme
-            try self.addCodepoint(
-                &hasher,
-                if (cell.codepoint() == 0) ' ' else cell.codepoint(),
-                @intCast(cluster),
-            );
-            if (cell.hasGrapheme()) {
-                for (graphemes[j]) |cp| {
-                    // Do not send presentation modifiers
-                    if (cp == 0xFE0E or cp == 0xFE0F) continue;
-                    try self.addCodepoint(&hasher, cp, @intCast(cluster));
+        // For RTL runs, add the cells in logical order (reverse visual
+        // order). The clusters remain the visual offsets so that the shaped
+        // output, which is in visual order, has increasing clusters.
+        if (rtl) {
+            const font_style = fontStyle(style);
+            var k = j;
+            while (k > self.i) {
+                k -= 1;
+                switch (cells[k].wide) {
+                    .narrow, .wide => {},
+                    .spacer_head, .spacer_tail => continue,
                 }
+                const font_info = try self.fontInfo(alloc, k, font_style);
+                try self.addCell(&hasher, k, @intCast(k - self.i), font_info);
             }
         }
 
@@ -291,6 +252,9 @@ pub const RunIterator = struct {
         // Add our font index
         autoHash(&hasher, current_font);
 
+        // Add our direction
+        autoHash(&hasher, rtl);
+
         // Move our cursor. Must defer since we use self.i below.
         defer self.i = j;
 
@@ -301,6 +265,116 @@ pub const RunIterator = struct {
             .grid = self.opts.grid,
             .font_index = current_font,
         };
+    }
+
+    /// Returns true if the cell at the given index is part of a
+    /// right-to-left (odd embedding level) sequence.
+    fn isRtl(self: *const RunIterator, i: usize) bool {
+        const levels = self.opts.bidi_levels orelse return false;
+        return levels[i] & 1 == 1;
+    }
+
+    /// Find the font to use to render the cell at index i.
+    fn fontInfo(
+        self: *RunIterator,
+        alloc: Allocator,
+        i: usize,
+        font_style: font.Style,
+    ) !FontInfo {
+        const slice = &self.opts.cells;
+        const cell: *const terminal.page.Cell = &slice.items(.raw)[i];
+        const graphemes: []const u21 = slice.items(.grapheme)[i];
+
+        // Determine the presentation format for this glyph.
+        const presentation: ?font.Presentation = if (cell.hasGrapheme()) p: {
+            // We only check the FIRST codepoint because I believe the
+            // presentation format must be directly adjacent to the codepoint.
+            assert(graphemes.len > 0);
+            if (graphemes[0] == 0xFE0E) break :p .text;
+            if (graphemes[0] == 0xFE0F) break :p .emoji;
+            break :p null;
+        } else emoji: {
+            // If we're not a grapheme, our individual char could be
+            // an emoji so we want to check if we expect emoji presentation.
+            // The font grid indexForCodepoint we use below will do this
+            // automatically.
+            break :emoji null;
+        };
+
+        // We need to find a font that supports this character. If
+        // there are additional zero-width codepoints (to form a single
+        // grapheme, i.e. combining characters), we need to find a font
+        // that supports all of them.
+
+        // If we find a font that supports this entire grapheme
+        // then we use that.
+        if (try self.indexForCell(
+            alloc,
+            cell,
+            graphemes,
+            font_style,
+            presentation,
+        )) |idx| return .{ .idx = idx };
+
+        // Otherwise we need a fallback character. Prefer the
+        // official replacement character.
+        if (try self.opts.grid.getIndex(
+            alloc,
+            0xFFFD, // replacement char
+            font_style,
+            presentation,
+        )) |idx| return .{ .idx = idx, .fallback = 0xFFFD };
+
+        // Fallback to space
+        if (try self.opts.grid.getIndex(
+            alloc,
+            ' ',
+            font_style,
+            presentation,
+        )) |idx| return .{ .idx = idx, .fallback = ' ' };
+
+        // We can't render at all. This is a bug, we should always
+        // have a font that can render a space.
+        unreachable;
+    }
+
+    /// Add the codepoints for the cell at index i to the run.
+    fn addCell(
+        self: *RunIterator,
+        hasher: anytype,
+        i: usize,
+        cluster: u32,
+        font_info: FontInfo,
+    ) !void {
+        const slice = &self.opts.cells;
+        const cell: *const terminal.page.Cell = &slice.items(.raw)[i];
+
+        // If we're a fallback character, add that and continue; we
+        // don't want to add the entire grapheme.
+        if (font_info.fallback) |cp| {
+            try self.addCodepoint(hasher, cp, cluster);
+            return;
+        }
+
+        // If we're a Kitty unicode placeholder then we add a blank.
+        if (cell.codepoint() == terminal.kitty.graphics.unicode.placeholder) {
+            try self.addCodepoint(hasher, ' ', cluster);
+            return;
+        }
+
+        // Add all the codepoints for our grapheme
+        try self.addCodepoint(
+            hasher,
+            if (cell.codepoint() == 0) ' ' else cell.codepoint(),
+            cluster,
+        );
+        if (cell.hasGrapheme()) {
+            for (slice.items(.grapheme)[i]) |cp| {
+                // Do not send presentation modifiers
+                if (cp == 0xFE0E or cp == 0xFE0F) continue;
+                try self.addCodepoint(hasher, cp, cluster);
+            }
+        }
     }
 
     fn addCodepoint(self: *RunIterator, hasher: anytype, cp: u32, cluster: u32) !void {
@@ -381,6 +455,17 @@ pub const RunIterator = struct {
         return null;
     }
 };
+
+/// Returns the font style to use for the given cell style.
+fn fontStyle(style: terminal.Style) font.Style {
+    if (style.flags.bold) {
+        if (style.flags.italic) return .bold_italic;
+        return .bold;
+    }
+
+    if (style.flags.italic) return .italic;
+    return .regular;
+}
 
 /// Returns a style that when compared must be identical for a run to
 /// continue.

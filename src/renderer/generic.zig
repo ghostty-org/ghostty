@@ -18,6 +18,7 @@ const noMinContrast = cellpkg.noMinContrast;
 const constraintWidth = cellpkg.constraintWidth;
 const isCovering = cellpkg.isCovering;
 const rowNeverExtendBg = @import("row.zig").neverExtendBg;
+const BidiReorder = @import("bidi.zig");
 const Overlay = @import("Overlay.zig");
 const imagepkg = @import("image.zig");
 const ImageState = imagepkg.State;
@@ -196,6 +197,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         font_grid: *font.SharedGrid,
         font_shaper: font.Shaper,
         font_shaper_cache: font.ShaperCache,
+
+        /// Scratch state for reordering rows with bidirectional text.
+        bidi_reorder: BidiReorder = .{},
 
         /// The images that we may render.
         images: ImageState = .empty,
@@ -578,6 +582,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             font_features: std.ArrayListUnmanaged([:0]const u8),
             font_styles: font.CodepointResolver.StyleStatus,
             font_shaping_break: configpkg.FontShapingBreak,
+            bidi: configpkg.Config.Bidi,
             cursor_color: ?configpkg.Config.TerminalColor,
             cursor_opacity: f64,
             cursor_text: ?configpkg.Config.TerminalColor,
@@ -650,6 +655,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .font_features = font_features.list,
                     .font_styles = font_styles,
                     .font_shaping_break = config.@"font-shaping-break",
+                    .bidi = config.bidi,
 
                     .cursor_color = config.@"cursor-color",
                     .cursor_text = config.@"cursor-text",
@@ -846,6 +852,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             self.font_shaper.deinit();
             self.font_shaper_cache.deinit(self.alloc);
+            self.bidi_reorder.deinit(self.alloc);
 
             self.config.deinit();
             self.api.deinit();
@@ -2738,6 +2745,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // a cursor. Otherwise, get our cursor cell, because we may
                 // need it for styling.
                 const cursor_vp = state.cursor.viewport orelse break :cursor;
+
+                // The visual x of the cursor, which differs from the
+                // logical x if the cursor row contains bidirectional text.
+                const cursor_visual: BidiReorder.Visual = self.bidi_reorder.logicalToVisual(
+                    self.alloc,
+                    self.config.bidi,
+                    state.row_data.items(.cells)[cursor_vp.y].items(.raw),
+                    cursor_vp.x,
+                ) catch .{ .x = cursor_vp.x, .rtl = false };
+                const cursor_x: terminal.size.CellCountInt = @intCast(cursor_visual.x);
                 const cursor_style: terminal.Style = cursor_style: {
                     const cells = state.row_data.items(.cells);
                     const cell = cells[cursor_vp.y].get(cursor_vp.x);
@@ -2795,6 +2812,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 self.addCursor(
                     &state.cursor,
+                    cursor_x,
+                    cursor_visual.rtl,
                     style,
                     cursor_color,
                 );
@@ -2808,8 +2827,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         // to move back one cell. The saturate is to ensure we don't
                         // overflow but this shouldn't happen with well-formed input.
                         switch (wide) {
-                            .narrow, .spacer_head, .wide => cursor_vp.x,
-                            .spacer_tail => cursor_vp.x -| 1,
+                            .narrow, .spacer_head, .wide => cursor_x,
+                            .spacer_tail => cursor_x -| 1,
                         },
                         @intCast(cursor_vp.y),
                     };
@@ -2902,9 +2921,34 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         ) !void {
             const state = &self.terminal_state;
 
+            // If this row contains bidirectional text then we render the
+            // cells in visual order. Everything that refers to the terminal
+            // grid (selections, highlights, links) is in logical order, so
+            // we map visual positions back to logical positions with
+            // `bidi_order`. The row containing the preedit is not
+            // reordered since the preedit is placed at the logical cursor.
+            const bidi_reordered = reordered: {
+                if (preedit_range) |range| {
+                    if (range.y == y) break :reordered false;
+                }
+
+                break :reordered try self.bidi_reorder.reorder(
+                    self.alloc,
+                    self.config.bidi,
+                    cells.slice(),
+                );
+            };
+            const bidi_order: ?[]const u16 = if (bidi_reordered)
+                self.bidi_reorder.order.items
+            else
+                null;
+
             // If our viewport is wider than our cell contents buffer,
             // we still only process cells up to the width of the buffer.
-            const cells_slice = cells.slice();
+            const cells_slice = if (bidi_reordered)
+                self.bidi_reorder.cells.slice()
+            else
+                cells.slice();
             const cells_len = @min(cells_slice.len, self.cells.size.columns);
             const cells_raw = cells_slice.items(.raw);
             const cells_style = cells_slice.items(.style);
@@ -2942,13 +2986,23 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             var run_iter_opts: font.shape.RunOptions = .{
                 .grid = self.font_grid,
                 .cells = cells_slice,
-                .selection = if (selection) |s| s else null,
+
+                // Selection breaks are based on logical positions which
+                // aren't contiguous once reordered, so we don't break
+                // runs on selections for reordered rows.
+                .selection = if (bidi_reordered) null else selection,
+
+                .bidi_levels = if (bidi_reordered)
+                    self.bidi_reorder.levels.items
+                else
+                    null,
 
                 // We want to do font shaping as long as the cursor is
                 // visible on this viewport.
                 .cursor_x = cursor_x: {
                     const vp = state.cursor.viewport orelse break :cursor_x null;
                     if (vp.y != y) break :cursor_x null;
+                    if (bidi_reordered) break :cursor_x self.bidi_reorder.visualX(vp.x);
                     break :cursor_x vp.x;
                 },
             };
@@ -3031,6 +3085,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 else
                     .{};
 
+                // The logical x of this cell. This is the same as x unless
+                // the row has been reordered for bidirectional text.
+                const logical_x: usize = if (bidi_order) |order| order[x] else x;
+
                 // True if this cell is selected
                 const selected: enum {
                     false,
@@ -3042,9 +3100,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                     // Selection should take the highest precedence.
                     const x_compare = if (wide == .spacer_tail)
-                        x -| 1
+                        logical_x -| 1
                     else
-                        x;
+                        logical_x;
                     if (selection) |sel| {
                         if (x_compare >= sel[0] and
                             x_compare <= sel[1]) break :selected .selection;
@@ -3215,7 +3273,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // distinguish them.
                 const underline: terminal.Attribute.Underline = underline: {
                     if (links.contains(.{
-                        .x = @intCast(x),
+                        .x = @intCast(logical_x),
                         .y = @intCast(y),
                     })) {
                         break :underline if (style.flags.underline == .single)
@@ -3507,6 +3565,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         fn addCursor(
             self: *Self,
             cursor_state: *const terminal.RenderState.Cursor,
+            cursor_x: terminal.size.CellCountInt,
+            cursor_rtl: bool,
             cursor_style: renderer.CursorStyle,
             cursor_color: terminal.color.RGB,
         ) void {
@@ -3518,12 +3578,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // The cursor goes over the screen cursor position.
                 if (!cursor_vp.wide_tail) break :cell .{
                     cursor_state.cell.wide == .wide,
-                    cursor_vp.x,
+                    cursor_x,
                 };
 
                 // If we're part of a wide character, we move the cursor back
                 // to the actual character.
-                break :cell .{ true, cursor_vp.x - 1 };
+                break :cell .{ true, cursor_x - 1 };
             };
 
             const alpha: u8 = if (!self.focused) 255 else alpha: {
@@ -3587,7 +3647,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
                 .glyph_size = .{ render.glyph.width, render.glyph.height },
                 .bearings = .{
-                    @intCast(render.glyph.offset_x),
+                    // The bar cursor marks the logical start of the cell,
+                    // which is its right side for right-to-left text, so we
+                    // mirror it within the cell.
+                    if (cursor_rtl and cursor_style == .bar) bearing: {
+                        const width: i32 = @intCast(self.grid_metrics.cell_width * @as(u32, if (wide) 2 else 1));
+                        break :bearing @intCast(width - render.glyph.offset_x - @as(i32, @intCast(render.glyph.width)));
+                    } else @intCast(render.glyph.offset_x),
                     @intCast(render.glyph.offset_y),
                 },
             }, cursor_style);

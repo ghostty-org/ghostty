@@ -381,6 +381,37 @@ language: ?[:0]const u8 = null,
 /// Available since: 1.2.0
 @"font-shaping-break": FontShapingBreak = .{},
 
+/// Bidirectional text support. When enabled, rows that contain
+/// right-to-left text (such as Arabic or Hebrew) are reordered for display
+/// using the Unicode Bidirectional Algorithm (UAX #9), and right-to-left
+/// runs are shaped right-to-left so that, for example, Arabic letters join
+/// correctly.
+///
+/// Reordering only affects how text is displayed. The terminal grid,
+/// cursor movement, and the text copied from selections all remain in
+/// logical order. Each row is reordered independently ("implicit" mode).
+///
+/// Valid values:
+///
+///   * `false` - Disable bidirectional text. Text is always displayed
+///     left-to-right in the order it was written.
+///
+///   * `ltr` - Reorder right-to-left text within left-to-right rows.
+///
+///   * `rtl` - Reorder text within right-to-left rows. Right-to-left
+///     rows are aligned to the right edge of the terminal.
+///
+///   * `auto` - Determine the direction of each row from its first
+///     strongly directional character, falling back to `ltr`. This is the
+///     default. Rows that start with right-to-left text (i.e. a line of
+///     Arabic or Persian output) are laid out right-to-left and aligned to
+///     the right edge so punctuation is placed correctly, while rows that start with left-to-right text
+///     (i.e. a shell prompt) are laid out left-to-right.
+///
+/// Rows that contain no right-to-left characters are never reordered when
+/// this is `ltr` or `auto`.
+bidi: Bidi = .auto,
+
 /// What color space to use when performing alpha blending.
 ///
 /// This affects the appearance of text and of any images with transparency.
@@ -8771,6 +8802,14 @@ pub const FontSyntheticStyle = packed struct {
     bold: bool = true,
     italic: bool = true,
     @"bold-italic": bool = true,
+};
+
+/// See "bidi" for documentation
+pub const Bidi = enum {
+    false,
+    ltr,
+    rtl,
+    auto,
 };
 
 /// See "font-shaping-break" for documentation

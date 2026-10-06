@@ -34,6 +34,7 @@ pub const tables = [_]config.Table{
         .fields = &.{
             "is_emoji_presentation",
             "case_folding_full",
+            "bidi_paired_bracket",
         },
     },
     .{
@@ -78,6 +79,7 @@ pub const tables = [_]config.Table{
             "grapheme_break_no_control",
             "is_symbol",
             "is_emoji_vs_base",
+            "bidi_class",
         },
     },
 };

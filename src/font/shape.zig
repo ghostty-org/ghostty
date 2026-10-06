@@ -79,6 +79,13 @@ pub const RunOptions = struct {
     /// The x boundaries of the selection in this row.
     selection: ?[2]u16 = null,
 
+    /// The resolved bidi embedding levels of each cell, if the cells
+    /// have been reordered into visual order for bidirectional text.
+    /// Runs never span cells of differing direction (level parity), and
+    /// right-to-left runs are shaped in the right-to-left direction by
+    /// shapers that support it. This must be the same length as cells.
+    bidi_levels: ?[]const u8 = null,
+
     /// The cursor position within this row. This is used to break shaping
     /// on cursor boundaries. This can be disabled by setting this to
     /// null.
