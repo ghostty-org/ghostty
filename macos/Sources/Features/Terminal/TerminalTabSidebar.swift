@@ -257,7 +257,7 @@ struct TerminalTabSidebar: View {
 /// A round icon button in the tab sidebar, drawn like the native tab bar's buttons.
 private struct TerminalTabSidebarButton: View {
     enum Kind {
-        /// Like the tab bar's new tab button: a large circle darker than its surroundings.
+        /// Like the tab bar's new tab button: a large glass circle.
         case bar
 
         /// Like a tab's close button: a small circle lighter than the tab it sits on.
@@ -277,7 +277,14 @@ private struct TerminalTabSidebarButton: View {
             Image(systemName: systemName)
                 .font(.system(size: glyphSize, weight: glyphWeight))
                 .frame(width: diameter, height: diameter)
-                .background(Circle().fill(fill))
+                .background(Circle().fill(kind == .close ? closeFill : .clear))
+                .terminalTabSidebarGlass(
+                    in: Circle(),
+                    isEnabled: kind == .bar,
+                    isInteractive: true,
+                    tint: isHovering ? Color.primary.opacity(0.12) : nil,
+                    fallback: barFallbackFill
+                )
                 // The click target can be larger than the circle that is drawn.
                 .frame(width: targetSize, height: targetSize)
                 .contentShape(Circle())
@@ -317,19 +324,46 @@ private struct TerminalTabSidebarButton: View {
         }
     }
 
-    private var fill: Color {
-        switch kind {
-        case .bar:
-            if isHovering { return Color.primary.opacity(0.14) }
-            return Color.black.opacity(colorScheme == .dark ? 0.28 : 0.07)
-        case .close:
-            return Color.primary.opacity(isHovering ? 0.30 : 0.16)
+    private var closeFill: Color {
+        Color.primary.opacity(isHovering ? 0.30 : 0.16)
+    }
+
+    /// What the bar buttons are filled with where there is no glass.
+    private var barFallbackFill: Color {
+        if isHovering { return Color.primary.opacity(0.14) }
+        return Color.black.opacity(colorScheme == .dark ? 0.28 : 0.07)
+    }
+}
+
+private extension View {
+    /// Draws the view on the system's Liquid Glass, which is what the native tab bar's tabs
+    /// and buttons are made of and what gives them their bright rim. Glass needs macOS 26;
+    /// earlier systems get a flat fill instead.
+    @ViewBuilder
+    func terminalTabSidebarGlass<S: Shape>(
+        in shape: S,
+        isEnabled: Bool = true,
+        isInteractive: Bool = false,
+        tint: Color? = nil,
+        fallback: Color
+    ) -> some View {
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            glassEffect(
+                isEnabled ? Glass.regular.tint(tint).interactive(isInteractive) : .identity,
+                in: shape
+            )
+        } else {
+            background(shape.fill(isEnabled ? fallback : .clear))
         }
+#else
+        background(shape.fill(isEnabled ? fallback : .clear))
+#endif
     }
 }
 
 /// One tab in the sidebar: a pill-shaped row when the sidebar is expanded, or a round
-/// numbered tile in the collapsed rail.
+/// numbered tile in the collapsed rail. The selected tab is drawn on glass like a native tab.
 private struct TerminalTabSidebarRow: View {
     let model: TerminalTabSidebarModel
     let tab: TerminalTabSidebarModel.Tab
@@ -341,7 +375,12 @@ private struct TerminalTabSidebarRow: View {
         content
             .font(.system(size: 13))
             .foregroundStyle(Color.primary.opacity(tab.isSelected ? 1 : 0.75))
-            .background(Capsule().fill(highlight))
+            .background(Capsule().fill(hoverFill))
+            .terminalTabSidebarGlass(
+                in: Capsule(),
+                isEnabled: tab.isSelected,
+                fallback: Color.primary.opacity(0.14)
+            )
             .contentShape(Capsule())
             .onTapGesture { model.select(tab) }
             .onHover { isHovering = $0 }
@@ -358,8 +397,8 @@ private struct TerminalTabSidebarRow: View {
             .accessibilityAction { model.select(tab) }
     }
 
-    private var highlight: Color {
-        Color.primary.opacity(tab.isSelected ? 0.14 : (isHovering ? 0.08 : 0))
+    private var hoverFill: Color {
+        Color.primary.opacity(!tab.isSelected && isHovering ? 0.08 : 0)
     }
 
     @ViewBuilder
