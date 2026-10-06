@@ -100,9 +100,97 @@ final class TerminalTabSidebarModel: ObservableObject {
         controller(for: tab)?.closeOtherTabs(nil)
     }
 
+    func closeBelow(_ tab: Tab) {
+        select(tab)
+        controller(for: tab)?.closeTabsOnTheRight(nil)
+    }
+
+    func moveToNewWindow(_ tab: Tab) {
+        tabWindow(for: tab)?.moveTabToNewWindow(nil)
+    }
+
+    func showAllTabs() {
+        window?.toggleTabOverview(nil)
+    }
+
     func promptTitle(_ tab: Tab) {
         select(tab)
         controller(for: tab)?.promptTabTitle()
+    }
+
+    func setColor(_ color: TerminalTabColor, for tab: Tab) {
+        (tabWindow(for: tab) as? TerminalWindow)?.tabColor = color
+    }
+
+    /// The right-click menu for a tab. It has the same items as a native tab's menu, including
+    /// the tab color palette, which is why it is an AppKit menu: the palette is a custom menu
+    /// item view and SwiftUI menus can't hold one.
+    func contextMenu(for tab: Tab) -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        let hasOtherTabs = tabs.count > 1
+        menu.addItem(menuItem("Close Tab", symbol: "xmark") { [weak self] in
+            self?.close(tab)
+        })
+        menu.addItem(menuItem("Close Other Tabs", symbol: "xmark", isEnabled: hasOtherTabs) { [weak self] in
+            self?.closeOthers(tab)
+        })
+        menu.addItem(menuItem("Close Tabs Below", symbol: "xmark", isEnabled: tab.index < tabs.count) { [weak self] in
+            self?.closeBelow(tab)
+        })
+        menu.addItem(menuItem("Move Tab to New Window", symbol: "macwindow.badge.plus", isEnabled: hasOtherTabs) { [weak self] in
+            self?.moveToNewWindow(tab)
+        })
+        menu.addItem(menuItem("Show All Tabs") { [weak self] in
+            self?.showAllTabs()
+        })
+
+        menu.addItem(.separator())
+        menu.addItem(menuItem("Rename Tab...", symbol: "pencil.line") { [weak self] in
+            self?.promptTitle(tab)
+        })
+
+        let palette = NSHostingView(rootView: TabColorMenuView(selectedColor: tab.color) { [weak self] color in
+            self?.setColor(color, for: tab)
+        })
+        palette.frame.size = palette.intrinsicContentSize
+        let paletteItem = NSMenuItem()
+        paletteItem.view = palette
+        menu.addItem(paletteItem)
+
+        return menu
+    }
+
+    private func menuItem(
+        _ title: String,
+        symbol: String? = nil,
+        isEnabled: Bool = true,
+        handler: @escaping () -> Void
+    ) -> NSMenuItem {
+        let action = MenuAction(handler)
+        let item = NSMenuItem(title: title, action: #selector(MenuAction.perform(_:)), keyEquivalent: "")
+        item.target = action
+        // The item's target is weak, so the item itself keeps the action alive.
+        item.representedObject = action
+        item.isEnabled = isEnabled
+        if let symbol {
+            item.setImageIfDesired(systemSymbolName: symbol)
+        }
+        return item
+    }
+
+    /// Runs a closure as a menu item's action.
+    private final class MenuAction: NSObject {
+        private let handler: () -> Void
+
+        init(_ handler: @escaping () -> Void) {
+            self.handler = handler
+        }
+
+        @objc func perform(_ sender: Any?) {
+            handler()
+        }
     }
 
     private func tabWindow(for tab: Tab) -> NSWindow? {
@@ -392,12 +480,7 @@ private struct TerminalTabSidebarRow: View {
             .onTapGesture { model.select(tab) }
             .onHover { isHovering = $0 }
             .help(isCompact ? tab.title : "")
-            .contextMenu {
-                Button("Close Tab") { model.close(tab) }
-                Button("Close Other Tabs") { model.closeOthers(tab) }
-                Divider()
-                Button("Change Tab Title...") { model.promptTitle(tab) }
-            }
+            .overlay(TerminalTabSidebarMenuArea { model.contextMenu(for: tab) })
             .accessibilityElement(children: .combine)
             .accessibilityLabel(tab.title)
             .accessibilityAddTraits(tab.isSelected ? [.isButton, .isSelected] : .isButton)
@@ -464,5 +547,43 @@ private struct TerminalTabSidebarRow: View {
         .padding(.leading, 4)
         .padding(.trailing, 10)
         .frame(height: 28)
+    }
+}
+
+/// Shows an AppKit menu when its area is right-clicked or control-clicked, and lets every
+/// other mouse event through to the SwiftUI views beneath it.
+private struct TerminalTabSidebarMenuArea: NSViewRepresentable {
+    let menu: () -> NSMenu
+
+    func makeNSView(context: Context) -> MenuAreaView {
+        let view = MenuAreaView()
+        view.menuProvider = menu
+        return view
+    }
+
+    func updateNSView(_ nsView: MenuAreaView, context: Context) {
+        nsView.menuProvider = menu
+    }
+
+    final class MenuAreaView: NSView {
+        var menuProvider: (() -> NSMenu)?
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            // Only claim the clicks that open a context menu. Everything else, such as
+            // selecting the tab or pressing its close button, belongs to the row beneath.
+            guard let event = NSApp.currentEvent else { return nil }
+            switch event.type {
+            case .rightMouseDown, .rightMouseUp:
+                return super.hitTest(point)
+            case .leftMouseDown where event.modifierFlags.contains(.control):
+                return super.hitTest(point)
+            default:
+                return nil
+            }
+        }
+
+        override func menu(for event: NSEvent) -> NSMenu? {
+            menuProvider?()
+        }
     }
 }
