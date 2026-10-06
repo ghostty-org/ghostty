@@ -427,7 +427,7 @@ msgstr "Copia la selecció com a seqüències ANSI al porta-retalls"
 
 #: src/input/command.zig:164
 msgid "Copy the selected text as ANSI escape sequences to the clipboard."
-msgstr "Copia el text seleccionat com a seqüències d'escapada ANSI al porta-retalls."
+msgstr "Copia el text seleccionat com a seqüències d'escapament ANSI al porta-retalls."
 
 #: src/input/command.zig:167
 msgid "Copy Selection as HTML to Clipboard"
