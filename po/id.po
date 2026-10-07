@@ -27,7 +27,7 @@ msgstr "Buka di Ghostty"
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
 msgid "Authorize Clipboard Access"
-msgstr "Mengesahkan Akses Papan Klip"
+msgstr "Izinkan Akses Papan Klip"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:17
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:17
@@ -41,7 +41,7 @@ msgstr "Izinkan"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
 msgid "Remember choice for this split"
-msgstr "Ingat pilihan untuk belahan ini"
+msgstr "Ingat pilihan untuk bagian ini"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
 msgid "Reload configuration to show this prompt again"
@@ -147,7 +147,7 @@ msgstr "Atur ulang"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split"
-msgstr "Belah"
+msgstr "Bagi"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:348 src/apprt/gtk/ui/1.5/window.blp:253
 msgid "Change Title…"
@@ -156,26 +156,26 @@ msgstr "Ubah Judul…"
 #: src/apprt/gtk/ui/1.2/surface.blp:353 src/apprt/gtk/ui/1.5/window.blp:180
 #: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:487
 msgid "Split Up"
-msgstr "Belah Atas"
+msgstr "Bagi ke Atas"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:359 src/apprt/gtk/ui/1.5/window.blp:185
 #: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:492
 msgid "Split Down"
-msgstr "Belah Bawah"
+msgstr "Bagi ke Bawah"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:365 src/apprt/gtk/ui/1.5/window.blp:190
 #: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
 msgid "Split Left"
-msgstr "Belah Kiri"
+msgstr "Bagi ke Kiri"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:195
 #: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
 msgid "Split Right"
-msgstr "Belah Kanan"
+msgstr "Bagi ke Kanan"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:377
 msgid "Close Split"
-msgstr "Tutup Belahan"
+msgstr "Tutup Bagian"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:383
 msgid "Tab"
@@ -237,7 +237,7 @@ msgstr "OK"
 
 #: src/apprt/gtk/ui/1.5/window.blp:61 src/apprt/gtk/ui/1.5/window.blp:111
 msgid "New Split"
-msgstr "Belahan Baru"
+msgstr "Bagian Baru"
 
 #: src/apprt/gtk/ui/1.5/window.blp:71 src/apprt/gtk/ui/1.5/window.blp:129
 msgid "View Open Tabs"
@@ -333,7 +333,7 @@ msgstr "Tutup Jendela?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:187
 msgid "Close Split?"
-msgstr "Tutup Belahan?"
+msgstr "Tutup Bagian?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions will be terminated."
@@ -349,7 +349,7 @@ msgstr "Semua sesi terminal di jendela ini akan diakhiri."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:196
 msgid "The currently running process in this split will be terminated."
-msgstr "Proses yang sedang berjalan dalam belahan ini akan diakhiri."
+msgstr "Proses yang sedang berjalan dalam bagian ini akan diakhiri."
 
 #: src/apprt/gtk/class/surface.zig:1181
 msgid "Command Finished"
@@ -533,7 +533,7 @@ msgstr "Atur Ulang Ukuran Font"
 
 #: src/input/command.zig:238
 msgid "Reset the font size to the default."
-msgstr "Kembalikan ukuran font ke ukuran bawaan."
+msgstr "Atur ulang ukuran font ke ukuran bawaan."
 
 #: src/input/command.zig:243
 msgid "Clear Screen"
@@ -843,67 +843,67 @@ msgstr "Minta judul baru untuk tab saat ini."
 
 #: src/input/command.zig:478
 msgid "Split the terminal to the left."
-msgstr "Belah terminal ke kiri."
+msgstr "Bagi terminal ke kiri."
 
 #: src/input/command.zig:483
 msgid "Split the terminal to the right."
-msgstr "Belah terminal ke kanan."
+msgstr "Bagi terminal ke kanan."
 
 #: src/input/command.zig:488
 msgid "Split the terminal up."
-msgstr "Belah terminal ke atas."
+msgstr "Bagi terminal ke atas."
 
 #: src/input/command.zig:493
 msgid "Split the terminal down."
-msgstr "Belah terminal ke bawah."
+msgstr "Bagi terminal ke bawah."
 
 #: src/input/command.zig:500
 msgid "Focus Split: Previous"
-msgstr "Fokus Belahan: Sebelumnya"
+msgstr "Fokus ke Bagian: Sebelumnya"
 
 #: src/input/command.zig:501
 msgid "Focus the previous split, if any."
-msgstr "Fokuskan ke belahan sebelumnya, jika ada."
+msgstr "Fokuskan ke bagian sebelumnya, jika ada."
 
 #: src/input/command.zig:505
 msgid "Focus Split: Next"
-msgstr "Fokus Belahan: Berikutnya"
+msgstr "Fokus ke Bagian: Berikutnya"
 
 #: src/input/command.zig:506
 msgid "Focus the next split, if any."
-msgstr "Fokuskan ke belahan berikutnya, jika ada."
+msgstr "Fokuskan ke bagian berikutnya, jika ada."
 
 #: src/input/command.zig:510
 msgid "Focus Split: Left"
-msgstr "Fokus Belahan: Kiri"
+msgstr "Fokus ke Bagian: Kiri"
 
 #: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
-msgstr "Fokuskan ke belahan di kiri, jika ada."
+msgstr "Fokuskan ke bagian di kiri, jika ada."
 
 #: src/input/command.zig:515
 msgid "Focus Split: Right"
-msgstr "Fokus Belahan: Kanan"
+msgstr "Fokus ke Bagian: Kanan"
 
 #: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
-msgstr "Fokuskan ke belahan di kanan, jika ada."
+msgstr "Fokuskan ke bagian di kanan, jika ada."
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
-msgstr "Fokus Belahan: Atas"
+msgstr "Fokus ke Bagian: Atas"
 
 #: src/input/command.zig:521
 msgid "Focus the split above, if it exists."
-msgstr "Fokuskan ke belahan di atas, jika ada."
+msgstr "Fokuskan ke bagian di atas, jika ada."
 
 #: src/input/command.zig:525
 msgid "Focus Split: Down"
-msgstr "Fokus Belahan: Bawah"
+msgstr "Fokus ke Bagian: Bawah"
 
 #: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
-msgstr "Fokuskan ke belahan di bawah, jika ada."
+msgstr "Fokuskan ke bagian di bawah, jika ada."
 
 #: src/input/command.zig:533
 msgid "Focus Window: Previous"
@@ -923,11 +923,11 @@ msgstr "Fokuskan ke jendela berikutnya, jika ada."
 
 #: src/input/command.zig:545
 msgid "Toggle Split Zoom"
-msgstr "Alihkan Pembesaran Belahan"
+msgstr "Alihkan Pembesaran Bagian"
 
 #: src/input/command.zig:546
 msgid "Toggle the zoom state of the current split."
-msgstr "Alihkan kondisi pembesaran belahan saat ini."
+msgstr "Alihkan kondisi pembesaran bagian saat ini."
 
 #: src/input/command.zig:551
 msgid "Toggle Read-Only Mode"
@@ -939,11 +939,11 @@ msgstr "Alihkan mode baca-saja untuk permukaan saat ini."
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
-msgstr "Samakan Ukuran Belahan"
+msgstr "Samakan Ukuran Bagian"
 
 #: src/input/command.zig:558
 msgid "Equalize the size of all splits."
-msgstr "Samakan ukuran semua belahan."
+msgstr "Samakan ukuran semua bagian."
 
 #: src/input/command.zig:563
 msgid "Reset Window Size"
@@ -1083,11 +1083,11 @@ msgstr "Alihkan mode input aman."
 
 #: src/input/command.zig:672
 msgid "Toggle Mouse Reporting"
-msgstr "Alihkan Pelaporan Tetikus"
+msgstr "Alihkan Pelaporan Mouse"
 
 #: src/input/command.zig:673
 msgid "Toggle whether mouse events are reported to terminal applications."
-msgstr "Alihkan apakah peristiwa tetikus dilaporkan ke aplikasi terminal."
+msgstr "Alihkan apakah peristiwa mouse dilaporkan ke aplikasi terminal."
 
 #: src/input/command.zig:678
 msgid "Toggle Background Opacity"
@@ -1103,7 +1103,7 @@ msgstr "Periksa Pembaruan"
 
 #: src/input/command.zig:685
 msgid "Check for updates to the application."
-msgstr "Perika pembaruan aplikasi."
+msgstr "Periksa pembaruan aplikasi."
 
 #: src/input/command.zig:690
 msgid "Undo"
