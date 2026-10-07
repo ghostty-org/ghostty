@@ -54,7 +54,6 @@ class ClipboardConfirmationController: NSWindowController {
         window.contentView = NSHostingView(rootView: ClipboardConfirmationView(
             contents: confirmation.contents,
             request: confirmation.kind,
-            programName: confirmation.programName,
             canRemember: confirmation.canRemember,
             previewImage: confirmation.previewImage,
             delegate: delegate

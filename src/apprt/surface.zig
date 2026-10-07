@@ -66,6 +66,10 @@ pub const Message = union(enum) {
     /// Report the window title back to the terminal
     report_title: ReportTitleStyle,
 
+    /// Resize the window to the given grid size, as requested by the
+    /// running program (CSI 8 t).
+    resize_window: terminal.StreamAction.ResizeWindow,
+
     /// Set the mouse shape.
     set_mouse_shape: terminal.MouseShape,
 
@@ -152,6 +156,9 @@ pub const Message = union(enum) {
 
     /// Selected search index change
     search_selected: ?usize,
+
+    /// Renderer pushed a new frame, redraw this surface.
+    redraw,
 
     pub const ReportTitleStyle = enum {
         csi_21_t,

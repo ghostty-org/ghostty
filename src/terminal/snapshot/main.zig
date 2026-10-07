@@ -151,6 +151,24 @@
 //!     _ = progress; // Scrollback grew.
 //! }
 //! ```
+//!
+//! ### Compressed History
+//!
+//! Decoded history is uncompressed by default, even if the encoded terminal
+//! had compressed it. Set `compress_history` to compress each history page
+//! as soon as it is restored. The restored terminal is then compressed from
+//! the start, and the decode never holds the complete history uncompressed
+//! in memory:
+//!
+//! ```zig
+//! var decoded = try snapshot.decode(alloc, io, &reader, .{
+//!     .max_continuation_bytes = 1024 * 1024,
+//!     .compress_history = true,
+//! });
+//! ```
+//!
+//! This works the same way with `snapshot.Decoder`. The snapshot format does
+//! not change, so any snapshot can be decoded with or without it.
 
 pub const checkpoint = @import("checkpoint.zig");
 pub const continuation = @import("continuation.zig");

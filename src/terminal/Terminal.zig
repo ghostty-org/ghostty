@@ -17,6 +17,7 @@ const uucode = @import("uucode");
 const ansi = @import("ansi.zig");
 const modespkg = @import("modes.zig");
 const charsets = @import("charsets.zig");
+const xt_checksum = @import("xt_checksum.zig");
 const csi = @import("csi.zig");
 const hyperlink = @import("hyperlink.zig");
 const glyph = @import("apc/glyph.zig");
@@ -85,6 +86,10 @@ modes: modespkg.ModeState = .{},
 /// Terminal-level cursor state.
 cursor: Cursor = .{},
 
+/// The checksum variant DECRQCRA computes after RIS. The current variant
+/// is in `flags.xt_checksum`.
+default_xt_checksum: xt_checksum.Flags = .{},
+
 /// The most recently set mouse shape for the terminal.
 mouse_shape: mouse.Shape = .text,
 
@@ -120,12 +125,22 @@ flags: packed struct {
     /// if the configuration allows it.
     mouse_shift_capture: enum(u2) { null, false, true } = .null,
 
+    /// The checksum variant DECRQCRA computes, set via XTCHECKSUM.
+    xt_checksum: xt_checksum.Flags = .{},
+
     /// True if the window is focused.
     focused: bool = true,
 
     /// True if the terminal view may be visible. Unknown visibility is
     /// represented as visible so callers behave conservatively.
     visible: bool = true,
+
+    /// Whether a resize may pull rows out of scrollback back into the
+    /// active area. This should be false if the pty keeps its own screen
+    /// buffer without scrollback (e.g. Windows ConPTY) so that we stay in
+    /// sync with it. See PageList.Resize for details. This is configuration
+    /// rather than terminal state so it is preserved across a full reset.
+    resize_pull_scrollback: bool = true,
 
     /// True if the terminal is in a password entry mode. This is set
     /// to true based on termios state. This is set
@@ -286,6 +301,9 @@ pub const Options = struct {
     default_cursor_style: Screen.CursorStyle = .block,
     default_cursor_blink: ?bool = false,
 
+    /// The checksum variant DECRQCRA computes after RIS.
+    default_xt_checksum: xt_checksum.Flags = .{},
+
     /// The total storage limit for Kitty images in bytes. Has no effect
     /// if kitty images are disabled at build-time.
     kitty_image_storage_limit: usize = switch (build_options.artifact) {
@@ -348,7 +366,9 @@ pub fn init(
             .default_style = opts.default_cursor_style,
             .default_blink = opts.default_cursor_blink,
         },
+        .default_xt_checksum = opts.default_xt_checksum,
     };
+    result.flags.xt_checksum = opts.default_xt_checksum;
     result.setCursorStyle(.default);
     return result;
 }
@@ -356,6 +376,7 @@ pub fn init(
 pub fn deinit(self: *Terminal, alloc: Allocator) void {
     self.tabstops.deinit(alloc);
     self.screens.deinit(alloc);
+    self.colors.palette.deinit(alloc);
     self.pwd.deinit(alloc);
     self.title.deinit(alloc);
     self.glyph_glossary.deinit(alloc);
@@ -387,6 +408,28 @@ pub fn vtStream(self: *Terminal) Stream {
 /// This is the handler-side only for vtStream.
 pub fn vtHandler(self: *Terminal) Stream.Handler {
     return .init(self);
+}
+
+/// Set the checksum variant restored by RIS. Like `ModeState.setDefault`,
+/// this also changes the current variant.
+pub fn setDefaultXtChecksum(self: *Terminal, flags: xt_checksum.Flags) void {
+    self.default_xt_checksum = flags;
+    self.flags.xt_checksum = flags;
+}
+
+/// Compute the DECRQCRA checksum of a rectangle of the active area,
+/// using the variant selected by XTCHECKSUM.
+pub fn rectXtChecksum(self: *const Terminal, req: xt_checksum.Request) u16 {
+    const origin: ?ScrollingRegion = if (self.modes.get(.origin))
+        self.scrolling_region
+    else
+        null;
+    const screen = self.screens.active;
+    return xt_checksum.compute(
+        screen,
+        req.selection(&screen.pages, origin),
+        self.flags.xt_checksum,
+    );
 }
 
 /// Change the cursor's current shape and blink behavior.
@@ -549,14 +592,9 @@ pub fn printSlice(self: *Terminal, cps: []const u32) !void {
         if (self.modes.get(.insert)) break :fast false;
         if (!self.modes.get(.wraparound)) break :fast false;
 
-        // Charset must map ASCII as-is (true unless a DEC special
-        // charset is actively invoked, which is rare).
+        // Single shifts require per-codepoint charset handling.
         const screen: *Screen = self.screens.active;
         if (screen.charset.single_shift != null) break :fast false;
-        switch (screen.charset.charsets.get(screen.charset.gl)) {
-            .utf8, .ascii => {},
-            else => break :fast false,
-        }
 
         // Hyperlinks require per-cell map bookkeeping.
         if (screen.cursor.hyperlink_id != 0) break :fast false;
@@ -574,7 +612,12 @@ pub fn printSlice(self: *Terminal, cps: []const u32) !void {
     // print() consults the cell left of the margin after wrapping,
     // which we can't reason about here. Restrict the fast path to
     // the [0x10, 0xFF] range in that case (those never cluster).
-    const allow_unicode = !grapheme_cluster or self.scrolling_region.left == 0;
+    const charset = self.screens.active.charset;
+    const allow_unicode = switch (charset.charsets.get(charset.gl)) {
+        .utf8, .ascii => !grapheme_cluster or self.scrolling_region.left == 0,
+        // print() handles Unicode width and clustering before charset mapping.
+        else => false,
+    };
 
     var i: usize = 0;
     while (i < cps.len) {
@@ -748,25 +791,18 @@ inline fn printSliceEligible(cp: u32, comptime width: PrintSliceWidth) bool {
     });
 }
 
-/// Store a run of narrow codepoint cells built from a bit template:
-/// for each `idx` in `[from, to)`, `cells[idx]` is assigned the bits
-/// `template_bits | (cps[idx] << cp_shift)`.
+/// Store narrow cells using a template with zeroed codepoint bits.
+/// If a charset table is provided, all input codepoints must fit in a byte.
 ///
-/// The template is a complete Cell (content tag, style, wide state,
-/// etc. already baked in by the caller) whose codepoint content bits
-/// are zero. Since Cell is a packed struct(u64), OR-ing a codepoint
-/// into the content field's bit position yields a finished cell as a
-/// single integer, keeping the loop pure data movement: no per-cell
-/// field assignments and no branches.
-///
-/// This loop is manually vectorized: Zig 0.16 (LLVM 21) no longer
-/// auto-vectorizes the scalar form the way Zig 0.15 (LLVM 20) did.
+/// The unmapped loop is manually vectorized: Zig 0.16 (LLVM 21) no longer
+/// auto-vectorizes it as Zig 0.15 (LLVM 20) did.
 inline fn printSliceStoreRun(
     cells: [*]Cell,
     cps: [*]const u32,
     from: usize,
     to: usize,
     template_bits: u64,
+    charset_table: ?[]const u16,
 ) void {
     // The bit position of the `content` field within the packed
     // Cell. A codepoint occupies the low bits of `content`, so
@@ -782,6 +818,13 @@ inline fn printSliceStoreRun(
         break :mask ((1 << bits) - 1) << cp_shift;
     };
     assert(template_bits & content_mask == 0);
+
+    if (charset_table) |table| {
+        for (from..to) |idx| {
+            cells[idx] = @bitCast(template_bits | (@as(u64, table[cps[idx]]) << cp_shift));
+        }
+        return;
+    }
 
     var idx = from;
 
@@ -838,6 +881,11 @@ fn printSliceFill(
     allow_unicode: bool,
 ) !usize {
     const screen: *Screen = self.screens.active;
+    const charset_table: ?[]const u16 = switch (screen.charset.charsets.get(screen.charset.gl)) {
+        .utf8, .ascii => null,
+        else => |set| charsets.table(set),
+    };
+    assert(charset_table == null or !allow_unicode);
 
     // Our fast path can only handle "simple" cells. A simple cell is
     // a codepoint cell (no grapheme data or bg-color tag), narrow, and
@@ -1062,6 +1110,7 @@ fn printSliceFill(
                     k,
                     simple,
                     template_bits,
+                    charset_table,
                 );
                 k = simple;
             }
@@ -1120,6 +1169,7 @@ fn printSliceFill(
                     k,
                     m,
                     template_bits,
+                    charset_table,
                 );
                 k = m;
                 continue :fill;
@@ -1153,8 +1203,12 @@ fn printSliceFill(
                 );
                 cells[k + 1] = @bitCast(spacer_bits);
             } else {
+                const cp = if (charset_table) |table|
+                    table[cps[printed + k]]
+                else
+                    cps[printed + k];
                 cells[k] = @bitCast(
-                    template_bits | (@as(u64, cps[printed + k]) << cp_shift),
+                    template_bits | (@as(u64, cp) << cp_shift),
                 );
             }
             k += cells_per_cp;
@@ -1209,6 +1263,17 @@ pub fn print(self: *Terminal, c: u21) !void {
     // After doing any printing, wrapping, scrolling, etc. we want to ensure
     // that our screen remains in a consistent state.
     defer self.screens.active.assertIntegrity();
+
+    // The charset this character is printed with. A single shift applies to
+    // exactly one character, so it is used up here, whether the character
+    // takes a cell or attaches to the previous one: xterm clears it for a
+    // combining character and so do we.
+    const charset: charsets.Charset = charset: {
+        const state = &self.screens.active.charset;
+        const key = state.single_shift orelse state.gl;
+        state.single_shift = null;
+        break :charset state.charsets.get(key);
+    };
 
     // Our right margin depends where our cursor is now.
     const right_limit = if (self.screens.active.cursor.x > self.scrolling_region.right)
@@ -1319,7 +1384,7 @@ pub fn print(self: *Terminal, c: u21) !void {
                             prev.cell.content.codepoint.data = 0;
 
                             try self.printWrap();
-                            self.printCell(prev_cp, .wide);
+                            self.writeCell(prev_cp, .wide);
 
                             const new_pin = self.screens.active.cursor.page_pin.*;
                             const new_rac = new_pin.rowAndCell();
@@ -1356,12 +1421,12 @@ pub fn print(self: *Terminal, c: u21) !void {
                             // we'll be appending graphemes to
                             prev.cell = self.screens.active.cursor.page_cell;
                         } else {
-                            self.printCell(
+                            self.writeCell(
                                 0,
                                 if (row_wrap) .spacer_head else .narrow,
                             );
                             try self.printWrap();
-                            self.printCell(prev_cp, .wide);
+                            self.writeCell(prev_cp, .wide);
 
                             // Point prev.cell to our new previous cell that
                             // we'll be appending graphemes to
@@ -1385,7 +1450,7 @@ pub fn print(self: *Terminal, c: u21) !void {
                     const spacer_node = self.screens.active.cursor.page_pin.node;
                     const spacer_serial = spacer_node.serial;
 
-                    self.printCell(0, .spacer_tail);
+                    self.writeCell(0, .spacer_tail);
 
                     if (self.screens.active.cursor.page_pin.node != spacer_node or
                         self.screens.active.cursor.page_pin.node.serial != spacer_serial)
@@ -1524,7 +1589,7 @@ pub fn print(self: *Terminal, c: u21) !void {
         1 => {
             @branchHint(.likely);
             self.screens.active.cursorMarkDirty();
-            @call(.always_inline, printCell, .{ self, c, .narrow });
+            @call(.always_inline, printCell, .{ self, c, .narrow, charset });
         },
 
         // Wide character requires a spacer. We print this by
@@ -1550,22 +1615,22 @@ pub fn print(self: *Terminal, c: u21) !void {
                     // a page resize during printCell then it'll fail
                     // integrity checks.
                     self.screens.active.cursor.page_row.wrap = true;
-                    self.printCell(0, .spacer_head);
+                    self.writeCell(0, .spacer_head);
                 } else {
-                    self.printCell(0, .narrow);
+                    self.writeCell(0, .narrow);
                 }
                 try self.printWrap();
             }
 
             self.screens.active.cursorMarkDirty();
-            self.printCell(c, .wide);
+            self.printCell(c, .wide, charset);
             self.screens.active.cursorRight(1);
-            self.printCell(0, .spacer_tail);
+            self.writeCell(0, .spacer_tail);
         } else {
             // This is pretty broken, terminals should never be only 1-wide.
             // We should prevent this downstream.
             self.screens.active.cursorMarkDirty();
-            self.printCell(0, .narrow);
+            self.writeCell(0, .narrow);
         },
 
         else => unreachable,
@@ -1582,25 +1647,17 @@ pub fn print(self: *Terminal, c: u21) !void {
     self.screens.active.cursorRight(1);
 }
 
+/// Prints the character unmapped_c into the cell under the cursor, mapped
+/// through set, the charset print chose for it. Spacers and cells that
+/// already hold a mapped character are written with writeCell instead.
 fn printCell(
     self: *Terminal,
     unmapped_c: u21,
     wide: Cell.Wide,
+    set: charsets.Charset,
 ) void {
-    defer self.screens.active.assertIntegrity();
-
-    // TODO: spacers should use a bgcolor only cell
-
     const c: u21 = c: {
         // TODO: non-utf8 handling, gr
-
-        // If we're single shifting, then we use the key exactly once.
-        const key = if (self.screens.active.charset.single_shift) |key_once| blk: {
-            self.screens.active.charset.single_shift = null;
-            break :blk key_once;
-        } else self.screens.active.charset.gl;
-
-        const set = self.screens.active.charset.charsets.get(key);
 
         // UTF-8 or ASCII is used as-is
         if (set == .utf8 or set == .ascii) {
@@ -1608,14 +1665,28 @@ fn printCell(
             break :c unmapped_c;
         }
 
-        // If we're outside of ASCII range this is an invalid value in
-        // this table so we just return space.
-        if (unmapped_c > std.math.maxInt(u8)) break :c ' ';
+        // The tables only cover 0x00-0xFF. Like xterm, which never remaps a
+        // character above 255 in UTF-8 mode, we print anything above as is,
+        // which also keeps it at the width it was measured with.
+        if (unmapped_c > std.math.maxInt(u8)) break :c unmapped_c;
 
         // Get our lookup table and map it
         const table = charsets.table(set);
         break :c @intCast(table[@intCast(unmapped_c)]);
     };
+
+    @call(.always_inline, writeCell, .{ self, c, wide });
+}
+
+/// Writes c into the cell under the cursor as it is, without a charset.
+fn writeCell(
+    self: *Terminal,
+    c: u21,
+    wide: Cell.Wide,
+) void {
+    defer self.screens.active.assertIntegrity();
+
+    // TODO: spacers should use a bgcolor only cell
 
     const cell = self.screens.active.cursor.page_cell;
 
@@ -1920,6 +1991,7 @@ pub fn cursorLeft(self: *Terminal, count_req: usize) void {
     if (self.screens.active.cursor.pending_wrap) {
         count -= 1;
         self.screens.active.cursor.pending_wrap = false;
+        if (count == 0) return;
     }
 
     // The margins we can move to.
@@ -4088,6 +4160,7 @@ pub fn resize(
         .rows = opts.rows,
         .reflow = self.modes.get(.wraparound),
         .prompt_redraw = self.flags.shell_redraws_prompt,
+        .pull_scrollback = self.flags.resize_pull_scrollback,
     });
 
     // Alternate screen, if it exists, doesn't reflow. The primary resize
@@ -4101,6 +4174,7 @@ pub fn resize(
                 .cols = opts.cols,
                 .rows = opts.rows,
                 .reflow = false,
+                .pull_scrollback = self.flags.resize_pull_scrollback,
             }) catch |err| break :resize err;
 
             // Resize succeeded.
@@ -4909,22 +4983,26 @@ pub fn plainStringUnwrapped(self: *Terminal, alloc: Allocator) ![]const u8 {
 pub fn fullReset(self: *Terminal) void {
     // Ensure we're back on primary screen
     self.screens.switchTo(.primary);
-    self.screens.remove(
-        self.screens.active.alloc,
-        .alternate,
-    );
 
-    // Reset our screens
+    // Remove alternate screen
+    self.screens.remove(self.screens.active.alloc, .alternate);
+
+    // Reset primary screen
     self.screens.active.reset();
 
-    // Rest our basic state
-    const visible = self.flags.visible;
-    self.modes.reset();
+    // Reset our basic state
     self.flags = .{
         // Visibility belongs to the view rather than terminal state, so a
         // terminal reset must not make a hidden view potentially visible.
-        .visible = visible,
+        .visible = self.flags.visible,
+
+        // This is configuration based on the pty rather than terminal
+        // state, so a terminal reset must not change it.
+        .resize_pull_scrollback = self.flags.resize_pull_scrollback,
+
+        .xt_checksum = self.default_xt_checksum,
     };
+    self.modes.reset();
     self.tabstops.reset(TABSTOP_INTERVAL);
     self.previous_char = null;
     self.pwd.clearRetainingCapacity();
@@ -4941,6 +5019,7 @@ pub fn fullReset(self: *Terminal) void {
         .right = self.cols - 1,
     };
     self.setCursorStyle(.default);
+    self.colors.palette.resetAll();
 
     // Always mark dirty so we redraw everything
     self.flags.dirty.clear = true;
@@ -6914,10 +6993,70 @@ test "Terminal: print charset outside of ASCII" {
     {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
-        try testing.expectEqualStrings("◆ ", str);
+        try testing.expectEqualStrings("◆😀", str);
     }
 
     try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+}
+
+test "Terminal: print wide codepoint in a charset prints it unmapped" {
+    var t = try init(testing.io, testing.allocator, .{ .cols = 10, .rows = 2 });
+    defer t.deinit(testing.allocator);
+
+    // The charset has no such codepoint, so it prints as it is, two
+    // columns wide, and the characters after it are mapped again.
+    t.configureCharset(.G0, .dec_special);
+    try t.print('`');
+    try t.print(0x1F600);
+    try t.print('a');
+    try testing.expectEqual(@as(usize, 4), t.screens.active.cursor.x);
+    const cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?.cell;
+    try testing.expectEqual(@as(u21, 0x1F600), cell.codepoint());
+    try testing.expectEqual(.wide, cell.wide);
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("◆😀▒", str);
+    }
+}
+
+test "Terminal: print single shift is used up by a combining character" {
+    // As in xterm, the single shift applies to the combining mark, the next
+    // character printed, whether or not it clusters with the one before.
+    for ([_]bool{ false, true }) |cluster| {
+        var t = try init(testing.io, testing.allocator, .{ .cols = 10, .rows = 2 });
+        defer t.deinit(testing.allocator);
+        t.modes.set(.grapheme_cluster, cluster);
+
+        t.configureCharset(.G2, .british);
+        try t.print('#');
+        t.invokeCharset(.GL, .G2, true);
+        try t.print(0x0301);
+        try testing.expectEqual(null, t.screens.active.charset.single_shift);
+        try t.print('#');
+
+        try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+        const cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?.cell;
+        try testing.expectEqual(@as(u21, '#'), cell.codepoint());
+    }
+}
+
+test "Terminal: VS16 moving a character to the next line keeps it unmapped" {
+    var t = try init(testing.io, testing.allocator, .{ .cols = 3, .rows = 5 });
+    defer t.deinit(testing.allocator);
+
+    // The '#' is printed with ASCII in the last column. VS16 widens it after
+    // the British set (which maps '#' to '£') is selected, which moves it to
+    // the next line: it is the same character, not one to map again.
+    t.modes.set(.grapheme_cluster, true);
+    t.cursorRight(2);
+    try t.print('#');
+    t.configureCharset(.G0, .british);
+    try t.print(0xFE0F);
+
+    const cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 1 } }).?.cell;
+    try testing.expectEqual(@as(u21, '#'), cell.codepoint());
+    try testing.expectEqual(.wide, cell.wide);
 }
 
 test "Terminal: print invoke charset" {
@@ -7394,7 +7533,7 @@ test "Terminal: overwrite hyperlink" {
 }
 
 // Printing a wide char at the right edge with an active hyperlink causes
-// printCell to write a spacer_head before printWrap sets the row wrap
+// writeCell to write a spacer_head before printWrap sets the row wrap
 // flag. The integrity check inside setHyperlink (or increaseCapacity)
 // sees the unwrapped spacer head and panics. Found via fuzzing.
 test "Terminal: print wide char at right edge with hyperlink" {
@@ -7406,7 +7545,7 @@ test "Terminal: print wide char at right edge with hyperlink" {
     // Move cursor to the last column (1-indexed)
     t.setCursorPos(1, 10);
 
-    // Print a wide character; this will call printCell(0, .spacer_head)
+    // Print a wide character; this will call writeCell(0, .spacer_head)
     // at the right edge before calling printWrap, triggering the
     // integrity violation.
     try t.print(0x4E2D); // U+4E2D '中'
@@ -10992,6 +11131,38 @@ test "Terminal: cursorLeft reverse wrap with pending wrap state" {
     }
 }
 
+test "Terminal: cursorLeft reverse wrap with pending wrap above top margin" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    t.modes.set(.wraparound, true);
+    t.modes.set(.reverse_wrap, true);
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(1, 2);
+    for ("AB") |c| try t.print(c);
+    t.saveCursor();
+
+    // Restore pending wrap at the left margin, above the top margin.
+    t.setLeftAndRightMargin(2, 5);
+    t.setTopAndBottomMargin(3, 5);
+    t.restoreCursor();
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+
+    t.cursorLeft(1);
+    try testing.expect(!t.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(1, t.screens.active.cursor.x);
+    try testing.expectEqual(0, t.screens.active.cursor.y);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        try testing.expectEqualStrings("AX", str);
+    }
+}
+
 test "Terminal: cursorLeft reverse wrap extended with pending wrap state" {
     const alloc = testing.allocator;
     const io_impl = testing.io;
@@ -14106,6 +14277,25 @@ test "Terminal: eraseLine complete resets wrap" {
     }
 }
 
+test "Terminal: eraseLine complete clears kitty placeholder flag" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    try t.print(kitty.graphics.unicode.placeholder);
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
+        try testing.expect(list_cell.row.kitty_virtual_placeholder);
+    }
+    t.eraseLine(.complete, false);
+
+    const list_cell = t.screens.active.pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
+    try testing.expect(!list_cell.row.kitty_virtual_placeholder);
+}
+
 test "Terminal: eraseLine complete protected attributes respected with iso" {
     const alloc = testing.allocator;
     const io_impl = testing.io;
@@ -14285,6 +14475,101 @@ test "Terminal: printSlice simple ascii" {
     }
 }
 
+test "Terminal: printSlice charset batched fill" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 5, .rows = 2 });
+    defer t.deinit(alloc);
+
+    t.configureCharset(.G1, .dec_special);
+    t.invokeCharset(.GL, .G1, false);
+    t.modes.set(.grapheme_cluster, true);
+
+    // Background-only cells use the general fill path.
+    try t.setAttribute(.{ .@"8_bg" = .red });
+    t.eraseDisplay(.complete, false);
+
+    // Require batching when reusing cells and replacing styles.
+    const cps = [_]u32{ 'l', 'q', 'q', 'q', 'k', 'm', 'q', 'q', 'q', 'j' };
+    for ([_]sgr.Attribute{ .unset, .unset, .bold, .bold, .unset }) |attr| {
+        t.setCursorPos(1, 1);
+        try t.setAttribute(attr);
+        try testing.expectEqual(cps.len, try t.printSliceFast(&cps, true, false));
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        try testing.expectEqualStrings("┌───┐\n└───┘", str);
+        try testing.expectEqual(@as(u21, 'j'), t.previous_char.?);
+        try testing.expect(t.screens.active.cursor.pending_wrap);
+        for (0..2) |y| {
+            for (0..5) |x| {
+                const cell = t.screens.active.pages.getCell(.{ .active = .{
+                    .x = @intCast(x),
+                    .y = @intCast(y),
+                } }).?.cell;
+                try testing.expectEqual(t.screens.active.cursor.style_id, cell.style_id);
+            }
+        }
+        try t.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
+    }
+}
+
+test "Terminal: printSlice charset matches scalar printing" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    for ([_]charsets.Charset{ .dec_special, .british }) |set| {
+        for ([_]bool{ false, true }) |grapheme_cluster| {
+            var scalar = try init(io_impl, alloc, .{ .cols = 17, .rows = 4 });
+            defer scalar.deinit(alloc);
+            var batched = try init(io_impl, alloc, .{ .cols = 17, .rows = 4 });
+            defer batched.deinit(alloc);
+
+            for ([_]*Terminal{ &scalar, &batched }) |t| {
+                t.configureCharset(.G0, set);
+                t.modes.set(.grapheme_cluster, grapheme_cluster);
+            }
+
+            var bytes: [240]u32 = undefined;
+            for (&bytes, 0x10..) |*cp, value| cp.* = @intCast(value);
+            const mixed = [_]u32{ 0x100, 'q', 0x301, 'x', 0x4E00, '#', 0xFE0F, 0x1F600, 'j' };
+            for ([_][]const u32{ &bytes, &mixed }) |cps| {
+                for (cps) |cp| try scalar.print(@intCast(cp));
+                try batched.printSlice(cps);
+
+                const expected = try scalar.screens.active.dumpStringAlloc(alloc, .{ .screen = .{} });
+                defer alloc.free(expected);
+                const actual = try batched.screens.active.dumpStringAlloc(alloc, .{ .screen = .{} });
+                defer alloc.free(actual);
+                try testing.expectEqualStrings(expected, actual);
+                try testing.expectEqual(scalar.screens.active.cursor.x, batched.screens.active.cursor.x);
+                try testing.expectEqual(scalar.screens.active.cursor.y, batched.screens.active.cursor.y);
+                try testing.expectEqual(scalar.screens.active.cursor.pending_wrap, batched.screens.active.cursor.pending_wrap);
+                try testing.expectEqual(scalar.previous_char, batched.previous_char);
+            }
+        }
+    }
+}
+
+test "Terminal: printSlice charset single shift and repeat" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 10, .rows = 2 });
+    defer t.deinit(alloc);
+
+    t.configureCharset(.G0, .dec_special);
+    t.configureCharset(.G2, .british);
+    t.invokeCharset(.GL, .G2, true);
+    try t.printSlice(&.{ '#', 'q' });
+    try testing.expectEqual(null, t.screens.active.charset.single_shift);
+    try t.printRepeat(2);
+
+    // REP uses the original byte with the current charset.
+    t.configureCharset(.G0, .ascii);
+    try t.printRepeat(2);
+    const str = try t.plainString(alloc);
+    defer alloc.free(str);
+    try testing.expectEqualStrings("£───qq", str);
+}
+
 test "Terminal: printSlice wraps and scrolls" {
     const alloc = testing.allocator;
     const io_impl = testing.io;
@@ -14442,10 +14727,7 @@ fn testPrintSliceDifferential(
                 t2.screens.active.endHyperlink();
             },
             20 => {
-                const set: charsets.Charset = if (rand.boolean())
-                    .dec_special
-                else
-                    .utf8;
+                const set = rand.enumValue(charsets.Charset);
                 t1.configureCharset(.G0, set);
                 t2.configureCharset(.G0, set);
             },
@@ -15752,6 +16034,25 @@ test "Terminal: fullReset tracked pins" {
     try testing.expect(t.screens.active.pages.pinIsValid(p.*));
 }
 
+test "Terminal: default xt checksum survives resets" {
+    var t = try init(testing.io, testing.allocator, .{
+        .cols = 10,
+        .rows = 10,
+        .default_xt_checksum = .{ .positive = true },
+    });
+    defer t.deinit(testing.allocator);
+    try testing.expectEqual(xt_checksum.Flags{ .positive = true }, t.flags.xt_checksum);
+
+    t.flags.xt_checksum = .{ .full = true };
+    t.fullReset();
+    try testing.expectEqual(xt_checksum.Flags{ .positive = true }, t.flags.xt_checksum);
+
+    t.setDefaultXtChecksum(.{ .no_trim = true });
+    try testing.expectEqual(xt_checksum.Flags{ .no_trim = true }, t.flags.xt_checksum);
+    t.fullReset();
+    try testing.expectEqual(xt_checksum.Flags{ .no_trim = true }, t.flags.xt_checksum);
+}
+
 // https://github.com/mitchellh/ghostty/issues/272
 // This is also tested in depth in screen resize tests but I want to keep
 // this test around to ensure we don't regress at multiple layers.
@@ -15766,6 +16067,20 @@ test "Terminal: resize less cols with wide char then print" {
     try t.resize(alloc, .{ .cols = 2, .rows = 3 });
     t.setCursorPos(1, 2);
     try t.print('😀'); // 0x1F600
+}
+
+test "Terminal: resize less cols without reflow cutting wide char tail" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 3, .rows = 1 });
+    defer t.deinit(alloc);
+
+    try t.print('a');
+    try t.print('一');
+    t.modes.set(.wraparound, false);
+    try t.resize(alloc, .{ .cols = 2, .rows = 1 });
+
+    try testing.expect(t.screens.active.pages.getCell(.{ .active = .{ .x = 1 } }).?.cell.isEmpty());
 }
 
 // https://github.com/mitchellh/ghostty/issues/723
@@ -15786,6 +16101,27 @@ test "Terminal: resize with left and right margin set" {
     try t.printRepeat(1850);
     _ = t.modes.restore(.enable_mode_3);
     try t.resize(alloc, .{ .cols = cols, .rows = rows });
+}
+
+test "Terminal: resize without scrollback pull" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 5, .rows = 3 });
+    defer t.deinit(alloc);
+    t.flags.resize_pull_scrollback = false;
+
+    // This is configuration so it should survive a reset.
+    t.fullReset();
+    try testing.expect(!t.flags.resize_pull_scrollback);
+
+    try t.printString("1\n2\n3\n4\n5");
+    try t.resize(alloc, .{ .cols = 5, .rows = 5 });
+    try testing.expectEqual(@as(size.CellCountInt, 2), t.screens.active.cursor.y);
+    {
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        try testing.expectEqualStrings("3\n4\n5", str);
+    }
 }
 
 // https://github.com/mitchellh/ghostty/issues/1343
@@ -15954,6 +16290,66 @@ test "Terminal: resize with reflow and saved cursor pending wrap" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("1A2BX", str);
+    }
+}
+
+test "Terminal: saved cursor survives repeated widening" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .cols = 4, .rows = 5 });
+    defer t.deinit(alloc);
+
+    try t.printString("abc\nAAA|");
+    t.saveCursor();
+    try t.resize(alloc, .{ .cols = 5, .rows = 5 });
+    try t.resize(alloc, .{ .cols = 6, .rows = 5 });
+    t.restoreCursor();
+    try t.print('X');
+
+    const str = try t.plainString(alloc);
+    defer alloc.free(str);
+    try testing.expectEqualStrings("abc\nAAA|X", str);
+}
+
+test "Terminal: resize pending wrap live and saved cursors" {
+    const alloc = testing.allocator;
+    const cases = [_]struct {
+        text: []const u8,
+        cols: size.CellCountInt,
+        pending_wrap: bool,
+        expected: []const u8,
+    }{
+        // Widening leaves room after the formerly full line.
+        .{ .text = "ABCD", .cols = 6, .pending_wrap = false, .expected = "ABCDX" },
+        // Narrowing can move the last character into the middle of a row.
+        .{ .text = "ABCD", .cols = 3, .pending_wrap = false, .expected = "ABC\nDX" },
+        // Keep pending wrap when the last character still fills a row.
+        .{ .text = "ABCD", .cols = 2, .pending_wrap = true, .expected = "AB\nCD\nX" },
+        // A height-only resize also preserves pending wrap.
+        .{ .text = "ABCD", .cols = 4, .pending_wrap = true, .expected = "ABCD\nX" },
+        // Reflow can merge previously wrapped rows.
+        .{ .text = "ABCDEFGH", .cols = 6, .pending_wrap = false, .expected = "ABCDEF\nGHX" },
+        // A wide character at the old right edge must not be overwritten.
+        .{ .text = "AB界", .cols = 6, .pending_wrap = false, .expected = "AB界X" },
+        // A cursor without pending wrap must not advance an extra cell.
+        .{ .text = "ABC", .cols = 6, .pending_wrap = false, .expected = "ABCX" },
+    };
+
+    for (cases) |case| {
+        for ([_]bool{ false, true }) |restore| {
+            var t = try init(testing.io, alloc, .{ .cols = 4, .rows = 5 });
+            defer t.deinit(alloc);
+            try t.printString(case.text);
+            if (restore) t.saveCursor();
+
+            try t.resize(alloc, .{ .cols = case.cols, .rows = 6 });
+            if (restore) t.restoreCursor();
+            try testing.expectEqual(case.pending_wrap, t.screens.active.cursor.pending_wrap);
+
+            try t.print('X');
+            const str = try t.plainString(alloc);
+            defer alloc.free(str);
+            try testing.expectEqualStrings(case.expected, str);
+        }
     }
 }
 

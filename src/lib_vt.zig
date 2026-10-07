@@ -45,8 +45,9 @@ pub const sys = terminal.sys;
 /// don't have their own `Io` can use `TinyIo` (e.g.
 /// `(TinyIo.init).io()`) instead of `std.Io.Threaded` to avoid linking
 /// Threaded's full vtable (networking, process spawning, async
-/// machinery, etc.), which is worth roughly 110KB of binary size. See
-/// the TinyIo docs for the exact tradeoffs.
+/// machinery, etc.), which is worth roughly 110KB of binary size on
+/// macOS and 370KB on Windows. See the TinyIo docs for the exact
+/// tradeoffs.
 pub const TinyIo = @import("lib/TinyIo.zig");
 
 pub const apc = terminal.apc;
@@ -55,6 +56,8 @@ pub const dcs = terminal.dcs;
 pub const osc = terminal.osc;
 pub const point = terminal.point;
 pub const color = terminal.color;
+pub const xt_checksum = terminal.xt_checksum;
+pub const device_attributes = terminal.device_attributes;
 pub const device_status = terminal.device_status;
 pub const formatter = terminal.formatter;
 pub const highlight = terminal.highlight;
@@ -94,6 +97,7 @@ pub const Terminal = terminal.Terminal;
 pub const TerminalStream = terminal.TerminalStream;
 pub const Stream = terminal.Stream;
 pub const StreamAction = terminal.StreamAction;
+pub const SemanticPrompt = terminal.SemanticPrompt;
 pub const UnknownSequence = terminal.UnknownSequence;
 
 pub const Paste = terminal.Paste;
@@ -239,6 +243,7 @@ comptime {
         @export(&c.osc_next, .{ .name = "ghostty_osc_next" });
         @export(&c.osc_reset, .{ .name = "ghostty_osc_reset" });
         @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
+        @export(&c.osc_set, .{ .name = "ghostty_osc_set" });
         @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
         @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
         @export(&c.color_scheme_report_encode, .{ .name = "ghostty_color_scheme_report_encode" });
@@ -349,6 +354,16 @@ comptime {
             @export(&c.selection_gesture_event_free, .{ .name = "ghostty_selection_gesture_event_free" });
             @export(&c.selection_gesture_event_set, .{ .name = "ghostty_selection_gesture_event_set" });
         }
+        if (features.search) {
+            @export(&c.search_new, .{ .name = "ghostty_search_new" });
+            @export(&c.search_free, .{ .name = "ghostty_search_free" });
+            @export(&c.search_tick, .{ .name = "ghostty_search_tick" });
+            @export(&c.search_feed, .{ .name = "ghostty_search_feed" });
+            @export(&c.search_run, .{ .name = "ghostty_search_run" });
+            @export(&c.search_set, .{ .name = "ghostty_search_set" });
+            @export(&c.search_get, .{ .name = "ghostty_search_get" });
+            @export(&c.search_get_multi, .{ .name = "ghostty_search_get_multi" });
+        }
         // Selections are expressed in grid references, so the untracked
         // reference constructors are required by both features.
         if (features.grid_introspection or features.selection) {
@@ -424,6 +439,15 @@ comptime {
 pub const std_options: std.Options = opts: {
     var options: std.Options = .{};
 
+    if (native_freestanding) {
+        // Freestanding targets don't have an OS page size. We still need an
+        // alignment for terminal page allocations, and 16 covers everything
+        // stored in a page without requiring 4 KiB-aligned embedded heaps.
+        options.page_size_min = 16;
+        options.page_size_max = 16;
+        options.allow_stack_tracing = false;
+    }
+
     if (builtin.target.cpu.arch.isWasm()) {
         // In non-debug modes, we want to ship effectively no logging
         // warn and lower add ~200KB at the time of this comment.
@@ -464,10 +488,14 @@ pub const std_options: std.Options = opts: {
 /// traces on panic, std.debug.print, etc.). These builds are for
 /// development, where the roughly 160KB of binary size it costs is
 /// worth it.
-const debug_machinery: bool = builtin.is_test or switch (builtin.mode) {
-    .Debug, .ReleaseSafe => true,
-    .ReleaseFast, .ReleaseSmall => false,
-};
+const native_freestanding = builtin.target.os.tag == .freestanding and
+    !builtin.target.cpu.arch.isWasm();
+
+const debug_machinery: bool = !native_freestanding and
+    (builtin.is_test or switch (builtin.mode) {
+        .Debug, .ReleaseSafe => true,
+        .ReleaseFast, .ReleaseSmall => false,
+    });
 
 /// The panic handler for when this file is the root module.
 ///
@@ -478,6 +506,15 @@ pub const panic: type = if (debug_machinery)
     std.debug.FullPanic(std.debug.defaultPanic)
 else
     std.debug.FullPanic(tinyPanicImpl);
+
+/// Runs global constructors when libghostty-vt is built as a Windows
+/// DLL. See `lib/windows_dll.zig`; without it simdutf dispatches through
+/// a null kernel pointer on the first multi-byte UTF-8 sequence.
+pub const DllMain = if (builtin.os.tag == .windows and
+    builtin.output_mode == .Lib and
+    builtin.link_mode == .dynamic)
+    @import("lib/windows_dll.zig").DllMain
+else {};
 
 /// Guards release builds against accidentally reintroducing the std
 /// debug Io machinery.

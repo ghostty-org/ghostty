@@ -1,3 +1,1 @@
-pub const c = @cImport({
-    @cInclude("sentry.h");
-});
+pub const c = @import("sentry_c");

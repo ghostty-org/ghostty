@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const build_options = @import("terminal_options");
 const testing = std.testing;
 const apc = @import("apc.zig");
+const xt_checksum = @import("xt_checksum.zig");
 const clipboard = @import("clipboard.zig");
 const csi = @import("csi.zig");
 const dcs = @import("dcs.zig");
@@ -19,6 +20,7 @@ const kitty_clipboard = @import("kitty/clipboard.zig");
 const kitty_color = @import("kitty/color.zig");
 const paste_pkg = @import("paste.zig");
 const kitty_dnd = @import("kitty/dnd.zig");
+const lib = @import("lib.zig");
 const size_report = @import("size_report.zig");
 const simd = @import("../simd/main.zig");
 const terminfo = @import("../terminfo/main.zig");
@@ -66,6 +68,13 @@ pub const Handler = struct {
     /// inject text into the input stream of the foreground process.
     title_report: bool = false,
 
+    /// Whether DECRQCRA may report the checksum of an area of the screen,
+    /// and XTCHECKSUM may change how it's calculated. This is disabled by
+    /// default because a program can checksum one cell at a time and so
+    /// read back everything on the screen, including output from other
+    /// programs.
+    xt_checksum_report: bool = false,
+
     /// The APC command handler maintains the APC state. APC is like
     /// CSI or OSC, but it is a private escape sequence that is used
     /// to send commands to the terminal emulator. This is used by
@@ -91,10 +100,45 @@ pub const Handler = struct {
     /// with EFBIG.
     kitty_clipboard_write_max_bytes: usize = kitty_clipboard.max_write_size,
 
-    /// Called for sequence identifiers not supported by this library.
-    /// Currently, only APC is reported. Content is borrowed and only valid
-    /// for the duration of the callback. Set `apc_handler.unknown_max_bytes`
-    /// before starting the Stream to enable APC capture.
+    /// Called for escape sequences this library does not implement, so you
+    /// can implement them yourself. See `UnknownSequence` for the kinds of
+    /// sequences that are reported.
+    ///
+    /// Nothing is reported until you also set a byte limit for each kind
+    /// you want. The limits default to zero, which turns reporting off:
+    ///
+    ///   - APC: `apc_handler.unknown_max_bytes`
+    ///   - OSC: `Stream.Options.osc_unknown_max_bytes` when creating the
+    ///     stream, or `stream.parser.osc_parser.unknown_max_bytes` later.
+    ///
+    /// This example handles a made-up OSC 7400 and ignores everything
+    /// else:
+    ///
+    /// ```zig
+    /// fn onUnknown(handler: *Handler, seq: Handler.UnknownSequence) void {
+    ///     const v = switch (seq) {
+    ///         .osc => |v| v,
+    ///         else => return,
+    ///     };
+    ///
+    ///     // Match the number and its ";" so "74000;" is not included.
+    ///     const prefix = "7400;";
+    ///     if (v.truncated or !std.mem.startsWith(u8, v.content, prefix)) return;
+    ///     handleStatus(handler, v.content[prefix.len..]);
+    /// }
+    ///
+    /// var handler: Handler = .init(&terminal);
+    /// handler.unknown_sequence = &onUnknown;
+    /// var stream: Stream = .init(.{
+    ///     .allocator = alloc,
+    ///     .handler = handler,
+    ///     .osc_unknown_max_bytes = 4096,
+    /// });
+    /// ```
+    ///
+    /// The callback runs while the stream processes input. It may write a
+    /// reply to the pty, and the reply stays in order with the terminal's
+    /// own replies. It must not feed more input to the same stream.
     unknown_sequence: ?*const fn (*Handler, UnknownSequence) void = null,
 
     /// The name of the terminfo entry this terminal runs as, reported in
@@ -166,6 +210,45 @@ pub const Handler = struct {
         /// Called when the running program reports progress via OSC 9;4.
         progress_report: ?*const fn (*Handler, osc.Command.ProgressReport) void,
 
+        /// Called when the running program sends a program status report
+        /// (OSC 7501). Programs use these to say what they are doing, such
+        /// as working, done, or waiting on the user. The report's
+        /// text is only valid until this returns, so copy what you keep.
+        ///
+        /// A full reset (RIS) removes every record. When that happens, the
+        /// terminal calls this with a `clear` report without an id, and
+        /// then calls `reset`.
+        ///
+        /// Setting this also makes the terminal answer the support query,
+        /// `OSC 7501 ; ?`, through `write_pty`. While this is null, the
+        /// query gets no reply, so programs know not to send reports.
+        program_status: ?*const fn (*Handler, osc.Command.ProgramStatus.Report) void,
+
+        /// Called when the shell reports a step of a command through
+        /// shell integration: a prompt starts, input starts, output
+        /// starts, or the command ends. See `SemanticPrompt` for the
+        /// steps and an example.
+        ///
+        /// The terminal has already applied the sequence when this is
+        /// called. A sequence the terminal rejects is never reported.
+        semantic_prompt: ?*const fn (*Handler, SemanticPrompt) void,
+
+        /// Called after the running program performs a full reset (RIS,
+        /// `ESC c`). The terminal has already reset itself, which clears
+        /// the screen, scrollback, title, and pwd. `title_changed` and
+        /// `pwd_changed` are not called for this, so update anything that
+        /// shows them here.
+        ///
+        /// A full reset also removes the progress report and program
+        /// status records, and `progress_report` and `program_status` are
+        /// called for that before this is called. A soft reset (DECSTR)
+        /// doesn't call this.
+        ///
+        /// Shells don't report the end of a command that a reset
+        /// interrupts, so clear any state you keep for the current
+        /// command here.
+        reset: ?*const fn (*Handler) void,
+
         /// Called when the running program writes to a clipboard.
         clipboard_write: ?*const fn (*Handler, clipboard.Write) void,
 
@@ -201,6 +284,33 @@ pub const Handler = struct {
         /// is 256 bytes; longer strings will be silently ignored.
         xtversion: ?*const fn (*Handler) []const u8,
 
+        /// Called with `true` when the running program asks the terminal
+        /// to stop updating the screen, and with `false` when it allows
+        /// updates again. The time in between is a "render hold". Programs
+        /// use a hold so that the user never sees a half-drawn frame.
+        ///
+        /// Today the only source of a hold is synchronized output (mode
+        /// 2026). The hold begins when VT input sets the mode. It ends
+        /// when VT input resets the mode, on a full reset, and on a resize
+        /// through `Handler.resize`. The calls always come in pairs:
+        /// setting the mode during a hold does nothing, and neither does
+        /// resetting it when there is no hold. Writing `terminal.modes`
+        /// directly never calls this.
+        ///
+        /// When a hold begins, nothing after the sequence that began it
+        /// has been processed yet, so the terminal contains exactly the
+        /// frame the program wants left on screen. A renderer can capture
+        /// that frame from within this callback (e.g. `RenderState.update`)
+        /// and then skip updates until the hold ends. Checking the mode
+        /// before each draw instead can't do this. It leaves whatever was
+        /// drawn last on screen, and it loses a finished frame entirely
+        /// when one hold ends and the next begins between two draws.
+        ///
+        /// The terminal has no clock so it never ends a hold on its own.
+        /// The caller must use a timeout so that a program that never
+        /// releases its hold can't freeze the screen.
+        render_hold: ?*const fn (*Handler, bool) void,
+
         /// No effects means that the stream effectively becomes readonly
         /// that only affects pure terminal state and ignores all side
         /// effects beyond that.
@@ -214,7 +324,11 @@ pub const Handler = struct {
             .drag_and_drop = null,
             .enquiry = null,
             .progress_report = null,
+            .program_status = null,
+            .reset = null,
+            .semantic_prompt = null,
             .size = null,
+            .render_hold = null,
             .title_changed = null,
             .pwd_changed = null,
             .write_pty = null,
@@ -222,16 +336,134 @@ pub const Handler = struct {
         };
     };
 
-    /// A sequence unsupported by the active handler. Payload data is borrowed
-    /// only for the duration of the handler callback.
+    /// A sequence this library does not implement, passed to the
+    /// `unknown_sequence` callback. The data is only valid until the
+    /// callback returns. Copy it if you need it later.
+    ///
+    /// More kinds of sequences may be added later, so switch on this with
+    /// an `else` branch that ignores kinds you don't handle.
     pub const UnknownSequence = union(enum) {
+        /// An APC sequence (`ESC _`) whose identifier is not implemented.
         apc: String,
+
+        /// An OSC sequence (`ESC ]`) whose number is not implemented.
+        osc: Osc,
 
         /// Content between a string sequence's introducer and terminator.
         pub const String = struct {
             content: []const u8,
             truncated: bool,
         };
+
+        /// An OSC sequence whose number is not implemented.
+        pub const Osc = osc.Command.Unknown;
+    };
+
+    /// A shell integration event, passed to the `semantic_prompt` effect.
+    ///
+    /// Many shells tell the terminal where each prompt, command, and
+    /// command output begins. Each command goes through four steps, and
+    /// the effect is called once for each step the shell reports:
+    ///
+    ///   1. `prompt_start`: the shell starts drawing a prompt.
+    ///   2. `input_start`: the prompt is drawn and the user can type.
+    ///   3. `output_start`: the user submitted the command and it runs.
+    ///   4. `command_end`: the command finished.
+    ///
+    /// Then the shell draws the next prompt and the steps start over.
+    ///
+    /// Shells differ in what they report. Many don't send the command
+    /// line or the exit code, and some skip steps, so handle each event
+    /// on its own instead of expecting a strict order. A shell may also
+    /// start the same prompt more than once, for example when it redraws
+    /// the prompt after a resize, so treat a repeated `prompt_start` as
+    /// harmless.
+    ///
+    /// The event describes what happened, not how the shell said it.
+    /// Today events come from OSC 133. More shell integration protocols
+    /// may report through this same type later.
+    ///
+    /// The strings are only valid until the callback returns. Copy them
+    /// if you need them later.
+    ///
+    /// This example logs each command's result:
+    ///
+    /// ```zig
+    /// fn onSemanticPrompt(handler: *Handler, event: Handler.SemanticPrompt) void {
+    ///     _ = handler;
+    ///     switch (event.kind) {
+    ///         .command_end => if (event.exit_code) |code| {
+    ///             log.info("command exited with {}", .{code});
+    ///         } else {
+    ///             log.info("command finished", .{});
+    ///         },
+    ///         else => {},
+    ///     }
+    /// }
+    ///
+    /// var handler: Handler = .init(&terminal);
+    /// handler.effects.semantic_prompt = &onSemanticPrompt;
+    /// ```
+    pub const SemanticPrompt = struct {
+        /// Which step of the command this event reports.
+        kind: Kind,
+
+        /// Which prompt is starting, for `prompt_start`. Always
+        /// `primary` for other kinds.
+        prompt_kind: PromptKind = .primary,
+
+        /// The command's exit code, for `command_end` when the shell
+        /// reported one. Null otherwise.
+        exit_code: ?i32 = null,
+
+        /// The command line about to run, for `output_start`. The shell
+        /// sends it encoded, and this is the decoded text. Empty if the
+        /// shell didn't send one or it couldn't be decoded.
+        command: []const u8 = "",
+
+        /// A description of what went wrong, for `command_end` when the
+        /// shell sent one. Empty otherwise. Few shells send this, and the
+        /// exit code is the usual way to tell whether a command failed.
+        err: []const u8 = "",
+
+        /// C: GhosttySemanticPromptKind
+        pub const Kind = lib.Enum(lib.target, &.{
+            // Never reported. This exists so that a zeroed C value is not
+            // mistaken for a real event.
+            "invalid",
+
+            // The shell started drawing a prompt.
+            "prompt_start",
+
+            // The prompt is drawn and the user can start typing.
+            "input_start",
+
+            // The user submitted the command and it started running.
+            "output_start",
+
+            // The command finished running.
+            "command_end",
+        });
+
+        /// C: GhosttySemanticPromptPromptKind
+        pub const PromptKind = lib.Enum(lib.target, &.{
+            // The main prompt shown before each command. This is used
+            // when the shell doesn't say which prompt it is drawing.
+            "primary",
+
+            // A prompt drawn at the right edge of the line.
+            "right",
+
+            // A prompt at the start of an extra line of a command that
+            // spans several lines.
+            "continuation",
+
+            // Another prompt for an extra line of input, such as bash's
+            // PS2. Shells differ in whether they report extra lines as
+            // continuation or secondary prompts, so most callers should
+            // treat the two the same.
+            "secondary",
+        });
     };
 
     pub fn init(terminal: *Terminal) Handler {
@@ -254,7 +486,10 @@ pub const Handler = struct {
     /// because it also handles the side effects like mode 2048 in-band
     /// size reports if write_pty is set.
     pub fn resize(self: *Handler, value: Terminal.Resize) !void {
+        // Resize always turns off synchronized output, ending its hold.
+        const sync = self.terminal.modes.get(.synchronized_output);
         try self.terminal.resize(self.terminal.gpa(), value);
+        if (sync) self.renderHold(false);
 
         // Mode 2048 reports require complete, current cell pixel geometry.
         const cell_size = value.cell_size_px orelse return;
@@ -412,7 +647,16 @@ pub const Handler = struct {
             .reset_mode => try self.setMode(value.mode, false),
             .save_mode => self.terminal.modes.save(value.mode),
             .restore_mode => {
+                const prev = self.terminal.modes.get(value.mode);
                 const v = self.terminal.modes.restore(value.mode);
+
+                // Restore writes the value directly. Put the old value
+                // back for synchronized output so that setMode can see
+                // the change and report the render hold.
+                if (value.mode == .synchronized_output) {
+                    self.terminal.modes.set(value.mode, prev);
+                }
+
                 try self.setMode(value.mode, v);
             },
             .top_and_bottom_margin => self.terminal.setTopAndBottomMargin(value.top_left, value.bottom_right),
@@ -436,6 +680,9 @@ pub const Handler = struct {
             .protected_mode_iso => self.terminal.setProtectedMode(.iso),
             .protected_mode_dec => self.terminal.setProtectedMode(.dec),
             .mouse_shift_capture => self.terminal.flags.mouse_shift_capture = if (value) .true else .false,
+            .xt_checksum_extension => if (self.xt_checksum_report) {
+                self.terminal.flags.xt_checksum = value.flags;
+            },
             .kitty_keyboard_push => self.terminal.screens.active.kitty_keyboard.push(value.flags),
             .kitty_keyboard_pop => self.terminal.screens.active.kitty_keyboard.pop(@intCast(value)),
             .kitty_keyboard_set => self.terminal.screens.active.kitty_keyboard.set(.set, value.flags),
@@ -451,19 +698,26 @@ pub const Handler = struct {
             .active_status_display => self.terminal.status_display = value,
             .decaln => try self.terminal.decaln(),
             .full_reset => {
+                // A reset turns off synchronized output, ending its hold.
+                const sync = self.terminal.modes.get(.synchronized_output);
                 self.terminal.fullReset();
+                if (sync) self.renderHold(false);
 
                 // Full reset clears grants
                 self.kitty_clipboard_grants.deinit(self.terminal.gpa());
                 self.kitty_clipboard_grants = .{};
 
-                // Clear the progress bar
+                // Clear the progress bar and program status records
                 self.progressReport(.{ .state = .remove });
+                self.programStatusReport(.{ .state = .clear });
+
+                if (self.effects.reset) |func| func(self);
             },
             .start_hyperlink => try self.terminal.screens.active.startHyperlink(value.uri, value.id),
             .end_hyperlink => self.terminal.screens.active.endHyperlink(),
-            .semantic_prompt => try self.terminal.semanticPrompt(value),
+            .semantic_prompt => try self.semanticPrompt(value),
             .mouse_shape => self.terminal.mouse_shape = value,
+            .mouse_shape_reset => self.terminal.mouse_shape = .text,
             .color_operation => self.colorOperation(
                 &value.requests,
                 value.terminator,
@@ -483,6 +737,10 @@ pub const Handler = struct {
             .apc_put_slice => self.apc_handler.feedSlice(self.terminal.gpa(), value.bytes),
             .apc_end => self.apcEnd(value.terminated),
 
+            // Unrecognized OSC. The OSC parser already dropped aborted
+            // sequences, so everything that reaches here is reported.
+            .osc_unknown => self.unknownSequence(.{ .osc = value }),
+
             // Effect-based handlers
             .bell => self.bell(),
             .show_desktop_notification => self.desktopNotification(value),
@@ -496,7 +754,9 @@ pub const Handler = struct {
             .window_title => try self.windowTitle(value.title),
             .report_pwd => try self.reportPwd(value.url),
             .progress_report => self.progressReport(value),
+            .program_status => self.programStatus(value),
             .xtversion => self.reportXtversion(),
+            .request_xt_checksum => self.reportXtChecksum(value),
             .clipboard_contents => self.clipboardContents(
                 value.kind,
                 value.data,
@@ -519,6 +779,7 @@ pub const Handler = struct {
             // Have no terminal-modifying effect
             .title_push,
             .title_pop,
+            .resize_window,
             => {},
         }
     }
@@ -621,8 +882,87 @@ pub const Handler = struct {
         func(self, notification);
     }
 
+    fn semanticPrompt(self: *Handler, cmd: osc.Command.SemanticPrompt) !void {
+        try self.terminal.semanticPrompt(cmd);
+        const func = self.effects.semantic_prompt orelse return;
+        switch (cmd.action) {
+            .fresh_line => {},
+
+            // A and N accept the same k= option as P, and the terminal
+            // applies it, so report it for all three.
+            .fresh_line_new_prompt,
+            .new_command,
+            .prompt_start,
+            => func(self, .{
+                .kind = .prompt_start,
+                .prompt_kind = if (cmd.readOption(.prompt_kind)) |v| switch (v) {
+                    .initial => .primary,
+                    .right => .right,
+                    .continuation => .continuation,
+                    .secondary => .secondary,
+                } else .primary,
+            }),
+
+            .end_prompt_start_input,
+            .end_prompt_start_input_terminate_eol,
+            => func(self, .{ .kind = .input_start }),
+
+            .end_input_start_output => {
+                // Decoding never makes the command line longer, so a
+                // buffer the size of the raw options always fits it. If
+                // the buffer can't be allocated or the command line
+                // can't be decoded, we still report the step with an
+                // empty command.
+                const alloc = self.terminal.gpa();
+                const buf = alloc.alloc(u8, cmd.options_unvalidated.len) catch |err| {
+                    log.warn("error allocating semantic prompt command line err={}", .{err});
+                    func(self, .{ .kind = .output_start });
+                    return;
+                };
+                defer alloc.free(buf);
+                var writer: std.Io.Writer = .fixed(buf);
+                const command: []const u8 = if (cmd.writeCommandLine(&writer))
+                    writer.buffered()
+                else |_|
+                    "";
+                func(self, .{ .kind = .output_start, .command = command });
+            },
+
+            .end_command => func(self, .{
+                .kind = .command_end,
+                .exit_code = cmd.readOption(.exit_code),
+                .err = cmd.readOption(.err) orelse "",
+            }),
+        }
+    }
+
     fn progressReport(self: *Handler, report: osc.Command.ProgressReport) void {
         const func = self.effects.progress_report orelse return;
+        func(self, report);
+    }
+
+    fn programStatus(self: *Handler, cmd: osc.Command.ProgramStatus) void {
+        switch (cmd) {
+            .report => |report| self.programStatusReport(report),
+
+            // Only claim support when something handles the reports. The
+            // reply is always the same fixed bytes. The specification
+            // never allows sending report contents back to the program.
+            .query => |terminator| if (self.effects.program_status != null) {
+                switch (terminator) {
+                    inline else => |t| self.writePty(
+                        "\x1b]7501;?" ++ comptime t.string(),
+                    ),
+                }
+            },
+        }
+    }
+
+    fn programStatusReport(
+        self: *Handler,
+        report: osc.Command.ProgramStatus.Report,
+    ) void {
+        const func = self.effects.program_status orelse return;
         func(self, report);
     }
 
@@ -1407,6 +1747,20 @@ pub const Handler = struct {
         self.writePty(resp);
     }
 
+    fn reportXtChecksum(self: *Handler, req: xt_checksum.Request) void {
+        if (!self.xt_checksum_report) return;
+        var buf: [xt_checksum.max_encode_size + 1]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        xt_checksum.encode(
+            &writer,
+            req.id,
+            self.terminal.rectXtChecksum(req),
+        ) catch unreachable;
+        const len = writer.buffered().len;
+        buf[len] = 0;
+        self.writePty(buf[0..len :0]);
+    }
+
     fn reportSize(self: *Handler, style: csi.SizeReportStyle) void {
         // Almost all size reports will fit in 256 bytes so try that
         // on the stack before falling back to a heap allocation.
@@ -1517,7 +1871,7 @@ pub const Handler = struct {
 
     fn requestModeUnknown(self: *Handler, mode_raw: u16, ansi: bool) void {
         const report = self.terminal.modes.getReport(.{
-            .value = @truncate(mode_raw),
+            .value = mode_raw,
             .ansi = ansi,
         });
         self.sendModeReport(report);
@@ -1560,7 +1914,24 @@ pub const Handler = struct {
         }
     }
 
+    /// Report that a render hold began or ended. See `Effects.render_hold`.
+    inline fn renderHold(self: *Handler, held: bool) void {
+        const func = self.effects.render_hold orelse return;
+        func(self, held);
+    }
+
     fn setMode(self: *Handler, mode: modes.Mode, enabled: bool) !void {
+        // Synchronized output is reported as a render hold. We only report
+        // real changes. Reporting a set during a hold would be harmful
+        // because the screen is half-drawn at that point and the callback
+        // is expected to capture it.
+        if (mode == .synchronized_output) {
+            if (self.terminal.modes.get(mode) == enabled) return;
+            self.terminal.modes.set(mode, enabled);
+            self.renderHold(enabled);
+            return;
+        }
+
         // Set the mode on the terminal
         self.terminal.modes.set(mode, enabled);
 
@@ -1594,7 +1965,9 @@ pub const Handler = struct {
                 if (enabled) .@"132_cols" else .@"80_cols",
             ),
 
-            .synchronized_output,
+            // Handled above
+            .synchronized_output => unreachable,
+
             .linefeed,
             .focus_event,
             => {},
@@ -1924,6 +2297,102 @@ const PtyWriter = struct {
     }
 };
 
+test "render hold effect fires on synchronized output transitions only" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var events: [8]bool = undefined;
+        var len: usize = 0;
+
+        fn hold(_: *Handler, held: bool) void {
+            events[len] = held;
+            len += 1;
+        }
+    };
+    S.len = 0;
+
+    var handler: Handler = .init(&t);
+    handler.effects.render_hold = &S.hold;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // Reset without a hold is ignored
+    s.nextSlice("\x1b[?2026l");
+    try testing.expectEqual(0, S.len);
+
+    // A set during a hold is ignored since the screen is half-drawn
+    s.nextSlice("\x1b[?2026hA\x1b[?2026hB\x1b[?2026l\x1b[?2026l");
+    try testing.expectEqualSlices(bool, &.{ true, false }, S.events[0..S.len]);
+
+    // Save and restore report the same way as set and reset
+    S.len = 0;
+    s.nextSlice("\x1b[?2026s\x1b[?2026h\x1b[?2026r\x1b[?2026r");
+    try testing.expectEqualSlices(bool, &.{ true, false }, S.events[0..S.len]);
+    try testing.expect(!t.modes.get(.synchronized_output));
+
+    // Full reset
+    S.len = 0;
+    s.nextSlice("\x1b[?2026h\x1bc\x1bc");
+    try testing.expectEqualSlices(bool, &.{ true, false }, S.events[0..S.len]);
+
+    // Resize
+    S.len = 0;
+    s.nextSlice("\x1b[?2026h");
+    try s.handler.resize(.{ .cols = 80, .rows = 24 });
+    try s.handler.resize(.{ .cols = 80, .rows = 24 });
+    try testing.expectEqualSlices(bool, &.{ true, false }, S.events[0..S.len]);
+}
+
+test "render hold effect can snapshot the frame when the hold begins" {
+    const alloc = testing.allocator;
+    const RenderState = @import("render.zig").RenderState;
+    var t: Terminal = try .init(testing.io, alloc, .{ .cols = 10, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // This is how a renderer is expected to use the effect: capture the
+    // frame when the hold begins and then leave the render state alone
+    // until the hold ends.
+    const S = struct {
+        var state: RenderState = .empty;
+        var snapshots: usize = 0;
+
+        fn hold(h: *Handler, held: bool) void {
+            if (!held) return;
+            state.update(testing.allocator, h.terminal) catch unreachable;
+            snapshots += 1;
+        }
+
+        fn char(y: usize, x: usize) u21 {
+            return state.row_data.items(.cells)[y].get(x).raw.codepoint();
+        }
+    };
+    S.state = .empty;
+    S.snapshots = 0;
+    defer S.state.deinit(alloc);
+
+    var handler: Handler = .init(&t);
+    handler.effects.render_hold = &S.hold;
+    var s: Stream = .init(.{ .allocator = alloc, .handler = handler });
+    defer s.deinit();
+
+    // Normal output, the start of a hold, and part of the next frame all
+    // arrive in one write with no draw in between. The captured frame
+    // must have all of the output before the hold and none after.
+    s.nextSlice("AB\x1b[?2026h\x1b[HXY");
+    try testing.expectEqual(1, S.snapshots);
+    try testing.expectEqual('A', S.char(0, 0));
+    try testing.expectEqual('B', S.char(0, 1));
+
+    // The frame is finished and the next hold begins before we ever
+    // draw. The finished frame must be captured, not lost.
+    s.nextSlice("Z\x1b[?2026l\x1b[?2026h\x1b[H123");
+    try testing.expectEqual(2, S.snapshots);
+    try testing.expectEqual('X', S.char(0, 0));
+    try testing.expectEqual('Y', S.char(0, 1));
+    try testing.expectEqual('Z', S.char(0, 2));
+}
+
 test "resize clears synchronized output on unchanged cell dimensions" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
@@ -1949,6 +2418,7 @@ test "unknown APC effect callback" {
 
     const S = struct {
         var count: usize = 0;
+        var osc_count: usize = 0;
         var content: [16]u8 = undefined;
         var content_len: usize = undefined;
         var truncated: bool = undefined;
@@ -1960,11 +2430,13 @@ test "unknown APC effect callback" {
                     @memcpy(content[0..apc_value.content.len], apc_value.content);
                     truncated = apc_value.truncated;
                 },
+                .osc => osc_count += 1,
             }
             count += 1;
         }
     };
     S.count = 0;
+    S.osc_count = 0;
 
     var handler: Handler = .init(&t);
     handler.unknown_sequence = &S.unknownSequence;
@@ -1975,17 +2447,91 @@ test "unknown APC effect callback" {
     });
     defer s.deinit();
 
-    // Unknown OSC commands retain their legacy behavior and are ignored.
+    // The APC limit does not enable OSC capture, so unknown OSCs are
+    // still ignored.
     s.nextSlice("\x1B]999;abcdef\x07");
     s.nextSlice("\x1B_abcd;payload\x1B\\");
 
     try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqual(@as(usize, 0), S.osc_count);
     try testing.expectEqualStrings("abcd;pay", S.content[0..S.content_len]);
     try testing.expect(S.truncated);
 
     // Aborted unknown APCs are suppressed.
     s.nextSlice("\x1B_Xpayload\x18");
     try testing.expectEqual(@as(usize, 1), S.count);
+}
+
+test "unknown OSC effect callback" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var count: usize = 0;
+        var content: [32]u8 = undefined;
+        var content_len: usize = undefined;
+        var terminator: osc.Terminator = undefined;
+
+        fn unknownSequence(_: *Handler, value: Handler.UnknownSequence) void {
+            const v = switch (value) {
+                .osc => |v| v,
+                .apc => unreachable,
+            };
+            content_len = v.content.len;
+            @memcpy(content[0..v.content.len], v.content);
+            terminator = v.terminator;
+            count += 1;
+        }
+    };
+    S.count = 0;
+
+    var handler: Handler = .init(&t);
+    handler.unknown_sequence = &S.unknownSequence;
+    var s: Stream = .init(.{
+        .allocator = testing.allocator,
+        .handler = handler,
+        .osc_unknown_max_bytes = 24,
+    });
+    defer s.deinit();
+
+    // ST through the stream's fast path.
+    s.nextSlice("\x1B]7400;status=busy\x1B\\");
+    try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqualStrings("7400;status=busy", S.content[0..S.content_len]);
+    try testing.expectEqual(osc.Terminator.st, S.terminator);
+
+    // BEL through the stream's fast path.
+    s.nextSlice("\x1B]7400;?\x07");
+    try testing.expectEqual(@as(usize, 2), S.count);
+    try testing.expectEqualStrings("7400;?", S.content[0..S.content_len]);
+    try testing.expectEqual(osc.Terminator.bel, S.terminator);
+
+    // Split across writes.
+    s.nextSlice("\x1B]74");
+    s.nextSlice("00;a");
+    s.nextSlice("b\x07");
+    try testing.expectEqual(@as(usize, 3), S.count);
+    try testing.expectEqualStrings("7400;ab", S.content[0..S.content_len]);
+
+    // Byte-at-a-time through the scalar path.
+    for ("\x1B]7400;cd\x1B\\") |ch| s.next(ch);
+    try testing.expectEqual(@as(usize, 4), S.count);
+    try testing.expectEqualStrings("7400;cd", S.content[0..S.content_len]);
+
+    // CAN and SUB abort through the generic parser and are suppressed.
+    s.nextSlice("\x1B]7400;x\x18");
+    s.nextSlice("\x1B]7400;x\x1A");
+    try testing.expectEqual(@as(usize, 4), S.count);
+
+    // Supported OSCs still take their normal path.
+    s.nextSlice("\x1B]2;title\x07");
+    try testing.expectEqual(@as(usize, 4), S.count);
+    try testing.expectEqualStrings("title", t.getTitle().?);
+
+    // Clearing the limit restores the old behavior.
+    s.parser.osc_parser.unknown_max_bytes = 0;
+    s.nextSlice("\x1B]7400;x\x07");
+    try testing.expectEqual(@as(usize, 4), S.count);
 }
 
 test "resize reports mode 2048 geometry" {
@@ -3347,6 +3893,258 @@ test "progress_report effect callback" {
     try testing.expectEqual(@as(?u8, null), S.last_progress);
 }
 
+test "program_status effect callback" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var count: usize = 0;
+        var last_state: ?osc.Command.ProgramStatus.State = null;
+        var last_id: [64]u8 = undefined;
+        var last_id_len: ?usize = null;
+        var last_message: [64]u8 = undefined;
+        var last_message_len: ?usize = null;
+        var written: [64]u8 = undefined;
+        var written_len: usize = 0;
+
+        fn reset() void {
+            count = 0;
+            last_state = null;
+            last_id_len = null;
+            last_message_len = null;
+            written_len = 0;
+        }
+
+        fn programStatus(_: *Handler, report: osc.Command.ProgramStatus.Report) void {
+            count += 1;
+            last_state = report.state;
+            last_id_len = if (report.readOption(.id)) |v| copy(&last_id, v) else null;
+            var message: std.Io.Writer = .fixed(&last_message);
+            report.writeText(.msg, &message) catch unreachable;
+            last_message_len = message.buffered().len;
+        }
+
+        fn writePty(_: *Handler, data: []const u8) void {
+            written_len += copy(written[written_len..], data);
+        }
+
+        fn copy(dst: []u8, src: []const u8) usize {
+            @memcpy(dst[0..src.len], src);
+            return src.len;
+        }
+    };
+
+    // Without a callback, reports are ignored and the query isn't
+    // answered so the program sees the protocol as unsupported.
+    {
+        S.reset();
+        var handler: Handler = .init(&t);
+        handler.effects.write_pty = &S.writePty;
+        var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+        defer s.deinit();
+        s.nextSlice("\x1B]7501;?\x1B\\\x1B]7501;state=idle\x1B\\");
+        try testing.expectEqual(@as(usize, 0), S.written_len);
+    }
+
+    S.reset();
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    handler.effects.program_status = &S.programStatus;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // The query is answered with the same body and terminator.
+    s.nextSlice("\x1B]7501;?\x1B\\");
+    try testing.expectEqualStrings("\x1B]7501;?\x1B\\", S.written[0..S.written_len]);
+    S.written_len = 0;
+    s.nextSlice("\x1B]7501;?\x07");
+    try testing.expectEqualStrings("\x1B]7501;?\x07", S.written[0..S.written_len]);
+    try testing.expectEqual(@as(usize, 0), S.count);
+    S.written_len = 0;
+
+    // A report split across writes. "Syncing photos"
+    s.nextSlice("\x1B]7501;state=working:id=sync:msg=U3lu");
+    try testing.expectEqual(@as(usize, 0), S.count);
+    s.nextSlice("Y2luZyBwaG90b3M=\x1B\\");
+    try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqual(.working, S.last_state.?);
+    try testing.expectEqualStrings("sync", S.last_id[0..S.last_id_len.?]);
+    try testing.expectEqualStrings("Syncing photos", S.last_message[0..S.last_message_len.?]);
+
+    // A full reset clears every record.
+    s.nextSlice("\x1Bc");
+    try testing.expectEqual(@as(usize, 2), S.count);
+    try testing.expectEqual(.clear, S.last_state.?);
+    try testing.expect(S.last_id_len == null);
+    try testing.expectEqual(@as(?usize, 0), S.last_message_len);
+
+    // Nothing from the reports was echoed back.
+    try testing.expectEqual(@as(usize, 0), S.written_len);
+}
+
+test "semantic_prompt effect callback" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    // A null callback (the default readonly effects) silently ignores events.
+    {
+        var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+        defer s.deinit();
+        s.nextSlice("\x1B]133;C;cmdline_url=ls\x1B\\");
+    }
+
+    const S = struct {
+        var count: usize = 0;
+        var last: Handler.SemanticPrompt = .{ .kind = .invalid };
+        var last_cursor_x: usize = 0;
+        var command_buf: [64]u8 = undefined;
+        var err_buf: [64]u8 = undefined;
+
+        fn semanticPrompt(handler: *Handler, event: Handler.SemanticPrompt) void {
+            count += 1;
+            last = event;
+            last_cursor_x = handler.terminal.screens.active.cursor.x;
+
+            // The strings are borrowed, so copy them.
+            @memcpy(command_buf[0..event.command.len], event.command);
+            last.command = command_buf[0..event.command.len];
+            @memcpy(err_buf[0..event.err.len], event.err);
+            last.err = err_buf[0..event.err.len];
+        }
+    };
+    S.count = 0;
+
+    var handler: Handler = .init(&t);
+    handler.effects.semantic_prompt = &S.semanticPrompt;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // The effect fires after the terminal applied the fresh line.
+    s.nextSlice("abc");
+    s.nextSlice("\x1B]133;A\x07");
+    try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqual(Handler.SemanticPrompt.Kind.prompt_start, S.last.kind);
+    try testing.expectEqual(Handler.SemanticPrompt.PromptKind.primary, S.last.prompt_kind);
+    try testing.expectEqual(@as(usize, 0), S.last_cursor_x);
+
+    s.nextSlice("\x1B]133;P;k=r\x07");
+    try testing.expectEqual(@as(usize, 2), S.count);
+    try testing.expectEqual(Handler.SemanticPrompt.Kind.prompt_start, S.last.kind);
+    try testing.expectEqual(Handler.SemanticPrompt.PromptKind.right, S.last.prompt_kind);
+
+    s.nextSlice("\x1B]133;P;k=c\x07");
+    try testing.expectEqual(@as(usize, 3), S.count);
+    try testing.expectEqual(Handler.SemanticPrompt.PromptKind.continuation, S.last.prompt_kind);
+
+    s.nextSlice("\x1B]133;P;k=s\x07");
+    try testing.expectEqual(@as(usize, 4), S.count);
+    try testing.expectEqual(Handler.SemanticPrompt.PromptKind.secondary, S.last.prompt_kind);
+
+    // An unknown prompt kind is primary.
+    s.nextSlice("\x1B]133;P;k=x\x07");
+    try testing.expectEqual(@as(usize, 5), S.count);
+    try testing.expectEqual(Handler.SemanticPrompt.PromptKind.primary, S.last.prompt_kind);
+
+    s.nextSlice("\x1B]133;N\x07");
+    try testing.expectEqual(@as(usize, 6), S.count);
+    try testing.expectEqual(Handler.SemanticPrompt.Kind.prompt_start, S.last.kind);
+    try testing.expectEqual(Handler.SemanticPrompt.PromptKind.primary, S.last.prompt_kind);
+
+    s.nextSlice("\x1B]133;B\x07");
+    try testing.expectEqual(@as(usize, 7), S.count);
+    try testing.expectEqual(Handler.SemanticPrompt.Kind.input_start, S.last.kind);
+
+    s.nextSlice("\x1B]133;I\x07");
+    try testing.expectEqual(@as(usize, 8), S.count);
+    try testing.expectEqual(Handler.SemanticPrompt.Kind.input_start, S.last.kind);
+
+    s.nextSlice("\x1B]133;C;cmdline_url=ls%20-la\x07");
+    try testing.expectEqual(@as(usize, 9), S.count);
+    try testing.expectEqual(Handler.SemanticPrompt.Kind.output_start, S.last.kind);
+    try testing.expectEqualStrings("ls -la", S.last.command);
+
+    s.nextSlice("\x1B]133;C;cmdline='echo hi'\x07");
+    try testing.expectEqual(@as(usize, 10), S.count);
+    try testing.expectEqualStrings("echo hi", S.last.command);
+
+    // No command line, and an undecodable one, are both empty.
+    s.nextSlice("\x1B]133;C\x07");
+    try testing.expectEqual(@as(usize, 11), S.count);
+    try testing.expectEqual(Handler.SemanticPrompt.Kind.output_start, S.last.kind);
+    try testing.expectEqualStrings("", S.last.command);
+
+    s.nextSlice("\x1B]133;C;cmdline='bad\x07");
+    try testing.expectEqual(@as(usize, 12), S.count);
+    try testing.expectEqualStrings("", S.last.command);
+
+    s.nextSlice("\x1B]133;D;1\x07");
+    try testing.expectEqual(@as(usize, 13), S.count);
+    try testing.expectEqual(Handler.SemanticPrompt.Kind.command_end, S.last.kind);
+    try testing.expectEqual(@as(?i32, 1), S.last.exit_code);
+    try testing.expectEqualStrings("", S.last.err);
+
+    s.nextSlice("\x1B]133;D\x07");
+    try testing.expectEqual(@as(usize, 14), S.count);
+    try testing.expectEqual(Handler.SemanticPrompt.Kind.command_end, S.last.kind);
+    try testing.expectEqual(@as(?i32, null), S.last.exit_code);
+
+    s.nextSlice("\x1B]133;D;-2;err=boom\x07");
+    try testing.expectEqual(@as(usize, 15), S.count);
+    try testing.expectEqual(@as(?i32, -2), S.last.exit_code);
+    try testing.expectEqualStrings("boom", S.last.err);
+
+    // Fresh line alone is layout, not lifecycle.
+    s.nextSlice("\x1B]133;L\x07");
+    try testing.expectEqual(@as(usize, 15), S.count);
+
+    // Sequences the parser rejects report nothing.
+    s.nextSlice("\x1B]133;Lx\x07");
+    s.nextSlice("\x1B]133;Z\x07");
+    try testing.expectEqual(@as(usize, 15), S.count);
+}
+
+test "reset effect callback" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var events: [8]u8 = undefined;
+        var len: usize = 0;
+        var reset_cursor_x: usize = 0;
+
+        fn progressReport(_: *Handler, _: osc.Command.ProgressReport) void {
+            events[len] = 'p';
+            len += 1;
+        }
+
+        fn reset(handler: *Handler) void {
+            reset_cursor_x = handler.terminal.screens.active.cursor.x;
+            events[len] = 'r';
+            len += 1;
+        }
+    };
+    S.len = 0;
+    S.reset_cursor_x = 0;
+
+    var handler: Handler = .init(&t);
+    handler.effects.progress_report = &S.progressReport;
+    handler.effects.reset = &S.reset;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // A soft reset (DECSTR) doesn't report a reset.
+    s.nextSlice("\x1B[!p");
+    try testing.expectEqualStrings("", S.events[0..S.len]);
+
+    // A full reset reports the progress removal first, and the terminal
+    // already reset itself when the reset is reported.
+    s.nextSlice("abc\x1Bc");
+    try testing.expectEqualStrings("pr", S.events[0..S.len]);
+    try testing.expectEqual(@as(usize, 0), S.reset_cursor_x);
+}
+
 test "clipboard_write effect callback" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
@@ -4574,6 +5372,7 @@ test "request mode DECRQM with write_pty callback" {
 
         // DECRQM for mode 7 (wraparound) — should be silently ignored
         s.nextSlice("\x1B[?7$p");
+        s.nextSlice("\x1B[4$p");
     }
 
     t.fullReset();
@@ -4605,6 +5404,12 @@ test "request mode DECRQM with write_pty callback" {
         s.nextSlice("\x1B[?7$p");
         try testing.expectEqualStrings("\x1B[?7;2$y", S.last_response.?);
 
+        // A large unknown mode must not alias wraparound mode 7.
+        const before = t.modes;
+        s.nextSlice("\x1B[?32775$p");
+        try testing.expectEqualStrings("\x1B[?32775;0$y", S.last_response.?);
+        try testing.expectEqualDeep(before, t.modes);
+
         // Query an unknown mode
         s.nextSlice("\x1B[?9999$p");
         try testing.expectEqualStrings("\x1B[?9999;0$y", S.last_response.?);
@@ -4612,6 +5417,65 @@ test "request mode DECRQM with write_pty callback" {
         // Query DECECM, which Ghostty recognizes but does not allow changing
         s.nextSlice("\x1B[?117$p");
         try testing.expectEqualStrings("\x1B[?117;4$y", S.last_response.?);
+    }
+}
+
+test "request mode DECRQM ANSI responses" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var response: [32]u8 = undefined;
+        var len: usize = 0;
+        var calls: usize = 0;
+
+        fn writePty(_: *Handler, data: []const u8) void {
+            @memcpy(response[0..data.len], data);
+            len = data.len;
+            calls += 1;
+        }
+    };
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    inline for (.{
+        .{ "2", modes.Mode.disable_keyboard },
+        .{ "4", modes.Mode.insert },
+        .{ "12", modes.Mode.send_receive_mode },
+        .{ "20", modes.Mode.linefeed },
+    }) |mode| {
+        inline for (.{ false, true, false }) |enabled| {
+            s.nextSlice("\x1b[" ++ mode[0] ++ (if (enabled) "h" else "l"));
+            try testing.expectEqual(enabled, t.modes.get(mode[1]));
+            const query = "\x1b[" ++ mode[0] ++ "$p";
+            for (0..query.len + 1) |split| {
+                S.calls = 0;
+                S.len = 0;
+                s.nextSlice(query[0..split]);
+                if (split < query.len) try testing.expectEqual(0, S.calls);
+                s.nextSlice(query[split..]);
+                try testing.expectEqual(1, S.calls);
+                try testing.expectEqualStrings("\x1b[" ++ mode[0] ++ (if (enabled) ";1$y" else ";2$y"), S.response[0..S.len]);
+                try testing.expectEqual(enabled, t.modes.get(mode[1]));
+            }
+        }
+    }
+
+    // The two namespaces must report independent states for mode 4.
+    s.nextSlice("\x1b[4h\x1b[?4l");
+    const cases = .{
+        .{ "\x1b[4$p", "\x1b[4;1$y" },
+        .{ "\x1b[?4$p", "\x1b[?4;2$y" },
+        .{ "\x1b[9999$p", "\x1b[9999;0$y" },
+    };
+    inline for (cases) |case| {
+        S.calls = 0;
+        S.len = 0;
+        s.nextSlice(case[0]);
+        try testing.expectEqual(1, S.calls);
+        try testing.expectEqualStrings(case[1], S.response[0..S.len]);
     }
 }
 
@@ -4697,6 +5561,50 @@ test "window_title effect with empty title" {
     s.nextSlice("\x1b]2;\x1b\\");
     try testing.expect(t.getTitle() == null);
     try testing.expectEqual(@as(usize, 1), S.title_changed_count);
+}
+
+test "window_title not changed by cancelled OSC" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var title_changed_count: usize = 0;
+        fn titleChanged(_: *Handler) void {
+            title_changed_count += 1;
+        }
+    };
+    S.title_changed_count = 0;
+
+    var handler: Handler = .init(&t);
+    handler.effects.title_changed = &S.titleChanged;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    s.nextSlice("\x1b]2;before\x07");
+    try testing.expectEqualStrings("before", t.getTitle().?);
+    try testing.expectEqual(@as(usize, 1), S.title_changed_count);
+
+    // Cancelled with CAN and SUB, fed in one slice.
+    s.nextSlice("\x1b]2;can\x18");
+    try testing.expectEqualStrings("before", t.getTitle().?);
+    try testing.expectEqual(@as(usize, 1), S.title_changed_count);
+    s.nextSlice("\x1b]2;sub\x1a");
+    try testing.expectEqualStrings("before", t.getTitle().?);
+    try testing.expectEqual(@as(usize, 1), S.title_changed_count);
+
+    // Cancelled with CAN and SUB, fed one byte at a time.
+    for ("\x1b]2;can\x18") |c| s.next(c);
+    try testing.expectEqualStrings("before", t.getTitle().?);
+    try testing.expectEqual(@as(usize, 1), S.title_changed_count);
+    for ("\x1b]2;sub\x1a") |c| s.next(c);
+    try testing.expectEqualStrings("before", t.getTitle().?);
+    try testing.expectEqual(@as(usize, 1), S.title_changed_count);
+
+    // An OSC that ends normally after a cancel still takes effect.
+    s.nextSlice("\x1b]2;after\x1b\\");
+    try testing.expectEqualStrings("after", t.getTitle().?);
+    try testing.expectEqual(@as(usize, 2), S.title_changed_count);
 }
 
 test "kitty_keyboard_query" {
@@ -5066,6 +5974,74 @@ test "size report csi_21_t title enabled" {
     s.nextSlice("\x1b[21t");
     defer testing.allocator.free(S.written.?);
     try testing.expectEqualStrings("\x1b]lMy Title\x1b\\", S.written.?);
+}
+
+test "DECRQCRA disabled" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var written: ?[]const u8 = null;
+        fn writePty(_: *Handler, data: []const u8) void {
+            written = testing.allocator.dupe(u8, data) catch @panic("OOM");
+        }
+    };
+    S.written = null;
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    s.nextSlice("hello\x1b[1;1;1;1;1;5*y");
+    try testing.expect(S.written == null);
+}
+
+test "DECRQCRA enabled" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var written: ?[]const u8 = null;
+        fn writePty(_: *Handler, data: []const u8) void {
+            if (written) |old| testing.allocator.free(old);
+            written = testing.allocator.dupe(u8, data) catch @panic("OOM");
+        }
+    };
+    S.written = null;
+    defer if (S.written) |v| testing.allocator.free(v);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    handler.xt_checksum_report = true;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // "hello" sums to 0x214, which the DEC checksum negates.
+    s.nextSlice("hello\x1b[3;1;1;1;1;5*y");
+    try testing.expectEqualStrings("\x1bP3!~FDEC\x1b\\", S.written.?);
+
+    // XTCHECKSUM 1 turns off the negation.
+    s.nextSlice("\x1b[1#y\x1b[4;1;1;1;1;5*y");
+    try testing.expectEqualStrings("\x1bP4!~0214\x1b\\", S.written.?);
+
+    // A full reset restores the DEC checksum.
+    s.nextSlice("\x1bchello\x1b[5;1;1;1;1;5*y");
+    try testing.expectEqualStrings("\x1bP5!~FDEC\x1b\\", S.written.?);
+}
+
+test "XTCHECKSUM ignored without xt checksum report" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const handler: Handler = .init(&t);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    s.nextSlice("\x1b[1#y");
+    try testing.expectEqual(xt_checksum.Flags{}, t.flags.xt_checksum);
 }
 
 test "enquiry no effect" {

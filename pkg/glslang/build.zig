@@ -1,4 +1,5 @@
 const std = @import("std");
+const translate_c = @import("translate_c");
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -10,23 +11,27 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    const upstream = b.lazyDependency("glslang", .{});
-    const lib = try buildGlslang(b, upstream, target, optimize);
+    const lib = try buildGlslang(b, target, optimize);
     b.installArtifact(lib);
 
-    if (upstream) |v| module.addIncludePath(v.path(""));
-    module.addIncludePath(b.path("override"));
+    try translate_c.addImportToModule(b, "glslang_c", module, .{
+        .source = .{ .includes = .{
+            .files = &.{
+                .{ .path = "glslang/Include/glslang_c_interface.h" },
+                .{ .path = "glslang/Public/resource_limits_c.h" },
+            },
+        } },
+        .target = target,
+        .optimize = optimize,
+        .link_libs = &.{lib},
+        .default_init = true,
+    });
 
     if (target.query.isNative()) {
         const test_exe = b.addTest(.{
             .name = "test",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("main.zig"),
-                .target = target,
-                .optimize = optimize,
-            }),
+            .root_module = module,
         });
-        test_exe.root_module.linkLibrary(lib);
         const tests_run = b.addRunArtifact(test_exe);
         const test_step = b.step("test", "Run tests");
         test_step.dependOn(&tests_run.step);
@@ -38,10 +43,10 @@ pub fn build(b: *std.Build) !void {
 
 fn buildGlslang(
     b: *std.Build,
-    upstream_: ?*std.Build.Dependency,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) !*std.Build.Step.Compile {
+    const upstream_ = b.lazyDependency("glslang", .{});
     const lib = b.addLibrary(.{
         .name = "glslang",
         .root_module = b.createModule(.{

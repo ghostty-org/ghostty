@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const c = @import("c");
+const c = @import("gtk4_layer_shell_c");
 const gdk = @import("gdk");
 const gtk = @import("gtk");
 

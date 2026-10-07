@@ -42,9 +42,9 @@ const Allocator = std.mem.Allocator;
 /// memory.grow are zero by the wasm spec; recycled items retain
 /// whatever the caller left, so zero either on destroy or on create).
 ///
-/// The API mirrors the subset of std.heap.memory_pool.AlignedManaged
-/// that callers use (initCapacity/deinit/reset/create/destroy plus the
-/// managed allocator field), so it can be swapped in comptime.
+/// The API mirrors the native page pool (datastruct.UntouchedPool:
+/// initCapacity/deinit/reset/create/destroy plus the allocator field),
+/// so PageList can swap them at comptime.
 pub fn WasmPagePool(comptime Item: type) type {
     return struct {
         const Self = @This();
@@ -78,9 +78,14 @@ pub fn WasmPagePool(comptime Item: type) type {
         var free_list: std.SinglyLinkedList = .{};
 
         pub fn initCapacity(
+            gpa: Allocator,
             allocator: Allocator,
             preheat: usize,
         ) Allocator.Error!Self {
+            // The free list is intrusive so we never allocate from the
+            // general purpose allocator.
+            _ = gpa;
+
             // Preheating is intentionally a no-op: item creation is a
             // cheap memory.grow or free-list pop. And we want to avoid
             // the preallocation mem cost.
@@ -106,6 +111,14 @@ pub fn WasmPagePool(comptime Item: type) type {
             _ = self;
             _ = mode;
             return true;
+        }
+
+        /// Return the number of unused items this pool holds, which is
+        /// always zero. Freed items go to a free list shared by every pool
+        /// of this item type in the module, so no single pool owns them.
+        pub fn freeCount(self: *const Self) usize {
+            _ = self;
+            return 0;
         }
 
         pub fn create(self: *Self) Allocator.Error!ItemPtr {
@@ -135,7 +148,7 @@ test WasmPagePool {
 
     const testing = std.testing;
     const Pool = WasmPagePool([64 * 1024]u8);
-    var pool: Pool = try .initCapacity(testing.allocator, 0);
+    var pool: Pool = try .initCapacity(testing.allocator, testing.allocator, 0);
     defer pool.deinit();
 
     const a = try pool.create();
@@ -147,7 +160,7 @@ test WasmPagePool {
     try testing.expectEqual(b, try pool.create());
 
     // The free list is shared across pools of the same Item type.
-    var pool2: Pool = try .initCapacity(testing.allocator, 0);
+    var pool2: Pool = try .initCapacity(testing.allocator, testing.allocator, 0);
     defer pool2.deinit();
     pool.destroy(a);
     try testing.expectEqual(a, try pool2.create());

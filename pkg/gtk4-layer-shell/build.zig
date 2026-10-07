@@ -1,11 +1,7 @@
 const std = @import("std");
+const translate_c = @import("translate_c");
 
 const version = @import("build.zig.zon").version;
-
-const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
-    .preferred_link_mode = .dynamic,
-    .search_strategy = .mode_first,
-};
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -18,42 +14,23 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    translate: {
-        const translate_c = b.lazyImport(@This(), "translate_c") orelse break :translate;
-        const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse break :translate;
-        const Translator = translate_c.Translator;
+    const lib: union(enum) {
+        system,
+        static: *std.Build.Step.Compile,
+    } = if (b.systemIntegrationOption("gtk4-layer-shell", .{}))
+        .system
+    else
+        .{ .static = try buildLib(b, .{ .target = target, .optimize = optimize }) };
 
-        const link_system_libs_full: [2]Translator.LinkSystemLib = .{
-            .{ .name = "gtk4", .options = dynamic_link_opts },
-            .{ .name = "gtk4-layer-shell-0", .options = dynamic_link_opts },
-        };
-
-        const headers = Translator.init(translate_c_dep, .{
-            .c_source_file = b.addWriteFiles().add("c.h",
-                \\#include <gtk4-layer-shell.h>
-            ),
-            .target = target,
-            .optimize = optimize,
-            .link_system_libs = if (b.systemIntegrationOption("gtk4-layer-shell", .{}))
-                &link_system_libs_full
-            else
-                link_system_libs_full[0..1],
-        });
-
-        if (!b.systemIntegrationOption("gtk4-layer-shell", .{})) {
-            // local deps (non-system layer-shell/wayland)
-            const deps = try LocalDeps.get(b) orelse break :translate;
-            headers.addIncludePath(deps.upstream.path("include"));
-            headers.addIncludePath(deps.upstream.path("src"));
-            headers.addIncludePath(deps.client_header_directory);
-        }
-
-        module.addImport("c", headers.mod);
-    }
-
-    if (!b.systemIntegrationOption("gtk4-layer-shell", .{})) {
-        _ = try buildLib(b, .{ .target = target, .optimize = optimize });
-    }
+    try translate_c.addImportToModule(b, "gtk4_layer_shell_c", module, .{
+        .source = .{ .includes = .{
+            .files = &.{.{ .path = "gtk4-layer-shell.h" }},
+        } },
+        .target = target,
+        .optimize = optimize,
+        .link_system_libs = if (lib == .system) &.{ "gtk4", "gtk4-layer-shell-0" } else &.{"gtk4"},
+        .link_libs = if (lib == .static) &.{lib.static} else &.{},
+    });
 }
 
 fn buildLib(b: *std.Build, options: anytype) !*std.Build.Step.Compile {
@@ -74,7 +51,10 @@ fn buildLib(b: *std.Build, options: anytype) !*std.Build.Step.Compile {
     b.installArtifact(lib);
 
     // GTK
-    lib.root_module.linkSystemLibrary("gtk4", dynamic_link_opts);
+    lib.root_module.linkSystemLibrary("gtk4", .{
+        .preferred_link_mode = .dynamic,
+        .search_strategy = .mode_first,
+    });
 
     // local deps (non-system layer-shell/wayland)
     const deps = try LocalDeps.get(b) orelse return lib;

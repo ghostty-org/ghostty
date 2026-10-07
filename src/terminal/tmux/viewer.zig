@@ -229,6 +229,9 @@ pub const Viewer = struct {
                         const value = @field(self, u_field.name);
                         switch (u_field.type) {
                             []const u8 => try writer.print("\"{s}\"", .{std.mem.trim(u8, value, " \t\r\n")}),
+                            // Window embeds ArenaAllocator.State; dumping
+                            // `{any}` walks freed/poisoned arena nodes.
+                            []const Window => try writer.print("[{d} windows]", .{value.len}),
                             else => try writer.print("{any}", .{value}),
                         }
                     }
@@ -854,9 +857,13 @@ pub const Viewer = struct {
         content: []const u8,
     ) !void {
         // If there is an error, reset our actions to what it was before.
-        errdefer actions.shrinkRetainingCapacity(actions.items.len);
+        const actions_len = actions.items.len;
+        errdefer actions.shrinkRetainingCapacity(actions_len);
 
         // This stores our new window state from this list-windows output.
+        // Ownership of each Window's layout arena transfers into
+        // `self.windows` via syncLayouts; this list only owns the
+        // ArrayList buffer itself.
         var windows: std.ArrayList(Window) = .empty;
         defer windows.deinit(self.alloc);
 
@@ -898,12 +905,12 @@ pub const Viewer = struct {
             });
         }
 
-        // Setup our windows action so the caller can process GUI
-        // window changes.
-        try actions.append(arena_alloc, .{ .windows = windows.items });
-
-        // Sync up our layouts. This will populate unknown panes, prune, etc.
+        // Sync into self.windows first. The `.windows` action must point at
+        // `self.windows.items` (stable for the duration of next()), not the
+        // temporary list buffer which is freed by the defer above — otherwise
+        // logging/formatting the action is a use-after-free.
         try self.syncLayouts(windows.items);
+        try actions.append(arena_alloc, .{ .windows = self.windows.items });
     }
 
     fn receivedPaneState(
@@ -999,9 +1006,8 @@ pub const Viewer = struct {
 
             // Mouse modes
             t.modes.set(.mouse_event_any, data.mouse_all_flag);
-            t.modes.set(.mouse_event_button, data.mouse_any_flag);
-            t.modes.set(.mouse_event_normal, data.mouse_button_flag);
-            t.modes.set(.mouse_event_x10, data.mouse_standard_flag);
+            t.modes.set(.mouse_event_button, data.mouse_button_flag);
+            t.modes.set(.mouse_event_normal, data.mouse_standard_flag);
             t.modes.set(.mouse_format_utf8, data.mouse_utf8_flag);
             t.modes.set(.mouse_format_sgr, data.mouse_sgr_flag);
 
@@ -1382,7 +1388,6 @@ const Format = struct {
             .origin_flag,
             // Mouse modes
             .mouse_all_flag,
-            .mouse_any_flag,
             .mouse_button_flag,
             .mouse_standard_flag,
             .mouse_utf8_flag,
@@ -1548,11 +1553,24 @@ test "session changed resets state" {
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
-                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                fn check(v: *Viewer, actions: []const Viewer.Action) anyerror!void {
                     try testing.expectEqual(1, v.session_id);
                     try testing.expectEqual(1, v.windows.items.len);
                     try testing.expectEqual(2, v.panes.count());
                     try testing.expectEqualStrings("3.5a", v.tmux_version);
+
+                    for (actions) |action| switch (action) {
+                        .windows => |windows| {
+                            // The action must reference viewer-owned state,
+                            // not the temporary list used while parsing.
+                            try testing.expectEqual(v.windows.items.ptr, windows.ptr);
+                            try testing.expectEqual(v.windows.items.len, windows.len);
+                            try testing.expectEqual(@as(usize, 0), windows[0].id);
+                            return;
+                        },
+                        else => {},
+                    };
+                    return error.TestExpectedWindowsAction;
                 }
             }).check,
         },
@@ -2245,8 +2263,8 @@ test "two pane flow with pane state" {
         .{
             .input = .{ .tmux = .{
                 .block_end =
-                \\%0;42;0;1;;;;0;4294967295;4294967295;0;1;0;0;0;0;0;0;0;0;0;;;0;39;8,16,24,32,40,48,56,64,72,80,88,96,104,112,120,128,136,144,152,160
-                \\%4;10;5;1;;;;0;4294967295;4294967295;0;1;0;0;0;0;0;0;0;0;0;;;0;37;8,16,24,32,40,48,56,64,72,80,88,96,104,112,120,128,136,144,152,160
+                \\%0;42;0;1;;;;0;4294967295;4294967295;0;1;0;0;0;0;1;0;0;1;;;0;39;8,16,24,32,40,48,56,64,72,80,88,96,104,112,120,128,136,144,152,160
+                \\%4;10;5;1;;;;0;4294967295;4294967295;0;1;0;0;0;0;0;0;0;0;;;0;37;8,16,24,32,40,48,56,64,72,80,88,96,104,112,120,128,136,144,152,160
                 ,
             } },
             .check = (struct {
@@ -2264,6 +2282,9 @@ test "two pane flow with pane state" {
                         try testing.expect(!t.modes.get(.origin));
                         try testing.expect(!t.modes.get(.keypad_keys));
                         try testing.expect(!t.modes.get(.cursor_keys));
+                        try testing.expect(t.modes.get(.mouse_event_button));
+                        try testing.expect(!t.modes.get(.mouse_event_normal));
+                        try testing.expect(t.modes.get(.mouse_format_sgr));
                     }
                     // Pane 4: cursor at (10, 5), cursor visible, wraparound on
                     {

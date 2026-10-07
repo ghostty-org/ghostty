@@ -41,6 +41,7 @@ const paste = @import("paste.zig");
 const render = @import("render.zig");
 const result = @import("result.zig");
 const row = @import("row.zig");
+const search = @import("search.zig");
 const selection = @import("selection.zig");
 const selection_gesture = @import("selection_gesture.zig");
 const size_report = @import("size_report.zig");
@@ -202,8 +203,11 @@ const type_decls = [_]TypeDecl{
     .initStruct("GhosttyReader", io.Reader),
     .initStruct("GhosttyRenderStateColors", render.Colors),
     .initStruct("GhosttyRenderStateCursor", render.Cursor),
+    .initStruct("GhosttyRenderStateOverscan", render.Overscan),
+    .initStruct("GhosttyRenderStateRowId", render.RowId),
     .initStruct("GhosttyRenderStateRowSelection", render.RowSelection),
     .initStruct("GhosttySelection", selection.CSelection),
+    .initStruct("GhosttySelectionBuffer", selection.CSelectionBuffer),
     .initStruct("GhosttySelectionGestureBehaviors", selection_gesture.Behaviors),
     .initStruct("GhosttySelectionGestureGeometry", selection_gesture.Geometry),
     .initTaggedStruct("GhosttySgrAttribute", sgr.Attribute.C, "tag", "value", .generated),
@@ -217,9 +221,12 @@ const type_decls = [_]TypeDecl{
     .initUnion("GhosttyStyleColorValue", style.ColorValue, null),
     .initStruct("GhosttySysImage", sys.Image),
     .initStruct("GhosttyTerminalDesktopNotification", terminal.DesktopNotification),
+    .initStruct("GhosttyTerminalMemoryUsage", terminal.TerminalMemoryUsage),
     .initStruct("GhosttyTerminalModeConfig", terminal.ModeConfig),
+    .initStruct("GhosttyTerminalProgramStatus", terminal.ProgramStatus),
     .initStruct("GhosttyTerminalProgressReport", terminal.ProgressReport),
     .initStruct("GhosttyTerminalScrollbar", terminal.TerminalScrollbar),
+    .initStruct("GhosttyTerminalSemanticPrompt", terminal.SemanticPrompt),
     .initTaggedStruct("GhosttyTerminalScrollViewport", terminal.ScrollViewport, "tag", "value", .generated),
     .initUnion(
         "GhosttyTerminalScrollViewportValue",
@@ -231,6 +238,7 @@ const type_decls = [_]TypeDecl{
     .initStruct("GhosttyTerminalSelectWordOptions", selection.SelectWordOptions),
     .initStruct("GhosttyTerminalSelectionFormatOptions", selection.FormatOptions),
     .initTaggedStruct("GhosttyTerminalUnknownSequence", terminal.UnknownSequence.C, "tag", "value", .generated),
+    .initStruct("GhosttyTerminalUnknownOscSequence", terminal.UnknownOscSequence),
     .initStruct("GhosttyTerminalUnknownStringSequence", terminal.UnknownStringSequence),
     .initUnion(
         "GhosttyTerminalUnknownSequenceValue",
@@ -267,9 +275,12 @@ const type_decls = [_]TypeDecl{
     .initEnum("GhosttyMouseButton", input_mouse.Button, "GHOSTTY_MOUSE_BUTTON_"),
     .initEnum("GhosttyMouseEncoderOption", mouse_encode.Option, "GHOSTTY_MOUSE_ENCODER_OPT_"),
     .initEnum("GhosttyMouseFormat", mouse_pkg.Format, "GHOSTTY_MOUSE_FORMAT_"),
+    .initEnum("GhosttyMouseShape", mouse_pkg.Shape, "GHOSTTY_MOUSE_SHAPE_"),
     .initEnum("GhosttyMouseTrackingMode", mouse_pkg.Event, "GHOSTTY_MOUSE_TRACKING_"),
     .initEnum("GhosttyOptionAsAlt", input_config.OptionAsAlt, "GHOSTTY_OPTION_AS_ALT_"),
     .initEnum("GhosttyOscCommandData", osc.CommandData, "GHOSTTY_OSC_DATA_"),
+    .initEnum("GhosttyOscOption", osc.Option, "GHOSTTY_OSC_OPT_"),
+    .initEnum("GhosttyOscTerminator", osc.Terminator, "GHOSTTY_OSC_TERMINATOR_"),
     .initEnumSentinel(
         "GhosttyOscCommandType",
         osc.CommandType,
@@ -278,6 +289,8 @@ const type_decls = [_]TypeDecl{
     ),
     .initEnum("GhosttyPasteSource", paste.Source, "GHOSTTY_PASTE_SOURCE_"),
     .initEnum("GhosttyPointTag", point.Tag, "GHOSTTY_POINT_TAG_"),
+    .initEnum("GhosttyProgramStatusKind", terminal.ProgramStatusKind, "GHOSTTY_PROGRAM_STATUS_KIND_"),
+    .initEnum("GhosttyProgramStatusState", terminal.ProgramStatusState, "GHOSTTY_PROGRAM_STATUS_STATE_"),
     .initEnum("GhosttyRenderStateCursorVisualStyle", render.CursorVisualStyle, "GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_"),
     .initEnum("GhosttyRenderStateData", render.Data, "GHOSTTY_RENDER_STATE_DATA_"),
     .initEnum("GhosttyRenderStateDirty", render.Dirty, "GHOSTTY_RENDER_STATE_DIRTY_"),
@@ -287,6 +300,10 @@ const type_decls = [_]TypeDecl{
     .initEnum("GhosttyRenderStateRowOption", render.RowOption, "GHOSTTY_RENDER_STATE_ROW_OPTION_"),
     .initEnum("GhosttyRowData", row.RowData, "GHOSTTY_ROW_DATA_"),
     .initEnum("GhosttyRowSemanticPrompt", row.SemanticPrompt, "GHOSTTY_ROW_SEMANTIC_"),
+    .initEnum("GhosttySearchData", search.Data, "GHOSTTY_SEARCH_DATA_"),
+    .initEnum("GhosttySearchOption", search.Option, "GHOSTTY_SEARCH_OPT_"),
+    .initEnum("GhosttySearchScroll", search.Scroll, "GHOSTTY_SEARCH_SCROLL_"),
+    .initEnum("GhosttySearchStatus", search.Status, "GHOSTTY_SEARCH_STATUS_"),
     .initEnum("GhosttySelectionAdjust", Selection.Adjustment, "GHOSTTY_SELECTION_ADJUST_"),
     .initEnum("GhosttySelectionGestureAutoscroll", selection_gesture.Autoscroll, "GHOSTTY_SELECTION_GESTURE_AUTOSCROLL_"),
     .initEnum("GhosttySelectionGestureBehavior", selection_gesture.Behavior, "GHOSTTY_SELECTION_GESTURE_BEHAVIOR_"),
@@ -294,6 +311,8 @@ const type_decls = [_]TypeDecl{
     .initEnum("GhosttySelectionGestureEventOption", selection_gesture.EventOption, "GHOSTTY_SELECTION_GESTURE_EVENT_OPT_"),
     .initEnum("GhosttySelectionGestureEventType", selection_gesture.EventType, "GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_"),
     .initEnum("GhosttySelectionOrder", Selection.Order, "GHOSTTY_SELECTION_ORDER_"),
+    .initEnum("GhosttySemanticPromptKind", terminal.SemanticPromptKind, "GHOSTTY_SEMANTIC_PROMPT_"),
+    .initEnum("GhosttySemanticPromptPromptKind", terminal.SemanticPromptPromptKind, "GHOSTTY_SEMANTIC_PROMPT_PROMPT_"),
     .initEnum("GhosttySgrAttributeTag", sgr.Attribute.Tag, "GHOSTTY_SGR_ATTR_"),
     .initEnum("GhosttySgrUnderline", sgr.Attribute.Underline, "GHOSTTY_SGR_UNDERLINE_"),
     .initEnumSentinel("GhosttySizeReportStyle", size_report.Style, "GHOSTTY_SIZE_REPORT_", "STYLE_MAX_VALUE"),
@@ -333,6 +352,7 @@ const type_decls = [_]TypeDecl{
     .initOpaque("GhosttyRenderState"),
     .initOpaque("GhosttyRenderStateRowCells"),
     .initOpaque("GhosttyRenderStateRowIterator"),
+    .initOpaque("GhosttySearch"),
     .initOpaque("GhosttySelectionGesture"),
     .initOpaque("GhosttySelectionGestureEvent"),
     .initOpaque("GhosttySgrParser"),
@@ -899,6 +919,39 @@ test "manifest describes enums, arrays, and tagged unions" {
     try std.testing.expect(value.get("arms").?.object.get("NONE").? == .null);
 }
 
+test "manifest describes render state overscan types" {
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
+    defer parsed.deinit();
+    const manifest_types = parsed.value.object.get("types").?.object;
+
+    const overscan = manifest_types.get("GhosttyRenderStateOverscan").?.object;
+    try std.testing.expectEqual(@as(i64, 4), overscan.get("size").?.integer);
+    const overscan_fields = overscan.get("fields").?.object;
+    try std.testing.expectEqual(@as(i64, 0), overscan_fields.get("above").?.object.get("offset").?.integer);
+    try std.testing.expectEqual(@as(i64, 2), overscan_fields.get("below").?.object.get("offset").?.integer);
+
+    const row_id = manifest_types.get("GhosttyRenderStateRowId").?.object;
+    try std.testing.expectEqual(@as(i64, 16), row_id.get("size").?.integer);
+    const bits = row_id.get("fields").?.object.get("bits").?.object;
+    try std.testing.expectEqual(@as(i64, 0), bits.get("offset").?.integer);
+    try std.testing.expectEqualStrings("array", bits.get("type").?.string);
+    try std.testing.expectEqual(@as(i64, 2), bits.get("count").?.integer);
+
+    const data_values = manifest_types.get("GhosttyRenderStateData").?.object
+        .get("values").?.object;
+    try std.testing.expectEqual(@as(i64, 20), data_values.get("OVERSCAN").?.integer);
+    try std.testing.expectEqual(@as(i64, 21), data_values.get("OVERSCAN_REQUEST").?.integer);
+
+    const row_data_values = manifest_types.get("GhosttyRenderStateRowData").?.object
+        .get("values").?.object;
+    try std.testing.expectEqual(@as(i64, 6), row_data_values.get("VIEWPORT_Y").?.integer);
+    try std.testing.expectEqual(@as(i64, 7), row_data_values.get("ID").?.integer);
+
+    const option_values = manifest_types.get("GhosttyRenderStateOption").?.object
+        .get("values").?.object;
+    try std.testing.expectEqual(@as(i64, 1), option_values.get("OVERSCAN").?.integer);
+}
+
 test "manifest describes the complete packed cell layout" {
     const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
     defer parsed.deinit();
@@ -1002,6 +1055,15 @@ test "manifest uses public enum names" {
     const terminal_values = manifest_types.get("GhosttyTerminalOption").?.object.get("values").?.object;
     try std.testing.expectEqual(@as(i64, 6), terminal_values.get("SIZE").?.integer);
     try std.testing.expect(!terminal_values.contains("SIZE_CB"));
+    try std.testing.expectEqual(@as(i64, 42), terminal_values.get("SEMANTIC_PROMPT").?.integer);
+    try std.testing.expectEqual(@as(i64, 43), terminal_values.get("RESET").?.integer);
+
+    const semantic_prompt_values = manifest_types.get("GhosttySemanticPromptKind").?.object.get("values").?.object;
+    try std.testing.expectEqual(@as(i64, 0), semantic_prompt_values.get("INVALID").?.integer);
+    try std.testing.expectEqual(@as(i64, 4), semantic_prompt_values.get("COMMAND_END").?.integer);
+
+    const prompt_kind_values = manifest_types.get("GhosttySemanticPromptPromptKind").?.object.get("values").?.object;
+    try std.testing.expectEqual(@as(i64, 3), prompt_kind_values.get("SECONDARY").?.integer);
 
     const osc_values = manifest_types.get("GhosttyOscCommandType").?.object.get("values").?.object;
     try std.testing.expectEqual(@as(i64, 22), osc_values.get("KITTY_TEXT_SIZING").?.integer);
@@ -1011,6 +1073,14 @@ test "manifest uses public enum names" {
     try std.testing.expectEqual(@as(i64, 26), osc_values.get("KITTY_DESKTOP_NOTIFICATION").?.integer);
     try std.testing.expect(osc_values.contains("TYPE_MAX_VALUE"));
     try std.testing.expect(!osc_values.contains("MAX_VALUE"));
+
+    const mouse_shape_values = manifest_types.get("GhosttyMouseShape").?.object.get("values").?.object;
+    try std.testing.expectEqual(@as(i64, 8), mouse_shape_values.get("TEXT").?.integer);
+    try std.testing.expectEqual(@as(i64, 33), mouse_shape_values.get("ZOOM_OUT").?.integer);
+    try std.testing.expect(mouse_shape_values.contains("MAX_VALUE"));
+
+    const terminal_data_values = manifest_types.get("GhosttyTerminalData").?.object.get("values").?.object;
+    try std.testing.expectEqual(@as(i64, 41), terminal_data_values.get("MOUSE_SHAPE").?.integer);
 
     const key_values = manifest_types.get("GhosttyKey").?.object.get("values").?.object;
     try std.testing.expect(key_values.contains("A"));

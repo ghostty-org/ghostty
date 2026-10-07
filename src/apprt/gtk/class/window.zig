@@ -30,6 +30,7 @@ const DebugWarning = @import("debug_warning.zig").DebugWarning;
 const CommandPalette = @import("command_palette.zig").CommandPalette;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
 const TitleDialog = @import("title_dialog.zig").TitleDialog;
+const Overrides = @import("Overrides.zig");
 
 const log = std.log.scoped(.gtk_ghostty_window);
 
@@ -263,6 +264,10 @@ pub const Window = extern struct {
         /// For now, this logic is more similar to our legacy GTK side.
         surface_init: bool = false,
 
+        /// True if the running program requested a resize (see
+        /// resizeSurface) that toplevelComputeSize should not override.
+        resize_requested: bool = false,
+
         /// See tabOverviewOpen for why we have this.
         tab_overview_focus_timer: ?c_uint = null,
 
@@ -408,14 +413,7 @@ pub const Window = extern struct {
     /// Create a new tab with the given parent. The tab will be inserted
     /// at the position dictated by the `window-new-tab-position` config.
     /// The new tab will be selected.
-    pub fn newTab(self: *Self, parent_: ?*CoreSurface, overrides: struct {
-        command: ?configpkg.Command = null,
-        shell_integration: ?configpkg.Config.ShellIntegration = null,
-        working_directory: ?[:0]const u8 = null,
-        title: ?[:0]const u8 = null,
-
-        pub const none: @This() = .{};
-    }) void {
+    pub fn newTab(self: *Self, parent_: ?*CoreSurface, overrides: Overrides) void {
         _ = self.newTabPage(parent_, .tab, .{
             .command = overrides.command,
             .shell_integration = overrides.shell_integration,
@@ -424,18 +422,7 @@ pub const Window = extern struct {
         });
     }
 
-    pub fn newTabForWindow(
-        self: *Self,
-        parent_: ?*CoreSurface,
-        overrides: struct {
-            command: ?configpkg.Command = null,
-            shell_integration: ?configpkg.Config.ShellIntegration = null,
-            working_directory: ?[:0]const u8 = null,
-            title: ?[:0]const u8 = null,
-
-            pub const none: @This() = .{};
-        },
-    ) void {
+    pub fn newTabForWindow(self: *Self, parent_: ?*CoreSurface, overrides: Overrides) void {
         _ = self.newTabPage(
             parent_,
             .window,
@@ -452,14 +439,7 @@ pub const Window = extern struct {
         self: *Self,
         parent_: ?*CoreSurface,
         context: apprt.surface.NewSurfaceContext,
-        overrides: struct {
-            command: ?configpkg.Command = null,
-            shell_integration: ?configpkg.Config.ShellIntegration = null,
-            working_directory: ?[:0]const u8 = null,
-            title: ?[:0]const u8 = null,
-
-            pub const none: @This() = .{};
-        },
+        overrides: Overrides,
     ) *adw.TabPage {
         const priv: *Private = self.private();
         const tab_view = priv.tab_view;
@@ -981,6 +961,53 @@ pub const Window = extern struct {
         return .auto;
     }
 
+    /// Resize the window so that the given surface is the given size, as
+    /// requested by the running program. See `apprt.action.ResizeWindow`.
+    /// This is only done if the surface is the only terminal in the window
+    /// and the compositor doesn't own the window size.
+    pub fn resizeSurface(
+        self: *Self,
+        surface: *Surface,
+        size: apprt.action.ResizeWindow,
+    ) bool {
+        if (self.isQuickTerminal() or
+            self.isMaximized() or
+            self.isFullscreen() or
+            self.isTiled()) return false;
+        if (self.getTabView().getNPages() != 1) return false;
+        const tree = ext.getAncestor(
+            SplitTree,
+            surface.as(gtk.Widget),
+        ) orelse return false;
+        if (tree.getIsSplit()) return false;
+
+        // The requested size is in the surface's content scale, which also
+        // includes the font DPI, so we compute the change in device pixels
+        // and then convert it to the window's logical pixels. Resizing the
+        // window by the change accounts for the headerbar and tab bar.
+        const scale = surface.getContentScale();
+        const current = surface.getSize();
+        const factor: f32 = @floatFromInt(self.as(gtk.Widget).getScaleFactor());
+        const dw = resizeDelta(size.width, scale.x, current.width, factor);
+        const dh = resizeDelta(size.height, scale.y, current.height, factor);
+
+        const widget = self.as(gtk.Widget);
+        self.private().resize_requested = true;
+        self.as(gtk.Window).setDefaultSize(
+            widget.getWidth() + dw,
+            widget.getHeight() + dh,
+        );
+        return true;
+    }
+
+    /// Returns the change in logical pixels from the current device pixel
+    /// size to the requested size, or zero if the requested size is zero.
+    fn resizeDelta(requested: u32, scale: f32, current: u32, factor: f32) c_int {
+        if (requested == 0) return 0;
+        const px = @as(f32, @floatFromInt(requested)) * scale;
+        return @intFromFloat(@round((px - @as(f32, @floatFromInt(current))) / factor));
+    }
+
     /// Toggle the window decorations for this window.
     pub fn toggleWindowDecorations(self: *Self) void {
         const priv = self.private();
@@ -1046,6 +1073,12 @@ pub const Window = extern struct {
 
     fn isMaximized(self: *Window) bool {
         return self.as(gtk.Window).isMaximized() != 0;
+    }
+
+    fn isTiled(self: *Window) bool {
+        const surface = self.as(gtk.Native).getSurface() orelse return false;
+        const toplevel = gobject.ext.cast(gdk.Toplevel, surface) orelse return false;
+        return toplevel.getState().tiled;
     }
 
     fn getHeaderbarVisible(self: *Self) bool {
@@ -1222,6 +1255,13 @@ pub const Window = extern struct {
         if (self.isMaximized() or
             self.isFullscreen() or
             self.isQuickTerminal()) return;
+
+        // Let GTK apply the default size set by a requested resize.
+        const priv = self.private();
+        if (priv.resize_requested) {
+            priv.resize_requested = false;
+            return;
+        }
 
         // If there's no GdkSurface yet these dimensions will be zero size which
         // will make the window start out as small as possible. These checks ensure

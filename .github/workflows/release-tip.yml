@@ -38,14 +38,14 @@ jobs:
           # Important so that build number generation works
           fetch-depth: 0
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@c5f8dab7560444c4bf8dbc64f1b203431873c547 # v1.6.1
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
         with:
           path: |
             /nix
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -214,7 +214,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@c5f8dab7560444c4bf8dbc64f1b203431873c547 # v1.6.1
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
         with:
           path: |
             /nix
@@ -222,7 +222,7 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -239,7 +239,7 @@ jobs:
           nix develop -c minisign -S -m ghostty-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -269,7 +269,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@c5f8dab7560444c4bf8dbc64f1b203431873c547 # v1.6.1
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
         with:
           path: |
             /nix
@@ -277,7 +277,7 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -294,7 +294,7 @@ jobs:
           nix develop -c minisign -S -m libghostty-vt-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -310,7 +310,7 @@ jobs:
           mkdir -p blob/${GHOSTTY_COMMIT_LONG}
           cp libghostty-vt-source.tar.gz blob/${GHOSTTY_COMMIT_LONG}/libghostty-vt-source.tar.gz
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -345,7 +345,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@c5f8dab7560444c4bf8dbc64f1b203431873c547 # v1.6.1
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
         with:
           cache: |
             xcode
@@ -356,7 +356,7 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
-      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -379,7 +379,7 @@ jobs:
           nix develop -c minisign -S -m ghostty-vt.xcframework.zip -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -395,7 +395,7 @@ jobs:
           mkdir -p blob/${GHOSTTY_COMMIT_LONG}
           cp ghostty-vt.xcframework.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-vt.xcframework.zip
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -430,7 +430,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@c5f8dab7560444c4bf8dbc64f1b203431873c547 # v1.6.1
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
         with:
           path: |
             /nix
@@ -439,7 +439,7 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -504,7 +504,7 @@ jobs:
           nix develop -c minisign -S -m ghostty-vt-small.wasm -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -523,7 +523,7 @@ jobs:
           cp ghostty-vt.wasm blob/${GHOSTTY_COMMIT_LONG}/ghostty-vt.wasm
           cp ghostty-vt-small.wasm blob/${GHOSTTY_COMMIT_LONG}/ghostty-vt-small.wasm
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -566,7 +566,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@c5f8dab7560444c4bf8dbc64f1b203431873c547 # v1.6.1
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
         with:
           cache: |
             xcode
@@ -577,7 +577,7 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
-      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -591,7 +591,7 @@ jobs:
       # Setup Sparkle
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.9.0
+          SPARKLE_VERSION: 2.9.6
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
@@ -710,7 +710,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -745,7 +745,7 @@ jobs:
           cp Ghostty.dmg blob/${GHOSTTY_COMMIT_LONG}/Ghostty.dmg
 
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -769,7 +769,7 @@ jobs:
         if: |
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -822,7 +822,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@c5f8dab7560444c4bf8dbc64f1b203431873c547 # v1.6.1
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
         with:
           cache: |
             xcode
@@ -833,7 +833,7 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
-      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -847,7 +847,7 @@ jobs:
       # Setup Sparkle
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.9.0
+          SPARKLE_VERSION: 2.9.6
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
@@ -959,7 +959,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -976,7 +976,7 @@ jobs:
           cp ghostty-macos-universal-debug-slow.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-slow.zip
           cp ghostty-macos-universal-debug-slow-dsym.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-slow-dsym.zip
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -1019,7 +1019,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@c5f8dab7560444c4bf8dbc64f1b203431873c547 # v1.6.1
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
         with:
           cache: |
             xcode
@@ -1030,7 +1030,7 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
-      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -1044,7 +1044,7 @@ jobs:
       # Setup Sparkle
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.9.0
+          SPARKLE_VERSION: 2.9.6
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
@@ -1156,7 +1156,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -1173,7 +1173,7 @@ jobs:
           cp ghostty-macos-universal-debug-fast.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-fast.zip
           cp ghostty-macos-universal-debug-fast-dsym.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-fast-dsym.zip
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}

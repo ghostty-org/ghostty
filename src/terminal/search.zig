@@ -5,6 +5,7 @@ pub const options = @import("terminal_options");
 pub const Active = @import("search/active.zig").ActiveSearch;
 pub const PageList = @import("search/pagelist.zig").PageListSearch;
 pub const Screen = @import("search/screen.zig").ScreenSearch;
+pub const Terminal = @import("search/terminal.zig").TerminalSearch;
 pub const Viewport = @import("search/viewport.zig").ViewportSearch;
 
 // The search thread is not available in libghostty due to the xev dep

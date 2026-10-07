@@ -44,11 +44,16 @@ extern "C" {
 #endif
 
 /**
- * Result of decoding an image.
+ * A decoded image, filled in by a decode callback such as
+ * GhosttySysDecodePngFn.
  *
- * The `data` buffer must be allocated through the allocator provided to
- * the decode callback. The library takes ownership and will free it
- * with the same allocator.
+ * Pixels are 8-bit RGBA: four bytes per pixel, stored row by row starting
+ * at the top-left corner, with no padding between rows. A complete image
+ * is therefore `width * height * 4` bytes long.
+ *
+ * The pixel buffer must be allocated with the allocator passed to the
+ * decode callback. When the callback returns true, the library takes
+ * ownership of the buffer and frees it with that same allocator.
  */
 typedef struct {
     /** Image width in pixels. */
@@ -57,10 +62,17 @@ typedef struct {
     /** Image height in pixels. */
     uint32_t height;
 
-    /** Pointer to the decoded RGBA pixel data. */
+    /**
+     * The decoded RGBA pixels, allocated with the allocator passed to
+     * the decode callback.
+     */
     uint8_t* data;
 
-    /** Length of the pixel data in bytes. */
+    /**
+     * Length of `data` in bytes. This must be the exact size that was
+     * requested from the allocator, because the library uses it to free
+     * the buffer.
+     */
     size_t data_len;
 } GhosttySysImage;
 
@@ -106,16 +118,52 @@ typedef void (*GhosttySysLogFn)(
 /**
  * Callback type for PNG decoding.
  *
- * Decodes raw PNG data into RGBA pixels. The output pixel data must be
- * allocated through the provided allocator. The library takes ownership
- * of the buffer and will free it with the same allocator.
+ * The library calls this when it receives a PNG image and needs the raw
+ * pixels. The callback decodes the PNG bytes in @p data and describes
+ * the result in @p out. See the example in the @ref sys overview for a
+ * complete callback.
+ *
+ * ### On success
+ *
+ * Allocate the pixel buffer with ghostty_alloc() and @p allocator, write
+ * the decoded pixels into it, set all four fields of @p out, and return
+ * true. The library then owns the buffer and frees it with the same
+ * allocator. See GhosttySysImage for the expected pixel layout.
+ *
+ * The allocator limits how much memory a single image may use, so
+ * ghostty_alloc() can return NULL for very large images. Treat that as
+ * a failure.
+ *
+ * ### On failure
+ *
+ * Free anything that was allocated and return false. The library does
+ * not read @p out in this case, and the image is rejected.
+ *
+ * ### The output struct starts zeroed
+ *
+ * The library sets every field of @p out to zero before it calls the
+ * callback. This has two practical effects:
+ *
+ * - If the callback returns true but `data` is still NULL, the library
+ *   treats the call as a failure.
+ * - Language bindings can store a pointer into @p out directly. Some
+ *   runtimes, such as Go, require memory to be initialized before a
+ *   pointer is written into it, and this guarantee satisfies that
+ *   requirement.
+ *
+ * Only @p out is zeroed. Memory returned by ghostty_alloc() is not.
+ *
+ * @p data and @p allocator are only valid for the duration of the
+ * callback.
  *
  * @param userdata  The userdata pointer set via GHOSTTY_SYS_OPT_USERDATA
  * @param allocator The allocator to use for the output pixel buffer
  * @param data      Pointer to the raw PNG data
  * @param data_len  Length of the raw PNG data in bytes
- * @param[out] out  On success, filled with the decoded image
- * @return true on success, false on failure
+ * @param[out] out  The decoded image. Zeroed by the library before the
+ *                  call, and filled in by the callback on success.
+ * @return true if the image was decoded and @p out was filled in,
+ *         false on failure
  */
 typedef bool (*GhosttySysDecodePngFn)(
     void* userdata,

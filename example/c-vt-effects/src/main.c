@@ -139,6 +139,22 @@ void on_unknown_sequence(
     printf("\n");
     break;
   }
+  case GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_OSC: {
+    // The content starts with the OSC number, for example
+    // "7400;status=busy". A real application would check for the
+    // numbers it implements and ignore the rest. If it replies, it should
+    // end the reply with the same terminator the program used.
+    const GhosttyTerminalUnknownOscSequence* osc = &sequence->value.osc;
+    printf("  unknown OSC (truncated=%s, terminator=%s, content=%zu bytes): ",
+           osc->truncated ? "yes" : "no",
+           osc->terminator == GHOSTTY_OSC_TERMINATOR_BEL ? "BEL" : "ST",
+           osc->content.len);
+    if (osc->content.len > 0) {
+      fwrite(osc->content.ptr, 1, osc->content.len, stdout);
+    }
+    printf("\n");
+    break;
+  }
   default:
     break;
   }
@@ -216,6 +232,11 @@ int main() {
   const char* unknown_apc = "\x1B_private-command;payload\x1B\\";
   ghostty_terminal_vt_write(terminal, (const uint8_t*)unknown_apc,
                             strlen(unknown_apc));
+
+  printf("Sending unknown OSC:\n");
+  const char* unknown_osc = "\x1B]7400;status=busy\x07";
+  ghostty_terminal_vt_write(terminal, (const uint8_t*)unknown_osc,
+                            strlen(unknown_osc));
 
   // 7. Another bell to show the counter increments
   printf("Sending another BEL:\n");

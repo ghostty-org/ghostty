@@ -78,7 +78,14 @@ class TerminalViewContainer: NSView {
         let newValue = DerivedConfig(config: config, preferredBackgroundColor: preferredBackgroundColor, cornerRadius: windowCornerRadius)
         guard newValue != derivedConfig else { return }
         derivedConfig = newValue
-        DispatchQueue.main.async(execute: updateGlassEffectIfNeeded)
+
+        // Attach the glass effect synchronously if missing to prevent flicker when a new tab appears.
+        // Existing updates remain deferred, as they can occur during SwiftUI rendering.
+        if glassEffectView == nil {
+            updateGlassEffectIfNeeded()
+        } else {
+            DispatchQueue.main.async(execute: updateGlassEffectIfNeeded)
+        }
     }
 }
 

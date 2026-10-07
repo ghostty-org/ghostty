@@ -54,6 +54,9 @@ mailbox: Mailbox.Queue,
 /// same font configuration.
 font_grid_set: font.SharedGridSet,
 
+/// The app-scoped render device, shared by the renderers of all surfaces.
+device: renderer.Device,
+
 // Used to rate limit desktop notifications. Some platforms (notably macOS) will
 // run out of resources if desktop notifications are sent too fast and the OS
 // will kill Ghostty.
@@ -70,7 +73,9 @@ config_conditional_state: configpkg.ConditionalState,
 /// if they are the first surface.
 first: bool = true,
 
-pub const CreateError = Allocator.Error || font.SharedGridSet.InitError;
+pub const CreateError = Allocator.Error ||
+    font.SharedGridSet.InitError ||
+    error{DeviceFailed};
 
 /// Create a new app instance. This returns a stable pointer to the app
 /// instance which is required for callbacks.
@@ -94,10 +99,10 @@ pub fn create(alloc: Allocator) CreateError!*App {
 
     // Same for the renderer's graphics API (e.g. Metal), which pays
     // one-time framework initialization costs on first use.
-    if (comptime @hasDecl(renderer.Renderer.API, "warmup")) {
+    if (comptime @hasDecl(renderer.Device, "warmup")) {
         if (std.Thread.spawn(
             .{},
-            renderer.Renderer.API.warmup,
+            renderer.Device.warmup,
             .{},
         )) |thr| thr.detach() else |err| {
             log.warn("renderer warmup thread spawn failed err={}", .{err});
@@ -125,8 +130,16 @@ pub fn init(
         .surfaces = .empty,
         .mailbox = .{},
         .font_grid_set = font_grid_set,
+        .device = undefined,
         .config_conditional_state = .{},
     };
+
+    // Initialize our render device.
+    self.device.init(alloc) catch |err| {
+        log.err("failed to initialize render device err={}", .{err});
+        return error.DeviceFailed;
+    };
+    errdefer self.device.deinit();
 }
 
 pub fn deinit(self: *App) void {
@@ -140,6 +153,10 @@ pub fn deinit(self: *App) void {
     // should gracefully close all surfaces.
     assert(self.font_grid_set.count() == 0);
     self.font_grid_set.deinit();
+
+    // Clean up our render device. This must happen after all surfaces
+    // are gone since their renderers borrow it.
+    self.device.deinit();
 }
 
 pub fn destroy(self: *App) void {
@@ -267,7 +284,6 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
         if (comptime std.log.logEnabled(.debug, .app)) {
             switch (message) {
                 // these tend to be way too verbose for normal debugging
-                .redraw_surface => {},
                 else => log.debug("mailbox message={t}", .{message}),
             }
         }
@@ -284,7 +300,6 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
             .new_window => |msg| try self.newWindow(rt_app, msg),
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
-            .redraw_surface => |surface| try self.redrawSurface(rt_app, surface),
 
             // If we're quitting, then we set the quit flag and stop
             // draining the mailbox immediately. This lets us defer
@@ -307,20 +322,6 @@ pub fn closeSurface(self: *App, surface: *Surface) void {
 pub fn focusSurface(self: *App, surface: *Surface) void {
     if (!self.hasSurface(surface)) return;
     self.focused_surface = surface;
-}
-
-fn redrawSurface(
-    self: *App,
-    rt_app: *apprt.App,
-    surface: *apprt.Surface,
-) !void {
-    if (!self.hasRtSurface(surface)) return;
-
-    _ = try rt_app.performAction(
-        .{ .surface = surface.core() },
-        .render,
-        {},
-    );
 }
 
 /// Create a new window
@@ -557,14 +558,6 @@ pub fn findSurfaceByID(self: *const App, id: u64) ?*Surface {
     return null;
 }
 
-fn hasRtSurface(self: *const App, surface: *apprt.Surface) bool {
-    for (self.surfaces.items) |v| {
-        if (v == surface) return true;
-    }
-
-    return false;
-}
-
 /// The message types that can be sent to the app thread.
 pub const Message = union(enum) {
     // Open the configuration file
@@ -585,12 +578,6 @@ pub const Message = union(enum) {
         surface: *Surface,
         message: apprt.surface.Message,
     },
-
-    /// Redraw a surface. This only has an effect for runtimes that
-    /// use single-threaded draws. To redraw a surface for all runtimes,
-    /// wake up the renderer thread. The renderer thread will send this
-    /// message if it needs to.
-    redraw_surface: *apprt.Surface,
 
     const NewWindow = struct {
         /// The parent surface

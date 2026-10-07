@@ -23,6 +23,7 @@ const terminal_c = @import("terminal.zig");
 pub const DecoderOption = enum(c_int) {
     max_continuation_bytes = 0,
     retain_continuation = 1,
+    compress_history = 2,
     _,
 };
 
@@ -39,6 +40,7 @@ pub const DecoderData = enum(c_int) {
     progress_rows = 6,
     progress_remaining = 7,
     retain_continuation = 8,
+    compress_history = 9,
     _,
 
     /// Return the Zig type stored through the C API output pointer for a key.
@@ -50,7 +52,7 @@ pub const DecoderData = enum(c_int) {
             .progress_screen => terminal_c.TerminalScreen,
             .progress_rows => usize,
             .progress_remaining => u32,
-            .retain_continuation => bool,
+            .retain_continuation, .compress_history => bool,
             _ => void,
         };
     }
@@ -108,6 +110,7 @@ const DecoderWrapper = struct {
     state: State,
     max_continuation_bytes: usize,
     retain_continuation: bool,
+    compress_history: bool,
 };
 
 /// C: GhosttySnapshotDecoder, an opaque nullable decoder handle.
@@ -171,6 +174,7 @@ fn decoderNewSource(
     wrapper.state = .configuring;
     wrapper.max_continuation_bytes = default_max_continuation_bytes;
     wrapper.retain_continuation = false;
+    wrapper.compress_history = false;
     wrapper.decoder = .init(wrapper.source.reader());
     out.* = wrapper;
     return .success;
@@ -203,6 +207,8 @@ pub fn decoder_set(
             @as(*const usize, @ptrCast(@alignCast(value))).*,
         .retain_continuation => decoder.retain_continuation =
             @as(*const bool, @ptrCast(@alignCast(value))).*,
+        .compress_history => decoder.compress_history =
+            @as(*const bool, @ptrCast(@alignCast(value))).*,
         _ => return .invalid_value,
     }
     return .success;
@@ -225,6 +231,7 @@ pub fn decoder_get(
         .progress_rows,
         .progress_remaining,
         .retain_continuation,
+        .compress_history,
         => |comptime_data| decoderGetTyped(
             decoder_,
             comptime_data,
@@ -255,6 +262,10 @@ fn decoderGetTyped(
         .retain_continuation => {
             if (decoderFailed(decoder)) return .no_value;
             out.* = decoder.retain_continuation;
+        },
+        .compress_history => {
+            if (decoderFailed(decoder)) return .no_value;
+            out.* = decoder.compress_history;
         },
 
         // READY metadata remains available after history decoding completes.
@@ -447,20 +458,17 @@ const ReadyTerminal = struct {
     metadata: DecoderWrapper.Metadata,
 };
 
-/// Decode READY, create terminal-owned I/O, and construct the C terminal.
+/// Decode READY with terminal-owned I/O and construct the C terminal.
 fn decoderReadyTerminal(decoder: *DecoderWrapper) anyerror!ReadyTerminal {
-    // Terminal I/O is intentionally allocated only when decoding begins.
-    const io = try terminal_c.Io.init(decoder.alloc);
-
-    // Decode READY while the fresh I/O implementation is still locally owned.
-    var decoded = decoder.decoder.ready(
+    const io: terminal_c.Io = .init;
+    var decoded = try decoder.decoder.ready(
         decoder.alloc,
         io.io(),
-        .{ .max_continuation_bytes = decoder.max_continuation_bytes },
-    ) catch |err| {
-        io.deinit(decoder.alloc);
-        return err;
-    };
+        .{
+            .max_continuation_bytes = decoder.max_continuation_bytes,
+            .compress_history = decoder.compress_history,
+        },
+    );
     defer decoded.deinit(decoder.alloc);
 
     // Copy small query metadata before `fromDecoded` consumes the core result.
@@ -741,6 +749,27 @@ test "decoder option and empty source" {
         &retain,
     ));
     try testing.expect(retain);
+
+    var compress = true;
+    try testing.expectEqual(Result.success, decoder_get(
+        decoder,
+        .compress_history,
+        &compress,
+    ));
+    try testing.expect(!compress);
+    compress = true;
+    try testing.expectEqual(Result.success, decoder_set(
+        decoder,
+        .compress_history,
+        &compress,
+    ));
+    compress = false;
+    try testing.expectEqual(Result.success, decoder_get(
+        decoder,
+        .compress_history,
+        &compress,
+    ));
+    try testing.expect(compress);
 
     var written: usize = 99;
     try testing.expectEqual(Result.invalid_value, decoder_get_multi(
@@ -1352,6 +1381,94 @@ test "snapshot callbacks stop at FINISH and map I/O failures" {
         invalid_decoder,
         &failed_terminal,
     ));
+}
+
+test "snapshot decoder compresses history when requested" {
+    var source: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &source,
+        215,
+        2,
+    ));
+    defer terminal_c.free(source);
+    try testing.expectEqual(Result.success, terminal_c.set(
+        source,
+        .scrollback_max_bytes,
+        null,
+    ));
+    const source_pages = &terminal_c.zigTerminal(source).?.screens
+        .get(.primary).?.pages;
+    const first_page_rows = source_pages.pages.first.?.capacity().rows;
+    for (0..@as(usize, first_page_rows) * 3) |_|
+        terminal_c.vt_write(source, "x\r\n", 3);
+
+    var encoded_ptr: ?[*]u8 = null;
+    var encoded_len: usize = 0;
+    try testing.expectEqual(Result.success, encode_alloc(
+        source,
+        &lib.alloc.test_allocator,
+        &encoded_ptr,
+        &encoded_len,
+    ));
+    const encoded = encoded_ptr.?[0..encoded_len];
+    defer lib.alloc.default(&lib.alloc.test_allocator).free(encoded);
+
+    for ([_]bool{ false, true }) |compress| {
+        var decoder: Decoder = null;
+        try testing.expectEqual(Result.success, decoder_new_buf(
+            &lib.alloc.test_allocator,
+            &decoder,
+            encoded.ptr,
+            encoded.len,
+        ));
+        defer decoder_free(decoder);
+        try testing.expectEqual(Result.success, decoder_set(
+            decoder,
+            .compress_history,
+            &compress,
+        ));
+
+        var restored: terminal_c.Terminal = null;
+        try testing.expectEqual(Result.success, decoder_decode(
+            decoder,
+            &restored,
+        ));
+        defer terminal_c.free(restored);
+
+        // Options freeze once decoding starts, but remain readable.
+        try testing.expectEqual(Result.invalid_value, decoder_set(
+            decoder,
+            .compress_history,
+            &compress,
+        ));
+        var actual = !compress;
+        try testing.expectEqual(Result.success, decoder_get(
+            decoder,
+            .compress_history,
+            &actual,
+        ));
+        try testing.expectEqual(compress, actual);
+
+        // The restored history is complete either way. Only how it is stored
+        // differs. Every page above the active area can be compressed because
+        // the restored viewport shows the active area.
+        const pages = &terminal_c.zigTerminal(restored).?.screens
+            .get(.primary).?.pages;
+        try testing.expectEqual(source_pages.total_rows, pages.total_rows);
+        const active = pages.getTopLeft(.active).node;
+        var history_pages: usize = 0;
+        var current = pages.pages.first;
+        while (current) |node| : (current = node.next) {
+            if (node == active) break;
+            history_pages += 1;
+        }
+        try testing.expect(history_pages > 0);
+        try testing.expectEqual(
+            if (compress) history_pages else 0,
+            pages.memoryStats().compressed_pages,
+        );
+    }
 }
 
 test "snapshot incremental decoder exposes READY and page progress" {

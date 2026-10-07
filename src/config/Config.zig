@@ -57,9 +57,7 @@ const terminal = struct {
 const log = std.log.scoped(.config);
 
 /// Used on Unixes for some defaults.
-const c = @cImport({
-    @cInclude("unistd.h");
-});
+const c = @import("posix_c");
 
 pub const compatibility = std.StaticStringMap(
     cli.CompatibilityHandler(Config),
@@ -100,6 +98,12 @@ pub const compatibility = std.StaticStringMap(
     // Ghostty 1.4 renamed `scrollback-limit` to `scrollback-limit-bytes`
     // when `scrollback-limit-lines` was added so the units are explicit.
     .{ "scrollback-limit", cli.compatibilityRenamed(Config, "scrollback-limit-bytes") },
+
+    // Ghostty 1.4 updated "copy-on-select", allow copying to the selection
+    // clipboard (on supported operating systems), the system clipboard, or
+    // both. The semantics also changed but this is the correct mapping.
+    // See: https://github.com/ghostty-org/ghostty/pull/12604
+    .{ "copy-on-select", compatCopyOnSelect },
 });
 
 /// Set Ghostty's graphical user interface language to a language other than the
@@ -2517,25 +2521,28 @@ keybind: Keybinds = .{},
 /// limit per surface is double.
 @"image-storage-limit": u32 = 320 * 1000 * 1000,
 
-/// Whether to automatically copy selected text to the clipboard. `true`
-/// will prefer to copy to the selection clipboard, otherwise it will copy to
-/// the system clipboard.
+/// Whether to automatically copy selected text to the clipboard.
 ///
-/// The value `clipboard` will always copy text to the selection clipboard
-/// as well as the system clipboard.
+/// Valid values:
 ///
-/// Middle-click primary paste (see `middle-click-action`) is enabled by
-/// default even if this is `false`. The clipboard it pastes from follows
-/// this setting: with `true` (or `false`) it reads from the selection
-/// clipboard (falling back to the system clipboard on platforms without a
-/// selection clipboard); with `clipboard` it reads from the system
-/// clipboard.
+/// * `none` - Do not copy selected text automatically.
 ///
-/// The default value is true on Linux and macOS.
+/// * `primary` - On Linux, copy to the selection clipboard only. This has no
+///   effect on macOS. (Available since: 1.4.0)
+///
+/// * `clipboard` - Copy text to the system clipboard only.
+///
+/// * `both` - Copy to both clipboards on Linux, and only the system clipboard
+///   on macOS. (Available since: 1.4.0)
+///
+/// For backward compatibility and convenience, a value of `true` is the same as
+/// `primary` on Linux and `clipboard` on macOS, and `false` is an alias for
+/// `none`.
+///
+/// The default value is `primary` on Linux and `none` otherwise.
 @"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
-    .linux => .true,
-    .macos => .true,
-    else => .false,
+    .linux => .primary,
+    else => .none,
 },
 
 /// The action to take when the user right-clicks on the terminal surface.
@@ -2554,8 +2561,9 @@ keybind: Keybinds = .{},
 /// The action to take when the user middle-clicks on the terminal surface.
 ///
 /// Valid values:
-///   * `primary-paste` - Paste from the selection (or system) clipboard per
-///      `copy-on-select`.
+///   * `primary-paste` - Paste from the selection clipboard on Linux.
+///      Does nothing on macOS.
+///   * `clipboard-paste` - Paste from the system clipboard.
 ///   * `ignore` - Do nothing, ignore the middle click.
 ///
 /// The default value is `primary-paste`.
@@ -3044,6 +3052,76 @@ keybind: Keybinds = .{},
 /// if you know you need KAM, you know. If you don't know if you
 /// need KAM, you don't need it.
 @"vt-kam-allowed": bool = false,
+
+/// If true, allows the running program to resize the window using the
+/// xterm `CSI 8 ; rows ; columns t` escape sequence. If a parameter is zero
+/// or omitted, the current size of that dimension is kept. Sizes smaller
+/// than 40 columns by 10 rows are raised to that size so that a program
+/// can't shrink the window to hide its output.
+///
+/// The request is ignored if the terminal is in a split, in a window with
+/// multiple tabs, or the quick terminal, or if the window manager controls
+/// the window size, such as when it is fullscreen, maximized, or tiled.
+/// Sizes larger than the screen are clamped to the screen.
+///
+/// This is disabled by default because it lets any program, including one
+/// running on a remote machine, change the size of your window.
+///
+/// Available since: 1.4.0
+@"vt-window-resize-allowed": bool = false,
+
+/// Enables or disables checksum reporting (DECRQCRA, `CSI Pi ; Pg ; Pt ;
+/// Pl ; Pb ; Pr * y`). This escape sequence allows the running program to
+/// ask for a checksum of an area of the screen. Terminal test suites use it
+/// to check what is on the screen.
+///
+/// This is disabled by default because a program can ask for the checksum of
+/// one cell at a time and so read back everything on the screen, including
+/// the output of other programs.
+///
+/// While this is disabled, XTCHECKSUM (`CSI Ps # y`), which changes how the
+/// checksum is calculated, is ignored as well.
+///
+/// Available since: 1.4.0
+@"vt-xt-checksum-report": bool = false,
+
+/// How the checksum reported for DECRQCRA (see `vt-xt-checksum-report`) is
+/// calculated. This is the calculation used after a reset, like xterm's
+/// `checksumExtension` resource. A running program can change it with
+/// XTCHECKSUM (`CSI Ps # y`) until the next reset. The default is the
+/// calculation of a real DEC terminal.
+///
+/// Valid values are:
+///
+///   * `negate` - Report the negated sum, as DEC terminals do.
+///
+///   * `attributes` - Add bold, underline, blink, inverse, invisible, and
+///     protected attributes to the value of each cell.
+///
+///   * `trim` - Omit plain spaces other than the first cell of the area.
+///
+///   * `undrawn` - Count cells that were never written to as spaces
+///     instead of skipping them.
+///
+///   * `full` - Use the full codepoint of each cell instead of the DEC
+///     8-bit value.
+///
+/// Prefix a value with `no-` to disable it. For example, esctest expects
+/// `no-negate,no-attributes,no-trim,full` when run with `--xterm-checksum`,
+/// which is xterm's `checksumExtension: 23`.
+///
+/// The bits of xterm's resource are described in its
+/// [man page](https://github.com/ThomasDickey/xterm-snapshots/blob/xterm-411/xterm.man#L2870-L2896)
+/// and its [control sequence documentation](https://github.com/ThomasDickey/xterm-snapshots/blob/xterm-411/ctlseqs.ms#L2562-L2569),
+/// but where those disagree with xterm's
+/// [implementation](https://github.com/ThomasDickey/xterm-snapshots/blob/xterm-411/screen.c#L3162-L3290),
+/// Ghostty follows the implementation. The documentation describes bit 3
+/// as omitting cells that were never written to, but xterm skips those
+/// cells by default and counts them as spaces with the bit set, which is
+/// `undrawn` here. It also lists a bit 5 that xterm doesn't implement.
+///
+/// Available since: 1.4.0
+@"vt-xt-checksum-extension": XtChecksumExtension = .{},
 
 /// Custom shaders to run after the default shaders. This is a file path
 /// to a GLSL-syntax shader for all platforms.
@@ -5041,6 +5119,31 @@ fn compatMacOSDockDropBehavior(
 
     if (std.mem.eql(u8, value orelse "", "window")) {
         self.@"macos-dock-drop-behavior" = .@"new-window";
+        return true;
+    }
+
+    return false;
+}
+
+fn compatCopyOnSelect(
+    self: *Config,
+    alloc: Allocator,
+    key: []const u8,
+    value: ?[]const u8,
+) bool {
+    _ = alloc;
+    assert(std.mem.eql(u8, key, "copy-on-select"));
+
+    if (std.mem.eql(u8, value orelse "", "true")) {
+        self.@"copy-on-select" = switch (builtin.os.tag) {
+            .linux, .freebsd => .primary,
+            else => .clipboard,
+        };
+        return true;
+    }
+
+    if (std.mem.eql(u8, value orelse "", "false")) {
+        self.@"copy-on-select" = .none;
         return true;
     }
 
@@ -8728,16 +8831,20 @@ pub const RepeatableLink = struct {
 
 /// Options for copy on select behavior.
 pub const CopyOnSelect = enum {
-    /// Disables copy on select entirely.
-    false,
+    /// Disables copy on select entirely. This is the default on macOS.
+    none,
 
     /// Copy on select is enabled, but goes to the selection clipboard.
-    /// This is not supported on platforms such as macOS. This is the default.
-    true,
+    /// This is not supported on platforms such as macOS. This is the default
+    /// on Linux.
+    primary,
+
+    /// Copy on select is enabled and goes to the system clipboard.
+    clipboard,
 
     /// Copy on select is enabled and goes to both the system clipboard
     /// and the selection clipboard (for Linux).
-    clipboard,
+    both,
 };
 
 /// Options for right-click actions.
@@ -8761,8 +8868,10 @@ pub const RightClickAction = enum {
 
 /// Options for middle-click actions.
 pub const MiddleClickAction = enum {
-    /// Paste from the selection/standard clipboard per `copy-on-select`.
+    /// Paste from the selection clipboard.
     @"primary-paste",
+    /// Paste from the standard clipboard.
+    @"clipboard-paste",
 
     /// No action is taken on middle click.
     ignore,
@@ -8787,6 +8896,15 @@ pub const ShellIntegrationFeatures = packed struct {
     @"ssh-env": bool = false,
     @"ssh-terminfo": bool = false,
     path: bool = true,
+};
+
+/// See vt-xt-checksum-extension
+pub const XtChecksumExtension = packed struct {
+    negate: bool = true,
+    attributes: bool = true,
+    trim: bool = true,
+    undrawn: bool = false,
+    full: bool = false,
 };
 
 pub const SplitPreserveZoom = packed struct {
@@ -8877,9 +8995,19 @@ pub const RepeatableCommand = struct {
             item.* = try item.clone(alloc);
         }
 
+        // Cloning value_c directly would copy Command.C structs
+        // whose string pointers still reference the source config's
+        // memory — the clone must stay valid after the source is
+        // freed.
+        var value_c: std.ArrayListUnmanaged(inputpkg.Command.C) = .empty;
+        try value_c.ensureTotalCapacityPrecise(alloc, value.items.len);
+        for (value.items) |item| {
+            value_c.appendAssumeCapacity(try item.cval(alloc));
+        }
+
         return .{
             .value = value,
-            .value_c = try self.value_c.clone(alloc),
+            .value_c = value_c,
         };
     }
 
@@ -8966,6 +9094,26 @@ pub const RepeatableCommand = struct {
 
         try list.parseCLI(alloc, "");
         try testing.expectEqual(inputpkg.command.defaults.len, list.value.items.len);
+    }
+
+    test "RepeatableCommand clone rebuilds the C mirror" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: RepeatableCommand = .{};
+        try list.parseCLI(alloc, "title:Foo,description:bar,action:new_tab");
+
+        const copy = try list.clone(alloc);
+        try testing.expectEqual(list.value_c.items.len, copy.value_c.items.len);
+        // The clone's C strings must not alias the source's — the
+        // source config can be freed while the clone lives on.
+        try testing.expect(list.value_c.items[0].title != copy.value_c.items[0].title);
+        try testing.expectEqualStrings(
+            std.mem.span(list.value_c.items[0].title),
+            std.mem.span(copy.value_c.items[0].title),
+        );
     }
 
     test "RepeatableCommand formatConfig empty" {

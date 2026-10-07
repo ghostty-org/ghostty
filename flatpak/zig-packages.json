@@ -1,9 +1,9 @@
 [
   {
     "type": "archive",
-    "url": "https://github.com/vancluever/arocc/archive/ecbc5c799574e0da2758a961b12efa586007f03c.tar.gz",
-    "dest": "vendor/p/aro-0.0.0-JSD1Qk8rOQDnuVcD4jAwMpHitA6pADRKzQ7M7hKRwxvD",
-    "sha256": "aa54487bd727e8fa36744ff0a824dedb2f4ca45f4c2d4d9d2437cf5fd3d0ad1a"
+    "url": "https://github.com/vancluever/arocc/archive/f97cdfc3779aec4b242299e2fc9a1c828c3547c6.tar.gz",
+    "dest": "vendor/p/aro-0.0.0-JSD1Qk6lNgDdcDV4Vh7Sfy-34m2TluIVOdPzMmj_0BjX",
+    "sha256": "42c8cab9135b12518e6af7dc5e461f055c78b863adca8ed7774f2fb7fe9a7784"
   },
   {
     "type": "archive",
@@ -19,9 +19,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz",
-    "dest": "vendor/p/N-V-__8AAIrfdwARSa-zMmxWwFuwpXf1T3asIN7s5jqi9c1v",
-    "sha256": "3ba2dd92158718acec5caaf1a716043b5aa055c27b081d914af3ccb40dce8a55"
+    "url": "https://gitlab.freedesktop.org/api/v4/projects/890/packages/generic/fontconfig/2.18.3/fontconfig-2.18.3.tar.xz",
+    "dest": "vendor/p/N-V-__8AAOgqbADacob-q2_DMQlmgaG4xKHRuW-6PJ4oJzMZ",
+    "sha256": "4f7b554a38cdf78c033f666c8871f3749e14a094f65a07f630c91ed0b43d35e3"
   },
   {
     "type": "archive",
@@ -73,9 +73,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260810-152212-0173c3c.tgz",
-    "dest": "vendor/p/N-V-__8AAPpcBAD4_75xLBbLiYqdojOwQP74eoWmpL3jPrBl",
-    "sha256": "ea9878471420ee5b12e7f2ff480099c954ea50e573a1bdf83f43e105c9be63f0"
+    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260928-151043-99d9701.tgz",
+    "dest": "vendor/p/N-V-__8AAAfDBACe1jGqjr9jIG3UAK8KbzJKQ7xrzYoau-_a",
+    "sha256": "072d88d0f6a3561c01ee7fa11b0eec018c24f26f2fa461a67660277fea4e32c9"
   },
   {
     "type": "archive",
@@ -139,15 +139,21 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/translate_c-80f8b6e4f45a303268717d8e5f4f91d7837138bb.tar.gz",
-    "dest": "vendor/p/translate_c-0.0.0-Q_BUWmU6BwB_9JKG2l2W7i_mhmYWeRseTGBEHi_YlV5f",
-    "sha256": "38c9e59d58f36e3481f6fa38f11fe59c63c12492fccf399ca56f3dfcce17b53e"
+    "url": "https://codeberg.org/vancluever/translate-c/archive/4e879eb8aba615de112eabd1231ea6e01920cead.tar.gz",
+    "dest": "vendor/p/translate_c-0.0.0-Q_BUWhVNBwDOEcIqub4VFPJPB6D9dgwzUMHTX5KWr8Xr",
+    "sha256": "8fb0f5c6a3e8b3bf0e35225d3abc1230bcf6f1fdf162467f1f747ec2fa5eda07"
+  },
+  {
+    "type": "git",
+    "url": "https://github.com/jacobsandlund/uucode",
+    "commit": "2826a37a4562284fdacd8fa029d49509cc9bffcd",
+    "dest": "vendor/p/uucode-0.2.0-ZZjBPlK5VADj7fdoq7G8LIHzD5o6FSkcBXXrRWr4jnrA"
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/uucode-2826a37a4562284fdacd8fa029d49509cc9bffcd.tar.gz",
-    "dest": "vendor/p/uucode-0.2.0-ZZjBPlK5VADj7fdoq7G8LIHzD5o6FSkcBXXrRWr4jnrA",
-    "sha256": "7e76fc7fab1e7ac728c52b35bbb3e5b8c639841abfc7fe1a4bcb13050594bc9e"
+    "url": "https://github.com/jacobsandlund/uucode/archive/9d55524551411b493cca41ca06363625d90aff1e.tar.gz",
+    "dest": "vendor/p/uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7",
+    "sha256": "68d23543cb2c6c5dfdbdf38b38375e0c6d412a5c5fb72ce06bd139f7a4d25132"
   },
   {
     "type": "git",

@@ -46,6 +46,7 @@ const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialo
 const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
 const OpenURI = @import("../portal.zig").OpenURI;
 const media = @import("../media.zig");
+const Overrides = @import("Overrides.zig");
 
 const log = std.log.scoped(.gtk_ghostty_application);
 
@@ -193,6 +194,11 @@ pub const Application = extern struct {
         /// should exit and the application should quit. This must
         /// only be set by the main loop thread.
         running: bool = false,
+
+        /// True once we've told systemd that startup is complete. Reloads
+        /// before then (e.g. syncing the color scheme during startup) must
+        /// not notify systemd, or it sees READY=1 before we're ready.
+        systemd_ready: bool = false,
 
         /// The timer used to quit the application after the last window is
         /// closed. Even if there is no quit delay set, this is the state
@@ -555,6 +561,7 @@ pub const Application = extern struct {
 
         // Tell systemd that we are ready.
         systemd.notify.ready();
+        priv.systemd_ready = true;
 
         log.debug("entering runloop", .{});
         defer log.debug("exiting runloop", .{});
@@ -760,6 +767,8 @@ pub const Application = extern struct {
             .render => Action.render(target),
 
             .resize_split => return Action.resizeSplit(target, value),
+
+            .resize_window => return Action.resizeWindow(target, value),
 
             .ring_bell => Action.ringBell(target),
 
@@ -1375,11 +1384,13 @@ pub const Application = extern struct {
         // Setup our event loop
         self.startupXev();
 
+        // Setup some signal handlers. This must happen before anything
+        // that might notify systemd, since with Type=notify-reload systemd
+        // refuses to start us if our reload signal has no handler.
+        self.startupSignals();
+
         // Setup our style manager (light/dark mode)
         self.startupStyleManager();
-
-        // Setup some signal handlers
-        self.startupSignals();
 
         // Setup our action map
         self.startupActionMap();
@@ -1848,7 +1859,7 @@ pub const Application = extern struct {
             var arguments_it: glib.VariantIter = undefined;
             _ = arguments_it.init(arguments);
 
-            break :overrides parseOverrides(alloc, &arguments_it) catch null;
+            break :overrides Overrides.parse(alloc, &arguments_it) catch null;
         };
 
         Action.newWindow(
@@ -1909,7 +1920,7 @@ pub const Application = extern struct {
 
             const arguments_it = arguments_it_ orelse return;
 
-            const overrides = parseOverrides(alloc, arguments_it) catch return;
+            const overrides = Overrides.parse(alloc, arguments_it) catch return;
 
             break :result .{ if (surface_id == 0) null else surface_id, overrides };
         };
@@ -1958,108 +1969,6 @@ pub const Application = extern struct {
                 log.warn("new-tab: unable to create new window: {t}", .{err});
             };
         }
-    }
-
-    fn parseOverrides(arena_alloc: Allocator, arguments_it: *glib.VariantIter) (Allocator.Error || error{ValueRequired})!struct {
-        command: ?configpkg.Command = null,
-        shell_integration: ?configpkg.Config.ShellIntegration = null,
-        working_directory: ?[:0]const u8 = null,
-        title: ?[:0]const u8 = null,
-    } {
-        var args: std.ArrayList([:0]const u8) = .empty;
-
-        var working_directory: ?[:0]const u8 = null;
-        var title: ?[:0]const u8 = null;
-        var command: ?configpkg.Command = null;
-        var parsed_shell_integration: struct {
-            @"shell-integration": ?configpkg.Config.ShellIntegration = null,
-        } = .{};
-
-        const s_variant_type = glib.VariantType.new("s");
-        defer s_variant_type.free();
-
-        var e_seen: bool = false;
-        var i: usize = 0;
-
-        while (arguments_it.nextValue()) |value| : (i += 1) {
-            defer value.unref();
-
-            // just to be sure
-            if (value.isOfType(s_variant_type) == 0) continue;
-
-            var len: usize = undefined;
-            const buf = value.getString(&len);
-            const str = buf[0..len];
-
-            log.debug("argument: {d} {s}", .{ i, str });
-
-            if (e_seen) {
-                const copy = arena_alloc.dupeZ(u8, str) catch |err| {
-                    log.warn("unable to duplicate argument {d} {s}: {t}", .{ i, str, err });
-                    return err;
-                };
-                args.append(arena_alloc, copy) catch |err| {
-                    log.warn("unable to append argument {d} {s}: {t}", .{ i, str, err });
-                    return err;
-                };
-                continue;
-            }
-
-            if (std.mem.eql(u8, str, "-e")) {
-                e_seen = true;
-                continue;
-            }
-
-            if (std.mem.cutPrefix(u8, str, "--command=")) |v| {
-                var cmd: configpkg.Command = undefined;
-                cmd.parseCLI(arena_alloc, v) catch |err| {
-                    log.warn("unable to parse command: {t}", .{err});
-                    return err;
-                };
-                command = cmd;
-                continue;
-            }
-            if (std.mem.cutPrefix(u8, str, "--shell-integration=")) |v| {
-                cli.args.parseIntoField(
-                    @TypeOf(parsed_shell_integration),
-                    arena_alloc,
-                    &parsed_shell_integration,
-                    "shell-integration",
-                    std.mem.trim(u8, v, &std.ascii.whitespace),
-                ) catch |err| {
-                    log.warn("unable to parse shell integration {s}: {t}", .{ v, err });
-                    continue;
-                };
-                continue;
-            }
-            if (std.mem.cutPrefix(u8, str, "--working-directory=")) |v| {
-                working_directory = arena_alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| {
-                    log.warn("unable to duplicate working directory: {t}", .{err});
-                    return err;
-                };
-                continue;
-            }
-            if (std.mem.cutPrefix(u8, str, "--title=")) |v| {
-                title = arena_alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| {
-                    log.warn("unable to duplicate title: {t}", .{err});
-                    return err;
-                };
-                continue;
-            }
-        }
-
-        if (args.items.len > 0) {
-            command = .{
-                .direct = args.items,
-            };
-        }
-
-        return .{
-            .command = command,
-            .shell_integration = parsed_shell_integration.@"shell-integration",
-            .working_directory = working_directory,
-            .title = title,
-        };
     }
 
     pub fn actionOpenConfig(
@@ -2654,17 +2563,7 @@ const Action = struct {
         }
     }
 
-    pub fn newTab(
-        target: apprt.Target,
-        overrides: struct {
-            command: ?configpkg.Command = null,
-            shell_integration: ?configpkg.Config.ShellIntegration = null,
-            working_directory: ?[:0]const u8 = null,
-            title: ?[:0]const u8 = null,
-
-            pub const none: @This() = .{};
-        },
-    ) bool {
+    pub fn newTab(target: apprt.Target, overrides: Overrides) bool {
         switch (target) {
             .app => {
                 log.warn("new tab to app is unexpected", .{});
@@ -2694,18 +2593,7 @@ const Action = struct {
         }
     }
 
-    pub fn newWindow(
-        self: *Application,
-        parent: ?*CoreSurface,
-        overrides: struct {
-            command: ?configpkg.Command = null,
-            shell_integration: ?configpkg.Config.ShellIntegration = null,
-            working_directory: ?[:0]const u8 = null,
-            title: ?[:0]const u8 = null,
-
-            pub const none: @This() = .{};
-        },
-    ) !void {
+    pub fn newWindow(self: *Application, parent: ?*CoreSurface, overrides: Overrides) !void {
         // Note that we've requested a window at least once. This is used
         // to trigger quit on no windows. Note I'm not sure if this is REALLY
         // necessary, but I don't want to risk a bug where on a slow machine
@@ -2733,14 +2621,7 @@ const Action = struct {
         self: *Application,
         win: *Window,
         parent: ?*CoreSurface,
-        overrides: struct {
-            command: ?configpkg.Command = null,
-            shell_integration: ?configpkg.Config.ShellIntegration = null,
-            working_directory: ?[:0]const u8 = null,
-            title: ?[:0]const u8 = null,
-
-            pub const none: @This() = .{};
-        },
+        overrides: Overrides,
     ) void {
         // Setup a binding so that whenever our config changes so does the
         // window. There's never a time when the window config should be out
@@ -2819,6 +2700,8 @@ const Action = struct {
                 Action.newWindow(self, null, .{
                     .command = command,
                     .title = title,
+                    .shell_integration = null,
+                    .working_directory = null,
                 }) catch |err| {
                     log.warn("unable to create new window: {t}", .{err});
                     return false;
@@ -2947,11 +2830,13 @@ const Action = struct {
         target: apprt.Target,
         opts: apprt.action.ReloadConfig,
     ) !void {
-        // Tell systemd that reloading has started.
-        systemd.notify.reloading();
+        // Tell systemd that reloading has started, but only once startup
+        // is complete. A reload during startup is not a reload to systemd.
+        const notify_systemd = self.private().systemd_ready;
+        if (notify_systemd) systemd.notify.reloading();
 
         // When we exit this function tell systemd that reloading has finished.
-        defer systemd.notify.ready();
+        defer if (notify_systemd) systemd.notify.ready();
 
         // Get our config object.
         const config: *Config = config: {
@@ -3025,6 +2910,30 @@ const Action = struct {
                         return false;
                     },
                 };
+            },
+        }
+    }
+
+    pub fn resizeWindow(
+        target: apprt.Target,
+        value: apprt.action.ResizeWindow,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("resize_window to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring resize_window", .{});
+                    return false;
+                };
+
+                return window.resizeSurface(surface, value);
             },
         }
     }
@@ -3376,69 +3285,22 @@ const Action = struct {
 fn setGtkEnv(config: *const CoreConfig) std.Io.Writer.Error!void {
     assert(gtk.isInitialized() == 0);
 
-    var gdk_debug: struct {
-        /// output OpenGL debug information
+    const gdk_debug: struct {
+        /// Output OpenGL debug information,
+        /// `gtk-opengl-debug` dumps logs directly to stderr so both must be true
+        /// to enable OpenGL debugging.
         opengl: bool = false,
-        /// disable GLES, Ghostty can't use GLES
-        @"gl-disable-gles": bool = false,
-        // GTK's new renderer can cause blurry font when using fractional scaling.
-        @"gl-no-fractional": bool = false,
-        /// Disabling Vulkan can improve startup times by hundreds of
-        /// milliseconds on some systems. We don't use Vulkan so we can just
-        /// disable it.
-        @"vulkan-disable": bool = false,
     } = .{
-        // `gtk-opengl-debug` dumps logs directly to stderr so both must be true
-        // to enable OpenGL debugging.
         .opengl = global.logging().stderr and config.@"gtk-opengl-debug",
     };
 
-    var gdk_disable: struct {
-        @"gles-api": bool = false,
-        /// current gtk implementation for color management is not good enough.
-        /// see: https://bugs.kde.org/show_bug.cgi?id=495647
-        /// gtk issue: https://gitlab.gnome.org/GNOME/gtk/-/issues/6864
-        @"color-mgmt": bool = true,
-        /// Disabling Vulkan can improve startup times by hundreds of
-        /// milliseconds on some systems. We don't use Vulkan so we can just
-        /// disable it.
-        vulkan: bool = false,
+    const gdk_disable: struct {
+        // Even though we don't use GTK's GL context anymore, there can still
+        // occasionally be conflicts when Vulkan and OpenGL are used together.
+        // Disabling Vulkan also saves hundreds of milliseconds of initialization
+        // time on certain systems.
+        vulkan: bool = true,
     } = .{};
-
-    environment: {
-        if (gtk_version.runtimeAtLeast(4, 18, 0)) {
-            gdk_disable.@"color-mgmt" = false;
-        }
-
-        if (gtk_version.runtimeAtLeast(4, 16, 0)) {
-            // From gtk 4.16, GDK_DEBUG is split into GDK_DEBUG and GDK_DISABLE.
-            // For the remainder of "why" see the 4.14 comment below.
-            gdk_disable.@"gles-api" = true;
-            gdk_disable.vulkan = true;
-            break :environment;
-        }
-        if (gtk_version.runtimeAtLeast(4, 14, 0)) {
-            // We need to export GDK_DEBUG to run on Wayland after GTK 4.14.
-            // Older versions of GTK do not support these values so it is safe
-            // to always set this. Forwards versions are uncertain so we'll have
-            // to reassess...
-            //
-            // Upstream issue: https://gitlab.gnome.org/GNOME/gtk/-/issues/6589
-            gdk_debug.@"gl-disable-gles" = true;
-            gdk_debug.@"vulkan-disable" = true;
-
-            if (gtk_version.runtimeUntil(4, 17, 5)) {
-                // Removed at GTK v4.17.5
-                gdk_debug.@"gl-no-fractional" = true;
-            }
-            break :environment;
-        }
-
-        // Versions prior to 4.14 are a bit of an unknown for Ghostty. It
-        // is an environment that isn't tested well and we don't have a
-        // good understanding of what we may need to do.
-        gdk_debug.@"vulkan-disable" = true;
-    }
 
     {
         var buf: [1024]u8 = undefined;

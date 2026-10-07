@@ -975,6 +975,18 @@ test "osc: 104 empty" {
     }
 }
 
+test "osc: 105 empty" {
+    var p: Parser = init();
+    defer p.deinit();
+    p.osc_parser.alloc = std.testing.allocator;
+
+    for ("\x1b]105") |c| _ = p.next(c);
+
+    const cmd = p.next(0x07)[0].?.osc_dispatch;
+    try testing.expect(cmd == .color_operation);
+    try testing.expect(cmd.color_operation.op == .osc_105);
+}
+
 test "csi: too many params" {
     var p = init();
     _ = p.next(0x1B);

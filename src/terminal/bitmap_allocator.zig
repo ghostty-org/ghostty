@@ -38,9 +38,8 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
         pub const bitmap_bit_size = @bitSizeOf(u64);
 
         /// The bitmap of available chunks. Each bit represents a chunk. A
-        /// 1 means the chunk is free and a 0 means it's used. We use 1
-        /// for free since it makes it very slightly faster to find free
-        /// chunks.
+        /// 0 means the chunk is free and a 1 means it's used, so an
+        /// all-zero bitmap is a fully free allocator.
         bitmap: Offset(u64),
         bitmap_count: usize,
 
@@ -56,13 +55,23 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
         pub fn init(buf: OffsetBuf, l: Layout) Self {
             assert(base_align.check(@intFromPtr(buf.start())));
 
-            // Initialize our bitmaps to all 1s to note that all chunks are free.
+            // Clear our bitmaps to note that all chunks are free.
             const bitmap = buf.member(u64, l.bitmap_start);
-            const bitmap_ptr = bitmap.ptr(buf);
-            @memset(bitmap_ptr[0..l.bitmap_count], std.math.maxInt(u64));
+            @memset(bitmap.ptr(buf)[0..l.bitmap_count], 0);
 
+            return initAssumeZeroed(buf, l);
+        }
+
+        /// Initialize the allocator map over memory that the caller
+        /// guarantees is already zero-filled.
+        ///
+        /// This writes nothing to the buffer: an all-zero bitmap already
+        /// marks every chunk as free. Behavior is undefined if the bitmap
+        /// region is not zero.
+        pub fn initAssumeZeroed(buf: OffsetBuf, l: Layout) Self {
+            assert(base_align.check(@intFromPtr(buf.start())));
             return .{
-                .bitmap = bitmap,
+                .bitmap = buf.member(u64, l.bitmap_start),
                 .bitmap_count = l.bitmap_count,
                 .chunks = buf.member(u8, l.chunks_start),
             };
@@ -112,7 +121,11 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
             // next scan starts at the first word with a free bit.
             self.search_start = start: {
                 var new_start = start;
-                while (new_start < self.bitmap_count and bitmaps[new_start] == 0) new_start += 1;
+                while (new_start < self.bitmap_count and
+                    bitmaps[new_start] == std.math.maxInt(u64))
+                {
+                    new_start += 1;
+                }
                 break :start new_start;
             };
 
@@ -153,20 +166,20 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
                 // Number of bits we need to mark in this bitmap.
                 const bits = @min(rem, 64 - bit);
 
-                bitmaps[i] |= ~@as(u64, 0) >> @intCast(64 - bits) << @intCast(bit);
+                bitmaps[i] &= ~(~@as(u64, 0) >> @intCast(64 - bits) << @intCast(bit));
                 rem -= bits;
             }
 
             // Mark any full bitmaps worth of bits that need to be marked.
             i += 1;
             while (rem > 64) : (i += 1) {
-                bitmaps[i] = std.math.maxInt(u64);
+                bitmaps[i] = 0;
                 rem -= 64;
             }
 
             // Mark any bits at the start of this last bitmap if it needs it.
             if (rem > 0) {
-                bitmaps[i] |= ~@as(u64, 0) >> @intCast(64 - rem);
+                bitmaps[i] &= ~(~@as(u64, 0) >> @intCast(64 - rem));
             }
         }
 
@@ -178,10 +191,9 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
         /// Returns the number of bytes currently in use.
         pub fn usedBytes(self: Self, base: anytype) usize {
             const bitmaps = self.bitmap.ptr(base);
-            var free_chunks: usize = 0;
-            for (bitmaps[0..self.bitmap_count]) |bitmap| free_chunks += @popCount(bitmap);
-            const total_chunks = self.bitmap_count * bitmap_bit_size;
-            return (total_chunks - free_chunks) * chunk_size;
+            var used_chunks: usize = 0;
+            for (bitmaps[0..self.bitmap_count]) |bitmap| used_chunks += @popCount(bitmap);
+            return used_chunks * chunk_size;
         }
 
         /// For testing only.
@@ -200,7 +212,7 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
             for (chunk_idx..chunk_idx + chunk_count) |i| {
                 const bitmap = @divFloor(i, bitmap_bit_size);
                 const bit = i % bitmap_bit_size;
-                if (bitmaps[bitmap] & (@as(u64, 1) << @intCast(bit)) != 0) {
+                if (bitmaps[bitmap] & (@as(u64, 1) << @intCast(bit)) == 0) {
                     return false;
                 }
             }
@@ -275,7 +287,7 @@ fn findFreeChunks(bitmaps: []u64, n: usize) ?usize {
         var i: usize = 0;
         search: while (i < bitmaps.len) {
             // Number of chunks available at the end of this bitmap.
-            const prefix = @clz(~bitmaps[i]);
+            const prefix = @clz(bitmaps[i]);
 
             // If there are no chunks available at the end of this bitmap
             // then we can't start in it, so we'll try the next one.
@@ -298,7 +310,7 @@ fn findFreeChunks(bitmaps: []u64, n: usize) ?usize {
 
                 // There's more than 64 remaining chunks and this bitmap has
                 // content in it, so we try starting again with this bitmap.
-                if (bitmaps[i] != std.math.maxInt(u64)) continue :search;
+                if (bitmaps[i] != 0) continue :search;
 
                 // This bitmap is completely free, we can subtract 64 from
                 // our remaining number.
@@ -307,17 +319,17 @@ fn findFreeChunks(bitmaps: []u64, n: usize) ?usize {
 
             // If the number of available chunks at the start of this bitmap
             // is less than the remaining required, we have to try again.
-            if (@ctz(~bitmaps[i]) < rem) continue;
+            if (@ctz(bitmaps[i]) < rem) continue;
 
             const suffix = (n - prefix) % 64;
 
-            // Found! Mark everything between our start and end as full.
-            bitmaps[start_bitmap] ^= ~@as(u64, 0) >> @intCast(start_bit) << @intCast(start_bit);
+            // Found! Mark everything between our start and end as used.
+            bitmaps[start_bitmap] |= ~@as(u64, 0) >> @intCast(start_bit) << @intCast(start_bit);
             const full_bitmaps = @divFloor(n - prefix - suffix, 64);
             for (bitmaps[start_bitmap + 1 ..][0..full_bitmaps]) |*bitmap| {
-                bitmap.* = 0;
+                bitmap.* = std.math.maxInt(u64);
             }
-            if (suffix > 0) bitmaps[i] ^= ~@as(u64, 0) >> @intCast(64 - suffix);
+            if (suffix > 0) bitmaps[i] |= ~@as(u64, 0) >> @intCast(64 - suffix);
 
             return start_bitmap * 64 + start_bit;
         }
@@ -337,8 +349,10 @@ fn findFreeChunks(bitmaps: []u64, n: usize) ?usize {
         //         = 000001000000010000
         //                ^       ^
         // In this example there are 2 places with at least 4 sequential 1s.
-        var shifted: u64 = bitmap.*;
-        for (1..n) |i| shifted &= bitmap.* >> @intCast(i);
+        // Work on the inverted word so that free chunks are 1 bits.
+        const free = ~bitmap.*;
+        var shifted: u64 = free;
+        for (1..n) |i| shifted &= free >> @intCast(i);
 
         // If we have zero then we have no matches
         if (shifted == 0) continue;
@@ -349,7 +363,7 @@ fn findFreeChunks(bitmaps: []u64, n: usize) ?usize {
 
         // Calculate the mask so we can mark it as used
         const mask = (@as(u64, std.math.maxInt(u64)) >> @intCast(64 - n)) << @intCast(bit);
-        bitmap.* ^= mask;
+        bitmap.* |= mask;
 
         return (idx * 64) + bit;
     }
@@ -361,12 +375,12 @@ test "findFreeChunks single found" {
     const testing = std.testing;
 
     var bitmaps = [_]u64{
-        0b10000000_00000000_00000000_00000000_00000000_00000000_00001110_00000000,
+        0b01111111_11111111_11111111_11111111_11111111_11111111_11110001_11111111,
     };
     const idx = findFreeChunks(&bitmaps, 2).?;
     try testing.expectEqual(@as(usize, 9), idx);
     try testing.expectEqual(
-        0b10000000_00000000_00000000_00000000_00000000_00000000_00001000_00000000,
+        0b01111111_11111111_11111111_11111111_11111111_11111111_11110111_11111111,
         bitmaps[0],
     );
 }
@@ -374,7 +388,7 @@ test "findFreeChunks single found" {
 test "findFreeChunks single not found" {
     const testing = std.testing;
 
-    var bitmaps = [_]u64{0b10000111_00000000_00000000_00000000_00000000_00000000_00000000_00000000};
+    var bitmaps = [_]u64{0b01111000_11111111_11111111_11111111_11111111_11111111_11111111_11111111};
     const idx = findFreeChunks(&bitmaps, 4);
     try testing.expect(idx == null);
 }
@@ -383,13 +397,13 @@ test "findFreeChunks multiple found" {
     const testing = std.testing;
 
     var bitmaps = [_]u64{
-        0b10000111_00000000_00000000_00000000_00000000_00000000_00000000_01110000,
-        0b10000000_00111110_00000000_00000000_00000000_00000000_00111110_00000000,
+        0b01111000_11111111_11111111_11111111_11111111_11111111_11111111_10001111,
+        0b01111111_11000001_11111111_11111111_11111111_11111111_11000001_11111111,
     };
     const idx = findFreeChunks(&bitmaps, 4).?;
     try testing.expectEqual(@as(usize, 73), idx);
     try testing.expectEqual(
-        0b10000000_00111110_00000000_00000000_00000000_00000000_00100000_00000000,
+        0b01111111_11000001_11111111_11111111_11111111_11111111_11011111_11111111,
         bitmaps[1],
     );
 }
@@ -398,11 +412,11 @@ test "findFreeChunks exactly 64 chunks" {
     const testing = std.testing;
 
     var bitmaps = [_]u64{
-        0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
+        0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
     };
     const idx = findFreeChunks(&bitmaps, 64).?;
     try testing.expectEqual(
-        0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
+        0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
         bitmaps[0],
     );
     try testing.expectEqual(@as(usize, 0), idx);
@@ -412,16 +426,16 @@ test "findFreeChunks larger than 64 chunks" {
     const testing = std.testing;
 
     var bitmaps = [_]u64{
-        0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
-        0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
+        0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
+        0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
     };
     const idx = findFreeChunks(&bitmaps, 65).?;
     try testing.expectEqual(
-        0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
+        0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
         bitmaps[0],
     );
     try testing.expectEqual(
-        0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111110,
+        0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000001,
         bitmaps[1],
     );
     try testing.expectEqual(@as(usize, 0), idx);
@@ -431,21 +445,21 @@ test "findFreeChunks larger than 64 chunks not at beginning" {
     const testing = std.testing;
 
     var bitmaps = [_]u64{
-        0b11111111_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
-        0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
-        0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
+        0b00000000_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
+        0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
+        0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
     };
     const idx = findFreeChunks(&bitmaps, 65).?;
     try testing.expectEqual(
-        0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
+        0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
         bitmaps[0],
     );
     try testing.expectEqual(
-        0b11111110_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
+        0b00000001_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
         bitmaps[1],
     );
     try testing.expectEqual(
-        0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
+        0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
         bitmaps[2],
     );
     try testing.expectEqual(@as(usize, 56), idx);
@@ -455,16 +469,16 @@ test "findFreeChunks larger than 64 chunks exact" {
     const testing = std.testing;
 
     var bitmaps = [_]u64{
-        0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
-        0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
+        0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
+        0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
     };
     const idx = findFreeChunks(&bitmaps, 128).?;
     try testing.expectEqual(
-        0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
+        0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
         bitmaps[0],
     );
     try testing.expectEqual(
-        0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000,
+        0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111111,
         bitmaps[1],
     );
     try testing.expectEqual(@as(usize, 0), idx);
@@ -677,7 +691,7 @@ test "BitmapAllocator alloc and free one bitmap" {
     // All of our bitmaps should be free.
     try testing.expectEqualSlices(
         u64,
-        &@as([3]u64, @splat(~@as(u64, 0))),
+        &@as([3]u64, @splat(0)),
         bm.bitmap.ptr(buf)[0..3],
     );
 }
@@ -798,7 +812,7 @@ test "BitmapAllocator alloc and free half bitmap" {
     // All of our bitmaps should be free.
     try testing.expectEqualSlices(
         u64,
-        &@as([3]u64, @splat(~@as(u64, 0))),
+        &@as([3]u64, @splat(0)),
         bm.bitmap.ptr(buf)[0..3],
     );
 }
@@ -853,7 +867,7 @@ test "BitmapAllocator alloc and free two half bitmaps" {
     // All of our bitmaps should be free.
     try testing.expectEqualSlices(
         u64,
-        &@as([3]u64, @splat(~@as(u64, 0))),
+        &@as([3]u64, @splat(0)),
         bm.bitmap.ptr(buf)[0..3],
     );
 }
@@ -890,7 +904,7 @@ test "BitmapAllocator alloc and free 1.5 bitmaps" {
     // All of our bitmaps should be free.
     try testing.expectEqualSlices(
         u64,
-        &@as([3]u64, @splat(~@as(u64, 0))),
+        &@as([3]u64, @splat(0)),
         bm.bitmap.ptr(buf)[0..3],
     );
 }
@@ -945,7 +959,7 @@ test "BitmapAllocator alloc and free two 1.5 bitmaps" {
     // All of our bitmaps should be free.
     try testing.expectEqualSlices(
         u64,
-        &@as([3]u64, @splat(~@as(u64, 0))),
+        &@as([3]u64, @splat(0)),
         bm.bitmap.ptr(buf)[0..3],
     );
 }
@@ -1002,7 +1016,7 @@ test "BitmapAllocator alloc and free 1.5 bitmaps offset by 0.75" {
     // All of our bitmaps should be free.
     try testing.expectEqualSlices(
         u64,
-        &@as([3]u64, @splat(~@as(u64, 0))),
+        &@as([3]u64, @splat(0)),
         bm.bitmap.ptr(buf)[0..3],
     );
 }
@@ -1080,7 +1094,7 @@ test "BitmapAllocator alloc and free three 0.75 bitmaps" {
     // All of our bitmaps should be free.
     try testing.expectEqualSlices(
         u64,
-        &@as([3]u64, @splat(~@as(u64, 0))),
+        &@as([3]u64, @splat(0)),
         bm.bitmap.ptr(buf)[0..3],
     );
 }
@@ -1159,7 +1173,7 @@ test "BitmapAllocator alloc and free two 1.5 bitmaps offset 0.75" {
     // All of our bitmaps should be free.
     try testing.expectEqualSlices(
         u64,
-        &@as([4]u64, @splat(~@as(u64, 0))),
+        &@as([4]u64, @splat(0)),
         bm.bitmap.ptr(buf)[0..4],
     );
 }
