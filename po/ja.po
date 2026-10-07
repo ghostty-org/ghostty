@@ -1139,4 +1139,4 @@ msgstr "Ghostty"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."
-msgstr "ターミナルに小さな Ghostty（👻）を入力します。"
+msgstr "ターミナルにおばけ（👻）を入力します。"
