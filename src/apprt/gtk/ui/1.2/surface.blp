@@ -313,6 +313,12 @@ menu context_menu_model {
     }
 
     item {
+      label: _("Copy Link");
+      action: "surface.copy-link";
+      hidden-when: "action-disabled";
+    }
+
+    item {
       label: _("Paste");
       action: "win.paste";
     }
