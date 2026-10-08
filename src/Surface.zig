@@ -2827,7 +2827,7 @@ pub fn keyCallback(
         // 1. mouse reporting is off
         // OR
         // 2. mouse reporting is on and we are not reporting shift to the terminal
-        if (self.io.terminal.flags.mouse_event == .none or
+        if (self.io.terminal.modes.mouse_event == .none or
             (self.mouse.mods.shift and !self.mouseShiftCapture(false)))
         {
             // Refresh our link state
@@ -2842,7 +2842,7 @@ pub fn keyCallback(
                 log.warn("failed to refresh links err={}", .{err});
                 break :mouse_mods;
             };
-        } else if (self.io.terminal.flags.mouse_event != .none and !self.mouse.mods.shift) {
+        } else if (self.io.terminal.modes.mouse_event != .none and !self.mouse.mods.shift) {
             // If we have mouse reports on and we don't have shift pressed, we reset state
             _ = try self.rt_app.performAction(
                 .{ .surface = self },
@@ -2862,7 +2862,7 @@ pub fn keyCallback(
     // needed, depending on the key state.
     if ((SurfaceMouse{
         .physical_key = event.key,
-        .mouse_event = self.io.terminal.flags.mouse_event,
+        .mouse_event = self.io.terminal.modes.mouse_event,
         .mouse_shape = self.io.terminal.mouse_shape,
         .mods = self.mouse.mods,
         .over_link = self.mouse.over_link,
@@ -3654,7 +3654,7 @@ pub fn scrollCallback(
         // (1) alt screen (2) no explicit mouse reporting and (3) alt
         // scroll mode enabled.
         if (self.io.terminal.screens.active_key == .alternate and
-            self.io.terminal.flags.mouse_event == .none and
+            self.io.terminal.modes.mouse_event == .none and
             self.io.terminal.modes.get(.mouse_alternate_scroll))
         {
             if (y.delta != 0) {
@@ -3762,7 +3762,7 @@ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !
 /// the terminal state.
 fn isMouseReporting(self: *const Surface) bool {
     return self.config.mouse_reporting and
-        self.io.terminal.flags.mouse_event != .none;
+        self.io.terminal.modes.mouse_event != .none;
 }
 
 pub fn mouseReportingActive(self: *Surface) bool {
@@ -3780,7 +3780,7 @@ fn mouseReport(
 ) void {
     // Mouse reporting must be enabled by both config and terminal state
     assert(self.config.mouse_reporting);
-    assert(self.io.terminal.flags.mouse_event != .none);
+    assert(self.io.terminal.modes.mouse_event != .none);
 
     // Build our encoding options.
     const encoding_opts: input.mouse_encode.Options = opts: {
@@ -3870,7 +3870,7 @@ fn mouseShiftCapture(self: *const Surface, lock: bool) bool {
 pub fn mouseCaptured(self: *Surface) bool {
     self.renderer_state.mutex.lockUncancelable(global.io());
     defer self.renderer_state.mutex.unlock(global.io());
-    return self.io.terminal.flags.mouse_event != .none;
+    return self.io.terminal.modes.mouse_event != .none;
 }
 
 /// Called for mouse button press/release events. This will return true
@@ -4492,7 +4492,7 @@ fn linkAtPin(
 fn mouseModsWithCapture(self: *Surface, mods: input.Mods) input.Mods {
     // In any of these scenarios, whatever mods are set (even shift)
     // are preserved.
-    if (self.io.terminal.flags.mouse_event == .none) return mods;
+    if (self.io.terminal.modes.mouse_event == .none) return mods;
     if (!mods.shift) return mods;
     if (self.mouseShiftCapture(false)) return mods;
 
@@ -4724,7 +4724,7 @@ pub fn cursorPosCallback(
     if ((over_link or
         self.mouse.link_point == null or
         (self.mouse.link_point != null and !self.mouse.link_point.?.eql(pos_vp))) and
-        (self.io.terminal.flags.mouse_event == .none or
+        (self.io.terminal.modes.mouse_event == .none or
             (self.mouse.mods.shift and !self.mouseShiftCapture(false))))
     {
         // If we were previously over a link, we always update. We do this so that if the text

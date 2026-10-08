@@ -207,12 +207,19 @@
 //! bit 40  report_visibility
 //! bit 41  in_band_size_reports
 //! bit 42  kitty_paste_events
-//! bits 43-63  reserved, zero
+//! bits 43-45  saved mouse Event for selector 9
+//! bits 46-48  saved mouse Event shared by selectors 1000-1003
+//! bits 49-51  saved mouse Format shared by selectors 1005/1006/1015/1016
+//! bits 52-63  reserved, zero
 //! ```
 //!
-//! This is the packed field order of native `ModePacked`. Its layout is
+//! Bits 0-42 are the packed field order of native `ModePacked`. Its layout is
 //! well-defined and is the snapshot registry. Moving or adding a native mode
-//! therefore requires a snapshot version bump. Decoders ignore reserved bits.
+//! therefore requires a snapshot version bump. Bits 43-51 hold native enum
+//! indices for grouped mouse XTSAVE state and are only meaningful in the saved
+//! word; they are zero in the current and default words. The native decoder
+//! ignores reserved bits and normalizes unknown grouped mouse enum values to
+//! their neutral defaults.
 //!
 //! ## Field classification
 //!
@@ -260,9 +267,6 @@ const Terminal = @import("../Terminal.zig");
 const TerminalScreen = @import("../Screen.zig");
 const TerminalScreenKey = @import("../ScreenSet.zig").Key;
 const TerminalTabstops = @import("../Tabstops.zig");
-const ModeBits = @typeInfo(
-    terminal_modes.ModePacked,
-).@"struct".backing_integer.?;
 
 /// Reuse the terminal's semantic RGB value without adopting its memory layout
 /// as a wire encoding.
@@ -314,6 +318,14 @@ pub const Header = struct {
         std.debug.assert(len == 103);
     }
 
+    const ModeBits = @typeInfo(
+        terminal_modes.ModePacked,
+    ).@"struct".backing_integer.?;
+    const saved_mouse_value_mask: u64 = 0b111;
+    const saved_mouse_event_x10_shift = 43;
+    const saved_mouse_event_shift = 46;
+    const saved_mouse_format_shift = 49;
+
     // Terminal geometry and its current scrolling region.
     columns: u16,
     rows: u16,
@@ -349,6 +361,9 @@ pub const Header = struct {
     current_modes: terminal_modes.ModePacked,
     saved_modes: terminal_modes.ModePacked,
     default_modes: terminal_modes.ModePacked,
+    saved_mouse_event_x10: terminal_mouse.Event = .none,
+    saved_mouse_event: terminal_mouse.Event = .none,
+    saved_mouse_format: terminal_mouse.Format = .x10,
 
     // Terminal-wide dynamic color state.
     background: DynamicRGB,
@@ -391,8 +406,8 @@ pub const Header = struct {
             // Terminal input, semantic redraw, and pointer behavior.
             .shell_redraw = terminal.flags.shell_redraws_prompt,
             .modify_other_keys_2 = terminal.flags.modify_other_keys_2,
-            .mouse_event = terminal.flags.mouse_event,
-            .mouse_format = terminal.flags.mouse_format,
+            .mouse_event = terminal.modes.mouse_event,
+            .mouse_format = terminal.modes.mouse_format,
             .mouse_shift_capture = switch (terminal.flags.mouse_shift_capture) {
                 .null => null,
                 .false => false,
@@ -405,6 +420,9 @@ pub const Header = struct {
             .current_modes = terminal.modes.values,
             .saved_modes = terminal.modes.saved,
             .default_modes = terminal.modes.default,
+            .saved_mouse_event_x10 = terminal.modes.saved_mouse_event_x10,
+            .saved_mouse_event = terminal.modes.saved_mouse_event,
+            .saved_mouse_format = terminal.modes.saved_mouse_format,
 
             // Terminal-wide dynamic color state.
             .background = terminal.colors.background,
@@ -472,15 +490,22 @@ pub const Header = struct {
         try writer.writeByte(@intFromBool(self.password_input));
 
         // Runtime, saved, and reset mode sets. ModePacked occupies 43 bits;
-        // its eight-byte wire slots zero-extend the native packed value.
+        // its eight-byte wire slots zero-extend the native packed value. The
+        // saved word also carries grouped mouse state in reserved high bits.
         const mode_values = [_]terminal_modes.ModePacked{
             self.current_modes,
             self.saved_modes,
             self.default_modes,
         };
-        for (mode_values) |value| {
+        for (mode_values, 0..) |value, i| {
             const bits: ModeBits = @bitCast(value);
-            try io.writeInt(writer, u64, @intCast(bits));
+            var raw: u64 = @intCast(bits);
+            if (i == 1) {
+                raw |= @as(u64, @intCast(@intFromEnum(self.saved_mouse_event_x10))) << saved_mouse_event_x10_shift;
+                raw |= @as(u64, @intCast(@intFromEnum(self.saved_mouse_event))) << saved_mouse_event_shift;
+                raw |= @as(u64, @intCast(@intFromEnum(self.saved_mouse_format))) << saved_mouse_format_shift;
+            }
+            try io.writeInt(writer, u64, raw);
         }
 
         // Terminal-wide dynamic color state.
@@ -586,10 +611,27 @@ pub const Header = struct {
 
         // Runtime, saved, and reset mode sets.
         var mode_values: [3]terminal_modes.ModePacked = undefined;
-        for (&mode_values) |*value| {
+        var saved_mouse_event_x10: terminal_mouse.Event = .none;
+        var saved_mouse_event: terminal_mouse.Event = .none;
+        var saved_mouse_format: terminal_mouse.Format = .x10;
+        for (&mode_values, 0..) |*value, i| {
             const raw = try io.readInt(reader, u64);
             const bits: ModeBits = @truncate(raw);
             value.* = @bitCast(bits);
+            if (i == 1) {
+                saved_mouse_event_x10 = enumFromInt(
+                    terminal_mouse.Event,
+                    (raw >> saved_mouse_event_x10_shift) & saved_mouse_value_mask,
+                ) orelse .none;
+                saved_mouse_event = enumFromInt(
+                    terminal_mouse.Event,
+                    (raw >> saved_mouse_event_shift) & saved_mouse_value_mask,
+                ) orelse .none;
+                saved_mouse_format = enumFromInt(
+                    terminal_mouse.Format,
+                    (raw >> saved_mouse_format_shift) & saved_mouse_value_mask,
+                ) orelse .x10;
+            }
         }
 
         // Terminal-wide dynamic color state.
@@ -672,6 +714,9 @@ pub const Header = struct {
             .current_modes = mode_values[0],
             .saved_modes = mode_values[1],
             .default_modes = mode_values[2],
+            .saved_mouse_event_x10 = saved_mouse_event_x10,
+            .saved_mouse_event = saved_mouse_event,
+            .saved_mouse_format = saved_mouse_format,
 
             .background = background,
             .foreground = foreground,
@@ -1030,11 +1075,14 @@ pub fn decode(
         .values = header.current_modes,
         .saved = header.saved_modes,
         .default = header.default_modes,
+        .saved_mouse_event_x10 = header.saved_mouse_event_x10,
+        .saved_mouse_event = header.saved_mouse_event,
+        .saved_mouse_format = header.saved_mouse_format,
     };
+    result.modes.setMouseEvent(header.mouse_event);
+    result.modes.setMouseFormat(header.mouse_format);
     result.flags.shell_redraws_prompt = header.shell_redraw;
     result.flags.modify_other_keys_2 = header.modify_other_keys_2;
-    result.flags.mouse_event = header.mouse_event;
-    result.flags.mouse_format = header.mouse_format;
     result.flags.mouse_shift_capture = if (header.mouse_shift_capture) |value|
         if (value) .true else .false
     else
@@ -1208,6 +1256,10 @@ const test_header_fixture = test_fixture.parse(
     @embedFile("testdata/terminal-header-v1.hex"),
 );
 
+const test_grouped_mouse_header_fixture = test_fixture.parse(
+    @embedFile("testdata/terminal-header-grouped-mouse-v1.hex"),
+);
+
 test "TERMINAL mode bit layout" {
     try std.testing.expectEqual(
         @as(usize, 43),
@@ -1286,6 +1338,29 @@ test "TERMINAL header golden encoding and decoding" {
     }
 }
 
+test "TERMINAL header grouped mouse golden encoding and decoding" {
+    const testing = std.testing;
+
+    var expected = test_header;
+    expected.saved_mouse_event_x10 = .normal;
+    expected.saved_mouse_event = .button;
+    expected.saved_mouse_format = .sgr_pixels;
+
+    var encoded: [Header.len]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&encoded);
+    try expected.encode(&writer);
+    try test_fixture.expectEqual(
+        .bytes,
+        "src/terminal/snapshot/testdata/terminal-header-grouped-mouse-v1.hex",
+        "snapshot_fixture-terminal-header-grouped-mouse-v1.hex",
+        &test_grouped_mouse_header_fixture,
+        writer.buffered(),
+    );
+
+    var reader: std.Io.Reader = .fixed(&test_grouped_mouse_header_fixture);
+    try testing.expectEqualDeep(expected, try Header.decode(&reader));
+}
+
 test "TERMINAL header encoding rejects noncanonical values" {
     const testing = std.testing;
 
@@ -1351,8 +1426,11 @@ test "TERMINAL header decoding normalizes semantic values" {
     fixture[37] = 34;
     fixture[38] = 2;
 
-    // Reserved mode bits are ignored while known low bits survive.
+    // Reserved mode bits are ignored while known low bits survive. Unknown
+    // grouped mouse save values use their neutral defaults.
     fixture[44] = 4;
+    fixture[52] = 0xF8;
+    fixture[53] = 0x0F;
 
     // Unknown presence and nonzero absent-value bytes both become absent.
     fixture[63] = 2;
@@ -1389,6 +1467,9 @@ test "TERMINAL header decoding normalizes semantic values" {
     try testing.expectEqual(terminal_mouse.Shape.text, decoded.mouse_shape);
     try testing.expect(!decoded.password_input);
     try testing.expect(decoded.current_modes.disable_keyboard);
+    try testing.expectEqual(terminal_mouse.Event.none, decoded.saved_mouse_event_x10);
+    try testing.expectEqual(terminal_mouse.Event.none, decoded.saved_mouse_event);
+    try testing.expectEqual(terminal_mouse.Format.x10, decoded.saved_mouse_format);
     try testing.expectEqualDeep(DynamicRGB.unset, decoded.background);
     try testing.expectEqual(null, decoded.foreground.default);
     try testing.expectEqual(
@@ -1625,13 +1706,17 @@ test "TERMINAL record encodes native terminal state" {
     };
     terminal.flags.shell_redraws_prompt = .last;
     terminal.flags.modify_other_keys_2 = true;
-    terminal.flags.mouse_event = .button;
-    terminal.flags.mouse_format = .sgr;
+    terminal.modes.setMouseEvent(.button);
+    terminal.modes.setMouseFormat(.sgr);
+    terminal.modes.values.mouse_event_any = true;
     terminal.flags.mouse_shift_capture = .true;
     terminal.flags.password_input = true;
     terminal.mouse_shape = .pointer;
     terminal.modes.values.disable_keyboard = true;
     terminal.modes.saved.in_band_size_reports = true;
+    terminal.modes.saved_mouse_event_x10 = .normal;
+    terminal.modes.saved_mouse_event = .button;
+    terminal.modes.saved_mouse_format = .sgr;
     terminal.modes.default.bracketed_paste = true;
     terminal.colors.background = .{
         .default = .{ .r = 1, .g = 2, .b = 3 },
@@ -1653,6 +1738,7 @@ test "TERMINAL record encodes native terminal state" {
     );
     defer stream.deinit();
     try encode(&terminal, &stream);
+    terminal.modes.setMouseEvent(.button);
 
     var source: std.Io.Reader = .fixed(destination.written());
     var restored = try decode(
@@ -1679,14 +1765,6 @@ test "TERMINAL record encodes native terminal state" {
     try testing.expectEqual(
         terminal.flags.modify_other_keys_2,
         restored.flags.modify_other_keys_2,
-    );
-    try testing.expectEqual(
-        terminal.flags.mouse_event,
-        restored.flags.mouse_event,
-    );
-    try testing.expectEqual(
-        terminal.flags.mouse_format,
-        restored.flags.mouse_format,
     );
     try testing.expectEqual(
         terminal.flags.mouse_shift_capture,

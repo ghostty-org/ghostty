@@ -285,11 +285,12 @@ pub const StreamHandler = struct {
             .reset_mode => try self.setMode(value.mode, false),
             .save_mode => self.terminal.modes.save(value.mode),
             .restore_mode => {
-                // For restore mode we have to restore but if we set it, we
-                // always have to call setMode because setting some modes have
-                // side effects and we want to make sure we process those.
-                const v = self.terminal.modes.restore(value.mode);
-                try self.setMode(value.mode, v);
+                if (self.terminal.modes.restore(value.mode)) |v| {
+                    // Ordinary modes still need their set side effects.
+                    try self.setMode(value.mode, v);
+                } else if (terminal.modes.mouseModeGroup(value.mode) == .event) {
+                    try self.setMouseShape(self.mouseReportingShape());
+                }
             },
             .request_mode => try self.requestMode(value.mode),
             .request_mode_unknown => try self.requestModeUnknown(value.mode, value.ansi),
@@ -353,7 +354,7 @@ pub const StreamHandler = struct {
             .semantic_prompt => try self.semanticPrompt(value),
             .mouse_shape => try self.setMouseShape(value),
             .mouse_shape_reset => try self.setMouseShape(
-                if (self.terminal.flags.mouse_event != .none) .default else .text,
+                if (self.terminal.modes.mouse_event != .none) .default else .text,
             ),
             .configure_charset => self.configureCharset(value.slot, value.charset),
             .set_attribute => {
@@ -673,8 +674,13 @@ pub const StreamHandler = struct {
             return;
         }
 
-        // We first always set the raw mode on our mode state.
+        // Set the mode first. Grouped mouse modes are fully handled by
+        // ModeState; only their runtime pointer-shape effect remains here.
         self.terminal.modes.set(mode, enabled);
+        if (terminal.modes.mouseModeGroup(mode)) |group| {
+            if (group == .event) try self.setMouseShape(self.mouseReportingShape());
+            return;
+        }
 
         // And then some modes require additional processing.
         switch (mode) {
@@ -766,48 +772,6 @@ pub const StreamHandler = struct {
             .focus_event => if (enabled) self.messageWriter(.{
                 .focused = self.terminal.flags.focused,
             }),
-
-            .mouse_event_x10 => {
-                if (enabled) {
-                    self.terminal.flags.mouse_event = .x10;
-                    try self.setMouseShape(.default);
-                } else {
-                    self.terminal.flags.mouse_event = .none;
-                    try self.setMouseShape(.text);
-                }
-            },
-            .mouse_event_normal => {
-                if (enabled) {
-                    self.terminal.flags.mouse_event = .normal;
-                    try self.setMouseShape(.default);
-                } else {
-                    self.terminal.flags.mouse_event = .none;
-                    try self.setMouseShape(.text);
-                }
-            },
-            .mouse_event_button => {
-                if (enabled) {
-                    self.terminal.flags.mouse_event = .button;
-                    try self.setMouseShape(.default);
-                } else {
-                    self.terminal.flags.mouse_event = .none;
-                    try self.setMouseShape(.text);
-                }
-            },
-            .mouse_event_any => {
-                if (enabled) {
-                    self.terminal.flags.mouse_event = .any;
-                    try self.setMouseShape(.default);
-                } else {
-                    self.terminal.flags.mouse_event = .none;
-                    try self.setMouseShape(.text);
-                }
-            },
-
-            .mouse_format_utf8 => self.terminal.flags.mouse_format = if (enabled) .utf8 else .x10,
-            .mouse_format_sgr => self.terminal.flags.mouse_format = if (enabled) .sgr else .x10,
-            .mouse_format_urxvt => self.terminal.flags.mouse_format = if (enabled) .urxvt else .x10,
-            .mouse_format_sgr_pixels => self.terminal.flags.mouse_format = if (enabled) .sgr_pixels else .x10,
 
             else => {},
         }
@@ -1009,6 +973,10 @@ pub const StreamHandler = struct {
 
         self.seen_title = true;
         self.surfaceMessageWriter(.{ .set_title = buf });
+    }
+
+    inline fn mouseReportingShape(self: *const StreamHandler) terminal.MouseShape {
+        return if (self.terminal.modes.mouse_event == .none) .text else .default;
     }
 
     inline fn setMouseShape(

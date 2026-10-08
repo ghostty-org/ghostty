@@ -648,16 +648,16 @@ pub const Handler = struct {
             .save_mode => self.terminal.modes.save(value.mode),
             .restore_mode => {
                 const prev = self.terminal.modes.get(value.mode);
-                const v = self.terminal.modes.restore(value.mode);
+                if (self.terminal.modes.restore(value.mode)) |v| {
+                    // Restore writes the value directly. Put the old value
+                    // back for synchronized output so that setMode can see
+                    // the change and report the render hold.
+                    if (value.mode == .synchronized_output) {
+                        self.terminal.modes.set(value.mode, prev);
+                    }
 
-                // Restore writes the value directly. Put the old value
-                // back for synchronized output so that setMode can see
-                // the change and report the render hold.
-                if (value.mode == .synchronized_output) {
-                    self.terminal.modes.set(value.mode, prev);
+                    try self.setMode(value.mode, v);
                 }
-
-                try self.setMode(value.mode, v);
             },
             .top_and_bottom_margin => self.terminal.setTopAndBottomMargin(value.top_left, value.bottom_right),
             .left_and_right_margin => self.terminal.setLeftAndRightMargin(value.top_left, value.bottom_right),
@@ -1932,8 +1932,10 @@ pub const Handler = struct {
             return;
         }
 
-        // Set the mode on the terminal
+        // Set the mode on the terminal. Grouped mouse modes are fully handled
+        // by ModeState and have no effects in the terminal-only handler.
         self.terminal.modes.set(mode, enabled);
+        if (modes.mouseModeGroup(mode) != null) return;
 
         // Some modes require additional processing
         switch (mode) {
@@ -1978,40 +1980,6 @@ pub const Handler = struct {
             .in_band_size_reports => if (enabled) self.reportMode2048(),
 
             .report_visibility => if (enabled) self.sendVisibilityReport(),
-
-            .mouse_event_x10 => {
-                if (enabled) {
-                    self.terminal.flags.mouse_event = .x10;
-                } else {
-                    self.terminal.flags.mouse_event = .none;
-                }
-            },
-            .mouse_event_normal => {
-                if (enabled) {
-                    self.terminal.flags.mouse_event = .normal;
-                } else {
-                    self.terminal.flags.mouse_event = .none;
-                }
-            },
-            .mouse_event_button => {
-                if (enabled) {
-                    self.terminal.flags.mouse_event = .button;
-                } else {
-                    self.terminal.flags.mouse_event = .none;
-                }
-            },
-            .mouse_event_any => {
-                if (enabled) {
-                    self.terminal.flags.mouse_event = .any;
-                } else {
-                    self.terminal.flags.mouse_event = .none;
-                }
-            },
-
-            .mouse_format_utf8 => self.terminal.flags.mouse_format = if (enabled) .utf8 else .x10,
-            .mouse_format_sgr => self.terminal.flags.mouse_format = if (enabled) .sgr else .x10,
-            .mouse_format_urxvt => self.terminal.flags.mouse_format = if (enabled) .urxvt else .x10,
-            .mouse_format_sgr_pixels => self.terminal.flags.mouse_format = if (enabled) .sgr_pixels else .x10,
 
             else => {},
         }
@@ -2821,6 +2789,91 @@ test "modes" {
     try testing.expect(!t.modes.get(.wraparound));
     s.nextSlice("\x1B[?7h"); // Enable wraparound
     try testing.expect(t.modes.get(.wraparound));
+}
+
+test "mouse modes are grouped" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+    defer s.deinit();
+
+    const Event = @TypeOf(t.modes.mouse_event);
+    const event_cases = [_]struct { []const u8, Event, modes.Mode }{
+        .{ "\x1B[?9h", .x10, .mouse_event_x10 },
+        .{ "\x1B[?1000h", .normal, .mouse_event_normal },
+        .{ "\x1B[?1002h", .button, .mouse_event_button },
+        .{ "\x1B[?1003h", .any, .mouse_event_any },
+    };
+    for (event_cases) |case| {
+        s.nextSlice(case[0]);
+        try testing.expectEqual(case[1], t.modes.mouse_event);
+        try testing.expectEqual(.set, t.modes.getReport(.fromMode(case[2])).state);
+    }
+
+    const Format = @TypeOf(t.modes.mouse_format);
+    const format_cases = [_]struct { []const u8, Format, modes.Mode }{
+        .{ "\x1B[?1005h", .utf8, .mouse_format_utf8 },
+        .{ "\x1B[?1006h", .sgr, .mouse_format_sgr },
+        .{ "\x1B[?1015h", .urxvt, .mouse_format_urxvt },
+        .{ "\x1B[?1016h", .sgr_pixels, .mouse_format_sgr_pixels },
+    };
+    for (format_cases) |case| {
+        s.nextSlice(case[0]);
+        try testing.expectEqual(case[1], t.modes.mouse_format);
+        try testing.expectEqual(.set, t.modes.getReport(.fromMode(case[2])).state);
+    }
+
+    try testing.expectEqual(.reset, t.modes.getReport(.fromMode(.mouse_event_button)).state);
+    try testing.expectEqual(.reset, t.modes.getReport(.fromMode(.mouse_format_sgr)).state);
+
+    // Resetting any tracking selector disables tracking, while resetting an
+    // inactive encoding selector leaves the active encoding unchanged.
+    s.nextSlice("\x1B[?1000l\x1B[?1005l");
+    try testing.expectEqual(.none, t.modes.mouse_event);
+    try testing.expectEqual(.sgr_pixels, t.modes.mouse_format);
+
+    s.nextSlice("\x1B[?1016l");
+    try testing.expectEqual(.x10, t.modes.mouse_format);
+}
+
+test "XTSAVE restores grouped mouse modes" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+    defer s.deinit();
+
+    s.nextSlice("\x1B[?1002h\x1B[?1006h");
+    s.nextSlice("\x1B[?1000;1005s");
+    s.nextSlice("\x1B[?1003h\x1B[?1016h");
+    // Any member of a family restores the shared slot.
+    s.nextSlice("\x1B[?1002;1006r");
+
+    try testing.expectEqual(.button, t.modes.mouse_event);
+    try testing.expectEqual(.sgr, t.modes.mouse_format);
+
+    // A terminal reset clears the grouped save slots.
+    t.fullReset();
+    s.nextSlice("\x1B[?1003h\x1B[?1016h\x1B[?1000;1005r");
+    try testing.expectEqual(.none, t.modes.mouse_event);
+    try testing.expectEqual(.x10, t.modes.mouse_format);
+}
+
+test "mouse mode 9 has a separate XTSAVE slot" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+    defer s.deinit();
+
+    s.nextSlice("\x1B[?1000h\x1B[?9s");
+    s.nextSlice("\x1B[?1002h\x1B[?1000s");
+    s.nextSlice("\x1B[?1003h\x1B[?9r");
+    try testing.expectEqual(.normal, t.modes.mouse_event);
+
+    s.nextSlice("\x1B[?1000r");
+    try testing.expectEqual(.button, t.modes.mouse_event);
 }
 
 test "scrolling regions" {
@@ -5403,6 +5456,17 @@ test "request mode DECRQM with write_pty callback" {
         s.nextSlice("\x1B[?7l");
         s.nextSlice("\x1B[?7$p");
         try testing.expectEqualStrings("\x1B[?7;2$y", S.last_response.?);
+
+        // Grouped mouse reports expose only the selected family member.
+        s.nextSlice("\x1B[?1002h\x1B[?1006h");
+        s.nextSlice("\x1B[?1000$p");
+        try testing.expectEqualStrings("\x1B[?1000;2$y", S.last_response.?);
+        s.nextSlice("\x1B[?1002$p");
+        try testing.expectEqualStrings("\x1B[?1002;1$y", S.last_response.?);
+        s.nextSlice("\x1B[?1005$p");
+        try testing.expectEqualStrings("\x1B[?1005;2$y", S.last_response.?);
+        s.nextSlice("\x1B[?1006$p");
+        try testing.expectEqualStrings("\x1B[?1006;1$y", S.last_response.?);
 
         // A large unknown mode must not alias wraparound mode 7.
         const before = t.modes;

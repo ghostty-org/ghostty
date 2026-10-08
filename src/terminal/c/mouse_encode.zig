@@ -190,8 +190,8 @@ pub fn setopt_from_terminal(
 ) callconv(lib.calling_conv) void {
     const wrapper = encoder_ orelse return;
     const t: *ZigTerminal = (terminal_ orelse return).terminal;
-    wrapper.opts.event = t.flags.mouse_event;
-    wrapper.opts.format = t.flags.mouse_format;
+    wrapper.opts.event = t.modes.mouse_event;
+    wrapper.opts.format = t.modes.mouse_format;
     wrapper.last_cell = null;
 }
 
