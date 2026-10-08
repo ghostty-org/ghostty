@@ -2,6 +2,7 @@
 pub const OpenGL = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const gl = @import("opengl");
 const egl = gl.egl;
@@ -281,7 +282,7 @@ pub fn present(
 ) !ExportedFrame {
     // We only export DMABUFs when the apprt can present them.
     // Otherwise, use CPU buffers.
-    if (presentation_health == .healthy) {
+    if (has_dmabuf and presentation_health == .healthy) {
         if (target.exportDmabuf(self.device.display, self.egl_context)) |dmabuf| {
             return .{ .dmabuf = dmabuf };
         } else |_| {
@@ -297,9 +298,12 @@ pub fn present(
     } };
 }
 
+/// DMABUFs only exist on Linux and the BSDs, never on Windows.
+const has_dmabuf = builtin.os.tag != .windows;
+
 /// A finished frame exported for presentation by the apprt.
 pub const ExportedFrame = union(enum) {
-    dmabuf: Dmabuf,
+    dmabuf: if (has_dmabuf) Dmabuf else noreturn,
     memory: Memory,
 
     /// RGBA8 pixel data with premultiplied alpha, tightly packed
