@@ -310,6 +310,7 @@ rewdy
 rgehan
 rhodes-b
 rightaditya
+-riskirills66 Demonstrated indefensibly poor taste, judgement and AI steering capabilities
 rjwittams
 rkoten
 rmengelbrecht
