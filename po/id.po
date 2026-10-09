@@ -879,7 +879,7 @@ msgstr "Fokus ke Bagian: Kiri"
 
 #: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
-msgstr "Fokuskan ke bagian di kiri, jika ada."
+msgstr "Fokuskan ke bagian kiri, jika ada."
 
 #: src/input/command.zig:515
 msgid "Focus Split: Right"
@@ -887,7 +887,7 @@ msgstr "Fokus ke Bagian: Kanan"
 
 #: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
-msgstr "Fokuskan ke bagian di kanan, jika ada."
+msgstr "Fokuskan ke bagian kanan, jika ada."
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
@@ -895,7 +895,7 @@ msgstr "Fokus ke Bagian: Atas"
 
 #: src/input/command.zig:521
 msgid "Focus the split above, if it exists."
-msgstr "Fokuskan ke bagian di atas, jika ada."
+msgstr "Fokuskan ke bagian atas, jika ada."
 
 #: src/input/command.zig:525
 msgid "Focus Split: Down"
@@ -903,7 +903,7 @@ msgstr "Fokus ke Bagian: Bawah"
 
 #: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
-msgstr "Fokuskan ke bagian di bawah, jika ada."
+msgstr "Fokuskan ke bagian bawah, jika ada."
 
 #: src/input/command.zig:533
 msgid "Focus Window: Previous"
