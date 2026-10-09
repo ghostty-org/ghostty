@@ -278,22 +278,15 @@ const Preview = struct {
     text_input: vaxis.widgets.TextInput,
     theme_filter: ColorScheme,
 
-    /// Result of the last `w` on the save screen, shown next to the
-    /// `config-file` line.
+    /// Result of the last action on the save screen, shown at the bottom
+    /// of the dialog.
     save_status: enum {
         none,
+        theme_sent,
+        config_sent,
+        send_failed,
         written,
         write_failed,
-    } = .none,
-
-    /// Result of the last `c` or `C` on the save screen, shown next to
-    /// the line that was copied.
-    copy_status: enum {
-        none,
-        theme_copied,
-        theme_failed,
-        config_copied,
-        config_failed,
     } = .none,
 
     pub fn init(
@@ -497,7 +490,6 @@ const Preview = struct {
                             self.mode = .search;
                         if (key.matchesAny(&.{ vaxis.Key.enter, vaxis.Key.kp_enter }, .{})) {
                             self.save_status = .none;
-                            self.copy_status = .none;
                             self.mode = .save;
                         }
                         if (key.matchesAny(&.{ 'x', '/' }, .{ .ctrl = true })) {
@@ -568,7 +560,6 @@ const Preview = struct {
                         if (key.matchesAny(&.{ vaxis.Key.escape, vaxis.Key.enter, vaxis.Key.kp_enter }, .{}))
                             self.mode = .normal;
                         if (key.matches('w', .{})) {
-                            self.copy_status = .none;
                             self.saveSelectedTheme();
                         }
                         if (key.matches('c', .{})) {
@@ -578,24 +569,22 @@ const Preview = struct {
                                 .{self.themes[self.filtered.items[self.current]].theme},
                             );
                             defer alloc.free(line);
-                            self.copy_status = .theme_copied;
+                            self.save_status = .theme_sent;
                             self.vx.copyToSystemClipboard(
                                 self.tty.writer(),
                                 line,
                                 alloc,
                             ) catch {
-                                self.copy_status = .theme_failed;
+                                self.save_status = .send_failed;
                             };
-                        }
-                        if (key.matches('c', .{ .shift = true })) {
-                            self.save_status = .none;
-                            self.copy_status = .config_copied;
+                        } else if (key.matches('c', .{ .shift = true })) {
+                            self.save_status = .config_sent;
                             self.vx.copyToSystemClipboard(
                                 self.tty.writer(),
                                 "config-file = ?auto/theme.ghostty",
                                 alloc,
                             ) catch {
-                                self.copy_status = .config_failed;
+                                self.save_status = .send_failed;
                             };
                         }
                     },
@@ -817,7 +806,7 @@ const Preview = struct {
             .help => {
                 win.hideCursor();
                 const width = 60;
-                const height = 24;
+                const height = 26;
                 const child = win.child(
                     .{
                         .x_off = win.width / 2 -| width / 2,
@@ -852,9 +841,11 @@ const Preview = struct {
                     .{ .keys = "/", .help = "Start search." },
                     .{ .keys = "^X, ^/", .help = "Clear search." },
                     .{ .keys = "⏎", .help = "Save theme or close search window." },
+                    .{ .keys = "", .help = "" },
+                    .{ .keys = "Save screen", .help = "" },
                     .{ .keys = "w", .help = "Write theme to auto config file." },
-                    .{ .keys = "c", .help = "Copy config line (on save screen)." },
-                    .{ .keys = "C", .help = "Copy config-file line (on save screen)." },
+                    .{ .keys = "c", .help = "Copy the theme line." },
+                    .{ .keys = "C", .help = "Copy the config-file line." },
                 };
 
                 for (key_help, 0..) |help, captured_i| {
@@ -869,6 +860,10 @@ const Preview = struct {
                             .col_offset = 2,
                         },
                     );
+
+                    // Rows without help text are section headings.
+                    if (help.help.len == 0) continue;
+
                     _ = child.printSegment(
                         .{
                             .text = "—",
@@ -908,38 +903,32 @@ const Preview = struct {
             .save => {
                 const theme = self.themes[self.filtered.items[self.current]];
 
+                const status = switch (self.save_status) {
+                    .none => "",
+                    .theme_sent => "Sent the theme line to the clipboard.",
+                    .config_sent => "Sent the config-file line to the clipboard.",
+                    .send_failed => "Could not send to the clipboard.",
+                    .written => "Wrote the auto theme file.",
+                    .write_failed => "Could not write the auto theme file.",
+                };
+
                 const save_instructions = [_][]const u8{
-                    "To apply this theme, add the following line to your Ghostty configuration:",
+                    "To apply this theme, add the following line to your Ghostty configuration (press 'c' to copy it):",
                     "",
-                    try std.fmt.allocPrint(alloc, "theme = {s} [c] copy{s}", .{
-                        theme.theme,
-                        switch (self.copy_status) {
-                            .theme_copied => "  ✓ Copied configuration line",
-                            .theme_failed => "  ✗ Copy failed",
-                            else => "",
-                        },
-                    }),
+                    try std.fmt.allocPrint(alloc, "theme = {s}", .{theme.theme}),
                     "",
                     "Save the configuration file and then reload it to apply the new theme.",
                     "",
                     "Or press 'w' to write an auto theme file to your system's preferred default config path.",
-                    "Then add the following line to your Ghostty configuration and reload:",
+                    "Then add the following line to your Ghostty configuration (press 'C' to copy it) and reload:",
                     "",
-                    try std.fmt.allocPrint(alloc, "config-file = ?auto/theme.ghostty [C] copy  [w] write auto theme file{s}", .{
-                        switch (self.copy_status) {
-                            .config_copied => "  ✓ Copied configuration line",
-                            .config_failed => "  ✗ Copy failed",
-                            else => switch (self.save_status) {
-                                .written => "  ✓ Wrote the auto theme file.",
-                                .write_failed => "  ✗ Write failed",
-                                .none => "",
-                            },
-                        },
-                    }),
+                    "config-file = ?auto/theme.ghostty",
                     "",
                     "For more details on configuration and themes, visit the Ghostty documentation:",
                     "",
                     "https://ghostty.org/docs/config/reference",
+                    "",
+                    status,
                 };
 
                 // The text is word wrapped inside a 2 column margin. Measure
