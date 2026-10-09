@@ -2,7 +2,11 @@ import AppKit
 import AppIntents
 
 struct QuickTerminalIntent: AppIntent {
+#if DEBUG
+    static var title: LocalizedStringResource = "[DEBUG] Open the Quick Terminal"
+#else
     static var title: LocalizedStringResource = "Open the Quick Terminal"
+#endif
     static var description = IntentDescription("Open the Quick Terminal. If it is already open, then do nothing.")
 
 #if compiler(>=6.2)
