@@ -351,6 +351,14 @@ msgstr "Visos terminalo sesijos šiame lange bus nutrauktos."
 msgid "The currently running process in this split will be terminated."
 msgstr "Šiuo metu vykdomas procesas šiame padalijime bus nutrauktas."
 
+#: src/apprt/gtk/class/command_palette.zig:694
+msgid "Untitled"
+msgstr ""
+
+#: src/apprt/gtk/class/command_palette.zig:699
+msgid "Focus"
+msgstr ""
+
 #: src/apprt/gtk/class/surface.zig:1181
 msgid "Command Finished"
 msgstr "Komanda užbaigta"
