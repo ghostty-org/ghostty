@@ -812,7 +812,7 @@ fn wrap(
         .bell = &Effects.bellTrampoline,
         .color_scheme = &Effects.colorSchemeTrampoline,
         .desktop_notification = &Effects.desktopNotificationTrampoline,
-        .drag_and_drop = null,
+        .drop = null,
         .device_attributes = &Effects.deviceAttributesTrampoline,
         .enquiry = &Effects.enquiryTrampoline,
         .xtversion = &Effects.xtversionTrampoline,
