@@ -178,8 +178,12 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Build Benchmarks
-        run: nix develop -c zig build -Demit-bench
+        run: nix develop -c zig build -Demit-bench --system ${{ steps.deps.outputs.deps }}
 
   list-examples:
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
@@ -236,10 +240,14 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Build Example
         run: |
           cd example/${{ matrix.dir }}
-          nix develop -c zig build
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }}
 
   build-example-zig-vt-macos-no-sdk:
     name: Example zig-vt (macOS, no SDK)
@@ -269,9 +277,13 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Build Example without SDK
         working-directory: example/zig-vt
-        run: nix develop -c env DEVELOPER_DIR=/nonexistent zig build
+        run: nix develop -c env DEVELOPER_DIR=/nonexistent zig build --system ${{ steps.deps.outputs.deps }}
 
   build-examples-cmake:
     strategy:
@@ -448,8 +460,12 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Build libghostty-vt
-        run: nix develop -c zig build -Demit-lib-vt
+        run: nix develop -c zig build -Demit-lib-vt --system ${{ steps.deps.outputs.deps }}
 
       - name: Verify pkg-config file
         run: |
@@ -515,7 +531,7 @@ jobs:
       - name: Rebuild with system simdutf
         run: |
           rm -rf zig-out
-          nix develop -c zig build -Demit-lib-vt -fsys=simdutf
+          nix develop -c zig build -Demit-lib-vt -fsys=simdutf --system ${{ steps.deps.outputs.deps }}
 
       - name: Verify pkg-config with system simdutf
         run: |
@@ -565,11 +581,15 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Build with Flatpak
         run: |
           nix develop -c \
             zig build \
-            -Dflatpak
+            -Dflatpak --system ${{ steps.deps.outputs.deps }}
 
   build-snap:
     strategy:
@@ -599,11 +619,15 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Build with Snap
         run: |
           nix develop -c \
             zig build \
-            -Dsnap
+            -Dsnap --system ${{ steps.deps.outputs.deps }}
 
   build-libghostty-vt:
     strategy:
@@ -643,10 +667,14 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Build
         run: |
           nix develop -c zig build -Demit-lib-vt \
-            -Dtarget=${{ matrix.target }}
+            -Dtarget=${{ matrix.target }} --system ${{ steps.deps.outputs.deps }}
 
   build-libghostty-vt-freestanding:
     strategy:
@@ -680,12 +708,17 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Build
         run: |
           nix develop -c zig build -Demit-lib-vt \
             -Dtarget=${{ matrix.target }} \
             -Dcpu=${{ matrix.cpu }} \
-            -Doptimize=ReleaseSafe
+            -Doptimize=ReleaseSafe \
+            --system ${{ steps.deps.outputs.deps }}
 
   build-libghostty-vt-wasm:
     runs-on: namespace-profile-ghostty-sm
@@ -713,12 +746,17 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Build ReleaseFast WASM
         run: |
           nix develop -c zig build \
             -Demit-lib-vt \
             -Dtarget=wasm32-freestanding \
-            -Doptimize=ReleaseFast
+            -Doptimize=ReleaseFast \
+            --system ${{ steps.deps.outputs.deps }}
 
       - name: Optimize ReleaseFast WASM
         run: |
@@ -737,13 +775,15 @@ jobs:
           nix develop -c zig build \
             -Demit-lib-vt \
             -Dtarget=wasm32-freestanding \
-            -Doptimize=ReleaseSmall
+            -Doptimize=ReleaseSmall \
+            --system ${{ steps.deps.outputs.deps }}
 
       - name: Validate WASM ABI manifest
         run: |
           nix develop -c zig build test-lib-vt-schema \
             -Dtarget=wasm32-freestanding \
-            -Doptimize=ReleaseSmall
+            -Doptimize=ReleaseSmall \
+            --system ${{ steps.deps.outputs.deps }}
 
       - name: Optimize ReleaseSmall WASM
         run: |
@@ -804,6 +844,10 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Compile feature flag matrix
         run: |
           features="snapshot formatter selection render_state input_encode color grid_introspection glyph_protocol kitty_graphics"
@@ -816,9 +860,11 @@ jobs:
             # test build compiles every module test without running any.
             nix develop -c zig build -Demit-lib-vt \
               "-Dvt-features=$cfg" \
-              -Dtarget=wasm32-freestanding
+              -Dtarget=wasm32-freestanding \
+              --system ${{ steps.deps.outputs.deps }}
             nix develop -c zig build test-lib-vt-build \
-              "-Dvt-features=$cfg"
+              "-Dvt-features=$cfg" \
+              --system ${{ steps.deps.outputs.deps }}
             echo "::endgroup::"
           done
 
@@ -872,10 +918,15 @@ jobs:
       - name: Xcode Select
         run: sudo xcode-select -s /Applications/Xcode_26.6.app
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Build
         run: |
           nix develop -c zig build -Demit-lib-vt \
-            -Dtarget=${{ matrix.target }}
+            -Dtarget=${{ matrix.target }} \
+            --system ${{ steps.deps.outputs.deps }}
 
       - name: Verify Apple dylib
         run: |
@@ -926,10 +977,16 @@ jobs:
           link-to-sdk: false
           local-cache: true
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Build
         run: |
           nix develop -c zig build -Demit-lib-vt \
-            -Dtarget=${{ matrix.target }}
+            -Dtarget=${{ matrix.target }} \
+            --system ${{ steps.deps.outputs.deps }}
+
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
 
@@ -1009,8 +1066,12 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Test Build
-        run: nix develop -c zig build
+        run: nix develop -c zig build --system ${{ steps.deps.outputs.deps }}
 
   build-linux-libghostty:
     runs-on: namespace-profile-ghostty-md
@@ -1038,8 +1099,12 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Build Libghostty
-        run: nix develop -c zig build -Dapp-runtime=none
+        run: nix develop -c zig build -Dapp-runtime=none --system ${{ steps.deps.outputs.deps }}
 
   build-nix:
     strategy:
@@ -1153,10 +1218,14 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Build and Check Source Tarball
         run: |
           rm -rf zig-out/dist
-          nix develop -c zig build distcheck
+          nix develop -c zig build distcheck --system ${{ steps.deps.outputs.deps }}
           cp zig-out/dist/*.tar.gz ghostty-source.tar.gz
 
       - name: Upload artifact
@@ -1193,10 +1262,14 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Build and Check Source Tarball
         run: |
           rm -rf zig-out/dist
-          nix develop -c zig build distcheck -Demit-lib-vt=true
+          nix develop -c zig build distcheck -Demit-lib-vt=true --system ${{ steps.deps.outputs.deps }}
 
       - name: Verify tarball size
         run: |
@@ -1330,9 +1403,9 @@ jobs:
       - name: Xcode Version
         run: xcodebuild -version
 
-      - name: get the Zig deps
+      - name: Fetch the Zig dependencies using the Nix cache
         id: deps
-        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
 
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access.
@@ -1382,9 +1455,9 @@ jobs:
       - name: Xcode Version
         run: xcodebuild -version
 
-      - name: get the Zig deps
+      - name: Fetch the Zig dependencies using the Nix cache
         id: deps
-        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
 
       - name: Build with Xcode 27
         run: nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false
@@ -1422,9 +1495,9 @@ jobs:
       - name: Xcode Version
         run: xcodebuild -version
 
-      - name: get the Zig deps
+      - name: Fetch the Zig dependencies using the Nix cache
         id: deps
-        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
 
       # We run tests with an empty test filter so it runs all unit tests
       # but skips Xcode tests
@@ -1470,11 +1543,15 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: test
-        run: nix develop -c zig build -Dapp-runtime=none test
+        run: nix develop -c zig build -Dapp-runtime=none test --system ${{ steps.deps.outputs.deps }}
 
       - name: Test GTK Build
-        run: nix develop -c zig build -Dapp-runtime=gtk -Demit-docs -Demit-webdata
+        run: nix develop -c zig build -Dapp-runtime=gtk -Demit-docs -Demit-webdata --system ${{ steps.deps.outputs.deps }}
 
         # NOTE: This used to point to the Zig global cache directory before
         # 0.16.0. Now, the cache directory exclusively stores "minified"
@@ -1498,7 +1575,7 @@ jobs:
         # it disables fetching altogether (even, seemingly, from the local
         # cache).
       - name: Test System Build
-        run: nix develop -c zig build --system "$(realpath zig-pkg)"
+        run: nix develop -c zig build --system "$(realpath zig-pkg)" --system ${{ steps.deps.outputs.deps }}
 
   test-lib-vt:
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
@@ -1527,11 +1604,15 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Test
-        run: nix develop -c zig build test-lib-vt
+        run: nix develop -c zig build test-lib-vt --system ${{ steps.deps.outputs.deps }}
 
       - name: Validate native ABI manifest
-        run: nix develop -c zig build test-lib-vt-schema
+        run: nix develop -c zig build test-lib-vt-schema ${{ steps.deps.outputs.deps }}
 
   # Runs esctest against libghostty-vt. Report-only: many tests fail today,
   # so this never fails and isn't in the required checks. See
@@ -1564,9 +1645,13 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Run esctest
         working-directory: test/esctest
-        run: nix develop -c zig build run > esctest.log || true
+        run: nix develop -c zig build run --system ${{ steps.deps.outputs.deps }} > esctest.log || true
 
       - name: Summarize
         if: always()
@@ -1651,6 +1736,10 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Test
         run: |
           nix develop -c \
@@ -1658,6 +1747,7 @@ jobs:
             -Dapp-runtime=gtk \
             -Dgtk-x11=${{ matrix.x11 }} \
             -Dgtk-wayland=${{ matrix.wayland }} \
+            --system ${{ steps.deps.outputs.deps }} \
             test
 
       - name: Build
@@ -1666,7 +1756,8 @@ jobs:
             zig build \
             -Dapp-runtime=gtk \
             -Dgtk-x11=${{ matrix.x11 }} \
-            -Dgtk-wayland=${{ matrix.wayland }}
+            -Dgtk-wayland=${{ matrix.wayland }} \
+            --system ${{ steps.deps.outputs.deps }}
 
   test-simd:
     strategy:
@@ -1699,9 +1790,13 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Test
         run: |
-          nix develop -c zig build test -Dsimd=${{ matrix.simd }}
+          nix develop -c zig build test -Dsimd=${{ matrix.simd }} --system ${{ steps.deps.outputs.deps }}
 
   test-sentry-linux:
     strategy:
@@ -1734,9 +1829,13 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Test Sentry Build
         run: |
-          nix develop -c zig build -Dsentry=${{ matrix.sentry }}
+          nix develop -c zig build -Dsentry=${{ matrix.sentry }} --system ${{ steps.deps.outputs.deps }}
 
   test-macos:
     runs-on: namespace-profile-ghostty-macos-tahoe
@@ -1771,9 +1870,9 @@ jobs:
       - name: Xcode Version
         run: xcodebuild -version
 
-      - name: get the Zig deps
+      - name: Fetch the Zig dependencies using the Nix cache
         id: deps
-        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
 
       - name: test
         run: nix develop -c zig build test --system ${{ steps.deps.outputs.deps }}
@@ -1809,9 +1908,13 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: Test
         run: |
-          nix develop -c zig build -Di18n=${{ matrix.i18n }}
+          nix develop -c zig build -Di18n=${{ matrix.i18n }} --system ${{ steps.deps.outputs.deps }}
 
   test-fuzz-libghostty:
     name: Build test/fuzz-libghostty
@@ -2217,6 +2320,10 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Fetch the Zig dependencies using the Nix cache
+        id: deps
+        run: echo "deps=$(nix build --no-link --print-out-paths .#deps)" >> $GITHUB_OUTPUT
+
       - name: valgrind deps
         run: |
           sudo apt update -y
@@ -2224,7 +2331,7 @@ jobs:
 
       - name: valgrind
         run: |
-          nix develop -c zig build test-valgrind
+          nix develop -c zig build test-valgrind --system ${{ steps.deps.outputs.deps }}
 
   # build-freebsd:
   #   name: Build on FreeBSD
