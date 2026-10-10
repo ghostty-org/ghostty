@@ -392,6 +392,12 @@ types:
       JavaScript target implements those operations with signed 32-bit values.
       All values remain exact because the registry occupies only 43 bits,
       within JavaScript's 53-bit safe integer range.
+
+      The alt_screen_legacy, alt_screen and alt_screen_save_cursor_clear_enter
+      instances are meaningful only in saved_modes, where XTSAVE recorded
+      which screen was active; current_modes and default_modes hold zero.
+      The save_cursor instance is never read or written in any of the three sets.
+      All four come from active_screen_key and the named screen's saved_cursor.
     seq:
       - id: raw
         type: u8

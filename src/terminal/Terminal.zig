@@ -4784,6 +4784,114 @@ test "Terminal: setTitle accepts its current value" {
     try testing.expectEqualStrings("Ghostty", t.getTitle().?);
 }
 
+/// Get a mode's effective value.
+///
+/// Some modes are answered from terminal state and can never
+/// contradict it. Every other mode is answered from its value.
+pub fn getMode(self: *const Terminal, mode: modespkg.Mode) bool {
+    return switch (mode) {
+        // All three read the active screen.
+        .alt_screen_legacy,
+        .alt_screen,
+        .alt_screen_save_cursor_clear_enter,
+        => self.screens.active_key == .alternate,
+
+        // Whether a cursor is saved on the active screen.
+        .save_cursor => self.screens.active.saved_cursor != null,
+
+        else => self.modes.get(mode),
+    };
+}
+
+/// Get a mode's state report.
+///
+/// Some modes are reported from terminal state and can never
+/// contradict it. Every other mode is reported from its value.
+pub fn modeReport(self: *const Terminal, mode: modespkg.Mode) modespkg.Report {
+    const report = self.modes.getReport(.fromMode(mode));
+
+    // Only a set or reset state can be replaced.
+    if (report.state == .set or report.state == .reset) {
+        return .{
+            .tag = report.tag,
+            .state = if (self.getMode(mode)) .set else .reset,
+        };
+    }
+
+    return report;
+}
+
+/// For some modes, a save captures terminal state or performs
+/// an action (e.g. saves the cursor position). For normal modes
+/// it captures the mode's value.
+pub fn saveMode(self: *Terminal, mode: modespkg.Mode) void {
+    switch (mode) {
+        // One saved value for all three, taken from the active screen.
+        // We have three bits rather than one XTSAVE slot, so write the
+        // same answer to each: whichever mode restores later reads it.
+        .alt_screen_legacy,
+        .alt_screen,
+        .alt_screen_save_cursor_clear_enter,
+        => {
+            const alternate = self.screens.active_key == .alternate;
+            self.modes.saved.alt_screen_legacy = alternate;
+            self.modes.saved.alt_screen = alternate;
+            self.modes.saved.alt_screen_save_cursor_clear_enter = alternate;
+        },
+
+        // Saves the cursor, not a mode value. Its XTRESTORE restores the
+        // cursor to match, so neither direction touches the mode's value.
+        .save_cursor => self.saveCursor(),
+
+        else => self.modes.save(mode),
+    }
+}
+
+/// What a restore does depends on the mode. Null is returned when
+/// the mode's restore logic has been applied. A value is returned
+/// to hand it over to perform DECSET or DECRST for this mode.
+pub fn restoreMode(self: *Terminal, mode: modespkg.Mode) !?bool {
+    switch (mode) {
+        .alt_screen_legacy,
+        .alt_screen,
+        .alt_screen_save_cursor_clear_enter,
+        => {
+            // All three saved bits say whether the alternate screen was
+            // active when XTSAVE ran, so reading any of these is enough.
+            const saved = switch (mode) {
+                .alt_screen_legacy => self.modes.saved.alt_screen_legacy,
+                .alt_screen => self.modes.saved.alt_screen,
+                .alt_screen_save_cursor_clear_enter => self.modes.saved.alt_screen_save_cursor_clear_enter,
+                else => unreachable,
+            };
+
+            // Restore the screen that was active when XTSAVE ran.
+            const to: ScreenSet.Key = if (saved) .alternate else .primary;
+            const old = try self.switchScreen(to) orelse return null;
+
+            // A restore only switches buffers. Copy the cursor
+            // for each of these modes, in either direction.
+            self.screens.active.cursorCopy(old.cursor, .{
+                .hyperlink = false,
+            }) catch |err| {
+                log.warn(
+                    "cursor copy failed restoring alt screen mode err={}",
+                    .{err},
+                );
+            };
+        },
+
+        .save_cursor => self.restoreCursor(),
+
+        // Leave the write to the set path so it can see the change.
+        .synchronized_output => return self.modes.saved.synchronized_output,
+
+        else => return self.modes.restore(mode),
+    }
+
+    return null;
+}
+
 /// Switch to the given screen type (alternate or primary).
 ///
 /// This does NOT handle behaviors such as clearing the screen,
@@ -4961,6 +5069,14 @@ pub const SwitchScreenMode = enum {
     /// primary screen.
     @"1049",
 };
+
+/// Save the cursor on DECSET, restore it on DECRST.
+pub fn saveCursorMode(self: *Terminal, enabled: bool) void {
+    // Mode 1048 is xterm's conditional save cursor depending on whether
+    // the alternate screen is allowed (via mode 1046 and `titeInhibit`).
+    // For us, the alternate screen is always allowed.
+    if (enabled) self.saveCursor() else self.restoreCursor();
+}
 
 /// Return the current string value of the terminal. Newlines are
 /// encoded as "\n". This omits any formatting such as fg/bg.
@@ -16849,6 +16965,109 @@ test "Terminal: mode 1049 alt screen plain" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("", str);
     }
+}
+
+// See ghostty-org/ghostty#14199.
+test "Terminal: modeReport answers the alternate screen modes from the active screen" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    const alt_screen_modes = [_]modespkg.Mode{
+        .alt_screen_legacy,
+        .alt_screen,
+        .alt_screen_save_cursor_clear_enter,
+    };
+
+    // Enter with one mode and leave with another.
+    // All three have to follow the active screen.
+    try t.switchScreenMode(.@"47", true);
+    for (alt_screen_modes) |mode| {
+        try testing.expectEqual(.set, t.modeReport(mode).state);
+    }
+
+    try t.switchScreenMode(.@"1049", false);
+    for (alt_screen_modes) |mode| {
+        try testing.expectEqual(.reset, t.modeReport(mode).state);
+    }
+}
+
+test "Terminal: modeReport answers mode 1048 from the saved cursor" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    try testing.expectEqual(.reset, t.modeReport(.save_cursor).state);
+
+    t.saveCursor(); // DECSC
+    try testing.expectEqual(.set, t.modeReport(.save_cursor).state);
+
+    // The alternate screen has its own saved cursor.
+    _ = try t.switchScreen(.alternate);
+    try testing.expectEqual(.reset, t.modeReport(.save_cursor).state);
+}
+
+test "Terminal: saving one alternate screen mode is read back by all three" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    // xterm keeps a single slot for the three, taken from the active
+    // screen, so a save through one of them is read back by any of them.
+    try t.switchScreenMode(.@"47", true);
+    t.saveMode(.alt_screen_legacy);
+    try t.switchScreenMode(.@"47", false);
+
+    for ([_]modespkg.Mode{
+        .alt_screen_legacy,
+        .alt_screen,
+        .alt_screen_save_cursor_clear_enter,
+    }) |mode| {
+        try testing.expectEqual(.primary, t.screens.active_key);
+        try testing.expectEqual(@as(?bool, null), try t.restoreMode(mode));
+        try testing.expectEqual(.alternate, t.screens.active_key);
+        _ = try t.switchScreen(.primary);
+    }
+}
+
+// See ghostty-org/ghostty#14199.
+test "Terminal: restoring an alternate screen mode only moves the buffer" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    try t.switchScreenMode(.@"1049", true);
+    try t.printString("alt");
+
+    // Save while the alternate screen is up, then leave it.
+    t.saveMode(.alt_screen_save_cursor_clear_enter);
+    try t.switchScreenMode(.@"1049", false);
+    try testing.expectEqual(.primary, t.screens.active_key);
+
+    // Setting 1049 erases the screen on entry. Restoring it must not:
+    // the content that was on the alternate screen is still there.
+    try testing.expectEqual(@as(?bool, null), try t.restoreMode(
+        .alt_screen_save_cursor_clear_enter,
+    ));
+    try testing.expectEqual(.alternate, t.screens.active_key);
+
+    const str = try t.plainString(alloc);
+    defer alloc.free(str);
+    try testing.expectEqualStrings("alt", str);
+}
+
+test "Terminal: saving and restoring mode 1048 moves the cursor" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    t.setCursorPos(3, 4);
+    t.saveMode(.save_cursor);
+    t.setCursorPos(1, 1);
+
+    try testing.expectEqual(@as(?bool, null), try t.restoreMode(.save_cursor));
+    try testing.expectEqual(@as(size.CellCountInt, 3), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 2), t.screens.active.cursor.y);
 }
 
 // Reproduces a crash found by AFL++ fuzzer (afl-out/stream/default/crashes/
