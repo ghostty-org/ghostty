@@ -865,21 +865,27 @@ palette: Palette = .{},
 /// make it difficult to find the cursor.
 @"cursor-opacity": f64 = 1.0,
 
-/// The style of the cursor. This sets the default style. A running program can
-/// still request an explicit cursor style using escape sequences (such as `CSI
-/// q`). Shell configurations will often request specific cursor styles.
+/// The style of the cursor.
 ///
-/// Note that shell integration will automatically set the cursor to a bar at
-/// a prompt, regardless of this configuration. You can disable that behavior
-/// by specifying `shell-integration-features = no-cursor` or disabling shell
-/// integration entirely.
+/// **Default:** `block`
 ///
-/// Valid values are:
+/// **Values:**
 ///
-///   * `block`
-///   * `bar`
-///   * `underline`
-///   * `block_hollow`
+/// * `block` — A filled block cursor.
+/// * `bar` — A vertical bar cursor.
+/// * `underline` — A horizontal line beneath the cell.
+/// * `block_hollow` — A block outline with an empty center.
+///
+/// **Platforms:** ghostty
+///
+/// **Details:** This sets the default style. Running programs can request a
+/// different cursor style with escape sequences such as `CSI q`, and shell
+/// configurations may also request a specific style.
+///
+/// Shell integration sets the cursor to a bar at prompts regardless of this
+/// option. To disable that behavior, set
+/// `shell-integration-features = no-cursor` or disable shell integration
+/// entirely.
 @"cursor-style": terminal.CursorStyle = .block,
 
 /// Sets the default blinking state of the cursor. This is just the default
@@ -986,28 +992,42 @@ palette: Palette = .{},
 
 /// Multiplier for scrolling distance with the mouse wheel.
 ///
-/// A prefix of `precision:` or `discrete:` can be used to set the multiplier
-/// only for scrolling with the specific type of devices. These can be
-/// comma-separated to set both types of multipliers at the same time, e.g.
-/// `precision:0.1,discrete:3`. If no prefix is used, the multiplier applies
-/// to all scrolling devices. Specifying a prefix was introduced in Ghostty
-/// 1.2.1.
+/// **Default:** `precision:1,discrete:3`
 ///
-/// The value will be clamped to [0.01, 10,000]. Both of these are extreme
-/// and you're likely to have a bad experience if you set either extreme.
+/// **Syntax:**
 ///
-/// The default value is "3" for discrete devices and "1" for precision devices.
+/// * A number in the range [0.01, 10,000] applying to both device types.
+/// * `precision:<number>` applying to precision devices, such as
+///   trackpads. **Since:** 1.2.1.
+/// * `discrete:<number>` applying to devices with discrete scroll steps,
+///   such as mouse wheels. **Since:** 1.2.1.
+///
+/// **Platforms:** macOS, GTK
+///
+/// **Details:** Both limits are extreme and are likely to make scrolling
+/// difficult to use.
+///
+/// **Changed in:** 1.2.1 added precision-device support and the
+/// `precision:` and `discrete:` prefixes.
 @"mouse-scroll-multiplier": MouseScrollMultiplier = .default,
 
-/// The opacity level (opposite of transparency) of the background. A value of
-/// 1 is fully opaque and a value of 0 is fully transparent. A value less than 0
-/// or greater than 1 will be clamped to the nearest valid value.
+/// The opacity level (opposite of transparency) of the background.
 ///
-/// On macOS, background opacity is disabled when the terminal enters native
-/// fullscreen. This is because the background becomes gray and it can cause
-/// widgets to show through which isn't generally desirable.
+/// **Default:** `1`
 ///
-/// On macOS, changing this configuration requires restarting Ghostty completely.
+/// **Values:**
+///
+/// * A number in the range [0, 1], from full transparent to fully opaque.
+///
+/// **Platforms:** macOS, GTK
+///
+/// **Changes:** On macOS, changing this option requires a complete restart
+/// of Ghostty.
+///
+/// **Details:** On macOS, background opacity is disabled when a terminal
+/// enters native fullscreen. The background would otherwise become gray and
+/// might allow widgets to show through.
+///
 @"background-opacity": f64 = 1.0,
 
 /// Applies background opacity to cells with an explicit background color
@@ -2104,58 +2124,40 @@ keybind: Keybinds = .{},
 /// configuration `font-size` will be used.
 @"window-inherit-font-size": bool = true,
 
-/// Configure a preference for window decorations. This setting specifies
-/// a _preference_; the actual OS, desktop environment, window manager, etc.
-/// may override this preference. Ghostty will do its best to respect this
-/// preference but it may not always be possible.
+/// Configure a preference for window decorations.
 ///
-/// Valid values:
+/// **Default:** `auto`
 ///
-///  * `none`
+/// **Values:**
 ///
-///    All window decorations will be disabled. Titlebar, borders, etc. will
-///    not be shown. On macOS, this will also disable tabs (enforced by the
-///    system).
+/// * `none` — Disable the titlebar, borders, and other decorations. On macOS,
+///   this also disables tabs. **Since:** 1.1.0.
+/// * `auto` — Choose client-side or server-side decorations based on the OS
+///   and desktop environment. On macOS, keep the native decorations.
+///   **Since:** 1.1.0.
+/// * `client` — Prefer client-side decorations on GTK; on macOS, keep the
+///   native decorations. **Since:** 1.1.0.
+/// * `server` — Prefer window-manager decorations on GTK. On X11, this uses
+///   window-manager hints; on Wayland, it requires a compositor supporting
+///   `org_kde_kwin_server_decoration`. On macOS, keep the native decorations.
+///   **Since:** 1.1.0.
+/// * `true` — Alias for `auto`.
+/// * `false` — Alias for `none`.
 ///
-///  * `auto`
+/// **Platforms:** macOS, GTK
 ///
-///    Automatically decide to use either client-side or server-side
-///    decorations based on the detected preferences of the current OS and
-///    desktop environment. This option usually makes Ghostty look the most
-///    "native" for your desktop.
+/// **Details:** This is a preference. The OS, desktop environment, or window
+/// manager may override it. If `server` is selected but server-side
+/// decorations are unavailable, Ghostty uses client-side decorations.
 ///
-///  * `client`
+/// The `toggle_window_decorations` keybind action toggles this setting at
+/// runtime.
 ///
-///    Prefer client-side decorations.
+/// On macOS, use `macos-titlebar-style = hidden` to hide the titlebar while
+/// retaining the native window borders and rounded corners.
 ///
-///    Available since: 1.1.0
-///
-///  * `server`
-///
-///    Prefer server-side decorations. This is only relevant on Linux with GTK,
-///    either on X11, or Wayland on a compositor that supports the
-///    `org_kde_kwin_server_decoration` protocol (e.g. KDE Plasma, but almost
-///    any non-GNOME desktop supports this protocol).
-///
-///    If `server` is set but the environment doesn't support server-side
-///    decorations, client-side decorations will be used instead.
-///
-///    Available since: 1.1.0
-///
-/// The default value is `auto`.
-///
-/// For the sake of backwards compatibility and convenience, this setting also
-/// accepts boolean true and false values. If set to `true`, this is equivalent
-/// to `auto`. If set to `false`, this is equivalent to `none`.
-/// This is convenient for users who live primarily on systems that don't
-/// differentiate between client and server-side decorations (e.g. macOS and
-/// Windows).
-///
-/// The "toggle_window_decorations" keybind action can be used to create
-/// a keybinding to toggle this setting at runtime.
-///
-/// macOS: To hide the titlebar without removing the native window borders
-///        or rounded corners, use `macos-titlebar-style = hidden` instead.
+/// **Changed in:** 1.1.0 added the named values and retained the former
+/// boolean values as aliases.
 @"window-decoration": WindowDecoration = .auto,
 
 /// The font that will be used for the application's window and tab titles.
@@ -3414,46 +3416,35 @@ keybind: Keybinds = .{},
 /// Available since: 1.2.0
 @"macos-window-buttons": MacWindowButtons = .visible,
 
-/// The style of the macOS titlebar. Available values are: "native",
-/// "transparent", "tabs", and "hidden".
+/// The style of the macOS titlebar.
 ///
-/// The "native" style uses the native macOS titlebar with zero customization.
-/// The titlebar will match your window theme (see `window-theme`).
+/// **Default:** `transparent`
 ///
-/// The "transparent" style is the same as "native" but the titlebar will
-/// be transparent and allow your window background color to come through.
-/// This makes a more seamless window appearance but looks a little less
-/// typical for a macOS application and may not work well with all themes.
+/// **Values:**
 ///
-/// The "transparent" style will also update in real-time to dynamic
-/// changes to the window background color, e.g. via OSC 11. To make this
-/// more aesthetically pleasing, this only happens if the terminal is
-/// a window, tab, or split that borders the top of the window. This
-/// avoids a disjointed appearance where the titlebar color changes
-/// but all the topmost terminals don't match.
+/// * `native` — Use the standard macOS titlebar, following `window-theme`.
+/// * `transparent` — Show the terminal background color through a native
+///   titlebar. This may not work well with every theme. Tracks dynamic
+///   background changes, such as OSC 11, when a terminal borders the top of
+///   the window.
+/// * `tabs` — Integrate the tab bar into a custom titlebar that matches the
+///   terminal background color. Saved tabs may not restore on macOS 13 or
+///   earlier; macOS 14 does not have this issue. Other macOS versions have
+///   not been tested.
+/// * `hidden` — Hide the titlebar while retaining the window frame and
+///   rounded corners, unlike `window-decoration = none`. Use Option-click on
+///   resizable frame areas to drag the window, since the titlebar area no
+///   longer supports dragging.
 ///
-/// The "tabs" style is a completely custom titlebar that integrates the
-/// tab bar into the titlebar. This titlebar always matches the background
-/// color of the terminal. There are some limitations to this style:
-/// On macOS 13 and below, saved window state will not restore tabs correctly.
-/// macOS 14 does not have this issue and any other macOS version has not
-/// been tested.
+/// **Platforms:** macOS
 ///
-/// The "hidden" style hides the titlebar. Unlike `window-decoration = none`,
-/// however, it does not remove the frame from the window or cause it to have
-/// squared corners. Changing to or from this option at run-time may affect
-/// existing windows in buggy ways.
+/// **Changes:** Changes apply to new windows. Switching to or from `hidden`
+/// at runtime may also affect existing windows unexpectedly.
 ///
-/// When "hidden", the top titlebar area can no longer be used for dragging
-/// the window. To drag the window, you can use option+click on the resizable
-/// areas of the frame to drag the window. This is a standard macOS behavior
-/// and not something Ghostty enables.
+/// **Details:** The `transparent` titlebar changes color only when a terminal
+/// borders the top of the window, so it does not disagree with the topmost
+/// terminals. Option-click dragging with `hidden` is standard macOS behavior.
 ///
-/// The default value is "transparent". This is an opinionated choice
-/// but its one I think is the most aesthetically pleasing and works in
-/// most cases.
-///
-/// Changing this option at runtime only applies to new windows.
 @"macos-titlebar-style": MacTitlebarStyle = .transparent,
 
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
