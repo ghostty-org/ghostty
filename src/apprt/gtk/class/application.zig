@@ -45,6 +45,7 @@ const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseCo
 const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialog;
 const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
 const OpenURI = @import("../portal.zig").OpenURI;
+const SearchProvider = @import("../search_provider.zig");
 const media = @import("../media.zig");
 const Overrides = @import("Overrides.zig");
 
@@ -229,6 +230,12 @@ pub const Application = extern struct {
         saved_language: ?[:0]const u8 = null,
 
         open_uri: OpenURI = undefined,
+
+        /// The GNOME Shell search provider. This is exported whenever we
+        /// have a D-Bus connection, but GNOME Shell can only reach it if
+        /// we also own our well-known bus name, which requires that we're
+        /// running as a single instance app.
+        search_provider: SearchProvider = .{},
 
         // The audio bell's MediaFile, reused across bells so we don't leak a
         // GStreamer pipeline (and its GL threads) on every ring. Built lazily
@@ -1564,6 +1571,53 @@ pub const Application = extern struct {
         );
     }
 
+    /// Called while GApplication registers itself on the bus, before it
+    /// tries to own our bus name. This is the documented place to export
+    /// any extra objects we want on the bus.
+    fn dbusRegister(
+        self: *Self,
+        connection: *gio.DBusConnection,
+        object_path: [*:0]const u8,
+        err: ?*?*glib.Error,
+    ) callconv(.c) c_int {
+        // Let GApplication do its own registration first. If it fails then
+        // there's no point in us doing anything.
+        const result = gio.Application.virtual_methods.dbus_register.call(
+            Class.parent,
+            self.as(Parent),
+            connection,
+            object_path,
+            err,
+        );
+        if (result == 0) return result;
+
+        // Our search provider is a nice-to-have. If we can't export it then
+        // we log it and carry on: returning false here would abort startup
+        // and leave the user with no terminal at all.
+        self.private().search_provider.register(
+            self.allocator(),
+            connection,
+            object_path,
+        ) catch |e| log.warn("unable to register search provider err={}", .{e});
+
+        return result;
+    }
+
+    fn dbusUnregister(
+        self: *Self,
+        connection: *gio.DBusConnection,
+        object_path: [*:0]const u8,
+    ) callconv(.c) void {
+        self.private().search_provider.unregister(connection);
+
+        gio.Application.virtual_methods.dbus_unregister.call(
+            Class.parent,
+            self.as(Parent),
+            connection,
+            object_path,
+        );
+    }
+
     fn dispose(self: *Self) callconv(.c) void {
         const priv = self.private();
         if (priv.config_errors_dialog.get()) |diag| {
@@ -2114,6 +2168,8 @@ pub const Application = extern struct {
 
             // Virtual methods
             gio.Application.virtual_methods.activate.implement(class, &activate);
+            gio.Application.virtual_methods.dbus_register.implement(class, &dbusRegister);
+            gio.Application.virtual_methods.dbus_unregister.implement(class, &dbusUnregister);
             gio.Application.virtual_methods.startup.implement(class, &startup);
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
             gobject.Object.virtual_methods.finalize.implement(class, &finalize);
@@ -2758,7 +2814,7 @@ const Action = struct {
         return switch (target) {
             .app => false,
             .surface => |v| surface: {
-                v.rt_surface.surface.present();
+                v.rt_surface.surface.present(0);
                 break :surface true;
             },
         };
