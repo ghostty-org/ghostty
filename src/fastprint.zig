@@ -52,7 +52,7 @@ test printDecimal {
     const u8_cases = [_]u8{ 0, 1, 9, 10, 99, 100, 255 };
     for (u8_cases) |v| {
         var expected_buf: [3]u8 = undefined;
-        const expected = std.fmt.bufPrint(&expected_buf, "{d}", .{v}) catch unreachable;
+        const expected = std.mem.print(&expected_buf, "{d}", .{v}) catch unreachable;
         const len = printDecimal(u8, &buf, v);
         try testing.expectEqualStrings(expected, buf[0..len]);
     }
@@ -61,7 +61,7 @@ test printDecimal {
     const u21_cases = [_]u21{ 0, 9, 10, 128, 65535, 1114111, std.math.maxInt(u21) };
     for (u21_cases) |v| {
         var expected_buf: [8]u8 = undefined;
-        const expected = std.fmt.bufPrint(&expected_buf, "{d}", .{v}) catch unreachable;
+        const expected = std.mem.print(&expected_buf, "{d}", .{v}) catch unreachable;
         const len = printDecimal(u21, &buf, v);
         try testing.expectEqualStrings(expected, buf[0..len]);
     }

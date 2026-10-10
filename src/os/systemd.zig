@@ -11,7 +11,7 @@ const log = std.log.scoped(.systemd);
 ///
 /// For other platforms and app runtimes, this returns false.
 pub fn launchedBySystemd() bool {
-    return switch (builtin.os.tag) {
+    return switch (builtin.target.os.tag) {
         .linux => linux: {
             // On Linux, systemd sets the `INVOCATION_ID` (v232+) and the
             // `JOURNAL_STREAM` (v231+) environment variables. If these
@@ -30,7 +30,7 @@ pub fn launchedBySystemd() bool {
             // a user systemd daemon. Do that by checking the `/proc/<ppid>/comm`
             // to see if it ends with `systemd`.
             var comm_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-            const comm_path = std.fmt.bufPrint(&comm_path_buf, "/proc/{d}/comm", .{ppid}) catch {
+            const comm_path = std.mem.print(&comm_path_buf, "/proc/{d}/comm", .{ppid}) catch {
                 log.err("unable to format comm path for pid {d}", .{ppid});
                 break :linux false;
             };
@@ -89,7 +89,7 @@ pub const notify = struct {
     /// not exist then no message is sent.
     fn send(message: []const u8) void {
         // systemd is Linux-only so this is a no-op anywhere else
-        if (comptime builtin.os.tag != .linux) return;
+        if (comptime builtin.target.os.tag != .linux) return;
 
         // Get the socket address that should receive notifications.
         const socket_path = global.environ().getPosix("NOTIFY_SOCKET") orelse return;
@@ -170,7 +170,7 @@ pub const notify = struct {
     /// Tell systemd that we are ready or that we are finished reloading.
     /// See: https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html#READY=1
     pub fn ready() void {
-        if (comptime builtin.os.tag != .linux) return;
+        if (comptime builtin.target.os.tag != .linux) return;
 
         send("READY=1");
     }
@@ -179,12 +179,12 @@ pub const notify = struct {
     /// See: https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html#RELOADING=1
     /// and: https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html#MONOTONIC_USEC=%E2%80%A6
     pub fn reloading() void {
-        if (comptime builtin.os.tag != .linux) return;
+        if (comptime builtin.target.os.tag != .linux) return;
 
         const now = std.Io.Timestamp.now(global.io(), .awake).toMicroseconds();
 
         var buffer: [64]u8 = undefined;
-        const message = std.fmt.bufPrint(&buffer, "RELOADING=1\nMONOTONIC_USEC={d}", .{now}) catch |err| {
+        const message = std.mem.print(&buffer, "RELOADING=1\nMONOTONIC_USEC={d}", .{now}) catch |err| {
             log.err("unable to format reloading message: {}", .{err});
             return;
         };
@@ -196,5 +196,5 @@ pub const notify = struct {
 fn linuxErrnoFromSyscall(r: usize) std.os.linux.E {
     const signed_r: isize = @bitCast(r);
     const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
-    return @enumFromInt(int);
+    return @fromBackingInt(@intCast(int));
 }

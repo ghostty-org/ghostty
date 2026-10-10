@@ -251,10 +251,10 @@ fn parsePackedStruct(comptime T: type, str: []const u8) T {
             }
         };
 
-        inline for (info.fields) |field| {
-            comptime assert(field.type == bool);
-            if (std.mem.eql(u8, field.name, part)) {
-                @field(result, field.name) = value;
+        inline for (info.field_names, info.field_types) |field_name, field_type| {
+            comptime assert(field_type == bool);
+            if (std.mem.eql(u8, field_name, part)) {
+                @field(result, field_name) = value;
                 continue :loop;
             }
         }

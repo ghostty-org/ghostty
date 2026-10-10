@@ -72,9 +72,9 @@ pub const Path = union(enum) {
         }
 
         if (optional)
-            return .{ .optional = try arena_alloc.dupeZ(u8, value) }
+            return .{ .optional = try arena_alloc.dupeSentinel(u8, value, 0) }
         else
-            return .{ .required = try arena_alloc.dupeZ(u8, value) };
+            return .{ .required = try arena_alloc.dupeSentinel(u8, value, 0) };
     }
 
     /// Parse CLI option.
@@ -97,7 +97,7 @@ pub const Path = union(enum) {
     pub fn formatEntry(self: *const Path, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
         const value = switch (self.*) {
-            .optional => |path| std.fmt.bufPrint(
+            .optional => |path| std.mem.print(
                 &buf,
                 "?{s}",
                 .{path},
@@ -122,10 +122,10 @@ pub const Path = union(enum) {
     ) Allocator.Error!Path {
         return switch (self) {
             .optional => |path| .{
-                .optional = try arena_alloc.dupeZ(u8, path),
+                .optional = try arena_alloc.dupeSentinel(u8, path, 0),
             },
             .required => |path| .{
-                .required = try arena_alloc.dupeZ(u8, path),
+                .required = try arena_alloc.dupeSentinel(u8, path, 0),
             },
         };
     }
@@ -162,7 +162,7 @@ pub const Path = union(enum) {
         // because we don't support alternate users such as "~alice/"
         if (std.mem.startsWith(u8, path, "~/")) expand: {
             // Windows isn't supported yet
-            if (comptime builtin.os.tag == .windows) break :expand;
+            if (comptime builtin.target.os.tag == .windows) break :expand;
 
             var environ_map = try global.environMap();
             defer environ_map.deinit();
@@ -174,8 +174,7 @@ pub const Path = union(enum) {
                 &buf,
             ) catch |err| {
                 try diags.append(arena_alloc, .{
-                    .message = try std.fmt.allocPrintSentinel(
-                        arena_alloc,
+                    .message = try arena_alloc.printSentinel(
                         "error expanding home directory for path {s}: {}",
                         .{ path, err },
                         0,
@@ -195,7 +194,7 @@ pub const Path = union(enum) {
             );
 
             switch (self.*) {
-                .optional, .required => |*p| p.* = try arena_alloc.dupeZ(u8, expanded),
+                .optional, .required => |*p| p.* = try arena_alloc.dupeSentinel(u8, expanded, 0),
             }
 
             return;
@@ -216,8 +215,7 @@ pub const Path = union(enum) {
                 }
 
                 try diags.append(arena_alloc, .{
-                    .message = try std.fmt.allocPrintSentinel(
-                        arena_alloc,
+                    .message = try arena_alloc.printSentinel(
                         "error resolving file path {s}: {}",
                         .{ path, err },
                         0,
@@ -239,7 +237,7 @@ pub const Path = union(enum) {
         );
 
         switch (self.*) {
-            .optional, .required => |*p| p.* = try arena_alloc.dupeZ(u8, abs),
+            .optional, .required => |*p| p.* = try arena_alloc.dupeSentinel(u8, abs, 0),
         }
     }
 
@@ -417,7 +415,7 @@ pub const RepeatablePath = struct {
         var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
         for (self.value.items) |item| {
             const value = switch (item) {
-                .optional => |path| std.fmt.bufPrint(
+                .optional => |path| std.mem.print(
                     &buf,
                     "?{s}",
                     .{path},

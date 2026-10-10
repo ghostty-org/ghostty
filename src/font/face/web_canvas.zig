@@ -300,8 +300,7 @@ pub const Face = struct {
         }
 
         // Set our context font
-        const font_val = try std.fmt.allocPrint(
-            self.alloc,
+        const font_val = try self.alloc.print(
             "{d}px {s}",
             .{ self.size.points, self.font_str },
         );
@@ -399,9 +398,9 @@ pub const Face = struct {
             try self.canvas.set("width", width);
             try self.canvas.set("height", height);
 
-            const width_str = try std.fmt.allocPrint(alloc, "{d}px", .{width});
+            const width_str = try alloc.print("{d}px", .{width});
             defer alloc.free(width_str);
-            const height_str = try std.fmt.allocPrint(alloc, "{d}px", .{height});
+            const height_str = try alloc.print("{d}px", .{height});
             defer alloc.free(height_str);
 
             const style = try self.canvas.get(js.Object, "style");
@@ -500,7 +499,7 @@ pub const Wasm = struct {
             alloc,
             ptr[0..len],
             .{ .points = pts },
-            @enumFromInt(presentation),
+            @fromBackingInt(presentation),
         );
         errdefer face.deinit();
 

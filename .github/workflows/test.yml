@@ -152,7 +152,7 @@ jobs:
           exit 1
 
   build-bench:
-    # We build benchmarks on large because it uses ReleaseFast
+    # We build benchmarks on large because it uses fast mode
     runs-on: namespace-profile-ghostty-lg
     needs: test
     env:
@@ -713,14 +713,14 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-      - name: Build ReleaseFast WASM
+      - name: Build fast WASM
         run: |
           nix develop -c zig build \
             -Demit-lib-vt \
             -Dtarget=wasm32-freestanding \
-            -Doptimize=ReleaseFast
+            -Doptimize=fast
 
-      - name: Optimize ReleaseFast WASM
+      - name: Optimize fast WASM
         run: |
           nix develop -c wasm-opt -O3 --strip-dwarf \
             --enable-simd \
@@ -1075,7 +1075,7 @@ jobs:
         run: nix build .#ghostty-releasefast
 
       - name: Check version
-        run: result/bin/ghostty +version | grep -q '.ReleaseFast'
+        run: result/bin/ghostty +version | grep -q '.fast'
 
       - name: Check to see if the binary has been stripped
         run: nm result/bin/.ghostty-wrapped 2>&1 | grep -q 'no symbols'
@@ -1084,12 +1084,12 @@ jobs:
         run: nix build .#ghostty-debug
 
       - name: Check version
-        run: result/bin/ghostty +version | grep -q '.Debug'
+        run: result/bin/ghostty +version | grep -q '.debug'
 
       - name: Check to see if the binary has not been stripped
         run: nm result/bin/.ghostty-wrapped 2>&1 | grep -q 'main_ghostty.main'
 
-      - name: Test ReleaseFast build of libghostty-vt
+      - name: Test fast build of libghostty-vt
         run: |
           nix build .#libghostty-vt-releasefast
           nix build .#libghostty-vt-releasefast.tests.sanity-check
@@ -1098,7 +1098,7 @@ jobs:
           nix build .#libghostty-vt-releasefast.tests.build-with-static
           nix build .#libghostty-vt-releasefast.tests.build-example-c-vt-build-info
 
-      - name: Test ReleaseFast (no SIMD) build of libghostty-vt
+      - name: Test fast (no SIMD) build of libghostty-vt
         run: |
           nix build .#libghostty-vt-releasefast-no-simd
           nix build .#libghostty-vt-releasefast-no-simd.tests.sanity-check
@@ -1107,7 +1107,7 @@ jobs:
           nix build .#libghostty-vt-releasefast-no-simd.tests.build-with-static
           nix build .#libghostty-vt-releasefast-no-simd.tests.build-example-c-vt-build-info
 
-      - name: Test Debug build of libghostty-vt
+      - name: Test debug build of libghostty-vt
         run: |
           nix build .#libghostty-vt-debug
           nix build .#libghostty-vt-debug.tests.sanity-check
@@ -1116,7 +1116,7 @@ jobs:
           nix build .#libghostty-vt-debug.tests.build-with-static
           nix build .#libghostty-vt-debug.tests.build-example-c-vt-build-info
 
-      - name: Test Debug (no SIMD) build of libghostty-vt
+      - name: Test debug (no SIMD) build of libghostty-vt
         run: |
           nix build .#libghostty-vt-debug-no-simd
           nix build .#libghostty-vt-debug-no-simd.tests.sanity-check
@@ -1261,7 +1261,7 @@ jobs:
   #         name: ghostty
   #         authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-  #     - name: Test ReleaseFast build of libghostty-vt
+  #     - name: Test fast build of libghostty-vt
   #       run: |
   #         nix build .#libghostty-vt-releasefast
   #         nix build .#libghostty-vt-releasefast.tests.sanity-check
@@ -1270,7 +1270,7 @@ jobs:
   #         nix build .#libghostty-vt-releasefast.tests.build-with-static
   #         nix build .#libghostty-vt-releasefast.tests.build-example-c-vt-build-info
 
-  #     - name: Test ReleaseFast (no SIMD) build of libghostty-vt
+  #     - name: Test fast (no SIMD) build of libghostty-vt
   #       run: |
   #         nix build .#libghostty-vt-releasefast-no-simd
   #         nix build .#libghostty-vt-releasefast-no-simd.tests.sanity-check
@@ -1279,7 +1279,7 @@ jobs:
   #         nix build .#libghostty-vt-releasefast-no-simd.tests.build-with-static
   #         nix build .#libghostty-vt-releasefast-no-simd.tests.build-example-c-vt-build-info
 
-  #     - name: Test Debug build of libghostty-vt
+  #     - name: Test debug build of libghostty-vt
   #       run: |
   #         nix build .#libghostty-vt-debug
   #         nix build .#libghostty-vt-debug.tests.sanity-check
@@ -1288,7 +1288,7 @@ jobs:
   #         nix build .#libghostty-vt-debug.tests.build-with-static
   #         nix build .#libghostty-vt-debug.tests.build-example-c-vt-build-info
 
-  #     - name: Test Debug (no SIMD) build of libghostty-vt
+  #     - name: Test debug (no SIMD) build of libghostty-vt
   #       run: |
   #         nix build .#libghostty-vt-debug-no-simd
   #         nix build .#libghostty-vt-debug-no-simd.tests.sanity-check
@@ -1430,7 +1430,7 @@ jobs:
       # but skips Xcode tests
       - name: Test All
         run: |
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_freetype -Dtest-filter=""
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} --release=fast -Drenderer=metal -Dfont-backend=coretext_freetype -Dtest-filter=""
 
       - name: Build All
         run: |
@@ -1776,7 +1776,7 @@ jobs:
         run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
 
       - name: test
-        run: nix develop -c zig build test --system ${{ steps.deps.outputs.deps }}
+        run: nix develop -c zig build test --release=fast --system ${{ steps.deps.outputs.deps }}
 
   test-i18n:
     strategy:
@@ -1840,23 +1840,12 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-      - name: Install AFL++ and LLVM
-        run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y afl++ llvm
-
-      - name: Verify AFL++ and LLVM are available
-        run: |
-          afl-cc --version
-          if command -v llvm-config >/dev/null 2>&1; then
-            llvm-config --version
-          else
-            llvm-config-18 --version
-          fi
+      - name: Verify AFL++ is available
+        run: nix develop .#fuzz -c afl-cc --version
 
       - name: Build fuzzer harness
         run: |
-          nix develop -c sh -c 'cd test/fuzz-libghostty && zig build'
+          nix develop .#fuzz -c sh -c 'cd test/fuzz-libghostty && zig build'
 
   zig-fmt:
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true' && needs.skip.outputs.zig == 'true'

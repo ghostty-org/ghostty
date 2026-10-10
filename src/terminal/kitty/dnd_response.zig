@@ -66,7 +66,7 @@ pub fn encode(
 ) std.Io.Writer.Error!void {
     // The client ID is part of the repeated header.
     var id_buf: [16]u8 = undefined;
-    const id: []const u8 = if (client_id != 0) std.fmt.bufPrint(
+    const id: []const u8 = if (client_id != 0) std.mem.print(
         &id_buf,
         ":i={d}",
         .{client_id},
@@ -121,7 +121,7 @@ pub fn encodeError(
     terminator: Terminator,
 ) std.Io.Writer.Error!void {
     var header_buf: [64]u8 = undefined;
-    const header = std.fmt.bufPrint(&header_buf, "t={c}{f}", .{
+    const header = std.mem.print(&header_buf, "t={c}{f}", .{
         @as(u8, switch (kind) {
             .drop => 'R',
             .drag => 'E',
@@ -132,7 +132,7 @@ pub fn encodeError(
     // Description strings are short static messages; size the buffer
     // for the longest error name plus a generous description.
     var payload_buf: [256]u8 = undefined;
-    const payload = if (desc.len > 0) std.fmt.bufPrint(
+    const payload = if (desc.len > 0) std.mem.print(
         &payload_buf,
         "{t}:{s}",
         .{ errno, desc },
@@ -176,7 +176,7 @@ test "encode: base64 payload chunking" {
     defer aw.deinit();
 
     // Exactly one byte more than a chunk to force two chunks.
-    const data = [_]u8{'A'} ** (max_chunk_raw + 1);
+    const data: [max_chunk_raw + 1]u8 = @splat('A');
     try encode(&aw.writer, "t=r:x=1", 3, &data, .base64, .st);
 
     const out = aw.written();
@@ -234,15 +234,15 @@ test "RequestKeys: only non-zero keys written" {
     var buf: [64]u8 = undefined;
 
     {
-        const s = try std.fmt.bufPrint(&buf, "{f}", .{RequestKeys{}});
+        const s = try std.mem.print(&buf, "{f}", .{RequestKeys{}});
         try testing.expectEqualStrings("", s);
     }
     {
-        const s = try std.fmt.bufPrint(&buf, "{f}", .{RequestKeys{ .x = 1, .y = 2, .Y = 3 }});
+        const s = try std.mem.print(&buf, "{f}", .{RequestKeys{ .x = 1, .y = 2, .Y = 3 }});
         try testing.expectEqualStrings(":x=1:y=2:Y=3", s);
     }
     {
-        const s = try std.fmt.bufPrint(&buf, "{f}", .{RequestKeys{ .Y = 4 }});
+        const s = try std.mem.print(&buf, "{f}", .{RequestKeys{ .Y = 4 }});
         try testing.expectEqualStrings(":Y=4", s);
     }
 }

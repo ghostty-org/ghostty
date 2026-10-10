@@ -209,11 +209,11 @@ test "decode no escape" {
 
     // TODO: many more test cases
     {
-        const str = "hello" ** 128;
+        const str: [128 * 5]u8 = std.simd.repeat(128 * 5, "hello".*);
         try testing.expectEqual(DecodeResult{
             .consumed = str.len,
             .decoded = str.len,
-        }, utf8DecodeUntilControlSeq(str, &output));
+        }, utf8DecodeUntilControlSeq(&str, &output));
     }
 }
 
@@ -224,8 +224,9 @@ test "decode ASCII to escape" {
 
     // TODO: many more test cases
     {
-        const prefix = "hello" ** 64;
-        const str = prefix ++ "\x1b" ++ ("world" ** 64);
+        const prefix: [64 * 5]u8 = std.simd.repeat(64 * 5, "hello".*);
+        const payload: [64 * 5]u8 = std.simd.repeat(64 * 5, "world".*);
+        const str = prefix ++ "\x1b" ++ payload;
         try testing.expectEqual(DecodeResult{
             .consumed = prefix.len,
             .decoded = prefix.len,

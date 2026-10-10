@@ -56,7 +56,7 @@ pub fn distResources(b: *std.Build) struct {
     } else {
         if (b.lazyDependency("zlib", .{
             .target = b.graph.host,
-            .optimize = .ReleaseFast,
+            .optimize = .fast,
         })) |zlib_dep| {
             exe.root_module.linkLibrary(zlib_dep.artifact("z"));
         }

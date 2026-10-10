@@ -21,7 +21,7 @@ pub fn fmtScope(buf: []u8, pid: u32) [:0]const u8 {
 
     assert(buf.len >= fmt.len - 2 + std.math.log10_int(@as(usize, std.math.maxInt(@TypeOf(pid)))) + 1);
 
-    return std.fmt.bufPrintZ(buf, fmt, .{pid}) catch unreachable;
+    return std.mem.printSentinel(buf, fmt, .{pid}, 0) catch unreachable;
 }
 
 /// Create a transient systemd scope unit for the given process and

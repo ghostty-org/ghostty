@@ -77,11 +77,11 @@ const PipelineDescription = struct {
 
 /// We create a type for the pipeline collection based on our desc array.
 const PipelineCollection = t: {
-    const StructField = std.builtin.Type.StructField;
-
     var names: [pipeline_descs.len][]const u8 = undefined;
-    var types = [_]type{Pipeline} ** pipeline_descs.len;
-    var attrs = [_]StructField.Attributes{.{ .@"align" = @alignOf(Pipeline) }} ** pipeline_descs.len;
+    var types: [pipeline_descs.len]type = @splat(Pipeline);
+    var attrs: [pipeline_descs.len]std.lang.Type.Struct.FieldAttributes = @splat(.{
+        .@"align" = @alignOf(Pipeline),
+    });
 
     for (pipeline_descs, &names) |pipeline, *name| {
         name.* = pipeline[0];
@@ -198,7 +198,7 @@ pub const Uniforms = extern struct {
 
     /// The projection matrix for turning world coordinates to normalized.
     /// This is calculated based on the size of the screen.
-    projection_matrix: math.Mat align(16),
+    projection_matrix: [4][4]f32 align(16),
 
     /// Size of the screen (render target) in pixels.
     screen_size: [2]f32 align(8),

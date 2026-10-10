@@ -26,14 +26,14 @@ const testing = std.testing;
 test "OSC unknown: prefix state names are the bytes consumed" {
     // beginUnknown recovers the consumed identifier from the prefix state's
     // name, so every prefix state must be reachable by feeding its name.
-    inline for (@typeInfo(Parser.State).@"enum".fields) |field| {
-        const state: Parser.State = @enumFromInt(field.value);
+    inline for (@typeInfo(Parser.State).@"enum".field_names, @typeInfo(Parser.State).@"enum".field_values) |field, field_value| {
+        const state: Parser.State = @fromBackingInt(field_value);
         switch (state) {
             .start, .invalid, .unknown, .unknown_truncated => {},
             else => {
                 var p: Parser = .init(null);
                 defer p.deinit();
-                for (field.name) |ch| p.next(ch);
+                for (field) |ch| p.next(ch);
                 try testing.expectEqual(state, p.state);
             },
         }

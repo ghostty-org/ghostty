@@ -472,7 +472,7 @@ fn actionColor(action: input.Action) u32 {
 /// Generate a consistent color for a key based on its enum value.
 /// Uses HSV color space with fixed saturation and value for pleasing colors.
 fn keyColor(key: input.Key) u32 {
-    const key_int: u32 = @intCast(@intFromEnum(key));
+    const key_int: u32 = @intCast(@backingInt(key));
     const hue: f32 = @as(f32, @floatFromInt(key_int *% 47)) / 256.0;
     return hsvToRgba(hue, 0.5, 0.9, 1.0);
 }

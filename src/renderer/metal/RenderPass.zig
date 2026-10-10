@@ -80,7 +80,7 @@ pub fn begin(
 
             attachment.setProperty(
                 "loadAction",
-                @intFromEnum(@as(
+                @backingInt(@as(
                     mtl.MTLLoadAction,
                     if (at.clear_color != null)
                         .clear
@@ -90,7 +90,7 @@ pub fn begin(
             );
             attachment.setProperty(
                 "storeAction",
-                @intFromEnum(mtl.MTLStoreAction.store),
+                @backingInt(mtl.MTLStoreAction.store),
             );
             attachment.setProperty("texture", switch (at.target) {
                 .texture => |t| t.texture.value,
@@ -214,7 +214,7 @@ pub fn step(self: *const Self, s: Step) void {
         void,
         objc.sel("drawPrimitives:vertexStart:vertexCount:instanceCount:"),
         .{
-            @intFromEnum(s.draw.type),
+            @backingInt(s.draw.type),
             @as(c_ulong, 0),
             @as(c_ulong, s.draw.vertex_count),
             @as(c_ulong, s.draw.instance_count),

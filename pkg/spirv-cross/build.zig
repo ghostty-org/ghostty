@@ -48,7 +48,7 @@ fn buildSpirvCross(
     b: *std.Build,
     module: *std.Build.Module,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
 ) !*std.Build.Step.Compile {
     const lib = b.addLibrary(.{
         .name = "spirv_cross",

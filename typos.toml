@@ -53,6 +53,8 @@ extend-ignore-re = [
   # Ignore Apple four char codes
   'code="[A-Za-z]{4,8}"',
   '"[A-Za-z]{4}"\.fourCharCode',
+  # Ignore a truncated function signature in an imported patch hunk header
+  "@@ .*processReplace.* proces",
 ]
 
 [default.extend-words]

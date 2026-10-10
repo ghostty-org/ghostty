@@ -16,7 +16,7 @@ pub const winsize = extern struct {
     ws_ypixel: u16 = 600,
 };
 
-pub const Pty = switch (builtin.os.tag) {
+pub const Pty = switch (builtin.target.os.tag) {
     .windows => WindowsPty,
     .ios => NullPty,
     else => PosixPty,
@@ -271,7 +271,7 @@ const PosixPty = struct {
     pub fn getProcessInfo(self: *PosixPty, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
         return switch (info) {
             .foreground_pid => {
-                switch (builtin.os.tag) {
+                switch (builtin.target.os.tag) {
                     .linux => {
                         const linux = std.os.linux;
                         var pgrp: i32 = undefined;
@@ -291,7 +291,7 @@ const PosixPty = struct {
             .tty_name => {
                 if (self.tty_name) |tty_name| return tty_name;
 
-                switch (builtin.os.tag) {
+                switch (builtin.target.os.tag) {
                     .macos => {
                         // The macOS TIOCPTYGNAME ioctl does not allow us to
                         // specify the length of the buffer passed to it, but
@@ -346,13 +346,14 @@ const WindowsPty = struct {
 
         var pipe_path_buf: [128]u8 = undefined;
         var pipe_path_buf_w: [128]u16 = undefined;
-        const pipe_path = std.fmt.bufPrintZ(
+        const pipe_path = std.mem.printSentinel(
             &pipe_path_buf,
             "\\\\.\\pipe\\LOCAL\\ghostty-pty-{d}-{d}",
             .{
                 windows.GetCurrentProcessId(),
                 pipe_name_counter.fetchAdd(1, .monotonic),
             },
+            0,
         ) catch unreachable;
 
         const pipe_path_w_len = std.unicode.utf8ToUtf16Le(
@@ -510,7 +511,7 @@ test {
     try pty.setSize(ws);
     try testing.expectEqual(ws, try pty.getSize());
 
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .freebsd => try testing.expect(std.mem.startsWith(u8, pty.getProcessInfo(.tty_name).?, "/dev/")),
         .linux => try testing.expect(std.mem.startsWith(u8, pty.getProcessInfo(.tty_name).?, "/dev/pts/")),
         .macos => try testing.expect(std.mem.startsWith(u8, pty.getProcessInfo(.tty_name).?, "/dev/")),

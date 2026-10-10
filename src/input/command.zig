@@ -32,8 +32,8 @@ pub const Command = struct {
     pub fn clone(self: *const Command, alloc: Allocator) Allocator.Error!Command {
         return .{
             .action = try self.action.clone(alloc),
-            .title = try alloc.dupeZ(u8, self.title),
-            .description = try alloc.dupeZ(u8, self.description),
+            .title = try alloc.dupeSentinel(u8, self.title, 0),
+            .description = try alloc.dupeSentinel(u8, self.description, 0),
         };
     }
 
@@ -98,15 +98,15 @@ pub const defaults: []const Command = defaults: {
     @setEvalBranchQuota(100_000);
 
     var count: usize = 0;
-    for (@typeInfo(Action.Key).@"enum".fields) |field| {
-        const action = @field(Action.Key, field.name);
+    for (@typeInfo(Action.Key).@"enum".field_names) |field| {
+        const action = @field(Action.Key, field);
         count += actionCommands(action).len;
     }
 
     var result: [count]Command = undefined;
     var i: usize = 0;
-    for (@typeInfo(Action.Key).@"enum".fields) |field| {
-        const action = @field(Action.Key, field.name);
+    for (@typeInfo(Action.Key).@"enum".field_names) |field| {
+        const action = @field(Action.Key, field);
         const commands = actionCommands(action);
         for (commands) |cmd| {
             result[i] = cmd;

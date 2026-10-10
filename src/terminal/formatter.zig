@@ -172,7 +172,7 @@ pub const PinMap = struct {
             alloc: Allocator,
             node: Node,
         ) Allocator.Error!void {
-            if (self.nodes.getLastOrNull()) |last| {
+            if (self.nodes.last()) |last| {
                 if (last.node == node) return;
             }
 
@@ -410,13 +410,13 @@ pub const TerminalFormatter = struct {
         // simplicity we just emit them all before. If we make this more complex
         // later we should add test cases for it.
         if (self.opts.emit == .vt and self.extra.modes) {
-            inline for (@typeInfo(modespkg.Mode).@"enum".fields) |field| {
-                const mode: modespkg.Mode = @enumFromInt(field.value);
+            inline for (@typeInfo(modespkg.Mode).@"enum".field_names, @typeInfo(modespkg.Mode).@"enum".field_values) |field, field_value| {
+                const mode: modespkg.Mode = @fromBackingInt(field_value);
                 const current = self.terminal.modes.get(mode);
-                const default_val = @field(self.terminal.modes.default, field.name);
+                const default_val = @field(self.terminal.modes.default, field);
 
                 if (current != default_val) {
-                    const tag: modespkg.ModeTag = @bitCast(@intFromEnum(mode));
+                    const tag: modespkg.ModeTag = @bitCast(@backingInt(mode));
                     const prefix = if (tag.ansi) "" else "?";
                     const suffix = if (current) "h" else "l";
                     try writer.print("\x1b[{s}{d}{s}", .{ prefix, tag.value, suffix });

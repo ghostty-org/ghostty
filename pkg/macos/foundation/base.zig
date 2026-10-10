@@ -13,7 +13,17 @@ pub const Range = extern struct {
     length: c.CFIndex,
 
     pub fn init(loc: usize, len: usize) Range {
-        return @bitCast(c.CFRangeMake(@intCast(loc), @intCast(len)));
+        return .{
+            .location = @intCast(loc),
+            .length = @intCast(len),
+        };
+    }
+
+    pub fn cval(self: Range) c.CFRange {
+        return .{
+            .location = self.location,
+            .length = self.length,
+        };
     }
 };
 

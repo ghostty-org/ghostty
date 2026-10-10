@@ -126,7 +126,7 @@ fn diffAtlas(
     const ref_file = std.Io.Dir.cwd().openFile(io, ref_path, .{ .mode = .read_only }) catch |err| {
         log.err("Can't open reference file {s}: {}", .{ ref_path, err });
 
-        const test_path = try std.fmt.allocPrint(alloc, "{s}/glyf_rasterize_test.png", .{cwd_absolute});
+        const test_path = try alloc.print("{s}/glyf_rasterize_test.png", .{cwd_absolute});
         defer alloc.free(test_path);
         try std.Io.Dir.copyFileAbsolute(generated_path, test_path, io, .{});
         return true;
@@ -137,7 +137,7 @@ fn diffAtlas(
 
     if (std.mem.eql(u8, generated_bytes, ref_bytes)) return false;
 
-    const test_path = try std.fmt.allocPrint(alloc, "{s}/glyf_rasterize_test.png", .{cwd_absolute});
+    const test_path = try alloc.print("{s}/glyf_rasterize_test.png", .{cwd_absolute});
     defer alloc.free(test_path);
     try std.Io.Dir.copyFileAbsolute(generated_path, test_path, io, .{});
 
@@ -295,7 +295,7 @@ test "glyf_rasterize: bubbletea glyph protocol examples match reference image" {
     const tmp_dir = try dir.dir.realPathFileAlloc(testing.io, ".", alloc);
     defer alloc.free(tmp_dir);
 
-    const generated_path = try std.fmt.allocPrint(alloc, "{s}/glyf_rasterize.png", .{tmp_dir});
+    const generated_path = try alloc.print("{s}/glyf_rasterize.png", .{tmp_dir});
     defer alloc.free(generated_path);
     try z2d.png_exporter.writeToPNGFile(testing.io, atlas, generated_path, .{});
 

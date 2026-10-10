@@ -106,7 +106,7 @@ fn stepNoop(ptr: *anyopaque) Benchmark.Error!void {
 extern "c" fn wcwidth(c: u32) c_int;
 
 fn stepWcwidth(ptr: *anyopaque) Benchmark.Error!void {
-    if (comptime builtin.os.tag == .windows) {
+    if (comptime builtin.target.os.tag == .windows) {
         log.warn("wcwidth is not available on Windows", .{});
         return;
     }

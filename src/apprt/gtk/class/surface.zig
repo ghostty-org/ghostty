@@ -753,7 +753,7 @@ pub const Surface = extern struct {
         priv.overrides = .{
             .command = if (overrides.command) |c| c.clone(alloc) catch null else null,
             .shell_integration = overrides.shell_integration,
-            .working_directory = if (overrides.working_directory) |wd| alloc.dupeZ(u8, wd) catch null else null,
+            .working_directory = if (overrides.working_directory) |wd| alloc.dupeSentinel(u8, wd, 0) catch null else null,
         };
         return self;
     }
@@ -981,7 +981,7 @@ pub const Surface = extern struct {
         switch (value) {
             .activate => |name| {
                 // Duplicate the name string and push onto stack
-                const duped = try alloc.dupeZ(u8, name);
+                const duped = try alloc.dupeSentinel(u8, name, 0);
                 errdefer alloc.free(duped);
                 try priv.key_tables.append(alloc, duped);
             },
@@ -1189,14 +1189,12 @@ pub const Surface = extern struct {
             };
             const title = std.mem.span(title_);
             const body = body: {
-                const exit_code = value.exit_code orelse break :body std.fmt.allocPrintSentinel(
-                    alloc,
+                const exit_code = value.exit_code orelse break :body alloc.printSentinel(
                     "Command took {f}.",
                     .{value.duration.round(std.time.ns_per_ms)},
                     0,
                 ) catch break :notify;
-                break :body std.fmt.allocPrintSentinel(
-                    alloc,
+                break :body alloc.printSentinel(
                     "Command took {f} and exited with code {d}.",
                     .{ value.duration.round(std.time.ns_per_ms), exit_code },
                     0,
@@ -3545,13 +3543,14 @@ pub const Surface = extern struct {
         var buf: [32]u8 = undefined;
         priv.resize_overlay.setLabel(text: {
             const grid_size = surface.size.grid();
-            break :text std.fmt.bufPrintZ(
+            break :text std.mem.printSentinel(
                 &buf,
                 "{d} x {d}",
                 .{
                     grid_size.columns,
                     grid_size.rows,
                 },
+                0,
             ) catch |err| err: {
                 log.warn("unable to format text: {}", .{err});
                 break :err "";

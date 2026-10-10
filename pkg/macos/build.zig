@@ -40,7 +40,7 @@ fn includeFiles(b: *std.Build, tag: Framework.Tag) ![]translate_c.Options.Includ
     for (frameworks) |framework| {
         if (tag != .macos and framework.tag == .macos) continue;
         for (framework.headers) |h| {
-            const path = try std.fmt.allocPrint(b.allocator, "{s}/{s}", .{ framework.name, h });
+            const path = try b.allocator.print("{s}/{s}", .{ framework.name, h });
             includes_builder.appendAssumeCapacity(.{ .path = path });
         }
     }

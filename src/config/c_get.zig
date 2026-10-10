@@ -105,17 +105,17 @@ fn getValue(ptr_raw: *anyopaque, value: anytype) bool {
 /// Get a value from the config by key.
 fn fieldByKey(self: *const Config, comptime k: Key) Value(k) {
     const field = comptime field: {
-        const fields = std.meta.fields(Config);
-        for (fields) |field| {
-            if (@field(Key, field.name) == k) {
-                break :field field;
+        const fields = @typeInfo(Config).@"struct".field_names;
+        for (fields) |field_name| {
+            if (@field(Key, field_name) == k) {
+                break :field field_name;
             }
         }
 
         unreachable;
     };
 
-    return @field(self, field.name);
+    return @field(self, field);
 }
 
 test "c_get: u8" {

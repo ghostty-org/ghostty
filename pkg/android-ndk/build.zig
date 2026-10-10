@@ -90,14 +90,18 @@ pub fn addPaths(b: *std.Build, step: *std.Build.Step.Compile) !void {
             "v1",
         });
 
+        // Every field must be present as a key; Zig 0.17's parser errors
+        // on missing keys regardless of target, and requires `cc_dir` to
+        // be non-empty for Linux targets (Android included).
         const libc_txt = b.fmt(
             \\include_dir={s}
             \\sys_include_dir={s}
+            \\cc_dir={s}
             \\crt_dir={s}
             \\msvc_lib_dir=
             \\kernel32_lib_dir=
-            \\gcc_dir=
-        , .{ include_dir, sys_include_dir, c_runtime_dir });
+            \\darwin_sdk_dir=
+        , .{ include_dir, sys_include_dir, c_runtime_dir, c_runtime_dir });
 
         const wf = b.addWriteFiles();
         const libc_path = wf.add("libc.txt", libc_txt);
@@ -136,13 +140,13 @@ fn findNDKPath(b: *std.Build) ?[]const u8 {
 
     // As a fallback, we assume the most common/default SDK path based on the OS.
     const home = b.graph.environ_map.get(
-        if (builtin.os.tag == .windows) "LOCALAPPDATA" else "HOME",
+        if (builtin.target.os.tag == .windows) "LOCALAPPDATA" else "HOME",
     ) orelse return null;
 
     const default_sdk_path = b.pathJoin(
         &.{
             home,
-            switch (builtin.os.tag) {
+            switch (builtin.target.os.tag) {
                 .linux, .windows => "Android/Sdk",
                 .macos => "Library/Android/Sdk",
                 else => return null,
@@ -182,7 +186,7 @@ fn findLatestNDK(b: *std.Build, sdk_path: []const u8) ?[]const u8 {
 }
 
 fn hostTag() ?[]const u8 {
-    return switch (builtin.os.tag) {
+    return switch (builtin.target.os.tag) {
         .linux => "linux-x86_64",
         // All darwin hosts use the same prebuilt binaries
         // (https://developer.android.com/ndk/guides/other_build_systems).

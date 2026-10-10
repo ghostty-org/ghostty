@@ -179,7 +179,7 @@ fn dataRequest(
             }
 
             var header_buf: [32]u8 = undefined;
-            const header = std.fmt.bufPrint(
+            const header = std.mem.print(
                 &header_buf,
                 "t=r{f}",
                 .{keys},
@@ -687,7 +687,7 @@ pub const State = struct {
         }
 
         var header_buf: [96]u8 = undefined;
-        const header = std.fmt.bufPrint(
+        const header = std.mem.print(
             &header_buf,
             "t={c}:x={d}:y={d}:X={d}:Y={d}:o={d}",
             .{

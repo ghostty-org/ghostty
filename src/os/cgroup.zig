@@ -11,7 +11,7 @@ pub fn current(buf: []u8, pid: u32) ?[]const u8 {
     // line. The first line will look something like this:
     // 0::/user.slice/user-1000.slice/session-1.scope
     // The cgroup path is the third field.
-    const path = std.fmt.bufPrint(&path_buf, "/proc/{}/cgroup", .{pid}) catch return null;
+    const path = std.mem.print(&path_buf, "/proc/{}/cgroup", .{pid}) catch return null;
     const file = std.Io.Dir.openFileAbsolute(global.io(), path, .{}) catch return null;
     defer file.close(global.io());
 

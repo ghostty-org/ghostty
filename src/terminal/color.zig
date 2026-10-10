@@ -15,7 +15,7 @@ pub const default: Palette = default: {
     // Named values
     var i: u8 = 0;
     while (i < 16) : (i += 1) {
-        result[i] = Name.default(@enumFromInt(i)) catch unreachable;
+        result[i] = Name.default(@fromBackingInt(i)) catch unreachable;
     }
 
     // Cube
@@ -145,7 +145,7 @@ pub fn paletteCvalSlice(src: []const RGB, dst: []RGB.C) void {
 
     // For CPUs that are LE, we can do some clever byte shuffling
     // with vectorization to do a 4-to-3 conversion.
-    if (comptime builtin.cpu.arch.endian() == .little) {
+    if (comptime builtin.target.cpu.arch.endian() == .little) {
         // Process 4 entries at a time: one 16-byte load, one byte
         // shuffle dropping the padding byte of each entry, and one
         // 16-byte store. The store intentionally overlaps the next
@@ -193,7 +193,7 @@ pub fn paletteZval(palette: *const PaletteC) Palette {
 }
 
 /// Mask that can be used to set which palette indexes were set.
-pub const PaletteMask = std.StaticBitSet(@typeInfo(Palette).array.len);
+pub const PaletteMask = std.bit_set.Static(@typeInfo(Palette).array.len);
 
 /// Generate the 256-color palette from the user's base16 theme colors,
 /// terminal background, and terminal foreground.
@@ -340,7 +340,7 @@ pub const DynamicPalette = struct {
     pub const default: DynamicPalette = .{
         .current = colorpkg.default,
         .original = &colorpkg.default,
-        .mask = .initEmpty(),
+        .mask = .empty,
     };
 
     /// Initialize a dynamic palette with a default palette. The result
@@ -372,7 +372,7 @@ pub const DynamicPalette = struct {
     /// Reset all colors to their original values.
     pub fn resetAll(self: *DynamicPalette) void {
         self.current = self.original.*;
-        self.mask = .initEmpty();
+        self.mask = .empty;
     }
 
     /// Change the default palette, but preserve the changed values.
@@ -488,7 +488,7 @@ pub const Name = enum(u8) {
     pub const C = u8;
 
     pub fn cval(self: Name) C {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     /// Default colors for tagged values.
@@ -533,7 +533,7 @@ pub const Special = enum(u3) {
         // number of colors (e.g., 88 or 256) to these codes in an
         // OSC 4  control" - xterm ctlseqs
         const max = @typeInfo(Palette).array.len;
-        return @as(u16, @intCast(@intFromEnum(self))) + max;
+        return @as(u16, @intCast(@backingInt(self))) + max;
     }
 
     test "osc4" {
@@ -571,7 +571,7 @@ pub const Dynamic = enum(u5) {
     /// "Each successive parameter changes the next color in the list.  The
     /// value of Ps tells the starting point in the list."
     pub fn next(self: Dynamic) ?Dynamic {
-        return std.enums.fromInt(Dynamic, @intFromEnum(self) + 1);
+        return std.enums.fromInt(Dynamic, @backingInt(self) + 1);
     }
 
     test "next" {
@@ -977,7 +977,7 @@ test "palette: default" {
     // Safety check
     var i: u8 = 0;
     while (i < 16) : (i += 1) {
-        try testing.expectEqual(Name.default(@as(Name, @enumFromInt(i))), default[i]);
+        try testing.expectEqual(Name.default(@as(Name, @fromBackingInt(i))), default[i]);
     }
 }
 
@@ -1261,7 +1261,7 @@ test "generate256Color: base16 preserved" {
 
     const bg = RGB{ .r = 0, .g = 0, .b = 0 };
     const fg = RGB{ .r = 255, .g = 255, .b = 255 };
-    const palette = generate256Color(default, .initEmpty(), bg, fg, false);
+    const palette = generate256Color(default, .empty, bg, fg, false);
 
     // The first 16 colors (base16) must remain unchanged.
     for (0..16) |i| {
@@ -1274,7 +1274,7 @@ test "generate256Color: cube corners match base colors" {
 
     const bg = RGB{ .r = 0, .g = 0, .b = 0 };
     const fg = RGB{ .r = 255, .g = 255, .b = 255 };
-    const palette = generate256Color(default, .initEmpty(), bg, fg, false);
+    const palette = generate256Color(default, .empty, bg, fg, false);
 
     // Index 16 is cube (0,0,0) which should equal bg.
     try testing.expectEqual(bg, palette[16]);
@@ -1290,13 +1290,13 @@ test "generate256Color: cube corners black/white with harmonious=false" {
     const white = RGB{ .r = 255, .g = 255, .b = 255 };
 
     // Dark theme: bg=black, fg=white.
-    const dark = generate256Color(default, .initEmpty(), black, white, false);
+    const dark = generate256Color(default, .empty, black, white, false);
     try testing.expectEqual(black, dark[16]);
     try testing.expectEqual(white, dark[231]);
 
     // Light theme: bg=white, fg=black. The bg/red swap ensures
     // the cube still runs from black (16) to white (231).
-    const light = generate256Color(default, .initEmpty(), white, black, false);
+    const light = generate256Color(default, .empty, white, black, false);
     try testing.expectEqual(black, light[16]);
     try testing.expectEqual(white, light[231]);
 }
@@ -1309,7 +1309,7 @@ test "generate256Color: light theme cube corners with harmonious=true" {
 
     // harmonious=true skips the bg/fg swap, so the cube preserves the
     // original orientation: (0,0,0)=bg=white, (5,5,5)=fg=black.
-    const palette = generate256Color(default, .initEmpty(), white, black, true);
+    const palette = generate256Color(default, .empty, white, black, true);
     try testing.expectEqual(white, palette[16]);
     try testing.expectEqual(black, palette[231]);
 }
@@ -1319,7 +1319,7 @@ test "generate256Color: grayscale ramp monotonic luminance" {
 
     const bg = RGB{ .r = 0, .g = 0, .b = 0 };
     const fg = RGB{ .r = 255, .g = 255, .b = 255 };
-    const palette = generate256Color(default, .initEmpty(), bg, fg, false);
+    const palette = generate256Color(default, .empty, bg, fg, false);
 
     // The grayscale ramp (232–255) should have monotonically increasing
     // luminance from near-black to near-white.
@@ -1338,7 +1338,7 @@ test "generate256Color: skip mask preserves original colors" {
     const fg = RGB{ .r = 255, .g = 255, .b = 255 };
 
     // Mark a few indices as skipped; they should keep their base value.
-    var skip: PaletteMask = .initEmpty();
+    var skip: PaletteMask = .empty;
     skip.set(20);
     skip.set(100);
     skip.set(240);
@@ -1359,8 +1359,8 @@ test "generate256Color: dark theme harmonious has no effect" {
     // the output because the inversion is only relevant for light themes.
     const bg = RGB{ .r = 0, .g = 0, .b = 0 };
     const fg = RGB{ .r = 255, .g = 255, .b = 255 };
-    const normal = generate256Color(default, .initEmpty(), bg, fg, false);
-    const harmonious = generate256Color(default, .initEmpty(), bg, fg, true);
+    const normal = generate256Color(default, .empty, bg, fg, false);
+    const harmonious = generate256Color(default, .empty, bg, fg, true);
 
     for (16..256) |i| {
         try testing.expectEqual(normal[i], harmonious[i]);
@@ -1374,8 +1374,8 @@ test "generate256Color: light theme harmonious skips inversion" {
     // bg/red swap, producing different cube colors than harmonious=false.
     const bg = RGB{ .r = 255, .g = 255, .b = 255 };
     const fg = RGB{ .r = 0, .g = 0, .b = 0 };
-    const inverted = generate256Color(default, .initEmpty(), bg, fg, false);
-    const harmonious = generate256Color(default, .initEmpty(), bg, fg, true);
+    const inverted = generate256Color(default, .empty, bg, fg, false);
+    const harmonious = generate256Color(default, .empty, bg, fg, true);
 
     // Cube origin (0,0,0) at index 16: without harmonious, bg and red are
     // swapped so it becomes the red base; with harmonious it stays as bg.
@@ -1398,7 +1398,7 @@ test "generate256Color: light theme harmonious grayscale ramp" {
 
     // harmonious=false swaps bg/fg, so the ramp runs black→white (increasing).
     {
-        const palette = generate256Color(default, .initEmpty(), bg, fg, false);
+        const palette = generate256Color(default, .empty, bg, fg, false);
         var prev_lum: f64 = 0.0;
         for (232..256) |i| {
             const lum = palette[i].luminance();
@@ -1409,7 +1409,7 @@ test "generate256Color: light theme harmonious grayscale ramp" {
 
     // harmonious=true keeps original order, so the ramp runs white→black (decreasing).
     {
-        const palette = generate256Color(default, .initEmpty(), bg, fg, true);
+        const palette = generate256Color(default, .empty, bg, fg, true);
         var prev_lum: f64 = 1.0;
         for (232..256) |i| {
             const lum = palette[i].luminance();

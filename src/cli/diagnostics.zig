@@ -38,8 +38,8 @@ pub const Diagnostic = struct {
     pub fn clone(self: *const Diagnostic, alloc: Allocator) Allocator.Error!Diagnostic {
         return .{
             .location = try self.location.clone(alloc),
-            .key = try alloc.dupeZ(u8, self.key),
-            .message = try alloc.dupeZ(u8, self.message),
+            .key = try alloc.dupeSentinel(u8, self.key, 0),
+            .message = try alloc.dupeSentinel(u8, self.message, 0),
         };
     }
 };
@@ -121,7 +121,7 @@ pub const DiagnosticList = struct {
             try result.messages.ensureTotalCapacity(alloc, self.messages.items.len);
             for (self.messages.items) |msg| {
                 result.messages.appendAssumeCapacity(
-                    try alloc.dupeZ(u8, msg),
+                    try alloc.dupeSentinel(u8, msg, 0),
                 );
             }
             return result;

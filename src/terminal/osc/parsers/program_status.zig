@@ -583,12 +583,12 @@ test "OSC 7501: ids" {
     var p: Parser = .init(testing.allocator);
     defer p.deinit();
 
-    const max_segment = "a" ** max_id_segment_bytes;
+    const max_segment: [max_id_segment_bytes]u8 = @splat('a');
     const valid = [_][]const u8{
         "a",
         "build/test",
         "A-Z_0.9+",
-        max_segment,
+        &max_segment,
         "a/b/c/d/e/f/g/h",
     };
     for (valid) |id| {
@@ -598,6 +598,9 @@ test "OSC 7501: ids" {
         const report = p.end('\x1b').?.program_status.report;
         try testing.expectEqualStrings(id, report.readOption(.id).?);
     }
+
+    const long: [31]u8 = @splat('a');
+    const longs: [128]u8 = std.simd.repeat(128, long ++ "/".*);
 
     // An invalid id discards the report so that it can never fall back
     // to the root record.
@@ -611,7 +614,7 @@ test "OSC 7501: ids" {
         "a=b",
         max_segment ++ "a",
         "a/b/c/d/e/f/g/h/i",
-        ("a" ** 31 ++ "/") ** 4 ++ "a",
+        longs ++ "a",
     };
     for (invalid) |id| {
         p.reset();
@@ -675,8 +678,10 @@ test "OSC 7501: discarded reports" {
 
     // 192 bytes of title and 2048 bytes of message are the most allowed.
     // "QUFB" decodes to "AAA" and "QUE" to "AA".
-    const title = "QUFB" ** (max_title_encoded_bytes / 4);
-    const msg = "QUFB" ** (max_msg_bytes / 3) ++ "QUE";
+    @setEvalBranchQuota(4096);
+    const title: [max_title_encoded_bytes]u8 = std.simd.repeat(max_title_encoded_bytes, "QUFB".*);
+    const main: [max_msg_bytes / 3 * 4]u8 = std.simd.repeat(max_msg_bytes / 3 * 4, "QUFB".*);
+    const msg = main ++ "QUE";
     const fill = max_sequence_bytes - "\x1b]7501;state=idle:".len - "\x1b\\".len;
 
     const cases = [_]struct { []const u8, bool }{
@@ -688,22 +693,22 @@ test "OSC 7501: discarded reports" {
         .{ "7501;state=IDLE", false },
 
         // A key that is too long, even one we don't know.
-        .{ "7501;state=idle:" ++ "a" ** max_key_bytes ++ "=1", true },
-        .{ "7501;state=idle:" ++ "a" ** (max_key_bytes + 1) ++ "=1", false },
+        .{ "7501;state=idle:" ++ @as([max_key_bytes]u8, @splat('a')) ++ "=1", true },
+        .{ "7501;state=idle:" ++ @as([max_key_bytes + 1]u8, @splat('a')) ++ "=1", false },
 
         // An app that is too long, even if a later pair replaces it.
-        .{ "7501;state=idle:app=" ++ "a" ** (max_app_bytes + 1), false },
-        .{ "7501;state=idle:app=" ++ "a" ** (max_app_bytes + 1) ++ ":app=ok", false },
+        .{ "7501;state=idle:app=" ++ @as([max_app_bytes + 1]u8, @splat('a')), false },
+        .{ "7501;state=idle:app=" ++ @as([max_app_bytes + 1]u8, @splat('a')) ++ ":app=ok", false },
 
         // Text at its limits and one step over.
         .{ "7501;state=idle:title=" ++ title, true },
         .{ "7501;state=idle:title=" ++ title ++ "QUFB", false },
         .{ "7501;state=idle:msg=" ++ msg, true },
-        .{ "7501;state=idle:msg=" ++ "QUFB" ** (max_msg_bytes / 3 + 1), false },
+        .{ "7501;state=idle:msg=" ++ main ++ "QUFB", false },
 
         // The whole sequence, including the terminator.
-        .{ "7501;state=idle:" ++ "x" ** fill, true },
-        .{ "7501;state=idle:" ++ "x" ** (fill + 1), false },
+        .{ "7501;state=idle:" ++ @as([fill]u8, @splat('x')), true },
+        .{ "7501;state=idle:" ++ @as([fill + 1]u8, @splat('x')), false },
 
         // Numbers that only start like 7501.
         .{ "75;state=idle", false },

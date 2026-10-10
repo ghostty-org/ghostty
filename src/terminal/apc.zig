@@ -28,7 +28,7 @@ pub const Handler = struct {
 
     /// Protocols recognized by this APC handler. When a protocol is absent,
     /// matching APC sequences are ignored and are not reported as unknown.
-    enabled: std.EnumSet(Protocol) = .initFull(),
+    enabled: std.EnumSet(Protocol) = .full,
 
     pub fn deinit(self: *Handler) void {
         self.state.deinit();

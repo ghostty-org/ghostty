@@ -290,8 +290,7 @@ fn runInner(
 
     // Build the full argv: [ssh, ...our opts, ...user args]
     const env_opts: []const []const u8 = if (opts.@"forward-env") env_opts: {
-        const set_term = try std.fmt.allocPrint(
-            alloc,
+        const set_term = try alloc.print(
             "SetEnv=TERM={s}",
             .{session.term},
         );
@@ -472,13 +471,13 @@ fn parseDestination(alloc: Allocator, stdout: []const u8) ?[]const u8 {
     }
 
     if (port.len == 0 or std.mem.eql(u8, port, "22")) {
-        return std.fmt.allocPrint(alloc, "{s}@{s}", .{ user, host }) catch null;
+        return alloc.print("{s}@{s}", .{ user, host }) catch null;
     }
 
     if (std.mem.indexOfScalar(u8, host, ':') != null) {
-        return std.fmt.allocPrint(alloc, "{s}@[{s}]:{s}", .{ user, host, port }) catch null;
+        return alloc.print("{s}@[{s}]:{s}", .{ user, host, port }) catch null;
     }
-    return std.fmt.allocPrint(alloc, "{s}@{s}:{s}", .{ user, host, port }) catch null;
+    return alloc.print("{s}@{s}:{s}", .{ user, host, port }) catch null;
 }
 
 /// Install Ghostty's terminfo on the remote host over a short-lived SSH
@@ -499,8 +498,7 @@ fn installRemoteTerminfo(
     // limits sockaddr_un.sun_path to ~104 bytes, so keeping the path
     // short leaves margin.
     const control_path = try internal_os.randomTmpPath(alloc, "ghostty-ssh-");
-    const control_path_opt = try std.fmt.allocPrint(
-        alloc,
+    const control_path_opt = try alloc.print(
         "ControlPath={s}",
         .{control_path},
     );
@@ -569,7 +567,7 @@ fn childExec(argv: []const []const u8) !u8 {
     const term = try child.wait(global.io());
     return switch (term) {
         .exited => |rc| rc,
-        .signal => |sig| @as(u8, 128) + @as(u8, @intCast(@min(@intFromEnum(sig), 127))),
+        .signal => |sig| @as(u8, 128) + @as(u8, @intCast(@min(@backingInt(sig), 127))),
         .stopped, .unknown => 1,
     };
 }

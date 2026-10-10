@@ -30,7 +30,7 @@ pub const Line = opaque {
         self: *Line,
         opts: LineBoundsOptions,
     ) graphics.Rect {
-        return @bitCast(c.CTLineGetBoundsWithOptions(
+        return .fromC(c.CTLineGetBoundsWithOptions(
             @ptrCast(self),
             @bitCast(opts),
         ));

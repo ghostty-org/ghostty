@@ -34,7 +34,7 @@ const Io = std.Io;
 /// True if this platform has a real TinyIo implementation. On
 /// unsupported platforms `io()` still works but every operation fails
 /// like `std.Io.failing`.
-pub const supported: bool = switch (builtin.os.tag) {
+pub const supported: bool = switch (builtin.target.os.tag) {
     .wasi, .freestanding, .other, .uefi => false,
     else => true,
 };
@@ -154,13 +154,13 @@ const vtable: Io.VTable = if (!supported) std.Io.failing.vtable.* else .{
     .processSetCurrentDir = Io.failingProcessSetCurrentDir,
     .processSetCurrentPath = Io.failingProcessSetCurrentPath,
     .processReplace = Io.failingProcessReplace,
-    .processReplacePath = Io.failingProcessReplacePath,
     .processSpawn = Io.failingProcessSpawn,
-    .processSpawnPath = Io.failingProcessSpawnPath,
     .childWait = Io.unreachableChildWait,
     .childKill = Io.unreachableChildKill,
 
     .progressParentFile = Io.failingProgressParentFile,
+    .inheritParentDir = Io.failingInheritParentDir,
+    .inheritParentFile = Io.failingInheritParentFile,
 
     .random = Io.noRandom,
     .randomSecure = randomSecure,
@@ -176,9 +176,6 @@ const vtable: Io.VTable = if (!supported) std.Io.failing.vtable.* else .{
     .netListenUnix = Io.failingNetListenUnix,
     .netConnectUnix = Io.failingNetConnectUnix,
     .netSocketCreatePair = Io.failingNetSocketCreatePair,
-    .netSend = Io.failingNetSend,
-    .netRead = Io.failingNetRead,
-    .netWrite = Io.failingNetWrite,
     .netWriteFile = Io.failingNetWriteFile,
     .netClose = Io.unreachableNetClose,
     .netShutdown = Io.failingNetShutdown,
@@ -190,7 +187,7 @@ const vtable: Io.VTable = if (!supported) std.Io.failing.vtable.* else .{
 /// The platform arm behind the vtable. Each arm exports the same set of
 /// operations; only the selected one is ever analyzed, and `supported`
 /// gates the vtable so unsupported targets never resolve either.
-const impl = switch (builtin.os.tag) {
+const impl = switch (builtin.target.os.tag) {
     .windows => @import("tinyio/windows.zig"),
     else => @import("tinyio/posix.zig"),
 };

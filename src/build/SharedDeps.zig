@@ -1054,7 +1054,7 @@ fn gtkNgDistResourcesUncached(b: *std.Build) GtkNgResources {
         translate_c.addImportToModule(b, "adw_c", check_exe.root_module, .{
             .source = .{ .includes = .{ .files = &.{.{ .path = "adwaita.h" }} } },
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
             .link_system_libs = &.{"libadwaita-1"},
         }) catch unreachable;
 

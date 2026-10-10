@@ -8,6 +8,7 @@ const Config = @import("Config.zig");
 const LibsystemOverrideStep = @import("LibsystemOverrideStep.zig");
 const SharedDeps = @import("SharedDeps.zig");
 const LipoStep = @import("LipoStep.zig");
+const GhosttyPkgConfig = @import("GhosttyPkgConfig.zig");
 
 /// The step that generates the file.
 step: *std.Build.Step,
@@ -133,8 +134,7 @@ pub fn initShared(
                     .aarch64 => "arm64",
                     else => "x64",
                 };
-                const ucrt_lib_path = std.fmt.allocPrint(
-                    b.allocator,
+                const ucrt_lib_path = b.allocator.print(
                     "{s}\\Lib\\{s}\\ucrt\\{s}",
                     .{ w10.path, w10.version, arch_str },
                 ) catch null;
@@ -167,7 +167,7 @@ pub fn initShared(
     // it doesn't rewrite Libs: into an archive-only reference when both
     // shared and static libraries are installed. Install a dedicated
     // static module so consumers can request the archive explicitly.
-    const pcs = pkgConfigFiles(b, deps);
+    const pcs = try pkgConfigFiles(b, deps);
 
     return .{
         .step = &lib.step,
@@ -249,39 +249,22 @@ const PkgConfigFiles = struct {
 fn pkgConfigFiles(
     b: *std.Build,
     deps: *const SharedDeps,
-) PkgConfigFiles {
+) !PkgConfigFiles {
     const os_tag = deps.config.target.result.os.tag;
-    const wf = b.addWriteFiles();
+
+    const pkg_config: GhosttyPkgConfig = try .init(b, .{
+        .name = "ghostty-internal",
+        .name_static = "ghostty-internal-static",
+        .description = "Ghostty internal library (not for external use)",
+        .description_static = "Ghostty internal library, static (not for external use)",
+        .version = deps.config.version,
+        .libs = &.{b.fmt("${{libdir}}/{s}", .{sharedLibraryName(os_tag)})},
+        .libs_static = &.{b.fmt("${{libdir}}/{s}", .{staticLibraryName(os_tag)})},
+    });
 
     return .{
-        .shared = wf.add("ghostty-internal.pc", b.fmt(
-            \\prefix={s}
-            \\includedir=${{prefix}}/include
-            \\libdir=${{prefix}}/lib
-            \\
-            \\Name: ghostty-internal
-            \\URL: https://github.com/ghostty-org/ghostty
-            \\Description: Ghostty internal library (not for external use)
-            \\Version: {f}
-            \\Cflags: -I${{includedir}}
-            \\Libs: ${{libdir}}/{s}
-            \\Libs.private:
-            \\Requires.private:
-        , .{ b.install_prefix, deps.config.version, sharedLibraryName(os_tag) })),
-        .static = wf.add("ghostty-internal-static.pc", b.fmt(
-            \\prefix={s}
-            \\includedir=${{prefix}}/include
-            \\libdir=${{prefix}}/lib
-            \\
-            \\Name: ghostty-internal-static
-            \\URL: https://github.com/ghostty-org/ghostty
-            \\Description: Ghostty internal library, static (not for external use)
-            \\Version: {f}
-            \\Cflags: -I${{includedir}}
-            \\Libs: ${{libdir}}/{s}
-            \\Libs.private:
-            \\Requires.private:
-        , .{ b.install_prefix, deps.config.version, staticLibraryName(os_tag) })),
+        .shared = pkg_config.getSharedFile(),
+        .static = pkg_config.getStaticFile(),
     };
 }
 
