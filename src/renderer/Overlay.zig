@@ -66,10 +66,14 @@ surface: z2d.Surface,
 /// Cell size information so we can map grid coordinates to pixels.
 cell_size: CellSize,
 
-/// The set of available features and their configuration.
-pub const Feature = union(enum) {
-    highlight_hyperlinks,
-    semantic_prompts,
+/// Enabled debug overlays.
+pub const FeatureSet = struct {
+    highlight_hyperlinks: bool = false,
+    semantic_prompts: bool = false,
+
+    pub fn any(self: FeatureSet) bool {
+        return self.highlight_hyperlinks or self.semantic_prompts;
+    }
 };
 
 pub const InitError = Allocator.Error || error{
@@ -133,18 +137,20 @@ pub fn applyFeatures(
     self: *Overlay,
     alloc: Allocator,
     state: *const terminal.RenderState,
-    features: []const Feature,
+    features: FeatureSet,
 ) void {
-    for (features) |f| switch (f) {
-        .highlight_hyperlinks => self.highlightHyperlinks(
+    if (features.highlight_hyperlinks) {
+        self.highlightHyperlinks(
             alloc,
             state,
-        ),
-        .semantic_prompts => self.highlightSemanticPrompts(
+        );
+    }
+    if (features.semantic_prompts) {
+        self.highlightSemanticPrompts(
             alloc,
             state,
-        ),
-    };
+        );
+    }
 }
 
 /// Add rectangles around contiguous hyperlinks in the render state.

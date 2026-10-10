@@ -108,6 +108,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Allocator that can be used
         alloc: std.mem.Allocator,
 
+        /// Start and end timings for drawing the last N frames
+        frame_timings: renderer.FrameTimings = .{},
+
         /// This mutex must be held whenever any state used in `drawFrame` is
         /// being modified, and also when it's being accessed in `drawFrame`.
         draw_mutex: std.Io.Mutex = .init,
@@ -727,6 +730,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             var result: Self = .{
                 .alloc = alloc,
+                .frame_timings = .{},
                 .config = options.config,
                 .surface_mailbox = options.surface_mailbox,
                 .grid_metrics = font_critical.metrics,
@@ -1373,7 +1377,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 mouse: renderer.State.Mouse,
                 preedit: ?renderer.State.Preedit,
                 scrollbar: terminal.Scrollbar,
-                overlay_features: []const Overlay.Feature,
+                overlay_features: Overlay.FeatureSet,
             };
 
             // Update all our data as tightly as possible within the mutex.
@@ -1514,13 +1518,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     };
                 };
 
-                const overlay_features: []const Overlay.Feature = overlay: {
-                    const insp = state.inspector orelse break :overlay &.{};
-                    const renderer_info = insp.rendererInfo();
-                    break :overlay renderer_info.overlayFeatures(
-                        arena_alloc,
-                    ) catch &.{};
-                };
+                const overlay_features: Overlay.FeatureSet = if (state.inspector) |insp|
+                    insp.rendererInfo().features
+                else
+                    .{};
 
                 break :critical .{
                     .links = links,
@@ -1779,6 +1780,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Wait for a frame to be available.
             const frame = swap_chain.nextFrame();
             errdefer swap_chain.releaseFrame();
+            const frame_timing = self.frame_timings.begin(
+                std.Io.Timestamp.now(global.io(), .awake),
+            );
             // log.debug("drawing frame index={}", .{swap_chain.frame_index});
 
             // If we need to reinitialize our shaders, do so.
@@ -1874,7 +1878,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Get a frame context from the graphics API.
             var frame_ctx = try self.api.beginFrame(self, &frame.target);
-            defer frame_ctx.complete(sync);
+            defer frame_ctx.complete(sync, frame_timing);
 
             {
                 var pass = frame_ctx.renderPass(&.{.{
@@ -2014,7 +2018,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         pub fn frameCompleted(
             self: *Self,
             health: Health,
+            timing: ?renderer.FrameTimings.InFlight,
         ) void {
+            self.frame_timings.complete(timing, std.Io.Timestamp.now(global.io(), .awake));
             // If our health value hasn't changed, then we do nothing. We don't
             // do a cmpxchg here because strict atomicity isn't important.
             if (self.health.load(.seq_cst) != health) {
@@ -2526,13 +2532,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// overlay currently configured.
         fn rebuildOverlay(
             self: *Self,
-            features: []const Overlay.Feature,
+            features: Overlay.FeatureSet,
         ) Overlay.InitError!void {
             const alloc = self.alloc;
 
             // If we have no features enabled, don't build an overlay.
             // If we had a previous overlay, deallocate it.
-            if (features.len == 0) {
+            if (!features.any()) {
                 if (self.overlay) |*old| {
                     old.deinit(alloc);
                     self.overlay = null;

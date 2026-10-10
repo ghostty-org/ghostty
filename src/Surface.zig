@@ -818,6 +818,7 @@ pub fn deinit(self: *Surface) void {
 
     // We need to deinit AFTER everything is stopped, since there are
     // shared values between the two threads.
+    self.renderer.frame_timings.disable(self.alloc);
     self.renderer_thread.deinit();
     self.renderer.deinit();
     self.io_thread.deinit();
@@ -901,6 +902,9 @@ pub fn draw(self: *Surface) !void {
 pub fn activateInspector(self: *Surface) !void {
     if (self.inspector != null) return;
 
+    try self.renderer.frame_timings.enable(self.alloc);
+    errdefer self.renderer.frame_timings.disable(self.alloc);
+
     // Setup the inspector
     const ptr = try self.alloc.create(inspectorpkg.Inspector);
     errdefer self.alloc.destroy(ptr);
@@ -950,6 +954,8 @@ pub fn deactivateInspector(self: *Surface) void {
     // Notify our components we have deactivated inspector
     _ = self.renderer_thread.mailbox.push(global.io(), .{ .inspector = false }, .{ .forever = {} });
     self.queueIo(.{ .inspector = false }, .unlocked);
+
+    self.renderer.frame_timings.disable(self.alloc);
 
     // Deinit the inspector
     insp.deinit(self.alloc);
@@ -2535,7 +2541,7 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
 /// This queues a render operation with the renderer thread. The render
 /// isn't guaranteed to happen immediately but it will happen as soon as
 /// practical.
-fn queueRender(self: *Surface) !void {
+pub fn queueRender(self: *Surface) !void {
     try self.renderer_thread.wakeup.notify();
 }
 
