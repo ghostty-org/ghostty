@@ -72,7 +72,7 @@ pub fn Buffer(comptime T: type) type {
         ///
         /// If the amount of data is smaller than the buffer length, the
         /// remaining data in the buffer is left untouched.
-        pub fn sync(self: *Self, data: []const T) !void {
+        pub fn syncRetainCapacity(self: *Self, data: []const T) !void {
             // If we need more bytes than our buffer has, we need to reallocate.
             const req_bytes = data.len * @sizeOf(T);
             const avail_bytes = self.buffer.getProperty(c_ulong, "length");
@@ -92,7 +92,114 @@ pub fn Buffer(comptime T: type) type {
                 );
             }
 
-            // We can fit within the buffer so we can just replace bytes.
+            try self.setBufferData(req_bytes, data);
+        }
+
+        /// Exact-fit sync new contents to the buffer. The data is expected
+        /// to be the complete contents of the buffer. If the amount of data
+        /// is not equal to the buffer length, the buffer will be reallocated.
+        pub fn sync(self: *Self, data: []const T) !void {
+            // Prevent zero-length allocations, necessary
+            // because Metal does not allow zero-length buffers.
+            const alloc_len = @max(data.len, 1);
+
+            // If we need more bytes than our buffer has, we need to reallocate.
+            const req_bytes = alloc_len * @sizeOf(T);
+            const avail_bytes = self.buffer.getProperty(c_ulong, "length");
+
+            if (req_bytes != avail_bytes) {
+                // Deallocate previous buffer
+                self.buffer.msgSend(void, objc.sel("release"), .{});
+
+                // Allocate a new buffer with enough to hold exactly what we require.
+                self.len = alloc_len;
+                self.buffer = self.opts.device.msgSend(
+                    objc.Object,
+                    objc.sel("newBufferWithLength:options:"),
+                    .{
+                        @as(c_ulong, @intCast(self.len * @sizeOf(T))),
+                        self.opts.resource_options,
+                    },
+                );
+            }
+
+            if (data.len > 0) {
+                try self.setBufferData(req_bytes, data);
+            }
+        }
+
+        /// Like Buffer.syncRetainCapacity but takes data from an array of ArrayLists,
+        /// rather than a single array. Returns the number of items synced.
+        pub fn syncFromArrayListsRetainCapacity(self: *Self, lists: []const std.ArrayListUnmanaged(T)) !usize {
+            var total_len: usize = 0;
+            for (lists) |list| {
+                total_len += list.items.len;
+            }
+
+            // If we need more bytes than our buffer has, we need to reallocate.
+            const req_bytes = total_len * @sizeOf(T);
+            const avail_bytes = self.buffer.getProperty(c_ulong, "length");
+            if (req_bytes > avail_bytes) {
+                // Deallocate previous buffer
+                self.buffer.msgSend(void, objc.sel("release"), .{});
+
+                // Allocate a new buffer with enough to hold double what we require.
+                self.len = total_len * 2;
+                self.buffer = self.opts.device.msgSend(
+                    objc.Object,
+                    objc.sel("newBufferWithLength:options:"),
+                    .{
+                        @as(c_ulong, @intCast(self.len * @sizeOf(T))),
+                        self.opts.resource_options,
+                    },
+                );
+            }
+
+            try self.setBufferArrayLists(req_bytes, lists);
+
+            return total_len;
+        }
+
+        /// Like Buffer.sync but takes data from an array of ArrayLists,
+        /// rather than a single array. Returns the number of items synced.
+        pub fn syncFromArrayLists(self: *Self, lists: []const std.ArrayListUnmanaged(T)) !usize {
+            var total_len: usize = 0;
+            for (lists) |list| {
+                total_len += list.items.len;
+            }
+
+            // Prevent zero-length allocations, necessary because Metal
+            // does not allow zero-length buffers.
+            const alloc_len = @max(total_len, 1);
+
+            // If the buffer size does not match our data size, reallocate.
+            const req_bytes = alloc_len * @sizeOf(T);
+            const avail_bytes = self.buffer.getProperty(c_ulong, "length");
+            if (req_bytes != avail_bytes) {
+                // Deallocate previous buffer
+                self.buffer.msgSend(void, objc.sel("release"), .{});
+
+                // Allocate a new buffer with enough to hold exactly what we require.
+                self.len = alloc_len;
+                self.buffer = self.opts.device.msgSend(
+                    objc.Object,
+                    objc.sel("newBufferWithLength:options:"),
+                    .{
+                        @as(c_ulong, @intCast(self.len * @sizeOf(T))),
+                        self.opts.resource_options,
+                    },
+                );
+            }
+
+            if (total_len > 0) {
+                try self.setBufferArrayLists(req_bytes, lists);
+            }
+
+            return total_len;
+        }
+
+        /// Set the buffer data to the given data. This is a helper function that is used by sync and syncRetainCapacity.
+        fn setBufferData(self: *Self, req_bytes: usize, data: []const T) !void {
             const dst = dst: {
                 const ptr = self.buffer.msgSend(?[*]u8, objc.sel("contents"), .{}) orelse {
                     log.warn("buffer contents ptr is null", .{});
@@ -122,33 +229,9 @@ pub fn Buffer(comptime T: type) type {
             }
         }
 
-        /// Like Buffer.sync but takes data from an array of ArrayLists,
-        /// rather than a single array. Returns the number of items synced.
-        pub fn syncFromArrayLists(self: *Self, lists: []const std.ArrayListUnmanaged(T)) !usize {
-            var total_len: usize = 0;
-            for (lists) |list| {
-                total_len += list.items.len;
-            }
-
-            // If we need more bytes than our buffer has, we need to reallocate.
-            const req_bytes = total_len * @sizeOf(T);
-            const avail_bytes = self.buffer.getProperty(c_ulong, "length");
-            if (req_bytes > avail_bytes) {
-                // Deallocate previous buffer
-                self.buffer.msgSend(void, objc.sel("release"), .{});
-
-                // Allocate a new buffer with enough to hold double what we require.
-                self.len = total_len * 2;
-                self.buffer = self.opts.device.msgSend(
-                    objc.Object,
-                    objc.sel("newBufferWithLength:options:"),
-                    .{
-                        @as(c_ulong, @intCast(self.len * @sizeOf(T))),
-                        self.opts.resource_options,
-                    },
-                );
-            }
-
+        /// Set the buffer data to the given data from an array of ArrayLists.
+        /// This is a helper function that is used by syncFromArrayLists and syncFromArrayListsRetainCapacity.
+        fn setBufferArrayLists(self: *Self, req_bytes: usize, lists: []const std.ArrayListUnmanaged(T)) !void {
             // We can fit within the buffer so we can just replace bytes.
             const dst = dst: {
                 const ptr = self.buffer.msgSend(?[*]u8, objc.sel("contents"), .{}) orelse {
@@ -178,8 +261,6 @@ pub fn Buffer(comptime T: type) type {
                     .{macos.foundation.Range.init(0, req_bytes)},
                 );
             }
-
-            return total_len;
         }
     };
 }
