@@ -9,8 +9,8 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-08-10 10:06-0500\n"
-"PO-Revision-Date: 2026-03-08 20:23+0700\n"
-"Last-Translator: Mikail Muzakki <mikailmmuzakki@gmail.com>\n"
+"PO-Revision-Date: 2026-08-19 14:23+0700\n"
+"Last-Translator: Satrio Bayu Aji <halosatrio@gmail.com>\n"
 "Language-Team: Indonesian <translation-team-id@lists.sourceforge.net>\n"
 "Language: id\n"
 "MIME-Version: 1.0\n"
@@ -27,7 +27,7 @@ msgstr "Buka di Ghostty"
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
 msgid "Authorize Clipboard Access"
-msgstr "Mengesahkan akses papan klip"
+msgstr "Izinkan Akses Papan Klip"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:17
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:17
@@ -41,7 +41,7 @@ msgstr "Izinkan"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
 msgid "Remember choice for this split"
-msgstr "Ingat pilihan untuk belahan ini"
+msgstr "Ingat pilihan untuk bagian ini"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
 msgid "Reload configuration to show this prompt again"
@@ -61,7 +61,7 @@ msgstr "Tutup"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
 msgid "Configuration Errors"
-msgstr "Kesalahan konfigurasi"
+msgstr "Kesalahan Konfigurasi"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:8
 msgid ""
@@ -78,7 +78,7 @@ msgstr "Abaikan"
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:13
 #: src/apprt/gtk/ui/1.2/surface.blp:439 src/apprt/gtk/ui/1.5/window.blp:318
 msgid "Reload Configuration"
-msgstr "Muat ulang konfigurasi"
+msgstr "Muat Ulang Konfigurasi"
 
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
@@ -89,7 +89,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
 msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Inspektur terminal"
+msgstr "Ghostty: Inspektur Terminal"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
@@ -97,11 +97,11 @@ msgstr "Cari…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:69
 msgid "Previous Match"
-msgstr "Hasil sebelumnya"
+msgstr "Hasil Sebelumnya"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:79
 msgid "Next Match"
-msgstr "Hasil berikutnya"
+msgstr "Hasil Berikutnya"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Oh, no."
@@ -117,13 +117,13 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
-"Terminal ini sedang dalam model hanya baca. Anda hanya bisa melihat, "
+"Terminal ini sedang dalam model baca-saja. Anda hanya bisa melihat, "
 "memilih, dan menggulir konten, tetapi peristiwa input tidak akan dikirim ke "
 "aplikasi berjalan."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:112
 msgid "Read-only"
-msgstr "Hanya baca"
+msgstr "Baca-saja"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:316 src/apprt/gtk/ui/1.5/window.blp:203
 msgid "Copy"
@@ -135,7 +135,7 @@ msgstr "Tempel"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:326
 msgid "Notify on Next Command Finish"
-msgstr "Beri tahu saat perintah berikutnya selesai"
+msgstr "Beri Tahu saat Perintah Berikutnya Selesai"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
@@ -147,35 +147,35 @@ msgstr "Atur ulang"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split"
-msgstr "Belah"
+msgstr "Bagi"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:348 src/apprt/gtk/ui/1.5/window.blp:253
 msgid "Change Title…"
-msgstr "Ubah judul…"
+msgstr "Ubah Judul…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:353 src/apprt/gtk/ui/1.5/window.blp:180
 #: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:487
 msgid "Split Up"
-msgstr "Belah atas"
+msgstr "Bagi ke Atas"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:359 src/apprt/gtk/ui/1.5/window.blp:185
 #: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:492
 msgid "Split Down"
-msgstr "Belah bawah"
+msgstr "Bagi ke Bawah"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:365 src/apprt/gtk/ui/1.5/window.blp:190
 #: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
 msgid "Split Left"
-msgstr "Belah kiri"
+msgstr "Bagi ke Kiri"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:195
 #: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
 msgid "Split Right"
-msgstr "Belah kanan"
+msgstr "Bagi ke Kanan"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:377
 msgid "Close Split"
-msgstr ""
+msgstr "Tutup Bagian"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:383
 msgid "Tab"
@@ -184,18 +184,18 @@ msgstr "Tab"
 #: src/apprt/gtk/ui/1.2/surface.blp:386 src/apprt/gtk/ui/1.5/window.blp:232
 #: src/apprt/gtk/ui/1.5/window.blp:339 src/input/command.zig:464
 msgid "Change Tab Title…"
-msgstr "Ubah judul tab…"
+msgstr "Ubah Judul Tab…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:391 src/apprt/gtk/ui/1.5/window.blp:60
 #: src/apprt/gtk/ui/1.5/window.blp:110 src/apprt/gtk/ui/1.5/window.blp:237
 #: src/input/command.zig:427
 msgid "New Tab"
-msgstr "Tab baru"
+msgstr "Tab Baru"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:396 src/apprt/gtk/ui/1.5/window.blp:242
 #: src/input/command.zig:613
 msgid "Close Tab"
-msgstr "Tutup tab"
+msgstr "Tutup Tab"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:403
 msgid "Window"
@@ -203,17 +203,17 @@ msgstr "Jendela"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:215
 msgid "Change Window Title…"
-msgstr ""
+msgstr "Ubah Judul Jendela…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:220
 #: src/input/command.zig:421
 msgid "New Window"
-msgstr "Jendela baru"
+msgstr "Jendela Baru"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:416 src/apprt/gtk/ui/1.5/window.blp:225
 #: src/input/command.zig:630
 msgid "Close Window"
-msgstr "Tutup jendela"
+msgstr "Tutup Jendela"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:424 src/apprt/gtk/ui/1.5/window.blp:303
 msgid "Config"
@@ -221,11 +221,11 @@ msgstr "Konfigurasi"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
-msgstr ""
+msgstr "Buka Konfigurasi dalam Editor Sistem Operasi"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
-msgstr ""
+msgstr "Buka Konfigurasi dalam Jendela Baru"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
@@ -237,23 +237,23 @@ msgstr "OK"
 
 #: src/apprt/gtk/ui/1.5/window.blp:61 src/apprt/gtk/ui/1.5/window.blp:111
 msgid "New Split"
-msgstr "Belahan baru"
+msgstr "Bagian Baru"
 
 #: src/apprt/gtk/ui/1.5/window.blp:71 src/apprt/gtk/ui/1.5/window.blp:129
 msgid "View Open Tabs"
-msgstr "Lihat tab terbuka"
+msgstr "Lihat Tab Terbuka"
 
 #: src/apprt/gtk/ui/1.5/window.blp:81 src/apprt/gtk/ui/1.5/window.blp:143
 msgid "Main Menu"
-msgstr "Menu utama"
+msgstr "Menu Utama"
 
 #: src/apprt/gtk/ui/1.5/window.blp:293
 msgid "Command Palette"
-msgstr "Palet perintah"
+msgstr "Palet Perintah"
 
 #: src/apprt/gtk/ui/1.5/window.blp:298
 msgid "Terminal Inspector"
-msgstr "Inspektur terminal"
+msgstr "Inspektur Terminal"
 
 #: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1991
 msgid "About Ghostty"
@@ -269,27 +269,27 @@ msgstr "Eksekusi perintah…"
 
 #: src/apprt/gtk/class/application.zig:1767
 msgid "The keybind was revoked by the system."
-msgstr ""
+msgstr "Pemetaan tombol dicabut oleh sistem."
 
 #: src/apprt/gtk/class/application.zig:1769
 msgid "The keybind was denied by the system."
-msgstr ""
+msgstr "Pemetaan tombol ditolak oleh sistem."
 
 #: src/apprt/gtk/class/application.zig:1780
 msgid "Global keybind unavailable"
-msgstr ""
+msgstr "Pemetaan tombol global tidak tersedia"
 
 #: src/apprt/gtk/class/application.zig:2259
 msgid "Export Terminal IO Events"
-msgstr ""
+msgstr "Ekspor Peristiwa IO Terminal"
 
 #: src/apprt/gtk/class/application.zig:2262
 msgid "Export"
-msgstr ""
+msgstr "Ekspor"
 
 #: src/apprt/gtk/class/application.zig:2783
 msgid "Editing configuration file"
-msgstr ""
+msgstr "Mengubah berkas konfigurasi"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
 msgid ""
@@ -309,7 +309,7 @@ msgstr ""
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
 msgid "Warning: Potentially Unsafe Paste"
-msgstr "Peringatan: Tempelan berpotensi tidak aman"
+msgstr "Peringatan: Tempelan Berpotensi Tidak Aman"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:206
 msgid ""
@@ -325,15 +325,15 @@ msgstr "Keluar dari Ghostty?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
-msgstr "Tutup tab?"
+msgstr "Tutup Tab?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:186
 msgid "Close Window?"
-msgstr "Tutup jendela?"
+msgstr "Tutup Jendela?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:187
 msgid "Close Split?"
-msgstr "Tutup belahan?"
+msgstr "Tutup Bagian?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions will be terminated."
@@ -349,33 +349,33 @@ msgstr "Semua sesi terminal di jendela ini akan diakhiri."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:196
 msgid "The currently running process in this split will be terminated."
-msgstr "Proses yang sedang berjalan dalam belahan ini akan diakhiri."
+msgstr "Proses yang sedang berjalan dalam bagian ini akan diakhiri."
 
 #: src/apprt/gtk/class/surface.zig:1181
 msgid "Command Finished"
-msgstr "Perintah selesai"
+msgstr "Perintah Selesai"
 
 #: src/apprt/gtk/class/surface.zig:1182
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
-msgstr "Perintah berhasil"
+msgstr "Perintah Berhasil"
 
 #: src/apprt/gtk/class/surface.zig:1183
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
-msgstr "Perintah gagal"
+msgstr "Perintah Gagal"
 
 #: src/apprt/gtk/class/title_dialog.zig:227
 msgid "Change Terminal Title"
-msgstr "Ubah judul terminal"
+msgstr "Ubah Judul Terminal"
 
 #: src/apprt/gtk/class/title_dialog.zig:228
 msgid "Change Tab Title"
-msgstr "Ubah judul tab"
+msgstr "Ubah Judul Tab"
 
 #: src/apprt/gtk/class/title_dialog.zig:229
 msgid "Change Window Title"
-msgstr ""
+msgstr "Ubah Judul Jendela"
 
 #: src/apprt/gtk/class/window.zig:1153
 msgid "Reloaded the configuration"
@@ -395,710 +395,740 @@ msgstr "Pengembang Ghostty"
 
 #: src/input/command.zig:149
 msgid "Reset Terminal"
-msgstr ""
+msgstr "Atur Ulang Terminal"
 
 #: src/input/command.zig:150
 msgid "Reset the terminal to a clean state."
-msgstr ""
+msgstr "Atur ulang terminal ke kondisi bersih."
 
 #: src/input/command.zig:155
 msgid "Copy to Clipboard"
-msgstr ""
+msgstr "Salin ke Papan Klip"
 
 #: src/input/command.zig:156
 msgid ""
 "Copy the selected text to the clipboard in both plain and styled formats."
 msgstr ""
+"Salin teks yang dipilih ke papan klip dalam format teks biasa dan bergaya."
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
-msgstr ""
+msgstr "Salin Pilihan sebagai Teks Biasa ke Papan Klip"
 
 #: src/input/command.zig:160
 msgid "Copy the selected text as plain text to the clipboard."
-msgstr ""
+msgstr "Salin teks yang dipilih sebagai teks biasa ke papan klip."
 
 #: src/input/command.zig:163
 msgid "Copy Selection as ANSI Sequences to Clipboard"
-msgstr ""
+msgstr "Salin Pilihan sebagai Urutan ANSI ke Papan Klip"
 
 #: src/input/command.zig:164
 msgid "Copy the selected text as ANSI escape sequences to the clipboard."
-msgstr ""
+msgstr "Salin teks yang dipilih sebagai urutan escape ANSI ke papan klip."
 
 #: src/input/command.zig:167
 msgid "Copy Selection as HTML to Clipboard"
-msgstr ""
+msgstr "Salin Pilihan sebagai HTML ke Papan Klip"
 
 #: src/input/command.zig:168
 msgid "Copy the selected text as HTML to the clipboard."
-msgstr ""
+msgstr "Salin teks yang dipilih sebagai HTML ke papan klip."
 
 #: src/input/command.zig:173
 msgid "Copy URL to Clipboard"
-msgstr ""
+msgstr "Salin URL ke Papan Klip"
 
 #: src/input/command.zig:174
 msgid "Copy the URL under the cursor to the clipboard."
-msgstr ""
+msgstr "Salin URL di bawah kursor ke papan klip."
 
 #: src/input/command.zig:179
 msgid "Copy Terminal Title to Clipboard"
-msgstr ""
+msgstr "Salin Judul Terminal ke Papan Klip"
 
 #: src/input/command.zig:180
 msgid ""
 "Copy the terminal title to the clipboard. If the terminal title is not set "
 "this has no effect."
 msgstr ""
+"Salin judul terminal ke papan klip. Jika judul terminal belum diatur "
+"tindakan ini tidak berdampak apapun."
 
 #: src/input/command.zig:185
 msgid "Paste from Clipboard"
-msgstr ""
+msgstr "Tempel dari Papan Klip"
 
 #: src/input/command.zig:186
 msgid "Paste the contents of the main clipboard."
-msgstr ""
+msgstr "Tempel isi dari papan klip utama."
 
 #: src/input/command.zig:191
 msgid "Paste from Selection"
-msgstr ""
+msgstr "Tempel dari Pilihan"
 
 #: src/input/command.zig:192
 msgid "Paste the contents of the selection clipboard."
-msgstr ""
+msgstr "Tempel isi dari papan klip pilihan."
 
 #: src/input/command.zig:197
 msgid "Start Search"
-msgstr ""
+msgstr "Mulai Pencarian"
 
 #: src/input/command.zig:198
 msgid "Start a search if one isn't already active."
-msgstr ""
+msgstr "Mulai pencarian jika belum ada pencarian aktif."
 
 #: src/input/command.zig:203
 msgid "Search Selection"
-msgstr ""
+msgstr "Cari Pilihan"
 
 #: src/input/command.zig:204
 msgid "Start a search for the current text selection."
-msgstr ""
+msgstr "Mulai pencarian untuk pilihan teks saat ini."
 
 #: src/input/command.zig:209
 msgid "End Search"
-msgstr ""
+msgstr "Akhiri Pencarian"
 
 #: src/input/command.zig:210
 msgid "End the current search if any and hide any GUI elements."
-msgstr ""
+msgstr "Akhiri pencarian saat ini jika ada dan sembunyikan elemen GUI apa pun."
 
 #: src/input/command.zig:215
 msgid "Next Search Result"
-msgstr ""
+msgstr "Hasil Pencarian Berikutnya"
 
 #: src/input/command.zig:216
 msgid "Navigate to the next search result, if any."
-msgstr ""
+msgstr "Menuju ke hasil pencarian berikutnya, jika ada."
 
 #: src/input/command.zig:219
 msgid "Previous Search Result"
-msgstr ""
+msgstr "Hasil Pencarian Sebelumnya"
 
 #: src/input/command.zig:220
 msgid "Navigate to the previous search result, if any."
-msgstr ""
+msgstr "Menuju ke hasil pencarian sebelumnya, jika ada."
 
 #: src/input/command.zig:225
 msgid "Increase Font Size"
-msgstr ""
+msgstr "Perbesar Ukuran Font"
 
 #: src/input/command.zig:226
 msgid "Increase the font size by 1 point."
-msgstr ""
+msgstr "Perbesar ukuran font sebesar 1 poin."
 
 #: src/input/command.zig:231
 msgid "Decrease Font Size"
-msgstr ""
+msgstr "Perkecil Ukuran Font"
 
 #: src/input/command.zig:232
 msgid "Decrease the font size by 1 point."
-msgstr ""
+msgstr "Perkecil ukuran font sebesar 1 poin."
 
 #: src/input/command.zig:237
 msgid "Reset Font Size"
-msgstr ""
+msgstr "Atur Ulang Ukuran Font"
 
 #: src/input/command.zig:238
 msgid "Reset the font size to the default."
-msgstr ""
+msgstr "Atur ulang ukuran font ke ukuran bawaan."
 
 #: src/input/command.zig:243
 msgid "Clear Screen"
-msgstr ""
+msgstr "Bersihkan Layar"
 
 #: src/input/command.zig:244
 msgid "Clear the screen and scrollback."
-msgstr ""
+msgstr "Bersihkan layar dan riwayat keluaran."
 
 #: src/input/command.zig:249
 msgid "Select All"
-msgstr ""
+msgstr "Pilih Semua"
 
 #: src/input/command.zig:250
 msgid "Select all text on the screen."
-msgstr ""
+msgstr "Pilih semua teks di layar."
 
 #: src/input/command.zig:255
 msgid "Scroll to Top"
-msgstr ""
+msgstr "Gulir ke Puncak"
 
 #: src/input/command.zig:256
 msgid "Scroll to the top of the screen."
-msgstr ""
+msgstr "Gulir ke puncak layar."
 
 #: src/input/command.zig:261
 msgid "Scroll to Bottom"
-msgstr ""
+msgstr "Gulir ke Dasar"
 
 #: src/input/command.zig:262
 msgid "Scroll to the bottom of the screen."
-msgstr ""
+msgstr "Gulir ke dasar layar."
 
 #: src/input/command.zig:267
 msgid "Scroll to Selection"
-msgstr ""
+msgstr "Gulir ke Pilihan"
 
 #: src/input/command.zig:268
 msgid "Scroll to the selected text."
-msgstr ""
+msgstr "Gulir ke teks yang dipilih."
 
 #: src/input/command.zig:273
 msgid "Scroll Page Up"
-msgstr ""
+msgstr "Gulir Halaman ke Atas"
 
 #: src/input/command.zig:274
 msgid "Scroll the screen up by a page."
-msgstr ""
+msgstr "Gulir layar ke atas sejauh satu halaman."
 
 #: src/input/command.zig:279
 msgid "Scroll Page Down"
-msgstr ""
+msgstr "Gulir Halaman ke Bawah"
 
 #: src/input/command.zig:280
 msgid "Scroll the screen down by a page."
-msgstr ""
+msgstr "Gulir layar ke bawah sejauh satu halaman."
 
 #: src/input/command.zig:286
 msgid "Copy Screen to Temporary File and Copy Path"
-msgstr ""
+msgstr "Salin Layar ke Berkas Sementara dan Salin Jalur"
 
 #: src/input/command.zig:287
 msgid ""
 "Copy the screen contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
+"Salin isi layar ke berkas sementara dan salin jalurnya ke "
+"papan klip."
 
 #: src/input/command.zig:291
 msgid "Copy Screen to Temporary File and Paste Path"
-msgstr ""
+msgstr "Salin Layar ke Berkas Sementara dan Tempel Jalur"
 
 #: src/input/command.zig:292
 msgid ""
 "Copy the screen contents to a temporary file and paste the path to the file."
 msgstr ""
+"Salin isi layar ke berkas sementara dan tempel jalur ke berkas tersebut."
 
 #: src/input/command.zig:296
 msgid "Copy Screen to Temporary File and Open"
-msgstr ""
+msgstr "Salin Layar ke Berkas Sementara dan Buka"
 
 #: src/input/command.zig:297
 msgid "Copy the screen contents to a temporary file and open it."
-msgstr ""
+msgstr "Salin isi layar ke berkas sementara dan buka berkasnya."
 
 #: src/input/command.zig:305
 msgid "Copy Screen as HTML to Temporary File and Copy Path"
-msgstr ""
+msgstr "Salin Layar sebagai HTML ke Berkas Sementara dan Salin Jalur"
 
 #: src/input/command.zig:306
 msgid ""
 "Copy the screen contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
+"Salin isi layar sebagai HTML ke berkas sementara dan salin jalurnya ke "
+"papan klip."
 
 #: src/input/command.zig:313
 msgid "Copy Screen as HTML to Temporary File and Paste Path"
-msgstr ""
+msgstr "Salin Layar sebagai HTML ke Berkas Sementara dan Tempel Jalur"
 
 #: src/input/command.zig:314
 msgid ""
 "Copy the screen contents as HTML to a temporary file and paste the path to "
 "the file."
 msgstr ""
+"Salin isi layar sebagai HTML ke berkas sementara dan tempel jalur ke "
+"berkas tersebut."
 
 #: src/input/command.zig:321
 msgid "Copy Screen as HTML to Temporary File and Open"
-msgstr ""
+msgstr "Salin Layar sebagai HTML ke Berkas Sementara dan Buka"
 
 #: src/input/command.zig:322
 msgid "Copy the screen contents as HTML to a temporary file and open it."
-msgstr ""
+msgstr "Salin isi layar sebagai HTML ke berkas sementara dan buka berkasnya."
 
 #: src/input/command.zig:330
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
-msgstr ""
+msgstr "Salin Layar sebagai Urutan ANSI ke Berkas Sementara dan Salin Jalur"
 
 #: src/input/command.zig:331
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
+"Salin isi layar sebagai urutan escape ANSI ke berkas sementara dan salin "
+"jalurnya ke papan klip."
 
 #: src/input/command.zig:338
 msgid "Copy Screen as ANSI Sequences to Temporary File and Paste Path"
-msgstr ""
+msgstr "Salin Layar sebagai Urutan ANSI ke Berkas Sementara dan Tempel Jalur"
 
 #: src/input/command.zig:339
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
+"Salin isi layar sebagai urutan escape ANSI ke berkas sementara dan tempel "
+"jalur ke berkas tersebut."
 
 #: src/input/command.zig:346
 msgid "Copy Screen as ANSI Sequences to Temporary File and Open"
-msgstr ""
+msgstr "Salin Layar sebagai Urutan ANSI ke Berkas Sementara dan Buka"
 
 #: src/input/command.zig:347
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
+"Salin isi layar sebagai urutan escape ANSI ke berkas sementara dan buka "
+"berkasnya."
 
 #: src/input/command.zig:354
 msgid "Copy Selection to Temporary File and Copy Path"
-msgstr ""
+msgstr "Salin Pilihan ke Berkas Sementara dan Salin Jalur"
 
 #: src/input/command.zig:355
 msgid ""
 "Copy the selection contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
+"Salin isi pilihan ke berkas sementara dan salin jalurnya ke "
+"papan klip."
 
 #: src/input/command.zig:359
 msgid "Copy Selection to Temporary File and Paste Path"
-msgstr ""
+msgstr "Salin Pilihan ke Berkas Sementara dan Tempel Jalur"
 
 #: src/input/command.zig:360
 msgid ""
 "Copy the selection contents to a temporary file and paste the path to the "
 "file."
 msgstr ""
+"Salin isi pilihan ke berkas sementara dan tempel jalur ke berkas "
+"tersebut."
 
 #: src/input/command.zig:364
 msgid "Copy Selection to Temporary File and Open"
-msgstr ""
+msgstr "Salin Pilihan ke Berkas Sementara dan Buka"
 
 #: src/input/command.zig:365
 msgid "Copy the selection contents to a temporary file and open it."
-msgstr ""
+msgstr "Salin isi pilihan ke berkas sementara dan buka berkasnya."
 
 #: src/input/command.zig:373
 msgid "Copy Selection as HTML to Temporary File and Copy Path"
-msgstr ""
+msgstr "Salin Pilihan sebagai HTML ke Berkas Sementara dan Salin Jalur"
 
 #: src/input/command.zig:374
 msgid ""
 "Copy the selection contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
+"Salin isi pilihan sebagai HTML ke berkas sementara dan salin jalurnya ke "
+"papan klip."
 
 #: src/input/command.zig:381
 msgid "Copy Selection as HTML to Temporary File and Paste Path"
-msgstr ""
+msgstr "Salin Pilihan sebagai HTML ke Berkas Sementara dan Tempel Jalur"
 
 #: src/input/command.zig:382
 msgid ""
 "Copy the selection contents as HTML to a temporary file and paste the path "
 "to the file."
 msgstr ""
+"Salin isi pilihan sebagai HTML ke berkas sementara dan tempel jalur "
+"ke berkas tersebut."
 
 #: src/input/command.zig:389
 msgid "Copy Selection as HTML to Temporary File and Open"
-msgstr ""
+msgstr "Salin Pilihan sebagai HTML ke Berkas Sementara dan Buka"
 
 #: src/input/command.zig:390
 msgid "Copy the selection contents as HTML to a temporary file and open it."
-msgstr ""
+msgstr "Salin isi pilihan sebagai HTML ke berkas sementara dan buka berkasnya."
 
 #: src/input/command.zig:398
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
-msgstr ""
+msgstr "Salin Pilihan sebagai Urutan ANSI ke Berkas Sementara dan Salin Jalur"
 
 #: src/input/command.zig:399
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
+"Salin isi pilihan sebagai urutan escape ANSI ke berkas sementara dan "
+"salin jalurnya ke papan klip."
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
-msgstr ""
+msgstr "Salin Pilihan sebagai Urutan ANSI ke Berkas Sementara dan Tempel Jalur"
 
 #: src/input/command.zig:407
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
+"Salin isi pilihan sebagai urutan escape ANSI ke berkas sementara dan tempel "
+"jalur ke berkas tersebut."
 
 #: src/input/command.zig:414
 msgid "Copy Selection as ANSI Sequences to Temporary File and Open"
-msgstr ""
+msgstr "Salin Pilihan sebagai Urutan ANSI ke Berkas Sementara dan Buka"
 
 #: src/input/command.zig:415
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
+"Salin isi pilihan sebagai urutan escape ANSI ke berkas sementara dan buka "
+"berkasnya."
 
 #: src/input/command.zig:422
 msgid "Open a new window."
-msgstr ""
+msgstr "Buka jendela baru."
 
 #: src/input/command.zig:428
 msgid "Open a new tab."
-msgstr ""
+msgstr "Buka tab baru."
 
 #: src/input/command.zig:434
 msgid "Move Tab Left"
-msgstr ""
+msgstr "Pindahkan Tab ke Kiri"
 
 #: src/input/command.zig:435
 msgid "Move the current tab to the left."
-msgstr ""
+msgstr "Pindahkan tab saat ini ke kiri."
 
 #: src/input/command.zig:439
 msgid "Move Tab Right"
-msgstr ""
+msgstr "Pindahkan Tab ke Kanan"
 
 #: src/input/command.zig:440
 msgid "Move the current tab to the right."
-msgstr ""
+msgstr "Pindahkan tab saat ini ke kanan."
 
 #: src/input/command.zig:446
 msgid "Move Tab to New Window"
-msgstr ""
+msgstr "Pindahkan Tab ke Jendela Baru"
 
 #: src/input/command.zig:447
 msgid "Move the current tab to a new window."
-msgstr ""
+msgstr "Pindahkan tab saat ini ke jendela baru."
 
 #: src/input/command.zig:452
 msgid "Toggle Tab Overview"
-msgstr ""
+msgstr "Alihkan Rangkuman Tab"
 
 #: src/input/command.zig:453
 msgid "Toggle the tab overview."
-msgstr ""
+msgstr "Alihkan rangkuman tab."
 
 #: src/input/command.zig:458
 msgid "Change Terminal Title…"
-msgstr ""
+msgstr "Ubah Judul Terminal…"
 
 #: src/input/command.zig:459
 msgid "Prompt for a new title for the current terminal."
-msgstr ""
+msgstr "Minta judul baru untuk terminal saat ini."
 
 #: src/input/command.zig:465
 msgid "Prompt for a new title for the current tab."
-msgstr ""
+msgstr "Minta judul baru untuk tab saat ini."
 
 #: src/input/command.zig:478
 msgid "Split the terminal to the left."
-msgstr ""
+msgstr "Bagi terminal ke kiri."
 
 #: src/input/command.zig:483
 msgid "Split the terminal to the right."
-msgstr ""
+msgstr "Bagi terminal ke kanan."
 
 #: src/input/command.zig:488
 msgid "Split the terminal up."
-msgstr ""
+msgstr "Bagi terminal ke atas."
 
 #: src/input/command.zig:493
 msgid "Split the terminal down."
-msgstr ""
+msgstr "Bagi terminal ke bawah."
 
 #: src/input/command.zig:500
 msgid "Focus Split: Previous"
-msgstr ""
+msgstr "Fokus ke Bagian: Sebelumnya"
 
 #: src/input/command.zig:501
 msgid "Focus the previous split, if any."
-msgstr ""
+msgstr "Fokuskan ke bagian sebelumnya, jika ada."
 
 #: src/input/command.zig:505
 msgid "Focus Split: Next"
-msgstr ""
+msgstr "Fokus ke Bagian: Berikutnya"
 
 #: src/input/command.zig:506
 msgid "Focus the next split, if any."
-msgstr ""
+msgstr "Fokuskan ke bagian berikutnya, jika ada."
 
 #: src/input/command.zig:510
 msgid "Focus Split: Left"
-msgstr ""
+msgstr "Fokus ke Bagian: Kiri"
 
 #: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
-msgstr ""
+msgstr "Fokuskan ke bagian kiri, jika ada."
 
 #: src/input/command.zig:515
 msgid "Focus Split: Right"
-msgstr ""
+msgstr "Fokus ke Bagian: Kanan"
 
 #: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
-msgstr ""
+msgstr "Fokuskan ke bagian kanan, jika ada."
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
-msgstr ""
+msgstr "Fokus ke Bagian: Atas"
 
 #: src/input/command.zig:521
 msgid "Focus the split above, if it exists."
-msgstr ""
+msgstr "Fokuskan ke bagian atas, jika ada."
 
 #: src/input/command.zig:525
 msgid "Focus Split: Down"
-msgstr ""
+msgstr "Fokus ke Bagian: Bawah"
 
 #: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
-msgstr ""
+msgstr "Fokuskan ke bagian bawah, jika ada."
 
 #: src/input/command.zig:533
 msgid "Focus Window: Previous"
-msgstr ""
+msgstr "Fokus Jendela: Sebelumnya"
 
 #: src/input/command.zig:534
 msgid "Focus the previous window, if any."
-msgstr ""
+msgstr "Fokuskan ke jendela sebelumnya, jika ada."
 
 #: src/input/command.zig:538
 msgid "Focus Window: Next"
-msgstr ""
+msgstr "Fokus Jendela: Berikutnya"
 
 #: src/input/command.zig:539
 msgid "Focus the next window, if any."
-msgstr ""
+msgstr "Fokuskan ke jendela berikutnya, jika ada."
 
 #: src/input/command.zig:545
 msgid "Toggle Split Zoom"
-msgstr ""
+msgstr "Alihkan Pembesaran Bagian"
 
 #: src/input/command.zig:546
 msgid "Toggle the zoom state of the current split."
-msgstr ""
+msgstr "Alihkan kondisi pembesaran bagian saat ini."
 
 #: src/input/command.zig:551
 msgid "Toggle Read-Only Mode"
-msgstr ""
+msgstr "Alihkan Mode Baca-Saja"
 
 #: src/input/command.zig:552
 msgid "Toggle read-only mode for the current surface."
-msgstr ""
+msgstr "Alihkan mode baca-saja untuk permukaan saat ini."
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
-msgstr ""
+msgstr "Samakan Ukuran Bagian"
 
 #: src/input/command.zig:558
 msgid "Equalize the size of all splits."
-msgstr ""
+msgstr "Samakan ukuran semua bagian."
 
 #: src/input/command.zig:563
 msgid "Reset Window Size"
-msgstr ""
+msgstr "Atur Ulang Ukuran Jendela"
 
 #: src/input/command.zig:564
 msgid "Reset the window size to the default."
-msgstr ""
+msgstr "Atur ulang ukuran jendela ke ukuran bawaan."
 
 #: src/input/command.zig:569
 msgid "Toggle Inspector"
-msgstr ""
+msgstr "Alihkan Tampilan Inspektur"
 
 #: src/input/command.zig:570
 msgid "Toggle the inspector."
-msgstr ""
+msgstr "Alihkan tampilan inspektur."
 
 #: src/input/command.zig:575
 msgid "Show the GTK Inspector"
-msgstr ""
+msgstr "Tampilkan Inspektur GTK"
 
 #: src/input/command.zig:576
 msgid "Show the GTK inspector."
-msgstr ""
+msgstr "Tampilkan inspektur GTK."
 
 #: src/input/command.zig:581
 msgid "Show On-Screen Keyboard"
-msgstr ""
+msgstr "Tampilkan Keyboard Layar"
 
 #: src/input/command.zig:582
 msgid "Show the on-screen keyboard if present."
-msgstr ""
+msgstr "Tampilkan keyboard layar jika tersedia."
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
-msgstr ""
+msgstr "Buka Konfigurasi menggunakan Editor Sistem Operasi"
 
 #: src/input/command.zig:589
 msgid "Open the config file with the OS's default editor."
-msgstr ""
+msgstr "Buka berkas konfigurasi dengan editor bawaan Sistem Operasi."
 
 #: src/input/command.zig:593
 msgid "Open Config in New Terminal Window"
-msgstr ""
+msgstr "Buka Konfigurasi dalam Jendela Terminal Baru"
 
 #: src/input/command.zig:594
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
-msgstr ""
+msgstr "Buka berkas konfigurasi dalam jendela baru menggunakan $EDITOR atau $VISUAL."
 
 #: src/input/command.zig:600
 msgid "Reload Config"
-msgstr ""
+msgstr "Muat Ulang Konfigurasi"
 
 #: src/input/command.zig:601
 msgid "Reload the config file."
-msgstr ""
+msgstr "Muat ulang berkas konfigurasi."
 
 #: src/input/command.zig:606
 msgid "Close Terminal"
-msgstr ""
+msgstr "Tutup Terminal"
 
 #: src/input/command.zig:607
 msgid "Close the current terminal."
-msgstr ""
+msgstr "Tutup terminal saat ini."
 
 #: src/input/command.zig:614
 msgid "Close the current tab."
-msgstr ""
+msgstr "Tutup tab saat ini."
 
 #: src/input/command.zig:618
 msgid "Close Other Tabs"
-msgstr ""
+msgstr "Tutup Tab Lainnya"
 
 #: src/input/command.zig:619
 msgid "Close all tabs in this window except the current one."
-msgstr ""
+msgstr "Tutup semua tab pada jendela ini kecuali tab saat ini."
 
 #: src/input/command.zig:623
 msgid "Close Tabs to the Right"
-msgstr ""
+msgstr "Tutup Semua Tab di Sebelah Kanan"
 
 #: src/input/command.zig:624
 msgid "Close all tabs to the right of the current one."
-msgstr ""
+msgstr "Tutup semua tab di sebelah kanan dari tab saat ini."
 
 #: src/input/command.zig:631
 msgid "Close the current window."
-msgstr ""
+msgstr "Tutup jendela saat ini."
 
 #: src/input/command.zig:636
 msgid "Close All Windows"
-msgstr ""
+msgstr "Tutup Semua Jendela"
 
 #: src/input/command.zig:637
 msgid "Close all windows."
-msgstr ""
+msgstr "Tutup semua jendela."
 
 #: src/input/command.zig:642
 msgid "Toggle Maximize"
-msgstr ""
+msgstr "Alihkan Mode Maksimal"
 
 #: src/input/command.zig:643
 msgid "Toggle the maximized state of the current window."
-msgstr ""
+msgstr "Alihkan kondisi maksimal jendela saat ini."
 
 #: src/input/command.zig:648
 msgid "Toggle Fullscreen"
-msgstr ""
+msgstr "Alihkan Mode Layar Penuh"
 
 #: src/input/command.zig:649
 msgid "Toggle the fullscreen state of the current window."
-msgstr ""
+msgstr "Alihkan kondisi layar penuh jendela saat ini."
 
 #: src/input/command.zig:654
 msgid "Toggle Window Decorations"
-msgstr ""
+msgstr "Alihkan Dekorasi Jendela"
 
 #: src/input/command.zig:655
 msgid "Toggle the window decorations."
-msgstr ""
+msgstr "Alihkan dekorasi jendela."
 
 #: src/input/command.zig:660
 msgid "Toggle Float on Top"
-msgstr ""
+msgstr "Alihkan Mode Mengambang di Atas"
 
 #: src/input/command.zig:661
 msgid "Toggle the float on top state of the current window."
-msgstr ""
+msgstr "Alihkan kondisi mengambang di atas jendela saat ini."
 
 #: src/input/command.zig:666
 msgid "Toggle Secure Input"
-msgstr ""
+msgstr "Alihkan Input Aman"
 
 #: src/input/command.zig:667
 msgid "Toggle secure input mode."
-msgstr ""
+msgstr "Alihkan mode input aman."
 
 #: src/input/command.zig:672
 msgid "Toggle Mouse Reporting"
-msgstr ""
+msgstr "Alihkan Pelaporan Mouse"
 
 #: src/input/command.zig:673
 msgid "Toggle whether mouse events are reported to terminal applications."
-msgstr ""
+msgstr "Alihkan apakah peristiwa mouse dilaporkan ke aplikasi terminal."
 
 #: src/input/command.zig:678
 msgid "Toggle Background Opacity"
-msgstr ""
+msgstr "Alihkan Opasitas Latar Belakang"
 
 #: src/input/command.zig:679
 msgid "Toggle the background opacity of a window that started transparent."
-msgstr ""
+msgstr "Alihkan opasitas latar belakang jendela yang awalnya transparan."
 
 #: src/input/command.zig:684
 msgid "Check for Updates"
-msgstr ""
+msgstr "Periksa Pembaruan"
 
 #: src/input/command.zig:685
 msgid "Check for updates to the application."
-msgstr ""
+msgstr "Periksa pembaruan aplikasi."
 
 #: src/input/command.zig:690
 msgid "Undo"
-msgstr ""
+msgstr "Urungkan"
 
 #: src/input/command.zig:691
 msgid "Undo the last action."
-msgstr ""
+msgstr "Urungkan tindakan terakhir."
 
 #: src/input/command.zig:696
 msgid "Redo"
-msgstr ""
+msgstr "Ulangi"
 
 #: src/input/command.zig:697
 msgid "Redo the last undone action."
-msgstr ""
+msgstr "Ulangi tindakan yang terakhir diurungkan."
 
 #: src/input/command.zig:703
 msgid "Quit the application."
-msgstr ""
+msgstr "Keluar dari aplikasi."
 
 #: src/input/command.zig:708
 msgid "Ghostty"
-msgstr ""
+msgstr "Ghostty"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."
-msgstr ""
+msgstr "Taruh Ghostty kecil di terminal anda."
