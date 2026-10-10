@@ -2467,10 +2467,17 @@ pub fn Stream(comptime H: type) type {
                                     .{input},
                                 ),
                                 18 => if (input.params.len == 1) {
-                                    // report screen size in characters
+                                    // report text area size in characters
                                     self.handler.vt(.size_report, .csi_18_t);
                                 } else log.warn(
                                     "ignoring CSI 18 t with extra parameters: {f}",
+                                    .{input},
+                                ),
+                                19 => if (input.params.len == 1) {
+                                    // report screen size in characters
+                                    self.handler.vt(.size_report, .csi_19_t);
+                                } else log.warn(
+                                    "ignoring CSI 19 t with extra parameters: {f}",
                                     .{input},
                                 ),
                                 21 => if (input.params.len == 1) {
@@ -4452,6 +4459,9 @@ test "stream: send report with CSI t" {
 
     s.nextSlice("\x1b[18t");
     try testing.expectEqual(csi.SizeReportStyle.csi_18_t, s.handler.style);
+
+    s.nextSlice("\x1b[19t");
+    try testing.expectEqual(csi.SizeReportStyle.csi_19_t, s.handler.style);
 
     s.nextSlice("\x1b[21t");
     try testing.expectEqual(csi.SizeReportStyle.csi_21_t, s.handler.style);

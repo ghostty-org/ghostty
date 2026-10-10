@@ -93,7 +93,7 @@ extern "C" {
  * | `GHOSTTY_TERMINAL_OPT_PWD_CHANGED`      | `GhosttyTerminalPwdChangedFn`     | Pwd change via OSC 7 / OSC 9 / OSC 1337   |
  * | `GHOSTTY_TERMINAL_OPT_ENQUIRY`          | `GhosttyTerminalEnquiryFn`        | ENQ character (0x05)                      |
  * | `GHOSTTY_TERMINAL_OPT_XTVERSION`        | `GhosttyTerminalXtversionFn`      | XTVERSION query (CSI > q)                 |
- * | `GHOSTTY_TERMINAL_OPT_SIZE`             | `GhosttyTerminalSizeFn`           | XTWINOPS query (CSI 14/16/18 t) or mode 2048 enable |
+ * | `GHOSTTY_TERMINAL_OPT_SIZE`             | `GhosttyTerminalSizeFn`           | XTWINOPS query (CSI 14/16/18/19 t) or mode 2048 enable |
  * | `GHOSTTY_TERMINAL_OPT_COLOR_SCHEME`     | `GhosttyTerminalColorSchemeFn`    | Color scheme query (CSI ? 996 n)          |
  * | `GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES`| `GhosttyTerminalDeviceAttributesFn`| Device attributes query (CSI c / > c / = c)|
  * | `GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE`  | `GhosttyTerminalClipboardWriteFn` | Clipboard write via OSC 52 / OSC 1337 / OSC 5522 |
@@ -1628,7 +1628,7 @@ typedef GhosttyString (*GhosttyTerminalEnquiryFn)(GhosttyTerminal terminal,
 /**
  * Callback function type for terminal size reports.
  *
- * Called in response to XTWINOPS size queries (CSI 14/16/18 t) and when VT
+ * Called in response to XTWINOPS size queries (CSI 14/16/18/19 t) and when VT
  * input enables in-band size reports (mode 2048).
  * Return true and fill *out_size with the current terminal geometry,
  * or return false to suppress the report.
@@ -1921,7 +1921,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   /**
    * Callback invoked in response to XTWINOPS size queries
-   * (CSI 14/16/18 t). Set to NULL to silently ignore size queries.
+   * (CSI 14/16/18/19 t). Set to NULL to silently ignore size queries.
    *
    * Input type: GhosttyTerminalSizeFn
    */
