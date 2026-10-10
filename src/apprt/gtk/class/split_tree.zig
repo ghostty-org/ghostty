@@ -435,13 +435,12 @@ pub const SplitTree = extern struct {
             };
             const source_tree = source_tree_widget.getTree() orelse return;
 
-            // Remove the source from its own tree
+            // Remove the source from its own tree. This also moves focus
+            // in the source tree to another surface, as closing it would.
             const handle = source_tree.locate(source) orelse return;
-            var new_source_tree = try source_tree.remove(alloc, handle);
-            defer new_source_tree.deinit();
+            try source_tree_widget.removeHandle(handle);
 
-            // Finally, set the final tree structures for both tree widgets
-            source_tree_widget.setTree(&new_source_tree);
+            // Finally, set the final tree structure for this tree widget
             self.setTree(&after_split);
 
             // Re-bind vital properties like `is-split`
@@ -800,6 +799,17 @@ pub const SplitTree = extern struct {
         const handle = priv.pending_close orelse return;
         priv.pending_close = null;
 
+        self.removeHandle(handle) catch |err| {
+            log.warn("unable to remove surface from tree: {}", .{err});
+        };
+    }
+
+    /// Remove the node with the given handle from the tree, making the
+    /// surface next to it the last focused surface of the tree.
+    fn removeHandle(
+        self: *Self,
+        handle: Surface.Tree.Node.Handle,
+    ) Allocator.Error!void {
         // Figure out our next focus target. The next focus target is
         // always the "previous" surface unless we're the leftmost then
         // its the next.
@@ -819,19 +829,16 @@ pub const SplitTree = extern struct {
         };
 
         // Remove it from the tree.
-        var new_tree = old_tree.remove(
+        var new_tree = try old_tree.remove(
             Application.default().allocator(),
             handle,
-        ) catch |err| {
-            log.warn("unable to remove surface from tree: {}", .{err});
-            return;
-        };
+        );
         defer new_tree.deinit();
         self.setTree(&new_tree);
 
         // Grab focus. We have to set this on the "last focused" because our
         // focus will be set when the tree is redrawn.
-        if (next_focus) |v| priv.last_focused.set(v);
+        if (next_focus) |v| self.private().last_focused.set(v);
     }
 
     fn propSurfaceFocused(

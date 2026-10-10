@@ -3700,9 +3700,12 @@ pub const Surface = extern struct {
         x: f64,
         y: f64,
         self: *Self,
-    ) callconv(.c) void {
+    ) callconv(.c) c_int {
+        // Clean up overlay state
+        defer self.setDropOverlayDirection(null);
+
         const dropped_id = v.getUint64();
-        const dropped = self.core().?.app.findSurfaceByID(dropped_id) orelse return;
+        const dropped = self.core().?.app.findSurfaceByID(dropped_id) orelse return 0;
         const from = dropped.rt_surface.gobj();
 
         const st = ext.getAncestor(
@@ -3710,17 +3713,15 @@ pub const Surface = extern struct {
             self.as(gtk.Widget),
         ) orelse {
             log.warn("surface is not placed in a split tree", .{});
-            return;
+            return 0;
         };
 
         const dir = self.calcDropDirection(x, y);
 
         // The only error that could happen here is an OOM,
         // and in that case we're already milliseconds away from crashing, so...
-        st.moveSplit(from, self, dir) catch return;
-
-        // Clean up overlay state
-        self.setDropOverlayDirection(null);
+        st.moveSplit(from, self, dir) catch return 0;
+        return 1;
     }
 
     fn surfaceDropLeave(
