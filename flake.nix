@@ -17,17 +17,11 @@
       flake = false;
     };
 
-    systems = {
-      url = "github:nix-systems/default";
-      flake = false;
-    };
-
     zig = {
-      url = "github:mitchellh/zig-overlay";
+      url = "github:jcollie/zig-overlay";
       inputs = {
         nixpkgs.follows = "nixpkgs";
-        flake-compat.follows = "flake-compat";
-        systems.follows = "systems";
+        zon2nix.follows = "zon2nix";
       };
     };
 
@@ -68,9 +62,14 @@
     forAllPlatforms = f: lib.genAttrs platforms (s: f legacyPackages.${s});
     forBuildablePlatforms = f: lib.genAttrs buildablePlatforms (s: f legacyPackages.${s});
 
-    mkPkgArgs = optimize: {
+    # The zig_0_16 in nixpkgs (since the glibc 2.44 rebuild) writes relocatable
+    # objects with section symbols that point at no section, which breaks
+    # linking against the compiler_rt.o in libghostty-vt.a. Use the upstream
+    # binary instead.
+    mkPkgArgs = optimize: pkgs: {
       inherit optimize;
       revision = self.shortRev or self.dirtyShortRev or "dirty";
+      zig_0_16 = zig.packages.${pkgs.stdenv.hostPlatform.system}."0.16.0";
     };
   in {
     devShells = forAllPlatforms (pkgs: {
@@ -102,21 +101,21 @@
             # Deps are needed for environmental setup on macOS
             deps = pkgs.callPackage ./build.zig.zon.nix {};
 
-            libghostty-vt-debug = pkgs.callPackage ./nix/libghostty-vt.nix (mkPkgArgs "Debug");
-            libghostty-vt-releasesafe = pkgs.callPackage ./nix/libghostty-vt.nix (mkPkgArgs "ReleaseSafe");
-            libghostty-vt-releasefast = pkgs.callPackage ./nix/libghostty-vt.nix (mkPkgArgs "ReleaseFast");
-            libghostty-vt-debug-no-simd = pkgs.callPackage ./nix/libghostty-vt.nix ((mkPkgArgs "Debug") // {simd = false;});
-            libghostty-vt-releasesafe-no-simd = pkgs.callPackage ./nix/libghostty-vt.nix ((mkPkgArgs "ReleaseSafe") // {simd = false;});
-            libghostty-vt-releasefast-no-simd = pkgs.callPackage ./nix/libghostty-vt.nix ((mkPkgArgs "ReleaseFast") // {simd = false;});
+            libghostty-vt-debug = pkgs.callPackage ./nix/libghostty-vt.nix (mkPkgArgs "Debug" pkgs);
+            libghostty-vt-releasesafe = pkgs.callPackage ./nix/libghostty-vt.nix (mkPkgArgs "ReleaseSafe" pkgs);
+            libghostty-vt-releasefast = pkgs.callPackage ./nix/libghostty-vt.nix (mkPkgArgs "ReleaseFast" pkgs);
+            libghostty-vt-debug-no-simd = pkgs.callPackage ./nix/libghostty-vt.nix ((mkPkgArgs "Debug" pkgs) // {simd = false;});
+            libghostty-vt-releasesafe-no-simd = pkgs.callPackage ./nix/libghostty-vt.nix ((mkPkgArgs "ReleaseSafe" pkgs) // {simd = false;});
+            libghostty-vt-releasefast-no-simd = pkgs.callPackage ./nix/libghostty-vt.nix ((mkPkgArgs "ReleaseFast" pkgs) // {simd = false;});
 
             libghostty-vt = libghostty-vt-releasefast;
           })
         )
         (
           forBuildablePlatforms (pkgs: rec {
-            ghostty-debug = pkgs.callPackage ./nix/package.nix (mkPkgArgs "Debug");
-            ghostty-releasesafe = pkgs.callPackage ./nix/package.nix (mkPkgArgs "ReleaseSafe");
-            ghostty-releasefast = pkgs.callPackage ./nix/package.nix (mkPkgArgs "ReleaseFast");
+            ghostty-debug = pkgs.callPackage ./nix/package.nix (mkPkgArgs "Debug" pkgs);
+            ghostty-releasesafe = pkgs.callPackage ./nix/package.nix (mkPkgArgs "ReleaseSafe" pkgs);
+            ghostty-releasefast = pkgs.callPackage ./nix/package.nix (mkPkgArgs "ReleaseFast" pkgs);
 
             ghostty = ghostty-releasefast;
             default = ghostty;
@@ -162,10 +161,10 @@
     overlays = {
       default = self.overlays.releasefast;
       releasefast = final: prev: {
-        ghostty = final.callPackage ./nix/package.nix (mkPkgArgs "ReleaseFast");
+        ghostty = final.callPackage ./nix/package.nix (mkPkgArgs "ReleaseFast" final);
       };
       debug = final: prev: {
-        ghostty = final.callPackage ./nix/package.nix (mkPkgArgs "Debug");
+        ghostty = final.callPackage ./nix/package.nix (mkPkgArgs "Debug" final);
       };
     };
   };
