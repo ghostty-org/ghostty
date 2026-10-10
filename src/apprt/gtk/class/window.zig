@@ -414,24 +414,14 @@ pub const Window = extern struct {
     /// at the position dictated by the `window-new-tab-position` config.
     /// The new tab will be selected.
     pub fn newTab(self: *Self, parent_: ?*CoreSurface, overrides: Overrides) void {
-        _ = self.newTabPage(parent_, .tab, .{
-            .command = overrides.command,
-            .shell_integration = overrides.shell_integration,
-            .working_directory = overrides.working_directory,
-            .title = overrides.title,
-        });
+        _ = self.newTabPage(parent_, .tab, overrides);
     }
 
     pub fn newTabForWindow(self: *Self, parent_: ?*CoreSurface, overrides: Overrides) void {
         _ = self.newTabPage(
             parent_,
             .window,
-            .{
-                .command = overrides.command,
-                .shell_integration = overrides.shell_integration,
-                .working_directory = overrides.working_directory,
-                .title = overrides.title,
-            },
+            overrides,
         );
     }
 
@@ -447,12 +437,7 @@ pub const Window = extern struct {
         // Create our new tab object
         const tab = Tab.new(
             priv.config,
-            .{
-                .command = overrides.command,
-                .shell_integration = overrides.shell_integration,
-                .working_directory = overrides.working_directory,
-                .title = overrides.title,
-            },
+            overrides,
         );
 
         if (parent_) |p| {

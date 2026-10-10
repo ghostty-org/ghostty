@@ -47,6 +47,7 @@ const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
 const OpenURI = @import("../portal.zig").OpenURI;
 const media = @import("../media.zig");
 const Overrides = @import("Overrides.zig");
+const TerminalIntent = @import("../terminal_intent.zig");
 
 const log = std.log.scoped(.gtk_ghostty_application);
 
@@ -235,6 +236,12 @@ pub const Application = extern struct {
         // on the first audio bell and rebuilt when `bell-audio-path` changes;
         // unref'd on dispose. See ringBell and media.zig.
         bell_media: ?*gtk.MediaFile = null,
+
+        /// The freedesktop terminal intent, `org.freedesktop.Terminal1`.
+        /// This is exported whenever we have a D-Bus connection, but
+        /// launchers can only reach it if we also own our well-known bus
+        /// name, which requires that we're running as a single instance app.
+        terminal_intent: TerminalIntent = .{},
 
         pub var offset: c_int = 0;
     };
@@ -842,6 +849,16 @@ pub const Application = extern struct {
     /// Returns the app winproto implementation.
     pub fn winproto(self: *Self) *winprotopkg.App {
         return &self.private().winproto;
+    }
+
+    /// Open one window with a tab for each of `tabs`, for a terminal
+    /// intent `LaunchCommand` call.
+    pub fn launchCommands(
+        self: *Self,
+        tabs: []const Overrides,
+        startup_id: ?[:0]const u8,
+    ) void {
+        Action.launchCommands(self, tabs, startup_id);
     }
 
     /// Returns the open URI portal implementation.
@@ -1589,6 +1606,47 @@ pub const Application = extern struct {
         );
     }
 
+    fn dbusRegister(
+        self: *Self,
+        connection: *gio.DBusConnection,
+        object_path: [*:0]const u8,
+        err: ?*?*glib.Error,
+    ) callconv(.c) c_int {
+        if (gio.Application.virtual_methods.dbus_register.call(
+            Class.parent,
+            self.as(Parent),
+            connection,
+            object_path,
+            err,
+        ) == 0) return 0;
+
+        // The terminal intent is a nice-to-have. If we can't export it then
+        // we log it and carry on: returning false here would abort startup
+        // and leave the user with no terminal at all.
+        self.private().terminal_intent.register(
+            self,
+            connection,
+            object_path,
+        ) catch |e| log.warn("unable to register terminal intent err={}", .{e});
+
+        return 1;
+    }
+
+    fn dbusUnregister(
+        self: *Self,
+        connection: *gio.DBusConnection,
+        object_path: [*:0]const u8,
+    ) callconv(.c) void {
+        self.private().terminal_intent.unregister(connection);
+
+        gio.Application.virtual_methods.dbus_unregister.call(
+            Class.parent,
+            self.as(Parent),
+            connection,
+            object_path,
+        );
+    }
+
     fn finalize(self: *Self) callconv(.c) void {
         self.deinit();
         gobject.Object.virtual_methods.finalize.call(
@@ -1865,12 +1923,7 @@ pub const Application = extern struct {
         Action.newWindow(
             self,
             null,
-            if (overrides) |o| .{
-                .command = o.command,
-                .shell_integration = o.shell_integration,
-                .working_directory = o.working_directory,
-                .title = o.title,
-            } else .none,
+            overrides orelse .none,
         ) catch |err| {
             log.warn("unable to create new window: {t}", .{err});
         };
@@ -1946,12 +1999,7 @@ pub const Application = extern struct {
                 .{
                     .surface = surface,
                 },
-                .{
-                    .command = overrides.command,
-                    .shell_integration = overrides.shell_integration,
-                    .working_directory = overrides.working_directory,
-                    .title = overrides.title,
-                },
+                overrides,
             )) {
                 log.warn("new-tab: unable to create tab", .{});
             }
@@ -1959,12 +2007,7 @@ pub const Application = extern struct {
             Action.newWindow(
                 self,
                 null,
-                .{
-                    .command = overrides.command,
-                    .shell_integration = overrides.shell_integration,
-                    .working_directory = overrides.working_directory,
-                    .title = overrides.title,
-                },
+                overrides,
             ) catch |err| {
                 log.warn("new-tab: unable to create new window: {t}", .{err});
             };
@@ -2115,6 +2158,8 @@ pub const Application = extern struct {
             // Virtual methods
             gio.Application.virtual_methods.activate.implement(class, &activate);
             gio.Application.virtual_methods.startup.implement(class, &startup);
+            gio.Application.virtual_methods.dbus_register.implement(class, &dbusRegister);
+            gio.Application.virtual_methods.dbus_unregister.implement(class, &dbusUnregister);
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
             gobject.Object.virtual_methods.finalize.implement(class, &finalize);
         }
@@ -2582,12 +2627,7 @@ const Action = struct {
                     log.warn("surface is not in a window, ignoring new_tab", .{});
                     return false;
                 };
-                window.newTab(core, .{
-                    .command = overrides.command,
-                    .shell_integration = overrides.shell_integration,
-                    .working_directory = overrides.working_directory,
-                    .title = overrides.title,
-                });
+                window.newTab(core, overrides);
                 return true;
             },
         }
@@ -2608,16 +2648,41 @@ const Action = struct {
             self,
             win,
             parent,
-            .{
-                .command = overrides.command,
-                .shell_integration = overrides.shell_integration,
-                .working_directory = overrides.working_directory,
-                .title = overrides.title,
-            },
+            overrides,
         );
     }
 
+    /// Open one window with a tab for each of `tabs`, as asked for by a
+    /// terminal intent `LaunchCommand` call. `startup_id` is the activation
+    /// token (or X11 startup id) the launcher handed us, if any.
+    pub fn launchCommands(
+        self: *Application,
+        tabs: []const Overrides,
+        startup_id: ?[:0]const u8,
+    ) void {
+        assert(tabs.len > 0);
+        self.private().requested_window = true;
+
+        const win = Window.new(self, .{});
+        initWindow(self, win, null, tabs[0]);
+        for (tabs[1..]) |overrides| win.newTab(null, overrides);
+        _ = win.selectTab(.{ .n = 1 });
+
+        if (startup_id) |id| win.as(gtk.Window).setStartupId(id);
+        gtk.Window.present(win.as(gtk.Window));
+    }
+
     fn initAndShowWindow(
+        self: *Application,
+        win: *Window,
+        parent: ?*CoreSurface,
+        overrides: Overrides,
+    ) void {
+        initWindow(self, win, parent, overrides);
+        gtk.Window.present(win.as(gtk.Window));
+    }
+
+    fn initWindow(
         self: *Application,
         win: *Window,
         parent: ?*CoreSurface,
@@ -2635,12 +2700,7 @@ const Action = struct {
         );
 
         // Create a new tab with window context (first tab in new window)
-        win.newTabForWindow(parent, .{
-            .command = overrides.command,
-            .shell_integration = overrides.shell_integration,
-            .working_directory = overrides.working_directory,
-            .title = overrides.title,
-        });
+        win.newTabForWindow(parent, overrides);
 
         // Estimate the initial window size before presenting so the window
         // manager can position it correctly.
@@ -2653,9 +2713,6 @@ const Action = struct {
                 );
             }
         }
-
-        // Show the window
-        gtk.Window.present(win.as(gtk.Window));
     }
 
     pub fn openConfig(self: *Application, value: apprt.action.OpenConfig) bool {

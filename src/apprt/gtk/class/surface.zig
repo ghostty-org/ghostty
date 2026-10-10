@@ -737,6 +737,8 @@ pub const Surface = extern struct {
             command: ?configpkg.Command = null,
             shell_integration: ?configpkg.Config.ShellIntegration = null,
             working_directory: ?[:0]const u8 = null,
+            env: []const [:0]const u8 = &.{},
+            wait_after_command: bool = false,
 
             pub const none: @This() = .{};
         } = .none,
@@ -754,6 +756,8 @@ pub const Surface = extern struct {
             .command = if (overrides.command) |c| c.clone(alloc) catch null else null,
             .shell_integration = overrides.shell_integration,
             .working_directory = if (overrides.working_directory) |wd| alloc.dupeZ(u8, wd) catch null else null,
+            .env = dupeEnv(alloc, overrides.env) catch &.{},
+            .wait_after_command = overrides.wait_after_command,
         };
         return self;
     }
@@ -1627,6 +1631,11 @@ pub const Surface = extern struct {
         _ = env.orderedRemove("JOURNAL_STREAM");
         _ = env.orderedRemove("NOTIFY_SOCKET");
 
+        // A startup notification or activation token belongs to whatever
+        // launched Ghostty, and has been used by the time a child starts.
+        _ = env.orderedRemove("DESKTOP_STARTUP_ID");
+        _ = env.orderedRemove("XDG_ACTIVATION_TOKEN");
+
         // Unset environment varies set by snaps if we're running in a snap.
         // This allows Ghostty to further launch additional snaps.
         if (comptime build_config.snap) {
@@ -1997,6 +2006,9 @@ pub const Surface = extern struct {
             alloc.free(wd);
             priv.overrides.working_directory = null;
         }
+        for (priv.overrides.env) |entry| alloc.free(entry);
+        alloc.free(priv.overrides.env);
+        priv.overrides.env = &.{};
 
         // Clean up key sequence and key table state
         for (priv.key_sequence.items) |s| alloc.free(s);
@@ -3471,6 +3483,8 @@ pub const Surface = extern struct {
             try wd_val.finalize(config_alloc);
             config.@"working-directory" = wd_val;
         }
+        try applyEnvOverrides(&config, priv.overrides.env);
+        if (priv.overrides.wait_after_command) config.@"wait-after-command" = true;
 
         // Properties that can impact surface init
         if (priv.font_size_request) |size| config.@"font-size" = size.points;
@@ -4377,6 +4391,11 @@ fn applyCommandOverrides(
     if (command) |value| {
         config.command = try value.clone(config.arenaAlloc());
 
+        // `initial-command` would otherwise win for the first surface of
+        // the app, which is the requested one when we were launched
+        // just to run it.
+        config.@"initial-command" = null;
+
         if (shell_integration) |integration| {
             config.@"shell-integration" = integration;
         } else if (config.@"shell-integration" != .none) {
@@ -4384,6 +4403,40 @@ fn applyCommandOverrides(
         }
     } else if (shell_integration) |value| {
         config.@"shell-integration" = value;
+    }
+}
+
+/// Copy `KEY=VALUE` override entries into `alloc`. The entries are
+/// expected to have been validated by whoever created them.
+fn dupeEnv(
+    alloc: Allocator,
+    env: []const [:0]const u8,
+) Allocator.Error![]const [:0]const u8 {
+    const result = try alloc.alloc([:0]const u8, env.len);
+    var i: usize = 0;
+    errdefer {
+        for (result[0..i]) |entry| alloc.free(entry);
+        alloc.free(result);
+    }
+    while (i < env.len) : (i += 1) result[i] = try alloc.dupeZ(u8, env[i]);
+    return result;
+}
+
+/// Add `KEY=VALUE` entries on top of the configured `env`, replacing
+/// any configured value for the same key. Entries without a `=` are
+/// skipped.
+fn applyEnvOverrides(
+    config: *configpkg.Config,
+    env: []const [:0]const u8,
+) Allocator.Error!void {
+    const alloc = config.arenaAlloc();
+    for (env) |entry| {
+        const key, const value = std.mem.cutScalar(u8, entry, '=') orelse continue;
+        try config.env.map.put(
+            alloc,
+            try alloc.dupeZ(u8, key),
+            try alloc.dupeZ(u8, value),
+        );
     }
 }
 
@@ -4417,4 +4470,34 @@ test "command and shell integration overrides" {
 
     try applyCommandOverrides(&config, null, .none);
     try testing.expectEqual(.none, config.@"shell-integration");
+}
+
+test "command override replaces initial-command" {
+    const testing = std.testing;
+
+    var config = try configpkg.Config.default(testing.allocator);
+    defer config.deinit();
+
+    config.@"initial-command" = .{ .shell = "htop" };
+    try applyCommandOverrides(&config, null, null);
+    try testing.expect(config.@"initial-command" != null);
+
+    try applyCommandOverrides(&config, .{ .shell = "vim" }, null);
+    try testing.expect(config.@"initial-command" == null);
+}
+
+test "env overrides" {
+    const testing = std.testing;
+
+    var config = try configpkg.Config.default(testing.allocator);
+    defer config.deinit();
+
+    try config.env.parseCLI(config.arenaAlloc(), "FOO=config");
+    try config.env.parseCLI(config.arenaAlloc(), "BAR=config");
+    try applyEnvOverrides(&config, &.{ "FOO=one=two", "BAZ=", "skipped" });
+
+    try testing.expectEqualStrings("one=two", config.env.map.get("FOO").?);
+    try testing.expectEqualStrings("config", config.env.map.get("BAR").?);
+    try testing.expectEqualStrings("", config.env.map.get("BAZ").?);
+    try testing.expectEqual(3, config.env.map.count());
 }
