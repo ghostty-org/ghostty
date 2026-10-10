@@ -787,6 +787,8 @@ pub const Application = extern struct {
 
             .size_limit => return Action.sizeLimit(target, value),
 
+            .cell_size => return Action.cellSize(target, value),
+
             .toggle_maximize => Action.toggleMaximize(target),
             .toggle_fullscreen => Action.toggleFullscreen(target),
             .toggle_quick_terminal => return Action.toggleQuickTerminal(self),
@@ -809,7 +811,6 @@ pub const Application = extern struct {
             .float_window,
             .toggle_visibility,
             .toggle_background_opacity,
-            .cell_size,
             .render_inspector,
             .renderer_health,
             .color_change,
@@ -3070,6 +3071,19 @@ const Action = struct {
                     .height = value.min_height,
                 });
 
+                return true;
+            },
+        }
+    }
+
+    pub fn cellSize(
+        target: apprt.Target,
+        value: apprt.action.CellSize,
+    ) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                core.rt_surface.surface.setCellSize(value.width, value.height);
                 return true;
             },
         }
