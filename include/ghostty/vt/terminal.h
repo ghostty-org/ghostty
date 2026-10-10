@@ -105,6 +105,7 @@ extern "C" {
  * | `GHOSTTY_TERMINAL_OPT_RENDER_HOLD`      | `GhosttyTerminalRenderHoldFn`     | Synchronized output (mode 2026) begins or ends |
  * | `GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT`  | `GhosttyTerminalSemanticPromptFn` | Shell reports a prompt or command step via OSC 133 |
  * | `GHOSTTY_TERMINAL_OPT_RESET`            | `GhosttyTerminalResetFn`          | Full reset (RIS, ESC c)                   |
+ * | `GHOSTTY_TERMINAL_OPT_RESIZE_WINDOW`    | `GhosttyTerminalResizeWindowFn`   | Window resize request (CSI 8 t)           |
  *
  * ### Defining a write_pty callback
  * @snippet c-vt-effects/src/main.c effects-write-pty
@@ -1555,6 +1556,82 @@ typedef void (*GhosttyTerminalResetFn)(GhosttyTerminal terminal,
                                        void* userdata);
 
 /**
+ * The kind of window resize request passed to a
+ * GhosttyTerminalResizeWindowFn callback.
+ *
+ * New kinds may be added in later versions. Callbacks should ignore any
+ * tag they don't handle.
+ *
+ * @ingroup terminal
+ */
+typedef enum GHOSTTY_ENUM_TYPED {
+  /**
+   * Resize the window's text area to a size in rows and columns
+   * (CSI 8 ; rows ; columns t). The value is in `value.grid`.
+   */
+  GHOSTTY_TERMINAL_RESIZE_WINDOW_GRID = 0,
+  GHOSTTY_TERMINAL_RESIZE_WINDOW_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+} GhosttyTerminalResizeWindowTag;
+
+/**
+ * A request to resize the window's text area to a size in rows and columns.
+ *
+ * @ingroup terminal
+ */
+typedef struct {
+  /** Requested height in rows, or 0 to keep the current height. */
+  uint16_t rows;
+
+  /** Requested width in columns, or 0 to keep the current width. */
+  uint16_t columns;
+} GhosttyTerminalResizeWindowGrid;
+
+/**
+ * Window resize request value.
+ *
+ * @ingroup terminal
+ */
+typedef union {
+  /** Size in rows and columns (GHOSTTY_TERMINAL_RESIZE_WINDOW_GRID). */
+  GhosttyTerminalResizeWindowGrid grid;
+
+  /** Padding for ABI compatibility. Do not use. */
+  uint64_t _padding[2];
+} GhosttyTerminalResizeWindowValue;
+
+/**
+ * A request from the running program to resize the window.
+ *
+ * @ingroup terminal
+ */
+typedef struct {
+  GhosttyTerminalResizeWindowTag tag;
+  GhosttyTerminalResizeWindowValue value;
+} GhosttyTerminalResizeWindow;
+
+/**
+ * Callback function type for window resize requests.
+ *
+ * Called synchronously when the running program asks to resize the window,
+ * such as with CSI 8 ; rows ; columns t. Check `request->tag` first, because
+ * more kinds of requests may be reported in later versions. The terminal is
+ * not resized by this: the embedder decides whether to allow the request,
+ * and if so resizes its window and the terminal. Letting any
+ * program resize the window is a nuisance at best, so consider making this
+ * opt-in for users.
+ *
+ * @param terminal The terminal handle
+ * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
+ * @param request Borrowed resize request
+ *
+ * @ingroup terminal
+ */
+typedef void (*GhosttyTerminalResizeWindowFn)(
+    GhosttyTerminal terminal,
+    void* userdata,
+    const GhosttyTerminalResizeWindow* request);
+
+/**
  * Callback function type for color scheme queries (CSI ? 996 n).
  *
  * Called when the terminal receives a color scheme device status report
@@ -2434,6 +2511,15 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: GhosttyTerminalProgramStatusFn
    */
   GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS = 46,
+
+  /**
+   * Callback invoked when the running program asks to resize the window,
+   * such as with CSI 8 ; rows ; columns t. Set to NULL to ignore resize
+   * requests.
+   *
+   * Input type: GhosttyTerminalResizeWindowFn
+   */
+  GHOSTTY_TERMINAL_OPT_RESIZE_WINDOW = 47,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 
