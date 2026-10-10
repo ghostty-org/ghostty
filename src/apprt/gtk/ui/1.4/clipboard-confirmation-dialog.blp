@@ -24,61 +24,77 @@ template $GhosttyClipboardConfirmationDialog: $GhosttyDialog {
   extra-child: ListBox {
     selection-mode: none;
 
-    Overlay {
-      styles [
-        "osd",
-        "clipboard-overlay",
-      ]
+    Box {
+      orientation: vertical;
+      spacing: 6;
+      // One representation per page, added by the dialog once it knows
+      // what the clipboard holds. They are picked from a list rather
+      // than laid out as tabs because a write can carry up to 64 of
+      // them: tabs for that many either overflow into a scroller or
+      // shrink past reading, while a dropdown stays one row however
+      // many there are, and ellipsizes the long MIME names instead of
+      // widening the dialog.
+      DropDown parts_dropdown {
+        notify::selected => $parts_selected();
+        model: bind parts_stack.pages;
+        visible: false;
 
-      ScrolledWindow text_view_scroll {
-        width-request: 500;
-        height-request: 200;
+        factory: Gtk.BuilderListItemFactory {
+          template Gtk.ListItem {
+            child: Gtk.Label {
+              ellipsize: end;
+              xalign: 0;
+              label: bind template.item as <Gtk.StackPage>.title;
+            };
+          }
+        };
+      }
 
-        TextView text_view {
+      Overlay {
+        styles [
+          "osd",
+          "clipboard-overlay",
+        ]
+
+        Stack parts_stack {
           styles [
             "clipboard-contents",
           ]
 
-          cursor-visible: false;
-          editable: false;
-          monospace: true;
-          top-margin: 8;
-          left-margin: 8;
-          bottom-margin: 8;
-          right-margin: 8;
-          buffer: bind template.clipboard-contents;
+          width-request: 500;
+          height-request: 200;
         }
-      }
 
-      [overlay]
-      Button reveal_button {
-        clicked => $reveal_clicked();
-        visible: false;
-        halign: end;
-        valign: start;
-        margin-end: 12;
-        margin-top: 12;
+        [overlay]
+        Button reveal_button {
+          clicked => $reveal_clicked();
+          visible: false;
+          halign: end;
+          valign: start;
+          margin-end: 12;
+          margin-top: 12;
 
-        Image {
-          icon-name: "view-reveal-symbolic";
+          Image {
+            icon-name: "view-reveal-symbolic";
+          }
         }
-      }
 
-      [overlay]
-      Button hide_button {
-        clicked => $hide_clicked();
-        visible: false;
-        halign: end;
-        valign: start;
-        margin-end: 12;
-        margin-top: 12;
+        [overlay]
+        Button hide_button {
+          clicked => $hide_clicked();
+          visible: false;
+          halign: end;
+          valign: start;
+          margin-end: 12;
+          margin-top: 12;
 
-        styles [
-          "opaque",
-        ]
+          styles [
+            "opaque",
+          ]
 
-        Image {
-          icon-name: "view-conceal-symbolic";
+          Image {
+            icon-name: "view-conceal-symbolic";
+          }
         }
       }
     }
