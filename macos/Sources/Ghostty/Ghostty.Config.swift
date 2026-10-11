@@ -383,6 +383,17 @@ extension Ghostty {
             return MacDockDropBehavior(rawValue: str) ?? defaultValue
         }
 
+        var windowCloseTabFocus: WindowCloseTabFocus {
+            let defaultValue = WindowCloseTabFocus.next
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>?
+            let key = "window-close-tab-focus"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            let str = String(cString: ptr)
+            return WindowCloseTabFocus(rawValue: str) ?? defaultValue
+        }
+
         var macosWindowShadow: Bool {
             guard let config = self.config else { return false }
             var v = false
@@ -823,6 +834,11 @@ extension Ghostty.Config {
     enum MacDockDropBehavior: String {
         case new_tab = "new-tab"
         case new_window = "new-window"
+    }
+
+    enum WindowCloseTabFocus: String {
+        case next
+        case previous
     }
 
     enum MacHidden: String {
