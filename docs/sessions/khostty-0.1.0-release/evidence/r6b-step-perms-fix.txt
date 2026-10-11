@@ -1,0 +1,70 @@
+================================================================================
+r6b — Scorecard fix: remove step-level `permissions:` blocks
+Agent: jcode | Started: 2026-10-11T22:38Z
+Repo: KooshaPari/Khostty | Base: main @ 26dad9ef9
+      ("style(ci): format scorecard.yml with prettier (repair Trunk Check)")
+================================================================================
+
+STEP 1 — Pre-state confirmation (2026-10-11T22:38Z)
+  cat -n .github/workflows/scorecard.yml on main @ 26dad9ef9 shows the two
+  INVALID step-level `permissions:` blocks, exactly as r6a diagnosed:
+    - lines 38-42  (5 lines) under step "Run Scorecard"
+      (ossf/scorecard-action@62b2cac7): permissions: actions/contents/id-token/
+      security-events
+    - lines 50-53  (4 lines) under step "Upload SARIF"
+      (github/codeql-action/upload-sarif@f35333b9): permissions: actions/
+      contents/security-events
+  Total 9 lines to delete. Job-level permissions block (lines 24-28) present
+  and already grants actions:read, contents:read, id-token:write,
+  security-events:write -> step-level blocks are redundant AND invalid.
+  Prior evidence read: r6-scorecard-diagnosis.txt, r6a-trunk-check-verification.txt
+  (r6a contains the actionlint reproduction: "unexpected key permissions for
+  step to execute action" at lines 38 and 50).
+
+STEP 2 — Branch created (2026-10-11T22:39Z)
+  $ git switch -c test/scorecard-remove-step-perms main
+  Switched to a new branch 'test/scorecard-remove-step-perms'
+  HEAD on branch: 26dad9ef97b22b682a15c663adec949a683f64cf
+
+STEP 3 — Edit applied (2026-10-11T22:39Z)
+  Deleted both step-level permissions blocks (9 lines total). Everything else
+  byte-identical. Diff:
+    @@ -35,11 +35,6 @@
+         - name: Run Scorecard
+           uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46 # v2.4.0
+    -        permissions:
+    -          actions: read
+    -          contents: read
+    -          id-token: write
+    -          security-events: write
+           with:
+             results_file: results.sarif
+    @@ -47,10 +42,6 @@
+         - name: Upload SARIF
+           uses: github/codeql-action/upload-sarif@f35333b910470a5408cb081b68f0701254a7d27b # v3.28.18
+    -        permissions:
+    -          actions: read
+    -          contents: read
+    -          security-events: write
+           with:
+             sarif_file: results.sarif
+
+STEP 4 — Local verification (2026-10-11T22:39Z)
+  $ npx --yes prettier@3.6.2 --check .github/workflows/scorecard.yml
+    "All matched files use Prettier code style!"  (exit 0)  -> prettier gate PASS
+  $ python3 -c "import yaml; yaml.safe_load(open('.github/workflows/scorecard.yml'))"
+    YAML OK (exit 0)
+  $ actionlint .github/workflows/scorecard.yml
+    ACTIONLINT CLEAN (exit 0) — the exact tool that reproduced the two
+    "unexpected key permissions for step" errors on main now reports zero
+    issues.
+
+STEP 5 — Commit + push
+  (filled in below after push)
+
+STEP 6 — Test-branch run verification
+  (filled in below after run completes)
+
+STEP 7 — Cherry-pick decision / main merge
+  (filled in below)
+================================================================================

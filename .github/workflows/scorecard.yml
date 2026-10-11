@@ -35,11 +35,6 @@ jobs:
 
       - name: Run Scorecard
         uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46 # v2.4.0
-        permissions:
-          actions: read
-          contents: read
-          id-token: write
-          security-events: write
         with:
           results_file: results.sarif
           results_format: sarif
@@ -47,10 +42,6 @@ jobs:
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@f35333b910470a5408cb081b68f0701254a7d27b # v3.28.18
-        permissions:
-          actions: read
-          contents: read
-          security-events: write
         with:
           sarif_file: results.sarif
           category: openssf-scorecard
