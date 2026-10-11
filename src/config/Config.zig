@@ -3439,6 +3439,11 @@ keybind: Keybinds = .{},
 /// macOS 14 does not have this issue and any other macOS version has not
 /// been tested.
 ///
+/// The "vertical-tabs" style is the same as "transparent" but lists tabs in
+/// a sidebar on the left of the window instead of the native tab bar. The
+/// tabs are still native macOS window tabs, so tab keybinds, "Show All Tabs",
+/// and saved window state work the same. Available since: 1.4.0
+///
 /// The "hidden" style hides the titlebar. Unlike `window-decoration = none`,
 /// however, it does not remove the frame from the window or cause it to have
 /// squared corners. Changing to or from this option at run-time may affect
@@ -9266,6 +9271,7 @@ pub const MacTitlebarStyle = enum {
     native,
     transparent,
     tabs,
+    @"vertical-tabs",
     hidden,
 };
 
