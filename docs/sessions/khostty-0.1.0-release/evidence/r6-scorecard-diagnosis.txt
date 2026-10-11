@@ -1,0 +1,44 @@
+r6 — OpenSSF Scorecard: 291/291 runs failed all-time (100%)
+Observed: 2026-10-11T06:11Z (proc sweep), khostty repo
+
+FACTS
+- Workflow: .github/workflows/scorecard.yml, added 5bd3285af (2026-08-05, org template).
+- All-time runs: 291. Conclusions: failure=291, success=0. Not a new regression
+  from 3ba017730 — persistent since the workflow was introduced.
+- Every failure presents GitHub's generic "This run likely failed because of a
+  workflow file issue" and the Jobs API returns an EMPTY jobs array (jobs:="").
+  That is the signature of a run rejected before job creation, not a step error.
+- Log download: 404. Check-run annotations: 404. So no step-level evidence exists.
+
+CORRELATION (fleet, same org, same action SHA 62b2cac7ed8198)
+- GREEN reps:
+  - HeliosLab   scorecard success 2026-10-05 (37304172109), 9 steps all success
+  - Tracera     scorecard success 2026-10-07 (37690551416, 37690476537)
+  Both use: runs-on ubuntu-24.04 (Tracera ubuntu-latest), top-level permissions
+  {} per job AND per step, NO `security:` block, `category: openssf-scorecard`,
+  `wait-for-processing: true`, `if-no-files-found: error`.
+- RED reps:
+  - khostty     291/291 failure  — uses `security: {permissions: read-all}` block
+  - portage     failure 2026-10-03 (37112321298) — same defect shape
+  The `security:` block (a GitHub Actions experimental job-level key) is the one
+  structural difference between the red and green templates. Its presence makes
+  the whole job unstartable -> empty jobs array -> "workflow file issue".
+
+ROOT CAUSE (high confidence, mechanism-level)
+- The job-level `security: permissions: read-all` key is not a valid stable
+  Actions schema field. It causes the run to be rejected at job-creation time.
+- Secondary: the old template also lacked `security-events: write` and
+  `id-token: write`, which `publish_results: true` (SARIF publish + OpenID
+  token) requires. So even without the schema error, SARIF upload would 403.
+
+FIX APPLIED (this session, 2026-10-11T06:22Z)
+Replaced the khostty template with the HeliosLab GREEN shape (verified identical
+except upload-sarif SHA, which follows Tracera's GREEN pin rather than HeliosLab's):
+  - removed `security:` block
+  - `runs-on: ubuntu-24.04`, `timeout-minutes: 10`
+  - job + per-step permissions: actions/contents read, id-token: write,
+    security-events: write
+  - upload-sarif: category openssf-scorecard, wait-for-processing: true
+  - upload-artifact: if-no-files-found: error
+YAML validated (python3 yaml.safe_load -> OK). Pushed on the next commit; awaiting
+a fresh push-triggered run to confirm GREEN before marking r6 done.
