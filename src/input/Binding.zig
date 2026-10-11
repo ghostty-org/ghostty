@@ -439,22 +439,28 @@ pub const Action = union(enum) {
     select_all,
 
     /// Scroll to the top of the screen.
+    /// This is not performable if the active screen has no scrollback.
     scroll_to_top,
 
     /// Scroll to the bottom of the screen.
+    /// This is not performable if the active screen has no scrollback.
     scroll_to_bottom,
 
     /// Scroll to the selected text.
+    /// This is not performable if the active screen has no scrollback.
     scroll_to_selection,
 
     /// Scroll to the given absolute row in the screen with 0 being
     /// the first row.
+    /// This is not performable if the active screen has no scrollback.
     scroll_to_row: usize,
 
     /// Scroll the screen up by one page.
+    /// This is not performable if the active screen has no scrollback.
     scroll_page_up,
 
     /// Scroll the screen down by one page.
+    /// This is not performable if the active screen has no scrollback.
     scroll_page_down,
 
     /// Scroll the screen by the specified fraction of a page.
@@ -464,6 +470,8 @@ pub const Action = union(enum) {
     /// For example, `scroll_page_fractional:0.5` would scroll the screen
     /// downwards by half a page, while `scroll_page_fractional:-1.5` would
     /// scroll it upwards by one and a half pages.
+    ///
+    /// This is not performable if the active screen has no scrollback.
     scroll_page_fractional: f32,
 
     /// Scroll the screen by the specified amount of lines.
@@ -473,6 +481,8 @@ pub const Action = union(enum) {
     /// For example, `scroll_page_lines:3` would scroll the screen downwards
     /// by 3 lines, while `scroll_page_lines:-10` would scroll it upwards by 10
     /// lines.
+    ///
+    /// This is not performable if the active screen has no scrollback.
     scroll_page_lines: i16,
 
     /// Adjust the current selection in the given direction or position,

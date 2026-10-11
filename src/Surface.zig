@@ -4892,9 +4892,6 @@ fn showMouse(self: *Surface) void {
 /// may return false if the binding action is not supported or if the
 /// binding action would do nothing (i.e. previous tab with no tabs).
 ///
-/// NOTE: At the time of writing this comment, only previous/next tab
-/// will ever return false. We can expand this in the future if it becomes
-/// useful. We did previous/next tab so we could implement #498.
 pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool {
     // Forward app-scoped actions to the app. Some app-scoped actions are
     // special-cased here because they do some special things when performed
@@ -4927,6 +4924,25 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             ),
         }
         return true;
+    }
+
+    // Scroll bindings should pass through when there is no visible history.
+    // In particular, the alternate screen must not consume performable binds.
+    switch (action) {
+        .scroll_to_top,
+        .scroll_to_bottom,
+        .scroll_to_row,
+        .scroll_to_selection,
+        .scroll_page_up,
+        .scroll_page_down,
+        .scroll_page_fractional,
+        .scroll_page_lines,
+        => {
+            self.renderer_state.mutex.lockUncancelable(global.io());
+            defer self.renderer_state.mutex.unlock(global.io());
+            if (!scrollBindingHasScrollback(&self.io.terminal.screens.active.pages)) return false;
+        },
+        else => {},
     }
 
     switch (action.scoped(.surface).?) {
@@ -6610,6 +6626,11 @@ fn showDesktopNotification(self: *Surface, title: [:0]const u8, body: [:0]const 
     );
 }
 
+fn scrollBindingHasScrollback(pages: *terminal.PageList) bool {
+    const scrollbar = pages.scrollbar();
+    return scrollbar.total > scrollbar.len;
+}
+
 fn crashThreadState(self: *Surface) crash.sentry.ThreadState {
     return .{
         .type = .main,
@@ -6647,6 +6668,48 @@ test "queueIo frees allocated writes in readonly mode" {
         .alloc = testing.allocator,
         .data = data,
     } }, .unlocked);
+}
+
+test "scroll bindings are not performable without scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var t = try terminal.Terminal.init(testing.io, alloc, .{
+        .cols = 80,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    try testing.expect(!scrollBindingHasScrollback(&t.screens.active.pages));
+
+    _ = try t.switchScreen(.alternate);
+    for (0..20) |_| try t.printString("line\r\n");
+    try testing.expect(!scrollBindingHasScrollback(&t.screens.active.pages));
+
+    _ = try t.switchScreen(.primary);
+    t.setScrollbackMaxBytes(0);
+    for (0..20) |_| try t.printString("line\r\n");
+    try testing.expect(!scrollBindingHasScrollback(&t.screens.active.pages));
+}
+
+test "scroll bindings remain performable with scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var t = try terminal.Terminal.init(testing.io, alloc, .{
+        .cols = 80,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    for (0..10) |_| try t.printString("line\r\n");
+    try testing.expect(scrollBindingHasScrollback(&t.screens.active.pages));
+
+    t.scrollViewport(.top);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.pages.scrollbar().offset);
+    try testing.expect(scrollBindingHasScrollback(&t.screens.active.pages));
+
+    t.scrollViewport(.bottom);
+    try testing.expect(t.screens.active.viewportIsBottom());
+    try testing.expect(scrollBindingHasScrollback(&t.screens.active.pages));
 }
 
 test "promptClickRelativeRow" {
