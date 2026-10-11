@@ -221,7 +221,7 @@ msgstr "設定"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
-msgstr "OSの既定のエディターで設定ファイルを開く"
+msgstr "OS既定のエディターで設定ファイルを開く"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
@@ -831,7 +831,7 @@ msgstr "タブの一覧表示を切り替え"
 
 #: src/input/command.zig:453
 msgid "Toggle the tab overview."
-msgstr "タブの一覧表示を切り替えます。"
+msgstr "タブ一覧の表示と非表示を切り替えます。"
 
 #: src/input/command.zig:458
 msgid "Change Terminal Title…"
@@ -983,11 +983,11 @@ msgstr "スクリーンキーボードが利用可能な場合に表示します
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
-msgstr "OSの既定のエディターで設定ファイルを開く"
+msgstr "OS既定のエディターで設定ファイルを開く"
 
 #: src/input/command.zig:589
 msgid "Open the config file with the OS's default editor."
-msgstr "OSの既定のエディターで設定ファイルを開きます。"
+msgstr "OS既定のエディターで設定ファイルを開きます。"
 
 #: src/input/command.zig:593
 msgid "Open Config in New Terminal Window"
@@ -1139,4 +1139,4 @@ msgstr "Ghostty"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."
-msgstr "ターミナルにおばけ（👻）を入力します。"
+msgstr "ターミナルに Ghostty（👻）を入力します。"
