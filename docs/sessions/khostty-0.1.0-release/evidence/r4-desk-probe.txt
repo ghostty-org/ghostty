@@ -64,3 +64,225 @@ Re-run liveness only: `nc -z -G 3 100.96.135.160 22` then
 `ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'echo DESK-ALIVE'` once
 `tailscale status` shows kooshapari-desk as online (not "offline").
 Keep remote commands single/simple (desk's Windows OpenSSH rejects `;`).
+
+=== DESK PROBE 2 — 2026-10-10T06:58:24Z (task r4 follow-up, read-only) ===
+Reachability: desk port OPEN (probe 1 window). BatchMode SSH auth succeeded
+throughout; NO credentials requested, NO mutations performed (no sync, no
+git pull/fetch, no wsl start, no installs). One command per ssh invocation.
+All commands below are literal; outputs verbatim unless marked [excerpt].
+
+[1] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c ver'
+  -> 'ver"' is not recognized as an internal or external command,... (exit 1)
+     [quoting artifact of first attempt; retried in (6)]
+
+[2] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c wsl -l -v'
+  ->   NAME            STATE       VERSION
+     * FedoraLinux-44  Running     2
+       docker-desktop  Stopped     2
+     (UTF-16 output; default distro = FedoraLinux-44, RUNNING, WSL2)
+
+[3] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c dir C:\\Khostty /b'
+  -> Parameter format not correct - "b"". (exit 1) [over-escaped backslashes; retried]
+[4] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c dir %USERPROFILE%\\Khostty /b'
+  -> Parameter format not correct - "b"". (exit 1) [same quoting issue]
+
+[5] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c fsutil volume diskfree C:'
+  -> Total free bytes : 103,702,204,416 (96.6 GB)
+     Total bytes      : 1,998,113,017,856 (1.8 TB)
+     Used bytes       : 1,894,006,775,808 (1.7 TB)
+
+[6] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c "ver"'
+  -> Microsoft Windows [Version 10.0.28120.3151] (exit 0)
+
+[7] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c "dir C:\\Khostty /b"'
+  -> The filename, directory name, or volume label syntax is incorrect. (exit 1)
+[8] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c "dir %USERPROFILE%\\Khostty /b"'
+  -> File Not Found (exit 1)
+[9] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c "dir C:\Khostty /b"'
+  -> File Not Found (exit 1)   [CONFIRMED: no C:\Khostty]
+[10] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c "dir %USERPROFILE%\Khostty /b"'
+  -> File Not Found (exit 1)   [CONFIRMED: no profile Khostty dir]
+
+[11] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c "dir C:\ /b"'
+  -> (exit 0) top-level dirs include: actions-runner, AMD, app, bench, cargo-target,
+     codeql, cygwin64, dev, dotnet10, etc, ffmpeg, Games, home, llama.cpp, mnt,
+     models, msys64, pheno-harness, phenotype-omlx, Program Files, Python313,
+     Python314, root, Scripts, Temp, tmp, tools, Users, Windows, XboxGames ...
+     [no Khostty at C:\ root]
+
+[12] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c "echo %USERPROFILE%"'
+  -> C:\Users\koosh
+[13] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c "dir %USERPROFILE% /b"'
+  -> (exit 0) full profile listing [excerpt — khostty-relevant entries only]:
+     khostty-verify/
+     khostty_0.1.0_amd64.deb
+     khostty_0.1.0_amd64.deb.sha256
+     khostty_gui_launch.log
+     (+ Projects/, Desktop, sync_wsl.sh, wslsync.sh, wslstage.sh, etc.)
+
+[14] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c "dir C:\Users\koosh\khostty-verify /b"'
+  -> ghostty-vt.dll, ghostty.exe, gv.err, gv.out, install.log, installed,
+     installedv.err, installedv.out, Khostty-0.1.0-win64,
+     windows_installer_e2e.ps1, windows_installer_verify.ps1, windows_verify.ps1
+[15] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c "git -C C:\Users\koosh\khostty-verify rev-parse HEAD"'
+  -> fatal: not a git repository (or any of the parent directories): .git (exit 128)
+     [same for status --porcelain -b and remote -v: khostty-verify is BUILD OUTPUT,
+      not the mirror]
+
+[16] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c "dir C:\Users\koosh\Projects /b /ad"'
+  -> chatta, Quant, terminal-fabric   [no Khostty]
+[17] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'wsl -d FedoraLinux-44 -- ls ~'
+  -> bin, build2.log, build3.log, clippy*.log, deb*.log, fresh-target, khostty,
+     mambaforge, models, serve.sh, terminal-fabric, vllm_install.sh, work
+     [CONFIRMED: WSL mirror at ~/khostty inside FedoraLinux-44]
+[18] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'cmd /c "dir C:\Users\koosh\Desktop /b /ad"'
+  -> dinoforge-capture-scripts, src, src-tauri   [no Khostty]
+
+[19] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty rev-parse HEAD'
+  -> 5cca586614e83022f2324b7936ddddc3c333a640
+[20] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty status --porcelain -b'
+  -> ## main...origin/main
+     ?? dist/khostty_0.1.0_amd64/
+     [branch main tracking origin/main, NO ahead/behind vs cached ref;
+      1 untracked artifact dir: dist/khostty_0.1.0_amd64/ — no tracked mods]
+[21] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty remote -v'
+  -> origin  https://github.com/KooshaPari/Khostty.git (fetch)
+     origin  https://github.com/KooshaPari/Khostty.git (push)
+[22] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'wsl -d FedoraLinux-44 -- uname -a'
+  -> Linux kooshapari-desk 6.18.40.1-microsoft-standard-WSL2 #1 SMP
+     PREEMPT_DYNAMIC Fri Jul 31 22:12:15 UTC 2026 x86_64 GNU/Linux
+[23] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty rev-parse origin/main'
+  -> 5cca586614e83022f2324b7936ddddc3c333a640
+     [cached origin/main ref == HEAD (stale-safe comparison; NOT re-fetched,
+      per no-fetch rule)]
+[24] ssh -o BatchMode=yes -o ConnectTimeout=5 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty log -1 --format=%h%x20%s'
+  -> 5cca58661 docs(release): add §7.2 post-approval verification block
+
+== DESK PROBE 2 SUMMARY ==
+- OS: Windows 10.0.28120.3151 (Win11-class build), x86_64 host; SSH alias desk OK.
+- WSL: FedoraLinux-44 RUNNING (WSL2, default), docker-desktop Stopped.
+- WSL kernel: 6.18.40.1-microsoft-standard-WSL2 x86_64.
+- Mirror: WSL path ~/khostty (FedoraLinux-44), origin KooshaPari/Khostty.git.
+- HEAD: 5cca586614e83022f2324b7936ddddc3c333a640 ("docs(release): add §7.2
+  post-approval verification block") — DIFFERS from expected cc8396cb2;
+  cached origin/main ref also = 5cca58661 (local state internally consistent;
+  remote freshness UNVERIFIED — fetch prohibited this run).
+- Dirty: clean tracked tree; only untracked dist/khostty_0.1.0_amd64/.
+- No Windows-side git mirror: C:\Khostty absent; C:\Users\koosh\khostty-verify
+  = build/verify output only; release artifacts khostty_0.1.0_amd64.deb{,.sha256}
+  sit in C:\Users\koosh.
+- C: free 96.6 GB / 1.8 TB total.
+- Secrets: none printed (no tokens/keys; dir listings are names only).
+
+MIRROR SYNC — 2026-10-11T01:00:00Z
+Outcome: STOP (PRE-STATE-MISMATCH at step 4) — merge NOT performed; desk HEAD unchanged.
+
+Discipline: one git command per ssh invocation; `ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty <cmd>'`. No force / no commit / no push / no checkout / no stash/clean / no build.
+
+[1] PRE-CHECK HEAD
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty rev-parse HEAD'
+5cca586614e83022f2324b7936ddddc3c333a640
+(exit 0) — matches expected 5cca586614e83022f2324b7936ddddc3c333a640. OK.
+
+[2] CLEANLINESS (tracked)
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty status --porcelain'
+?? dist/khostty_0.1.0_amd64/
+(exit 0) — only the known untracked dist/. OK.
+
+[3] FETCH (origin only, --prune)
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty fetch --prune origin'
+From https://github.com/KooshaPari/Khostty
+   5cca58661..f5c2ea26a  main           -> origin/main
+ * [new branch]          docs/khostty-release-lifecycle-refresh-20260929 -> origin/docs/khostty-release-lifecycle-refresh-20260929
+ * [new branch]          docs/mature-recovery-20260929 -> origin/docs/mature-recovery-20260929
+ * [new branch]          experiment/khostty-embedding-pass6 -> origin/experiment/khostty-embedding-pass6
+ * [new branch]          experiment/mature-recovery-k-e02 -> origin/experiment/mature-recovery-k-e02
+ * [new branch]          experiment/mature-recovery-k-e02a-app-bridge -> origin/experiment/mature-recovery-k-e02a-app-bridge
+ * [new branch]          experiment/mature-recovery-k-e02a-app-thread-bridge -> origin/experiment/mature-recovery-k-e02a-app-thread-bridge
+ * [new branch]          experiment/mature-recovery-k-e03 -> origin/experiment/mature-recovery-k-e03
+ * [new branch]          recovery/frozen-a29aa9c-pass6 -> origin/recovery/frozen-a29aa9c-pass6
+ * [new tag]             khostty-v0.1.0 -> khostty-v0.1.0
+(exit 0)
+
+[4] COMPARE origin/main  ->  STOP TRIGGER
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty rev-parse origin/main'
+f5c2ea26a3f0bf7be6f439302f98277bc8785b7c
+(exit 0) — MISMATCH vs expected local origin/main cc8396cb2.
+
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty rev-list --count 5cca586614..origin/main'
+40
+(exit 0) — vs expected ~29.
+
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty rev-list --count cc8396cb2..origin/main'
+1
+(exit 0) — remote advanced exactly 1 commit past the intended target cc8396cb2.
+
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty rev-list --count 5cca586614..cc8396cb2'
+39
+(exit 0) — cc8396cb2 is an ancestor of f5c2ea26a; desk HEAD 5cca586614 is ancestor of both (ff possible, but overshoots stated target).
+
+STOP: step-4 hard equality (origin/main == cc8396cb2) FAILED. Fast-forwarding origin/main would land HEAD at f5c2ea26a, not the authorized cc8396cb2, so post-verify (HEAD==cc8396cb2) could not pass. Merge --ff-only NOT run.
+
+[5] MERGE --ff-only
+(skipped — STOP above; no merge attempted)
+
+[6] POST-STATE (unchanged)
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty rev-parse HEAD'
+5cca586614e83022f2324b7936ddddc3c333a640
+(wsl systemd-user-session warning for 'root' printed to stderr; non-fatal, exit 0) — desk HEAD unchanged; no merge occurred.
+
+Sanitization: no tokens/keys printed; only SHAs, ref names, and commit counts.
+
+MIRROR SYNC (retry 2) — 2026-10-11T01:26:18Z
+Authorized target (operator-corrected): origin/main = f5c2ea26a3f0bf7be6f439302f98277bc8785b7c (confirmed against GitHub API 01:24Z).
+Pre-state expected: desk HEAD = 5cca586614e83022f2324b7936ddddc3c333a640; worktree clean except `?? dist/khostty_0.1.0_amd64/`.
+Discipline: one command per ssh invocation; no force; no commit/push/build/checkout/stash/clean on desk.
+
+[1] PRE-CHECK DESK HEAD
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty rev-parse HEAD'
+5cca586614e83022f2324b7936ddddc3c333a640
+(exit 0) — matches expected pre-state. Proceed.
+
+[2] PRE-STATE DIRTY CHECK
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty status --porcelain'
+?? dist/khostty_0.1.0_amd64/
+(exit 0) — only the expected untracked dist/ directory. Proceed.
+
+[3] FETCH
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty fetch --prune origin'
+(no output)
+(exit 0) — fetch --prune clean.
+
+[4] VERIFY FETCHED REF + COUNT
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty rev-parse origin/main'
+f5c2ea26a3f0bf7be6f439302f98277bc8785b7c
+(exit 0) — EQUALS authorized target. Proceed.
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty rev-list --count 5cca586614..origin/main'
+40
+(exit 0)
+
+[5] FAST-FORWARD (ff-only; no merge/rebase/reset alternatives)
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty merge --ff-only origin/main'
+Updating 5cca58661..f5c2ea26a
+Fast-forward
+ (24 files changed, 1426 insertions(+), 51 deletions(-); includes docs/sessions/khostty-0.1.0-release/evidence/r4-desk-probe.txt among others)
+(exit 0) — clean fast-forward, HEAD advanced 5cca58661 -> f5c2ea26a.
+
+[6] POST-VERIFY
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty rev-parse HEAD'
+f5c2ea26a3f0bf7be6f439302f98277bc8785b7c
+(exit 0) — matches authorized target.
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty status --porcelain'
+?? dist/khostty_0.1.0_amd64/
+(exit 0) — untracked dist/ preserved; no tracked changes introduced.
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty log --oneline -1'
+f5c2ea26a docs(evidence): probe 4 still-gated + desk probe unreachable
+(exit 0)
+$ ssh -o BatchMode=yes -o ConnectTimeout=8 desk 'wsl -d FedoraLinux-44 -- git -C ~/khostty rev-list --count 5cca586614..HEAD'
+40
+(exit 0)
+
+RESULT: SYNCED-FF — desk mirror ~/khostty fast-forwarded 5cca58661..f5c2ea26a (40 commits) on branch main; origin/main and HEAD both f5c2ea26a3f0bf7be6f439302f98277bc8785b7c. No force, no commit/push, no build, no checkout, no stash/clean. Untracked dist/khostty_0.1.0_amd64/ left in place.
+
+Sanitization: no tokens/keys printed; only SHAs, ref names, file stats, and commit counts.
+
