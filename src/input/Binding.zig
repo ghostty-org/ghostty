@@ -909,7 +909,9 @@ pub const Action = union(enum) {
     /// in the background indefinitely, and the keybinds become available
     /// for terminal applications to use.
     ///
-    /// Only implemented on macOS.
+    /// On Linux (GTK), this restores closed tabs, including when closing
+    /// the last tab also closes its window. Closing a window itself and
+    /// other undoable actions are only implemented on macOS.
     undo,
 
     /// Redo the last undoable action for the focused surface or terminal,

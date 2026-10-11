@@ -498,22 +498,12 @@ pub const Window = extern struct {
             .{ .sync_create = true },
         );
 
-        // Bind signals
-        const split_tree = tab.getSplitTree();
-        _ = SplitTree.signals.changed.connect(
-            split_tree,
-            *Self,
-            tabSplitTreeChanged,
-            self,
-            .{},
-        );
-
         // Run an initial notification for the surface tree so we can setup
         // initial state.
         tabSplitTreeChanged(
-            split_tree,
+            tab.getSplitTree(),
             null,
-            split_tree.getTree(),
+            tab.getSplitTree().getTree(),
             self,
         );
 
@@ -1641,6 +1631,31 @@ pub const Window = extern struct {
         self.as(gtk.Window).destroy();
     }
 
+    pub fn restoreClosedTab(self: *Self, tab: *Tab, position: c_int, pinned: bool) void {
+        const tab_view = self.private().tab_view;
+        const page = if (pinned)
+            tab_view.insertPinned(tab.as(gtk.Widget), @min(position, tab_view.getNPinnedPages()))
+        else
+            tab_view.insert(tab.as(gtk.Widget), @max(tab_view.getNPinnedPages(), @min(position, tab_view.getNPages())));
+        _ = tab.as(gobject.Object).bindProperty(
+            "title",
+            page.as(gobject.Object),
+            "title",
+            .{ .sync_create = true },
+        );
+        _ = tab.as(gobject.Object).bindProperty(
+            "tooltip",
+            page.as(gobject.Object),
+            "tooltip",
+            .{ .sync_create = true },
+        );
+        tab_view.setSelectedPage(page);
+    }
+
+    fn retainClosedTab(self: *Self, page: *adw.TabPage) void {
+        Application.default().retainClosedTab(self, page);
+    }
+
     fn closeConfirmationCloseTab(
         _: *CloseConfirmationDialog,
         page: *adw.TabPage,
@@ -1652,6 +1667,9 @@ pub const Window = extern struct {
             log.warn("close confirmation called for non-existent page", .{});
             return;
         };
+        if (ext.getAncestor(Self, tab_view.as(gtk.Widget))) |window| {
+            window.retainClosedTab(page);
+        }
         tab_view.closePageFinish(page, @intFromBool(true));
     }
 
@@ -1682,12 +1700,16 @@ pub const Window = extern struct {
         // If the tab says it doesn't need confirmation then we go ahead
         // and close immediately.
         if (!tab.getNeedsConfirmQuit()) {
+            self.retainClosedTab(page);
             priv.tab_view.closePageFinish(page, @intFromBool(true));
             return @intFromBool(true);
         }
 
         // Show a confirmation dialog
-        const dialog: *CloseConfirmationDialog = .new(.tab);
+        const dialog: *CloseConfirmationDialog = .new(if (self.getConfig()) |config|
+            if (config.get().@"undo-timeout".duration > 0) .tab_undoable else .tab
+        else
+            .tab);
         _ = CloseConfirmationDialog.signals.@"close-request".connect(
             dialog,
             *adw.TabPage,
@@ -1751,6 +1773,14 @@ pub const Window = extern struct {
             .{},
         );
 
+        _ = SplitTree.signals.changed.connect(
+            tab.getSplitTree(),
+            *Self,
+            tabSplitTreeChanged,
+            self,
+            .{},
+        );
+
         // Attach listeners for the surface.
         //
         // Interesting behavior here that was previously undocumented but
@@ -1786,6 +1816,15 @@ pub const Window = extern struct {
         const tab = gobject.ext.cast(Tab, child) orelse return;
         _ = gobject.signalHandlersDisconnectMatched(
             tab.as(gobject.Object),
+            .{ .data = true },
+            0,
+            0,
+            null,
+            null,
+            self,
+        );
+        _ = gobject.signalHandlersDisconnectMatched(
+            tab.getSplitTree().as(gobject.Object),
             .{ .data = true },
             0,
             0,

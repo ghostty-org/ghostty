@@ -2725,9 +2725,12 @@ keybind: Keybinds = .{},
 /// `1h1h` is equivalent to `2h`. This is confusing and should be avoided.
 /// A future update may disallow this.
 ///
-/// This configuration is only supported on macOS. Linux doesn't
-/// support undo operations at all so this configuration has no
-/// effect.
+/// On Linux (GTK), this controls how long a closed tab remains undoable,
+/// including when closing the last tab also closes its window. With
+/// `gtk-single-instance=true`, reopen Ghostty before the timeout and use
+/// the undo binding to restore the tab. Closing a window itself is not
+/// undoable on GTK.
+/// The `-e` flag starts a separate instance and cannot reach that history.
 ///
 /// Available since: 1.2.0
 @"undo-timeout": Duration = .{ .duration = 5 * std.time.ns_per_s },

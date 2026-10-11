@@ -176,13 +176,14 @@ pub const CloseConfirmationDialog = extern struct {
 pub const Target = enum(c_int) {
     app,
     tab,
+    tab_undoable,
     window,
     surface,
 
     pub fn title(self: Target) [*:0]const u8 {
         return switch (self) {
             .app => i18n._("Quit Ghostty?"),
-            .tab => i18n._("Close Tab?"),
+            .tab, .tab_undoable => i18n._("Close Tab?"),
             .window => i18n._("Close Window?"),
             .surface => i18n._("Close Split?"),
         };
@@ -192,6 +193,7 @@ pub const Target = enum(c_int) {
         return switch (self) {
             .app => i18n._("All terminal sessions will be terminated."),
             .tab => i18n._("All terminal sessions in this tab will be terminated."),
+            .tab_undoable => i18n._("Terminal sessions in this tab will end unless you undo the close before the timeout."),
             .window => i18n._("All terminal sessions in this window will be terminated."),
             .surface => i18n._("The currently running process in this split will be terminated."),
         };
