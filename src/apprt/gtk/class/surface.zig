@@ -114,18 +114,6 @@ pub const Surface = extern struct {
             );
         };
 
-        pub const @"default-size" = struct {
-            pub const name = "default-size";
-            const impl = gobject.ext.defineProperty(
-                name,
-                Self,
-                ?*Size,
-                .{
-                    .accessor = C.privateBoxedFieldAccessor("default_size"),
-                },
-            );
-        };
-
         pub const @"error" = struct {
             pub const name = "error";
             const impl = gobject.ext.defineProperty(
@@ -575,9 +563,6 @@ pub const Surface = extern struct {
     const Private = struct {
         /// The configuration that this surface is using.
         config: ?*Config = null,
-
-        /// The default size for a window that embeds this surface.
-        default_size: ?*Size = null,
 
         /// The minimum size for this surface. Embedders enforce this,
         /// not the surface itself.
@@ -1965,10 +1950,6 @@ pub const Surface = extern struct {
             glib.free(@ptrCast(@constCast(v)));
             priv.mouse_hover_url = null;
         }
-        if (priv.default_size) |v| {
-            ext.boxedFree(Size, v);
-            priv.default_size = null;
-        }
         if (priv.font_size_request) |v| {
             glib.ext.destroy(v);
             priv.font_size_request = null;
@@ -2141,52 +2122,34 @@ pub const Surface = extern struct {
         self.as(gobject.Object).notifyByPspec(properties.config.impl.param_spec);
     }
 
-    /// Return the default size, if set.
-    pub fn getDefaultSize(self: *Self) ?*Size {
-        const priv = self.private();
-        return priv.default_size;
-    }
-
-    /// Set the default size for a window that contains this surface.
-    /// This is up to the embedding widget to respect this. Generally, only
-    /// the first surface in a window respects this.
-    pub fn setDefaultSize(self: *Self, size: Size) void {
-        const priv = self.private();
-        if (priv.default_size) |v| ext.boxedFree(
-            Size,
-            v,
-        );
-        priv.default_size = ext.boxedCopy(
-            Size,
-            &size,
-        );
-        self.as(gobject.Object).notifyByPspec(properties.@"default-size".impl.param_spec);
-    }
-
-    /// Estimate and set the initial window size from config and font metrics.
-    /// This can be called before the core surface exists to set up the window
-    /// size before presenting. This is an estimate because it does not take
-    /// into account any padding that may need to be added to the window.
+    /// Estimate the initial size of this surface.
+    ///
+    /// The reason why we need this is a chicken-and-egg problem: the true size
+    /// of a freshly-created surface is sent by the core surface, but since GTK
+    /// widgets start in an unrealized state, we cannot eagerly create the core
+    /// surface when we have to know the surface size. What do we do then?
+    /// We guess based on the information we have. This is not perfect, but it
+    /// should take care of most user needs. When the core surface is actually
+    /// created, we can simply update the natural size of the render surface
+    /// underneath.
     pub fn estimateInitialSize(self: *Self) void {
-        const priv: *Private = self.private();
-        const config_obj = priv.config orelse return;
-        const config = config_obj.get();
-
-        // Both dimensions must be configured
-        if (config.@"window-height" <= 0 or config.@"window-width" <= 0) return;
-
+        const priv = self.private();
         const app = Application.default();
         const alloc = app.allocator();
+        const config = if (priv.config) |c| c.get() else return;
 
         // Get content scale and compute DPI
-        const content_scale = self.getContentScale();
-        const x_dpi = content_scale.x * font.face.default_dpi;
-        const y_dpi = content_scale.y * font.face.default_dpi;
+        const content_scale: @Vector(2, f32) = scale: {
+            const content_scale = self.getContentScale();
+            break :scale .{ content_scale.x, content_scale.y };
+        };
+        const default_dpi: @Vector(2, f32) = @splat(font.face.default_dpi);
+        const dpi = content_scale * default_dpi;
 
         const font_size: font.face.DesiredSize = .{
             .points = config.@"font-size",
-            .xdpi = @intFromFloat(@round(x_dpi)),
-            .ydpi = @intFromFloat(@round(y_dpi)),
+            .xdpi = @intFromFloat(dpi[0]),
+            .ydpi = @intFromFloat(dpi[1]),
         };
 
         // Get font grid for cell metrics
@@ -2201,15 +2164,54 @@ pub const Surface = extern struct {
 
         const cell = font_grid.cellSize();
 
-        const width = @max(CoreSurface.min_window_width_cells, config.@"window-width") * cell.width;
-        const height = @max(CoreSurface.min_window_height_cells, config.@"window-height") * cell.height;
-        const width_f32: f32 = @floatFromInt(width);
-        const height_f32: f32 = @floatFromInt(height);
+        // Account for the window padding so the terminal grid fits exactly
+        // in the allocated surface. This mirrors the renderer's padding
+        // calculation (the core's `recomputeInitialSize`).
+        const padding_raw: @Vector(2, u32) = .{
+            config.@"window-padding-x".top_left + config.@"window-padding-x".bottom_right,
+            config.@"window-padding-y".top_left + config.@"window-padding-y".bottom_right,
+        };
+        const padding_f32: @Vector(2, f32) = @floatFromInt(padding_raw);
+        const dpi_mult: @Vector(2, f32) = @splat(72);
+        const paddings: @Vector(2, u32) = @intFromFloat(@floor(padding_f32 * dpi / dpi_mult));
 
-        const final_width: u32 = @intFromFloat(@ceil(width_f32 / content_scale.x));
-        const final_height: u32 = @intFromFloat(@ceil(height_f32 / content_scale.y));
+        // Our minimum size is the smallest grid we allow (the core's
+        // `min_window_*_cells`), while our natural size is the configured
+        // grid size.
+        const cell_sizes: @Vector(2, u32) = .{ cell.width, cell.height };
 
-        self.setDefaultSize(.{ .width = final_width, .height = final_height });
+        // Convert from device pixels to logical pixels
+        const min: @Vector(2, c_int) = min: {
+            const cells: @Vector(2, u32) = .{
+                CoreSurface.min_window_width_cells,
+                CoreSurface.min_window_height_cells,
+            };
+            var device_pixels: @Vector(2, f32) = @floatFromInt(cells * cell_sizes + paddings);
+            device_pixels /= content_scale;
+            break :min @intFromFloat(@ceil(device_pixels));
+        };
+        const nat: @Vector(2, c_int) = nat: {
+            var cells: @Vector(2, u32) = .{
+                config.@"window-width",
+                config.@"window-height",
+            };
+            // If `window-width` and `window-height` are unset, fall back to 80x24
+            if (cells[0] == 0 and cells[1] == 0) cells = .{ 80, 24 };
+
+            var device_pixels: @Vector(2, f32) = @floatFromInt(cells * cell_sizes + paddings);
+            device_pixels /= content_scale;
+            break :nat @intFromFloat(@ceil(device_pixels));
+        };
+
+        log.debug("render surface size estimated to be min={} natural={}", .{ min, nat });
+
+        priv.render_surface.setMinimumSize(min[0], min[1]);
+        priv.render_surface.setNaturalSize(nat[0], nat[1]);
+    }
+
+    pub fn setInitialSize(self: *Self, width: u32, height: u32) void {
+        const priv = self.private();
+        priv.render_surface.setNaturalSize(@intCast(width), @intCast(height));
     }
 
     /// Get the key sequence list. Full transfer.
@@ -2342,6 +2344,10 @@ pub const Surface = extern struct {
     ) callconv(.c) void {
         const priv = self.private();
         const config = if (priv.config) |c| c.get() else return;
+
+        // The config determines the size of the terminal grid we want to
+        // show, which our render surface reports as its natural size.
+        self.estimateInitialSize();
 
         // resize-overlay-duration
         {
@@ -3886,7 +3892,6 @@ pub const Surface = extern struct {
                 properties.@"bell-ringing".impl,
                 properties.config.impl,
                 properties.@"child-exited".impl,
-                properties.@"default-size".impl,
                 properties.@"error".impl,
                 properties.@"font-size-request".impl,
                 properties.focused.impl,

@@ -2451,12 +2451,11 @@ const Action = struct {
     ) bool {
         switch (target) {
             .app => return false,
-            .surface => |core| {
-                const surface = core.rt_surface.surface;
-                surface.setDefaultSize(.{
-                    .width = value.width,
-                    .height = value.height,
-                });
+            .surface => |s| {
+                // The initial_size action arrives after core surface creation,
+                // when the widget has already been allocated its default size,
+                // making it rather useless. Although, let's track it for now.
+                s.rt_surface.gobj().setInitialSize(value.width, value.height);
                 return true;
             },
         }
@@ -2642,19 +2641,8 @@ const Action = struct {
             .title = overrides.title,
         });
 
-        // Estimate the initial window size before presenting so the window
-        // manager can position it correctly.
-        if (win.getActiveSurface()) |surface| {
-            surface.estimateInitialSize();
-            if (surface.getDefaultSize()) |size| {
-                win.as(gtk.Window).setDefaultSize(
-                    @intCast(size.width),
-                    @intCast(size.height),
-                );
-            }
-        }
-
-        // Show the window
+        // Show the window. The initial size is applied at realize time
+        // (see `windowRealize`) once the final window chrome is known.
         gtk.Window.present(win.as(gtk.Window));
     }
 
