@@ -316,8 +316,8 @@ msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
-"このテキストには実行可能なコマンドが含まれており、ターミナルに貼り付けるのは"
-"危険な可能性があります。"
+"このテキストをターミナルに貼り付けるとコマンドが実行される可能性があり、"
+"危険な場合があります。"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
 msgid "Quit Ghostty?"
@@ -349,7 +349,7 @@ msgstr "ウィンドウ内のすべてのターミナルセッションが終了
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:196
 msgid "The currently running process in this split will be terminated."
-msgstr "分割ウィンドウ内のすべてのプロセスが終了します。"
+msgstr "この分割ウィンドウで現在実行中のプロセスが終了します。"
 
 #: src/apprt/gtk/class/surface.zig:1181
 msgid "Command Finished"
@@ -939,7 +939,7 @@ msgstr "読み取り専用モードを切り替え"
 
 #: src/input/command.zig:552
 msgid "Toggle read-only mode for the current surface."
-msgstr "現在のターミナルの読み取り専用モードを切り替えます。"
+msgstr "現在のターミナルの読み取り専用モードの有効と無効を切り替えます。"
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
