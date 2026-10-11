@@ -14,7 +14,7 @@ pub const Options = struct {
 
     /// The path to write the framework
     out_path: union(enum) {
-        /// Copy the generated xcframework into the install prefix
+        /// Write into the install prefix
         install_prefix: []const u8,
 
         /// Write directly into the source tree. Used by e.g. GhosttyKit
@@ -43,6 +43,14 @@ step: *Step,
 pub fn create(b: *std.Build, opts: Options) *XCFrameworkStep {
     const self = b.allocator.create(XCFrameworkStep) catch @panic("OOM");
 
+    // xcodebuild refuses to overwrite an existing xcframework, so we
+    // always remove the previous one first.
+    const delete = RunStep.create(b, b.fmt("xcframework delete {s}", .{opts.name}));
+    delete.has_side_effects = true;
+    delete.addArgs(&.{ "rm", "-rf" });
+    // Writes directly to the final location rather than into the cache.
+    addOutPathArg(b, delete, opts.out_path);
+
     const run = RunStep.create(b, b.fmt("xcframework {s}", .{opts.name}));
     run.has_side_effects = true;
     run.addArgs(&.{ "xcodebuild", "-create-xcframework" });
@@ -57,38 +65,28 @@ pub fn create(b: *std.Build, opts: Options) *XCFrameworkStep {
         }
     }
     run.addArg("-output");
-    const out = run.addOutputFileArg2(b.fmt("{s}.xcframework", .{opts.name}), .{});
+    addOutPathArg(b, run, opts.out_path);
     run.expectExitCode(0);
     _ = run.captureStdOut(.{});
     _ = run.captureStdErr(.{});
-
-    const step = switch (opts.out_path) {
-        .install_prefix => |v| s: {
-            const install_step = b.addInstallDirectory(.{
-                .source_dir = out,
-                .install_dir = .prefix,
-                .install_subdir = v,
-            });
-            break :s &install_step.step;
-        },
-        .source_tree => |v| s: {
-            const delete = RunStep.create(b, b.fmt("xcframework delete {s}", .{opts.name}));
-            delete.has_side_effects = true;
-            delete.addArgs(&.{ "rm", "-rf", v });
-
-            const copy = RunStep.create(b, b.fmt("xcframework copy {s}", .{opts.name}));
-            copy.has_side_effects = true;
-            copy.addArgs(&.{ "cp", "-R" });
-            copy.addDirectoryArg(out);
-            copy.addArg(v);
-            copy.step.dependOn(&delete.step);
-            break :s &copy.step;
-        },
-    };
+    run.step.dependOn(&delete.step);
 
     self.* = .{
-        .step = step,
+        .step = &run.step,
     };
 
     return self;
+}
+
+/// Adds the output path as an argument. The install prefix is only
+/// known when the step runs, so it is passed as a lazy path.
+fn addOutPathArg(
+    b: *std.Build,
+    run: *RunStep,
+    out_path: @FieldType(Options, "out_path"),
+) void {
+    switch (out_path) {
+        .install_prefix => |v| run.addDirectoryArg(b.graph.path(.install_prefix, v)),
+        .source_tree => |v| run.addArg(v),
+    }
 }
