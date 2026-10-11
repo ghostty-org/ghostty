@@ -59,10 +59,10 @@
     "url": "https://deps.files.ghostty.org/N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI.tar.gz",
     "hash": "sha256-yBbCDox18+Fa6Gc1DnmSVQLRpqhZOLsac7iSfl8x+cs="
   },
-  "N-V-__8AAAfDBACe1jGqjr9jIG3UAK8KbzJKQ7xrzYoau-_a": {
+  "N-V-__8AADNBBQDD4MFOa3Y7R_A8PHIeWQ1IZdOiBFZS3nZ7": {
     "name": "iterm2_themes",
-    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260928-151043-99d9701.tgz",
-    "hash": "sha256-By2I0PajVhwB7n+hGw7sAYwk8m8vpGGmdmAnf+pOMsk="
+    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20261005-151109-31756e7.tgz",
+    "hash": "sha256-V0QDwSO92JJpn3iUv1+F+Bzjyg2a8YzpiFBBqLnR4/A="
   },
   "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x": {
     "name": "jetbrains_mono",
