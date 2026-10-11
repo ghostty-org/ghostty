@@ -430,6 +430,7 @@ pub fn decode(
         break :result .{
             .io = io_,
             .alloc = alloc,
+            .kitty_images = if (build_options.kitty_graphics) .init(alloc) else .{},
             .pages = pages,
             .no_scrollback = key == .alternate or
                 options.max_scrollback_bytes == 0,
