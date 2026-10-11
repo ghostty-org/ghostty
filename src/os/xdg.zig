@@ -18,6 +18,65 @@ pub const Options = struct {
     home: ?[]const u8 = null,
 };
 
+/// Iterates over XDG_CONFIG_DIRS from lowest to highest priority, so callers
+/// can load each configuration and let the more important directories win.
+/// Returned paths borrow from the input value. Empty and relative entries
+/// are ignored; an unset or empty value defaults to /etc/xdg. Duplicate
+/// entries are visited only at their highest-priority position.
+pub const ConfigDirsIterator = struct {
+    inner: std.mem.SplitBackwardsIterator(u8, .scalar),
+
+    pub fn init(value: ?[]const u8) ConfigDirsIterator {
+        const dirs = value orelse "";
+        return .{ .inner = std.mem.splitBackwardsScalar(
+            u8,
+            if (dirs.len > 0) dirs else "/etc/xdg",
+            ':',
+        ) };
+    }
+
+    pub fn next(self: *ConfigDirsIterator) ?[]const u8 {
+        paths: while (self.inner.next()) |dir_path| {
+            if (dir_path.len == 0 or !std.fs.path.isAbsolute(dir_path)) continue;
+
+            // A matching entry earlier in the list has higher priority.
+            var remaining = std.mem.splitScalar(u8, self.inner.rest(), ':');
+            while (remaining.next()) |other| {
+                if (std.mem.eql(u8, dir_path, other)) continue :paths;
+            }
+            return dir_path;
+        }
+        return null;
+    }
+};
+
+test "xdg config directories" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    const testing = std.testing;
+    const Case = struct {
+        value: ?[]const u8,
+        expected: []const []const u8,
+    };
+    const cases = [_]Case{
+        .{ .value = null, .expected = &.{"/etc/xdg"} },
+        .{ .value = "", .expected = &.{"/etc/xdg"} },
+        .{ .value = "/first:/second:/last", .expected = &.{ "/last", "/second", "/first" } },
+        .{ .value = ":/first::relative:./relative:/last:", .expected = &.{ "/last", "/first" } },
+        .{ .value = "/first:/second:/first", .expected = &.{ "/second", "/first" } },
+        .{ .value = "/first:/first", .expected = &.{"/first"} },
+        .{ .value = ":::", .expected = &.{} },
+        .{ .value = "relative", .expected = &.{} },
+    };
+    for (cases) |case| {
+        var it = ConfigDirsIterator.init(case.value);
+        for (case.expected) |expected| {
+            try testing.expectEqualStrings(expected, it.next().?);
+        }
+        try testing.expect(it.next() == null);
+        try testing.expect(it.next() == null);
+    }
+}
+
 /// Get the XDG user config directory. The returned value is allocated.
 pub fn config(io: std.Io, alloc: Allocator, environ_map: *const std.process.Environ.Map, opts: Options) ![]u8 {
     return try dir(io, alloc, environ_map, opts, .{

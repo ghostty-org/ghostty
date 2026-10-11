@@ -2605,8 +2605,9 @@ keybind: Keybinds = .{},
 @"config-file": RepeatablePath = .{},
 
 /// When this is true, the default configuration file paths will be loaded.
-/// The default configuration file paths are currently only the XDG
-/// config path ($XDG_CONFIG_HOME/ghostty/config.ghostty).
+/// On Unix, these include system configuration in `$XDG_CONFIG_DIRS` and
+/// user configuration in `$XDG_CONFIG_HOME/ghostty/`. On macOS, the
+/// "Application Support" directory is also loaded.
 ///
 /// If this is false, the default configuration paths will not be loaded.
 /// This is targeted directly at using Ghostty from the CLI in a way
@@ -4039,16 +4040,17 @@ pub fn deinit(self: *Config) void {
 /// Load the configuration according to the default rules:
 ///
 ///   1. Defaults
-///   2. XDG config dir
-///   3. "Application Support" directory (macOS only)
-///   4. CLI flags
-///   5. Recursively defined configuration files
+///   2. XDG system config dirs (lowest to highest priority)
+///   3. XDG user config dir
+///   4. "Application Support" directory (macOS only)
+///   5. CLI flags
+///   6. Recursively defined configuration files
 ///
 pub fn load(alloc_gpa: Allocator) !Config {
     var result = try default(alloc_gpa);
     errdefer result.deinit();
 
-    // If we have a configuration file in our home directory, parse that first.
+    // Load system and user configuration files before the CLI args.
     try result.loadDefaultFiles(alloc_gpa);
 
     // Parse the config from the CLI args.
@@ -4227,16 +4229,30 @@ fn writeConfigTemplate(path: []const u8) !void {
     try writer.flush();
 }
 
-/// Load configurations from the default configuration files. The default
-/// configuration file is at `$XDG_CONFIG_HOME/ghostty/config.ghostty`.
+/// Load configurations from the default configuration files. On Unix,
+/// system configuration in `$XDG_CONFIG_DIRS/ghostty/` is loaded first.
+/// The first directory has the highest priority. If unset or empty,
+/// `$XDG_CONFIG_DIRS` defaults to `/etc/xdg`. Relative paths are ignored.
+///
+/// User configuration at `$XDG_CONFIG_HOME/ghostty/` is loaded next and
+/// overrides system configuration. Repeatable settings append as usual
+/// and can be reset by setting an empty value.
 ///
 /// On macOS, `$HOME/Library/Application Support/$CFBundleIdentifier/`
 /// is also loaded.
 ///
 /// The legacy `config` file (without extension) is first loaded,
-/// then `config.ghostty`.
+/// then `config.ghostty`, in each directory. As with user configuration,
+/// `config-file` entries are loaded after all default files and CLI args.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
-    // Load XDG first
+    if (comptime builtin.os.tag != .windows) {
+        var env = try global.environMap();
+        defer env.deinit();
+        self.loadXdgSystemFiles(alloc, env.get("XDG_CONFIG_DIRS"));
+    }
+
+    // Load the user XDG files. Only user files count toward whether we
+    // need to create a template, even if system configuration was loaded.
     const legacy_xdg_path = try file_load.legacyDefaultXdgPath(alloc);
     defer alloc.free(legacy_xdg_path);
     const xdg_path = try file_load.defaultXdgPath(alloc);
@@ -4305,6 +4321,110 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
             };
         }
     }
+}
+
+fn loadXdgSystemFiles(self: *Config, alloc: Allocator, dirs: ?[]const u8) void {
+    if (comptime builtin.os.tag == .windows) return;
+
+    var it = internal_os.xdg.ConfigDirsIterator.init(dirs);
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    while (it.next()) |dir_path| {
+        for ([_][]const u8{ "config", "config.ghostty" }) |filename| {
+            const path = std.fmt.bufPrint(
+                &path_buf,
+                "{s}/ghostty/{s}",
+                .{ dir_path, filename },
+            ) catch {
+                log.warn("XDG system configuration path is too long, skipping", .{});
+                continue;
+            };
+            _ = self.loadOptionalFile(alloc, path);
+        }
+    }
+}
+
+test "xdg system configuration priority" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var td = try internal_os.TempDir.init();
+    defer td.deinit();
+    try td.dir.createDirPath(testing.io, "low/ghostty");
+    try td.dir.createDirPath(testing.io, "high/ghostty");
+    try td.dir.writeFile(testing.io, .{
+        .sub_path = "low/ghostty/config",
+        .data = "font-size = 12\ntitle = low\nfont-family = LowLegacy\n",
+    });
+    try td.dir.writeFile(testing.io, .{
+        .sub_path = "low/ghostty/config.ghostty",
+        .data = "font-size = 14\nfont-family = LowNew\n",
+    });
+    try td.dir.writeFile(testing.io, .{
+        .sub_path = "high/ghostty/config.ghostty",
+        .data = "title = high\nfont-family = High\n",
+    });
+
+    var root_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root = root_buf[0..try td.dir.realPath(testing.io, &root_buf)];
+    const dirs = try std.fmt.allocPrint(
+        alloc,
+        "{s}/high:relative:{s}/missing:{s}/low",
+        .{ root, root, root },
+    );
+    defer alloc.free(dirs);
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.loadXdgSystemFiles(alloc, dirs);
+
+    try testing.expectEqual(@as(f32, 14), cfg.@"font-size");
+    try testing.expectEqualStrings("high", cfg.title.?);
+    try testing.expectEqual(@as(usize, 3), cfg.@"font-family".list.items.len);
+    for (cfg.@"font-family".list.items, [_][]const u8{ "LowLegacy", "LowNew", "High" }) |actual, expected| {
+        try testing.expectEqualStrings(expected, actual);
+    }
+
+    // User configuration overrides scalars and can reset repeatable values.
+    try td.dir.writeFile(testing.io, .{
+        .sub_path = "user.ghostty",
+        .data = "font-size = 20\ntitle = user\nfont-family =\nfont-family = User\n",
+    });
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const user_path = try std.fmt.bufPrint(&path_buf, "{s}/user.ghostty", .{root});
+    try testing.expectEqual(.loaded, cfg.loadOptionalFile(alloc, user_path));
+    try cfg.finalize();
+    try testing.expect(cfg._diagnostics.empty());
+    try testing.expectEqual(@as(f32, 20), cfg.@"font-size");
+    try testing.expectEqualStrings("user", cfg.title.?);
+    try testing.expectEqual(@as(usize, 1), cfg.@"font-family".list.items.len);
+    try testing.expectEqualStrings("User", cfg.@"font-family".list.items[0]);
+}
+
+test "xdg system configuration relative includes" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var td = try internal_os.TempDir.init();
+    defer td.deinit();
+    try td.dir.createDirPath(testing.io, "ghostty");
+    try td.dir.writeFile(testing.io, .{
+        .sub_path = "ghostty/config.ghostty",
+        .data = "config-file = extra.ghostty\nconfig-file = ?missing.ghostty\n",
+    });
+    try td.dir.writeFile(testing.io, .{
+        .sub_path = "ghostty/extra.ghostty",
+        .data = "title = included\n",
+    });
+    var root_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root = root_buf[0..try td.dir.realPath(testing.io, &root_buf)];
+    const dirs = try std.fmt.allocPrint(alloc, "{s}:{s}", .{ root, root });
+    defer alloc.free(dirs);
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.loadXdgSystemFiles(alloc, dirs);
+    try cfg.loadRecursiveFiles(alloc);
+    try cfg.finalize();
+    try testing.expect(cfg._diagnostics.empty());
+    try testing.expectEqualStrings("included", cfg.title.?);
 }
 
 /// Load and parse the CLI args.
