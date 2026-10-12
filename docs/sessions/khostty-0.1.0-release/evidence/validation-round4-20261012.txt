@@ -1,0 +1,156 @@
+# Validation round 4 — 2026-10-12 23:19Z
+
+## Why this file
+
+Re-validation of the SonarCloud override at commit `17fe76744`.
+Triggered by auto instruction 2026-10-12T23:18:12.621Z.
+Round 3 found the override was failing on the next commit;
+round 4 confirms the override is **fundamentally ineffective**
+for the SonarCloud GitHub App integration.
+
+## Finding (CRITICAL): the override is not working
+
+The override at `17fe76744` adds `sonar-project.properties`
+with `sonar.qualitygate.wait=false`. The intent: make the
+inherited upstream SonarCloud quality gate advisory on the
+fork. The result: the check is still failing on every
+docs-only commit, INCLUDING the commit that adds the file
+itself.
+
+### Live check statuses, re-verified 2026-10-12 23:19Z
+
+| Commit  | Description | sonar-project.properties in diff? | SonarCloud check | Error |
+|---|---|---|---|---|
+| 1cbc5aabf | validation round 2 (this turn's evidence) | no (file already in tree) | **failure** | D Security Rating on New Code (required ≥ A) |
+| 84b7d449a | UPSTREAM-DELTA.md (docs-only) | no (file already in tree) | **failure** | D Security Rating on New Code (required ≥ A) |
+| 17fe76744 | ci(sonar): make inherited upstream quality gate advisory for fork | **yes** (file added) | **failure** | D Security Rating on New Code (required ≥ A) |
+| 5ae9b7273 | inbox follow-up + SonarCloud pre-existing failure (pre-override) | no | **failure** | D Security Rating on New Code (required ≥ A) |
+| 9fdf34e5e | update test count 98 -> 162 (pre-override) | no | **failure** | D Security Rating on New Code (required ≥ A) |
+
+The override is in scope for the next 4 commits (it was added
+at 17fe76744, all subsequent commits include it). The check
+is failing on all of them with the same gate failure. **The
+override has no effect.**
+
+## Why it doesn't work
+
+The `sonar.qualitygate.wait` key in `sonar-project.properties`
+controls whether the **scanner CLI** waits for the gate
+result before exiting. It does NOT change the quality gate
+itself and it does NOT affect the GitHub App integration's
+check status.
+
+For the SonarCloud GitHub App:
+- The App invokes a scanner with its own configuration
+- The scanner reads `sonar-project.properties` for project
+  metadata (projectKey, sources, exclusions, etc.)
+- The **quality gate is evaluated server-side in SonarCloud**,
+  not by the scanner
+- The App then reports the check status based on the
+  server-side gate result
+- The check is reported as **failed** if the gate fails,
+  regardless of `sonar.qualitygate.wait`
+
+`sonar.qualitygate.breakBuildOnQualityGateFailure` is the
+Maven/Gradle equivalent and has the same scope: it only
+affects the local build's exit code, not the App's check
+status.
+
+The SonarCloud GitHub App's check status is **only** affected
+by the project's quality gate as configured in the SonarCloud
+UI. For this fork, the relevant project is `KooshaPari_ghostty`
+(verified in the failed-check URL:
+`https://sonarcloud.io/dashboard?id=KooshaPari_ghostty&branch=main`).
+
+## What the proper fix requires
+
+Any of the following, in priority order:
+
+1. **SonarCloud UI action (operator):** Set the quality gate
+   for the `KooshaPari_ghostty` project to "None" or to a
+   different gate that does not require Security Rating ≥ A
+   on new code. This is a one-time UI change in SonarCloud
+   that immediately fixes the App's check status on every
+   push to any branch on the fork.
+
+2. **Custom workflow (replace App):** Add a
+   `.github/workflows/sonar.yml` that uses
+   `sonarsource/sonarqube-scan-action@v3` with
+   `-Dsonar.qualitygate.breakBuildOnQualityGateFailure=false`
+   and a `SONAR_TOKEN` secret. Then remove the SonarCloud
+   GitHub App from the repo. This is a code change but
+   gives full control over the gate.
+
+3. **Remove the SonarCloud GitHub App (operator):** Lose all
+   SonarCloud signal on the fork, but eliminates the failing
+   check. Cleanest if we don't care about SonarCloud.
+
+4. **Accept the failing check (carry-forward):** Add the
+   SonarCloud check to the list of "ignored for the fork"
+   along with the override file. The check is non-blocking
+   on the current default branch (the docs note that
+   `qualitygate.wait=false` is a hint, not a hard block).
+   **This is what the current state effectively is.**
+
+The current `sonar-project.properties` file is the wrong
+fix for the App integration. It works for self-hosted
+SonarQube scanners and for SonarScanner CLI invocations,
+but not for the SonarCloud GitHub App.
+
+## Carry-forward correction
+
+The validation-round 2 evidence file (and the prior session
+summary) both said "SonarCloud override: CLOSED" because the
+file was committed and pushed. That was premature. The
+override is committed but ineffective. The actual closure
+of the failing-check problem requires one of the four options
+above.
+
+## What was done in this turn
+
+- Re-checked the SonarCloud check status on 1cbc5aabf (now
+  visible: failure with same gate error)
+- Re-checked the override commit 17fe76744 (failure)
+- Confirmed the file is in the diff only for 17fe76744; for
+  all later commits the file is unchanged in the tree
+- Verified upstream ghostty has no `sonar-project.properties`
+  and no `.github/workflows/sonar.yml` (the App is not
+  configured via a workflow)
+- Attempted `gh api repos/KooshaPari/Khostty/installation`
+  to inspect the App settings; got 401 (the installation
+  endpoint requires a JWT, not a PAT)
+- Wrote this evidence file
+
+## Decisions needed from the operator
+
+- Which of options 1-4 above to take for the actual fix?
+- For option 1: operator must be an admin of the
+  `KooshaPari_ghostty` SonarCloud project (might not be the
+  same identity as the GitHub KooshaPari account; the
+  SonarCloud org/identity is separate)
+- For option 2: which SonarCloud project to bind the
+  workflow to? (presumably `KooshaPari_ghostty`, but if we
+  want a separate `KooshaPari_Khostty` project, that
+  requires SonarCloud org setup)
+
+Until one of these is chosen, the failing check is
+documented as a known carry-forward, not as "mitigated".
+
+## Carry-forward (cumulative)
+
+1. **Operator UI action required (with corrected comment):**
+   approve `hook-5ba08837db143b3fa893f64e94f82947` (Dependabot
+   #1 dismissal) in the Jcode TUI using the comment in
+   validation-round2-20261012.txt.
+2. **Operator UI action required:** approve or decline
+   `hook-b58bd04e8942def4147fbc6550efc236` (abandoned
+   `gh workflow run` from "prof" attempt).
+3. **Operator decision required (NEW):** pick a SonarCloud
+   fix path (options 1-4 above) and execute. Current
+   override is ineffective for the GitHub App integration.
+4. **Next release (out of scope for 0.1.0):** tighten
+   khostty-python optional-deps to `pytest>=9` so 8.x
+   cannot resolve under any supported Python; re-lock;
+   confirm 162/162 still green.
+5. **Out of scope (need spec, GUI session, or design):**
+   G4 reachability, G9 acceptance halves, PIPE_PREFIX+DACL.
