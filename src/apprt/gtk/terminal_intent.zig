@@ -1,6 +1,6 @@
 //! The freedesktop Terminal Intent, `org.freedesktop.Terminal1`: a D-Bus
-//! interface that lets the desktop run a program (a `Terminal=true` app,
-//! say) in a new Ghostty window. It is exported beside
+//! interface that lets the desktop run a program (a `Terminal=true` app)
+//! in a new Ghostty window. It is exported beside
 //! `org.freedesktop.Application`, on the same object path.
 //!
 //! https://specifications.freedesktop.org/terminal-intent/latest/
