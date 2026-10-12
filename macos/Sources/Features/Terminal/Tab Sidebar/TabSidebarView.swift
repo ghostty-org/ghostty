@@ -51,6 +51,13 @@ final class TabSidebarView: NSView {
     /// Prevents re-entrancy when syncing the scroll position across sidebars.
     private static var isSyncingScroll = false
 
+    /// Periodically refreshes rows because Ghostty isn't notified when the foreground
+    /// process (shown as the tab icon) changes.
+    private var refreshTimer: Timer?
+
+    /// How often rows are refreshed while the sidebar is visible.
+    private static let refreshInterval: TimeInterval = 1
+
     init(controller: TerminalController) {
         self.controller = controller
         super.init(frame: .zero)
@@ -63,6 +70,7 @@ final class TabSidebarView: NSView {
     }
 
     deinit {
+        refreshTimer?.invalidate()
         if let editingClickMonitor {
             NSEvent.removeMonitor(editingClickMonitor)
         }
@@ -215,6 +223,8 @@ final class TabSidebarView: NSView {
         super.viewDidMoveToWindow()
 
         guard window != nil else {
+            refreshTimer?.invalidate()
+            refreshTimer = nil
             windowsObservation?.invalidate()
             windowsObservation = nil
             observedTabGroup = nil
@@ -222,6 +232,33 @@ final class TabSidebarView: NSView {
         }
 
         reloadStructure()
+        startRefreshTimer()
+    }
+
+    private func startRefreshTimer() {
+        guard refreshTimer == nil else { return }
+        let timer = Timer(timeInterval: Self.refreshInterval, repeats: true) { [weak self] _ in
+            self?.refreshChangedRows()
+        }
+        timer.tolerance = Self.refreshInterval / 2
+        RunLoop.main.add(timer, forMode: .common)
+        refreshTimer = timer
+    }
+
+    /// Reconfigures the visible rows whose content changed, e.g. because an agent
+    /// started or exited. Hidden sidebars and windows are skipped.
+    private func refreshChangedRows() {
+        guard !isHiddenOrHasHiddenAncestor, let window, window.isVisible,
+              window.occlusionState.contains(.visible) else { return }
+
+        let visible = tableView.rows(in: tableView.visibleRect)
+        guard visible.length > 0 else { return }
+        for row in visible.location..<(visible.location + visible.length) {
+            guard let tab = tabs[safe: row]?.value,
+                  let rowView = tableView.rowView(atRow: row, makeIfNecessary: false) as? TabSidebarRowView else { continue }
+            let content = TabSidebarRowContent(controller: tab, index: row, isCurrent: tab === controller)
+            if rowView.content != content { configure(row: row) }
+        }
     }
 
     /// Rebuilds the list of tabs from the tab group.

@@ -9,6 +9,9 @@ struct TabSidebarRowContent: Equatable {
     let isCurrent: Bool
     let isZoomed: Bool
 
+    /// The coding agent running in the focused surface, or nil for anything else.
+    let agent: TabSidebarAgent?
+
     @MainActor
     init(controller: TerminalController, index: Int, isCurrent: Bool) {
         let window = controller.window as? TerminalWindow
@@ -21,6 +24,7 @@ struct TabSidebarRowContent: Equatable {
             pwd: controller.focusedSurface?.pwd)
         self.title = text.title
         self.subtitle = text.subtitle
+        self.agent = controller.focusedSurface?.surfaceModel?.foregroundPID.flatMap(TabSidebarAgent.detect(pid:))
 
         // This mirrors `relabelTabs` but is based on the row index so it is never stale.
         if index < 9, let equiv = controller.ghostty.config.keyboardShortcut(for: "goto_tab:\(index + 1)") {
@@ -124,6 +128,20 @@ final class TabSidebarRowView: NSTableRowView {
 
 /// The cell view shows the title, working directory, shortcut and close button of a tab.
 final class TabSidebarCellView: NSTableCellView {
+    private let iconView: NSImageView = {
+        let view = NSImageView()
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.setAccessibilityIdentifier("TabSidebarIcon")
+        return view
+    }()
+
+    /// The icon shown for tabs that don't run a known agent.
+    private static let terminalIcon: NSImage? = NSImage(
+        systemSymbolName: "terminal",
+        accessibilityDescription: "Terminal"
+    )?.withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
+
     let titleField: NSTextField = {
         let field = NSTextField(labelWithString: "")
         field.font = .systemFont(ofSize: 13, weight: .medium)
@@ -199,6 +217,7 @@ final class TabSidebarCellView: NSTableCellView {
         textStack.spacing = 1
         textStack.translatesAutoresizingMaskIntoConstraints = false
         textStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        addSubview(iconView)
         addSubview(textStack)
 
         let accessoryStack = NSStackView(views: [zoomButton, shortcutLabel, closeButton])
@@ -210,7 +229,11 @@ final class TabSidebarCellView: NSTableCellView {
         addSubview(accessoryStack)
 
         NSLayoutConstraint.activate([
-            textStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 16),
+            iconView.heightAnchor.constraint(equalToConstant: 16),
+            textStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
             textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
             textStack.trailingAnchor.constraint(equalTo: accessoryStack.leadingAnchor, constant: -6),
             titleField.widthAnchor.constraint(equalTo: textStack.widthAnchor),
@@ -260,7 +283,23 @@ final class TabSidebarCellView: NSTableCellView {
         subtitleField.stringValue = content.subtitle ?? ""
 
         shortcutLabel.stringValue = content.shortcut ?? ""
+        updateIcon()
         updateAccessoryVisibility()
+    }
+
+    private func updateIcon() {
+        if let agent = content?.agent, let image = NSImage(named: agent.imageName) {
+            image.isTemplate = true
+            iconView.image = image
+            iconView.contentTintColor = agent.tintColor ?? .labelColor
+            iconView.toolTip = agent.displayName
+            iconView.setAccessibilityLabel(agent.displayName)
+        } else {
+            iconView.image = Self.terminalIcon
+            iconView.contentTintColor = content?.isCurrent == true ? .labelColor : .secondaryLabelColor
+            iconView.toolTip = nil
+            iconView.setAccessibilityLabel("Terminal")
+        }
     }
 
     private func updateAccessoryVisibility() {
