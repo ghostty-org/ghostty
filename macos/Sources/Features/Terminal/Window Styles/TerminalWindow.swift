@@ -218,6 +218,7 @@ class TerminalWindow: NSWindow {
         // Its possible we miss the accessory titlebar call so we check again
         // whenever the window becomes main. Both of these are idempotent.
         if tabBarView != nil {
+            hideNativeTabBar()
             tabBarDidAppear()
         } else {
             tabBarDidDisappear()
@@ -273,8 +274,26 @@ class TerminalWindow: NSWindow {
         // it. This has been verified to work on macOS 12 to 26
         if isTabBar(childViewController) {
             childViewController.identifier = Self.tabBarIdentifier
+            hideNativeTabBar(childViewController)
             tabBarDidAppear()
         }
+    }
+
+    // The native tab bar is replaced by the tab sidebar. "Show Tab Bar" toggles
+    // the sidebar instead.
+    override func toggleTabBar(_ sender: Any?) {
+        TabSidebarSettings.shared.toggleVisible()
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        // AppKit automatically inserts "Show/Hide Tab Bar" into the View menu. Our
+        // own "Show/Hide Tab Sidebar" item replaces it.
+        if item.action == #selector(NSWindow.toggleTabBar(_:)) {
+            (item as? NSMenuItem)?.isHidden = true
+            return false
+        }
+
+        return super.validateUserInterfaceItem(item)
     }
 
     override func removeTitlebarAccessoryViewController(at index: Int) {
@@ -313,6 +332,30 @@ class TerminalWindow: NSWindow {
         // View controllers should be tagged with this as soon as possible to
         // increase our accuracy. We do this manually.
         return childViewController.identifier == Self.tabBarIdentifier
+    }
+
+    /// Observations that keep the native tab bar hidden if AppKit tries to show it again.
+    private var nativeTabBarHiddenObservations: [(
+        target: Weak<NSTitlebarAccessoryViewController>,
+        observation: NSKeyValueObservation
+    )] = []
+
+    /// Hides the native tab bar. We keep native tabbing (each tab is a window in a
+    /// tab group) but tabs are shown in the tab sidebar instead.
+    private func hideNativeTabBar(_ childViewController: NSTitlebarAccessoryViewController? = nil) {
+        let targets = childViewController.map { [$0] } ?? titlebarAccessoryViewControllers.filter(isTabBar)
+        nativeTabBarHiddenObservations.removeAll { $0.target.value == nil }
+
+        for target in targets {
+            if !target.isHidden { target.isHidden = true }
+
+            guard !nativeTabBarHiddenObservations.contains(where: { $0.target.value === target }) else { continue }
+            let observation = target.observe(\.isHidden, options: [.new]) { controller, _ in
+                guard !controller.isHidden else { return }
+                DispatchQueue.main.async { controller.isHidden = true }
+            }
+            nativeTabBarHiddenObservations.append((Weak(target), observation))
+        }
     }
 
     private func tabBarDidAppear() {
@@ -677,15 +720,9 @@ class TerminalWindow: NSWindow {
             self.backgroundBlur = config.backgroundBlur
             self.macosTitlebarStyle = config.macosTitlebarStyle
 
-            // Set corner radius based on macos-titlebar-style
-            // Native, transparent, and hidden styles use 16pt radius
-            // Tabs style uses 20pt radius
-            switch config.macosTitlebarStyle {
-            case .tabs:
-                self.windowCornerRadius = 20
-            default:
-                self.windowCornerRadius = 16
-            }
+            // All titlebar styles use a 16pt radius. The tabs style used a 20pt
+            // radius for its toolbar but tabs are now shown in the tab sidebar.
+            self.windowCornerRadius = 16
         }
     }
 }
