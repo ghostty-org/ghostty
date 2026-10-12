@@ -486,6 +486,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 // set while `-[NSWindowController showWindow:]` is called, but we're
                 // dispatching it to resolve other issues.
                 parent.tabGroup?.selectedWindow = window
+
+                // Populate the tab sidebar of the new window before it is shown so
+                // it doesn't briefly show only itself.
+                controller.terminalViewContainer?.tabSidebar?.reloadStructure(includingTabGroup: true)
             }
         }
 
@@ -613,6 +617,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             }
         }
+
+        // The tab sidebars show the same tab list so they need to update too.
+        NotificationCenter.default.post(name: .terminalTabSidebarNeedsReload, object: self)
     }
 
     private func fixTabBar() {
@@ -1530,6 +1537,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         focusedSurface.$backgroundColor
             .dropFirst()
             .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
+            .store(in: &surfaceAppearanceCancellables)
+
+        // The tab sidebar shows the working directory of the focused surface. We
+        // observe it directly since background tabs can change directories too.
+        NotificationCenter.default.post(name: .terminalTabSidebarItemDidChange, object: self)
+        focusedSurface.$pwd
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                NotificationCenter.default.post(name: .terminalTabSidebarItemDidChange, object: self)
+            }
             .store(in: &surfaceAppearanceCancellables)
     }
 
