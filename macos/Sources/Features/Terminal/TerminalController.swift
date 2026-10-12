@@ -313,7 +313,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             ) { target in
                 // Close the window when undoing
                 undoManager.disableUndoRegistration {
-                    target.closeWindow(nil)
+                    target.closeWindow(nil, remembersTabs: false)
                 }
 
                 // Register redo action
@@ -388,7 +388,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             ) { target in
                 undoManager.disableUndoRegistration {
                     if confirmUndo {
-                        target.closeWindow(nil)
+                        target.closeWindow(nil, remembersTabs: false)
                     } else {
                         target.closeWindowImmediately()
                     }
@@ -711,9 +711,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
 
-        // 1 window, closing the window
+        // 1 window, closing the window. This closes the last tab rather than the
+        // window so we don't remember its tabs.
         if withConfirmation {
-            closeWindow(nil)
+            closeWindow(nil, remembersTabs: false)
         } else {
             closeWindowImmediately()
         }
@@ -844,10 +845,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// Closes the current window (including any other tabs) immediately and without
     /// confirmation. This will setup proper undo state so the action can be undone.
-    func closeWindowImmediately() {
+    ///
+    /// If `remembersTabs` is true and this is the last window, its tabs are restored the
+    /// next time Ghostty opens a window (see `TabSessionStore`).
+    func closeWindowImmediately(remembersTabs: Bool = false) {
         guard let window = window else { return }
 
         cancelPendingInitialPresentation()
+
+        if remembersTabs {
+            TabSessionStore.windowWillClose(self)
+        }
 
         registerUndoForCloseWindow()
 
@@ -1011,7 +1019,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static private func closeAllWindowsImmediately() {
         let undoManager = (NSApp.delegate as? AppDelegate)?.undoManager
         undoManager?.beginUndoGrouping()
-        all.forEach { $0.closeWindowImmediately() }
+        all.forEach { $0.closeWindowImmediately(remembersTabs: true) }
         undoManager?.setActionName("Close All Windows")
         undoManager?.endUndoGrouping()
     }
@@ -1097,6 +1105,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     override func windowDidLoad() {
         super.windowDidLoad()
         guard let window else { return }
+
+        // A remembered closed window is only restored while no terminal window is open.
+        TabSessionStore.discard()
 
         // I copy this because we may change the source in the future but also because
         // I regularly audit our codebase for "ghostty.config" access because generally
@@ -1327,7 +1338,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     @IBAction func closeTab(_ sender: Any?) {
         guard let window = window else { return }
         guard window.tabGroup?.windows.count ?? 0 > 1 else {
-            closeWindow(sender)
+            // Closing the last tab one by one forgets it, unlike closing the window.
+            closeWindow(sender, remembersTabs: false)
             return
         }
 
@@ -1440,6 +1452,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @IBAction override func closeWindow(_ sender: Any?) {
+        closeWindow(sender, remembersTabs: true)
+    }
+
+    /// Closes the window, asking for confirmation if necessary. See `closeWindowImmediately`
+    /// for `remembersTabs`.
+    func closeWindow(_ sender: Any?, remembersTabs: Bool) {
         guard let window = window else { return }
 
         // We need to check all the windows in our tab group for confirmation
@@ -1452,7 +1470,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard
             !confirmControllers.isEmpty
         else {
-            closeWindowImmediately()
+            closeWindowImmediately(remembersTabs: remembersTabs)
             return
         }
         if confirmControllers.count == 1 {
@@ -1462,7 +1480,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 messageText: "Close Window?",
                 informativeText: "All terminal sessions in this window will be terminated.",
             ) {
-                self.closeWindowImmediately()
+                self.closeWindowImmediately(remembersTabs: remembersTabs)
             }
             return
         }
@@ -1476,7 +1494,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             case .alertFirstButtonReturn:
                 await reviewWindows(confirmControllers, window: window)
             case .alertSecondButtonReturn:
-                closeWindowImmediately()
+                closeWindowImmediately(remembersTabs: remembersTabs)
             default:
                 break
             }
