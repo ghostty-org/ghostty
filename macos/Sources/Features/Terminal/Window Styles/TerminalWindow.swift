@@ -190,7 +190,50 @@ class TerminalWindow: NSWindow {
             return
         }
 
+        if isTitlebarDoubleClick(event) {
+            performTitlebarDoubleClickAction()
+            return
+        }
+
         super.sendEvent(event)
+    }
+
+    /// Returns true for a double click on the titlebar or the header of the tab sidebar
+    /// that isn't on a control. We handle these ourselves because the terminal (and the
+    /// hidden native tab bar) can sit under the transparent titlebar and swallow them.
+    private func isTitlebarDoubleClick(_ event: NSEvent) -> Bool {
+        guard event.type == .leftMouseDown, event.clickCount == 2,
+              event.window === self, !styleMask.contains(.fullScreen),
+              let themeFrame = contentView?.superview,
+              let hitView = themeFrame.hitTest(event.locationInWindow)
+        else { return false }
+
+        var isSidebarHeader = false
+        var ancestor: NSView? = hitView
+        while let view = ancestor {
+            if view is NSControl || view is NSText { return false }
+            if view is TabSidebarHeaderView { isSidebarHeader = true }
+            ancestor = view.superview
+        }
+        if isSidebarHeader { return true }
+
+        // The hidden titlebar style has no titlebar, the top of the window is terminal.
+        guard !(self is HiddenTitlebarTerminalWindow),
+              event.locationInWindow.y >= contentLayoutRect.maxY else { return false }
+
+        // Titlebar accessories (e.g. the reset zoom button) are SwiftUI views that
+        // opt out of window dragging. Let them handle their own clicks.
+        if let titlebarContainer, hitView.isDescendant(of: titlebarContainer) {
+            ancestor = hitView
+            while let view = ancestor, view !== titlebarContainer {
+                if !view.mouseDownCanMoveWindow, view.className.contains("HostingView") {
+                    return false
+                }
+                ancestor = view.superview
+            }
+        }
+
+        return true
     }
 
     override func close() {

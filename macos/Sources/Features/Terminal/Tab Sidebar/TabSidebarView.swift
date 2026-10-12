@@ -762,7 +762,7 @@ final class TabSidebarHeaderView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2 {
-            window?.performZoom(nil)
+            window?.performTitlebarDoubleClickAction()
             return
         }
 
