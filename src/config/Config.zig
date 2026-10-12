@@ -3432,22 +3432,23 @@ keybind: Keybinds = .{},
 /// avoids a disjointed appearance where the titlebar color changes
 /// but all the topmost terminals don't match.
 ///
-/// The "tabs" style is a completely custom titlebar that integrates the
-/// tab bar into the titlebar. This titlebar always matches the background
-/// color of the terminal. There are some limitations to this style:
-/// On macOS 13 and below, saved window state will not restore tabs correctly.
-/// macOS 14 does not have this issue and any other macOS version has not
-/// been tested.
+/// On macOS, tabs are always shown in a vertical tab sidebar on the left
+/// side of the window rather than a tab bar. The sidebar can be shown or
+/// hidden with "View > Hide Tab Sidebar".
+///
+/// The "tabs" style previously integrated the tab bar into the titlebar.
+/// Since tabs are shown in the tab sidebar, it now behaves the same as
+/// "transparent".
 ///
 /// The "hidden" style hides the titlebar. Unlike `window-decoration = none`,
 /// however, it does not remove the frame from the window or cause it to have
 /// squared corners. Changing to or from this option at run-time may affect
-/// existing windows in buggy ways.
+/// existing windows in buggy ways. Tabs are supported with this style and
+/// are switched using the tab sidebar.
 ///
 /// When "hidden", the top titlebar area can no longer be used for dragging
-/// the window. To drag the window, you can use option+click on the resizable
-/// areas of the frame to drag the window. This is a standard macOS behavior
-/// and not something Ghostty enables.
+/// the window. To drag the window, you can use the empty area at the top of
+/// the tab sidebar, or option+click on the resizable areas of the frame.
 ///
 /// The default value is "transparent". This is an opinionated choice
 /// but its one I think is the most aesthetically pleasing and works in
