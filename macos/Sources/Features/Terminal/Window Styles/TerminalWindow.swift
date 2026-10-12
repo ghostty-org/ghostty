@@ -85,6 +85,11 @@ class TerminalWindow: NSWindow {
         // Notify that this terminal window has loaded
         NotificationCenter.default.post(name: Self.terminalDidAwake, object: self)
 
+        // The title is shown in the bar above the terminal (`TerminalTitleStripView`)
+        // rather than in the titlebar. The window keeps its title for the Window menu,
+        // Mission Control, etc.
+        titleVisibility = .hidden
+
         // This is fragile, but there doesn't seem to be an official API for customizing
         // native tab bar menus.
         tabMenuObserver = NotificationCenter.default.addObserver(
@@ -212,7 +217,7 @@ class TerminalWindow: NSWindow {
         var ancestor: NSView? = hitView
         while let view = ancestor {
             if view is NSControl || view is NSText { return false }
-            if view is TabSidebarHeaderView { isSidebarHeader = true }
+            if view is TabSidebarHeaderView || view is TerminalTitleStripView { isSidebarHeader = true }
             ancestor = view.superview
         }
         if isSidebarHeader { return true }

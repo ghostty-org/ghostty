@@ -1127,7 +1127,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Initialize our content view to the SwiftUI root, with the vertical tab
         // sidebar on the leading edge.
-        let container = TerminalViewContainer(sidebar: TabSidebarView(controller: self)) {
+        let container = TerminalViewContainer(
+            sidebar: TabSidebarView(controller: self),
+            titleStrip: TerminalTitleStripView(controller: self)
+        ) {
             TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
         }
 

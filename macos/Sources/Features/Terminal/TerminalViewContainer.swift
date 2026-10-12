@@ -10,6 +10,9 @@ class TerminalViewContainer: NSView {
     /// The vertical tab sidebar on the leading edge, if this container has one.
     let tabSidebar: TabSidebarView?
 
+    /// The bar above the terminal showing the tab title. Only present with a sidebar.
+    let titleStrip: TerminalTitleStripView?
+
     /// The width constraint of the tab sidebar, updated on layout.
     private var sidebarWidthConstraint: NSLayoutConstraint?
 
@@ -32,9 +35,14 @@ class TerminalViewContainer: NSView {
         return window.value(forKey: "_cornerRadius") as? CGFloat
     }
 
-    init<Root: View>(sidebar: TabSidebarView? = nil, @ViewBuilder rootView: () -> Root) {
+    init<Root: View>(
+        sidebar: TabSidebarView? = nil,
+        titleStrip: TerminalTitleStripView? = nil,
+        @ViewBuilder rootView: () -> Root
+    ) {
         self.terminalView = NSHostingView(rootView: rootView())
         self.tabSidebar = sidebar
+        self.titleStrip = sidebar == nil ? nil : titleStrip
         super.init(frame: .zero)
         setup()
     }
@@ -56,6 +64,9 @@ class TerminalViewContainer: NSView {
         var size = terminalIntrinsicContentSize
         if size.width != NSView.noIntrinsicMetric {
             size.width += sidebarIntrinsicWidth
+        }
+        if size.height != NSView.noIntrinsicMetric, titleStrip != nil {
+            size.height += TerminalTitleStripView.contentHeight
         }
         return size
     }
@@ -106,11 +117,28 @@ class TerminalViewContainer: NSView {
             tabSidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
             tabSidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
             widthConstraint,
-            terminalView.topAnchor.constraint(equalTo: topAnchor),
             terminalView.leadingAnchor.constraint(equalTo: tabSidebar.trailingAnchor),
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
             terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
+
+        // The title bar sits right above the terminal. It extends up under the
+        // (transparent) titlebar so there is no gap, but its content is below it.
+        if let titleStrip {
+            addSubview(titleStrip)
+            titleStrip.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                titleStrip.topAnchor.constraint(equalTo: topAnchor),
+                titleStrip.leadingAnchor.constraint(equalTo: tabSidebar.trailingAnchor),
+                titleStrip.trailingAnchor.constraint(equalTo: trailingAnchor),
+                titleStrip.bottomAnchor.constraint(
+                    equalTo: safeAreaLayoutGuide.topAnchor,
+                    constant: TerminalTitleStripView.contentHeight),
+                terminalView.topAnchor.constraint(equalTo: titleStrip.bottomAnchor),
+            ])
+        } else {
+            terminalView.topAnchor.constraint(equalTo: topAnchor).isActive = true
+        }
 
         // Keep every window in sync with the shared sidebar settings. Note that
         // @Published emits before the property changes so we use the emitted values.
@@ -161,6 +189,7 @@ class TerminalViewContainer: NSView {
 
     func ghosttyConfigDidChange(_ config: Ghostty.Config, preferredBackgroundColor: NSColor?) {
         tabSidebar?.updateAppearance(backgroundColor: preferredBackgroundColor ?? NSColor(config.backgroundColor))
+        titleStrip?.updateAppearance(backgroundColor: preferredBackgroundColor ?? NSColor(config.backgroundColor))
 
         let newValue = DerivedConfig(config: config, preferredBackgroundColor: preferredBackgroundColor, cornerRadius: windowCornerRadius)
         guard newValue != derivedConfig else { return }
