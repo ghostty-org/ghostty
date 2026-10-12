@@ -1200,10 +1200,28 @@ extension AppDelegate {
         item.setImageIfDesired(systemSymbolName: "sidebar.left")
         viewMenu.insertItem(item, at: viewMenu.index(of: commandPalette) + 1)
         menuToggleTabSidebar = item
+
+        let searchItem = NSMenuItem(
+            title: "Search Tabs",
+            action: #selector(searchTabs(_:)),
+            keyEquivalent: "k")
+        searchItem.keyEquivalentModifierMask = [.command, .shift]
+        searchItem.target = self
+        searchItem.setImageIfDesired(systemSymbolName: "magnifyingglass")
+        viewMenu.insertItem(searchItem, at: viewMenu.index(of: item) + 1)
     }
 
     @IBAction func toggleTabSidebar(_ sender: Any?) {
         TabSidebarSettings.shared.toggleVisible()
+    }
+
+    /// The terminal controller of the key window, if any.
+    private var keyTerminalController: TerminalController? {
+        NSApp.keyWindow?.windowController as? TerminalController
+    }
+
+    @IBAction func searchTabs(_ sender: Any?) {
+        keyTerminalController?.terminalViewContainer?.tabSidebar?.focusSearch()
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
@@ -1345,6 +1363,9 @@ extension AppDelegate: NSMenuItemValidation {
         case #selector(toggleTabSidebar(_:)):
             item.title = TabSidebarSettings.shared.isVisible ? "Hide Tab Sidebar" : "Show Tab Sidebar"
             return true
+
+        case #selector(searchTabs(_:)):
+            return keyTerminalController?.terminalViewContainer?.tabSidebar != nil
 
         case #selector(floatOnTop(_:)),
             #selector(useAsDefault(_:)):

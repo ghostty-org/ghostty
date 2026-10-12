@@ -48,6 +48,14 @@ final class TabSidebarRowView: NSTableRowView {
         }
     }
 
+    /// True for the row selected with the arrow keys while searching.
+    var isSearchHighlighted: Bool = false {
+        didSet {
+            guard isSearchHighlighted != oldValue else { return }
+            needsDisplay = true
+        }
+    }
+
     private(set) var isHovered: Bool = false {
         didSet {
             guard isHovered != oldValue else { return }
@@ -113,13 +121,22 @@ final class TabSidebarRowView: NSTableRowView {
             fill = nil
         }
 
-        guard let fill else { return }
-        fill.setFill()
-        NSBezierPath(
+        let path = NSBezierPath(
             roundedRect: bounds.insetBy(dx: 6, dy: 1),
             xRadius: 6,
             yRadius: 6
-        ).fill()
+        )
+        if let fill {
+            fill.setFill()
+            path.fill()
+        }
+
+        // The search highlight must be visible on the current (filled) row too.
+        if isSearchHighlighted {
+            NSColor.controlAccentColor.setStroke()
+            path.lineWidth = 1.5
+            path.stroke()
+        }
     }
 
     // We draw our own highlight for the current tab.

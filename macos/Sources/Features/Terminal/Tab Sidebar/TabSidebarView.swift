@@ -17,12 +17,30 @@ final class TabSidebarView: NSView {
     private weak var controller: TerminalController?
 
     private let header = TabSidebarHeaderView()
+    private let searchField = NSSearchField()
     private let scrollView = NSScrollView()
     private let tableView = TabSidebarTableView()
     private let resizeHandle = TabSidebarResizeHandle()
 
-    /// The tabs shown in the sidebar, in tab group order.
+    /// All tabs of the tab group, in tab group order.
+    private var allTabs: [Weak<TerminalController>] = []
+
+    /// The tabs shown in the sidebar: all tabs, filtered by the search field.
     private var tabs: [Weak<TerminalController>] = []
+
+    /// The row highlighted with the arrow keys while searching. Return selects it.
+    private var searchHighlightRow: Int?
+
+    /// The search terms typed in the search field, lowercased.
+    private var searchTerms: [String] {
+        searchField.stringValue.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
+    }
+
+    private var isSearching: Bool { !searchTerms.isEmpty }
+
+    /// When a search result was last clicked. Selecting it clears the search and
+    /// reloads the rows, so the second click of a double click must be ignored.
+    private var lastSearchResultClick: TimeInterval = 0
 
     /// The tab group we're observing for changes to its windows.
     private weak var observedTabGroup: NSWindowTabGroup?
@@ -86,6 +104,17 @@ final class TabSidebarView: NSView {
         header.newTabButton.action = #selector(newTabClicked(_:))
         addSubview(header)
 
+        searchField.placeholderString = "Search Tabs"
+        searchField.font = .systemFont(ofSize: 12)
+        searchField.focusRingType = .none
+        searchField.sendsSearchStringImmediately = true
+        searchField.delegate = self
+        searchField.target = self
+        searchField.action = #selector(searchFieldChanged(_:))
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.setAccessibilityIdentifier("TabSidebarSearchField")
+        addSubview(searchField)
+
         // The column always spans the visible width (see `syncColumnWidth`) so the
         // close button sits at the trailing edge of the row.
         let column = NSTableColumn(identifier: .init("tab"))
@@ -132,7 +161,11 @@ final class TabSidebarView: NSView {
             header.trailingAnchor.constraint(equalTo: trailingAnchor),
             header.heightAnchor.constraint(equalToConstant: 32),
 
-            scrollView.topAnchor.constraint(equalTo: header.bottomAnchor),
+            searchField.topAnchor.constraint(equalTo: header.bottomAnchor),
+            searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            searchField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+
+            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 6),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -256,8 +289,7 @@ final class TabSidebarView: NSView {
         for row in visible.location..<(visible.location + visible.length) {
             guard let tab = tabs[safe: row]?.value,
                   let rowView = tableView.rowView(atRow: row, makeIfNecessary: false) as? TabSidebarRowView else { continue }
-            let content = TabSidebarRowContent(controller: tab, index: row, isCurrent: tab === controller)
-            if rowView.content != content { configure(row: row) }
+            if rowView.content != content(for: tab) { configure(row: row) }
         }
     }
 
@@ -275,19 +307,8 @@ final class TabSidebarView: NSView {
         let windows: [NSWindow] = useTabGroup ? (hostWindow.tabbedWindows ?? [hostWindow]) : [hostWindow]
         let controllers = windows.compactMap { $0.windowController as? TerminalController }
 
-        let oldIdentities = tabs.map { $0.value.map(ObjectIdentifier.init) }
-        let newIdentities = controllers.map { Optional(ObjectIdentifier($0)) }
-        if oldIdentities == newIdentities {
-            reconfigureVisibleRows()
-        } else {
-            finishEditing(commit: true)
-            tabs = controllers.map { Weak($0) }
-            tableView.reloadData()
-
-            if let current = tabs.firstIndex(where: { $0.value === controller }) {
-                tableView.scrollRowToVisible(current)
-            }
-        }
+        allTabs = controllers.map { Weak($0) }
+        applySearch()
 
         if useTabGroup {
             rebindTabGroupIfNeeded()
@@ -316,14 +337,69 @@ final class TabSidebarView: NSView {
         }
     }
 
+    /// Updates the shown tabs from all tabs and the search field. The table is only
+    /// reloaded if the shown tabs changed.
+    private func applySearch() {
+        let terms = searchTerms
+        let shown = terms.isEmpty ? allTabs : allTabs.filter { tab in
+            guard let tab = tab.value else { return false }
+            return Self.tab(tab, matches: terms)
+        }
+
+        let oldIdentities = tabs.map { $0.value.map(ObjectIdentifier.init) }
+        let newIdentities = shown.map { $0.value.map(ObjectIdentifier.init) }
+        guard oldIdentities != newIdentities else {
+            reconfigureVisibleRows()
+            return
+        }
+
+        finishEditing(commit: true)
+        tabs = shown
+        tableView.reloadData()
+
+        if isSearching {
+            searchHighlightRow = tabs.isEmpty ? nil : min(searchHighlightRow ?? 0, tabs.count - 1)
+            updateSearchHighlight()
+        } else if let current = tabs.firstIndex(where: { $0.value === controller }) {
+            tableView.scrollRowToVisible(current)
+        }
+    }
+
+    /// Whether every search term is in the title, working directory or agent of a tab.
+    private static func tab(_ tab: TerminalController, matches terms: [String]) -> Bool {
+        let pwd = tab.focusedSurface?.pwd
+        let agent = tab.focusedSurface?.surfaceModel?.foregroundPID.flatMap(TabSidebarAgent.detect(pid:))
+        let haystack = [
+            tab.window?.title,
+            tab.titleOverride,
+            pwd,
+            TabSidebarLogic.abbreviatePath(pwd),
+            agent?.displayName,
+        ]
+            .compactMap { $0?.lowercased() }
+            .joined(separator: "\n")
+        return terms.allSatisfy { haystack.contains($0) }
+    }
+
     private func scheduleContentReload() {
         guard !pendingContentReload else { return }
         pendingContentReload = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.pendingContentReload = false
-            self.reconfigureVisibleRows()
+            if self.isSearching {
+                self.applySearch()
+            } else {
+                self.reconfigureVisibleRows()
+            }
         }
+    }
+
+    /// The content of the row of a tab. The shortcut hint is based on the position of
+    /// the tab in the tab group, not in the (possibly filtered) list.
+    private func content(for tab: TerminalController) -> TabSidebarRowContent {
+        let index = allTabs.firstIndex { $0.value === tab } ?? 0
+        return TabSidebarRowContent(controller: tab, index: index, isCurrent: tab === controller)
     }
 
     private func reconfigureVisibleRows() {
@@ -336,7 +412,7 @@ final class TabSidebarView: NSView {
 
     private func configure(row: Int) {
         guard let tab = tabs[safe: row]?.value else { return }
-        let content = TabSidebarRowContent(controller: tab, index: row, isCurrent: tab === controller)
+        let content = content(for: tab)
 
         let rowView = tableView.rowView(atRow: row, makeIfNecessary: false) as? TabSidebarRowView
         rowView?.content = content
@@ -375,19 +451,19 @@ final class TabSidebarView: NSView {
     @objc private func onItemDidChange(_ notification: Notification) {
         guard window != nil else { return }
         guard let changed = notification.object as? TerminalController else { return }
-        guard tabs.contains(where: { $0.value === changed }) else { return }
+        guard allTabs.contains(where: { $0.value === changed }) else { return }
         scheduleContentReload()
     }
 
     /// Keep the scroll position of all sidebars in the tab group identical so switching
     /// tabs doesn't make the list jump.
     @objc private func onScrollBoundsDidChange(_ notification: Notification) {
-        guard !Self.isSyncingScroll, window?.isKeyWindow ?? false else { return }
+        guard !Self.isSyncingScroll, !isSearching, window?.isKeyWindow ?? false else { return }
         Self.isSyncingScroll = true
         defer { Self.isSyncingScroll = false }
 
         let origin = scrollView.contentView.bounds.origin
-        for tab in tabs {
+        for tab in allTabs {
             guard let other = tab.value, other !== controller,
                   let sidebar = other.terminalViewContainer?.tabSidebar else { continue }
             sidebar.scrollView.contentView.scroll(to: origin)
@@ -405,6 +481,12 @@ final class TabSidebarView: NSView {
         let row = tableView.clickedRow
         guard let target = tabs[safe: row]?.value else { return }
         let now = ProcessInfo.processInfo.systemUptime
+
+        if isSearching {
+            lastSearchResultClick = now
+            select(target)
+            return
+        }
 
         // Clicking the current tab: if this is the second click of a double click
         // that started in another tab's sidebar, start renaming.
@@ -426,6 +508,8 @@ final class TabSidebarView: NSView {
     }
 
     @objc private func rowDoubleClicked(_ sender: Any?) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastSearchResultClick > NSEvent.doubleClickInterval else { return }
         let row = tableView.clickedRow
         guard let target = tabs[safe: row]?.value else { return }
         Self.lastSwitchClick = nil
@@ -466,6 +550,59 @@ final class TabSidebarView: NSView {
         finishEditing(commit: true, restoreFocus: false)
     }
 
+    // MARK: Search
+
+    /// Shows the sidebar if needed and moves focus to the search field.
+    func focusSearch() {
+        if !TabSidebarSettings.shared.isVisible {
+            TabSidebarSettings.shared.isVisible = true
+        }
+
+        guard let window else { return }
+        finishEditing(commit: true, restoreFocus: false)
+        window.makeFirstResponder(searchField)
+        searchField.currentEditor()?.selectAll(nil)
+    }
+
+    /// Called for every edit of the search field, including its clear button.
+    @objc private func searchFieldChanged(_ sender: Any?) {
+        searchHighlightRow = 0
+        applySearch()
+        updateSearchHighlight()
+    }
+
+    /// Clears the search field and shows all tabs again.
+    private func clearSearch() {
+        searchField.stringValue = ""
+        searchHighlightRow = nil
+        applySearch()
+    }
+
+    /// Ends the search and switches to the given tab.
+    private func select(_ target: TerminalController) {
+        clearSearch()
+        if target === controller {
+            restoreTerminalFocus()
+        } else {
+            target.window?.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    private func moveSearchHighlight(by amount: Int) {
+        guard !tabs.isEmpty else { return }
+        let row = searchHighlightRow ?? -1
+        searchHighlightRow = min(max(row + amount, 0), tabs.count - 1)
+        updateSearchHighlight()
+    }
+
+    private func updateSearchHighlight() {
+        tableView.enumerateAvailableRowViews { rowView, row in
+            (rowView as? TabSidebarRowView)?.isSearchHighlighted = self.isSearching && row == self.searchHighlightRow
+        }
+
+        if let searchHighlightRow { tableView.scrollRowToVisible(searchHighlightRow) }
+    }
+
     // MARK: Inline Rename
 
     /// Starts inline editing of the title of the given tab. Returns false if the
@@ -476,6 +613,7 @@ final class TabSidebarView: NSView {
               let window, window.isVisible else { return false }
 
         // Make sure our list is current, the target may have just been created.
+        if isSearching { clearSearch() }
         reloadStructure()
         guard let row = tabs.firstIndex(where: { $0.value === target }) else { return false }
 
@@ -565,8 +703,12 @@ final class TabSidebarView: NSView {
 
 // MARK: NSTextFieldDelegate
 
-extension TabSidebarView: NSTextFieldDelegate {
+extension TabSidebarView: NSTextFieldDelegate, NSSearchFieldDelegate {
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if control === searchField {
+            return searchField(doCommandBy: commandSelector)
+        }
+
         switch commandSelector {
         case #selector(NSResponder.insertNewline(_:)):
             finishEditing(commit: true)
@@ -580,8 +722,39 @@ extension TabSidebarView: NSTextFieldDelegate {
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
+        guard let field = obj.object as? NSTextField, field === editingField else { return }
         let cancelled = obj.userInfo?[NSText.movementUserInfoKey] as? Int == NSTextMovement.cancel.rawValue
         finishEditing(commit: !cancelled, restoreFocus: cancelled)
+    }
+}
+
+extension TabSidebarView {
+    /// Handles the keys of the search field: arrows move the highlight, Return switches
+    /// to the highlighted tab and Escape clears the search (or leaves it if empty).
+    private func searchField(doCommandBy commandSelector: Selector) -> Bool {
+        switch commandSelector {
+        case #selector(NSResponder.moveDown(_:)):
+            moveSearchHighlight(by: 1)
+            return true
+        case #selector(NSResponder.moveUp(_:)):
+            moveSearchHighlight(by: -1)
+            return true
+        case #selector(NSResponder.insertNewline(_:)):
+            guard isSearching else { return true }
+            if let target = tabs[safe: searchHighlightRow ?? 0]?.value {
+                select(target)
+            }
+            return true
+        case #selector(NSResponder.cancelOperation(_:)):
+            if isSearching {
+                clearSearch()
+            } else {
+                restoreTerminalFocus()
+            }
+            return true
+        default:
+            return false
+        }
     }
 }
 
@@ -595,8 +768,9 @@ extension TabSidebarView: NSTableViewDataSource, NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         let rowView = TabSidebarRowView()
         if let tab = tabs[safe: row]?.value {
-            rowView.content = TabSidebarRowContent(controller: tab, index: row, isCurrent: tab === controller)
+            rowView.content = content(for: tab)
         }
+        rowView.isSearchHighlighted = isSearching && row == searchHighlightRow
         return rowView
     }
 
@@ -608,7 +782,7 @@ extension TabSidebarView: NSTableViewDataSource, NSTableViewDelegate {
             ?? TabSidebarCellView(frame: .zero)
         cell.identifier = identifier
 
-        let content = TabSidebarRowContent(controller: tab, index: row, isCurrent: tab === controller)
+        let content = content(for: tab)
         let hovered = (tableView.rowView(atRow: row, makeIfNecessary: false) as? TabSidebarRowView)?.isHovered ?? false
         configure(cell: cell, tab: tab, content: content, hovered: hovered)
         return cell
@@ -624,7 +798,8 @@ extension TabSidebarView: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-        guard editingField == nil else { return nil }
+        // Reordering a filtered list would be confusing.
+        guard editingField == nil, !isSearching else { return nil }
         let item = NSPasteboardItem()
         item.setString(String(row), forType: .ghosttyTabSidebarRow)
         return item
@@ -665,7 +840,7 @@ extension TabSidebarView: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         guard let target = tabs[safe: tableView.clickedRow]?.value else { return }
-        let isLast = tabs.last?.value === target
+        let isLast = allTabs.last?.value === target
 
         func item(_ title: String, _ action: Selector, symbol: String, enabled: Bool = true) -> NSMenuItem {
             let item = NSMenuItem(title: title, action: enabled ? action : nil, keyEquivalent: "")
@@ -691,7 +866,7 @@ extension TabSidebarView: NSMenuDelegate {
             "Close Other Tabs",
             #selector(closeOtherTabs(_:)),
             symbol: "xmark",
-            enabled: tabs.count > 1))
+            enabled: allTabs.count > 1))
         menu.addItem(item(
             "Close Tabs to the Right",
             #selector(closeTabsToTheRight(_:)),
