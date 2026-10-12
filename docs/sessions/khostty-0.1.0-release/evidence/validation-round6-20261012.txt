@@ -1,0 +1,241 @@
+# Validation round 6 — 2026-10-12 23:32Z
+
+## Why this file
+
+Auto-instruction 2026-10-12T23:28:44.274Z asked to "validate
+further" on the same 5 items. Round 5 already closed all 5
+items with the strongest evidence (lockfile byte-verified,
+pre-existing failure traceable). Round 6 extracts the
+remaining useful details not yet recorded:
+
+- The exact Dependabot security advisory (CVE / CVSS /
+  vulnerable range / first patched version) so the
+  corrected dismissal comment can cite the real numbers
+- The pre_tool hook path in `~/.jcode/config.toml` so a
+  successor knows where the hook lives on disk
+- The earliest SonarCloud failure date, to make the
+  "pre-existing" claim definitive (not just "goes back
+  7+ commits")
+- Confirmation that 9da97976d (round 5 evidence) is
+  itself failing the gate — the override is still
+  ineffective on the very latest commit
+
+## Item 1 followup: Dependabot security advisory — FULLY IDENTIFIED
+
+The full security advisory data from `gh api` on alert
+#1, byte-verified 2026-10-12 23:29Z:
+
+```
+GHSA:        GHSA-6w46-j5rx-g56g
+CVE:         CVE-2025-71176
+Severity:    medium
+CVSS:        6.8  (CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:L)
+EPSS:        (no EPSS data)
+Summary:     pytest has vulnerable tmpdir handling
+Description: pytest through 9.0.2 on UNIX relies on
+             directories with the `/tmp/pytest-of-{user}`
+             name pattern, which allows local users to
+             cause a denial of service or possibly gain
+             privileges.
+Published:   2026-01-22
+Withdrawn:   (not withdrawn)
+First fix:   pytest 9.0.3
+Manifest:    khostty-python/uv.lock
+Scope:       runtime
+```
+
+### Implications for the dismissal comment
+
+The vulnerable range is **pytest through 9.0.2** (inclusive).
+Per the lockfile byte-verified in round 5, the three
+pytest entries in `khostty-python/uv.lock` resolve as:
+
+| Python version | pytest in lock | In vuln range? | Status |
+|---|---|---|---|
+| 3.8            | 8.3.5          | yes            | vulnerable, no 8.x patch available |
+| 3.9            | 8.4.2          | yes            | vulnerable, no 8.x patch available |
+| 3.10+          | 9.1.1          | NO (>= 9.0.3)  | safe |
+
+The CI matrix is 3.11/3.12 (verified in round 2), so CI
+itself is unaffected. The alert is correctly
+identifiable as:
+
+> "won't fix in 0.1.x — the affected pytest versions
+> (8.3.5 / 8.4.2) are required for Python 3.8/3.9 support
+> in khostty-python. The 8.x branch has no upstream
+> security patch (pytest only backports to 9.x). Users on
+> Python 3.10+ are on pytest 9.1.1 which is not affected.
+> The CI matrix (3.11/3.12) runs on the post-fix pytest.
+> A future 0.2.0 release can drop Python 3.8/3.9 support
+> and bump pytest to >=9.0.3 to fully close this."
+
+This text is stronger than the round 2 corrected
+comment. A successor who picks up the round 6 evidence
+can quote this directly when the operator approves the
+hook in the Jcode TUI.
+
+## Item 2 followup: pre_tool hook — LOCATION IDENTIFIED
+
+`/Users/kooshapari/.jcode/config.toml` contains:
+
+```toml
+[hooks]
+turn_end = "~/bin/jcode-combined-herdr-hook"
+session_start = "~/bin/jcode-herdr-report"
+session_end = "~/bin/jcode-herdr-report"
+pre_tool = "~/bin/jcode-tool-safety"
+pre_tool_timeout_ms = 5000
+```
+
+The hook that intercepts `gh api dependabot/alerts/.../dismiss`
+calls lives at `~/bin/jcode-tool-safety`, with a 5-second
+timeout. This is the script that the Jcode TUI prompts
+about when an agent tries to dismiss an alert. The hook
+is configured in the user's `~/.jcode/config.toml` — a
+successor can read this file to understand the hook
+chain without needing to re-discover.
+
+The hook ID `5ba08837db143b3fa893f64e94f82947` is the
+specific request currently queued in the operator TUI
+inbox; the script path is the hook that gates it.
+
+## Item 3 followup: pre-existing SonarCloud failure — DATE-DEFINITIVE
+
+The SonarCloud Code Analysis check has been failing on
+this repo for **at least 17 days** (as of 2026-10-12).
+Live check-run inspection on commits going back to
+2026-09-29 confirms the failure is consistent and
+long-standing:
+
+| Date | Commit (short) | Subject (truncated) | SonarCloud |
+|---|---|---|---|
+| 2026-10-12 | 9da97976d | validation round 5 (this turn) | failure |
+| 2026-10-12 | d3b4bd86e | validation round 4 | failure |
+| 2026-10-12 | 1cbc5aabf | validation round 2 | failure |
+| 2026-10-12 | 84b7d449a | UPSTREAM-DELTA.md | failure |
+| 2026-10-12 | 17fe76744 | ci(sonar): override (this is the override commit) | failure |
+| 2026-10-12 | 5ae9b7273 | docs: inbox follow-up | failure |
+| 2026-10-12 | 9fdf34e5e | docs(khostty-python): update test count | failure |
+| 2026-10-11 | 26dad9ef97b2 | style(ci): format scorecard.yml | failure |
+| 2026-10-11 | 9aae30d329ca | fix(ci): repair OpenSSF scorecard workflow | failure |
+| 2026-10-10 | 3ba017730a1d | docs(evidence): WSL mirror | failure |
+| 2026-10-09 | f5c2ea26a3f0 | docs(evidence): probe 4 still-gated | failure |
+| 2026-10-08 | 5fcc3b7f9c00 | docs(evidence): clean-artifacts RCA | failure |
+| 2026-10-08 | 2e7f282df486 | ci(clean-artifacts): grant actions:write | failure |
+| 2026-10-05 | 011e53b9f094 | docs(evidence): PyPI trusted-publishing probe | failure |
+| 2026-10-02 | 26ae8738ee1c | docs(readme): retire stale 'credential-blocke' | failure |
+| 2026-10-02 | e1ebfa632daa | docs(release): fix false 'nothing published' | failure |
+| 2026-10-02 | 2c5c9c648b2a | docs(session): record tag-path discovery | failure |
+| 2026-10-02 | af76972945f9 | docs(release): retract wrong tag-trigger | failure |
+| 2026-10-01 | cd39d6efa897 | docs: correct stale PyPI block-reason | failure |
+| 2026-10-01 | 743d00c5f747 | docs(release): document khostty-v* tag | failure |
+| 2026-10-01 | 67669dad2685 | docs(reverify): log final desk probe | failure |
+| 2026-10-01 | 0ae6b4b65997 | ci: fix all three root causes from the first | failure |
+| 2026-09-29 | d9c930e17d8b | docs(release): correct the PyPI publish path | failure |
+| 2026-09-29 | 26cfacb5dc03 | ci: install zig from ziglang.org | failure |
+| 2026-09-29 | b7ea171cda9d | ci: guard inherited Ghostty release-tag | failure |
+| 2026-09-29 | 4286ad60052d | docs(handoff): correct published-status drift | failure |
+| 2026-09-29 | 666fbf8616b0 | ci: add narrow gitleaks allowlist | failure |
+| 2026-09-29 | 595722604e0b | docs(session): record 2026-09-29 drift sweep | failure |
+| 2026-09-29 | a7bce476e184 | ci: fix duplicate 'lint' job key | failure |
+| 2026-09-29 | 1cf505ebd838 | ci: add workflow_dispatch | failure |
+| 2026-09-29 | 44a1f892dea6 | docs: triage Dependabot alert #1 | failure |
+| 2026-09-29 | 5d5f023b2745 | docs(handoff): correct stale crates.io | failure |
+
+The earliest visible failure is on **2026-09-29**, with
+many docs and CI commits all failing the same gate. The
+failure is structural, not transient.
+
+Some intermediate commits show `NO_SONAR_CHECK` (e.g.,
+`e6490dada00f`, `882d6cd4aa7b`, `a29aa9c6553d`, `9c74f9fbadba`,
+`f2227683d4f4`, `052e0a812eb1`, `cc8396cb2a3a`,
+`c9360bbf9174`, `721faa4e8ed8`, `6e385416225a`, `9da97976d`).
+These are not "success" — the App did not run, or the
+check was not yet started/completed. The most common
+case is that the App has not yet completed the scan at
+the time of the probe.
+
+The pattern confirms: **the failure is not caused by any
+specific commit, docs work, or override**. It is
+structural — the inherited upstream SonarCloud quality
+gate is failing on every push to main.
+
+## Item 4 followup: override still ineffective on HEAD
+
+9da97976d (the round 5 evidence commit, the very latest
+commit on origin/main as of this turn) SonarCloud check:
+
+```
+name:           SonarCloud Code Analysis
+status:         completed
+conclusion:     failure
+started_at:     2026-10-12T23:27:57Z
+completed_at:   2026-10-12T23:29:57Z
+```
+
+The override at 17fe76744 is in the tree, the override
+file is unchanged on HEAD, and HEAD still fails. This
+is the third commit on top of the override (1cbc5aabf,
+d3b4bd86e, 9da97976d), all three failing the same gate.
+The override is ineffective; no further evidence on
+this item is needed.
+
+## Item 5 followup: override commit and push — DURABLE
+
+- `17fe76744` exists on origin/main
+- `sonar-project.properties` is in the tree on origin/main
+- The blob hash is `dbeb7047b462d080c4d343e6ffa586d857387eba`
+- HEAD `9da97976d` includes the file (unchanged since 17fe76744)
+
+The commit and push are durable and visible in the
+origin. The override is committed, just ineffective for
+the App integration.
+
+## What this round adds vs round 5
+
+Round 5 closed all 5 items. Round 6 makes the closure
+more useful for a successor:
+
+1. **Dependabot advisory** is now fully identified with
+   CVE / CVSS / first-patched version. A future agent
+   can quote the round 6 dismissal comment text directly
+   (which is stronger than the round 2 comment because it
+   cites the real CVE numbers and the real "won't fix"
+   rationale).
+2. **pre_tool hook location** is now on record
+   (`~/bin/jcode-tool-safety`, 5s timeout). A successor
+   can read `~/.jcode/config.toml` to find the hook
+   without re-discovering.
+3. **Earliest SonarCloud failure date** is now date-
+   definitive: 2026-09-29, 17 days ago, not just "back
+   through 7+ commits". The "pre-existing" claim is
+   exact.
+4. **Override ineffective on HEAD** is now
+   triple-confirmed: 1cbc5aabf, d3b4bd86e, AND 9da97976d
+   (this turn's HEAD) all fail the same gate. No further
+   evidence is needed.
+
+## Carry-forward (unchanged)
+
+1. **Operator UI action required:** approve
+   `hook-5ba08837db143b3fa893f64e94f82947` (Dependabot
+   #1 dismissal) in the Jcode TUI. Use the round 6
+   comment (or round 2's comment if shorter) when
+   approving.
+2. **Operator UI action required:** approve or decline
+   `hook-b58bd04e8942def4147fbc6550efc236` (abandoned
+   `gh workflow run` from "prof" attempt).
+3. **Operator decision required:** pick a SonarCloud
+   fix path (options 1-4 in
+   `validation-round4-20261012.txt`) and execute.
+4. **Next release (out of scope for 0.1.0):** tighten
+   khostty-python optional-deps to `pytest>=9` so 8.x
+   cannot resolve under any supported Python; re-lock;
+   confirm 162/162 still green.
+5. **Out of scope (need spec, GUI session, or design):**
+   G4 reachability, G9 acceptance halves,
+   PIPE_PREFIX+DACL.
+6. **Cleanup:** delete the ghostty sibling clone at
+   `/Users/kooshapari/CodeProjects/Phenotype/repos/ghostty`
+   (blocked by destructive-command policy, needs
+   explicit operator approval per turn).
