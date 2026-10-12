@@ -159,6 +159,7 @@ hakonhagland
 halosatrio
 heaths
 heddxh heddxh
+heitoraugustoln
 helium777
 -highimpact-dev Disrespectful AI user
 hlcfan
