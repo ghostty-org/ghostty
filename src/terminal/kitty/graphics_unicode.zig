@@ -850,7 +850,7 @@ test "unicode render placement: dog 4x2" {
 
     var t = try terminal.Terminal.init(io, alloc, .{ .cols = 100, .rows = 100 });
     defer t.deinit(alloc);
-    var s: ImageStorage = .init(alloc);
+    var s: ImageStorage = .{};
     defer s.deinit(alloc, t.screens.active);
 
     const image: KittyImage = .{ .id = 1, .width = 500, .height = 306 };
@@ -918,7 +918,7 @@ test "unicode render placement: dog 2x2 with blank cells" {
 
     var t = try terminal.Terminal.init(io, alloc, .{ .cols = 100, .rows = 100 });
     defer t.deinit(alloc);
-    var s: ImageStorage = .init(alloc);
+    var s: ImageStorage = .{};
     defer s.deinit(alloc, t.screens.active);
 
     const image: KittyImage = .{ .id = 1, .width = 500, .height = 306 };
@@ -985,7 +985,7 @@ test "unicode render placement: dog 1x1" {
 
     var t = try terminal.Terminal.init(io, alloc, .{ .cols = 100, .rows = 100 });
     defer t.deinit(alloc);
-    var s: ImageStorage = .init(alloc);
+    var s: ImageStorage = .{};
     defer s.deinit(alloc, t.screens.active);
 
     const image: KittyImage = .{ .id = 1, .width = 500, .height = 306 };

@@ -78,7 +78,7 @@ kitty_keyboard: kitty.KeyFlagStack = .{},
 kitty_images: if (build_options.kitty_graphics)
     kitty.graphics.ImageStorage
 else
-    struct {},
+    struct {} = .{},
 
 /// Semantic prompt (OSC133) state.
 semantic_prompt: SemanticPrompt = .disabled,
@@ -334,7 +334,6 @@ pub fn init(
     var result: Screen = .{
         .io = io,
         .alloc = alloc,
-        .kitty_images = if (build_options.kitty_graphics) .init(alloc) else .{},
         .pages = pages,
         .no_scrollback = opts.max_scrollback_bytes == 0,
         .cursor = .{
@@ -464,7 +463,6 @@ pub fn reset(self: *Screen) void {
 
     if (comptime build_options.kitty_graphics) {
         // Reset kitty graphics storage
-        const image_allocator = self.kitty_images.image_allocator;
         const image_limits = self.kitty_images.image_limits;
         const total_limit = self.kitty_images.total_limit;
         const dirty = self.kitty_images.dirty;
@@ -653,7 +651,6 @@ pub fn clone(
     const result: Screen = .{
         .io = io,
         .alloc = alloc,
-        .kitty_images = if (build_options.kitty_graphics) .init(alloc) else .{},
         .pages = pages,
         .no_scrollback = self.no_scrollback,
         .cursor = cursor,
