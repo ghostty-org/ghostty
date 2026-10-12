@@ -3775,3 +3775,50 @@ test "kittygfx animation: control negative gap makes frame gapless" {
     const anim = storage.imagePtrByIdOrNumber(1, 0).?.animation.?;
     try testing.expectEqual(@as(u32, 0), anim.frames.items[0].gap_ms);
 }
+
+test "kittygfx eviction and reset clear storage while retained pixels survive" {
+    const testing = std.testing;
+    const io = testing.io;
+    var tracked = testing.FailingAllocator.init(testing.allocator, .{});
+    const alloc = tracked.allocator();
+    const retained = retained: {
+        var t = try Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
+        defer t.deinit(alloc);
+        const storage = &t.screens.active.kitty_images;
+
+        for ([_][]const u8{
+            "a=t,f=24,s=1,v=1,i=2,m=1;/wA=",
+            "a=d,d=I,i=2",
+            "a=t,f=32,s=1,v=1,i=1,m=1;/wA=",
+            "m=0;AP8=",
+        }) |text| {
+            const cmd = try command.Parser.parseString(alloc, text);
+            defer cmd.deinit(alloc);
+            if (execute(io, alloc, &t, &cmd)) |response| try testing.expect(response.ok());
+        }
+        const retained = storage.imageById(1).?.renderImage().?.clone();
+        errdefer retained.release(alloc);
+        try testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255 }, retained.value.data);
+
+        try testing.expectEqual(@as(usize, 1), storage.images.count());
+        try testing.expectEqual(@as(usize, 4), storage.total_bytes);
+        storage.setLimit(io, alloc, t.screens.active, 0);
+        try testing.expectEqual(@as(usize, 0), storage.images.count());
+        try testing.expectEqual(@as(usize, 0), storage.total_bytes);
+
+        storage.setLimit(io, alloc, t.screens.active, 8);
+        const reload = try command.Parser.parseString(alloc, "a=t,f=32,s=1,v=1,i=1;/wAA/w==");
+        defer reload.deinit(alloc);
+        try testing.expect(execute(io, alloc, &t, &reload).?.ok());
+        try testing.expectEqual(@as(usize, 1), storage.images.count());
+        try testing.expectEqual(@as(usize, 4), storage.total_bytes);
+        t.screens.active.reset();
+        try testing.expectEqual(@as(usize, 0), storage.images.count());
+        try testing.expectEqual(@as(usize, 0), storage.total_bytes);
+        break :retained retained;
+    };
+    // The allocator remains live after the terminal and its storage are gone.
+    try testing.expect(tracked.allocated_bytes > tracked.freed_bytes);
+    retained.release(alloc);
+    try testing.expectEqual(tracked.allocated_bytes, tracked.freed_bytes);
+}
