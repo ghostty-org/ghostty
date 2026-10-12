@@ -1,0 +1,44 @@
+Date:     2026-10-12T01:36Z
+Operator: calf (orchestrator session_calf_1789553284753_4beadc3f37d2b6dc)
+Task:     live test of packaging/windows/installer.sh on the macOS host to
+          confirm the "win build doesn't work" claim.
+
+Host:     darwin arm64, /opt/homebrew/bin/zig 0.16.0, no ISCC.exe, no wine,
+          no Inno Setup cask.
+
+Outputs of `bash packaging/windows/installer.sh --probe` (2026-10-12T01:24Z):
+  zig: 0.16.0 (/opt/homebrew/bin/zig)
+  ISCC.exe: MISSING (install Inno Setup 6.3+, or set KHOSTTY_ISCC)
+  wine: not needed yet (ISCC.exe itself is missing)
+  input ghostty.exe:    41.4 MiB (built 2026-09-18T08:23:00Z)  STALE
+  input ghostty-vt.dll:  7.1 MiB (built 2026-09-18T08:22:36Z)  STALE
+  input ghostty.ico: 84.2 KiB
+  input LICENSE: 1.0 KiB
+  status: blocked
+
+Outputs of `bash packaging/windows/installer.sh --stage-only`
+(2026-10-12T01:28Z -> 01:36Z, 8m 06s):
+  ==> building the Windows shared library (-Demit-lib-vt, target x86_64-windows-gnu)
+  ==> building the Windows executable (-Dapp-runtime=windows, target x86_64-windows-gnu)
+  ==> staging the installer payload
+   ok  staged  23M into
+        /Users/kooshapari/CodeProjects/Phenotype/repos/khostty/dist-release/stage/windows/Khostty-0.1.0-win64/payload
+  ==> generating the Inno Setup definition
+   ok  wrote /.../dist-release/stage/windows/Khostty-0.1.0-win64/khostty.iss
+        (64 lines, AppId {14bf69b1-ddd1-54e3-81bc-898bdbacb251}, VersionInfoVersion 0.1.0.0)
+  hashes:
+    52ca7c69718246ce7f1b9a41d3157a56654f8334cd7b40b125bea1d68aecd9c3  ghostty.exe
+    928156340576c833889524ff99f5d41cb1af121d556ce341672929850983a181  ghostty-vt.dll
+    8dc2199609f95f3f89a7d2f190c78c2462a93f39146a4da5264b5a04d712990a  ghostty.ico
+    386211873e5b7a02f663ae4d7adf96285999f91608f8f9f31fecfd0f4095e6f1  LICENSE
+  ==> done (--stage-only: ISCC not invoked)
+  not produced  Khostty-0.1.0-windows-x86_64-setup.exe — no Inno Setup compiler
+
+Verdict: script works as designed on this host; only ISCC.exe is missing.
+The .exe artifact cannot be produced on this host without installing
+Inno Setup (native or via wine). See r7-windows-build-diag.txt for
+operator action options.
+
+dist-release/ is .gitignored (line 43), so the staged payload and
+generated .iss are not in git. They live under /.../dist-release/ until
+cleaned. No commit was made for them.
