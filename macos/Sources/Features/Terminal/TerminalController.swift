@@ -1562,19 +1562,27 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let selectedIndex = tabbedWindows.firstIndex(where: { $0 == selectedWindow }) else { return }
 
         // Determine the final index we want to insert our tab
-        let finalIndex: Int
-        if action.amount < 0 {
-            finalIndex = selectedIndex - min(selectedIndex, -action.amount)
-        } else {
-            let remaining: Int = tabbedWindows.count - 1 - selectedIndex
-            finalIndex = selectedIndex + min(remaining, action.amount)
-        }
+        let finalIndex = TabSidebarLogic.moveIndex(
+            selected: selectedIndex,
+            amount: action.amount,
+            count: tabbedWindows.count)
 
-        // If our index is the same we do nothing
-        guard finalIndex != selectedIndex else { return }
+        Self.moveTab(selectedWindow, to: finalIndex)
+    }
+
+    /// Moves the given tab window to the final index in its tab group. The tab that
+    /// was selected before the move remains selected.
+    static func moveTab(_ window: NSWindow, to finalIndex: Int) {
+        guard let tabGroup = window.tabGroup else { return }
+        let tabbedWindows = tabGroup.windows
+        guard let currentIndex = tabbedWindows.firstIndex(of: window),
+              currentIndex != finalIndex,
+              tabbedWindows.indices.contains(finalIndex) else { return }
 
         // Get our target window
         let targetWindow = tabbedWindows[finalIndex]
+        let ordered: NSWindow.OrderingMode = finalIndex < currentIndex ? .below : .above
+        let selectedWindow = tabGroup.selectedWindow ?? window
 
         // Moving tabs on macOS 26 RC causes very nasty visual glitches in the titlebar tabs.
         // I believe this is due to messed up constraints for our hacky tab bar. I'd like to
@@ -1583,10 +1591,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Reproduction: titlebar tabs, create two tabs, "move tab left"
         if #available(macOS 26, *) {
             if window is TitlebarTabsTahoeTerminalWindow {
-                tabGroup.removeWindow(selectedWindow)
-                targetWindow.addTabbedWindowSafely(selectedWindow, ordered: action.amount < 0 ? .below : .above)
+                tabGroup.removeWindow(window)
+                targetWindow.addTabbedWindowSafely(window, ordered: ordered)
                 DispatchQueue.main.async {
                     selectedWindow.makeKey()
+                    (window.windowController as? TerminalController)?.relabelTabs()
                 }
 
                 return
@@ -1598,13 +1607,22 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         NSAnimationContext.current.duration = 0
 
         // Remove and re-add the window in the correct position
-        tabGroup.removeWindow(selectedWindow)
-        targetWindow.addTabbedWindowSafely(selectedWindow, ordered: action.amount < 0 ? .below : .above)
+        tabGroup.removeWindow(window)
+        targetWindow.addTabbedWindowSafely(window, ordered: ordered)
 
-        // Ensure our window remains selected
+        // Ensure the previously selected window remains selected. When moving a
+        // background tab (e.g. dragging in the tab sidebar), re-adding it must not
+        // select it.
+        if selectedWindow !== window {
+            targetWindow.tabGroup?.selectedWindow = selectedWindow
+        }
         selectedWindow.makeKey()
 
         NSAnimationContext.endGrouping()
+
+        // Our tab shortcuts depend on the order so we need to relabel. The native
+        // tab bar used to trigger this via frame changes but we don't rely on that.
+        (window.windowController as? TerminalController)?.relabelTabs()
     }
 
     @objc private func onGotoTab(notification: SwiftUI.Notification) {
