@@ -1,0 +1,70 @@
+
+================ r6a — Trunk Check verification on 26dad9ef9 ================
+Captured: 2026-10-11T21:44:27Z (agent: jcode)
+Mode: READ-ONLY verification. No pushes, no edits, no commits.
+
+Push: 26dad9ef9 (full: 26dad9ef97b22b682a15c663adec949a683f64cf)
+  "style(ci): format scorecard.yml with prettier (repair Trunk Check)"
+  Push-triggered runs fired 2026-10-11T21:17:32-33Z.
+
+--- Trunk Check (r6a subject) -----------------------------------------------
+run id:      38175754384
+name:        Trunk Check
+head_sha:    26dad9ef97b22b682a15c663adec949a683f64cf
+created_at:  2026-10-11T21:17:33Z
+updated_at:  2026-10-11T21:17:45Z (12s duration)
+status:      completed
+conclusion:  success
+url:         https://github.com/KooshaPari/Khostty/actions/runs/38175754384
+Verdict:     GREEN. No failure log needed.
+Jobs on head (check-runs): ci/lint=success, ci/test=success, Rust/TS-JS/Python/Go/
+  Security Scan=success, Socket Security=success. (SonarCloud Quality Gate=failure,
+  D Security Rating on New Code — external app check, not a GH Actions workflow;
+  out of r6a scope, flagged for r6b awareness.)
+
+--- Other workflows on same head --------------------------------------------
+CI:          run 38175754379 | completed | success
+Scorecard:   run 38175753646 | completed | FAILURE  (workflow registered under
+             path-name ".github/workflows/scorecard.yml"; run#304;
+             created==updated==2026-10-11T21:17:32Z i.e. 0-second duration;
+             zero jobs; logs endpoint 404 -> no job log exists to fetch)
+Nix:         run 38175754338 | completed | skipped
+Test:        run 38175754461 | queued    | (still queued 27+ min at capture;
+             runner congestion, not a failure; conclusion pending)
+
+--- Scorecard failure root cause (diagnostic, for r6b) -----------------------
+The 0s/no-jobs/logs-404 pattern = GitHub rejected the workflow file at parse/
+validation time, before any job was created. actionlint v-run against the EXACT
+file at this head reproduces it:
+
+  scorecard.yml:38:9: unexpected key "permissions" for step to execute action.
+    expected one of "continue-on-error", "env", "id", "if", "name",
+    "timeout-minutes", "uses", "with" [syntax-check]
+  scorecard.yml:50:9: unexpected key "permissions" for step to execute action. ...
+
+  (lines 38 and 50 are step-level `permissions:` blocks under
+   "Run Scorecard" and "Upload SARIF".)
+
+Step-level `permissions` is not valid GitHub Actions schema (only workflow-
+and job-level). Job-level `analysis.permissions` already grants
+actions:read, contents:read, id-token:write, security-events:write, so the fix
+is to delete both step-level blocks. YAML itself parses fine (PyYAML OK, no
+BOM, no CR, one UTF-8 em-dash inside a comment — benign).
+
+Age of failure: NOT introduced by 26dad9ef9 or 9aae30d32. All 100 most-recent
+Scorecard runs fail identically (0s, no jobs), back through run#303 (9aae30d32),
+#302, ... to at least run#205 on 2026-10-01T10:45:09Z.
+
+Fix for r6b: remove the two step-level `permissions:` blocks from
+.github/workflows/scorecard.yml (lines ~37-41 and ~49-53 at this head), then
+push and confirm the next Scorecard run creates jobs and completes.
+
+--- PyPI gate probe ----------------------------------------------------------
+curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://pypi.org/pypi/khostty/json
+  -> 404
+Gate intact: package still unregistered (pending-publisher not yet set up).
+
+--- r6a closeout -------------------------------------------------------------
+r6a verdict: GREEN. Trunk Check success on 26dad9ef9. r6a may close.
+Companion for r6b: Scorecard run 38175753646 = failure, root cause pinned above.
+=============================================================================

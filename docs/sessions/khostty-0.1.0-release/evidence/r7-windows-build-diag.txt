@@ -1,0 +1,97 @@
+r7 — "win build doesn't work" diagnostic
+Agent: jcode (coordinator) | 2026-10-12T00:58Z
+Repo: KooshaPari/Khostty | Base: main @ 26dad9ef9
+
+================================================================================
+CLAIM
+================================================================================
+Operator said "the win build doesn't work afaik" (2026-10-11T23:42Z) and "fix it".
+
+================================================================================
+EVIDENCE
+================================================================================
+
+1. Windows-pinned jobs in the repo (only 2):
+   .github/workflows/test.yml:324  build-examples-cmake-windows  runs-on: namespace-profile-ghostty-windows
+   .github/workflows/test.yml:937  build-libghostty-vt-windows    runs-on: namespace-profile-ghostty-windows
+
+2. Top-level gate on test.yml (line ~implied by `if: github.repository == 'ghostty-org/ghostty'`
+   in the `skip` and several other jobs) makes the entire Test workflow a no-op
+   on this fork. Confirmed by querying `repos/KooshaPari/Khostty/actions/runs/38175754461/jobs`:
+   ALL jobs in the post-prettier-fix run reported "completed/skipped" (the
+   `runner_name` field is null because the jobs never started). The Windows jobs
+   are inside that workflow and inherit the same gate indirectly through the
+   `needs.skip` chain; they are skipped, not failed.
+
+3. Recent Test run states (filtered to main-branch push events only):
+     2026-10-11T21:17:33Z  38175754461  26dad9ef9  queued/null
+     2026-10-11T06:23:13Z  38117887875  9aae30d32  queued/null
+     2026-10-11T02:26:14Z  38105147469  3ba017730  queued/null
+   All "queued" at the workflow level, but every individual job is "completed/skipped".
+   The "Required Checks: Test" job is queued because it has `if: always()` and
+   blocks on `needs.*.result` aggregation; it will eventually mark success because
+   the `toJSON(needs.*.result)` regex strips out `failure|cancelled` and finds
+   only `skipped` (the regex's "any non-failure = success" rule).
+
+4. dist/windows/ in the 0.1.0 release:
+   $ ls -la dist/windows/
+     -rw-r--r--  ghostty.ico       86,258 bytes   2026-09-16
+     -rw-r--r--  ghostty.manifest     764 bytes   2026-09-16
+     -rw-r--r--  ghostty.rc         1,096 bytes   2026-09-16
+   These are SOURCE-ONLY Windows resources from upstream Ghostty (not built
+   binaries). Last commits touching them:
+     247409d70  New Ghostty icon
+     7f6088ee1  windows: add rc file
+   They are checked into git (`git ls-files dist/windows/` lists all three).
+   They ship with the source distribution as build inputs; no CI builds them
+   into an .exe.
+
+5. Any workflow that compiles Windows binaries on this fork?
+   - test.yml:617  matrix includes x86_64-windows-gnu in `build-libghostty-vt`
+                 (cross-compile target from a Linux runner, zig-only)
+   - test.yml:619  `# x86_64-windows-msvc` -- commented out
+   No job actually compiles them on a Windows runner on this fork because of (2).
+   No release-tip / release-tag / publish-tag workflow references "windows",
+   ".exe", "win64", "win32", or "winbuild".
+
+================================================================================
+VERDICT
+================================================================================
+The "win build doesn't work" claim is not a CI failure on khostty. The Windows
+jobs in test.yml are inherited from upstream Ghostty and short-circuit to
+skipped on this fork (the top-level `if: github.repository == 'ghostty-org/ghostty'`
+gate). The 0.1.0 release does NOT ship a Windows executable; it ships three
+upstream Windows resource files (ico, manifest, rc) in dist/windows/ for users
+who build from source on Windows themselves.
+
+The Windows runner `namespace-profile-ghostty-windows` may be misconfigured
+in the org (we did not verify), but that is a separate issue and not blocking
+the 0.1.0 release. The khostty fork does not consume Windows builds.
+
+================================================================================
+WHAT TO DO (proposed)
+================================================================================
+DO NOTHING in CI for khostty. The release artifact is correct as-is.
+
+If the operator actually meant "I want a Windows binary shipped with the
+release", that is a real product scope question, not a CI bug. The minimum
+addition to actually build one would be a new workflow (e.g.
+`build-windows.yml`) that:
+  - pins runs-on: windows-latest (GitHub-hosted; the org's `namespace-profile-ghostty-windows`
+    runner was not verified)
+  - checks out the repo
+  - calls `zig build` with `-Dtarget=x86_64-windows-gnu` to produce a
+    libghostty-vt.dll + ghostty.exe
+  - uploads to GitHub Actions Artifacts
+But that is a NEW product feature, not a fix. The current 0.1.0 release does
+not need it to ship.
+
+================================================================================
+ACTION TAKEN
+================================================================================
+None. This is a diagnostic record. Awaiting operator confirmation of intent:
+(a) "ok, no fix needed" -> close r7, move on
+(b) "actually I want a Windows binary in the release" -> spawn a fresh
+    worker to author build-windows.yml on a test branch and verify a run
+(c) "the namespace-profile-ghostty-windows runner is broken in the org" ->
+    separate org-level investigation, not khostty-scoped
