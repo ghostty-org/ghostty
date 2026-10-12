@@ -490,12 +490,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // showWindow makes regular windows key and ordered front. AppKit can
         // throw while selecting a tab if its fullscreen stack is inconsistent,
         // so this must cross the Objective-C exception bridge.
-        // We don't need to dispatch this because `tabbingMode = .disallowed`
-        // for HiddenTitlebarTerminalWindow.
         controller.showWindowSafely(self)
 
-        // Windows with `macos-titlebar-style = hidden` create new windows when the
-        // new tab binding is pressed, we should cascade those windows as well.
+        // If tabbing is disallowed (e.g. by the system), new tabs create new
+        // windows and we should cascade those windows as well.
 
         // We're dispatching this async because otherwise the lastCascadePoint doesn't
         // take effect after position in `showWindow`. Our best theory is there is some

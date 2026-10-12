@@ -60,8 +60,8 @@ class HiddenTitlebarTerminalWindow: TerminalWindow {
         standardWindowButton(.miniaturizeButton)?.isHidden = true
         standardWindowButton(.zoomButton)?.isHidden = true
 
-        // Disallow tabbing if the titlebar is hidden, since that will (should) also hide the tab bar.
-        tabbingMode = .disallowed
+        // Note that tabbing is allowed: tabs are shown in the tab sidebar rather
+        // than the (hidden) titlebar.
 
         // Nuke it from orbit -- hide the titlebar container entirely, just in case. There are
         // some operations that appear to bring back the titlebar visibility so this ensures
