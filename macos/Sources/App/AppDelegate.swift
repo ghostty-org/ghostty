@@ -63,6 +63,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuSelectSplitRight: NSMenuItem?
     @IBOutlet private var menuReturnToDefaultSize: NSMenuItem?
     @IBOutlet private var menuFloatOnTop: NSMenuItem?
+    private var menuToggleTabSidebar: NSMenuItem?
     @IBOutlet private var menuUseAsDefault: NSMenuItem?
     @IBOutlet private var menuSetAsDefaultTerminal: NSMenuItem?
 
@@ -328,6 +329,7 @@ class AppDelegate: NSObject,
 
         // Setup our menu
         setupMenuImages()
+        setupTabSidebarMenuItem()
 
         // Setup signal handlers
         setupSignals()
@@ -1176,6 +1178,28 @@ extension AppDelegate {
         self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
     }
 
+    /// Adds the "Show/Hide Tab Sidebar" item to the View menu. This is not a Ghostty
+    /// keybind action so it has a fixed shortcut that isn't synced with the config.
+    private func setupTabSidebarMenuItem() {
+        guard menuToggleTabSidebar == nil,
+              let commandPalette = menuCommandPalette,
+              let viewMenu = commandPalette.menu else { return }
+
+        let item = NSMenuItem(
+            title: "Hide Tab Sidebar",
+            action: #selector(toggleTabSidebar(_:)),
+            keyEquivalent: "b")
+        item.keyEquivalentModifierMask = [.command, .shift]
+        item.target = self
+        item.setImageIfDesired(systemSymbolName: "sidebar.left")
+        viewMenu.insertItem(item, at: viewMenu.index(of: commandPalette) + 1)
+        menuToggleTabSidebar = item
+    }
+
+    @IBAction func toggleTabSidebar(_ sender: Any?) {
+        TabSidebarSettings.shared.toggleVisible()
+    }
+
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
     @MainActor private func syncMenuShortcuts(_ config: Ghostty.Config) {
         guard ghostty.readiness == .ready else { return }
@@ -1311,6 +1335,10 @@ extension AppDelegate: NSMenuItemValidation {
         switch item.action {
         case #selector(setAsDefaultTerminal(_:)):
             return NSWorkspace.shared.defaultTerminal != Bundle.main.bundleURL
+
+        case #selector(toggleTabSidebar(_:)):
+            item.title = TabSidebarSettings.shared.isVisible ? "Hide Tab Sidebar" : "Show Tab Sidebar"
+            return true
 
         case #selector(floatOnTop(_:)),
             #selector(useAsDefault(_:)):
