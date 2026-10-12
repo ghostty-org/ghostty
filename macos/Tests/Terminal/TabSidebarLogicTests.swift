@@ -60,6 +60,17 @@ struct TabSidebarLogicTests {
         #expect(noPwd.subtitle == nil)
     }
 
+    // MARK: Agents
+
+    @Test func detectAgent() {
+        #expect(TabSidebarAgent.detect(path: "/Users/bob/.local/share/claude/versions/2.0.14", arguments: ["claude"]) == .claude)
+        #expect(TabSidebarAgent.detect(path: "/usr/local/bin/node", arguments: ["node", "/usr/local/bin/claude"]) == .claude)
+        #expect(TabSidebarAgent.detect(path: "/opt/homebrew/bin/codex", arguments: ["codex"]) == .codex)
+        #expect(TabSidebarAgent.detect(path: "/usr/local/bin/npx", arguments: ["npx", "@google/gemini-cli"]) == .gemini)
+        #expect(TabSidebarAgent.detect(path: "/bin/cat", arguments: ["cat", "claude"]) == nil)
+        #expect(TabSidebarAgent.detect(path: "/bin/zsh", arguments: ["-zsh"]) == nil)
+    }
+
     // MARK: Width
 
     @Test func clampStoredWidth() {
