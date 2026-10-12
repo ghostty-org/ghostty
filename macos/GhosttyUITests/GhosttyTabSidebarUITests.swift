@@ -110,6 +110,77 @@ final class GhosttyTabSidebarUITests: GhosttyCustomConfigCase {
     }
 
     @MainActor
+    func testRenameCommitsOnTerminalClick() throws {
+        let app = try launch()
+        sidebar(app).tableRows.element(boundBy: 0).doubleClick()
+        app.typeText("Saved by Clicking")
+
+        app.windows.firstMatch.groups["Terminal pane"].click()
+
+        XCTAssertTrue(sidebar(app).staticTexts["Saved by Clicking"].waitForExistence(timeout: 1))
+        XCTAssertEqual(app.windows.firstMatch.title, "Saved by Clicking")
+        XCTAssertEqual(sidebar(app).textFields.count, 0)
+    }
+
+    @MainActor
+    func testRenameCommitsOnNewTabButtonClick() throws {
+        let app = try launch()
+        sidebar(app).tableRows.element(boundBy: 0).doubleClick()
+        app.typeText("Saved Before New Tab")
+
+        app.windows.firstMatch.buttons["TabSidebarNewTabButton"].click()
+
+        XCTAssertTrue(waitForRowCount(app, 2))
+        XCTAssertTrue(sidebar(app).staticTexts["Saved Before New Tab"].exists)
+        XCTAssertEqual(sidebar(app).textFields.count, 0)
+    }
+
+    @MainActor
+    func testRenameCommitsOnTabSwitch() throws {
+        let app = try launch()
+        newTab(app)
+        XCTAssertTrue(waitForRowCount(app, 2))
+        sidebar(app).tableRows.element(boundBy: 1).doubleClick()
+        app.typeText("Saved Before Switching")
+
+        sidebar(app).tableRows.element(boundBy: 0).click()
+
+        XCTAssertTrue(sidebar(app).staticTexts["Saved Before Switching"].waitForExistence(timeout: 1))
+        XCTAssertEqual(app.windows.firstMatch.title, "GhosttyTabSidebarUITests")
+        XCTAssertEqual(sidebar(app).textFields.count, 0)
+    }
+
+    @MainActor
+    func testRenameLongTitle() throws {
+        let app = try launch()
+        sidebar(app).tableRows.element(boundBy: 0).doubleClick()
+        let editor = sidebar(app).textFields.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 1))
+        XCTAssertGreaterThanOrEqual(editor.frame.width, sidebar(app).frame.width - 40)
+
+        let title = String(repeating: "Long Tab Name ", count: 12)
+        // Send the edit and commit together so test-runner activation between
+        // separate keyboard actions doesn't blur (and commit) the editor early.
+        editor.typeText(title + "\n")
+
+        XCTAssertEqual(app.windows.firstMatch.title, title)
+        XCTAssertTrue(sidebar(app).staticTexts.matching(NSPredicate(format: "value == %@", title)).firstMatch.exists)
+    }
+
+    @MainActor
+    func testRenameEscapeCancels() throws {
+        let app = try launch()
+        sidebar(app).tableRows.element(boundBy: 0).doubleClick()
+        let editor = sidebar(app).textFields.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 1))
+        editor.typeText("Discard This Name\u{1b}")
+
+        XCTAssertEqual(app.windows.firstMatch.title, "GhosttyTabSidebarUITests")
+        XCTAssertFalse(sidebar(app).staticTexts["Discard This Name"].exists)
+        XCTAssertEqual(sidebar(app).textFields.count, 0)
+    }
+
+    @MainActor
     func testContextMenuCloseOtherTabs() throws {
         let app = try launch()
         newTab(app)

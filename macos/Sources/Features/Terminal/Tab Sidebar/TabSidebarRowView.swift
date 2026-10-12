@@ -166,7 +166,9 @@ final class TabSidebarCellView: NSTableCellView {
     var onResetZoom: (() -> Void)?
 
     /// When true, the title field is being edited and must not be overwritten.
-    var isEditingTitle: Bool = false
+    var isEditingTitle: Bool = false {
+        didSet { updateAccessoryVisibility() }
+    }
 
     var isHovered: Bool = false {
         didSet { updateAccessoryVisibility() }
@@ -206,8 +208,8 @@ final class TabSidebarCellView: NSTableCellView {
         NSLayoutConstraint.activate([
             textStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            textStack.trailingAnchor.constraint(lessThanOrEqualTo: accessoryStack.leadingAnchor, constant: -6),
-            titleField.widthAnchor.constraint(lessThanOrEqualTo: textStack.widthAnchor),
+            textStack.trailingAnchor.constraint(equalTo: accessoryStack.leadingAnchor, constant: -6),
+            titleField.widthAnchor.constraint(equalTo: textStack.widthAnchor),
             subtitleField.widthAnchor.constraint(lessThanOrEqualTo: textStack.widthAnchor),
             accessoryStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             accessoryStack.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -246,22 +248,23 @@ final class TabSidebarCellView: NSTableCellView {
 
         if !isEditingTitle {
             titleField.stringValue = content.title
+            titleField.toolTip = content.title
         }
         titleField.textColor = content.isCurrent ? .labelColor : .secondaryLabelColor
         setAccessibilityLabel(content.title)
 
         subtitleField.stringValue = content.subtitle ?? ""
-        subtitleField.isHidden = content.subtitle == nil
 
         shortcutLabel.stringValue = content.shortcut ?? ""
-        zoomButton.isHidden = !content.isZoomed
         updateAccessoryVisibility()
     }
 
     private func updateAccessoryVisibility() {
         // On hover the close button replaces the shortcut hint.
-        closeButton.isHidden = !isHovered
-        shortcutLabel.isHidden = isHovered || (content?.shortcut ?? "").isEmpty
+        subtitleField.isHidden = isEditingTitle || content?.subtitle == nil
+        zoomButton.isHidden = isEditingTitle || content?.isZoomed != true
+        closeButton.isHidden = isEditingTitle || !isHovered
+        shortcutLabel.isHidden = isEditingTitle || isHovered || (content?.shortcut ?? "").isEmpty
     }
 
     @objc private func closeClicked(_ sender: Any?) {

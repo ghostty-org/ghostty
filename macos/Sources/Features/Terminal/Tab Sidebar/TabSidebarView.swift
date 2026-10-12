@@ -41,6 +41,7 @@ final class TabSidebarView: NSView {
     private weak var editingController: TerminalController?
     private weak var editingField: NSTextField?
     private var isFinishingEdit = false
+    private var editingClickMonitor: Any?
 
     /// A click on a row of another tab switches windows, so the second click of a
     /// double click lands in the sidebar of the other window. We track the last
@@ -59,6 +60,12 @@ final class TabSidebarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        if let editingClickMonitor {
+            NSEvent.removeMonitor(editingClickMonitor)
+        }
     }
 
     // MARK: Setup
@@ -139,6 +146,11 @@ final class TabSidebarView: NSView {
             selector: #selector(onScrollBoundsDidChange(_:)),
             name: NSView.boundsDidChangeNotification,
             object: scrollView.contentView)
+        center.addObserver(
+            self,
+            selector: #selector(onWindowDidResignKey(_:)),
+            name: NSWindow.didResignKeyNotification,
+            object: nil)
     }
 
     // MARK: Appearance
@@ -382,6 +394,11 @@ final class TabSidebarView: NSView {
         finishEditing(commit: true)
     }
 
+    @objc private func onWindowDidResignKey(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        finishEditing(commit: true, restoreFocus: false)
+    }
+
     // MARK: Inline Rename
 
     /// Starts inline editing of the title of the given tab. Returns false if the
@@ -417,9 +434,23 @@ final class TabSidebarView: NSView {
         field.textColor = .labelColor
         field.focusRingType = .none
         field.lineBreakMode = .byClipping
+        field.cell?.truncatesLastVisibleLine = false
+        field.cell?.usesSingleLineMode = true
         field.cell?.isScrollable = true
         field.cell?.wraps = false
         field.delegate = self
+
+        // Sidebar buttons don't take focus, so blur notifications alone don't
+        // commit every click outside the editor. Preserve the click's normal action.
+        editingClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self, weak field] event in
+            guard let self, let field else { return event }
+            if event.window === field.window,
+               field.bounds.contains(field.convert(event.locationInWindow, from: nil)) {
+                return event
+            }
+            self.finishEditing(commit: true, restoreFocus: false)
+            return event
+        }
 
         window.makeFirstResponder(field)
         DispatchQueue.main.async { [weak field] in
@@ -430,7 +461,7 @@ final class TabSidebarView: NSView {
     }
 
     /// Ends inline editing, optionally committing the new title.
-    func finishEditing(commit: Bool) {
+    func finishEditing(commit: Bool, restoreFocus: Bool = true) {
         guard !isFinishingEdit, let field = editingField else { return }
         isFinishingEdit = true
         defer { isFinishingEdit = false }
@@ -439,6 +470,10 @@ final class TabSidebarView: NSView {
         let text = field.currentEditor()?.string ?? field.stringValue
         editingController = nil
         editingField = nil
+        if let editingClickMonitor {
+            NSEvent.removeMonitor(editingClickMonitor)
+            self.editingClickMonitor = nil
+        }
 
         field.delegate = nil
         field.abortEditing()
@@ -446,6 +481,7 @@ final class TabSidebarView: NSView {
         field.isSelectable = false
         field.drawsBackground = false
         field.lineBreakMode = .byTruncatingTail
+        field.cell?.truncatesLastVisibleLine = true
         field.cell?.isScrollable = false
         var ancestor = field.superview
         while let view = ancestor, !(view is TabSidebarCellView) { ancestor = view.superview }
@@ -456,7 +492,7 @@ final class TabSidebarView: NSView {
         }
 
         reconfigureVisibleRows()
-        restoreTerminalFocus()
+        if restoreFocus { restoreTerminalFocus() }
     }
 }
 
@@ -477,7 +513,8 @@ extension TabSidebarView: NSTextFieldDelegate {
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
-        finishEditing(commit: true)
+        let cancelled = obj.userInfo?[NSText.movementUserInfoKey] as? Int == NSTextMovement.cancel.rawValue
+        finishEditing(commit: !cancelled, restoreFocus: cancelled)
     }
 }
 
