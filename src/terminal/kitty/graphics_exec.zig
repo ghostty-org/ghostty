@@ -3674,7 +3674,7 @@ test "kittygfx retained frames stay immutable during animation edits" {
     try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, storage.imageById(1).?.renderImage().?.value.data);
 }
 
-test "kittygfx retained image outlives loading and animation storage" {
+test "kittygfx eviction and reset clear storage while retained pixels survive" {
     const testing = std.testing;
     const io = testing.io;
     var tracked = testing.FailingAllocator.init(testing.allocator, .{});
@@ -3705,10 +3705,21 @@ test "kittygfx retained image outlives loading and animation storage" {
         try testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255 }, retained.value.data);
         try testing.expectEqualSlices(u8, &.{ 0, 255, 0, 255 }, storage.imageById(1).?.renderImage().?.value.data);
 
+        try testing.expectEqual(@as(usize, 1), storage.images.count());
+        try testing.expectEqual(@as(usize, 8), storage.total_bytes);
         storage.setLimit(io, alloc, t.screens.active, 0);
-        try testing.expectEqual(1, retained.refs.load(.monotonic));
+        try testing.expectEqual(@as(usize, 0), storage.images.count());
+        try testing.expectEqual(@as(usize, 0), storage.total_bytes);
+
+        storage.setLimit(io, alloc, t.screens.active, 8);
+        const reload = try command.Parser.parseString(alloc, "a=t,f=32,s=1,v=1,i=1;/wAA/w==");
+        defer reload.deinit(alloc);
+        try testing.expect(execute(io, alloc, &t, &reload).?.ok());
+        try testing.expectEqual(@as(usize, 1), storage.images.count());
+        try testing.expectEqual(@as(usize, 4), storage.total_bytes);
         t.screens.active.reset();
-        try testing.expectEqual(1, retained.refs.load(.monotonic));
+        try testing.expectEqual(@as(usize, 0), storage.images.count());
+        try testing.expectEqual(@as(usize, 0), storage.total_bytes);
         break :retained retained;
     };
     // The allocator remains live after the terminal and its storage are gone.
