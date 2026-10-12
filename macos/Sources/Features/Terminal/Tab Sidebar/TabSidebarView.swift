@@ -78,15 +78,19 @@ final class TabSidebarView: NSView {
         header.newTabButton.action = #selector(newTabClicked(_:))
         addSubview(header)
 
+        // The column always spans the visible width (see `syncColumnWidth`) so the
+        // close button sits at the trailing edge of the row.
         let column = NSTableColumn(identifier: .init("tab"))
-        column.resizingMask = .autoresizingMask
+        column.resizingMask = []
+        column.minWidth = 0
+        column.maxWidth = .greatestFiniteMagnitude
         tableView.addTableColumn(column)
         tableView.headerView = nil
         tableView.rowHeight = 44
         tableView.intercellSpacing = NSSize(width: 0, height: 2)
         tableView.selectionHighlightStyle = .none
         tableView.backgroundColor = .clear
-        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.style = .plain
         tableView.dataSource = self
         tableView.delegate = self
@@ -108,6 +112,7 @@ final class TabSidebarView: NSView {
         scrollView.borderType = .noBorder
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.contentView.postsBoundsChangedNotifications = true
+        scrollView.contentView.postsFrameChangedNotifications = true
         addSubview(scrollView)
 
         resizeHandle.translatesAutoresizingMaskIntoConstraints = false
@@ -148,9 +153,34 @@ final class TabSidebarView: NSView {
             object: scrollView.contentView)
         center.addObserver(
             self,
+            selector: #selector(onClipViewFrameDidChange(_:)),
+            name: NSView.frameDidChangeNotification,
+            object: scrollView.contentView)
+        center.addObserver(
+            self,
             selector: #selector(onWindowDidResignKey(_:)),
             name: NSWindow.didResignKeyNotification,
             object: nil)
+    }
+
+    override func layout() {
+        super.layout()
+        syncColumnWidth()
+    }
+
+    @objc private func onClipViewFrameDidChange(_ notification: Notification) {
+        syncColumnWidth()
+    }
+
+    /// Makes the single column exactly as wide as the visible area of the table. A
+    /// table column doesn't reliably follow the width of a programmatically created
+    /// table, which put the trailing accessories (e.g. the close button) in the middle
+    /// of the row or beyond its visible edge.
+    private func syncColumnWidth() {
+        guard let column = tableView.tableColumns.first else { return }
+        let width = max(0, scrollView.contentView.bounds.width - tableView.intercellSpacing.width)
+        guard abs(column.width - width) > 0.5 else { return }
+        column.width = width
     }
 
     // MARK: Appearance
