@@ -1,0 +1,73 @@
+Date:     2026-10-12T04:47Z
+Operator: calf (orchestrator session_calf_1789553284753_4beadc3f37d2b6dc)
+Signal:   operator said "we'll skip publish for now" (2026-10-12T04:47:27Z)
+Action:   close r2b as SKIPPED (operator decision). The PyPI 0.1.0 publish
+          is deferred; the GitHub Release v0.1.0 ships the macOS, Windows,
+          Linux (deb), WASM, and CHECKSUMS assets and is the binding
+          artifact for this release.
+
+================================================================
+WHAT THIS CLOSES
+================================================================
+
+The Khostty 0.1.0 release is CLOSED for 0.1.0 as-shipped. The release
+channel is GitHub Releases (v0.1.0). PyPI will be addressed in a
+future cycle (0.1.1, 0.2.0, or whenever the operator returns to it)
+when the trusted-publisher registration on pypi.org is completed.
+
+What does NOT need to happen for the 0.1.0 release to be considered
+shipped:
+  - No PyPI publish
+  - No pypi.org trusted-publisher registration
+  - No tag push (the v0.1.0 release tag exists on GitHub from
+    the original release cut on 2026-10-02; it is the binding
+    artifact identity, not a publish trigger)
+  - No docs-upgrade chain for PyPI install instructions
+  - No approval-inbox cleanup of the orphan hook-b58bd04e... request
+    (it is operator-side, sits pending until the operator declines it
+    or it ages out)
+
+================================================================
+WHAT MAY STILL BE DONE LATER (NOT THIS RELEASE)
+================================================================
+
+  - Decline the orphan approval-inbox request
+    (hook-b58bd04e8942def4147fbc6550efc236).
+  - When the operator returns to PyPI:
+    1. Register the trusted publisher on pypi.org
+    2. Probe /pypi/khostty-vt/json -> expect 200
+    3. Re-tag v0.1.0 (if necessary) or push a fresh tag
+    4. Run the docs-upgrade chain at that time
+  - r7 polish: install Inno Setup via wine on this host (path A in
+    r7-windows-build-diag.txt) if a CI Windows artifact is desired.
+    Not in scope for 0.1.0.
+
+================================================================
+RELEASE CLOSE-OUT — KHOSTTY 0.1.0
+================================================================
+
+Channels:
+  - GitHub Releases: SHIPPED (v0.1.0, 2026-10-02, 6 assets, install-verified)
+  - PyPI:            DEFERRED (operator decision 2026-10-12T04:47Z)
+
+Workstreams:
+  r2a  nix flake nushell compat  CLOSED  (prior)
+  r2b  pypi publish              SKIPPED (operator decision, this file)
+  r3   zig build artifact cleanup CLOSED (prior)
+  r4   wsl mirror                CLOSED
+  r5   clean artifacts           CLOSED
+  r6a  trunk-check prettier fix  CLOSED  26dad9ef9
+  r6b  scorecard two-fold fix    CLOSED  2422fa31e + 8fdcf9337
+  r7   win-build diagnostic      CLOSED  66aa46029
+
+Green CI chain on origin/main @ 66aa46029:
+  - Trunk Check     SUCCESS
+  - CI              SUCCESS
+  - OpenSSF Scorecard SUCCESS (run 38190903526, results on scorecard.dev)
+  - Test            queued (no-op; gated to ghostty-org upstream)
+  - Nix             skipped (gated)
+  - Publish-PyPI    would fail invalid-publisher if dispatched (deferred)
+
+Operator should mark r2b as "deferred" in any tracker. No follow-up
+required from this orchestrator unless operator signals "registered"
+or "do pypi" in a future session.
