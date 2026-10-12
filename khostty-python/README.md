@@ -217,7 +217,7 @@ True
 uv venv --python 3.13 .venv
 uv pip install --python .venv/bin/python -e ".[test]"
 
-.venv/bin/python -m pytest tests/       # 98 tests against the real library
+.venv/bin/python -m pytest tests/       # 162 tests against the real library
 .venv/bin/ruff check .                  # lint
 .venv/bin/ruff format --check .         # formatting
 .venv/bin/python -m build               # sdist + wheel
