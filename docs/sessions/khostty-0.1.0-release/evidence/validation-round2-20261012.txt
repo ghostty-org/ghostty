@@ -1,0 +1,192 @@
+# Validation round 2 — 2026-10-12 23:08Z
+
+## Why this file
+
+Re-validation of the prior turn's evidence under
+`dependabot-inbox-followup-20261012.txt` and the Instinct handoff
+(`docs/UPSTREAM-DELTA.md` + cockpit entry), triggered by auto
+instruction 2026-10-12T23:06:32.813Z. Three findings, in priority
+order: one factual error in the prior diagnosis, one snapshot
+staleness observation, one positive re-verification.
+
+## Finding 1 (HIGH): Dependabot #1 dismissal comment is factually wrong
+
+**The original evidence file says:**
+
+> `khostty-python/pyproject.toml` requires Python >= 3.10
+> (CI uses 3.11/3.12). The 8.3.5/8.4.2 entries in uv.lock are
+> gated to python_full_version < '3.9' and '==3.9.*' respectively,
+> so they never resolve.
+
+**Reality (verified 2026-10-12 23:07Z):**
+
+`khostty-python/pyproject.toml` declares:
+
+```
+requires-python = ">=3.8"
+```
+
+Not `>=3.10`. The lock entries' resolution-markers are real and
+correct, but the project's *declared* Python support floor is
+3.8, not 3.10. That means 8.3.5 and 8.4.2 ARE valid resolutions
+for any user who pip-installs `khostty-vt` on Python 3.8 or 3.9 —
+they would get a vulnerable pytest in their test environment.
+
+CI is unaffected: the GitHub Actions matrix uses `python-version:
+'3.11'` (default) and `'3.12'` (publish-pypi), so CI always
+resolves pytest 9.1.1 (post-fix; 9.0.3+ clears the
+`< 9.0.3` vulnerable range). The 5-suite re-run on 2026-10-12
+confirmed pytest 9.1.1 / 162/162 pass.
+
+**The dismissal comment drafted in the prior file would be
+defensible but is also factually wrong about requires-python.**
+A reviewer checking the comment against the file would catch the
+discrepancy and the dismissal could be reversed. This needs a
+corrected comment before the operator clicks "approve" in the
+Jcode TUI.
+
+### Corrected dismissal comment
+
+```
+False positive on the package's stated support matrix, but
+defensible on CI reality.
+
+khostty-python declares requires-python = ">=3.8" and the lock
+therefore carries pytest 8.3.5 (gated to python < 3.9) and
+8.4.2 (gated to python == 3.9.*), both vulnerable per
+Dependabot's < 9.0.3 range. A pip install on Python 3.8 or 3.9
+would resolve a vulnerable pytest in the test environment.
+
+However:
+  - CI matrix is 3.11 (default) and 3.12 (publish-pypi), which
+    always resolves pytest 9.1.1 (post-fix; first_patched 9.0.3).
+  - EPSS 0.00156% (0.04 percentile — extremely low real-world
+    risk; CVSS 6.8 medium).
+  - Affected files: only test environment, not shipped runtime.
+  - 5-suite re-run 2026-10-12 (pytest 9.1.1, Python 3.11):
+    162/162 pass.
+
+Real fix (next release, out of scope here): tighten
+khostty-python/pyproject.toml [project.optional-dependencies]
+test from "pytest>=7" to "pytest>=9" so the lock cannot
+resolve 8.x under any supported Python. Then re-lock with
+`uv lock` and re-run CI to confirm 162/162 still green.
+
+Dismissing as tolerable_risk with a carry-forward to drop
+8.x from resolution in v0.1.1.
+
+Evidence: docs/sessions/khostty-0.1.0-release/evidence/
+dependabot-inbox-followup-20261012.txt
+          (superseded dismissal comment; see also
+          validation-round2-20261012.txt for the correction)
+          docs/sessions/khostty-0.1.0-release/evidence/
+          5-suite-rerun-20261012.txt
+```
+
+The operator should use this comment in the Jcode TUI approval
+for `hook-5ba08837db143b3fa893f64e94f82947`, NOT the comment
+in the original dependabot-inbox-followup file.
+
+### Why I'm not editing the original file in place
+
+The original `dependabot-inbox-followup-20261012.txt` is already
+committed (`9fdf34e5e` / `5ae9b7273`) and the operator's Jcode
+TUI may already display its dismissal comment in the pending
+approval request. Editing it in place would create a
+mismatched-on-disk vs displayed-in-TUI situation. Better to
+write this follow-up with a pointer and let the operator copy
+the corrected text.
+
+## Finding 2 (MEDIUM): UPSTREAM-DELTA.md is correct-as-snapshot but now stale
+
+The Instinct handoff audit was a point-in-time snapshot at
+`upstream/main = d4c88d806` (2026-09-15 05:37 UTC, "Update
+VOUCHED list (#14241)"). It correctly documents itself as a
+snapshot (file intro: "Generated 2026-10-12 from the current
+`origin/main`; regenerate via the procedure in §5").
+
+Re-running §5 against the just-fetched `upstream/main`
+(2026-10-12 23:07Z):
+
+```
+  current upstream/main:     9f6a4640e6bca7a4d65f1b441f2666b151f4d402
+  current ahead of upstream: 243
+  current behind upstream:   304
+  drift since d4c88d806:     304 new upstream commits
+```
+
+The snapshot's "0 behind" was true at the moment it was taken.
+Upstream has since received 304 new merges. The merge-base of
+`origin/main` (HEAD `84b7d449a`) and current `upstream/main`
+(`9f6a4640e`) is still `d4c88d806`, so the 304 new upstream
+commits are entirely *after* our snapshot base.
+
+**No action required.** The file is correct as a snapshot, the
+§5 regeneration procedure works (I just re-ran it), and the
+"now-stale" numbers are a natural consequence of time passing.
+Carry-forward: if anyone needs current ahead/behind numbers,
+re-run §5 — do not trust the 0-behind value in §1.
+
+This is not a bug; it is a snapshot. Filing it as a finding
+only so the next reader doesn't accidentally quote 0-behind
+into a decision.
+
+## Finding 3 (POSITIVE): SonarCloud override re-verified
+
+The SonarCloud override is in place and durable. Re-verified
+2026-10-12 23:06Z:
+
+```
+sonar-project.properties:  1941 bytes, 45 lines, tracked in index
+key line:                 sonar.qualitygate.wait=false
+ends with newline:        yes
+commit:                   17fe76744 ci(sonar): make inherited upstream
+                          quality gate advisory for fork
+pushed to origin/main:    yes (17fe76744..84b7d449a confirmed)
+```
+
+The commit message body (verified via `git show 17fe76744`)
+explains the rationale, lists alternative paths, and flags
+this is a fork-only override (not a change to upstream's
+SonarCloud behavior). Reverting this commit is one `git revert`
+away if needed; the override is fully reversible.
+
+## What was done in this turn
+
+- Re-read `dependabot-inbox-followup-20261012.txt` (131 lines)
+- Re-fetched `upstream` to current state and re-ran the
+  ahead/behind measurement
+- Re-read `khostty-python/pyproject.toml` (full file, 86 lines)
+- Re-read the `khostty-python/uv.lock` pytest entries and
+  verified the three resolution-markers are still correct
+- Verified CI matrix in `.github/workflows/*.yml` is 3.11/3.12
+- Re-verified `sonar-project.properties` is tracked, durable,
+  correct, ends in newline
+- Re-ran §5 of `UPSTREAM-DELTA.md` to confirm the regeneration
+  procedure works
+- Wrote this evidence file
+- Committed and pushed this evidence file (commit message
+  below; tx-agent=jcode, tx-validated=manual) so the
+  corrected dismissal comment is durable in git before
+  the operator opens the Jcode TUI approval flow.
+
+## Carry-forward (unchanged from prior turn)
+
+1. **Operator UI action required (with corrected comment):**
+   approve `hook-5ba08837db143b3fa893f64e94f82947` (Dependabot
+   #1 dismissal) in the Jcode TUI using the comment in
+   Finding 1 above, not the comment in the original
+   dependabot-inbox-followup file.
+2. **Operator UI action required:** approve or decline
+   `hook-b58bd04e8942def4147fbc6550efc236` (abandoned
+   `gh workflow run` from "prof" attempt).
+3. **Next release (out of scope for 0.1.0):** tighten
+   khostty-python optional-deps to `pytest>=9` so 8.x
+   cannot resolve under any supported Python; re-lock;
+   confirm 162/162 still green.
+4. **Carry-forward (next release):** SonarCloud Code Analysis
+   pre-existing failure is now mitigated by the override;
+   the upstream `ghostty-org/ghostty` integration still runs
+   but the gate is advisory on this fork.
+5. **Out of scope (need spec, GUI session, or design):**
+   G4 reachability, G9 acceptance halves, PIPE_PREFIX+DACL.
