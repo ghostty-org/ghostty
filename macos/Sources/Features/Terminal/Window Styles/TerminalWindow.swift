@@ -194,6 +194,7 @@ class TerminalWindow: NSWindow {
 
     override func close() {
         tabTitleEditor.finishEditing(commit: true)
+        terminalController?.terminalViewContainer?.tabSidebar?.finishEditing(commit: true)
         NotificationCenter.default.post(name: Self.terminalWillCloseNotification, object: self)
         super.close()
     }
@@ -207,6 +208,7 @@ class TerminalWindow: NSWindow {
         super.resignKey()
         resetZoomTabButton.contentTintColor = .secondaryLabelColor
         tabTitleEditor.finishEditing(commit: true)
+        terminalController?.terminalViewContainer?.tabSidebar?.finishEditing(commit: true)
     }
 
     override func becomeMain() {
@@ -229,7 +231,17 @@ class TerminalWindow: NSWindow {
 
     @discardableResult
     func beginInlineTabTitleEdit(for targetWindow: NSWindow) -> Bool {
-        tabTitleEditor.beginEditing(for: targetWindow)
+        // Tabs are shown in the tab sidebar, so we edit there. The native tab
+        // bar is hidden so the native inline editor would not be visible.
+        guard let targetController = targetWindow.windowController as? TerminalController,
+              let sidebar = terminalController?.terminalViewContainer?.tabSidebar else { return false }
+        return sidebar.beginRename(for: targetController)
+    }
+
+    /// Notify the tab sidebars that something they display for this tab changed.
+    private func notifyTabSidebar() {
+        guard let terminalController else { return }
+        NotificationCenter.default.post(name: .terminalTabSidebarItemDidChange, object: terminalController)
     }
 
     @objc private func renameTabFromContextMenu(_ sender: NSMenuItem) {
