@@ -384,7 +384,7 @@ extension Ghostty {
         }
 
         var windowCloseTabFocus: WindowCloseTabFocus {
-            let defaultValue = WindowCloseTabFocus.next
+            let defaultValue = WindowCloseTabFocus.right
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>?
             let key = "window-close-tab-focus"
@@ -837,8 +837,8 @@ extension Ghostty.Config {
     }
 
     enum WindowCloseTabFocus: String {
-        case next
-        case previous
+        case right
+        case left
     }
 
     enum MacHidden: String {

@@ -2316,18 +2316,18 @@ keybind: Keybinds = .{},
 ///
 /// Valid values:
 ///
-///   * `next` - Focus the tab to the right of the closed tab. This is the
+///   * `right` - Focus the tab to the right of the closed tab. This is the
 ///     default and matches the historical behavior.
 ///
-///   * `previous` - Focus the tab to the left of the closed tab.
+///   * `left` - Focus the tab to the left of the closed tab.
 ///
 /// If the closed tab is on the far edge in the chosen direction (the
-/// leftmost tab with `previous`, or the rightmost tab with `next`), focus
+/// leftmost tab with `left`, or the rightmost tab with `right`), focus
 /// falls back to the only available neighbor. Closing a tab that is not
 /// currently focused never changes which tab is focused.
 ///
 /// Available since: 1.4.0
-@"window-close-tab-focus": WindowCloseTabFocus = .next,
+@"window-close-tab-focus": WindowCloseTabFocus = .right,
 
 /// Whether to show the tab bar.
 ///
@@ -4136,20 +4136,20 @@ test "window-close-tab-focus" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    // Default is next.
+    // Default is right.
     {
         var cfg = try Config.default(alloc);
         defer cfg.deinit();
         try cfg.finalize();
         try testing.expectEqual(
-            WindowCloseTabFocus.next,
+            WindowCloseTabFocus.right,
             cfg.@"window-close-tab-focus",
         );
     }
 
-    // Explicit previous parses.
+    // Explicit left parses.
     {
-        const data = "window-close-tab-focus = previous\n";
+        const data = "window-close-tab-focus = left\n";
         var reader: std.Io.Reader = .fixed(data);
         var cfg = try Config.default(alloc);
         defer cfg.deinit();
@@ -4161,7 +4161,7 @@ test "window-close-tab-focus" {
         try cfg.finalize();
         try testing.expect(cfg._diagnostics.empty());
         try testing.expectEqual(
-            WindowCloseTabFocus.previous,
+            WindowCloseTabFocus.left,
             cfg.@"window-close-tab-focus",
         );
     }
@@ -9472,8 +9472,8 @@ pub const WindowNewTabPosition = enum {
 
 /// See window-close-tab-focus
 pub const WindowCloseTabFocus = enum {
-    next,
-    previous,
+    right,
+    left,
 };
 
 /// See macos-dock-drop-behavior
