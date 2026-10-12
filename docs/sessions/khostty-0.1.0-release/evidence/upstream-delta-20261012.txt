@@ -1,0 +1,5 @@
+TASK: docs/UPSTREAM-DELTA.md (Instinct handoff 2026-10-12 21:07Z)
+WHAT: single-file upstream-delta manifest; 11 intent groups; 241 non-merge commits categorized; 12-demo plan (8 VHS / 2 Playwright / 2 screenshot); 487 lines
+DEMO: bounded list of 12 demos; VHS for terminal-side (khostty-vt, khostty-python, khostty-go, IPC, bench); Playwright for WASM ESM + README; screenshot for CI + installers
+WHERE: docs/UPSTREAM-DELTA.md + docs/sessions/khostty-0.1.0-release/evidence/upstream-delta-20261012.txt
+NEXT: operator review; regenerate on each new release-branch merge per §5 of UPSTREAM-DELTA.md; PR with 'Authored by agent' prefix if opening one (NOT auto-opened per Instinct policy)
