@@ -828,27 +828,14 @@ extension TerminalWindow {
         changeTitleItem.setImageIfDesired(systemSymbolName: "pencil.line")
         menu.addItem(changeTitleItem)
 
-        let paletteItem = NSMenuItem()
-        paletteItem.identifier = Self.tabColorPaletteIdentifier
-        paletteItem.view = makeTabColorPaletteView(
+        let paletteItem = TabColorMenuView.makeMenuItem(
             selectedColor: (target?.window as? TerminalWindow)?.tabColor ?? .none
         ) { [weak target] color in
             (target?.window as? TerminalWindow)?.tabColor = color
         }
+        paletteItem.identifier = Self.tabColorPaletteIdentifier
         menu.addItem(paletteItem)
     }
-}
-
-private func makeTabColorPaletteView(
-    selectedColor: TerminalTabColor,
-    selectionHandler: @escaping (TerminalTabColor) -> Void
-) -> NSView {
-    let hostingView = NSHostingView(rootView: TabColorMenuView(
-        selectedColor: selectedColor,
-        onSelect: selectionHandler
-    ))
-    hostingView.frame.size = hostingView.intrinsicContentSize
-    return hostingView
 }
 
 // MARK: - Inline Tab Title Editing
