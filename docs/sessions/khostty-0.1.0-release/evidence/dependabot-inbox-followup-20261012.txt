@@ -1,0 +1,129 @@
+# Dependabot + workflow-hook inbox follow-through — 2026-10-12
+
+## What was attempted
+
+Operator signal "all approved, do all" (2026-10-12T06:43Z) was interpreted
+as: act on the 5 open follow-ups listed at the end of the 5-suite re-run
+summary turn. The two operator-side items on that list were:
+
+1. Dependabot #1 dismissal (false positive on pytest 9.1.1)
+2. `hook-b58bd04e8942def4147fbc6550efc236` — abandoned `gh workflow run`
+   approval from the "prof" attempt earlier in this session
+
+## What happened
+
+The pre-tool hook deferred the `gh api dependabot alerts/1` PATCH
+(dismissal) to the Jcode approval-inbox with a new request:
+
+  request_id=hook-5ba08837db143b3fa893f64e94f82947
+
+The hook was triggered because dismissing a Dependabot security alert
+touches the security posture of the repo and is gated by Jcode's
+ambient permission system. The system correctly enforces per-action
+approval even when the operator says "do all" in chat — the operator
+must still approve the specific action in the Jcode TUI/UI.
+
+`jcode permissions` reports "No pending permission requests" from this
+shell because the Jcode server (the `kcode.sock` at
+`~/.jcode/scratch/kcode.sock`) is not running. The hook is held in
+server-side state; the operator must approve from the Jcode TUI
+session, not from this CLI shell.
+
+The earlier `hook-b58bd04e8942def4147fbc6550efc236` (from the "prof"
+turn) is in the same Jcode approval-inbox state. The operator should
+either approve or decline both requests in the Jcode TUI.
+
+## Dependabot #1 evidence (the rationale I'd put on the approval)
+
+`gh api dependabot/alerts/1` shows:
+
+  - state: open
+  - dependency: pytest (pip)
+  - vulnerable_version_range: < 9.0.3
+  - first_patched_version: 9.0.3
+  - severity: medium (CVSS 6.8)
+  - EPSS: 0.00156% (0.04 percentile — extremely low real-world risk)
+  - manifest_path: khostty-python/uv.lock
+
+`khostty-python/uv.lock` shows three pytest entries, gated by
+`resolution-markers`:
+
+  - 8.3.5  → python_full_version < '3.9'
+  - 8.4.2  → python_full_version == '3.9.*'
+  - 9.1.1  → python_full_version >= '3.10'
+
+`khostty-python/pyproject.toml` requires Python >= 3.10; CI uses
+`setup-python@v5` with `python-version: '3.11'` (default matrix) and
+`'3.12'` (publish-pypi). The 8.3.5/8.4.2 entries never resolve under
+the project's supported Python versions, so the alert is a
+false positive on the manifest, not on the actual deployed package.
+
+Active pytest resolution on Python 3.10+ is 9.1.1 (vulnerable
+range: < 9.0.3, so 9.1.1 is post-fix and not vulnerable).
+
+**Recommended dismissal reason: `tolerable_risk`** (or `not_used` —
+the older 8.3.5/8.4.2 entries are present in the lock but never
+resolve to an install under the project's supported Pythons).
+
+**Recommended dismissal comment:**
+
+  False positive. khostty-python requires Python >= 3.10 (CI uses 3.11/3.12).
+  The vulnerable 8.3.5/8.4.2 entries in uv.lock are gated to
+  python_full_version < '3.9' and '==3.9.*' respectively, so they
+  never resolve. Active pytest on Python 3.10+ is 9.1.1 (post-fix;
+  first_patched 9.0.3). EPSS 0.00156% (0.04 percentile). Confirmed
+  via 5-suite re-run 2026-10-12, pytest 9.1.1, 162/162 pass.
+  Evidence: docs/sessions/khostty-0.1.0-release/evidence/5-suite-rerun-20261012.txt.
+
+## SonarCloud Code Analysis — pre-existing failure discovered
+
+While diagnosing the Dependabot state, discovered a separate
+pre-existing CI issue:
+
+`SonarQubeCloud / SonarCloud Code Analysis` is **failing** on
+`9fdf34e5e` (HEAD) and `0fe7da2d3` (r2b SKIPPED commit) with:
+
+  Quality Gate failed — D Security Rating on New Code (required ≥ A)
+
+This is a chronic issue, not caused by today's commits. The
+khostty fork has no `sonar-project.properties` and no
+`.github/workflows/sonar.yml` — the SonarCloud check is from an
+upstream `ghostty-org/ghostty` SonarQube Cloud integration that
+runs on every push via the GitHub App installed on the repo.
+
+It is **not blocking** the 0.1.0 release (release is closed, all
+artifacts are out, the v0.1.0 tag is signed and on GitHub
+Releases). It is a carry-forward issue for the next release.
+
+Recommended fix (out of scope for this turn, but bounded): add a
+`.sonarcloud.properties` with `sonar.qualitygate.wait=false` or
+`sonar.exclusions=**/*.md` so docs-only commits don't fail the
+gate. Or add a `sonar-project.properties` to override the inherited
+gate. Both are 5-minute fixes, but the design decision (which
+exclusions) is for the operator.
+
+## What was actually done in this turn
+
+- Diagnosed Dependabot #1 state, lock-file pytest entries, workflow
+  approval state
+- Discovered and documented the pre-existing SonarCloud Code
+  Analysis failure
+- Confirmed both Dependabot and workflow-hook approvals are gated
+  by the Jcode approval-inbox (server-mediated, not file-mediated;
+  requires Jcode TUI to approve)
+- Did NOT push to main, did NOT make any destructive action
+
+## Carry-forward
+
+1. **Operator UI action required:** approve
+   `hook-5ba08837db143b3fa893f64e94f82947` (Dependabot #1
+   dismissal) in the Jcode TUI. The dismissal text to use is in
+   this file.
+2. **Operator UI action required:** approve or decline
+   `hook-b58bd04e8942def4147fbc6550efc236` (abandoned
+   `gh workflow run` from "prof" attempt).
+3. **Carry-forward (next release):** SonarCloud Code Analysis
+   pre-existing failure on docs-only commits. Bounded fix is a
+   `.sonarcloud.properties` file; design decision for operator.
+4. **Out of scope (need spec, GUI session, or design):**
+   G4 reachability, G9 acceptance halves, PIPE_PREFIX+DACL.
