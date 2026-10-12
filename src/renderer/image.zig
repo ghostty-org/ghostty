@@ -1107,7 +1107,7 @@ test "kitty renderer ignores pending payloads and removes replaced placements" {
     try testing.expect(state.images.get(.{ .kitty = 1 }) == null);
 
     const pixels = try alloc.dupe(u8, "rgba");
-    try testing.expect(pending.complete(storage, io, pixels));
+    try testing.expect(pending.complete(storage, io, alloc, pixels));
     state.kittyUpdate(alloc, &t, .{ .width = 10, .height = 10 });
     try testing.expectEqual(@as(usize, 1), state.kitty_placements.items.len);
     try testing.expectEqual(
@@ -1593,15 +1593,13 @@ test "kitty renderer uploads native formats without copying" {
 
 test "kitty renderer uses the image allocator after storage eviction" {
     const testing = std.testing;
-    const alloc = testing.allocator;
     const io = testing.io;
-    var tracked = testing.FailingAllocator.init(alloc, .{});
-    const image_alloc = tracked.allocator();
+    var tracked = testing.FailingAllocator.init(testing.allocator, .{});
+    const alloc = tracked.allocator();
     {
         var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
         defer t.deinit(alloc);
         const storage = &t.screens.active.kitty_images;
-        storage.image_allocator = image_alloc;
         const pending = try storage.addPendingImage(io, alloc, t.screens.active, .{
             .id = 1,
             .width = 1,
@@ -1609,18 +1607,18 @@ test "kitty renderer uses the image allocator after storage eviction" {
             .format = .gray_alpha,
             .data = .{ .pending = 2 },
         });
-        const pixels = try image_alloc.dupe(u8, &.{ 1, 2 });
-        if (!pending.complete(storage, io, pixels)) {
-            image_alloc.free(pixels);
+        const pixels = try alloc.dupe(u8, &.{ 1, 2 });
+        if (!pending.complete(storage, io, alloc, pixels)) {
+            alloc.free(pixels);
             return error.TestUnexpectedResult;
         }
-        var state: State = .init(image_alloc);
+        var state: State = .init(alloc);
         defer state.deinit(alloc);
         const source = storage.imageById(1).?;
         try state.prepKittyImage(alloc, &source);
         storage.setLimit(io, alloc, t.screens.active, 0);
         const entry = state.images.getPtr(.{ .kitty = 1 }).?;
-        try entry.image.prepForUpload(image_alloc);
+        try entry.image.prepForUpload(alloc);
         try testing.expectEqualSlices(u8, &.{ 1, 1, 1, 2 }, entry.image.pending.value.data);
     }
     try testing.expectEqual(tracked.allocated_bytes, tracked.freed_bytes);
