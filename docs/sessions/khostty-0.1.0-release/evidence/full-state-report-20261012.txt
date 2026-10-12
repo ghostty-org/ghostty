@@ -1,0 +1,261 @@
+Date:     2026-10-12T05:11Z
+Operator: calf (orchestrator session_calf_1789553284753_4beadc3f37d2b6dc)
+Task:     full status report — features from upstream, all workstream
+          statuses, QA matrix. Operator signal 2026-10-12T05:10:30Z.
+
+================================================================
+HEAD STATE
+================================================================
+
+- khostty:   0fe7da2d3  origin/main  (working tree clean)
+- upstream:  d4c88d806  ghostty-org/ghostty main
+- merge-base: d4c88d806  (= upstream HEAD; clean fork of upstream tip)
+- delta:     236 commits unique to khostty (origin/main ^ upstream/main)
+- behind:    0 commits (khostty is at upstream tip; no merge debt)
+- author mix (khostty-side): 221 KooshaPari, 8 Koosha Paridehpour, 6 jcode,
+                              1 misc (other)
+
+Tags: v1.2.1 v1.2.2 v1.2.3 v1.3.0 v1.3.1  (all upstream tags, not
+       tracked locally as khostty versions)
+khostty release tag: v0.1.0  (annotated 7e1684f60, on commit 202aad543)
+
+================================================================
+FORK DELTA — 236 KHOSTTY-UNIQUE COMMITS, BY TYPE
+================================================================
+
+| Type prefix               | Count | Notes |
+|---------------------------|-------|-------|
+| docs(wbs) / docs(…)       | 122   | WBS, release, evidence, handoff, dossier, etc. |
+| ci: / ci(…) / fix(ci)     | 36    | zig install, scorecard, publish-pypi, trunk-check, clean-artifacts, gitleaks, ecosystem detection |
+| feat(ipc)                 | 10    | Agent IPC v1 (protocol, auth, state, events, pane, handler) |
+| feat(windows)             | 9     | Windows app runtime (App, Window, surface, renderer, win32api, ipc) |
+| feat(khostty-vt)          | 8     | Rust crate |
+| feat(khostty-go)          | 4     | Go cgo module |
+| feat(wasm)                | 3     | @khostty/libghostty-vt-wasm ESM |
+| feat(khostty-python)      | 3     | Python cffi package |
+| feat(packaging)           | 1     | generic |
+| feat(bench)               | 3     | bench harness |
+| fix(…)                    | 6+    | build, packaging, windows, ipc, test |
+| refactor(…)               | 2     | khostty-vt, khostty-go |
+| test(…)                   | 6     | windows, wasm, khostty-vt, khostty-python, khostty-go, ipc, bench |
+| build(…)                  | 4     | packaging, windows, python, khostty-python |
+| style / chore             | 2     | prettier, gitignore |
+
+Total: 236.  Of these, ~33 are feature/test/refactor code deltas; the
+remainder (~200) are CI/infra and documentation/evidence commits.
+
+================================================================
+FEATURES FROM UPSTREAM (THE FOUR DELTAS — KHOSTTY CLAIMS)
+================================================================
+
+Status source: docs/dossiers/KHOSTTY.md (dated 2026-09-18; "where this
+dossier and the tree disagree, the tree wins"). FFI tests have been
+re-verified on 2026-10-12 but not in the dossier.
+
+G2 — Independent conformance gate (DONE, not CI-gated)
+   conformance/build.sh + harness.c + 84 cases over 8 categories
+   Last recorded result: 84/84 pass, 2026-09-17, commit b2c388c9b
+   Re-verified: 84/84 PASS in 2.5s on 2026-10-12 (commit 4c18bc2b1)
+   Evidence: docs/sessions/khostty-0.1.0-release/evidence/5-suite-rerun-20261012.txt
+
+G3 — Windows app runtime (SCAFFOLD, not runtime)
+   src/apprt/windows/ — App.zig, Window.zig, surface.zig, renderer.zig,
+                        win32api.zig, ipc.zig
+   Cross-build: PASS (zig build -Dtarget=x86_64-windows-gnu, 8m 12s)
+   Test-windows-apprt: 80/85 steps passing, 2026-09-17 (commit 2d11fcb3a)
+   Native execution: VERIFIED on kooshapari-desk 2026-09-19 (+version,
+                     LoadLibrary + ghostty_terminal_new, 0 failures,
+                     .Debug build, CLI only — no GUI window)
+   Installer: BUILT + install/uninstall-verified (ISCC 6.7.1,
+              19,766,307 B, sha256 4070e89e…095546)
+   Not yet done: real GUI launch, no MSVC target, no notarization,
+                 PIPE_PREFIX malformed (single leading backslash, no DACL)
+
+G4 — Agent IPC v1 (DESIGNED + UNIT-TESTED, NOT REACHABLE)
+   src/apprt/ipc/ — protocol.zig, auth.zig, state.zig, events.zig,
+                    pane.zig, handler.zig, server.zig (declared),
+                    app_host.zig (declared), fake_host.zig
+   130 unit tests pass (in-module; not in CI as required)
+   Transport: Unix socket (macOS/Linux/BSD) — designed
+   Windows transport: named pipe stub (error.Unimplemented, broken path)
+   NOT YET: server.zig constructed by a running runtime; app_host.zig
+            not wired into the build graph; commands reachable from CLI
+            or another process
+
+G5 — Rust FFI (DONE)
+   khostty-vt/ — 198 bindgen functions, 179 types, 779 constants
+   Re-verified: 199/199 tests pass on 2026-10-12 across 11 test binaries
+   (65 unit + 13 abi_layout + 5 ffi_coverage + 14 key_encoding +
+    16 mouse_encoding + 16 render + 16 search + 17 snapshot +
+    29 terminal + 4 end_to_end + 4 doc-tests; commit 4c18bc2b1)
+   Includes tests/abi_layout.rs which asserts against ghostty_type_json()
+   Evidence: docs/sessions/khostty-0.1.0-release/evidence/5-suite-rerun-20261012.txt
+
+G6 — Go + Python FFI (DONE)
+   khostty-go/ — cgo, author-verified `go build` / `go vet`
+                 45 top-level Test* functions
+   khostty-python/ — cffi, v0.1.0, 162 pytest cases (was 98 in 09-17)
+   Re-verified: 207 combined tests pass on 2026-10-12 (45 Go + 162 Python)
+   Total count unchanged from 09-17 baseline, but the decomposition
+   shifted: Go harness was rewritten (cleaner, smaller suite, 45 tests),
+   Python gained 64 tests between 09-17 and 10-12. Sum is the same 207.
+   Go on this macOS host requires SDKROOT=.../Xcode.app/.../MacOSX26.0.sdk
+   (system xcrun default MacOSX27.0.sdk has arm64e TBD entries Go 1.23.4
+   cannot parse). Python runs under `uv run pytest` (cffi build needs
+   the venv, not system python3).
+   Evidence: docs/sessions/khostty-0.1.0-release/evidence/5-suite-rerun-20261012.txt
+
+G7 — WASM/JS-TS FFI (DONE)
+   wasm/ — @khostty/libghostty-vt-wasm, 189 exports, 0 imports
+           813,670 B, sha256 08ac8ed8…508e5bf6
+   Re-verified: 54/54 tests pass on 2026-10-12 (commit 4c18bc2b1),
+   11 suites, 4.51s wall time, 0 fail
+   Kitty graphics excluded by design (needs OS timestamps)
+   Evidence: docs/sessions/khostty-0.1.0-release/evidence/5-suite-rerun-20261012.txt
+
+G8 — Benchmarks (MEASURED, NOT COMPARABLE)
+   bench/ harness exists, two paired Khostty/upstream runs on 2026-09-17
+   Every pass ran at load 548-674 on a dirty tree (the harness
+   methodology says the absolute medians are unreliable in that state).
+   Directional readings only; no absolute performance claim.
+
+G9 — Documentation + packaging (DONE, 15/15 sub-items)
+   docs/ set: README, ARCHITECTURE, FORK, PLATFORMS, BUILD, INSTALL,
+              RELEASE, ROADMAP, SECURITY, TESTING, GLOSSARY, AGENT,
+              HANDOFF, GLOBAL_HANDBOOK, API, changelog/0.1.0.md
+   7/7 packaging artifacts built (GTK .deb on WSL Fedora 44 2026-09-19,
+   library .deb install-verified on Debian 12, macOS .app built and
+   zip-verified, Windows installer install/uninstall-verified, WASM
+   dist npm-verified). Install-verify halves open: macOS .app GUI
+   launch and GTK .deb GUI launch (no GUI session on the WSL host).
+
+G10 — Release artifacts (PARTIALLY DONE — see STATUS)
+
+================================================================
+G10 RELEASE STATUS (CURRENT)
+================================================================
+
+| Sub | Item | Status | Evidence |
+|-----|------|--------|----------|
+| 10.1 | Tag created | DONE | v0.1.0 annotated 7e1684f60, 2026-09-24 |
+| 10.2 | All artifacts built | DONE | 7/7 in G9 above |
+| 10.3 | CHECKSUMS manifest | DONE | 9/9 OK, shasum -c clean |
+| 10.4 | GitHub release published | DONE | 2026-09-27, 6 assets, install-verified |
+| 10.5 | crates.io publish | DONE | 2026-09-20 (khostty-vt 0.1.0) |
+| 10.6 | npm publish | DONE | 2026-09-25 (@khostty/libghostty-vt-wasm 0.1.0) |
+| 10.7 | docs(Roadmap) post-0.1.0 | DONE | docs/ROADMAP.md r6 added |
+| 10.8 | PyPI publish | SKIPPED | Operator decision 2026-10-12T04:47Z (r2b-skip-20261012.txt) |
+| 10.9 | 0.1.0 post-release re-verify | DONE | 6/6 pass, 2026-09-29 (15332d5e6) |
+
+================================================================
+CI CHAIN ON origin/main @ 0fe7da2d3
+================================================================
+
+| Check | Last state | Source |
+|-------|------------|--------|
+| Trunk Check | SUCCESS | run 38175754461 on 26dad9ef9 |
+| CI | SUCCESS | run 38175754461 (zfmt + macOS build) |
+| OpenSSF Scorecard | SUCCESS | run 38190903526 on 8fdcf9337, results on scorecard.dev |
+| Test (zfmt) | queued | gated `if: github.repository == 'ghostty-org/ghostty'`; effectively skipped on fork |
+| Nix | skipped | same upstream gate |
+| Publish-PyPI | not dispatched | deferred by operator (r2b-skip-20261012.txt) |
+| Required Checks: Test | queued | always() with needs aggregation, eventually green from skipped |
+
+Recent hot runs (post-r6a fix):
+  38190903526  8fdcf9337  scorecard        SUCCESS
+  38190660556  2422fa31e  scorecard        FAILURE (step-level perms parse error, then gcr 500)
+  38175754461  26dad9ef9  trunk + ci      SUCCESS
+  37177220070  (3ba017730) publish-pypi    FAILURE (invalid-publisher, last attempt)
+  37238091039  (3ba017730) publish-pypi    FAILURE (invalid-publisher)
+
+Open Dependabot alert: 1 moderate on default branch
+  https://github.com/KooshaPari/Khostty/security/dependabot/1
+
+================================================================
+ACTIVE / RECENT WORKSTREAMS
+================================================================
+
+Closed (this 0.1.0 release effort):
+  r2a  nix flake nushell compat   CLOSED
+  r2b  pypi publish               SKIPPED (operator decision 2026-10-12)
+  r2c  npm publish                CLOSED  (2026-09-25)
+  r3   zig build artifact cleanup CLOSED
+  r4   WSL mirror                 CLOSED
+  r5   clean artifacts            CLOSED
+  r6a  trunk-check prettier fix   CLOSED  26dad9ef9
+  r6b  scorecard two-fold fix     CLOSED  2422fa31e + 8fdcf9337
+  r7   win-build diagnostic       CLOSED  66aa46029 (ISCC missing on host; release .exe is fine)
+
+Open (not yet started in this release cycle):
+  - macOS .app GUI launch outside source tree (G9 acceptance)
+  - GTK .deb GUI launch (G9 acceptance)
+  - Windows GUI launch (G3 acceptance, requires Windows host)
+  - Conformance + 4 FFI re-run on current tree (WBS 10.9 docs say 6/6
+    pass; not separately evidenced as conformance + Rust + Go + Python
+    + WASM)
+  - Dependabot #1 triage
+  - Server.zig + app_host.zig construction in a live runtime (G4 reachability)
+  - PIPE_PREFIX + DACL design (security #4)
+  - reboot-durable Metal graft (already in dossier §10 caveat)
+
+================================================================
+QA MATRIX (SUMMARY, AS-OF 2026-10-12)
+================================================================
+
+| Surface / capability        | Built | Tested | Runtime-verified | CI-gated |
+|-----------------------------|-------|--------|------------------|----------|
+| libghostty-vt (C)           | DONE  | 84/84  | native m1        | partial  |
+| Rust khostty-vt             | DONE  | 199/199| n/a              | none     |
+| Go khostty-go               | DONE  | 207*   | n/a              | none     |
+| Python khostty-python       | DONE  | 207*   | n/a              | none     |
+| WASM @khostty/libghostty-vt | DONE  | 54/54  | node             | none     |
+| Conformance (corpus)        | DONE  | 84/84  | n/a              | none     |
+| macOS .app (upstream)       | DONE  | zip+exec| not GUI-launched| none     |
+| Linux GTK .deb              | DONE  | dpkg OK| not GUI-launched| none     |
+| Windows installer           | DONE  | +version| not GUI-launched| none     |
+| Agent IPC v1 (modules)      | DONE  | 130 ut | unreachable     | none     |
+| Windows AppRT (SCAFFOLD)    | SCAFF.| 80/85  | +version only   | none     |
+| Benchmarks                  | MEAS. | paired | directional     | none     |
+| Trunk Check                 | DONE  | n/a    | n/a             | YES      |
+| OpenSSF Scorecard           | DONE  | 8/8 grn| published       | YES      |
+| Tests (zig)                 | 289+  | covered| n/a              | partial  |
+| Crates.io publish           | DONE  | n/a    | n/a             | n/a      |
+| npm publish                 | DONE  | n/a    | n/a             | n/a      |
+| PyPI publish                | SKIP  | n/a    | n/a             | n/a      |
+
+* "207" is a combined Go+Python figure; per-language numbers in dossier §4.
+
+Gating gap: most rows are "Tested" but not "CI-gated". Only Trunk Check
+and OpenSSF Scorecard are required-status checks on the fork today.
+Every other test is a developer's `bash` invocation, not a gate.
+
+================================================================
+WHAT THIS REPORT DOES NOT COVER
+================================================================
+
+- Upstream-merge-debt analysis. The merge-base is the same as upstream
+  HEAD (clean fork of tip), so there is no merge debt to track. Any
+  upstream change since d4c88d806 is not in khostty.
+- Linux GTK and Windows GUI runtime evidence (no GUI session in either
+  host; documented as "build product, not running program" in
+  KHOSTTY.md §7).
+- Source files unique to khostty: this report counted by commit type
+  prefix, not by tree diff. A `git diff --name-only upstream/main
+  origin/main | wc -l` would give the absolute file count; omitted
+  here as a 5-second lookup, not a feature.
+
+================================================================
+RECOMMENDATIONS (no action taken, FYI only)
+================================================================
+
+1. Close the G4 reachability gap (G4 is the only delta that exists
+   in modules but cannot be observed end-to-end). Construct a server.zig
+   in a fake_host test rig and connect via a real Unix socket; one
+   `zig build test` invocation would cover it.
+2. Re-run the 4-FFI + conformance suite on the current tree to refresh
+   the dossier's "last verified" dates from 2026-09-17 to today.
+3. Add Linux build+test to required CI (currently only macOS lint + build;
+   Linux is verified manually in WSL).
+4. Triage Dependabot #1 (moderate).
+5. Decide on r7 follow-up: install Inno Setup via wine for one-shot
+   .exe rebuild capability, or skip.
