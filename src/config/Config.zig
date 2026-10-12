@@ -2274,13 +2274,17 @@ keybind: Keybinds = .{},
 ///
 /// There are three valid values for this configuration:
 ///
-///   * `default` will use the default system behavior. On macOS, this
-///     will only save state if the application is forcibly terminated
-///     or if it is configured systemwide via Settings.app.
+///   * `default` behaves like `always` on macOS, where tabs are restored like
+///     in Warp.
 ///
 ///   * `never` will never save window state.
 ///
 ///   * `always` will always save window state whenever Ghostty is exited.
+///
+/// On macOS, unless this is `never`, closing the last window (e.g. with the
+/// close button or `close_window`) also remembers its tabs and restores them
+/// the next time Ghostty opens a window, such as when clicking the Dock icon.
+/// Tabs closed one by one are not remembered.
 ///
 /// If you change this value to `never` while Ghostty is not running, the next
 /// Ghostty launch will NOT restore the window state.

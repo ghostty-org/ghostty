@@ -797,12 +797,14 @@ class AppDelegate: NSObject,
 
         // Depending on the "window-save-state" setting we have to set the NSQuitAlwaysKeepsWindows
         // configuration. This is the only way to carefully control whether macOS invokes the
-        // state restoration system.
+        // state restoration system. Like Warp, tabs are restored by default so "default"
+        // behaves like "always".
         switch config.windowSaveState {
-        case "never": UserDefaults.ghostty.setValue(false, forKey: "NSQuitAlwaysKeepsWindows")
-        case "always": UserDefaults.ghostty.setValue(true, forKey: "NSQuitAlwaysKeepsWindows")
-        case "default": fallthrough
-        default: UserDefaults.ghostty.removeObject(forKey: "NSQuitAlwaysKeepsWindows")
+        case "never":
+            UserDefaults.ghostty.setValue(false, forKey: "NSQuitAlwaysKeepsWindows")
+            TabSessionStore.discard()
+        default:
+            UserDefaults.ghostty.setValue(true, forKey: "NSQuitAlwaysKeepsWindows")
         }
 
         // Sync our auto-update settings. If SUEnableAutomaticChecks (in our Info.plist) is
