@@ -1,10 +1,20 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Use this container to achieve a glass effect at the window level.
 /// Modifying `NSThemeFrame` can sometimes be unpredictable.
 class TerminalViewContainer: NSView {
     private let terminalView: NSView
+
+    /// The vertical tab sidebar on the leading edge, if this container has one.
+    let tabSidebar: TabSidebarView?
+
+    /// The width constraint of the tab sidebar, updated on layout.
+    private var sidebarWidthConstraint: NSLayoutConstraint?
+
+    /// Subscriptions to the shared tab sidebar settings.
+    private var sidebarCancellables: Set<AnyCancellable> = []
 
     /// Background color applied with glass effect
     private(set) var glassEffectView: NSView?
@@ -22,8 +32,9 @@ class TerminalViewContainer: NSView {
         return window.value(forKey: "_cornerRadius") as? CGFloat
     }
 
-    init<Root: View>(@ViewBuilder rootView: () -> Root) {
+    init<Root: View>(sidebar: TabSidebarView? = nil, @ViewBuilder rootView: () -> Root) {
         self.terminalView = NSHostingView(rootView: rootView())
+        self.tabSidebar = sidebar
         super.init(frame: .zero)
         setup()
     }
@@ -40,6 +51,16 @@ class TerminalViewContainer: NSView {
     var initialContentSize: NSSize?
 
     override var intrinsicContentSize: NSSize {
+        // The sidebar is added on top of the terminal size so that configured
+        // sizes such as `window-width` still describe the terminal itself.
+        var size = terminalIntrinsicContentSize
+        if size.width != NSView.noIntrinsicMetric {
+            size.width += sidebarIntrinsicWidth
+        }
+        return size
+    }
+
+    private var terminalIntrinsicContentSize: NSSize {
         let hostingSize = terminalView.intrinsicContentSize
         // The hosting view returns a valid size once SwiftUI has laid out
         // with the correct idealWidth/idealHeight. Before that (when
@@ -52,15 +73,78 @@ class TerminalViewContainer: NSView {
         return hostingSize
     }
 
+    /// The width the sidebar would like to have, ignoring the container size.
+    private var sidebarIntrinsicWidth: CGFloat {
+        guard tabSidebar != nil else { return 0 }
+        let settings = TabSidebarSettings.shared
+        return settings.isVisible ? settings.width : 0
+    }
+
     private func setup() {
         addSubview(terminalView)
         terminalView.translatesAutoresizingMaskIntoConstraints = false
+
+        guard let tabSidebar else {
+            NSLayoutConstraint.activate([
+                terminalView.topAnchor.constraint(equalTo: topAnchor),
+                terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
+                terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            ])
+            return
+        }
+
+        addSubview(tabSidebar)
+        tabSidebar.translatesAutoresizingMaskIntoConstraints = false
+
+        // We start the sidebar below the titlebar (if the content extends into it)
+        // so that rows never sit beneath the traffic lights.
+        let widthConstraint = tabSidebar.widthAnchor.constraint(equalToConstant: 0)
+        sidebarWidthConstraint = widthConstraint
         NSLayoutConstraint.activate([
+            tabSidebar.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            tabSidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            tabSidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            widthConstraint,
             terminalView.topAnchor.constraint(equalTo: topAnchor),
-            terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            terminalView.leadingAnchor.constraint(equalTo: tabSidebar.trailingAnchor),
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
             terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
+
+        // Keep every window in sync with the shared sidebar settings. Note that
+        // @Published emits before the property changes so we use the emitted values.
+        let settings = TabSidebarSettings.shared
+        settings.$isVisible
+            .combineLatest(settings.$width)
+            .removeDuplicates { $0 == $1 }
+            .sink { [weak self] visible, width in
+                self?.tabSidebarSettingsDidChange(visible: visible, width: width)
+            }
+            .store(in: &sidebarCancellables)
+    }
+
+    private func tabSidebarSettingsDidChange(visible: Bool, width: CGFloat) {
+        guard let tabSidebar else { return }
+        tabSidebar.isHidden = !visible
+        updateSidebarWidthConstraint(visible: visible, width: width)
+        invalidateIntrinsicContentSize()
+
+        // If the sidebar is hidden while it is being edited, then the terminal must
+        // get focus back.
+        if !visible { tabSidebar.sidebarDidHide() }
+    }
+
+    private func updateSidebarWidthConstraint(visible: Bool? = nil, width: CGFloat? = nil) {
+        guard let sidebarWidthConstraint else { return }
+        let settings = TabSidebarSettings.shared
+        let effective = min(bounds.width, TabSidebarLogic.effectiveWidth(
+            stored: width ?? settings.width,
+            containerWidth: bounds.width,
+            visible: visible ?? settings.isVisible))
+        if sidebarWidthConstraint.constant != effective {
+            sidebarWidthConstraint.constant = effective
+        }
     }
 
     override func viewDidMoveToWindow() {
@@ -70,11 +154,14 @@ class TerminalViewContainer: NSView {
     }
 
     override func layout() {
+        updateSidebarWidthConstraint()
         super.layout()
         updateGlassEffectTopInsetIfNeeded()
     }
 
     func ghosttyConfigDidChange(_ config: Ghostty.Config, preferredBackgroundColor: NSColor?) {
+        tabSidebar?.updateAppearance(backgroundColor: preferredBackgroundColor ?? NSColor(config.backgroundColor))
+
         let newValue = DerivedConfig(config: config, preferredBackgroundColor: preferredBackgroundColor, cornerRadius: windowCornerRadius)
         guard newValue != derivedConfig else { return }
         derivedConfig = newValue
