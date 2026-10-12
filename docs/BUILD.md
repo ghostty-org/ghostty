@@ -178,6 +178,21 @@ Named steps declared in `build.zig`:
   If it is missing (a known Xcode 26 beta issue), either install the component or
   build with `-Drenderer=opengl`, or build the library only with `-Demit-lib-vt`.
 - The `.app` is built through the Xcode project in `macos/`, not by `zig build`.
+- **Go cgo test runs** (the `khostty-go` FFI suite) require a pinned SDK when
+  CommandLineTools and Xcode disagree on the active macOS SDK. Default
+  `xcrun --show-sdk-path` on a host with both installed may resolve to
+  `MacOSX27.0.sdk` (CommandLineTools), whose TBD files use `arm64e`
+  architecture tags the local Go 1.23.4 cgo linker cannot parse
+  (`tapi error: malformed file`). Pin to Xcode 26's `MacOSX26.0.sdk`:
+  ```bash
+  SDKROOT=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.0.sdk \
+    go test -v ./...
+  ```
+  The build emits non-fatal `ld: warning: object file (...) was built for
+  newer 'macOS' version (27.0) than being linked (26.0)` lines; the link
+  succeeds and all 45 tests pass in ~0.8s. CI on GitHub is unaffected
+  (Linux runners, no SDK). Confirmed on this host 2026-10-12; see
+  `docs/sessions/khostty-0.1.0-release/evidence/5-suite-rerun-20261012.txt`.
 
 ### Linux / FreeBSD
 
