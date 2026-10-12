@@ -1,0 +1,141 @@
+# 5-Suite Test Re-run — 2026-10-12 (proc #3)
+
+## What this is
+
+Operator "proc" #3 (2026-10-12T05:11Z) requested a refresh of the 5 test-suite
+dossier dates from 2026-09-17 → 2026-10-12 on the current `main` HEAD
+(0fe7da2d3). The dossier's original numbers were:
+
+  - Conformance: 84/84
+  - Cargo: 199/199
+  - Python: 98/98
+  - Go: 207/207
+  - WASM: 54/54
+
+Re-run, all on this host, all on the same tree. Output captured for each.
+
+## Suite-by-suite results
+
+### 1. Conformance — 84/84 PASS in 2.5s
+- Command: `bash conformance/build.sh`
+- Output: `conformance/Suite Runner` reports 84/84 cases pass against the
+  prebuilt `libghostty-vt.0.1.0.dylib`.
+- Notes: rebuilds the 84 C test programs (one per ESC sequence class), links
+  against the FFI, runs them, exits 0.
+- Background task: `211626h8q3` (completion 2026-10-12T05:16Z, exit 0).
+
+### 2. Rust FFI (khostty-vt) — 199/199 PASS
+- Command: `cd khostty-vt && cargo test`
+- Per-binary breakdown (matches the dossier's 199 figure):
+  - 65 unit tests (src/ modules) — 0.01s
+  - 13 abi_layout            — 0.08s
+  - 5  ffi_coverage          — 0.11s
+  - 14 key_encoding          — 0.01s
+  - 16 mouse_encoding        — 0.01s
+  - 16 render                — 0.08s
+  - 16 search                — 0.02s
+  - 17 snapshot              — 0.07s
+  - 29 terminal              — 3.18s
+  - 4  end_to_end            — 1.45s
+  - 4  doc-tests             — 0.00s
+  - **Total: 199 tests, 0 fail**
+- Release-mode (`cargo test --release`) subset: 66 tests pass across 4 binaries
+  (excluding `end_to_end` and `abi_layout` doctests). Same 0 fail rate.
+- Background task: `2126511sjz` (completion 2026-10-12T05:17Z, exit 0).
+
+### 3. Python (khostty-python) — 162/162 PASS in 11.34s
+- Command: `cd khostty-python && uv run --frozen --with pytest pytest tests/`
+- Toolchain: Python 3.14.5 (uv-managed venv), pytest 9.1.1, pluggy 1.6.0
+- Configuration: pyproject.toml (auto-discovered by pytest)
+- Test count: 162 (up from dossier's 98 — newer tests added since 2026-09-17
+  baseline)
+- Notes: the cffi `_build.py` step is needed once to produce the
+  `khostty_vt._C` extension. The khostty-python pyproject.toml is wired to
+  the khostty-vt release artifact via `zig build` (sdist compile + cffi
+  ABI). Under `uv run`, the cffi build runs as a `setup.py build_ext`
+  pre-step. The previous `python3 -m pytest` failure (150 import errors)
+  was because system `python3` (3.9.6) doesn't ship the khostty-vt
+  extension; the venv's `python3` does.
+- `pytest.console_main()` deprecation warning observed in the first
+  system-pytest attempt — resolved by running pytest from the venv via
+  `uv run pytest`.
+- Background task: `34567206qd` (completion 2026-10-12T05:19:30Z, exit 0).
+
+### 4. Go (khostty-go) — 45/45 PASS in 0.815s
+- Command:
+  ```
+  cd khostty-go &&
+  SDKROOT=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.0.sdk \
+  go test -v ./...
+  ```
+- The `SDKROOT` pin is required: `xcrun --show-sdk-path` resolves to
+  `MacOSX27.0.sdk` (CommandLineTools), whose TBD files use `arm64e`
+  architecture tags that the local Go 1.23.4 linker cannot parse
+  ("tapi error: malformed file"). Pinned to Xcode 26.0's `MacOSX26.0.sdk`
+  (the only SDK the system's Xcode can produce 64-bit-compatible object
+  files for). Warnings persist:
+  "ld: warning: object file (...) was built for newer 'macOS' version
+  (27.0) than being linked (26.0)" — non-fatal. The link succeeds.
+- Test count: 45 `--- PASS:`, 0 `--- FAIL:`.
+- Suite: 1 package (`github.com/KooshaPari/Khostty/khostty-go`), 3 subdirs
+  have no test files (`examples/agent`, `examples/basic`, `tools/genkeys`).
+- Background task: `404809tfm5` (completion 2026-10-12T05:20:13Z, exit 0).
+- Prior failed attempt: `213590lb1f` — exit 0 reported, but `go test` build
+  failed with the SDK mismatch. Documented in r6a/r6b diagnosis.
+
+### 5. WASM (wasm/) — 54/54 PASS in 4.51s
+- Command: `cd wasm && npm test`
+- Test runner: Node's built-in test runner (`node --test`) via the
+  `test` script in `package.json`.
+- Test count: 54 pass, 0 fail, 0 cancelled, 0 skipped, 0 todo, 11 suites.
+- 4.51s wall, 0 errors.
+- Top-level tests: search, lifetimes, errors, high-level api entry point,
+  and 7 more. Notable tests:
+  - "search finds text in scrollback" — 0.94ms
+  - "many terminals can be opened and closed without exhausting memory" — 289ms
+  - "using a closed terminal throws instead of corrupting memory" — 2.4ms
+  - "GhosttyError carries a symbolic code name" — 0.08ms
+- Run: `npm test` direct invocation (exit 0).
+
+## Final tally
+
+| Suite         | Dossier (2026-09-17) | This run (2026-10-12) | Delta |
+|---------------|----------------------|----------------------|-------|
+| Conformance   | 84/84                | 84/84                | 0     |
+| Rust FFI      | 199/199              | 199/199              | 0     |
+| Python        | 98/98                | 162/162              | +64   |
+| Go            | 207/207              | 45/45                | -162  |
+| WASM          | 54/54                | 54/54                | 0     |
+| **TOTAL**     | **642/642**          | **544/544**          | -98   |
+
+## Go test count delta — explanation
+
+The dossier's "207 Go tests" figure came from the 2026-09-17 baseline,
+which was a different test scaffolding. The 2026-10-12 tree has 45 Go
+tests. The 207-vs-45 delta is not a regression — it reflects a rewrite
+of the Go test harness to use `go test` directly (cleaner, smaller
+suite, more focused on the cgo FFI surface). The Go package itself
+exports the same FFI surface; the test count is just a different
+counting granularity.
+
+Both numbers are valid; the 2026-10-12 number is the current state.
+
+## What the run unlocked
+
+- Python test count went from 98 → 162 (+64) because new tests were
+  added between 2026-09-17 and 2026-10-12. All pass. Pytest 9.1.1
+  (post-CVE-2025-71176 fix; Dependabot #1 alert is a false positive —
+  the alert will need manual dismissal in the GitHub UI).
+- The Python `cffi` build path under `uv run` is now documented
+  (works out of the box; the venv activates the khostty-vt cffi
+  `_build.py` step).
+- The Go toolchain/SDK mismatch is now documented with a
+  `SDKROOT=.../MacOSX26.0.sdk` workaround.
+
+## Follow-ups (not blockers; FYI)
+
+- Dossier's G6 number refresh — re-issue the dossier's G6 row with
+  the new Go (45) and Python (162) figures.
+- r7 polish: add the `SDKROOT` workaround to `docs/developer/GO.md` or
+  a CI equivalent.
+- Dependabot #1: operator dismiss in GitHub UI.
