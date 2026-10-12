@@ -46,6 +46,56 @@ enum TabSidebarLogic {
         return path
     }
 
+    /// The prefix added to the window title when the bell rang.
+    static let bellTitlePrefix = "🔔 "
+
+    /// Returns the title and subtitle displayed in a tab row.
+    ///
+    /// Shells usually set the title to the working directory, which would make the
+    /// subtitle repeat the title. In that case the title becomes the directory name
+    /// (like Warp) and the subtitle shows the full abbreviated path.
+    static func rowText(
+        title: String,
+        isOverride: Bool,
+        pwd: String?,
+        home: String = NSHomeDirectory()
+    ) -> (title: String, subtitle: String?) {
+        guard let path = abbreviatePath(pwd, home: home), let pwd else { return (title, nil) }
+        guard !isOverride else { return (title, path == title ? nil : path) }
+
+        var prefix = ""
+        var rest = title
+        if rest.hasPrefix(bellTitlePrefix) {
+            prefix = bellTitlePrefix
+            rest.removeFirst(bellTitlePrefix.count)
+        }
+
+        if rest.isEmpty || isPathTitle(rest, pwd: pwd, abbreviatedPath: path) {
+            let name = directoryName(path)
+            return (prefix + name, name == path ? nil : path)
+        }
+
+        return (title, path == title ? nil : path)
+    }
+
+    /// Returns true if the title is a (possibly shortened) form of the working directory,
+    /// e.g. "/Users/me/src/app", "~/src/app", "…/src/app" or fish's "~/s/app".
+    static func isPathTitle(_ title: String, pwd: String, abbreviatedPath: String) -> Bool {
+        var title = title.trimmingCharacters(in: .whitespaces)
+        guard let first = title.first, first == "~" || first == "/" || first == "…" else { return false }
+        if title.count > 1, title.hasSuffix("/") { title.removeLast() }
+        if title == pwd || title == abbreviatedPath { return true }
+        guard title != "~", title != "/", abbreviatedPath != "~", abbreviatedPath != "/" else { return false }
+        return (title as NSString).lastPathComponent == (abbreviatedPath as NSString).lastPathComponent
+    }
+
+    /// The name of the directory of an abbreviated path ("~" and "/" are kept as is).
+    static func directoryName(_ path: String) -> String {
+        guard path != "~", path != "/" else { return path }
+        let name = (path as NSString).lastPathComponent
+        return name.isEmpty ? path : name
+    }
+
     /// Converts an NSTableView drop row (using "above" semantics, so in the range
     /// `0...count`) for a row dragged from `source` into the final index of that
     /// row after the move. Returns nil if the move is invalid or a no-op.

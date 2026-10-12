@@ -15,8 +15,12 @@ struct TabSidebarRowContent: Equatable {
 
         // The window title is already the title override (if any) or the
         // computed title of the focused surface.
-        self.title = controller.window?.title ?? ""
-        self.subtitle = TabSidebarLogic.abbreviatePath(controller.focusedSurface?.pwd)
+        let text = TabSidebarLogic.rowText(
+            title: controller.window?.title ?? "",
+            isOverride: controller.titleOverride != nil,
+            pwd: controller.focusedSurface?.pwd)
+        self.title = text.title
+        self.subtitle = text.subtitle
 
         // This mirrors `relabelTabs` but is based on the row index so it is never stale.
         if index < 9, let equiv = controller.ghostty.config.keyboardShortcut(for: "goto_tab:\(index + 1)") {

@@ -31,6 +31,35 @@ struct TabSidebarLogicTests {
         #expect(TabSidebarLogic.abbreviatePath("/x", home: "/") == "/x")
     }
 
+    // MARK: rowText
+
+    @Test(arguments: [
+        ("~/src/app", "app", "~/src/app"),
+        ("/Users/bob/src/app", "app", "~/src/app"),
+        ("…/src/app", "app", "~/src/app"),
+        ("🔔 ~/src/app", "🔔 app", "~/src/app"),
+        ("vim main.c", "vim main.c", "~/src/app"),
+    ])
+    func rowText(title: String, expectedTitle: String, expectedSubtitle: String) {
+        let text = TabSidebarLogic.rowText(title: title, isOverride: false, pwd: "/Users/bob/src/app", home: "/Users/bob")
+        #expect(text.title == expectedTitle)
+        #expect(text.subtitle == expectedSubtitle)
+    }
+
+    @Test func rowTextKeepsOverrideAndHidesDuplicates() {
+        let renamed = TabSidebarLogic.rowText(title: "~/src/app", isOverride: true, pwd: "/Users/bob/src/app", home: "/Users/bob")
+        #expect(renamed.title == "~/src/app")
+        #expect(renamed.subtitle == nil)
+
+        let home = TabSidebarLogic.rowText(title: "~", isOverride: false, pwd: "/Users/bob", home: "/Users/bob")
+        #expect(home.title == "~")
+        #expect(home.subtitle == nil)
+
+        let noPwd = TabSidebarLogic.rowText(title: "zsh", isOverride: false, pwd: nil, home: "/Users/bob")
+        #expect(noPwd.title == "zsh")
+        #expect(noPwd.subtitle == nil)
+    }
+
     // MARK: Width
 
     @Test func clampStoredWidth() {
