@@ -51,7 +51,6 @@ pub const Surface = extern struct {
     pub const Parent = adw.Bin;
     pub const Implements = [_]type{
         gtk.Scrollable,
-        gtk.Accessible,
         gtk.AccessibleText,
     };
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
@@ -62,14 +61,6 @@ pub const Surface = extern struct {
         .private = .{ .Type = Private, .offset = &Private.offset },
         .implements = &.{
             gobject.ext.implement(gtk.Scrollable, .{}),
-            // Re-implement GtkAccessible (already provided by GtkWidget
-            // ancestry) so we can override `get_first_accessible_child`
-            // and present as a single text-bearing object. The iface_init
-            // receives the parent's already-populated vtable and only
-            // overrides that one child-walk hook.
-            gobject.ext.implement(gtk.Accessible, .{
-                .init = &A11y.initAccessibleInterface,
-            }),
             gobject.ext.implement(gtk.AccessibleText, .{
                 .init = &A11y.initAccessibleTextInterface,
             }),
