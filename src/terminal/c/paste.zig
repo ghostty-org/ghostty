@@ -235,6 +235,12 @@ test "is_safe with newline" {
     try testing.expect(!is_safe(unsafe.ptr, unsafe.len));
 }
 
+test "is_safe with carriage return" {
+    const testing = std.testing;
+    const unsafe = "hello\rworld";
+    try testing.expect(!is_safe(unsafe.ptr, unsafe.len));
+}
+
 test "is_safe with bracketed paste end" {
     const testing = std.testing;
     const unsafe = "hello\x1b[201~world";
@@ -434,6 +440,21 @@ test "terminal_paste text and unsafe" {
     try testing.expect(written);
     try testing.expectEqualStrings("rm -rf /\r", S.writtenSlice());
     try testing.expectEqual(@as(usize, 2), unsafe_contents.reads[0]);
+
+    // A carriage return is the Enter key on the input stream, so it is
+    // refused exactly like a newline when unbracketed.
+    S.reset();
+    written = false;
+    var cr_contents: S.Contents = .init(&.{.{ "text/plain", "rm -rf /\r" }});
+    var cr = cr_contents.request();
+    try testing.expectEqual(Result.rejected, terminal_paste(t, &cr, &written));
+    try testing.expectEqual(@as(usize, 0), S.write_count);
+    try testing.expect(!written);
+
+    cr.allow_unsafe = true;
+    try testing.expectEqual(Result.success, terminal_paste(t, &cr, &written));
+    try testing.expect(written);
+    try testing.expectEqualStrings("rm -rf /\r", S.writtenSlice());
 
     // Bracketed paste mode frames the text through the real mode path.
     S.reset();

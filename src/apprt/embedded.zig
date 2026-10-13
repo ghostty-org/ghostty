@@ -1133,6 +1133,38 @@ pub const Surface = struct {
         };
     }
 
+    /// Paste explicit text into the surface as if it came from the
+    /// clipboard, regardless of the actual clipboard contents. Unlike
+    /// textCallback, this honors paste protection: unsafe text routes
+    /// through the confirm_read_clipboard callback before it is sent.
+    pub fn pasteText(self: *Surface, text: [:0]const u8) void {
+        if (text.len == 0) return;
+
+        // The request state must be heap allocated because it outlives
+        // this call if confirmation is required. completeClipboardRequest
+        // takes ownership of it in every path.
+        const alloc = self.app.core_app.alloc;
+        const state = alloc.create(apprt.ClipboardRequest) catch |err| {
+            log.err("error allocating paste request err={}", .{err});
+            return;
+        };
+        state.* = .{ .paste = .standard };
+
+        const contents = [_]CAPI.ClipboardContent{.{
+            .mime = "text/plain",
+            .data = text.ptr,
+            .len = text.len,
+        }};
+        self.completeClipboardRequest(&.{
+            .contents = &contents,
+            .contents_len = contents.len,
+            .available = null,
+            .available_len = 0,
+            .confirmed = false,
+            .remember = false,
+        }, state);
+    }
+
     pub fn focusCallback(self: *Surface, focused: bool) void {
         self.core_surface.focusCallback(focused) catch |err| {
             log.err("error in focus callback err={}", .{err});
@@ -1214,6 +1246,12 @@ pub const Surface = struct {
     fn cursorPosToPixels(self: *const Surface, pos: apprt.CursorPos) !apprt.CursorPos {
         const scale = try self.getContentScale();
         return .{ .x = pos.x * scale.x, .y = pos.y * scale.y };
+    }
+
+    pub fn renderDeviceOptions(self: *const Surface) !renderer.Device.Options {
+        // The Metal renderer currently does not have any options
+        _ = self;
+        return .{};
     }
 };
 
@@ -2073,6 +2111,19 @@ pub const CAPI = struct {
         len: usize,
     ) void {
         surface.textCallback(ptr[0..len]);
+    }
+
+    /// Paste text into the terminal as if it came from the clipboard.
+    /// Unlike ghostty_surface_text, this applies paste protection, so
+    /// unsafe text (e.g. containing newlines) requests confirmation via
+    /// the confirm_read_clipboard callback. The text must be null
+    /// terminated and is copied as needed before this returns.
+    export fn ghostty_surface_paste_text(
+        surface: *Surface,
+        ptr: [*:0]const u8,
+        len: usize,
+    ) void {
+        surface.pasteText(ptr[0..len :0]);
     }
 
     /// Set the preedit text for the surface. This is used for IME

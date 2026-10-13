@@ -1161,7 +1161,7 @@ jobs:
 
       - name: Upload artifact
         id: upload-artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: source-tarball
           path: |-
@@ -1588,7 +1588,7 @@ jobs:
 
       - name: Upload log
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: esctest-log
           path: test/esctest/esctest.log
@@ -2128,8 +2128,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pkg: ["wuffs"]
-    name: Test pkg/${{ matrix.pkg }}
+        include:
+          - pkg: dcimgui
+          - pkg: dcimgui
+            args: -Dfreetype=true
+          - pkg: wuffs
+    name: Test pkg/${{ matrix.pkg }} ${{ matrix.args }}
     runs-on: namespace-profile-ghostty-sm
     needs: test
     env:
@@ -2157,7 +2161,7 @@ jobs:
 
       - name: Test ${{ matrix.pkg }} Build
         run: |
-          nix develop -c sh -c "cd pkg/${{ matrix.pkg }} ; zig build test"
+          nix develop -c sh -c "cd pkg/${{ matrix.pkg }} ; zig build test ${{ matrix.args }}"
 
   test-debian-13:
     name: Test build on Debian 13
@@ -2172,7 +2176,7 @@ jobs:
         uses: namespacelabs/nscloud-setup-buildx-action@d059ed7184f0bc7c8b27e8810cea153d02bcc6dd # v0.0.23
 
       - name: Download Source Tarball Artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: source-tarball
 

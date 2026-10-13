@@ -1707,24 +1707,40 @@ pub const Handler = struct {
         self.writePty(written);
     }
 
+    /// The cursor position for a CPR/DECXCPR report, honoring origin mode
+    /// (relative to the scrolling region when DECOM is set).
+    fn cursorReportPos(self: *Handler) struct { x: usize, y: usize } {
+        return if (self.terminal.modes.get(.origin)) .{
+            .x = self.terminal.screens.active.cursor.x -| self.terminal.scrolling_region.left,
+            .y = self.terminal.screens.active.cursor.y -| self.terminal.scrolling_region.top,
+        } else .{
+            .x = self.terminal.screens.active.cursor.x,
+            .y = self.terminal.screens.active.cursor.y,
+        };
+    }
+
     fn deviceStatus(self: *Handler, req: device_status.Request) void {
         switch (req) {
             .operating_status => self.writePty("\x1B[0n"),
 
             .cursor_position => {
-                const pos: struct {
-                    x: usize,
-                    y: usize,
-                } = if (self.terminal.modes.get(.origin)) .{
-                    .x = self.terminal.screens.active.cursor.x -| self.terminal.scrolling_region.left,
-                    .y = self.terminal.screens.active.cursor.y -| self.terminal.scrolling_region.top,
-                } else .{
-                    .x = self.terminal.screens.active.cursor.x,
-                    .y = self.terminal.screens.active.cursor.y,
-                };
+                const pos = self.cursorReportPos();
 
                 var buf: [64]u8 = undefined;
                 const resp = std.fmt.bufPrintZ(&buf, "\x1B[{};{}R", .{
+                    pos.y + 1,
+                    pos.x + 1,
+                }) catch return;
+                self.writePty(resp);
+            },
+
+            // DECXCPR: extended cursor position adds a page number. Ghostty has
+            // no page memory, so the page is always 1.
+            .cursor_position_extended => {
+                const pos = self.cursorReportPos();
+
+                var buf: [64]u8 = undefined;
+                const resp = std.fmt.bufPrintZ(&buf, "\x1B[?{};{};1R", .{
                     pos.y + 1,
                     pos.x + 1,
                 }) catch return;
@@ -5555,6 +5571,9 @@ test "request mode DECRQM ANSI responses" {
         .{ "\x1b[4$p", "\x1b[4;1$y" },
         .{ "\x1b[?4$p", "\x1b[?4;2$y" },
         .{ "\x1b[9999$p", "\x1b[9999;0$y" },
+        // Unimplemented ANSI modes report permanently reset (xterm parity).
+        .{ "\x1b[1$p", "\x1b[1;4$y" },
+        .{ "\x1b[19$p", "\x1b[19;4$y" },
     };
     inline for (cases) |case| {
         S.calls = 0;
@@ -6320,6 +6339,64 @@ test "device status: cursor position with origin mode" {
     s.nextSlice("\x1B[6n");
     // Should report position relative to the scroll region
     try testing.expectEqualStrings("\x1B[3;5R", S.written.?);
+}
+
+test "device status: extended cursor position" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var written: ?[]const u8 = null;
+        fn writePty(_: *Handler, data: []const u8) void {
+            if (written) |old| testing.allocator.free(old);
+            written = testing.allocator.dupe(u8, data) catch @panic("OOM");
+        }
+    };
+    S.written = null;
+    defer if (S.written) |old| testing.allocator.free(old);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // DECXCPR (CSI ? 6 n) reports CSI ? row ; col ; page R.
+    // Ghostty has no page memory, so page is always 1.
+    s.nextSlice("\x1B[5;3H");
+    s.nextSlice("\x1B[?6n");
+    try testing.expectEqualStrings("\x1B[?5;3;1R", S.written.?);
+}
+
+test "device status: extended cursor position with origin mode" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var written: ?[]const u8 = null;
+        fn writePty(_: *Handler, data: []const u8) void {
+            if (written) |old| testing.allocator.free(old);
+            written = testing.allocator.dupe(u8, data) catch @panic("OOM");
+        }
+    };
+    S.written = null;
+    defer if (S.written) |old| testing.allocator.free(old);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // Set scroll region rows 5-20
+    s.nextSlice("\x1B[5;20r");
+    // Enable origin mode
+    s.nextSlice("\x1B[?6h");
+    // Move to row 3, col 5 within the region
+    s.nextSlice("\x1B[3;5H");
+    // DECXCPR reports position relative to the scroll region, plus page 1
+    s.nextSlice("\x1B[?6n");
+    try testing.expectEqualStrings("\x1B[?3;5;1R", S.written.?);
 }
 
 test "device status: color scheme dark" {
@@ -7132,6 +7209,20 @@ test "paste: unsafe text is refused unless allowed" {
         .allow_unsafe = true,
     }));
     try testing.expectEqualStrings("rm -rf /\r", S.written.items);
+
+    // A carriage return is the Enter key on the input stream, so it
+    // is refused exactly like a newline.
+    S.reset();
+    try testing.expectError(error.UnsafePaste, handler.paste(.{
+        .contents = .{ .memory = &.{.{ .mime = "text/plain", .data = "rm -rf /\r" }} },
+    }));
+    try testing.expectEqual(@as(usize, 0), S.write_count);
+
+    try testing.expect(try handler.paste(.{
+        .contents = .{ .memory = &.{.{ .mime = "text/plain", .data = "rm -rf /\r" }} },
+        .allow_unsafe = true,
+    }));
+    try testing.expectEqualStrings("rm -rf /\r", S.written.items);
 }
 
 test "paste: bracketed paste frames the text" {
@@ -7147,12 +7238,18 @@ test "paste: bracketed paste frames the text" {
     handler.effects.write_pty = &S.writePty;
     t.modes.set(.bracketed_paste, true);
 
-    // Newlines are safe inside the frame and are preserved.
+    // Line terminators are safe inside the frame and are preserved.
     try testing.expect(try handler.paste(.{
         .contents = .{ .memory = &.{.{ .mime = "text/plain", .data = "hello\nworld" }} },
     }));
     try testing.expectEqualStrings("\x1b[200~hello\nworld\x1b[201~", S.written.items);
     try testing.expectEqual(@as(usize, 1), S.write_count);
+
+    S.reset();
+    try testing.expect(try handler.paste(.{
+        .contents = .{ .memory = &.{.{ .mime = "text/plain", .data = "hello\r\nworld" }} },
+    }));
+    try testing.expectEqualStrings("\x1b[200~hello\r\nworld\x1b[201~", S.written.items);
 
     // The frame terminator is not.
     S.reset();

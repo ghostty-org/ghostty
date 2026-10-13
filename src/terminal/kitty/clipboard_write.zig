@@ -73,7 +73,22 @@ pub const WriteState = struct {
     const Alias = struct {
         /// Owned by the transaction arena.
         alias: []const u8,
-        target: []const u8,
+
+        /// The target is stored inline rather than in the arena
+        /// because it can be overwritten by any number of walias
+        /// packets, and the arena can't reclaim superseded copies.
+        target_buf: [max_mime_len]u8 = undefined,
+        target_len: usize = 0,
+
+        fn target(self: *const Alias) []const u8 {
+            return self.target_buf[0..self.target_len];
+        }
+
+        fn setTarget(self: *Alias, v: []const u8) void {
+            assert(v.len <= max_mime_len);
+            @memcpy(self.target_buf[0..v.len], v);
+            self.target_len = v.len;
+        }
     };
 
     /// Begin a transaction from a type=write packet.
@@ -206,21 +221,6 @@ pub const WriteState = struct {
         if (!decoded.isValidUtf8()) return error.Invalid;
         var it = decoded.mimeIterator();
 
-        // Copy the target only if at least one valid alias exists.
-        const target: []const u8 = target: {
-            while (it.next()) |name| {
-                if (name.len > max_mime_len) continue;
-                break :target try self.arena.allocator().dupe(u8, meta.mime);
-            }
-
-            // If we didn't find a target then ignore it.
-            return;
-        };
-
-        // Rewind so the alias that satisfied the check above is
-        // associated too.
-        it.reset();
-
         // Associate the aliases
         while (it.next()) |name| {
             if (name.len > max_mime_len) continue;
@@ -228,7 +228,7 @@ pub const WriteState = struct {
             // A repeated alias overwrites its previous target.
             for (self.aliases.items) |*a| {
                 if (std.mem.eql(u8, a.alias, name)) {
-                    a.target = target;
+                    a.setTarget(meta.mime);
                     break;
                 }
             } else {
@@ -237,10 +237,11 @@ pub const WriteState = struct {
                     return;
                 }
 
-                try self.aliases.append(alloc, .{
+                var a: Alias = .{
                     .alias = try self.arena.allocator().dupe(u8, name),
-                    .target = target,
-                });
+                };
+                a.setTarget(meta.mime);
+                try self.aliases.append(alloc, a);
             }
         }
     }
@@ -298,7 +299,7 @@ pub const WriteState = struct {
         for (self.aliases.items) |*a| {
             const target: Content = target: {
                 for (contents.items) |c| {
-                    if (std.mem.eql(u8, c.mime, a.target)) {
+                    if (std.mem.eql(u8, c.mime, a.target())) {
                         break :target c;
                     }
                 }
@@ -560,6 +561,27 @@ test "write: aliases resolve at commit" {
     try testing.expectEqualStrings("Ghostty", committed.contents[1].data);
     try testing.expectEqualStrings("UTF8_STRING", committed.contents[2].mime);
     try testing.expectEqualStrings("Ghostty", committed.contents[2].data);
+}
+
+test "write: repeated alias updates do not grow memory" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const begin_meta: Metadata = .{ .op = .write };
+    var state: WriteState = try .init(alloc, &begin_meta, .{ .max_size = 0 });
+    defer state.deinit(alloc);
+
+    // Alias "a" -> a max-length target.
+    const target: [max_mime_len]u8 = @splat('x');
+    const alias_meta: Metadata = .{ .op = .walias, .mime = &target };
+    try state.alias(alloc, &alias_meta, "YQ==");
+    const capacity = state.arena.queryCapacity();
+
+    // Overwriting the same alias must not retain superseded targets.
+    for (0..1000) |_| try state.alias(alloc, &alias_meta, "YQ==");
+    try testing.expectEqual(capacity, state.arena.queryCapacity());
+    try testing.expectEqual(@as(usize, 1), state.aliases.items.len);
+    try testing.expectEqualStrings(&target, state.aliases.items[0].target());
 }
 
 test "write: alias payload must be valid utf8" {

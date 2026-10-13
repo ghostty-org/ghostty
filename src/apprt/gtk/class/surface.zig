@@ -10,6 +10,7 @@ const gtk = @import("gtk");
 
 const apprt = @import("../../../apprt.zig");
 const build_config = @import("../../../build_config.zig");
+const build_options = @import("build_options");
 const configpkg = @import("../../../config.zig");
 const datastruct = @import("../../../datastruct/main.zig");
 const font = @import("../../../font/main.zig");
@@ -1789,6 +1790,31 @@ pub const Surface = extern struct {
         gio_app.sendNotification(body, notification);
     }
 
+    pub fn renderDeviceOptions(self: *Self) !renderer.Device.Options {
+        switch (build_config.renderer) {
+            .opengl => {
+                const gtk_native = self.as(gtk.Widget).getNative() orelse return .{};
+                const gdk_surface = gtk_native.getSurface() orelse return .{};
+                const gdk_display = gdk_surface.getDisplay();
+
+                if (comptime build_options.wayland) {
+                    const gdk_wayland = @import("gdk_wayland");
+                    if (gobject.ext.cast(gdk_wayland.WaylandDisplay, gdk_display)) |wl| {
+                        return .{ .display = @ptrCast(wl.getEglDisplay()) };
+                    }
+                }
+                if (comptime build_options.x11) {
+                    const gdk_x11 = @import("gdk_x11");
+                    if (gobject.ext.cast(gdk_x11.X11Display, gdk_display)) |x| {
+                        return .{ .display = @ptrCast(x.getEglDisplay()) };
+                    }
+                }
+                return .{};
+            },
+            .metal => comptime unreachable,
+        }
+    }
+
     //---------------------------------------------------------------
     // Virtual Methods
 
@@ -1847,7 +1873,7 @@ pub const Surface = extern struct {
         );
 
         // Setup properties we can't set from our Blueprint file.
-        self.as(gtk.Widget).setCursorFromName("text");
+        priv.render_surface.as(gtk.Widget).setCursorFromName("text");
         priv.drag_handle.setCursorFromName("grab");
 
         // Initialize our config
@@ -2446,7 +2472,7 @@ pub const Surface = extern struct {
 
         // If we're hidden we set it to "none"
         if (priv.mouse_hidden) {
-            self.as(gtk.Widget).setCursorFromName("none");
+            priv.render_surface.as(gtk.Widget).setCursorFromName("none");
             return;
         }
 
@@ -2504,7 +2530,7 @@ pub const Surface = extern struct {
         };
 
         // Set our new cursor.
-        self.as(gtk.Widget).setCursorFromName(name.ptr);
+        priv.render_surface.as(gtk.Widget).setCursorFromName(name.ptr);
     }
 
     fn vadjValueChanged(adj: *gtk.Adjustment, self: *Self) callconv(.c) void {

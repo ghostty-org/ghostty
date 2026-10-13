@@ -498,15 +498,6 @@ pub const Window = extern struct {
             .{ .sync_create = true },
         );
 
-        // Run an initial notification for the surface tree so we can setup
-        // initial state.
-        tabSplitTreeChanged(
-            tab.getSplitTree(),
-            null,
-            tab.getSplitTree().getTree(),
-            self,
-        );
-
         return page;
     }
 
@@ -1773,14 +1764,6 @@ pub const Window = extern struct {
             .{},
         );
 
-        _ = SplitTree.signals.changed.connect(
-            tab.getSplitTree(),
-            *Self,
-            tabSplitTreeChanged,
-            self,
-            .{},
-        );
-
         // Attach listeners for the surface.
         //
         // Interesting behavior here that was previously undocumented but
@@ -1803,6 +1786,17 @@ pub const Window = extern struct {
         if (tab.getSurfaceTree()) |tree| {
             self.connectSurfaceHandlers(tree);
         }
+
+        // Keep our surface handlers in sync as the tree changes. This is
+        // connected here rather than when the tab is created so that tabs
+        // moved between windows notify the window that they are in.
+        _ = SplitTree.signals.changed.connect(
+            tab.getSplitTree(),
+            *Self,
+            tabSplitTreeChanged,
+            self,
+            .{},
+        );
     }
 
     fn tabViewPageDetached(
@@ -1823,6 +1817,7 @@ pub const Window = extern struct {
             null,
             self,
         );
+
         _ = gobject.signalHandlersDisconnectMatched(
             tab.getSplitTree().as(gobject.Object),
             .{ .data = true },

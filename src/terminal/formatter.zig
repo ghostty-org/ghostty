@@ -749,6 +749,19 @@ pub const ScreenFormatter = struct {
                 .{ (cursor.y -| origin.y) + 1, (start_x -| origin.x) + 1 },
             );
 
+            // A blank cell formats to nothing, which would leave the wrap
+            // unset. Print a space to set it, save the cursor with the wrap
+            // (DECSC), erase the space (ECH, which clears the wrap) and
+            // restore the cursor (DECRC), which sets the wrap again over a
+            // blank cell. This replaces the saved cursor, which the
+            // formatter does not emit.
+            if (cursor.page_cell.wide != .spacer_tail and
+                !cursor.page_cell.hasText())
+            {
+                try writer.writeAll(" \x1b7\x1b[X\x1b8");
+                break :cursor;
+            }
+
             // Reformat the cell which sets the proper pending wrap state.
             var cell_formatter: PageFormatter = .init(
                 cursor.page_pin.node.page(),
@@ -5330,6 +5343,137 @@ test "Terminal vt cursor preserves pending wrap" {
     formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
     try formatter.format(&builder.writer);
     try testing.expectEqual(builder.writer.buffered().len, pin_map.count());
+
+    var target = try Terminal.init(io, alloc, .{
+        .cols = 4,
+        .rows = 2,
+    });
+    defer target.deinit(alloc);
+
+    var target_stream = target.vtStream();
+    defer target_stream.deinit();
+    target_stream.nextSlice(builder.writer.buffered());
+
+    try testing.expectEqual(
+        source.screens.active.cursor.pending_wrap,
+        target.screens.active.cursor.pending_wrap,
+    );
+
+    source_stream.nextSlice("X");
+    target_stream.nextSlice("X");
+    const source_contents = try source.screens.active.dumpStringAlloc(
+        alloc,
+        .{ .screen = .{} },
+    );
+    defer alloc.free(source_contents);
+    const target_contents = try target.screens.active.dumpStringAlloc(
+        alloc,
+        .{ .screen = .{} },
+    );
+    defer alloc.free(target_contents);
+    try testing.expectEqualStrings(source_contents, target_contents);
+}
+
+test "Terminal vt cursor preserves pending wrap over a blank cell" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var source = try Terminal.init(io, alloc, .{
+        .cols = 4,
+        .rows = 2,
+    });
+    defer source.deinit(alloc);
+
+    // Saving the cursor saves the pending wrap and erasing the line clears
+    // it, so restoring the cursor leaves a pending wrap over a blank cell.
+    var source_stream = source.vtStream();
+    defer source_stream.deinit();
+    source_stream.nextSlice("abcd\x1b7\x1b[2K\x1b8");
+    try testing.expect(source.screens.active.cursor.pending_wrap);
+    try testing.expect(!source.screens.active.cursor.page_cell.hasText());
+
+    var pin_map: PinMap.Map = .empty;
+    defer pin_map.deinit(alloc);
+
+    var formatter: TerminalFormatter = .init(&source, .vt);
+    formatter.extra = .none;
+    formatter.extra.screen.cursor = true;
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
+    try formatter.format(&builder.writer);
+    try testing.expectEqual(builder.writer.buffered().len, pin_map.count());
+
+    var target = try Terminal.init(io, alloc, .{
+        .cols = 4,
+        .rows = 2,
+    });
+    defer target.deinit(alloc);
+
+    var target_stream = target.vtStream();
+    defer target_stream.deinit();
+    target_stream.nextSlice(builder.writer.buffered());
+
+    try testing.expectEqual(
+        source.screens.active.cursor.pending_wrap,
+        target.screens.active.cursor.pending_wrap,
+    );
+    try testing.expect(!target.screens.active.cursor.page_cell.hasText());
+
+    // Formatting the restored terminal gives the same output.
+    var target_builder: std.Io.Writer.Allocating = .init(alloc);
+    defer target_builder.deinit();
+    var target_formatter: TerminalFormatter = .init(&target, .vt);
+    target_formatter.extra = .none;
+    target_formatter.extra.screen.cursor = true;
+    try target_formatter.format(&target_builder.writer);
+    try testing.expectEqualStrings(
+        builder.writer.buffered(),
+        target_builder.writer.buffered(),
+    );
+
+    // The next character goes on the next row.
+    source_stream.nextSlice("X");
+    target_stream.nextSlice("X");
+    const source_contents = try source.screens.active.dumpStringAlloc(
+        alloc,
+        .{ .screen = .{} },
+    );
+    defer alloc.free(source_contents);
+    const target_contents = try target.screens.active.dumpStringAlloc(
+        alloc,
+        .{ .screen = .{} },
+    );
+    defer alloc.free(target_contents);
+    try testing.expectEqualStrings(source_contents, target_contents);
+}
+
+test "Terminal vt cursor preserves pending wrap after a wide character" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var source = try Terminal.init(io, alloc, .{
+        .cols = 4,
+        .rows = 2,
+    });
+    defer source.deinit(alloc);
+
+    var source_stream = source.vtStream();
+    defer source_stream.deinit();
+    source_stream.nextSlice("ab\u{1F600}");
+    try testing.expect(source.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(.spacer_tail, source.screens.active.cursor.page_cell.wide);
+
+    var formatter: TerminalFormatter = .init(&source, .vt);
+    formatter.extra = .none;
+    formatter.extra.screen.cursor = true;
+    try formatter.format(&builder.writer);
 
     var target = try Terminal.init(io, alloc, .{
         .cols = 4,

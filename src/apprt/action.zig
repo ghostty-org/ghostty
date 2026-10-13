@@ -936,36 +936,41 @@ pub const ConfigChange = struct {
     }
 };
 
-/// Open a URL
+/// Open a URL or file path.
 pub const OpenUrl = struct {
-    /// The type of data that the URL refers to.
+    /// Where the URL came from and what it likely points to.
     kind: Kind,
 
-    /// The URL.
+    /// The URL to open. Depending on `kind`, this may be a plain file
+    /// path or arbitrary text rather than a well-formed URL.
     url: []const u8,
 
-    /// The type of the data at the URL to open. This is used as a hint to
-    /// potentially open the URL in a different way.
+    /// Where the URL came from, used to decide how to open it.
+    ///
+    /// `text` and `html` come from Ghostty itself and can be opened
+    /// directly. `unknown` and `osc8` may come from terminal output, which
+    /// any program can control, so apprts must check them before opening.
     ///
     /// Sync with: ghostty_action_open_url_kind_e
     pub const Kind = enum(c_int) {
-        /// The type is unknown. This is the default and apprts should
-        /// open the URL in the most generic way possible. For example,
-        /// on macOS this would be the equivalent of `open` or on Linux
-        /// this would be `xdg-open`.
+        /// Untrusted. The source is unknown, such as text that a `link`
+        /// config entry matched in terminal output. It may be a plain path
+        /// instead of a URL, for example:
+        ///
+        ///     https://example.com
+        ///     ~/notes.txt
+        ///     src/main.zig
         unknown,
 
-        /// The URL is known to be a text file. In this case, the apprt
-        /// should try to open the URL in a text editor or viewer or
-        /// some equivalent, if possible.
+        /// The URL is known to be a text file. Open it in a text editor
+        /// or viewer if possible.
         text,
 
         /// The URL is known to contain HTML content.
         html,
 
-        /// The URL came from an OSC 8 hyperlink. Application runtimes should
-        /// treat this as untrusted terminal output and apply a platform-specific
-        /// safe-opening policy.
+        /// Untrusted. The target of an OSC 8 hyperlink, exactly as the
+        /// program sent it. The visible link text may not match it.
         osc8,
 
         test "ghostty.h OpenUrl.Kind" {

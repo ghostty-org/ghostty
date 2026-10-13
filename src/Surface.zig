@@ -558,10 +558,18 @@ pub fn init(
         break :size size;
     };
 
+    // Initialize the render device if it hasn't been initialized already
+    const render_device = app.device orelse device: {
+        const device_options = try rt_surface.renderDeviceOptions();
+        const device: *rendererpkg.Device = try .init(alloc, device_options);
+        app.device = device;
+        break :device device;
+    };
+
     // Create our terminal grid with the initial size
     const app_mailbox: App.Mailbox = .{ .rt_app = rt_app, .mailbox = &app.mailbox };
     var renderer_impl = try Renderer.init(alloc, .{
-        .device = &app.device,
+        .device = render_device,
         .config = try .init(alloc, config),
         .font_grid = font_grid,
         .size = size,
@@ -5950,8 +5958,8 @@ pub const CompleteClipboard = struct {
     ///
     ///   - For "regular" pasting this means that unsafe pastes are
     ///     allowed. Unsafe data is defined as data that contains
-    ///     newlines, though this definition may change later to detect
-    ///     other scenarios.
+    ///     line terminators (newlines or carriage returns), though
+    ///     this definition may change later to detect other scenarios.
     ///
     ///   - For OSC 52 and Kitty clipboard protocol reads and writes no
     ///     prompt is shown to the user when this is true.

@@ -1535,9 +1535,13 @@ pub fn print(self: *Terminal, c: u21) !void {
     // We have a printable character, save it
     self.previous_char = c;
 
-    // If we're soft-wrapping, then handle that first.
-    if (self.screens.active.cursor.pending_wrap and self.modes.get(.wraparound)) {
-        try self.printWrap();
+    if (self.screens.active.cursor.pending_wrap) {
+        if (self.modes.get(.wraparound)) {
+            try self.printWrap();
+        } else {
+            // Match xterm's consumption of a pending wrap.
+            self.screens.active.cursor.pending_wrap = false;
+        }
     }
 
     // If we have insert mode enabled then we need to handle that. We
@@ -3669,9 +3673,15 @@ pub fn eraseDisplay(
                         .prompt_continuation,
                         => break,
 
-                        // If we have command output, then we're most certainly not
-                        // at a prompt.
-                        .none => break :at_prompt,
+                        .none => {
+                            // Blank rows below the prompt tell us nothing,
+                            // keep searching for the last non-empty row.
+                            if (!Cell.hasTextAny(p.cells(.all))) continue;
+
+                            // If we have command output, then we're most
+                            // certainly not at a prompt.
+                            break :at_prompt;
+                        },
                     }
                 } else break :at_prompt;
 
@@ -4335,6 +4345,49 @@ test "Terminal setScrollbackMaxLines" {
     try testing.expect(
         primary.pages.total_rows - primary.pages.rows > page_rows,
     );
+}
+
+test "Terminal: linefeed on single row screen prunes cursor page" {
+    // With a single row, growing moves the cursor row out of the active
+    // area, so the scrollback line limit can prune the cursor's page
+    // before the cursor moves to the new row. The cursor must not keep
+    // using anything from the pruned page.
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .cols = 3, .rows = 1 });
+    defer t.deinit(alloc);
+    t.setScrollbackMaxLines(0);
+
+    // Reflowing wrapped hyperlinked text wider produces a page with more
+    // rows than the line limit allows in scrollback, so the whole page is
+    // pruned once it's full and scrolls into history.
+    const s = t.screens.active;
+    try t.setAttribute(.{ .bold = {} });
+    try s.startHyperlink("http://example.com", null);
+    for (0..103) |_| try t.print('a');
+    try t.resize(alloc, .{ .cols = 80, .rows = 1 });
+
+    const node = s.cursor.page_pin.node;
+    try testing.expect(node == s.pages.pages.first.?);
+    try testing.expect(node.capacity().rows > s.pages.limits.max(.lines));
+
+    // Fill the page and then scroll one more row so it's pruned.
+    const x = s.cursor.x;
+    const scrolls = node.capacity().rows - node.rows() + 1;
+    for (0..scrolls) |_| try t.linefeed();
+    try testing.expectEqual(@as(usize, 1), s.pages.total_rows);
+    try testing.expectEqual(x, s.cursor.x);
+    try testing.expect(!s.cursor.page_pin.garbage);
+
+    // The cursor style and hyperlink must be usable on the new page.
+    try t.print('b');
+    const list_cell = s.pages.getCell(.{ .active = .{ .x = x } }).?;
+    const page: *Page = list_cell.node.page();
+    const cell = list_cell.cell;
+    try testing.expectEqual(@as(u21, 'b'), cell.content.codepoint.data);
+    try testing.expect(page.styles.get(page.memory, cell.style_id).flags.bold);
+    try testing.expect(cell.hyperlink);
+    const link = page.hyperlink_set.get(page.memory, page.lookupHyperlink(cell).?);
+    try testing.expectEqualStrings("http://example.com", link.uri.slice(page.memory));
 }
 
 test "Terminal setScrollback only affects primary screen" {
@@ -5028,6 +5081,9 @@ pub fn softReset(self: *Terminal) void {
     screen.cursor.style = .{};
     screen.manualStyleUpdate() catch unreachable;
     screen.cursor.protected = false;
+    // xterm also forgets which protection mode was used last, so erasing
+    // after a soft reset no longer skips ISO (SPA) protected cells.
+    screen.protected_mode = .off;
     screen.charset = .{};
 
     // A saved cursor now restores to the home position with the defaults.
@@ -7373,6 +7429,31 @@ test "Terminal: disabled wraparound with wide grapheme and half space" {
 
     // Should not be dirty since we didn't modify anything
     try testing.expect(!t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+}
+
+test "Terminal: print with wraparound disabled clears pending wrap after CBT" {
+    for ([_]bool{ true, false }) |wrap_on_fill| {
+        var t = try init(testing.io, testing.allocator, .{ .rows = 2, .cols = 6 });
+        defer t.deinit(testing.allocator);
+
+        t.modes.set(.wraparound, wrap_on_fill);
+        try t.printString("abcdef");
+        t.modes.set(.wraparound, false);
+        // CBT preserves pending wrap even though the cursor leaves the margin.
+        t.horizontalTabBack();
+        try testing.expect(t.screens.active.cursor.pending_wrap);
+        try t.print('x');
+        try testing.expect(!t.screens.active.cursor.pending_wrap);
+
+        t.modes.set(.wraparound, true);
+        try t.print('y');
+        try testing.expectEqual(0, t.screens.active.cursor.y);
+        try testing.expectEqual(2, t.screens.active.cursor.x);
+
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("xycdef", str);
+    }
 }
 
 test "Terminal: print right margin wrap" {
@@ -16268,6 +16349,23 @@ test "Terminal: softReset pen, protection, and charsets" {
     try testing.expectEqual(charsets.Charset.utf8, t.screens.active.charset.charsets.get(.G0));
 }
 
+test "Terminal: softReset ends ISO protection for erase" {
+    var t = try init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    t.setProtectedMode(.iso);
+    try t.print('A');
+    t.setProtectedMode(.off);
+    t.softReset();
+    t.eraseDisplay(.complete, false);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("", str);
+    }
+}
+
 test "Terminal: softReset status display and checksum" {
     var t = try init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
@@ -17144,4 +17242,28 @@ test "Terminal: eraseDisplay complete ignores stale prompt on recycled row" {
     t.eraseDisplay(.complete, false);
 
     try testing.expectEqual(t.screens.active.pages.rows, t.screens.active.pages.total_rows);
+}
+
+test "Terminal: eraseDisplay complete at prompt not on last row scrolls" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 10, .rows = 15 });
+    defer t.deinit(alloc);
+
+    // Command output, then a prompt in the middle of the screen with
+    // blank rows below it, like `seq 1 10` in a fresh tall window.
+    for (0..10) |_| {
+        try t.printString("x");
+        t.carriageReturn();
+        try t.linefeed();
+    }
+    try t.semanticPrompt(.init(.prompt_start));
+    try t.printString("$ ");
+    try t.semanticPrompt(.init(.end_prompt_start_input));
+
+    // What bash/zsh send for clear-screen
+    t.setCursorPos(1, 1);
+    t.eraseDisplay(.complete, false);
+
+    try testing.expect(t.screens.active.pages.total_rows > t.screens.active.pages.rows);
 }

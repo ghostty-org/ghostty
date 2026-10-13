@@ -831,6 +831,18 @@ extension Ghostty {
                 url = URL(filePath: expandedPath)
             }
 
+            // Unknown URLs are as untrusted as OSC 8 but may be plain paths,
+            // which UntrustedURL rejects, so check the file URL built above.
+            // Values with unsafe characters are passed unchanged so they are
+            // rejected before percent-encoding hides them.
+            if action.kind == .unknown {
+                let hasScheme = URL(string: action.url)?.scheme != nil
+                let target = hasScheme || UntrustedURL.containsUnsafeCharacters(action.url)
+                    ? action.url
+                    : url.absoluteString
+                return openUntrustedURL(target)
+            }
+
             switch action.kind {
             case .text:
                 // Open with the default editor for `*.ghostty` file or just system text editor
@@ -844,11 +856,8 @@ extension Ghostty {
                 // The extension will be HTML and we do the right thing automatically.
                 break
 
-            case .unknown:
-                break
-
-            case .osc8:
-                assertionFailure("OSC 8 URLs must use the safe-opening policy")
+            case .osc8, .unknown:
+                assertionFailure("Untrusted URLs must use the safe-opening policy")
                 return true
             }
 

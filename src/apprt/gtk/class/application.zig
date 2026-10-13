@@ -1249,6 +1249,10 @@ pub const Application = extern struct {
                 \\  --window-fg-color: var(--ghostty-fg);
                 \\  --window-bg-color: var(--ghostty-bg);
                 \\}}
+                \\listview.command-palette-view {{
+                \\  --view-fg-color: var(--ghostty-fg);
+                \\  --view-bg-color: var(--ghostty-bg);
+                \\}}
                 \\windowhandle {{
                 \\  background-color: var(--headerbar-bg-color);
                 \\  color: var(--headerbar-fg-color);

@@ -847,6 +847,18 @@ pub const StreamHandler = struct {
         }
     }
 
+    /// The cursor position for a CPR/DECXCPR report, honoring origin mode
+    /// (relative to the scrolling region when DECOM is set).
+    fn cursorReportPos(self: *StreamHandler) struct { x: usize, y: usize } {
+        return if (self.terminal.modes.get(.origin)) .{
+            .x = self.terminal.screens.active.cursor.x -| self.terminal.scrolling_region.left,
+            .y = self.terminal.screens.active.cursor.y -| self.terminal.scrolling_region.top,
+        } else .{
+            .x = self.terminal.screens.active.cursor.x,
+            .y = self.terminal.screens.active.cursor.y,
+        };
+    }
+
     pub fn deviceStatusReport(
         self: *StreamHandler,
         req: terminal.device_status.Request,
@@ -855,22 +867,28 @@ pub const StreamHandler = struct {
             .operating_status => self.messageWriter(.{ .write_stable = "\x1B[0n" }),
 
             .cursor_position => {
-                const pos: struct {
-                    x: usize,
-                    y: usize,
-                } = if (self.terminal.modes.get(.origin)) .{
-                    .x = self.terminal.screens.active.cursor.x -| self.terminal.scrolling_region.left,
-                    .y = self.terminal.screens.active.cursor.y -| self.terminal.scrolling_region.top,
-                } else .{
-                    .x = self.terminal.screens.active.cursor.x,
-                    .y = self.terminal.screens.active.cursor.y,
-                };
+                const pos = self.cursorReportPos();
 
                 // Response always is at least 4 chars, so this leaves the
                 // remainder for the row/column as base-10 numbers. This
                 // will support a very large terminal.
                 var msg: termio.Message = .{ .write_small = .{} };
                 const resp = try std.fmt.bufPrint(&msg.write_small.data, "\x1B[{};{}R", .{
+                    pos.y + 1,
+                    pos.x + 1,
+                });
+                msg.write_small.len = @intCast(resp.len);
+
+                self.messageWriter(msg);
+            },
+
+            // DECXCPR: extended cursor position adds a page number. Ghostty has
+            // no page memory, so the page is always 1.
+            .cursor_position_extended => {
+                const pos = self.cursorReportPos();
+
+                var msg: termio.Message = .{ .write_small = .{} };
+                const resp = try std.fmt.bufPrint(&msg.write_small.data, "\x1B[?{};{};1R", .{
                     pos.y + 1,
                     pos.x + 1,
                 });

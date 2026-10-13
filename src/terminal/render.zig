@@ -893,7 +893,14 @@ pub const RenderState = struct {
             // Grab the inefficient data we need from the selection. At
             // least we can cache it.
             const tl = s.pages.pointFromPin(.screen, cache.tl_pin).?.screen;
-            const br = s.pages.pointFromPin(.screen, cache.br_pin).?.screen;
+
+            // Not cached since the cell contents may change.
+            const br_pin: PageList.Pin = if (!sel.rectangle and
+                cache.br_pin.rowAndCell().cell.wide == .spacer_head)
+                cache.br_pin.rightWrap(1) orelse cache.br_pin
+            else
+                cache.br_pin;
+            const br = s.pages.pointFromPin(.screen, br_pin).?.screen;
 
             // We need to determine if our selection is within the viewport.
             // The viewport is generally very small so the efficient way to
@@ -903,23 +910,38 @@ pub const RenderState = struct {
             for (
                 row_pins[range.start..range.end],
                 row_sels[range.start..range.end],
-            ) |pin, *sel_bounds| {
+                row_dirties[range.start..range.end],
+            ) |pin, *sel_bounds, *dirty| {
                 const p = s.pages.pointFromPin(.screen, pin).?.screen;
                 const row_sel = sel.containedRowCached(
                     s,
                     cache.tl_pin,
-                    cache.br_pin,
+                    br_pin,
                     pin,
                     tl,
                     br,
                     p,
-                ) orelse continue;
+                ) orelse {
+                    if (sel_bounds.* != null) {
+                        sel_bounds.* = null;
+                        dirty.* = true;
+                        any_dirty = true;
+                    }
+                    continue;
+                };
                 const start = row_sel.start();
                 const end = row_sel.end();
                 assert(start.node == end.node);
                 assert(start.x <= end.x);
                 assert(start.y == end.y);
-                sel_bounds.* = .{ start.x, end.x };
+
+                const start_x = if (start.x > 0 and
+                    start.rowAndCell().cell.wide == .spacer_tail)
+                    start.x - 1
+                else
+                    start.x;
+
+                sel_bounds.* = .{ start_x, end.x };
             }
         }
 
@@ -2378,6 +2400,97 @@ test "selection multiple lines" {
         &.{ 0, 2 },
         &sels[2].?,
     );
+}
+
+test "selection starting on wide char spacer tail" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t: Terminal = try .init(io, alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Wide char at x=1 with its spacer tail at x=2.
+    s.nextSlice("a宽b");
+
+    // Start on the spacer tail, as when selecting from the right.
+    const screen: *Screen = t.screens.active;
+    try screen.select(.init(
+        screen.pages.pin(.{ .active = .{ .x = 3, .y = 0 } }).?,
+        screen.pages.pin(.{ .active = .{ .x = 2, .y = 0 } }).?,
+        false,
+    ));
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    const row_data = state.row_data.slice();
+    const sels = row_data.items(.selection);
+    try testing.expectEqualSlices(size.CellCountInt, &.{ 1, 3 }, &sels[0].?);
+    try testing.expectEqual(null, sels[1]);
+}
+
+test "selection ending on wide char spacer head" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t: Terminal = try .init(io, alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // The wide char wraps, leaving a spacer head at x=9.
+    // Position the cursor before rendering so overwriting the spacer
+    // head won't dirty the following row through cursor movement.
+    s.nextSlice("abcdefghi宽\x1b[1;10H");
+
+    // Select up to and including the spacer head.
+    const screen: *Screen = t.screens.active;
+    const sel: Selection = .init(
+        screen.pages.pin(.{ .active = .{ .x = 7, .y = 0 } }).?,
+        screen.pages.pin(.{ .active = .{ .x = 9, .y = 0 } }).?,
+        false,
+    );
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // A rectangle selection doesn't unwrap so it doesn't extend.
+    try screen.select(.init(sel.start(), sel.end(), true));
+    try state.update(alloc, &t);
+
+    const row_data = state.row_data.slice();
+    const sels = row_data.items(.selection);
+    const dirty = row_data.items(.dirty);
+    try testing.expectEqualSlices(size.CellCountInt, &.{ 7, 9 }, &sels[0].?);
+    try testing.expectEqual(null, sels[1]);
+
+    // A normal selection includes the wrapped wide char.
+    try screen.select(sel);
+    try state.update(alloc, &t);
+    try testing.expectEqualSlices(size.CellCountInt, &.{ 7, 9 }, &sels[0].?);
+    try testing.expectEqualSlices(size.CellCountInt, &.{ 0, 0 }, &sels[1].?);
+    try testing.expectEqual(null, sels[2]);
+
+    // Removing the spacer head must unselect and redraw the following row.
+    state.clean();
+    s.nextSlice("Z");
+    try state.update(alloc, &t);
+    try testing.expectEqual(null, sels[1]);
+    try testing.expect(dirty[1]);
+    try testing.expect(!dirty[2]);
 }
 
 test "linkCells" {
