@@ -1,6 +1,7 @@
 const std = @import("std");
+const apple_sdk = @import("apple_sdk");
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -33,6 +34,9 @@ pub fn build(b: *std.Build) void {
         .name = "cpp_vt_stream",
         .root_module = exe_mod,
     });
+    if (target.result.os.tag.isDarwin()) {
+        try apple_sdk.addPaths(b, exe);
+    }
     b.installArtifact(exe);
 
     // Run
