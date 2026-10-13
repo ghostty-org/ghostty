@@ -409,8 +409,8 @@ msgstr "クリップボードにコピー"
 msgid ""
 "Copy the selected text to the clipboard in both plain and styled formats."
 msgstr ""
-"選択したテキストを、プレーンテキストと書式付きの両方の形式でクリップボー"
-"ドにコピーします。"
+"選択したテキストを、プレーンテキストと書式付きの両方の形式で"
+"クリップボードにコピーします。"
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
@@ -427,8 +427,8 @@ msgstr "選択範囲をANSIシーケンスとしてコピー"
 #: src/input/command.zig:164
 msgid "Copy the selected text as ANSI escape sequences to the clipboard."
 msgstr ""
-"選択したテキストをANSIエスケープシーケンスとしてクリップボードにコピ"
-"ーします。"
+"選択したテキストをANSIエスケープシーケンスとしてクリップボードに"
+"コピーします。"
 
 #: src/input/command.zig:167
 msgid "Copy Selection as HTML to Clipboard"
@@ -603,8 +603,8 @@ msgid ""
 "Copy the screen contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
-"画面の内容を一時ファイルに保存し、そのパスをクリップボードにコピーします"
-"。"
+"画面の内容を一時ファイルに保存し、そのパスを"
+"クリップボードにコピーします。"
 
 #: src/input/command.zig:291
 msgid "Copy Screen to Temporary File and Paste Path"
@@ -712,8 +712,8 @@ msgid ""
 "Copy the selection contents to a temporary file and paste the path to the "
 "file."
 msgstr ""
-"選択範囲の内容を一時ファイルに保存し、そのパスをターミナルに貼り付けます"
-"。"
+"選択範囲の内容を一時ファイルに保存し、そのパスを"
+"ターミナルに貼り付けます。"
 
 #: src/input/command.zig:364
 msgid "Copy Selection to Temporary File and Open"
