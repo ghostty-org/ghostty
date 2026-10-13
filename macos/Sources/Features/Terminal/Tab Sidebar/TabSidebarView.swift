@@ -123,8 +123,8 @@ final class TabSidebarView: NSView {
         column.maxWidth = .greatestFiniteMagnitude
         tableView.addTableColumn(column)
         tableView.headerView = nil
-        tableView.rowHeight = 44
-        tableView.intercellSpacing = NSSize(width: 0, height: 2)
+        tableView.rowHeight = 56
+        tableView.intercellSpacing = NSSize(width: 0, height: 6)
         tableView.selectionHighlightStyle = .none
         tableView.backgroundColor = .clear
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
@@ -159,16 +159,16 @@ final class TabSidebarView: NSView {
             header.topAnchor.constraint(equalTo: topAnchor),
             header.leadingAnchor.constraint(equalTo: leadingAnchor),
             header.trailingAnchor.constraint(equalTo: trailingAnchor),
-            header.heightAnchor.constraint(equalToConstant: 32),
+            header.heightAnchor.constraint(equalToConstant: 40),
 
-            searchField.topAnchor.constraint(equalTo: header.bottomAnchor),
-            searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            searchField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            searchField.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
+            searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            searchField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
 
-            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 6),
+            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 12),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
 
             resizeHandle.topAnchor.constraint(equalTo: topAnchor),
             resizeHandle.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -958,10 +958,10 @@ final class TabSidebarHeaderView: NSView {
         super.init(frame: frameRect)
         addSubview(newTabButton)
         NSLayoutConstraint.activate([
-            newTabButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            newTabButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
             newTabButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            newTabButton.widthAnchor.constraint(equalToConstant: 20),
-            newTabButton.heightAnchor.constraint(equalToConstant: 20),
+            newTabButton.widthAnchor.constraint(equalToConstant: 24),
+            newTabButton.heightAnchor.constraint(equalToConstant: 24),
         ])
     }
 

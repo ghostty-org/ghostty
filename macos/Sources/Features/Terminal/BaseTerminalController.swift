@@ -414,7 +414,8 @@ class BaseTerminalController: NSWindowController,
     ) {
         Task {
             guard let response = await confirmCloseAsync(messageText: messageText, informativeText: informativeText, confirmButtonTitle: confirmButtonTitle) else {
-                completion()
+                // An existing confirmation sheet owns the pending close. A second
+                // request must not close the terminal before that sheet is answered.
                 return
             }
             if [.alertFirstButtonReturn, .OK].contains(response) {

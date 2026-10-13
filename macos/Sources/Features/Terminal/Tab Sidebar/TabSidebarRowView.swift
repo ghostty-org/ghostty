@@ -122,9 +122,9 @@ final class TabSidebarRowView: NSTableRowView {
         }
 
         let path = NSBezierPath(
-            roundedRect: bounds.insetBy(dx: 6, dy: 1),
-            xRadius: 6,
-            yRadius: 6
+            roundedRect: bounds.insetBy(dx: 10, dy: 2),
+            xRadius: 8,
+            yRadius: 8
         )
         if let fill {
             fill.setFill()
@@ -231,32 +231,50 @@ final class TabSidebarCellView: NSTableCellView {
         let textStack = NSStackView(views: [titleField, subtitleField])
         textStack.orientation = .vertical
         textStack.alignment = .leading
-        textStack.spacing = 1
+        textStack.spacing = 4
         textStack.translatesAutoresizingMaskIntoConstraints = false
         textStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(iconView)
         addSubview(textStack)
 
-        let accessoryStack = NSStackView(views: [zoomButton, shortcutLabel, closeButton])
+        // Share a trailing slot without collapsing it when the close button or
+        // shortcut is hidden. This keeps the close button fixed at the row edge.
+        let trailingSlot = NSView()
+        trailingSlot.translatesAutoresizingMaskIntoConstraints = false
+        shortcutLabel.translatesAutoresizingMaskIntoConstraints = false
+        trailingSlot.addSubview(shortcutLabel)
+        trailingSlot.addSubview(closeButton)
+        let slotWidth = trailingSlot.widthAnchor.constraint(equalToConstant: 24)
+        slotWidth.priority = .defaultLow
+
+        let accessoryStack = NSStackView(views: [zoomButton, trailingSlot])
         accessoryStack.orientation = .horizontal
         accessoryStack.alignment = .centerY
-        accessoryStack.spacing = 4
+        accessoryStack.spacing = 8
         accessoryStack.translatesAutoresizingMaskIntoConstraints = false
         accessoryStack.setContentHuggingPriority(.required, for: .horizontal)
         addSubview(accessoryStack)
 
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 22),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 16),
             iconView.heightAnchor.constraint(equalToConstant: 16),
-            textStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+            textStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
             textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            textStack.trailingAnchor.constraint(equalTo: accessoryStack.leadingAnchor, constant: -6),
+            textStack.trailingAnchor.constraint(equalTo: accessoryStack.leadingAnchor, constant: -10),
             titleField.widthAnchor.constraint(equalTo: textStack.widthAnchor),
             subtitleField.widthAnchor.constraint(lessThanOrEqualTo: textStack.widthAnchor),
-            accessoryStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            accessoryStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
             accessoryStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            slotWidth,
+            trailingSlot.widthAnchor.constraint(greaterThanOrEqualToConstant: 24),
+            trailingSlot.heightAnchor.constraint(equalToConstant: 24),
+            shortcutLabel.leadingAnchor.constraint(greaterThanOrEqualTo: trailingSlot.leadingAnchor),
+            shortcutLabel.trailingAnchor.constraint(equalTo: trailingSlot.trailingAnchor),
+            shortcutLabel.centerYAnchor.constraint(equalTo: trailingSlot.centerYAnchor),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            closeButton.centerYAnchor.constraint(equalTo: trailingSlot.centerYAnchor),
         ])
 
         updateAccessoryVisibility()
@@ -281,8 +299,8 @@ final class TabSidebarCellView: NSTableCellView {
         button.setAccessibilityIdentifier(identifier)
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 16),
-            button.heightAnchor.constraint(equalToConstant: 16),
+            button.widthAnchor.constraint(equalToConstant: 24),
+            button.heightAnchor.constraint(equalToConstant: 24),
         ])
         return button
     }
