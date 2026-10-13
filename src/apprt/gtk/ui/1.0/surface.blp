@@ -284,13 +284,17 @@ template $GhosttySurface: Adw.Bin {
   // object, so focusing the bare render surface gave it nothing to read.
   focusable: true;
   focus-on-click: true;
-
+  // `is-focus` rather than enter/leave: those fire when focus enters or
+  // leaves this widget *or a descendant*, so moving focus into the search
+  // overlay would leave the terminal believing it is still focused.
   EventControllerFocus {
-    enter => $focus_enter();
-    leave => $focus_leave();
+    notify::is-focus => $notify_is_focus();
   }
 
   EventControllerKey {
+    // Only keys aimed at the surface itself. In the default bubble phase,
+    // keys the search overlay doesn't consume would reach the terminal.
+    propagation-phase: target;
     key-pressed => $key_pressed();
     key-released => $key_released();
   }
