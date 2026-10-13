@@ -992,6 +992,7 @@ pub fn addSimd(
                 "src/simd/base64.cpp",
                 "src/simd/codepoint_width.cpp",
                 "src/simd/index_of.cpp",
+                "src/simd/utf8_count.cpp",
                 "src/simd/vt.cpp",
             },
             .flags = flags.items,
