@@ -3784,6 +3784,13 @@ pub fn mouseReportingActive(self: *Surface) bool {
     return self.isMouseReporting();
 }
 
+/// Returns true if the given mouse button has been pressed and not yet
+/// released, as last reported to mouseButtonCallback. This can only be
+/// called from the main thread.
+pub fn isMouseButtonPressed(self: *const Surface, button: input.MouseButton) bool {
+    return self.mouse.click_state[@intCast(@intFromEnum(button))] == .press;
+}
+
 fn mouseReport(
     self: *Surface,
     button: ?input.MouseButton,
