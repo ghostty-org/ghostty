@@ -269,6 +269,15 @@ fn refreshCache(self: *A11y, surface: *Surface) ?[:0]const u8 {
     const cursor_byte = @min(result.cursor_byte orelse text.len, text.len);
     self.cached_cursor_offset = @intCast(utf8CpCount(text[0..cursor_byte]));
 
+    // The first text a client reads is the baseline change events are
+    // diffed against. Without one, the next frame would diff against ""
+    // and report the whole viewport, which the client already has, as
+    // newly inserted.
+    if (self.last_snapshot == null) {
+        self.last_snapshot = alloc.dupeZ(u8, text) catch null;
+        self.last_notified_caret = self.cached_cursor_offset;
+    }
+
     return self.cached_text;
 }
 
@@ -280,8 +289,8 @@ fn refreshCache(self: *A11y, surface: *Surface) ?[:0]const u8 {
 fn probeChanged(self: *A11y, surface: *Surface) bool {
     const core_surface = surface.core() orelse return false;
 
-    // No snapshot yet means we have never notified; take the full
-    // path so the first frame establishes one.
+    // No baseline means recording it failed in `refreshCache`; take
+    // the full path, which retries.
     const old_text: []const u8 = self.last_snapshot orelse return true;
 
     const alloc = Application.default().allocator();
@@ -350,14 +359,6 @@ fn notifyIfChanged(self: *A11y, surface: *Surface) void {
 
     const text_changed = !std.mem.eql(u8, old_text, new_text);
     const caret_changed = self.cached_cursor_offset != self.last_notified_caret;
-
-    // First notification against an empty viewport: `text_changed` is
-    // false because both sides are "", but the probe keys off having a
-    // snapshot at all. Record one here or every later frame takes the
-    // full rebuild path.
-    if (self.last_snapshot == null and !text_changed) {
-        self.last_snapshot = alloc.dupeZ(u8, new_text) catch null;
-    }
 
     if (!text_changed and !caret_changed) return;
 
