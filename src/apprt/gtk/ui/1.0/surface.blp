@@ -31,6 +31,9 @@ Overlay terminal_page {
       vexpand: true;
       focusable: false;
       focus-on-click: false;
+      // The terminal's text is exposed by GhosttySurface itself; the
+      // pixels have nothing to add for assistive technologies.
+      accessible-role: presentation;
     }
 
     PopoverMenu context_menu {
@@ -125,6 +128,8 @@ Overlay terminal_page {
     can-focus: false;
     can-target: false;
     focusable: false;
+    // Purely visual; keep it out of the accessibility tree.
+    accessible-role: presentation;
 
     Box bell_overlay {
       styles [
@@ -206,6 +211,8 @@ Overlay terminal_page {
     can-focus: false;
     can-target: false;
     focusable: false;
+    // Purely visual; keep it out of the accessibility tree.
+    accessible-role: presentation;
 
     DrawingArea {
       styles [
@@ -219,6 +226,8 @@ Overlay terminal_page {
     halign: fill;
     valign: start;
     visible: bind $should_drag_handle_be_shown(template.config, template.is-split) as <bool>;
+    // Mouse-only; there is nothing here a screen reader can act on.
+    accessible-role: presentation;
 
     styles [
       "drag-handle",
@@ -243,6 +252,8 @@ Overlay terminal_page {
     can-focus: false;
     can-target: false;
     focusable: false;
+    // Purely visual; keep it out of the accessibility tree.
+    accessible-role: presentation;
 
     styles [
       "drop-overlay",

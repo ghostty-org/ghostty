@@ -77,22 +77,6 @@ pub fn frameRendered(self: *A11y, surface: *Surface) void {
 }
 
 //---------------------------------------------------------------
-// GtkAccessible interface override
-
-pub fn initAccessibleInterface(iface: *gtk.AccessibleInterface) callconv(.c) void {
-    iface.f_get_first_accessible_child = &getFirstAccessibleChild;
-}
-
-/// Return no accessible children: GTK's default walks the widget tree
-/// and exposes the render surface and every template descendant to AT-SPI. The
-/// surface presents as a single text-bearing object instead.
-fn getFirstAccessibleChild(
-    _: *gtk.Accessible,
-) callconv(.c) ?*gtk.Accessible {
-    return null;
-}
-
-//---------------------------------------------------------------
 // GtkAccessibleText interface implementation
 
 /// Install the parts of GtkAccessibleText this surface implements.
