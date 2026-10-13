@@ -12,6 +12,7 @@ const Target = @import("Target.zig");
 const RenderPass = @import("RenderPass.zig");
 
 const Health = @import("../../renderer.zig").Health;
+const FrameTimings = @import("../FrameTimings.zig");
 
 const log = std.log.scoped(.metal);
 
@@ -48,6 +49,7 @@ pub fn begin(
             .renderer = renderer,
             .target = target,
             .sync = false,
+            .timing = CapturedTiming.init(null),
         },
         &bufferCompleted,
     );
@@ -55,11 +57,41 @@ pub fn begin(
     return .{ .buffer = buffer, .block = block };
 }
 
+// Block captures become extern fields, so optional timing uses an explicit
+// validity bit rather than Zig's optional representation.
+const CapturedTiming = extern struct {
+    valid: bool,
+    generation: u64,
+    start_ns: i64,
+
+    fn init(timing: ?FrameTimings.InFlight) CapturedTiming {
+        const value = timing orelse return .{
+            .valid = false,
+            .generation = 0,
+            .start_ns = 0,
+        };
+        return .{
+            .valid = true,
+            .generation = value.generation,
+            .start_ns = @intCast(value.start.toNanoseconds()),
+        };
+    }
+
+    fn get(self: CapturedTiming) ?FrameTimings.InFlight {
+        if (!self.valid) return null;
+        return .{
+            .generation = self.generation,
+            .start = .fromNanoseconds(self.start_ns),
+        };
+    }
+};
+
 /// This is the block type used for the addCompletedHandler callback.
 const CompletionBlock = objc.Block(struct {
     renderer: *Renderer,
     target: *Target,
     sync: bool,
+    timing: CapturedTiming,
 }, .{
     objc.c.id, // MTLCommandBuffer
 }, void);
@@ -87,7 +119,7 @@ fn bufferCompleted(
         };
     }
 
-    block.renderer.frameCompleted(health);
+    block.renderer.frameCompleted(health, block.timing.get());
 }
 
 /// Add a render pass to this frame with the provided attachments.
@@ -105,7 +137,8 @@ pub inline fn renderPass(
 /// Complete this frame and present the target.
 ///
 /// If `sync` is true, this will block until the frame is presented.
-pub inline fn complete(self: *Self, sync: bool) void {
+pub inline fn complete(self: *Self, sync: bool, timing: ?FrameTimings.InFlight) void {
+    self.block.timing = CapturedTiming.init(timing);
     // If we don't need to complete synchronously,
     // we add our block as a completion handler.
     //

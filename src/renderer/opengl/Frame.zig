@@ -12,6 +12,7 @@ const Target = @import("Target.zig");
 const RenderPass = @import("RenderPass.zig");
 
 const Health = @import("../../renderer.zig").Health;
+const FrameTimings = @import("../FrameTimings.zig");
 
 const log = std.log.scoped(.opengl);
 
@@ -54,7 +55,7 @@ pub inline fn renderPass(
 ///
 /// NOTE: For OpenGL, `sync` is ignored and we never block, instead
 /// pushing the newly presented and exported frame to the frame queue.
-pub fn complete(self: *const Self, sync: bool) void {
+pub fn complete(self: *const Self, sync: bool, timing: ?FrameTimings.InFlight) void {
     _ = sync;
 
     // If there are any GL errors, consider the frame unhealthy.
@@ -86,5 +87,5 @@ pub fn complete(self: *const Self, sync: bool) void {
     }
 
     // Report the health to the renderer.
-    self.renderer.frameCompleted(health);
+    self.renderer.frameCompleted(health, timing);
 }

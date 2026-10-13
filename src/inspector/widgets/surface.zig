@@ -42,7 +42,6 @@ pub const Inspector = struct {
     pub fn deinit(self: *Inspector, alloc: Allocator) void {
         self.key_stream.deinit(alloc);
         self.vt_stream.deinit(alloc);
-        self.renderer_info.deinit(alloc);
     }
 
     pub fn draw(
@@ -125,10 +124,8 @@ pub const Inspector = struct {
                     cimgui.c.ImGuiWindowFlags_NoFocusOnAppearing,
                 );
                 defer cimgui.c.ImGui_End();
-                self.renderer_info.draw(
-                    surface.alloc,
-                    open,
-                );
+                self.renderer_info.draw(open);
+                widgets.renderer.drawFrameTimings(&surface.renderer.frame_timings, open);
             }
         }
 
