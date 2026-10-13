@@ -4,40 +4,55 @@
 fork carries relative to its upstream parent `ghostty-org/ghostty`. Generated
 2026-10-12 from the current `origin/main`; regenerate via the procedure in §5.
 
+<!-- prettier-ignore-start -->
 > **Authored by agent** (Instinct handoff 2026-10-12 21:07Z). Low-risk,
 > reversible, do-not-merge, no-force-push. PR-title prefix `[Instinct]-style
 > "Authored by agent"` is the operator's convention for any future PR touching
 > this file.
+<!-- prettier-ignore-end -->
+
+> **Freshness note (2026-10-13):** the §1 numbers were correct as of the
+> generation date but have already drifted. Current state: **249 ahead, 304
+> behind** (vs upstream/main `9f6a4640e`). The 7 new ahead-commits are all in
+> `docs/sessions/khostty-0.1.0-release/` and slot into Group 9 without changing
+> the §2 categorization. The 304-behind breakdown: 67 terminal, 42 update
+> (37 VOUCHED + 5 misc), 19 gtk, **17 libghostty-vt** (the fork's bindings
+> target), 10 font, 8 opengl, 8 build(deps), 7 terminal/c, 7 renderer,
+> 6 macos, 6 libghostty, 6 cli, 5 vt, and 99 misc/other. The 17 libghostty-vt
+> changes are worth a focused review because the fork ships FFI/SDK bindings
+> over that surface; the `bindings-drift guard` test (74aa5eea9, Group 1) is
+> the right re-verification gate before any 0.1.1 / 0.2.0 merge. Re-regen per
+> §5 before the next release-cut branch.
 
 ## §1. Summary
 
-| Field | Value |
-|---|---|
-| Upstream parent | `ghostty-org/ghostty` (https://github.com/ghostty-org/ghostty.git) |
-| Upstream HEAD | `d4c88d8069912b653d707191388ca98e24751f12` (2026-09-15 05:37 UTC, "Update VOUCHED list (#14241)") |
-| Fork HEAD | `17fe76744a2851d8450a1a4b5d3edb8d97e0fe1e` (2026-10-11 23:53 PDT, "ci(sonar): make inherited upstream quality gate advisory for fork") |
-| Merge-base | `d4c88d806...` (fork is exactly based on upstream HEAD; no upstream drift) |
-| Ahead of upstream | **242 commits** (241 non-merge + 1 merge) |
-| Behind upstream | **0 commits** |
-| Branch | `main` (this is the only long-lived branch; all work lands here) |
-| Date generated | 2026-10-12 |
-| Documentation | This file, in-repo, with a 5-line cockpit entry at `docs/sessions/khostty-0.1.0-release/evidence/upstream-delta-20261012.txt` |
+| Field             | Value (2026-10-12)                                                                                                                     | Value (2026-10-13 freshness)                                                                                                          |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Upstream parent   | `ghostty-org/ghostty` (https://github.com/ghostty-org/ghostty.git)                                                                     | same                                                                                                                                  |
+| Upstream HEAD     | `d4c88d8069912b653d707191388ca98e24751f12` (2026-09-15 05:37 UTC, "Update VOUCHED list (#14241)")                                      | `9f6a4640e6bca7a4d65f1b441f2666b151f4d402` (later)                                                                                    |
+| Fork HEAD         | `17fe76744a2851d8450a1a4b5d3edb8d97e0fe1e` (2026-10-11 23:53 PDT, "ci(sonar): make inherited upstream quality gate advisory for fork") | `03a17f214683` (2026-10-13 05:20 UTC, "docs(sessions): close out Khostty 0.1.0 release + cleanup session")                            |
+| Merge-base        | `d4c88d806...` (fork is exactly based on upstream HEAD; no upstream drift)                                                             | `d4c88d806...` (unchanged — the merge-base is the same)                                                                               |
+| Ahead of upstream | **242 commits** (241 non-merge + 1 merge)                                                                                              | **249 commits** (248 non-merge + 1 merge) — 7 new docs/sessions entries, all Group 9                                                  |
+| Behind upstream   | **0 commits**                                                                                                                          | **304 commits** — upstream has had 304 commits since the merge-base; mostly terminal (67), VOUCHED (37), gtk (19), libghostty-vt (17) |
+| Branch            | `main` (this is the only long-lived branch; all work lands here)                                                                       | same                                                                                                                                  |
+| Date generated    | 2026-10-12                                                                                                                             | 2026-10-13 (this freshness refresh)                                                                                                   |
+| Documentation     | This file, in-repo, with a 5-line cockpit entry at `docs/sessions/khostty-0.1.0-release/evidence/upstream-delta-20261012.txt`          | same; plus `docs/sessions/khostty-0.1.0-release/SESSION-CLOSE-20261013.md` references this drift                                      |
 
 ### Intent group summary
 
-| # | Group | Commits | Headline |
-|---|---|---|---|
-| 1 | Khostty value-add (FFI/SDK) | 25 | Rust/C/Python/Go bindings over `libghostty-vt` |
-| 2 | Khostty value-add (IPC) | 15 | Agent IPC v1 over Unix sockets — protocol, server, handler, state, events, auth, pane |
-| 3 | Khostty value-add (Windows native) | 14 | Standalone App runtime, Win32 input/mouse/keyboard, named-pipe IPC, HWND surface |
-| 4 | Khostty value-add (WASM) | 5 | Reproducible wasm32 build, ESM/JS bindings, TypeScript declarations |
-| 5 | Khostty value-add (Benchmarks) | 7 | libghostty-vt benchmark harness, captured results, Khostty value-add summary |
-| 6 | Packaging (Linux/Windows/macOS) | 11 | GTK .deb, khostty-vt .deb, Inno Setup .exe, macOS .app, Metal→OpenGL fallback |
-| 7 | CI fixes & new workflows | 23 | scorecard, clean-artifacts, publish-pypi, trunk-check, workflow_dispatch, Zig-aware, sonar |
-| 8 | Org-template infra (deduplicated) | 11 unique (×2 = 22 commits) | Trunk, prettier, Renovate, Mergify, CircleCI, Blacksmith, Infisical, Gitleaks |
-| 9 | Release artifacts & documentation | 50 | RELEASE.md, HANDOFF.md, README, changelog/0.1.0.md, install docs, runbook, status sweeps |
-| 10 | WBS / docs-3 governance | 42 | Deep WBS v2, gates G0–G10, dossiers, GLOBAL_HANDBOOK, audits |
-| 11 | Other (catch-all) | 16 | Misc, first-fork scaffolding, fork-assessment, build wiring, merge commit |
+| #   | Group                              | Commits                     | Headline                                                                                   |
+| --- | ---------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------ |
+| 1   | Khostty value-add (FFI/SDK)        | 25                          | Rust/C/Python/Go bindings over `libghostty-vt`                                             |
+| 2   | Khostty value-add (IPC)            | 15                          | Agent IPC v1 over Unix sockets — protocol, server, handler, state, events, auth, pane      |
+| 3   | Khostty value-add (Windows native) | 14                          | Standalone App runtime, Win32 input/mouse/keyboard, named-pipe IPC, HWND surface           |
+| 4   | Khostty value-add (WASM)           | 5                           | Reproducible wasm32 build, ESM/JS bindings, TypeScript declarations                        |
+| 5   | Khostty value-add (Benchmarks)     | 7                           | libghostty-vt benchmark harness, captured results, Khostty value-add summary               |
+| 6   | Packaging (Linux/Windows/macOS)    | 11                          | GTK .deb, khostty-vt .deb, Inno Setup .exe, macOS .app, Metal→OpenGL fallback              |
+| 7   | CI fixes & new workflows           | 23                          | scorecard, clean-artifacts, publish-pypi, trunk-check, workflow_dispatch, Zig-aware, sonar |
+| 8   | Org-template infra (deduplicated)  | 11 unique (×2 = 22 commits) | Trunk, prettier, Renovate, Mergify, CircleCI, Blacksmith, Infisical, Gitleaks              |
+| 9   | Release artifacts & documentation  | 50                          | RELEASE.md, HANDOFF.md, README, changelog/0.1.0.md, install docs, runbook, status sweeps   |
+| 10  | WBS / docs-3 governance            | 42                          | Deep WBS v2, gates G0–G10, dossiers, GLOBAL_HANDBOOK, audits                               |
+| 11  | Other (catch-all)                  | 16                          | Misc, first-fork scaffolding, fork-assessment, build wiring, merge commit                  |
 
 **Total unique non-merge: 241.** (Plus 1 merge `95eccb351 chore: merge
 origin/main preserving fork documentation and CI` that is reflected in the
@@ -258,7 +273,7 @@ because documentation is the bulk of the fork's durable work.
 - `d9c930e17` docs(release): correct the PyPI publish path; the browser upload form was removed
 - `e1ebfa632` docs(release): fix false 'nothing published' claims; refresh §7 PyPI row
 - `af7697294` docs(release): retract wrong tag-trigger claim; dispatch is the only path
-- `743d00c5f` docs(release): document khostty-v* tag convention and trusted-publishing path
+- `743d00c5f` docs(release): document khostty-v\* tag convention and trusted-publishing path
 - `9c74f9fba` docs(release): record tag-push side-effect audit for khostty-v0.1.0
 - `5e44f2188` docs(install): add §0 download section for the published 0.1.0 release
 - `cd91fb549` docs(install): per-platform install + verification steps (G9.15)
@@ -443,20 +458,20 @@ trace) that proves a user-facing change actually works. The list is
 prioritized by "would a screenshot/video change the operator's mind?"
 — a "yes" means we should record one before the next release.
 
-| # | Change | Why a demo helps | Suggested tool | Acceptance signal |
-|---|---|---|---|---|
-| 1 | `khostty-vt` Rust FFI (`feat(khostty-vt): scaffold ...`) | Prove the lib renders a frame from a real terminal sequence; show a snapshot, a search, a key encode. | VHS tape (run the `examples/` from `09b31ee74`, capture stdout) | Frames render with correct style/cell identity; search hits the expected match; bindings-drift guard passes |
-| 2 | `khostty-python` cffi (`feat(khostty-python): scaffold ...`) | 162 pytest cases are invisible to a non-developer. A 30-second VHS of the runnable example sells it. | VHS | pip install + import + render a frame; pytest 162/162 pass |
-| 3 | `khostty-go` cgo (`feat(khostty-go): scaffold ...`) | Same as Python, but Go. | VHS | `go test ./...` exit 0; `go run ./examples/...` prints rendered frame |
-| 4 | GTK .deb install + launch (`build(packaging): Linux .deb ...`) | "Installs and runs" is the only signal that matters. | Xvfb + `vhs` against the GTK deb (X11 is supported; Wayland needs `xdg-desktop-portal` caveats from `d00b004c5`) | `dpkg -i khostty.deb`; `khostty` opens; `APP_ALIVE` reaches the timeout |
-| 5 | Inno Setup .exe install (`build(windows): compile and install-verify the Inno Setup installer`) | Cross-platform confidence. | Real Windows runner screenshot; `screenshot.exe` post-install | InstallShield-equivalent silent install; shortcut on desktop; `khostty.exe --version` reports a version |
-| 6 | macOS .app launch (`docs(macos): WBS 9.11 unblocked ...`) | Apple-side confidence. | AppleScript-driven capture (Playwright is not applicable) | Bundle Info.plist valid; `open khostty.app` brings a window; OpenGL renderer initialized when Metal is absent |
-| 7 | WASM ESM/JS bindings (`feat(wasm): ESM/JS bindings for libghostty-vt`) | Browser-side demo. **Playwright is the right tool here.** | Playwright + a static HTML page that imports the ESM | Page loads; `render(snapshot)` returns expected cells; TypeScript declarations type-check |
-| 8 | Agent IPC v1 over real sockets (`test(ipc): G4.12/G4.13 agent workflow and concurrent-agent tests over real sockets`) | Two-agent interaction is hard to read from a test log. | VHS of `zig build ipc-test` running the two agents | Each agent issues 5 commands; round-trip auth succeeds; concurrent edits serialize correctly |
-| 9 | `bench/` captured results (`docs(bench): G8.7-G8.8 captured results and measured report`) | Numbers are more credible with a recording. | VHS of `zig build bench` and a screenshot of the JSON report | Benchmark exits 0; `anonymized memory` units match the report; library path digest matches |
-| 10 | CI fixes: scorecard, clean-artifacts, publish-pypi (`fix(ci): drop step-level permissions blocks ...`, `ci(clean-artifacts): grant actions:write ...`, `fix(ci): repair publish-pypi.yml ...`) | "This CI check went from red to green" is best shown in CI itself. | Screenshot of the GitHub Actions run list showing the new green checks | The named workflow runs green on the current main SHA |
-| 11 | SonarCloud override (`ci(sonar): make inherited upstream quality gate advisory for fork`) | Same as #10 but for the SonarCloud check. | Screenshot of the GitHub PR checks showing "SonarCloud Code Analysis" as advisory green | Check no longer blocks PRs; no regression on the security signal |
-| 12 | README + docs homepage look (`docs(readme): comprehensive rewrite with platform matrix, IPC draft, FFI status`) | First impression. | Playwright screenshot of the rendered README on a docs preview deploy | Page renders; platform matrix is correct; IPC draft reads; FFI status badges match reality |
+| #   | Change                                                                                                                                                                                         | Why a demo helps                                                                                      | Suggested tool                                                                                                   | Acceptance signal                                                                                             |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| 1   | `khostty-vt` Rust FFI (`feat(khostty-vt): scaffold ...`)                                                                                                                                       | Prove the lib renders a frame from a real terminal sequence; show a snapshot, a search, a key encode. | VHS tape (run the `examples/` from `09b31ee74`, capture stdout)                                                  | Frames render with correct style/cell identity; search hits the expected match; bindings-drift guard passes   |
+| 2   | `khostty-python` cffi (`feat(khostty-python): scaffold ...`)                                                                                                                                   | 162 pytest cases are invisible to a non-developer. A 30-second VHS of the runnable example sells it.  | VHS                                                                                                              | pip install + import + render a frame; pytest 162/162 pass                                                    |
+| 3   | `khostty-go` cgo (`feat(khostty-go): scaffold ...`)                                                                                                                                            | Same as Python, but Go.                                                                               | VHS                                                                                                              | `go test ./...` exit 0; `go run ./examples/...` prints rendered frame                                         |
+| 4   | GTK .deb install + launch (`build(packaging): Linux .deb ...`)                                                                                                                                 | "Installs and runs" is the only signal that matters.                                                  | Xvfb + `vhs` against the GTK deb (X11 is supported; Wayland needs `xdg-desktop-portal` caveats from `d00b004c5`) | `dpkg -i khostty.deb`; `khostty` opens; `APP_ALIVE` reaches the timeout                                       |
+| 5   | Inno Setup .exe install (`build(windows): compile and install-verify the Inno Setup installer`)                                                                                                | Cross-platform confidence.                                                                            | Real Windows runner screenshot; `screenshot.exe` post-install                                                    | InstallShield-equivalent silent install; shortcut on desktop; `khostty.exe --version` reports a version       |
+| 6   | macOS .app launch (`docs(macos): WBS 9.11 unblocked ...`)                                                                                                                                      | Apple-side confidence.                                                                                | AppleScript-driven capture (Playwright is not applicable)                                                        | Bundle Info.plist valid; `open khostty.app` brings a window; OpenGL renderer initialized when Metal is absent |
+| 7   | WASM ESM/JS bindings (`feat(wasm): ESM/JS bindings for libghostty-vt`)                                                                                                                         | Browser-side demo. **Playwright is the right tool here.**                                             | Playwright + a static HTML page that imports the ESM                                                             | Page loads; `render(snapshot)` returns expected cells; TypeScript declarations type-check                     |
+| 8   | Agent IPC v1 over real sockets (`test(ipc): G4.12/G4.13 agent workflow and concurrent-agent tests over real sockets`)                                                                          | Two-agent interaction is hard to read from a test log.                                                | VHS of `zig build ipc-test` running the two agents                                                               | Each agent issues 5 commands; round-trip auth succeeds; concurrent edits serialize correctly                  |
+| 9   | `bench/` captured results (`docs(bench): G8.7-G8.8 captured results and measured report`)                                                                                                      | Numbers are more credible with a recording.                                                           | VHS of `zig build bench` and a screenshot of the JSON report                                                     | Benchmark exits 0; `anonymized memory` units match the report; library path digest matches                    |
+| 10  | CI fixes: scorecard, clean-artifacts, publish-pypi (`fix(ci): drop step-level permissions blocks ...`, `ci(clean-artifacts): grant actions:write ...`, `fix(ci): repair publish-pypi.yml ...`) | "This CI check went from red to green" is best shown in CI itself.                                    | Screenshot of the GitHub Actions run list showing the new green checks                                           | The named workflow runs green on the current main SHA                                                         |
+| 11  | SonarCloud override (`ci(sonar): make inherited upstream quality gate advisory for fork`)                                                                                                      | Same as #10 but for the SonarCloud check.                                                             | Screenshot of the GitHub PR checks showing "SonarCloud Code Analysis" as advisory green                          | Check no longer blocks PRs; no regression on the security signal                                              |
+| 12  | README + docs homepage look (`docs(readme): comprehensive rewrite with platform matrix, IPC draft, FFI status`)                                                                                | First impression.                                                                                     | Playwright screenshot of the rendered README on a docs preview deploy                                            | Page renders; platform matrix is correct; IPC draft reads; FFI status badges match reality                    |
 
 **Total: 12 demos** (8 VHS-class, 2 Playwright-class, 2 screenshot-class).
 
@@ -482,6 +497,6 @@ PR that updates it is trivially reviewable.
 
 ---
 
-*Generated 2026-10-12 by `calf` (Khostty 0.1.0 release orchestrator)
+_Generated 2026-10-12 by `calf` (Khostty 0.1.0 release orchestrator)
 under Instinct handoff 2026-10-12 21:07Z. Companion 5-line cockpit
-entry: `docs/sessions/khostty-0.1.0-release/evidence/upstream-delta-20261012.txt`.*
+entry: `docs/sessions/khostty-0.1.0-release/evidence/upstream-delta-20261012.txt`._
