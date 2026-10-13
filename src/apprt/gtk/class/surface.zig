@@ -2825,12 +2825,12 @@ pub const Surface = extern struct {
         );
     }
 
-    fn ecFocusEnter(_: *gtk.EventControllerFocus, self: *Self) callconv(.c) void {
-        self.updateFocus(true);
-    }
-
-    fn ecFocusLeave(_: *gtk.EventControllerFocus, self: *Self) callconv(.c) void {
-        self.updateFocus(false);
+    fn ecFocusNotifyIsFocus(
+        ec_focus: *gtk.EventControllerFocus,
+        _: *gobject.ParamSpec,
+        self: *Self,
+    ) callconv(.c) void {
+        self.updateFocus(ec_focus.isFocus() != 0);
     }
 
     fn updateFocus(self: *Self, focused: bool) void {
@@ -3883,8 +3883,7 @@ pub const Surface = extern struct {
             class.bindTemplateChildPrivate("im_context", .{});
 
             // Template Callbacks
-            class.bindTemplateCallback("focus_enter", &ecFocusEnter);
-            class.bindTemplateCallback("focus_leave", &ecFocusLeave);
+            class.bindTemplateCallback("notify_is_focus", &ecFocusNotifyIsFocus);
             class.bindTemplateCallback("key_pressed", &ecKeyPressed);
             class.bindTemplateCallback("key_released", &ecKeyReleased);
             class.bindTemplateCallback("mouse_down", &gcMouseDown);
