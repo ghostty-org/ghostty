@@ -111,11 +111,16 @@ pub fn initShared(
 ) !GhosttyLibVt {
     const target = zig.vt.resolved_target.?;
 
-    // Prefer Apple's linker for final Darwin dylibs when its toolchain is
-    // available. Besides producing the platform load commands expected by
-    // Apple distribution, this lets the static archive's libSystem symbol
-    // override take effect. Cross-compiled macOS dylibs continue through Zig.
-    if (@import("apple_sdk").nativeLink.available(target)) {
+    // Prefer Apple's linker for final Darwin dylibs when building Ghostty as the
+    // root project and Apple's toolchain is available. When Ghostty is imported as
+    // a dependency (`b.dep_prefix.len > 0`), downstream Zig consumers expect
+    // `dep.artifact("ghostty-vt")` to resolve to a standard Zig Compile step
+    // rather than an external Apple linker command.
+    //
+    // For root builds, Apple's linker produces the platform load commands expected
+    // by Apple distribution and allows the static archive's libSystem symbol
+    // override to take effect. Cross-compiled macOS dylibs continue through Zig.
+    if (b.dep_prefix.len == 0 and @import("apple_sdk").nativeLink.available(target)) {
         return initLibApple(b, zig);
     }
 

@@ -15,6 +15,14 @@
         //     .url = "https://github.com/ghostty-org/ghostty/archive/COMMIT.tar.gz",
         //     .hash = "N-V-__8AAMVLTABmYkLqhZPLXnMl-KyN38R8UVYqGrxqO36s",
         // },
+
+        // Apple SDK compatibility headers for building C++ on Darwin. This is
+        // the only example compiling C++ with `link_libcpp = true`. On macOS,
+        // Zig compiles its bundled LLVM libc++ against system headers, which
+        // requires apple-sdk to provide compatibility definitions (such as
+        // INFINITY) under recent Xcode SDKs. Pure C and Zig examples do not
+        // link libc++ and therefore do not require this dependency.
+        .apple_sdk = .{ .path = "../../pkg/apple-sdk" },
     },
     .paths = .{
         "build.zig",
