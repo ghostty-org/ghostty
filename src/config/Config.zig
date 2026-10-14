@@ -2317,9 +2317,12 @@ keybind: Keybinds = .{},
 /// Valid values:
 ///
 ///   * `right` - Focus the tab to the right of the closed tab. This is the
-///     default and matches the historical behavior.
+///     default.
 ///
 ///   * `left` - Focus the tab to the left of the closed tab.
+///
+/// Left and right refer to the tab bar as displayed, so they keep their
+/// meaning in right-to-left locales where the tab bar is mirrored.
 ///
 /// If the closed tab is on the far edge in the chosen direction (the
 /// leftmost tab with `left`, or the rightmost tab with `right`), focus

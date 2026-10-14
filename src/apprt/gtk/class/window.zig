@@ -1578,24 +1578,29 @@ pub const Window = extern struct {
     }
 
     /// Finish closing a tab page, honoring the `window-close-tab-focus`
-    /// config. When closing the currently-selected page with `left`,
-    /// select the left neighbor first so AdwTabView doesn't advance focus
-    /// to the right neighbor.
+    /// config. AdwTabView selects the following page when the selected
+    /// page closes, which is the right neighbor in left-to-right layouts
+    /// and the left neighbor in right-to-left layouts where the tab bar
+    /// is mirrored. When the configured direction points the other way,
+    /// select the preceding page first.
     fn finishCloseTab(self: *Self, page: *adw.TabPage) void {
         const priv = self.private();
         const tab_view = priv.tab_view;
 
-        select_left: {
-            const config = if (priv.config) |v| v.get() else break :select_left;
-            if (config.@"window-close-tab-focus" != .left) break :select_left;
+        select_preceding: {
+            const config = if (priv.config) |v| v.get() else break :select_preceding;
+            const rtl = self.as(gtk.Widget).getDirection() == .rtl;
+            const preceding_is_left = !rtl;
+            const want_left = config.@"window-close-tab-focus" == .left;
+            if (want_left != preceding_is_left) break :select_preceding;
 
             // Only reroute focus when we're closing the selected page.
-            const selected = tab_view.getSelectedPage() orelse break :select_left;
-            if (selected != page) break :select_left;
+            const selected = tab_view.getSelectedPage() orelse break :select_preceding;
+            if (selected != page) break :select_preceding;
 
-            // Far-left tab has no left neighbor; fall back to default.
+            // The first page has no preceding page; fall back to default.
             const pos = tab_view.getPagePosition(page);
-            if (pos <= 0) break :select_left;
+            if (pos <= 0) break :select_preceding;
 
             tab_view.setSelectedPage(tab_view.getNthPage(pos - 1));
         }
