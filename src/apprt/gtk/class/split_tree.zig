@@ -297,13 +297,15 @@ pub const SplitTree = extern struct {
         const height_f64: f64 = @floatFromInt(height);
         const amount_f64: f64 = @floatFromInt(amount);
 
-        // Get our ratio and use positive/neg for directions.
-        const ratio: f64 = switch (direction) {
+        // Get our ratio and use positive/neg for directions. The amount can
+        // be larger than the split, which can only resize it as far as the
+        // edge, so the ratio is clamped.
+        const ratio: f64 = std.math.clamp(switch (direction) {
             .right => amount_f64 / width_f64,
             .left => -(amount_f64 / width_f64),
             .down => amount_f64 / height_f64,
             .up => -(amount_f64 / height_f64),
-        };
+        }, -1, 1);
 
         const layout: Surface.Tree.Split.Layout = switch (direction) {
             .left, .right => .horizontal,
@@ -1213,17 +1215,6 @@ const SplitTreeSplit = extern struct {
             .vertical => .vertical,
         });
 
-        // Request min width/height 1 for surfaces to prevent them from
-        // becoming temporarily invisible in nested layouts. Otherwise
-        // gtk.Paned might mark a surface as not visible and unmap it
-        // for a single frame. See the comments below in propMaxPosition.
-        if (gobject.ext.isA(start_child, SurfaceScrolledWindow)) {
-            start_child.setSizeRequest(1, 1);
-        }
-        if (gobject.ext.isA(end_child, SurfaceScrolledWindow)) {
-            end_child.setSizeRequest(1, 1);
-        }
-
         // Signals and so on are setup in the template.
 
         return self;
@@ -1268,20 +1259,37 @@ const SplitTreeSplit = extern struct {
             break :max gobject.ext.Value.get(&val, c_int);
         };
 
-        // We don't actually use min, but we don't expect this to ever
-        // be non-zero, so let's add an assert to ensure that.
-        assert(min == 0);
+        // We don't use min. It's non-zero when the start child has a minimum
+        // size, but gtk.Paned keeps the position between min and max itself.
+        _ = min;
 
-        // If our max is zero then we can't do any math. I don't know
+        // The size of the split as pixels, which ratios are relative to.
+        // Since gtk.Paned doesn't shrink the end child below its minimum
+        // size, max is reduced by that minimum size, so add it back.
+        const size: c_int = size: {
+            const end_child = paned.getEndChild() orelse break :size max;
+            var end_min: c_int = 0;
+            end_child.measure(
+                paned.as(gtk.Orientable).getOrientation(),
+                -1,
+                &end_min,
+                null,
+                null,
+                null,
+            );
+            break :size max + end_min;
+        };
+
+        // If our size is zero then we can't do any math. I don't know
         // if this is possible but I suspect it can be if you make a nested
         // split completely minimized.
-        if (max == 0) return;
+        if (size == 0) return;
 
         // Determine our current ratio.
         const current_ratio: f64 = ratio: {
             const pos_f64: f64 = @floatFromInt(pos);
-            const max_f64: f64 = @floatFromInt(max);
-            break :ratio pos_f64 / max_f64;
+            const size_f64: f64 = @floatFromInt(size);
+            break :ratio pos_f64 / size_f64;
         };
         const desired_ratio: f64 = priv.ratio;
 
@@ -1300,12 +1308,13 @@ const SplitTreeSplit = extern struct {
         switch (direction) {
             .tree_to_widget => {
                 // Update position in gtk.Paned to match desired ratio. Note that if
-                // max-position is small, it might not be possible to accurately set
-                // the desired ratio. E.g. with max-position=2 you can only have
-                // ratios 0, 0.5 and 1.
+                // the size is small, it might not be possible to accurately set
+                // the desired ratio. E.g. with a size of 2 you can only have
+                // ratios 0, 0.5 and 1. gtk.Paned keeps the position between
+                // the minimum sizes of the children.
                 const desired_pos: c_int = desired_pos: {
-                    const max_f64: f64 = @floatFromInt(max);
-                    break :desired_pos @intFromFloat(@round(max_f64 * desired_ratio));
+                    const size_f64: f64 = @floatFromInt(size);
+                    break :desired_pos @intFromFloat(@round(size_f64 * desired_ratio));
                 };
                 paned.setPosition(desired_pos);
             },
@@ -1415,8 +1424,8 @@ const SplitTreeSplit = extern struct {
         // situation is when we update the position from 0 to a value > 0,
         // because setChildVisible(false) will unmap the start child widget.
         // It will not be visible for a single frame which introduces some
-        // flickering. To prevent this from happening we set a min size request
-        // of 1 for all surfaces (see the "new" function above).
+        // flickering. This can't happen because surfaces always have a minimum
+        // size (see Surface.setCellSize) that gtk.Paned doesn't shrink below.
         self.syncSplitRatio(.tree_to_widget);
 
         // We still need the idle callback to clear the max_changed field
