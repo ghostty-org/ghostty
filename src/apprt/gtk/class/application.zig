@@ -19,6 +19,7 @@ const apprt = @import("../../../apprt.zig");
 const CoreApp = @import("../../../App.zig");
 const compat_file = @import("../../../lib/compat/file.zig");
 const configpkg = @import("../../../config.zig");
+const IntrusiveDoublyLinkedList = @import("../../../datastruct/main.zig").IntrusiveDoublyLinkedList;
 const input = @import("../../../input.zig");
 const internal_os = @import("../../../os/main.zig");
 const systemd = @import("../../../os/systemd.zig");
@@ -173,11 +174,12 @@ pub const Application = extern struct {
             window_id: c_uint,
             position: c_int,
             pinned: bool,
-            expires_at: i64,
+            timer: c_uint = 0,
+            prev: ?*ClosedTab = null,
+            next: ?*ClosedTab = null,
         };
 
-        closed_tabs: std.ArrayListUnmanaged(ClosedTab) = .empty,
-        undo_timer: ?c_uint = null,
+        closed_tabs: IntrusiveDoublyLinkedList(ClosedTab) = .{},
         undo_hold: bool = false,
 
         /// The apprt App. This is annoying that we need this it'd be
@@ -589,7 +591,7 @@ pub const Application = extern struct {
                 // If we are configured to always stay running, don't quit.
                 const config = priv.config.get();
                 if (!config.@"quit-after-last-window-closed") break :q false;
-                if (priv.closed_tabs.items.len != 0) break :q false;
+                if (priv.closed_tabs.first != null) break :q false;
 
                 // If the quit timer has expired, quit.
                 if (priv.quit_timer == .expired) {
@@ -671,6 +673,10 @@ pub const Application = extern struct {
     }
 
     fn quitNow(self: *Self) void {
+        // Retained tabs belong to no window, so destroying windows won't
+        // stop their surfaces before the core app tears down.
+        self.clearUndoHistory();
+
         // Get all our windows and destroy them, forcing them to free.
         const list = gtk.Window.listToplevels();
         defer list.free();
@@ -867,33 +873,35 @@ pub const Application = extern struct {
         const timeout = self.private().config.get().@"undo-timeout".duration;
         if (timeout == 0) return;
         const tab = gobject.ext.cast(Tab, page.getChild()) orelse return;
-        const duration_us = timeout / std.time.ns_per_us + @intFromBool(timeout % std.time.ns_per_us != 0);
-        self.private().closed_tabs.append(self.allocator(), .{
+        const tree = tab.getSurfaceTree() orelse return;
+        if (tree.isEmpty()) return;
+        const entry = self.allocator().create(Private.ClosedTab) catch |err| {
+            log.warn("unable to retain closed tab: {}", .{err});
+            return;
+        };
+        const delay_ms = std.math.divCeil(u64, timeout, std.time.ns_per_ms) catch unreachable;
+        entry.* = .{
             .tab = tab,
             .window_id = window.as(gtk.ApplicationWindow).getId(),
             .position = window.getTabView().getPagePosition(page),
             .pinned = page.getPinned() != 0,
-            .expires_at = glib.getMonotonicTime() + @as(i64, @intCast(duration_us)),
-        }) catch |err| {
-            log.warn("unable to retain closed tab: {}", .{err});
-            return;
+            .timer = glib.timeoutAdd(@intCast(@min(delay_ms, std.math.maxInt(c_uint))), closedTabExpired, entry),
         };
+        self.private().closed_tabs.append(entry);
         _ = tab.as(gobject.Object).ref();
         if (!self.private().undo_hold) {
             self.as(gio.Application).hold();
             self.private().undo_hold = true;
         }
-        self.scheduleUndoTimer();
     }
 
     fn undoClosedTab(self: *Self) bool {
-        self.expireClosedTabs();
+        defer self.releaseUndoHoldIfEmpty();
         while (self.private().closed_tabs.pop()) |entry| {
+            _ = glib.Source.remove(entry.timer);
+            defer self.releaseClosedTab(entry);
             const live = if (entry.tab.getSurfaceTree()) |tree| !tree.isEmpty() else false;
-            if (!live) {
-                self.releaseClosedTab(entry);
-                continue;
-            }
+            if (!live) continue;
             const existing = if (self.as(gtk.Application).getWindowById(entry.window_id)) |gtk_window|
                 gobject.ext.cast(Window, gtk_window)
             else
@@ -909,87 +917,40 @@ pub const Application = extern struct {
                 );
             }
             window.restoreClosedTab(entry.tab, entry.position, entry.pinned);
-            if (existing == null) {
-                if (window.getActiveSurface()) |surface| {
-                    surface.estimateInitialSize();
-                    if (surface.getDefaultSize()) |size| {
-                        window.as(gtk.Window).setDefaultSize(@intCast(size.width), @intCast(size.height));
-                    }
-                }
-            }
             gtk.Window.present(window.as(gtk.Window));
-            self.releaseClosedTab(entry);
-            self.releaseUndoHoldIfEmpty();
-            self.scheduleUndoTimer();
             return true;
         }
-        self.releaseUndoHoldIfEmpty();
-        self.scheduleUndoTimer();
         return false;
     }
 
-    fn releaseClosedTab(_: *Self, entry: Private.ClosedTab) void {
-        entry.tab.as(gobject.Object).unref();
+    fn closedTabExpired(user_data: ?*anyopaque) callconv(.c) c_int {
+        const entry: *Private.ClosedTab = @ptrCast(@alignCast(user_data.?));
+        const self = Self.default();
+        self.private().closed_tabs.remove(entry);
+        self.releaseClosedTab(entry);
+        self.releaseUndoHoldIfEmpty();
+        return 0;
     }
 
-    fn expireClosedTabs(self: *Self) void {
-        const now = glib.getMonotonicTime();
-        var index: usize = 0;
-        while (index < self.private().closed_tabs.items.len) {
-            if (self.private().closed_tabs.items[index].expires_at > now) {
-                index += 1;
-                continue;
-            }
-            self.releaseClosedTab(self.private().closed_tabs.orderedRemove(index));
-        }
-        self.releaseUndoHoldIfEmpty();
+    fn releaseClosedTab(self: *Self, entry: *Private.ClosedTab) void {
+        entry.tab.as(gobject.Object).unref();
+        self.allocator().destroy(entry);
     }
 
     fn releaseUndoHoldIfEmpty(self: *Self) void {
         const priv = self.private();
-        if (priv.undo_hold and priv.closed_tabs.items.len == 0) {
+        if (priv.undo_hold and priv.closed_tabs.first == null) {
             priv.undo_hold = false;
             self.as(gio.Application).release();
         }
     }
 
     fn clearUndoHistory(self: *Self) void {
-        const priv = self.private();
-        if (priv.undo_timer) |timer| {
-            _ = glib.Source.remove(timer);
-            priv.undo_timer = null;
+        while (self.private().closed_tabs.pop()) |entry| {
+            _ = glib.Source.remove(entry.timer);
+            self.releaseClosedTab(entry);
         }
-        for (priv.closed_tabs.items) |entry| self.releaseClosedTab(entry);
-        priv.closed_tabs.deinit(self.allocator());
-        priv.closed_tabs = .empty;
         self.releaseUndoHoldIfEmpty();
-    }
-
-    fn scheduleUndoTimer(self: *Self) void {
-        const priv = self.private();
-        if (priv.undo_timer) |timer| {
-            _ = glib.Source.remove(timer);
-            priv.undo_timer = null;
-        }
-        var next: ?i64 = null;
-        for (priv.closed_tabs.items) |entry| {
-            next = if (next) |deadline| @min(deadline, entry.expires_at) else entry.expires_at;
-        }
-        const deadline = next orelse return;
-        const remaining = @max(0, deadline - glib.getMonotonicTime());
-        const delay: c_uint = @intCast(@min(
-            std.math.maxInt(c_uint),
-            @max(1, @divTrunc(remaining, std.time.us_per_ms) + @intFromBool(@rem(remaining, std.time.us_per_ms) != 0)),
-        ));
-        priv.undo_timer = glib.timeoutAdd(delay, undoTimerExpired, self);
-    }
-
-    fn undoTimerExpired(user_data: ?*anyopaque) callconv(.c) c_int {
-        const self: *Self = @ptrCast(@alignCast(user_data.?));
-        self.private().undo_timer = null;
-        self.expireClosedTabs();
-        self.scheduleUndoTimer();
-        return 0;
     }
 
     /// This will get called when there are no more open surfaces.
