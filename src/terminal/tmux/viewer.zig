@@ -2592,3 +2592,52 @@ fn testRawStartupScreen(comptime alternate_on: bool) !void {
 
     try testing.expectEqualStrings("", other_text);
 }
+
+test "tmux output state OSC survives pane map rebuild" {
+    try testOutputOscAcrossPaneRebuild(false);
+}
+
+test "tmux output state unfinished OSC removed after pane map rebuild" {
+    try testOutputOscAcrossPaneRebuild(true);
+}
+
+fn testOutputOscAcrossPaneRebuild(comptime remove_pane: bool) !void {
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var actions: std.ArrayList(Viewer.Action) = .empty;
+
+    const layout = "$0 @0 83 44 b7dd,83x44,0,0,0";
+    try viewer.receivedListWindows(arena.allocator(), &actions, layout);
+    try viewer.receivedOutput(0, "\x1b]2;partial");
+
+    const first = viewer.panes.getEntry(0) orelse
+        return error.ExpectedPane;
+    const stream_before = first.value_ptr.output_stream orelse
+        return error.ExpectedOutputStream;
+
+    try viewer.receivedListWindows(arena.allocator(), &actions, layout);
+
+    // Map entries may move, so look up the pane again.
+    const moved = viewer.panes.getEntry(0) orelse
+        return error.ExpectedPane;
+    const stream_after = moved.value_ptr.output_stream orelse
+        return error.ExpectedOutputStream;
+    try testing.expect(stream_before == stream_after);
+
+    if (remove_pane) {
+        try viewer.receivedListWindows(arena.allocator(), &actions, "");
+        try testing.expectEqual(@as(usize, 0), viewer.panes.count());
+        return;
+    }
+
+    try viewer.receivedOutput(0, "tail\x07");
+    const pane = viewer.panes.getEntry(0) orelse
+        return error.ExpectedPane;
+    try testing.expectEqualStrings(
+        "partialtail",
+        pane.value_ptr.terminal.getTitle() orelse "",
+    );
+}
