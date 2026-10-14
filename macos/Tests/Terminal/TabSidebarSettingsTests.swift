@@ -53,4 +53,41 @@ struct TabSidebarSettingsTests {
         settings.toggleVisible()
         #expect(TabSidebarSettings(defaults: defaults).isVisible == true)
     }
+
+    @Test func fileExplorerDefaults() {
+        let settings = TabSidebarSettings(defaults: makeDefaults())
+        #expect(settings.mode == .tabs)
+        #expect(settings.showHiddenFiles == false)
+        #expect(settings.previewWidth == FileExplorerLogic.previewDefaultWidth)
+    }
+
+    @Test func modeAndHiddenFilesPersist() {
+        let defaults = makeDefaults()
+        let settings = TabSidebarSettings(defaults: defaults)
+        settings.mode = .files
+        settings.showHiddenFiles = true
+
+        let reloaded = TabSidebarSettings(defaults: defaults)
+        #expect(reloaded.mode == .files)
+        #expect(reloaded.showHiddenFiles == true)
+    }
+
+    @Test func storedGarbageModeFallsBackToTabs() {
+        let defaults = makeDefaults()
+        defaults.set("bogus", forKey: TabSidebarSettings.modeKey)
+        #expect(TabSidebarSettings(defaults: defaults).mode == .tabs)
+    }
+
+    @Test func setPreviewWidthPersistsOnlyWhenAskedAndClamps() {
+        let defaults = makeDefaults()
+        let settings = TabSidebarSettings(defaults: defaults)
+
+        settings.setPreviewWidth(600, persist: false)
+        #expect(settings.previewWidth == 600)
+        #expect(defaults.object(forKey: TabSidebarSettings.previewWidthKey) == nil)
+
+        settings.setPreviewWidth(10_000, persist: true)
+        #expect(settings.previewWidth == FileExplorerLogic.previewMaxWidth)
+        #expect(TabSidebarSettings(defaults: defaults).previewWidth == FileExplorerLogic.previewMaxWidth)
+    }
 }

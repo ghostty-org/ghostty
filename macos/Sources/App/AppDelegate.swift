@@ -1209,6 +1209,23 @@ extension AppDelegate {
         searchItem.target = self
         searchItem.setImageIfDesired(systemSymbolName: "magnifyingglass")
         viewMenu.insertItem(searchItem, at: viewMenu.index(of: item) + 1)
+
+        let filesItem = NSMenuItem(
+            title: "Show Files",
+            action: #selector(showFiles(_:)),
+            keyEquivalent: "e")
+        filesItem.keyEquivalentModifierMask = [.command, .shift]
+        filesItem.target = self
+        filesItem.setImageIfDesired(systemSymbolName: "folder")
+        viewMenu.insertItem(filesItem, at: viewMenu.index(of: searchItem) + 1)
+
+        let finderItem = NSMenuItem(
+            title: "Open Working Directory in Finder",
+            action: #selector(openWorkingDirectoryInFinder(_:)),
+            keyEquivalent: "")
+        finderItem.target = self
+        finderItem.setImageIfDesired(systemSymbolName: "folder")
+        viewMenu.insertItem(finderItem, at: viewMenu.index(of: filesItem) + 1)
     }
 
     @IBAction func toggleTabSidebar(_ sender: Any?) {
@@ -1222,6 +1239,21 @@ extension AppDelegate {
 
     @IBAction func searchTabs(_ sender: Any?) {
         keyTerminalController?.terminalViewContainer?.tabSidebar?.focusSearch()
+    }
+
+    @IBAction func showFiles(_ sender: Any?) {
+        keyTerminalController?.terminalViewContainer?.tabSidebar?.focusFiles()
+    }
+
+    /// The working directory of the focused terminal of the key window, if any.
+    private var keyWorkingDirectory: String? {
+        guard let pwd = keyTerminalController?.focusedSurface?.pwd, !pwd.isEmpty else { return nil }
+        return pwd
+    }
+
+    @IBAction func openWorkingDirectoryInFinder(_ sender: Any?) {
+        guard let pwd = keyWorkingDirectory else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: pwd, isDirectory: true))
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
@@ -1364,8 +1396,12 @@ extension AppDelegate: NSMenuItemValidation {
             item.title = TabSidebarSettings.shared.isVisible ? "Hide Tab Sidebar" : "Show Tab Sidebar"
             return true
 
-        case #selector(searchTabs(_:)):
+        case #selector(searchTabs(_:)),
+            #selector(showFiles(_:)):
             return keyTerminalController?.terminalViewContainer?.tabSidebar != nil
+
+        case #selector(openWorkingDirectoryInFinder(_:)):
+            return keyWorkingDirectory != nil
 
         case #selector(floatOnTop(_:)),
             #selector(useAsDefault(_:)):

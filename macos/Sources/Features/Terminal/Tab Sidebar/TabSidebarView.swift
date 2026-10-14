@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 extension NSPasteboard.PasteboardType {
     /// Pasteboard type used to reorder rows within the tab sidebar.
@@ -21,6 +22,12 @@ final class TabSidebarView: NSView {
     private let scrollView = NSScrollView()
     private let tableView = TabSidebarTableView()
     private let resizeHandle = TabSidebarResizeHandle()
+
+    /// The file explorer shown instead of the tab list in files mode.
+    private let fileExplorer: FileExplorerView
+
+    /// Subscriptions to the shared tab sidebar settings.
+    private var cancellables: Set<AnyCancellable> = []
 
     /// All tabs of the tab group, in tab group order.
     private var allTabs: [Weak<TerminalController>] = []
@@ -78,6 +85,7 @@ final class TabSidebarView: NSView {
 
     init(controller: TerminalController) {
         self.controller = controller
+        self.fileExplorer = FileExplorerView(controller: controller)
         super.init(frame: .zero)
         setup()
     }
@@ -102,6 +110,8 @@ final class TabSidebarView: NSView {
         header.translatesAutoresizingMaskIntoConstraints = false
         header.newTabButton.target = self
         header.newTabButton.action = #selector(newTabClicked(_:))
+        header.modeControl.target = self
+        header.modeControl.action = #selector(modeControlChanged(_:))
         addSubview(header)
 
         searchField.placeholderString = "Search Tabs"
@@ -152,6 +162,9 @@ final class TabSidebarView: NSView {
         scrollView.contentView.postsFrameChangedNotifications = true
         addSubview(scrollView)
 
+        fileExplorer.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(fileExplorer)
+
         resizeHandle.translatesAutoresizingMaskIntoConstraints = false
         addSubview(resizeHandle)
 
@@ -170,11 +183,22 @@ final class TabSidebarView: NSView {
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
 
+            fileExplorer.topAnchor.constraint(equalTo: header.bottomAnchor),
+            fileExplorer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            fileExplorer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            fileExplorer.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+
             resizeHandle.topAnchor.constraint(equalTo: topAnchor),
             resizeHandle.bottomAnchor.constraint(equalTo: bottomAnchor),
             resizeHandle.trailingAnchor.constraint(equalTo: trailingAnchor),
             resizeHandle.widthAnchor.constraint(equalToConstant: 6),
         ])
+
+        // @Published emits before the property changes so we use the emitted value.
+        TabSidebarSettings.shared.$mode
+            .removeDuplicates()
+            .sink { [weak self] mode in self?.modeDidChange(mode) }
+            .store(in: &cancellables)
 
         let center = NotificationCenter.default
         center.addObserver(
@@ -207,6 +231,33 @@ final class TabSidebarView: NSView {
     override func layout() {
         super.layout()
         syncColumnWidth()
+    }
+
+    // MARK: Mode
+
+    /// Shows either the tab list or the file explorer.
+    private func modeDidChange(_ mode: TabSidebarMode) {
+        let showsFiles = mode == .files
+        header.modeControl.selectedSegment = showsFiles ? 1 : 0
+        if showsFiles {
+            finishEditing(commit: true, restoreFocus: false)
+            if isSearching { clearSearch() }
+        }
+        searchField.isHidden = showsFiles
+        scrollView.isHidden = showsFiles
+        fileExplorer.isHidden = !showsFiles
+    }
+
+    @objc private func modeControlChanged(_ sender: NSSegmentedControl) {
+        TabSidebarSettings.shared.mode = sender.selectedSegment == 1 ? .files : .tabs
+        restoreTerminalFocus()
+    }
+
+    /// Shows the sidebar if needed and switches it to the file explorer.
+    func focusFiles() {
+        let settings = TabSidebarSettings.shared
+        if !settings.isVisible { settings.isVisible = true }
+        settings.mode = .files
     }
 
     @objc private func onClipViewFrameDidChange(_ notification: Notification) {
@@ -281,7 +332,7 @@ final class TabSidebarView: NSView {
     /// Reconfigures the visible rows whose content changed, e.g. because an agent
     /// started or exited. Hidden sidebars and windows are skipped.
     private func refreshChangedRows() {
-        guard !isHiddenOrHasHiddenAncestor, let window, window.isVisible,
+        guard !isHiddenOrHasHiddenAncestor, !scrollView.isHidden, let window, window.isVisible,
               window.occlusionState.contains(.visible) else { return }
 
         let visible = tableView.rows(in: tableView.visibleRect)
@@ -557,6 +608,7 @@ final class TabSidebarView: NSView {
         if !TabSidebarSettings.shared.isVisible {
             TabSidebarSettings.shared.isVisible = true
         }
+        TabSidebarSettings.shared.mode = .tabs
 
         guard let window else { return }
         finishEditing(commit: true, restoreFocus: false)
@@ -858,6 +910,11 @@ extension TabSidebarView: NSMenuDelegate {
             #selector(copyWorkingDirectory(_:)),
             symbol: "folder",
             enabled: !(target.focusedSurface?.pwd ?? "").isEmpty))
+        menu.addItem(item(
+            "Open Working Directory in Finder",
+            #selector(openWorkingDirectoryInFinder(_:)),
+            symbol: "folder",
+            enabled: !(target.focusedSurface?.pwd ?? "").isEmpty))
         menu.addItem(.separator())
         menu.addItem(item("Rename Tab...", #selector(renameTab(_:)), symbol: "pencil.line"))
         menu.addItem(.separator())
@@ -901,6 +958,11 @@ extension TabSidebarView: NSMenuDelegate {
         pasteboard.setString(pwd, forType: .string)
     }
 
+    @objc private func openWorkingDirectoryInFinder(_ sender: Any?) {
+        guard let pwd = menuTarget(sender)?.focusedSurface?.pwd, !pwd.isEmpty else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: pwd, isDirectory: true))
+    }
+
     @objc private func renameTab(_ sender: Any?) {
         guard let target = menuTarget(sender) else { return }
 
@@ -938,9 +1000,26 @@ final class TabSidebarTableView: NSTableView {
     override var acceptsFirstResponder: Bool { false }
 }
 
-/// The header at the top of the sidebar. It holds the new tab button and acts as a
-/// window drag area (important for `macos-titlebar-style = hidden`).
+/// The header at the top of the sidebar. It holds the tabs/files switch and the new tab
+/// button and acts as a window drag area (important for `macos-titlebar-style = hidden`).
 final class TabSidebarHeaderView: NSView {
+    let modeControl: NSSegmentedControl = {
+        let images = [
+            NSImage(systemSymbolName: "square.stack", accessibilityDescription: "Tabs"),
+            NSImage(systemSymbolName: "folder", accessibilityDescription: "Files"),
+        ].compactMap { $0 }
+        let control = NSSegmentedControl(images: images, trackingMode: .selectOne, target: nil, action: nil)
+        control.segmentStyle = .texturedRounded
+        control.controlSize = .small
+        control.selectedSegment = 0
+        control.setToolTip("Tabs", forSegment: 0)
+        control.setToolTip("Files (⇧⌘E)", forSegment: 1)
+        control.refusesFirstResponder = true
+        control.setAccessibilityIdentifier("TabSidebarModeControl")
+        control.translatesAutoresizingMaskIntoConstraints = false
+        return control
+    }()
+
     let newTabButton: NSButton = {
         let button = NSButton()
         button.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")
@@ -956,8 +1035,11 @@ final class TabSidebarHeaderView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        addSubview(modeControl)
         addSubview(newTabButton)
         NSLayoutConstraint.activate([
+            modeControl.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            modeControl.centerYAnchor.constraint(equalTo: centerYAnchor),
             newTabButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
             newTabButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             newTabButton.widthAnchor.constraint(equalToConstant: 24),
