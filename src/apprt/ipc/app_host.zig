@@ -505,7 +505,6 @@ fn titleOf(core: *CoreSurface) ?[]const u8 {
     if (comptime windowed) {
         return core.rt_surface.getTitle();
     } else {
-        _ = core;
         return null;
     }
 }
@@ -514,7 +513,6 @@ fn cwdOf(core: *CoreSurface) ?[]const u8 {
     if (comptime windowed) {
         return core.io.terminal.getPwd();
     } else {
-        _ = core;
         return null;
     }
 }
@@ -526,7 +524,6 @@ fn pidOf(core: *CoreSurface) ?u32 {
         const pid = core.io.getProcessInfo(.foreground_pid) orelse return null;
         return std.math.cast(u32, pid);
     } else {
-        _ = core;
         return null;
     }
 }
@@ -535,7 +532,6 @@ fn colsOf(core: *CoreSurface) ?u16 {
     if (comptime windowed) {
         return std.math.cast(u16, core.io.terminal.cols);
     } else {
-        _ = core;
         return null;
     }
 }
@@ -544,7 +540,6 @@ fn rowsOf(core: *CoreSurface) ?u16 {
     if (comptime windowed) {
         return std.math.cast(u16, core.io.terminal.rows);
     } else {
-        _ = core;
         return null;
     }
 }
@@ -555,7 +550,6 @@ fn pixelSizeOf(core: *CoreSurface) struct { width: ?u32, height: ?u32 } {
             return .{ .width = null, .height = null };
         return .{ .width = size.width, .height = size.height };
     } else {
-        _ = core;
         return .{ .width = null, .height = null };
     }
 }
@@ -567,7 +561,6 @@ fn scrollbackRows(term: *const terminalpkg.Terminal) ?u64 {
         if (total <= viewport) return 0;
         return @intCast(total - viewport);
     } else {
-        _ = term;
         return null;
     }
 }

@@ -76,6 +76,10 @@ pub fn build(b: *std.Build) !void {
         "test-windows-apprt",
         "Run Windows app runtime tests (host-runnable; see src/main_windows_apprt.zig)",
     );
+    const test_agent_ipc_step = b.step(
+        "test-agent-ipc",
+        "Run agent IPC tests, including the real-runtime Host bridge (src/main_agent_ipc.zig)",
+    );
     const test_lib_vt_step = b.step(
         "test-lib-vt",
         "Run libghostty-vt tests",
@@ -463,6 +467,45 @@ pub fn build(b: *std.Build) !void {
         const win_apprt_run = b.addRunArtifact(win_apprt_test);
         config.addPatchElf(win_apprt_test, &win_apprt_run.step);
         test_windows_apprt_step.dependOn(&win_apprt_run.step);
+    }
+
+    // Agent IPC tests. The modules under src/apprt/ipc/ are three levels deep
+    // and reach `../../App.zig`, `../../Surface.zig` and `../../apprt.zig`,
+    // which Zig rejects from a module rooted that deep. Their root file has to
+    // sit in src/ for the whole app runtime to stay inside the module; see
+    // src/main_agent_ipc.zig.
+    //
+    // This is what finally puts `app_host.zig` — the `Host` vtable bridge onto
+    // the real runtime — in the build graph. Everything else in that directory
+    // has been tested against `fake_host.zig` since G4; the bridge has never
+    // been compiled. Note the honest-scope caveat in the root file's header:
+    // only the GTK runtime is `windowed`, so the vtable bodies that call into
+    // the real runtime are analyzed under `-Dapp-runtime=gtk`, not here.
+    {
+        const agent_ipc_test = b.addTest(.{
+            .name = "agent-ipc-test",
+            .filters = test_filters,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/main_agent_ipc.zig"),
+                .target = config.baselineTarget(b.graph.io),
+                .optimize = .Debug,
+                .strip = false,
+                .omit_frame_pointer = false,
+                .unwind_tables = .sync,
+            }),
+            .use_llvm = true,
+        });
+        _ = try deps.add(agent_ipc_test);
+
+        // Same requirement as the Windows apprt root: the apprt modules reach
+        // `src/lib/enum.zig`, whose tests import the translated `ghostty.h`
+        // module. Without this the module is missing and every containing test
+        // fails to compile.
+        addGhosttyH(b, agent_ipc_test.root_module, config.baselineTarget(b.graph.io), .Debug);
+
+        const agent_ipc_run = b.addRunArtifact(agent_ipc_test);
+        config.addPatchElf(agent_ipc_test, &agent_ipc_run.step);
+        test_agent_ipc_step.dependOn(&agent_ipc_run.step);
     }
 
     // update-translations does what it sounds like and updates the "pot"
