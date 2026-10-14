@@ -16,14 +16,24 @@ pub const CssPoint = struct {
 /// Scale, GdkSurface-space origin, and snapped device size for one widget.
 pub const Layout = struct {
     scale: f64,
+    /// Widget-to-native scaling introduced by pixel-aligned split allocations.
+    transform_scale: CssPoint = .{ .x = 1, .y = 1 },
     origin: CssPoint,
     size: DeviceSize,
 
     /// CSS offset that moves widget (0,0) onto the nearest device pixel.
     pub fn snapOrigin(self: Layout) CssPoint {
         return .{
-            .x = snapOffset(self.origin.x, self.scale),
-            .y = snapOffset(self.origin.y, self.scale),
+            .x = snapOffset(self.origin.x, self.scale) / self.transform_scale.x,
+            .y = snapOffset(self.origin.y, self.scale) / self.transform_scale.y,
+        };
+    }
+
+    /// Device pixels per local widget unit; font DPI still uses `scale`.
+    pub fn pixelScale(self: Layout) CssPoint {
+        return .{
+            .x = self.scale * self.transform_scale.x,
+            .y = self.scale * self.transform_scale.y,
         };
     }
 };
@@ -74,11 +84,29 @@ pub fn widgetLayout(widget: *gtk.Widget) Layout {
 pub fn widgetLayoutForSize(widget: *gtk.Widget, css_width: c_int, css_height: c_int) Layout {
     const scale = widgetSurfaceScale(widget);
     const origin = widgetSurfaceOrigin(widget);
+    const transform_scale = widgetTransformScale(widget);
     return .{
         .scale = scale,
+        .transform_scale = transform_scale,
         .origin = origin,
-        .size = snappedDeviceSize(origin.x, origin.y, css_width, css_height, scale),
+        .size = .{
+            .width = snappedAxis(origin.x, @as(f64, @floatFromInt(css_width)) * transform_scale.x, scale),
+            .height = snappedAxis(origin.y, @as(f64, @floatFromInt(css_height)) * transform_scale.y, scale),
+        },
     };
+}
+
+fn widgetTransformScale(widget: *gtk.Widget) CssPoint {
+    const identity: CssPoint = .{ .x = 1, .y = 1 };
+    const native = widget.getNative() orelse return identity;
+    const native_widget = gobject.ext.cast(gtk.Widget, native) orelse return identity;
+    // Graphene uses SIMD loads; the generated binding omits its alignment.
+    var matrix: graphene.Matrix align(16) = undefined;
+    if (widget.computeTransform(native_widget, &matrix) == 0) return identity;
+    const x = matrix.getXScale();
+    const y = matrix.getYScale();
+    if (!(x > 0) or !(y > 0)) return identity;
+    return .{ .x = x, .y = y };
 }
 
 pub fn deviceSize(css_width: c_int, css_height: c_int, scale: f64) DeviceSize {
@@ -93,8 +121,8 @@ pub fn snappedDeviceSize(
     scale: f64,
 ) DeviceSize {
     return .{
-        .width = snappedAxis(origin_x, css_width, scale),
-        .height = snappedAxis(origin_y, css_height, scale),
+        .width = snappedAxis(origin_x, @floatFromInt(css_width), scale),
+        .height = snappedAxis(origin_y, @floatFromInt(css_height), scale),
     };
 }
 
@@ -113,11 +141,10 @@ pub fn snapOffset(css_origin: f64, scale: f64) f64 {
 ///
 /// `round(end) - round(start)`, not `ceil(css × scale)`, so the buffer spans
 /// the same snapped pixels the texture is drawn into.
-fn snappedAxis(css_origin: f64, css: c_int, scale: f64) u32 {
+fn snappedAxis(css_origin: f64, css: f64, scale: f64) u32 {
     if (css <= 0 or !(scale > 0)) return 0;
-    const css_size: f64 = @floatFromInt(css);
     const start = @round(css_origin * scale);
-    const end = @round((css_origin + css_size) * scale);
+    const end = @round((css_origin + css) * scale);
     if (end <= start) return 0;
     return @intFromFloat(end - start);
 }

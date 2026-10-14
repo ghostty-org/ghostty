@@ -927,7 +927,7 @@ pub const Application = extern struct {
             try writer.print(
                 \\.window .split paned > separator {{
                 \\  color: rgb({[r]d},{[g]d},{[b]d});
-                \\  background: rgb({[r]d},{[g]d},{[b]d});
+                \\  background-color: rgb({[r]d},{[g]d},{[b]d});
                 \\}}
                 \\
             , .{
