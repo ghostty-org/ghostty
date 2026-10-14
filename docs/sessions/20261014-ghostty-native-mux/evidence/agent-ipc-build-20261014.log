@@ -1,0 +1,1183 @@
+Wed Oct 14 16:28:32 PDT 2026
+warning: Metal toolchain not found; using the OpenGL renderer instead. Install it via `xcodebuild -downloadComponent MetalToolchain`, or pass -Drenderer=metal to force the Metal renderer.
+test-agent-ipc
++- run test agent-ipc-test w
+app_host is compiled but NOT windowed (artifact=exe): the `none` runtime has no windows
+[page] (warn): page integrity violation y=0 grapheme data but row not marked
+[page] (warn): page integrity violation style ref count mismatch id=1 expected=10 actual=9
+[page] (warn): page integrity violation zero row count
+[page] (warn): page integrity violation zero col count
+[terminal] (warn): alternate screen resize failed, replacing it err=error.OutOfMemory
+[terminal] (warn): alternate screen resize failed, replacing it err=error.OutOfMemory
+[terminal] (warn): alternate screen resize failed, replacing it err=error.OutOfMemory
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): restoreCursor error updating style err=error.OutOfSpace
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[terminal] (warn): zero-width character with no prior character, ignoring
+[stream] (warn): invalid C0 character, ignoring: 0x3
+[stream] (warn): invalid C0 character, ignoring: 0x4
+[stream] (warn): invalid C0 character, ignoring: 0x6
+[stream] (warn): invalid C0 character, ignoring: 0x10
+[stream] (warn): invalid C0 character, ignoring: 0x11
+[stream] (warn): invalid C0 character, ignoring: 0x12
+[stream] (warn): invalid C0 character, ignoring: 0x13
+[stream] (warn): invalid C0 character, ignoring: 0x14
+[stream] (warn): invalid C0 character, ignoring: 0x15
+[stream] (warn): invalid C0 character, ignoring: 0x16
+[stream] (warn): invalid C0 character, ignoring: 0x17
+[stream] (warn): invalid C0 character, ignoring: 0x18
+[stream] (warn): invalid C0 character, ignoring: 0x19
+[stream] (warn): invalid C0 character, ignoring: 0x1a
+[stream] (warn): invalid C0 character, ignoring: 0x1c
+[stream] (warn): invalid C0 character, ignoring: 0x1d
+[stream] (warn): invalid cursor right command: ESC [  { 5, 4 } C
+[stream] (warn): ignoring unimplemented CSI C with intermediates: ?
+[stream] (warn): invalid set mode command: ESC [   { 6 } h
+[stream] (warn): invalid set mode command: ESC [ > { 5 } h
+[stream] (warn): ignoring unimplemented CSI p with intermediates: 
+[stream] (warn): ignoring unimplemented CSI p with intermediates: 
+[stream] (warn): ignoring unimplemented CSI p with intermediates: 
+[stream] (warn): ignoring unimplemented CSI p with intermediates: 
+[stream] (warn): ignoring unimplemented CSI p with intermediates: 
+[stream] (warn): ignoring unimplemented CSI p with intermediates: ?
+[stream] (warn): ignoring unimplemented CSI p with intermediates: ?
+[stream] (warn): ignoring unimplemented CSI p with intermediates: ?
+[stream] (warn): ignoring unimplemented CSI p with intermediates: ?
+[stream] (warn): ignoring unimplemented CSI p with intermediates: ?
+[stream] (warn): ignoring unimplemented CSI p with intermediates: ?
+[stream] (warn): ignoring unimplemented CSI p with intermediates: !
+[stream] (warn): ignoring unimplemented CSI p with intermediates: !
+[stream] (warn): ignoring unimplemented CSI p with intermediates: !
+[stream] (warn): ignoring unimplemented CSI p with intermediates: !
+[stream] (warn): ignoring unimplemented CSI p with intermediates: !
+[stream] (warn): ignoring unimplemented CSI p with intermediates: !
+[stream] (warn): ignoring unimplemented CSI p with intermediates:  
+[stream] (warn): ignoring unimplemented CSI p with intermediates:  
+[stream] (warn): ignoring unimplemented CSI p with intermediates:  
+[stream] (warn): ignoring unimplemented CSI p with intermediates:  
+[stream] (warn): ignoring unimplemented CSI p with intermediates:  
+[stream] (warn): ignoring unimplemented CSI p with intermediates:  
+[stream] (warn): ignoring unimplemented CSI p with intermediates: >$
+[stream] (warn): ignoring unimplemented CSI p with intermediates: >$
+[stream] (warn): ignoring unimplemented CSI p with intermediates: >$
+[stream] (warn): ignoring unimplemented CSI p with intermediates: >$
+[stream] (warn): ignoring unimplemented CSI p with intermediates: >$
+[stream] (warn): ignoring unimplemented CSI p with intermediates: >$
+[stream] (warn): ignoring unimplemented CSI p with intermediates: >$
+[stream] (warn): ignoring unimplemented CSI p with intermediates: ?!
+[stream] (warn): ignoring unimplemented CSI p with intermediates: ?!
+[stream] (warn): ignoring unimplemented CSI p with intermediates: ?!
+[stream] (warn): ignoring unimplemented CSI p with intermediates: ?!
+[stream] (warn): ignoring unimplemented CSI p with intermediates: ?!
+[stream] (warn): ignoring unimplemented CSI p with intermediates: ?!
+[stream] (warn): ignoring unimplemented CSI p with intermediates: ?!
+[stream] (warn): invalid DECRQM command: ESC [ $ {  } p
+[stream] (warn): invalid DECRQM command: ESC [ $ {  } p
+[stream] (warn): invalid DECRQM command: ESC [ $ {  } p
+[stream] (warn): invalid DECRQM command: ESC [ $ {  } p
+[stream] (warn): invalid DECRQM command: ESC [ $ {  } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ {  } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ {  } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ {  } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ {  } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ {  } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ {  } p
+[stream] (warn): invalid DECRQM command: ESC [ $ { 4, 20 } p
+[stream] (warn): invalid DECRQM command: ESC [ $ { 4, 20 } p
+[stream] (warn): invalid DECRQM command: ESC [ $ { 4, 20 } p
+[stream] (warn): invalid DECRQM command: ESC [ $ { 4, 20 } p
+[stream] (warn): invalid DECRQM command: ESC [ $ { 4, 20 } p
+[stream] (warn): invalid DECRQM command: ESC [ $ { 4, 20 } p
+[stream] (warn): invalid DECRQM command: ESC [ $ { 4, 20 } p
+[stream] (warn): invalid DECRQM command: ESC [ $ { 4, 20 } p
+[stream] (warn): invalid DECRQM command: ESC [ $ { 4, 20 } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ { 4, 7 } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ { 4, 7 } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ { 4, 7 } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ { 4, 7 } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ { 4, 7 } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ { 4, 7 } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ { 4, 7 } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ { 4, 7 } p
+[stream] (warn): invalid DECRQM command: ESC [ ?$ { 4, 7 } p
+[parser] (warn): CSI colon or mixed separators only allowed for 'm' command, got: ESC [ $ { 4, 20 } p
+[parser] (warn): CSI colon or mixed separators only allowed for 'm' command, got: ESC [ $ { 4, 20 } p
+[parser] (warn): CSI colon or mixed separators only allowed for 'm' command, got: ESC [ $ { 4, 20 } p
+[parser] (warn): CSI colon or mixed separators only allowed for 'm' command, got: ESC [ $ { 4, 20 } p
+[parser] (warn): CSI colon or mixed separators only allowed for 'm' command, got: ESC [ $ { 4, 20 } p
+[parser] (warn): CSI colon or mixed separators only allowed for 'm' command, got: ESC [ $ { 4, 20 } p
+[parser] (warn): CSI colon or mixed separators only allowed for 'm' command, got: ESC [ $ { 4, 20 } p
+[parser] (warn): CSI colon or mixed separators only allowed for 'm' command, got: ESC [ $ { 4, 20 } p
+[parser] (warn): CSI colon or mixed separators only allowed for 'm' command, got: ESC [ $ { 4, 20 } p
+[stream] (warn): unimplemented restore mode: 42
+[stream] (warn): invalid erase display command: ESC [ > { 0 } J
+[stream] (warn): invalid erase line command: ESC [ < { 1 } K
+[stream] (warn): ignoring unimplemented CSI p with intermediates: ? 
+[stream] (warn): ignoring unimplemented CSI p with intermediates: 
+[stream] (warn): ignoring unimplemented CSI p with intermediates: 
+[stream] (warn): invalid XTSHIFTESCAPE command: ESC [ > { 2 } s
+[stream] (warn): unknown CSI s with intermediate: ESC [   { 1 } s
+[stream] (warn): change title request: invalid utf-8, ignoring request
+[stream] (warn): change title request: invalid utf-8, ignoring request
+[stream] (warn): change title request: invalid utf-8, ignoring request
+[stream] (warn): change title request: invalid utf-8, ignoring request
+[stream] (warn): change title request: invalid utf-8, ignoring request
+[stream] (warn): change title request: invalid utf-8, ignoring request
+[stream] (warn): change title request: invalid utf-8, ignoring request
+[stream] (warn): change title request: invalid utf-8, ignoring request
+[stream] (warn): change title request: invalid utf-8, ignoring request
+[stream] (warn): change title request: invalid utf-8, ignoring request
+[stream] (warn): change title request: invalid utf-8, ignoring request
+[stream] (warn): change title request: invalid utf-8, ignoring request
+[stream] (warn): change title request: invalid utf-8, ignoring request
+[stream] (warn): change title request: invalid utf-8, ignoring request
+[stream] (warn): ignoring unimplemented CSI @: ESC [ ? { 42 } @
+[stream] (warn): invalid cursor right command: ESC [  { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 } C
+[stream] (warn): invalid cursor tabulation control: ESC [  { 2 } W
+[stream] (warn): invalid cursor tabulation control: ESC [  { 5 } W
+[stream] (warn): invalid cursor tabulation control: ESC [ > {  } W
+[stream] (warn): invalid cursor tabulation control: ESC [  { 99 } W
+[stream] (warn): invalid cursor tabulation control: ESC [ ? { 2 } W
+[stream] (warn): invalid cursor tabulation control: ESC [ ? { 1, 2, 3 } W
+[stream] (warn): invalid tab clear mode: 65535
+[io_exec] (warn): failed to get username, not using a login shell
+[io_exec] (warn): failed to read passwd, not using a login shell err=error.Fail
+[io_exec] (warn): failed to read passwd, not using a login shell err=error.Fail
+[io_exec] (warn): failed to read passwd, not using a login shell err=error.Fail
+[parser] (warn): CSI colon or mixed separators only allowed for 'm' command, got: ESC [  { 38, 2 } h
+[terminal_apc] (warn): kitty graphics protocol error: error.InvalidFormat
+[terminal_apc] (warn): kitty graphics protocol error: error.Overflow
+[terminal_apc] (warn): kitty graphics protocol error: error.Overflow
+[terminal_apc] (warn): kitty graphics protocol error: error.Overflow
+[terminal_apc] (warn): kitty graphics protocol error: error.OutOfMemory
+[terminal_apc] (warn): glyph protocol error: error.InvalidFormat
+[terminal_apc] (warn): kitty graphics protocol error: error.OutOfMemory
+[terminal_tmux] (warn): tmux control mode error=
+[terminal_tmux] (warn): tmux control mode error=%error not really
+hello
+[kitty_text_sizing] (warn): invalid value for key 's': error.InvalidValue
+[kitty_text_sizing] (warn): invalid value for key 'w': error.InvalidValue
+[kitty_text_sizing] (warn): invalid value for key 'v': error.InvalidValue
+[kitty_text_sizing] (warn): invalid value for key 'n': error.InvalidValue
+[kitty_text_sizing] (warn): payload is not escape code safe UTF-8
+[osc_context_signal] (warn): OSC 3008: expected 'start=' or 'end=' prefix, got: bogus=abc1
+[osc_context_signal] (warn): OSC 3008: missing context ID
+[osc_context_signal] (warn): OSC 3008: context ID length 65 out of range (1-64)
+[kitty_desktop_notification] (warn): payload is too large: size=2049 max=2048
+[kitty_desktop_notification] (warn): payload is too large: size=4097 max=4096
+[osc] (warn): An allocator is required to process OSC 4 but none was provided.
+[kitty_gfx] (warn): invalid shared memory name
+[kitty_gfx] (warn): failed to read image file: error.EndOfStream
+[stream_terminal] (warn): error handling VT action action=.window_title err=error.OutOfMemory
+[kitty_gfx] (warn): erroneous kitty graphics response: ENOENT: image not found
+[stream_terminal] (warn): OSC 52 clipboard write is not valid base64, ignoring
+[stream_terminal] (warn): OSC 52 clipboard write is not valid base64, ignoring
+[stream_terminal] (warn): OSC 52 clipboard write is not valid base64, ignoring
+[stream_terminal] (warn): clipboard read replied more than once, ignoring
+[stream_terminal] (warn): error handling clipboard operation err=error.OutOfMemory
+[stream_terminal] (warn): clipboard write replied more than once, ignoring
+[stream_terminal] (warn): clipboard read replied more than once, ignoring
+[stream_terminal] (warn): error handling kitty clipboard err=error.OutOfMemory
+[stream] (warn): invalid cursor tabulation control: ESC [ ? {  } W
+[tripwire] (warn): untripped point=read
+[osc_hyperlink] (warn): unknown hyperlink option: ''
+[osc_hyperlink] (warn): unknown hyperlink option: ''
+[osc_kitty_color] (warn): invalid color format in kitty color protocol: #xxxyyzz
+[osc] (warn): An allocator is required to process OSC 21 but none was provided.
+[osc_kitty_color] (warn): invalid color format in kitty color protocol: #xxxyyzz
+[osc_kitty_color] (warn): invalid color format in kitty color protocol: #xxxyyzz
+[osc_kitty_color] (warn): zero length key in kitty color protocol
+[default] (warn): unexpected length image id=31 width=1 height=1 bpp=3 expected_len=3 actual_len=2
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: invalid data
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID and number are mutually exclusive
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID and number are mutually exclusive
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID and number are mutually exclusive
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID and number are mutually exclusive
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID and number are mutually exclusive
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID and number are mutually exclusive
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID and number are mutually exclusive
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID and number are mutually exclusive
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID and number are mutually exclusive
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID and number are mutually exclusive
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID and number are mutually exclusive
+[default] (warn): unexpected length image id=41 width=1 height=1 bpp=3 expected_len=3 actual_len=2
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: invalid data
+[kitty_gfx] (warn): erroneous kitty graphics response: ENOENT: image not found
+[kitty_gfx] (warn): erroneous kitty graphics response: ENOENT: image not found
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: unsupported format
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: unsupported format
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: unsupported format
+[kitty_gfx] (warn): erroneous kitty graphics response: ENOPARENT: parent image not found
+[kitty_gfx] (warn): erroneous kitty graphics response: ENOPARENT: parent placement not found
+[kitty_gfx] (warn): erroneous kitty graphics response: ENOPARENT: parent placement not found
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: placement cannot be its own parent
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: placement cannot be its own parent
+[kitty_gfx] (warn): erroneous kitty graphics response: ECYCLE: parent chain creates a cycle
+[kitty_gfx] (warn): erroneous kitty graphics response: ETOODEEP: parent chain too deep
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: virtual placement cannot refer to a parent
+[kitty_gfx] (warn): erroneous kitty graphics response: ENOPARENT: parent placement not found
+[kitty_gfx] (warn): erroneous kitty graphics response: ENOENT: image not found
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: frame dimensions exceed image
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: base frame not found
+[default] (warn): insufficient frame data image id=1 expected_len=3 actual_len=1
+[kitty_gfx] (warn): erroneous kitty graphics response: ENODATA: insufficient data
+[kitty_gfx] (warn): erroneous kitty graphics response: ENOENT: image not found
+[kitty_gfx] (warn): erroneous kitty graphics response: ENOENT: image not found
+[kitty_gfx] (warn): erroneous kitty graphics response: ENOENT: source frame not found
+[kitty_gfx] (warn): erroneous kitty graphics response: ENOENT: destination frame not found
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: destination rectangle out of bounds
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: source rectangle out of bounds
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: source and destination rectangles overlap
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[kitty_gfx] (warn): erroneous kitty graphics response: EINVAL: image ID required
+[font_shaper] (warn): failed to parse font feature setting: "aalt=2x,"
+[font_shaper] (warn): failed to parse font feature setting: " toolong,"
+[font_shaper] (warn): failed to parse font feature setting: " sht,"
+[font_shaper] (warn): failed to parse font feature setting: " -kern 1,"
+[font_shaper] (warn): failed to parse font feature setting: " -kern on,"
+[font_shaper] (warn): failed to parse font feature setting: " aalt=o,"
+[font_shaper] (warn): failed to parse font feature setting: " aalt=ofn,"
+[shell_integration] (warn): unable to open /Users/kooshapari/CodeProjects/Phenotype/repos/khostty/.zig-cache/tmp/FiVH618V0EFt5mmS/shell-integration/bash/ghostty.bash: error.FileNotFound
+[shell_integration] (warn): unable to open /Users/kooshapari/CodeProjects/Phenotype/repos/khostty/.zig-cache/tmp/ifnKt4CcZuG2DqVn/shell-integration: error.FileNotFound
+[shell_integration] (warn): unable to open /Users/kooshapari/CodeProjects/Phenotype/repos/khostty/.zig-cache/tmp/pilhE532fjORWMD0/shell-integration: error.FileNotFound
+[shell_integration] (warn): unable to open /Users/kooshapari/CodeProjects/Phenotype/repos/khostty/.zig-cache/tmp/3iz_9m0XVvPRJXK6/shell-integration/zsh: error.FileNotFound
+terminal-formatter roundtrip emit=vt bytes=0 replay_bytes=0 equal=true
+[default] (warn): Invalid timestamp in cache entry: invalid err=error.InvalidCharacter
+[default] (warn): Invalid timestamp in cache entry: 999999999999999999999999999999999999999999999999 err=error.Overflow
+[ssh] (warn): ssh -G output missing hostname
+[ssh] (warn): ssh -G output missing user
+[ssh] (warn): ssh -G output missing user
+failed command: ./.zig-cache/o/5f4be7a0849baf1c9e316d65058d4b6b/agent-ipc-test --cache-dir=./.zig-cache --seed=0x68360ae9 --listen=-
+
+Build Summary: 85/85 steps succeeded; 3900/3925 tests passed (25 skipped)
+test-agent-ipc success
++- run test agent-ipc-test 3900 pass, 25 skip (3925 total) 13m MaxRSS:178M
+   +- compile test agent-ipc-test Debug aarch64-macos.13.0 cached 160ms MaxRSS:37M
+      +- WriteFile libc.txt cached
+      +- WriteFile helpgen.zig cached
+      |  +- run exe helpgen cached
+      |     +- compile exe helpgen Debug native cached 200ms MaxRSS:36M
+      |        +- options cached
+      +- WriteFile props.zig cached
+      |  +- run exe props-unigen cached
+      |  |  +- compile exe props-unigen Debug native cached 183ms MaxRSS:35M
+      |  |     +- run exe uucode_generate (tables.zig) cached
+      |  |        +- compile exe uucode_generate Debug native cached 164ms MaxRSS:35M
+      |  +- run exe symbols-unigen cached
+      |     +- compile exe symbols-unigen Debug native cached 145ms MaxRSS:36M
+      |        +- run exe uucode_generate (tables.zig) (+1 more reused dependencies)
+      +- WriteFile props.zig (+2 more reused dependencies)
+      +- WriteFile framedata.compressed cached
+      |  +- run exe framegen (framedata.compressed) cached
+      |     +- compile exe framegen Debug native cached 153ms MaxRSS:35M
+      |        +- WriteFile  cached
+      |        +- compile lib z ReleaseFast native cached 144ms MaxRSS:34M
+      |        |  +- WriteFile libc.txt (reused)
+      |        +- compile lib z ReleaseFast native (+1 more reused dependencies)
+      +- WriteFile freetype-zig.h cached
+      +- compile lib freetype Debug aarch64-macos.13.0 cached 146ms MaxRSS:35M
+      |  +- WriteFile libc.txt (reused)
+      |  +- WriteFile  cached
+      |  +- compile lib z Debug aarch64-macos.13.0 cached 133ms MaxRSS:34M
+      |  |  +- WriteFile libc.txt (reused)
+      |  +- WriteFile pnglibconf.h cached
+      |  +- compile lib png Debug aarch64-macos.13.0 cached 109ms MaxRSS:34M
+      |  |  +- WriteFile libc.txt (reused)
+      |  |  +- WriteFile  (reused)
+      |  |  +- compile lib z Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      |  |  +- compile lib z Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      |  +- compile lib z Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      |  +- compile lib png Debug aarch64-macos.13.0 (+4 more reused dependencies)
+      +- WriteFile pnglibconf.h (reused)
+      +- compile lib png Debug aarch64-macos.13.0 (+4 more reused dependencies)
+      +- WriteFile  (reused)
+      +- compile lib z Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      +- WriteFile  cached
+      +- compile lib oniguruma Debug aarch64-macos.13.0 cached 114ms MaxRSS:34M
+      |  +- WriteFile libc.txt (reused)
+      |  +- configure cmake header dependency to config.h cached
+      +- WriteFile  cached
+      +- compile lib glslang Debug aarch64-macos.13.0 cached 162ms MaxRSS:35M
+      |  +- WriteFile libc.txt (reused)
+      +- WriteFile  cached
+      +- compile lib spirv_cross Debug aarch64-macos.13.0 cached 161ms MaxRSS:35M
+      |  +- WriteFile libc.txt (reused)
+      +- WriteFile  cached
+      +- compile lib sentry Debug aarch64-macos.13.0 cached 141ms MaxRSS:35M
+      |  +- WriteFile libc.txt (reused)
+      |  +- WriteFile  cached
+      |  +- compile lib breakpad Debug aarch64-macos.13.0 cached 229ms MaxRSS:35M
+      |  |  +- WriteFile libc.txt (reused)
+      |  +- compile lib breakpad Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      +- WriteFile  cached
+      +- compile lib simdutf Debug aarch64-macos.13.0 cached 152ms MaxRSS:35M
+      |  +- WriteFile libc.txt (reused)
+      +- WriteFile hwy cached
+      +- compile lib highway Debug aarch64-macos.13.0 cached 119ms MaxRSS:35M
+      |  +- WriteFile libc.txt (reused)
+      +- WriteFile cached
+      +- compile lib macos Debug aarch64-macos.13.0 cached 172ms MaxRSS:35M
+      |  +- WriteFile libc.txt (reused)
+      +- WriteFile libintl.h cached
+      +- compile lib intl Debug aarch64-macos.13.0 cached 142ms MaxRSS:35M
+      |  +- WriteFile libc.txt (reused)
+      +- WriteFile  cached
+      +- compile lib dcimgui Debug aarch64-macos.13.0 cached 288ms MaxRSS:36M
+      |  +- WriteFile libc.txt (reused)
+      |  +- WriteFile freetype-zig.h (reused)
+      |  +- compile lib freetype Debug aarch64-macos.13.0 (+7 more reused dependencies)
+      |  +- compile lib freetype Debug aarch64-macos.13.0 (+7 more reused dependencies)
+      +- compile lib freetype Debug aarch64-macos.13.0 (+7 more reused dependencies)
+      +- compile lib png Debug aarch64-macos.13.0 (+4 more reused dependencies)
+      +- compile lib z Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      +- compile lib oniguruma Debug aarch64-macos.13.0 (+2 more reused dependencies)
+      +- compile lib glslang Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      +- compile lib spirv_cross Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      +- compile lib sentry Debug aarch64-macos.13.0 (+4 more reused dependencies)
+      +- compile lib simdutf Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      +- compile lib highway Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      +- compile lib macos Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      +- compile lib intl Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      +- compile lib dcimgui Debug aarch64-macos.13.0 (+4 more reused dependencies)
+      +- options cached
+      +- options cached
+      +- translate-c cached 110ms MaxRSS:34M
+      +- translate-c cached 109ms MaxRSS:34M
+      +- WriteFile  (reused)
+      +- compile lib dcimgui Debug aarch64-macos.13.0 (+4 more reused dependencies)
+      +- compile lib dcimgui Debug aarch64-macos.13.0 (+4 more reused dependencies)
+      +- WriteFile helpgen.zig (+1 more reused dependencies)
+      +- WriteFile props.zig (+2 more reused dependencies)
+      +- WriteFile props.zig (+2 more reused dependencies)
+      +- WriteFile framedata.compressed (+1 more reused dependencies)
+      +- translate-c ghostty.h.h cached
+      |  +- compile exe translate-c Debug native cached 177ms MaxRSS:36M
+      |  |  +- options cached
+      |  |  +- options cached
+      |  |  +- options cached
+      |  |  +- run exe generate-def (aarch64.zig) cached
+      |  |  |  +- compile exe generate-def Debug native cached 169ms MaxRSS:35M
+      |  |  +- run exe generate-def (amdgcn.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (arm.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (bpf.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (common.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (hexagon.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (loongarch.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (mips.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (neon.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (nvptx.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (powerpc.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (riscv.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (s390x.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (ve.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (wasm.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (x86_64.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (x86.zig) cached
+      |  |  |  +- compile exe generate-def Debug native (reused)
+      |  |  +- run exe generate-def (xcore.zig) cached
+      |  |     +- compile exe generate-def Debug native (reused)
+      |  +- WriteFile libc.txt (reused)
+      |  +- WriteFile ghostty.h.h cached
+      +- run exe uucode_generate (tables.zig) (+1 more reused dependencies)
+      +- translate-c cached 120ms MaxRSS:34M
+      +- translate-c wuffs_c.h cached
+      |  +- compile exe translate-c Debug native (+21 more reused dependencies)
+      |  +- WriteFile libc.txt (reused)
+      |  +- WriteFile wuffs_c.h cached
+      +- options cached
+      +- translate-c cached 119ms MaxRSS:34M
+      |  +- WriteFile objc/runtime.h cached
+      |  +- WriteFile objc/runtime.h (reused)
+      +- translate-c macos_c.h cached
+      |  +- compile exe translate-c Debug native (+21 more reused dependencies)
+      |  +- WriteFile libc.txt (reused)
+      |  +- WriteFile macos_c.h cached
+      +- options cached
+
+Build Summary:
+app_host is compiled but NOT windowed (artifact=exe): the `none` runtime has no windows
+Build Summary: 85/85 steps succeeded; 3900/3925 tests passed (25 skipped)
+test-agent-ipc success
