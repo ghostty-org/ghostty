@@ -69,6 +69,9 @@ pub const RenderSurface = extern struct {
         /// GdkSurface we connected; ref'd so a replacement cannot dangle the handler.
         scale_surface: ?*gdk.Surface = null,
 
+        layout_handler: c_ulong = 0,
+        layout: ?scale_util.Layout = null,
+
         /// One-shot so we log the first real allocation, not every size-allocate.
         scale_logged_size: bool = false,
 
@@ -179,14 +182,15 @@ pub const RenderSurface = extern struct {
         const widget = self.as(gtk.Widget);
         if (widget.getWidth() == 0 or widget.getHeight() == 0) return;
 
-        // Map one texture texel to one device pixel. Widget CSS size would
-        // stretch a fractionally scaled buffer. Snap the surface-relative
-        // origin so parent chrome cannot place the texture between pixels.
+        // Use pixel-aligned bounds so parent chrome cannot place the texture
+        // between pixels. During resize, fit the previous frame to the new
+        // bounds until the renderer catches up, avoiding transparent gaps.
+        // Once its size matches, each texel maps to one device pixel.
         const layout = scale_util.widgetLayout(widget);
         const origin = layout.snapOrigin();
-        const scale: f32 = @floatCast(layout.scale);
-        const css_w: f32 = @as(f32, @floatFromInt(texture.getWidth())) / scale;
-        const css_h: f32 = @as(f32, @floatFromInt(texture.getHeight())) / scale;
+        const scale = layout.pixelScale();
+        const css_w: f32 = @floatCast(@as(f64, @floatFromInt(layout.size.width)) / scale.x);
+        const css_h: f32 = @floatCast(@as(f64, @floatFromInt(layout.size.height)) / scale.y);
 
         // GTK, Metal, Vulkan, etc. all have their origin points in the
         // top left, but not OpenGL!
@@ -215,7 +219,9 @@ pub const RenderSurface = extern struct {
     }
 
     fn emitDeviceResize(self: *Self, css_w: c_int, css_h: c_int) void {
-        const size = scale_util.widgetLayoutForSize(self.as(gtk.Widget), css_w, css_h).size;
+        const layout = scale_util.widgetLayoutForSize(self.as(gtk.Widget), css_w, css_h);
+        self.private().layout = layout;
+        const size = layout.size;
         if (size.width == 0 or size.height == 0) return;
         signals.resize.impl.emit(
             self,
@@ -245,6 +251,13 @@ pub const RenderSurface = extern struct {
             self,
             .{ .detail = "scale" },
         );
+        priv.layout_handler = gdk.FrameClock.signals.layout.connect(
+            surface.getFrameClock(),
+            *Self,
+            afterLayout,
+            self,
+            .{ .after = true },
+        );
         const widget = self.as(gtk.Widget);
         self.logScale("connected", widget.getWidth(), widget.getHeight());
     }
@@ -253,6 +266,7 @@ pub const RenderSurface = extern struct {
         const priv = self.private();
         if (priv.scale_notify_id == 0) return;
         if (priv.scale_surface) |surface| {
+            gobject.signalHandlerDisconnect(surface.getFrameClock().as(gobject.Object), priv.layout_handler);
             gobject.signalHandlerDisconnect(
                 surface.as(gobject.Object),
                 priv.scale_notify_id,
@@ -261,6 +275,20 @@ pub const RenderSurface = extern struct {
         }
         priv.scale_notify_id = 0;
         priv.scale_surface = null;
+        priv.layout_handler = 0;
+        priv.layout = null;
+    }
+
+    fn afterLayout(_: *gdk.FrameClock, self: *Self) callconv(.c) void {
+        const widget = self.as(gtk.Widget);
+        const layout = scale_util.widgetLayout(widget);
+        if (self.private().layout) |previous| {
+            if (std.meta.eql(previous, layout)) return;
+        }
+
+        // An ancestor's transform can change without a local size allocation.
+        self.emitDeviceResize(widget.getWidth(), widget.getHeight());
+        widget.queueDraw();
     }
 
     fn onScaleNotify(

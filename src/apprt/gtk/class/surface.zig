@@ -1491,18 +1491,20 @@ pub const Surface = extern struct {
         dialog.present(self.as(gtk.Widget));
     }
 
-    /// Scale x/y by the GDK device scale.
+    /// Convert local pointer coordinates to terminal texture pixels.
     fn scaledCoordinates(
         self: *Self,
         x: f64,
         y: f64,
     ) struct { x: f64, y: f64 } {
         const widget = self.private().render_surface;
-        const scale_factor = scale_util.widgetSurfaceScale(widget.as(gtk.Widget));
+        const layout = scale_util.widgetLayout(widget.as(gtk.Widget));
+        const scale = layout.pixelScale();
+        const origin = layout.snapOrigin();
 
         return .{
-            .x = x * scale_factor,
-            .y = y * scale_factor,
+            .x = (x - origin.x) * scale.x,
+            .y = (y - origin.y) * scale.y,
         };
     }
 

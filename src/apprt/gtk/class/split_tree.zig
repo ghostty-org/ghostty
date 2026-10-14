@@ -6,6 +6,9 @@ const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
+const gdk = @import("gdk");
+const gsk = @import("gsk");
+const scale_util = @import("../scale.zig");
 
 const configpkg = @import("../../../config.zig");
 const apprt = @import("../../../apprt.zig");
@@ -1182,6 +1185,15 @@ const SplitTreeSplit = extern struct {
         max_changed: bool = false,
         pos_changed: bool = false,
 
+        layout_handler: c_ulong = 0,
+        scale_handler: c_ulong = 0,
+        allocated_layout: ?scale_util.Layout = null,
+        allocations: [3]?gtk.Allocation = .{ null, null, null },
+        separator: ?*gtk.Widget = null,
+        divider_css_size: c_int = 0,
+        divider_scale: f64 = 0,
+        divider_device_size: f64 = 0,
+
         // Template bindings
         paned: *gtk.Paned,
 
@@ -1208,6 +1220,16 @@ const SplitTreeSplit = extern struct {
         const paned = priv.paned;
         paned.setStartChild(start_child);
         paned.setEndChild(end_child);
+
+        // Keep the separator above both panes so neither pane overrides
+        // the resize cursor at the divider.
+        if (end_child.getPrevSibling()) |separator| {
+            if (std.mem.eql(u8, std.mem.span(separator.getCssName()), "separator")) {
+                priv.separator = separator;
+                separator.insertAfter(paned.as(gtk.Widget), end_child);
+            }
+        }
+
         paned.as(gtk.Orientable).setOrientation(switch (split.layout) {
             .horizontal => .horizontal,
             .vertical => .vertical,
@@ -1231,6 +1253,14 @@ const SplitTreeSplit = extern struct {
 
     fn init(self: *Self, _: *Class) callconv(.c) void {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
+
+        const paned = self.private().paned.as(gtk.Widget);
+        const class = Common(gtk.Widget, null).getClass(paned).?;
+        paned.setLayoutManager(gtk.CustomLayout.new(
+            class.f_get_request_mode,
+            class.f_measure.?,
+            &allocatePaned,
+        ).as(gtk.LayoutManager));
     }
 
     const SyncDirection = enum {
@@ -1443,6 +1473,192 @@ const SplitTreeSplit = extern struct {
     //---------------------------------------------------------------
     // Virtual methods
 
+    fn map(self: *Self) callconv(.c) void {
+        gtk.Widget.virtual_methods.map.call(Class.parent, self.as(Parent));
+
+        const widget = self.as(gtk.Widget);
+        const clock = widget.getFrameClock() orelse return;
+        const surface = (widget.getNative() orelse return).getSurface() orelse return;
+        const priv = self.private();
+        priv.layout_handler = gdk.FrameClock.signals.layout.connect(
+            clock,
+            *Self,
+            afterLayout,
+            self,
+            .{ .after = true },
+        );
+        priv.scale_handler = gobject.Object.signals.notify.connect(
+            surface,
+            *Self,
+            scaleChanged,
+            self,
+            .{ .detail = "scale" },
+        );
+        priv.paned.as(gtk.Widget).queueAllocate();
+    }
+
+    fn unmap(self: *Self) callconv(.c) void {
+        const widget = self.as(gtk.Widget);
+        const priv = self.private();
+        if (priv.layout_handler != 0) {
+            gobject.signalHandlerDisconnect(widget.getFrameClock().?.as(gobject.Object), priv.layout_handler);
+            priv.layout_handler = 0;
+        }
+        if (priv.scale_handler != 0) {
+            gobject.signalHandlerDisconnect(widget.getNative().?.getSurface().?.as(gobject.Object), priv.scale_handler);
+            priv.scale_handler = 0;
+        }
+        priv.allocated_layout = null;
+        gtk.Widget.virtual_methods.unmap.call(Class.parent, self.as(Parent));
+    }
+
+    fn scaleChanged(_: *gdk.Surface, _: *gobject.ParamSpec, self: *Self) callconv(.c) void {
+        self.private().paned.as(gtk.Widget).queueAllocate();
+    }
+
+    fn afterLayout(_: *gdk.FrameClock, self: *Self) callconv(.c) void {
+        const priv = self.private();
+        const widget = priv.paned.as(gtk.Widget);
+        const layout = scale_util.widgetLayout(widget);
+        if (priv.allocated_layout) |allocated| {
+            if (std.meta.eql(allocated, layout)) return;
+        }
+
+        // GTK can move a widget without calling its layout manager. Update
+        // the stored allocations directly, including nested splits, before
+        // painting. Queuing layout here needs one GTK pass per nesting level.
+        self.roundAllocations();
+    }
+
+    fn children(self: *Self) [3]?*gtk.Widget {
+        const priv = self.private();
+        return .{ priv.paned.getStartChild(), priv.paned.getEndChild(), priv.separator };
+    }
+
+    /// Keep GTK's native allocation decisions, including custom CSS sizes.
+    fn allocatePaned(widget: *gtk.Widget, width: c_int, height: c_int, baseline: c_int) callconv(.c) void {
+        const class = Common(gtk.Widget, null).getClass(widget).?;
+        gtk.Widget.virtual_methods.size_allocate.call(class, widget, width, height, baseline);
+
+        const self = ext.getAncestor(Self, widget) orelse return;
+        const priv = self.private();
+        const horizontal = priv.paned.as(gtk.Orientable).getOrientation() == .horizontal;
+        const rtl = widget.getDirection() == .rtl;
+        const position = priv.paned.getPosition();
+        var thickness: c_int = 0;
+        if (priv.separator) |separator| separator.measure(
+            priv.paned.as(gtk.Orientable).getOrientation(),
+            -1,
+            null,
+            &thickness,
+            null,
+            null,
+        );
+        const has_separator = if (priv.separator) |separator| separator.getChildVisible() != 0 else false;
+        for (self.children(), &priv.allocations, 0..) |maybe_child, *cached, i| {
+            cached.* = null;
+            const child = maybe_child orelse continue;
+            if (child.getVisible() == 0 or child.getChildVisible() == 0) continue;
+
+            // Include CSS and widget margins, borders and padding, which
+            // GTK applies again in allocate(). Content bounds omit these.
+            var allocation: gtk.Allocation = undefined;
+            child.getAllocation(&allocation);
+            allocation.f_width += child.getMarginStart() + child.getMarginEnd();
+            allocation.f_height += child.getMarginTop() + child.getMarginBottom();
+
+            // getAllocation's position already includes CSS transforms.
+            // Recover the native Paned position so allocate applies them once.
+            // Start children that exceed their available space extend towards
+            // the start edge; end children extend towards the end edge.
+            allocation.f_x = 0;
+            allocation.f_y = 0;
+            if (has_separator) {
+                if (horizontal) {
+                    allocation.f_x = switch (i) {
+                        0 => if (rtl) width - @max(1, position) else @max(1, position) - allocation.f_width,
+                        1 => if (rtl) width - position - thickness - allocation.f_width else position + thickness,
+                        2 => if (rtl) width - position - thickness else position,
+                        else => unreachable,
+                    };
+                } else {
+                    allocation.f_y = switch (i) {
+                        0 => @max(1, position) - allocation.f_height,
+                        1 => position + thickness,
+                        2 => position,
+                        else => unreachable,
+                    };
+                }
+            }
+            if (allocation.f_width > 0 and allocation.f_height > 0) cached.* = allocation;
+        }
+        self.roundAllocations();
+    }
+
+    /// Round the divider's thickness once, then share its snapped edges with
+    /// both panes. Rounding each edge separately makes a thin line alternate
+    /// between one and two physical pixels as the divider moves.
+    fn roundAllocations(self: *Self) void {
+        const priv = self.private();
+        const layout = scale_util.widgetLayout(priv.paned.as(gtk.Widget));
+        priv.allocated_layout = layout;
+        const scale = layout.pixelScale();
+        const ox = layout.origin.x * layout.scale;
+        const oy = layout.origin.y * layout.scale;
+        const horizontal = priv.paned.as(gtk.Orientable).getOrientation() == .horizontal;
+        const separator = priv.allocations[2];
+        const divider_start = if (separator) |a| @round(if (horizontal)
+            ox + @as(f64, @floatFromInt(a.f_x)) * scale.x
+        else
+            oy + @as(f64, @floatFromInt(a.f_y)) * scale.y) else 0;
+        // Use the surface scale, so nested allocation corrections cannot
+        // change the divider's thickness at the same display scale.
+        const css_size = if (separator) |a| (if (horizontal) a.f_width else a.f_height) else 0;
+        if (css_size != priv.divider_css_size or layout.scale != priv.divider_scale) {
+            priv.divider_css_size = css_size;
+            priv.divider_scale = layout.scale;
+            priv.divider_device_size = @max(1, @round(@as(f64, @floatFromInt(css_size)) * layout.scale));
+        }
+        const divider_end = divider_start + priv.divider_device_size;
+
+        for (self.children(), priv.allocations, 0..) |maybe_child, maybe_allocation, i| {
+            const child = maybe_child orelse continue;
+            const a = maybe_allocation orelse continue;
+            if (child.getVisible() == 0 or child.getChildVisible() == 0) continue;
+            const x: f64 = @floatFromInt(a.f_x);
+            const y: f64 = @floatFromInt(a.f_y);
+            const w: f64 = @floatFromInt(a.f_width);
+            const h: f64 = @floatFromInt(a.f_height);
+            var left = @round(ox + x * scale.x);
+            var top = @round(oy + y * scale.y);
+            var right = @round(ox + (x + w) * scale.x);
+            var bottom = @round(oy + (y + h) * scale.y);
+            if (separator) |sep| {
+                if (horizontal) {
+                    if (i == 2 or a.f_x == sep.f_x + sep.f_width) left = if (i == 2) divider_start else divider_end;
+                    if (i == 2 or a.f_x + a.f_width == sep.f_x) right = if (i == 2) divider_end else divider_start;
+                } else {
+                    if (i == 2 or a.f_y == sep.f_y + sep.f_height) top = if (i == 2) divider_start else divider_end;
+                    if (i == 2 or a.f_y + a.f_height == sep.f_y) bottom = if (i == 2) divider_end else divider_start;
+                }
+            }
+            if (right <= left or bottom <= top) continue;
+            const transform = gsk.Transform.translate(null, &.{
+                .f_x = @floatCast((left - ox) / scale.x),
+                .f_y = @floatCast((top - oy) / scale.y),
+            });
+            child.allocate(a.f_width, a.f_height, -1, gsk.Transform.scale(
+                transform,
+                @floatCast((right - left) / scale.x / w),
+                @floatCast((bottom - top) / scale.y / h),
+            ));
+
+            // A changed transform alone doesn't run the child's layout.
+            // Align nested clips now instead of waiting for another frame.
+            if (gobject.ext.cast(Self, child)) |nested| nested.roundAllocations();
+        }
+    }
+
     fn dispose(self: *Self) callconv(.c) void {
         const priv = self.private();
         if (priv.idle) |v| {
@@ -1499,6 +1715,8 @@ const SplitTreeSplit = extern struct {
             class.bindTemplateCallback("notify_position", &propPosition);
 
             // Virtual methods
+            gtk.Widget.virtual_methods.map.implement(class, &map);
+            gtk.Widget.virtual_methods.unmap.implement(class, &unmap);
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
             gobject.Object.virtual_methods.finalize.implement(class, &finalize);
         }
