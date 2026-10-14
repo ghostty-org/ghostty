@@ -8,6 +8,7 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const input = @import("../../../input.zig");
+const i18n = @import("../../../os/main.zig").i18n;
 const gresource = @import("../build/gresource.zig");
 const key = @import("../key.zig");
 const WeakRef = @import("../weak_ref.zig").WeakRef;
@@ -689,12 +690,13 @@ const Command = extern struct {
                 defer surface.unref();
 
                 const alloc = priv.arena.allocator();
-                const effective_title = surface.getEffectiveTitle() orelse "Untitled";
+                const effective_title = surface.getEffectiveTitle() orelse
+                    std.mem.span(i18n._("Untitled"));
 
                 j.title = std.fmt.allocPrintSentinel(
                     alloc,
-                    "Focus: {s}",
-                    .{effective_title},
+                    "{s}: {s}",
+                    .{ i18n._("Focus"), effective_title },
                     0,
                 ) catch null;
 

@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-08-10 10:06-0500\n"
+"POT-Creation-Date: 2026-08-28 11:17+0300\n"
 "PO-Revision-Date: 2026-08-14 23:43+0900\n"
 "Last-Translator: dobbylee <leekw1245@gmail.com>\n"
 "Language-Team: Korean <translation-team-ko@googlegroups.com>\n"
@@ -349,6 +349,14 @@ msgstr "이 창의 모든 터미널 세션이 종료됩니다."
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:196
 msgid "The currently running process in this split will be terminated."
 msgstr "이 분할에서 현재 실행 중인 프로세스가 종료됩니다."
+
+#: src/apprt/gtk/class/command_palette.zig:694
+msgid "Untitled"
+msgstr ""
+
+#: src/apprt/gtk/class/command_palette.zig:699
+msgid "Focus"
+msgstr ""
 
 #: src/apprt/gtk/class/surface.zig:1181
 msgid "Command Finished"

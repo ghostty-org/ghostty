@@ -350,6 +350,14 @@ msgstr "Tất cả các phiên làm việc terminal trong cửa sổ này sẽ b
 msgid "The currently running process in this split will be terminated."
 msgstr "Tiến trình đang chạy trong phần chia này sẽ bị chấm dứt."
 
+#: src/apprt/gtk/class/command_palette.zig:694
+msgid "Untitled"
+msgstr ""
+
+#: src/apprt/gtk/class/command_palette.zig:699
+msgid "Focus"
+msgstr ""
+
 #: src/apprt/gtk/class/surface.zig:1181
 msgid "Command Finished"
 msgstr "Lệnh đã kết thúc"

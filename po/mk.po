@@ -351,6 +351,14 @@ msgstr "Сите сесии во овој прозорец ќе бидат пр�
 msgid "The currently running process in this split will be terminated."
 msgstr "Процесот кој моментално се извршува во оваа поделба ќе биде прекинат."
 
+#: src/apprt/gtk/class/command_palette.zig:694
+msgid "Untitled"
+msgstr ""
+
+#: src/apprt/gtk/class/command_palette.zig:699
+msgid "Focus"
+msgstr ""
+
 #: src/apprt/gtk/class/surface.zig:1181
 msgid "Command Finished"
 msgstr "Командата заврши"
