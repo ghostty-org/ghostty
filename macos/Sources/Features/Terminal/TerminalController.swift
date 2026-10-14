@@ -182,7 +182,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // If our surface tree is now nil then we close our window.
         if to.isEmpty {
-            selectTabBeforeClosing()
             self.window?.close()
         }
     }
@@ -758,7 +757,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
               tabGroup.selectedWindow == window,
               let index = tabGroup.windows.firstIndex(of: window),
               index > 0 else { return }
-        tabGroup.selectedWindow = tabGroup.windows[index - 1]
+
+        // Select the tab the same way goto_tab does so it also becomes
+        // key and its surface gets keyboard focus.
+        tabGroup.windows[index - 1].makeKeyAndOrderFront(nil)
     }
 
     private func closeOtherTabsImmediately() {
