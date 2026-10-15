@@ -751,7 +751,7 @@ msgstr "नई विंडो खोलें।"
 
 #: src/input/command.zig:428
 msgid "Open a new tab."
-msgstr ""
+msgstr "नया टैब खोलें।"
 
 #: src/input/command.zig:434
 msgid "Move Tab Left"
@@ -787,7 +787,7 @@ msgstr ""
 
 #: src/input/command.zig:458
 msgid "Change Terminal Title…"
-msgstr ""
+msgstr "टर्मिनल का शीर्षक बदलें…"
 
 #: src/input/command.zig:459
 msgid "Prompt for a new title for the current terminal."
@@ -799,23 +799,23 @@ msgstr ""
 
 #: src/input/command.zig:478
 msgid "Split the terminal to the left."
-msgstr ""
+msgstr "टर्मिनल का विभाजन बाईं ओर करें।"
 
 #: src/input/command.zig:483
 msgid "Split the terminal to the right."
-msgstr ""
+msgstr "टर्मिनल का विभाजन दाईं ओर करें।"
 
 #: src/input/command.zig:488
 msgid "Split the terminal up."
-msgstr ""
+msgstr "टर्मिनल का विभाजन ऊपर करें।"
 
 #: src/input/command.zig:493
 msgid "Split the terminal down."
-msgstr ""
+msgstr "टर्मिनल का विभाजन नीचे करें।"
 
 #: src/input/command.zig:500
 msgid "Focus Split: Previous"
-msgstr ""
+msgstr "पिछले विभाजन पर केन्द्रित करें"
 
 #: src/input/command.zig:501
 msgid "Focus the previous split, if any."
@@ -823,7 +823,7 @@ msgstr ""
 
 #: src/input/command.zig:505
 msgid "Focus Split: Next"
-msgstr ""
+msgstr "अगले विभाजन पर केन्द्रित करें"
 
 #: src/input/command.zig:506
 msgid "Focus the next split, if any."
@@ -831,7 +831,7 @@ msgstr ""
 
 #: src/input/command.zig:510
 msgid "Focus Split: Left"
-msgstr ""
+msgstr "बाएँ विभाजन पर केन्द्रित करें"
 
 #: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
@@ -839,7 +839,7 @@ msgstr ""
 
 #: src/input/command.zig:515
 msgid "Focus Split: Right"
-msgstr ""
+msgstr "दाएँ विभाजन पर केन्द्रित करें"
 
 #: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
@@ -847,7 +847,7 @@ msgstr ""
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
-msgstr ""
+msgstr "ऊपर के विभाजन पर केन्द्रित करें"
 
 #: src/input/command.zig:521
 msgid "Focus the split above, if it exists."
@@ -855,7 +855,7 @@ msgstr ""
 
 #: src/input/command.zig:525
 msgid "Focus Split: Down"
-msgstr ""
+msgstr "नीचे के विभाजन पर केन्द्रित करें"
 
 #: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
@@ -863,7 +863,7 @@ msgstr ""
 
 #: src/input/command.zig:533
 msgid "Focus Window: Previous"
-msgstr ""
+msgstr "पिछली विंडो पर केन्द्रित करें"
 
 #: src/input/command.zig:534
 msgid "Focus the previous window, if any."
@@ -871,7 +871,7 @@ msgstr ""
 
 #: src/input/command.zig:538
 msgid "Focus Window: Next"
-msgstr ""
+msgstr "अगली विंडो पर केन्द्रित करें"
 
 #: src/input/command.zig:539
 msgid "Focus the next window, if any."
@@ -895,11 +895,11 @@ msgstr ""
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
-msgstr ""
+msgstr "विभाजनों का आकार बराबर करें"
 
 #: src/input/command.zig:558
 msgid "Equalize the size of all splits."
-msgstr ""
+msgstr "सभी विभाजनों का आकार बराबर करें।"
 
 #: src/input/command.zig:563
 msgid "Reset Window Size"
@@ -959,19 +959,19 @@ msgstr ""
 
 #: src/input/command.zig:606
 msgid "Close Terminal"
-msgstr ""
+msgstr "टर्मिनल बंद करें"
 
 #: src/input/command.zig:607
 msgid "Close the current terminal."
-msgstr ""
+msgstr "वर्तमान टर्मिनल बंद करें।"
 
 #: src/input/command.zig:614
 msgid "Close the current tab."
-msgstr ""
+msgstr "वर्तमान टैब बंद करें।"
 
 #: src/input/command.zig:618
 msgid "Close Other Tabs"
-msgstr ""
+msgstr "अन्य टैब बंद करें"
 
 #: src/input/command.zig:619
 msgid "Close all tabs in this window except the current one."
@@ -987,15 +987,15 @@ msgstr ""
 
 #: src/input/command.zig:631
 msgid "Close the current window."
-msgstr ""
+msgstr "वर्तमान विंडो बंद करें।"
 
 #: src/input/command.zig:636
 msgid "Close All Windows"
-msgstr ""
+msgstr "सभी विंडो बंद करें"
 
 #: src/input/command.zig:637
 msgid "Close all windows."
-msgstr ""
+msgstr "सभी विंडो बंद करें।"
 
 #: src/input/command.zig:642
 msgid "Toggle Maximize"
