@@ -1,0 +1,77 @@
+# =============================================================================
+# Zig tests for the fork-only build steps
+# =============================================================================
+# Khostty adds two build steps that do not exist upstream:
+#
+#   test-windows-apprt  src/main_windows_apprt.zig  (Windows app runtime)
+#   test-agent-ipc      src/main_agent_ipc.zig      (agent IPC mux substrate)
+#
+# Neither was referenced by ANY workflow, so the 156 `test` declarations across
+# those two files had never executed in CI. They only ran when a human typed
+# `zig build test-agent-ipc` by hand — which is why Phase 0 verification
+# required ~27 minutes of local wall-clock and a hand-written evidence log.
+#
+# The inherited upstream `test.yml` DOES cover `zig build test` and
+# `test-lib-vt`. This workflow covers only what is missing.
+#
+# Why nightly rather than per-push:
+#   `test-agent-ipc` runs the full test tree (~3900 tests, ~4GB peak, ~27min
+#   warm). Running that on every push would dominate CI cost for a repo on the
+#   free Actions tier. The fork's own conventions already schedule heavier
+#   work off the push path (sonar.yml, trunk-check.yml, scorecard.yml all use
+#   weekly crons). This matches that pattern.
+#
+# Why continue-on-error: consistent with every other job in this repo, which
+# treats quality signal as advisory rather than merge-blocking. A regression
+# here is still visible as a red nightly; it just does not block a push.
+# =============================================================================
+
+name: Fork Zig Tests
+
+on:
+  schedule:
+    # Daily 05:20 UTC — deliberately offset from the Monday 03:00/04:00/04:25
+    # weekly cluster so this does not compete for runners with trunk-check,
+    # sonar, or scorecard.
+    - cron: "20 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: zig-fork-tests
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-apprt:
+    name: test-windows-apprt
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The step resolves its dependency tree from the default branch, so a
+          # shallow clone would silently change what gets tested.
+          fetch-depth: 0
+      - uses: ./.github/actions/install-zig
+        with:
+          version: "0.16.0"
+      - name: Run test-windows-apprt
+        run: zig build test-windows-apprt
+
+  agent-ipc:
+    name: test-agent-ipc
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/install-zig
+        with:
+          version: "0.16.0"
+      - name: Run test-agent-ipc
+        run: zig build test-agent-ipc
