@@ -3,7 +3,11 @@ import AppIntents
 
 /// App intent to input text in a terminal.
 struct InputTextIntent: AppIntent {
+#if DEBUG
+    static var title: LocalizedStringResource = "[DEBUG] Input Text to Terminal"
+#else
     static var title: LocalizedStringResource = "Input Text to Terminal"
+#endif
 
     @Parameter(
         title: "Text",
@@ -46,7 +50,11 @@ struct InputTextIntent: AppIntent {
 
 /// App intent to trigger a keyboard event.
 struct KeyEventIntent: AppIntent {
+#if DEBUG
+    static var title: LocalizedStringResource = "[DEBUG] Send Keyboard Event to Terminal"
+#else
     static var title: LocalizedStringResource = "Send Keyboard Event to Terminal"
+#endif
     static var description = IntentDescription("Simulate a keyboard event. This will not handle text encoding; use the 'Input Text' action for that.")
 
     @Parameter(
@@ -111,7 +119,11 @@ struct KeyEventIntent: AppIntent {
 
 /// App intent to trigger a mouse button event.
 struct MouseButtonIntent: AppIntent {
+#if DEBUG
+    static var title: LocalizedStringResource = "[DEBUG] Send Mouse Button Event to Terminal"
+#else
     static var title: LocalizedStringResource = "Send Mouse Button Event to Terminal"
+#endif
 
     @Parameter(
         title: "Button",
@@ -173,7 +185,11 @@ struct MouseButtonIntent: AppIntent {
 
 /// App intent to send a mouse position event.
 struct MousePosIntent: AppIntent {
+#if DEBUG
+    static var title: LocalizedStringResource = "[DEBUG] Send Mouse Position Event to Terminal"
+#else
     static var title: LocalizedStringResource = "Send Mouse Position Event to Terminal"
+#endif
     static var description = IntentDescription("Send a mouse position event to the terminal. This reports the cursor position for mouse tracking.")
 
     @Parameter(
@@ -236,7 +252,11 @@ struct MousePosIntent: AppIntent {
 
 /// App intent to send a mouse scroll event.
 struct MouseScrollIntent: AppIntent {
+#if DEBUG
+    static var title: LocalizedStringResource = "[DEBUG] Send Mouse Scroll Event to Terminal"
+#else
     static var title: LocalizedStringResource = "Send Mouse Scroll Event to Terminal"
+#endif
     static var description = IntentDescription("Send a mouse scroll event to the terminal with configurable precision and momentum.")
 
     @Parameter(
