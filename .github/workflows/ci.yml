@@ -92,6 +92,15 @@ jobs:
             echo "has_python=true" >> $GITHUB_OUTPUT
           fi
 
+          # Python TEST suite, tracked separately from has_python. The Python
+          # job above only runs ruff (lint + format); it never executed a
+          # single test. khostty-python/tests/ holds 162 tests that no workflow
+          # ever collected, so a regression in the bindings shipped silently
+          # to PyPI. Linting green is not testing green.
+          if find . -maxdepth 3 -type d -name tests -not -path '*/node_modules/*' 2>/dev/null | head -1 | grep -q .; then
+            echo "has_python_tests=true" >> $GITHUB_OUTPUT
+          fi
+
           # Go: a go.mod anywhere in the tree (khostty-go/go.mod).
           if find . -name go.mod -not -path '*/node_modules/*' -type f 2>/dev/null | head -1 | grep -q .; then
             echo "has_go=true" >> $GITHUB_OUTPUT
@@ -165,6 +174,40 @@ jobs:
         run: ruff check . 2>&1 || echo "::warning::ruff issues (advisory)"
       - name: ruff format --check
         run: ruff format --check . 2>&1 || echo "::warning::format issues (advisory)"
+
+  pytest:
+    name: Python Tests
+    needs: detect
+    if: needs.detect.outputs.has_python_tests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The bindings open the library with dlopen. khostty_vt/_ffi.py searches
+      # `../../zig-out/lib` and `../zig-out/lib` for libghostty-vt.{dylib,so},
+      # so the native library has to exist before anything can be collected.
+      # Without it every test errors at import time instead of reporting a
+      # real failure.
+      - uses: ./.github/actions/install-zig
+        with:
+          version: "0.16.0"
+      - name: Build libghostty-vt
+        run: zig build -Dapp-runtime=none
+
+      # `cffi` is declared in pyproject.toml, but nothing ever installed this
+      # package, so no dependency was ever resolved. On a clean machine the
+      # suite then produced 150 collection errors at import instead of a
+      # signal. Installing the project with its test extra resolves both.
+      - name: Install package and test dependencies
+        run: pip install -e ".[test]"
+
+      - name: pytest
+        working-directory: khostty-python
+        run: python -m pytest tests/ -q
 
   go:
     name: Go
