@@ -203,7 +203,9 @@ jobs:
       # suite then produced 150 collection errors at import instead of a
       # signal. Installing the project with its test extra resolves both.
       - name: Install package and test dependencies
-        run: pip install -e ".[test]"
+        run: |
+          pip install --require-hashes --only-binary :all: -r khostty-python/requirements-ci.txt
+          pip install -e khostty-python --no-deps --no-build-isolation
 
       - name: pytest
         working-directory: khostty-python
