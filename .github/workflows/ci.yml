@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-zig
         with:
-          version: '0.16.0'
+          version: "0.16.0"
           # Official sha256 for zig-x86_64-linux-0.16.0.tar.xz, from
           # https://ziglang.org/download/index.json (read 2026-09-29).
           shasum: 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-zig
         with:
-          version: '0.16.0'
+          version: "0.16.0"
           shasum: 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
       - name: Select Xcode
         run: |
@@ -158,7 +158,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
       - name: Install ruff
         run: pip install ruff
       - name: ruff check
@@ -176,7 +176,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: "1.22"
       - name: gofmt check
         run: gofmt -l . 2>&1 || echo "::warning::gofmt issues (advisory)"
       - name: go vet
@@ -201,7 +201,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
           # No `cache:` input: npm caching requires a lockfile and wasm/ has none.
           # Committing one is a separate decision; until then this job installs fresh.
       - run: npm install --no-audit --no-fund
@@ -224,6 +224,14 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 2026-10-15: gitleaks-action resolves its diff range as
+          # `<head>^..<head>`. The default shallow clone (depth 1) does not
+          # contain the parent commit, so git failed with
+          # "fatal: ambiguous argument" and the scan degraded to a partial
+          # 0-byte scan (it reported "no leaks found" -- that was a failed
+          # scan, not a clean one). Fetch full history so the range resolves.
+          fetch-depth: 0
       - name: gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
@@ -243,7 +251,18 @@ jobs:
   lint:
     name: ci / lint
     if: always()
-    needs: [zig-fmt, detect, rust, cargo-deny, python, go, typescript, security, dep-review]
+    needs:
+      [
+        zig-fmt,
+        detect,
+        rust,
+        cargo-deny,
+        python,
+        go,
+        typescript,
+        security,
+        dep-review,
+      ]
     runs-on: ubuntu-latest
     steps:
       - name: Aggregate lint gate
