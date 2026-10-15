@@ -18,7 +18,7 @@ msgstr ""
 
 #: dist/linux/ghostty_nautilus.py:53
 msgid "Open in Ghostty"
-msgstr ""
+msgstr "घोस्टी में खोलें"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -30,12 +30,12 @@ msgstr ""
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:17
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:17
 msgid "Deny"
-msgstr ""
+msgstr "मना करें"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:18
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:18
 msgid "Allow"
-msgstr ""
+msgstr "अनुमति दें"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
 msgid "Remember choice for this split"
@@ -49,13 +49,13 @@ msgstr ""
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
 #: src/apprt/gtk/class/application.zig:2263
 msgid "Cancel"
-msgstr ""
+msgstr "रद्द करें"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:8
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:90
 #: src/apprt/gtk/ui/1.3/surface-child-exited.blp:17
 msgid "Close"
-msgstr ""
+msgstr "बंद करें"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
 msgid "Configuration Errors"
@@ -69,7 +69,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:12
 msgid "Ignore"
-msgstr ""
+msgstr "अनदेखा करें"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:13
 #: src/apprt/gtk/ui/1.2/surface.blp:439 src/apprt/gtk/ui/1.5/window.blp:318
@@ -88,19 +88,19 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
-msgstr ""
+msgstr "ढूंढें…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:69
 msgid "Previous Match"
-msgstr ""
+msgstr "पिछला मिलान"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:79
 msgid "Next Match"
-msgstr ""
+msgstr "अगला मिलान"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Oh, no."
-msgstr ""
+msgstr "अरे नहीं ।"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:8
 msgid "Unable to acquire an OpenGL context for rendering."
@@ -115,15 +115,15 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.2/surface.blp:112
 msgid "Read-only"
-msgstr ""
+msgstr "केवल पढ़ने के लिए"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:316 src/apprt/gtk/ui/1.5/window.blp:203
 msgid "Copy"
-msgstr ""
+msgstr "नक़ल"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:321 src/apprt/gtk/ui/1.5/window.blp:208
 msgid "Paste"
-msgstr ""
+msgstr "चिपकाएँ"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:326
 msgid "Notify on Next Command Finish"
@@ -131,7 +131,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
-msgstr ""
+msgstr "साफ करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:338 src/apprt/gtk/ui/1.5/window.blp:286
 msgid "Reset"
@@ -139,77 +139,77 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split"
-msgstr ""
+msgstr "विभाजन करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:348 src/apprt/gtk/ui/1.5/window.blp:253
 msgid "Change Title…"
-msgstr ""
+msgstr "शीर्षक बदलें…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:353 src/apprt/gtk/ui/1.5/window.blp:180
 #: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:487
 msgid "Split Up"
-msgstr ""
+msgstr "विभाजन ऊपर करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:359 src/apprt/gtk/ui/1.5/window.blp:185
 #: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:492
 msgid "Split Down"
-msgstr ""
+msgstr "विभाजन नीचे करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:365 src/apprt/gtk/ui/1.5/window.blp:190
 #: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
 msgid "Split Left"
-msgstr ""
+msgstr "विभाजन बायाँ करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:195
 #: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
 msgid "Split Right"
-msgstr ""
+msgstr "विभाजन दायाँ करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:377
 msgid "Close Split"
-msgstr ""
+msgstr "विभाजन बंद करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:383
 msgid "Tab"
-msgstr ""
+msgstr "टैब"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:386 src/apprt/gtk/ui/1.5/window.blp:232
 #: src/apprt/gtk/ui/1.5/window.blp:339 src/input/command.zig:464
 msgid "Change Tab Title…"
-msgstr ""
+msgstr "टैब का शीर्षक बदलें…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:391 src/apprt/gtk/ui/1.5/window.blp:60
 #: src/apprt/gtk/ui/1.5/window.blp:110 src/apprt/gtk/ui/1.5/window.blp:237
 #: src/input/command.zig:427
 msgid "New Tab"
-msgstr ""
+msgstr "नया टैब"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:396 src/apprt/gtk/ui/1.5/window.blp:242
 #: src/input/command.zig:613
 msgid "Close Tab"
-msgstr ""
+msgstr "टैब बंद करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:403
 msgid "Window"
-msgstr ""
+msgstr "विंडो"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:215
 msgid "Change Window Title…"
-msgstr ""
+msgstr "विंडो शीर्षक बदलें..."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:220
 #: src/input/command.zig:421
 msgid "New Window"
-msgstr ""
+msgstr "नया विंडो"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:416 src/apprt/gtk/ui/1.5/window.blp:225
 #: src/input/command.zig:630
 msgid "Close Window"
-msgstr ""
+msgstr "विंडो बंद करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:424 src/apprt/gtk/ui/1.5/window.blp:303
 msgid "Config"
-msgstr ""
+msgstr "विन्यास"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
@@ -225,11 +225,11 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:9
 msgid "OK"
-msgstr ""
+msgstr "ठीक"
 
 #: src/apprt/gtk/ui/1.5/window.blp:61 src/apprt/gtk/ui/1.5/window.blp:111
 msgid "New Split"
-msgstr ""
+msgstr "नया विभाजन"
 
 #: src/apprt/gtk/ui/1.5/window.blp:71 src/apprt/gtk/ui/1.5/window.blp:129
 msgid "View Open Tabs"
@@ -237,7 +237,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/window.blp:81 src/apprt/gtk/ui/1.5/window.blp:143
 msgid "Main Menu"
-msgstr ""
+msgstr "मुख्य मेन्यू"
 
 #: src/apprt/gtk/ui/1.5/window.blp:293
 msgid "Command Palette"
@@ -249,15 +249,15 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1991
 msgid "About Ghostty"
-msgstr ""
+msgstr "घोस्टी के बारे में"
 
 #: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:702
 msgid "Quit"
-msgstr ""
+msgstr "बाहर जाएँ"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:17
 msgid "Execute a command…"
-msgstr ""
+msgstr "निर्देश क्रियान्वित करें…"
 
 #: src/apprt/gtk/class/application.zig:1767
 msgid "The keybind was revoked by the system."
@@ -277,7 +277,7 @@ msgstr ""
 
 #: src/apprt/gtk/class/application.zig:2262
 msgid "Export"
-msgstr ""
+msgstr "निर्यात"
 
 #: src/apprt/gtk/class/application.zig:2783
 msgid "Editing configuration file"
@@ -307,7 +307,7 @@ msgstr ""
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
 msgid "Quit Ghostty?"
-msgstr ""
+msgstr "घोस्टी से बाहर जाएँ?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
@@ -344,12 +344,12 @@ msgstr ""
 #: src/apprt/gtk/class/surface.zig:1182
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
-msgstr ""
+msgstr "निर्देश सफल"
 
 #: src/apprt/gtk/class/surface.zig:1183
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
-msgstr ""
+msgstr "निर्देश विफल"
 
 #: src/apprt/gtk/class/title_dialog.zig:227
 msgid "Change Terminal Title"
@@ -369,7 +369,7 @@ msgstr ""
 
 #: src/apprt/gtk/class/window.zig:1830
 msgid "Copied to clipboard"
-msgstr ""
+msgstr "क्लिपबोर्ड पर प्रति बनाई गई"
 
 #: src/apprt/gtk/class/window.zig:1832
 msgid "Cleared clipboard"
@@ -389,7 +389,7 @@ msgstr ""
 
 #: src/input/command.zig:155
 msgid "Copy to Clipboard"
-msgstr ""
+msgstr "क्लिपबोर्ड पर प्रति बनाएँ"
 
 #: src/input/command.zig:156
 msgid ""
@@ -456,7 +456,7 @@ msgstr ""
 
 #: src/input/command.zig:197
 msgid "Start Search"
-msgstr ""
+msgstr "खोज प्रारंभ"
 
 #: src/input/command.zig:198
 msgid "Start a search if one isn't already active."
@@ -464,7 +464,7 @@ msgstr ""
 
 #: src/input/command.zig:203
 msgid "Search Selection"
-msgstr ""
+msgstr "खोज चयन"
 
 #: src/input/command.zig:204
 msgid "Start a search for the current text selection."
@@ -472,7 +472,7 @@ msgstr ""
 
 #: src/input/command.zig:209
 msgid "End Search"
-msgstr ""
+msgstr "खोज अंत"
 
 #: src/input/command.zig:210
 msgid "End the current search if any and hide any GUI elements."
@@ -480,7 +480,7 @@ msgstr ""
 
 #: src/input/command.zig:215
 msgid "Next Search Result"
-msgstr ""
+msgstr "अगला खोज परिणाम"
 
 #: src/input/command.zig:216
 msgid "Navigate to the next search result, if any."
@@ -488,7 +488,7 @@ msgstr ""
 
 #: src/input/command.zig:219
 msgid "Previous Search Result"
-msgstr ""
+msgstr "पिछला खोज परिणाम"
 
 #: src/input/command.zig:220
 msgid "Navigate to the previous search result, if any."
@@ -496,19 +496,19 @@ msgstr ""
 
 #: src/input/command.zig:225
 msgid "Increase Font Size"
-msgstr ""
+msgstr "फ़ॉन्ट आकार बढ़ाएं"
 
 #: src/input/command.zig:226
 msgid "Increase the font size by 1 point."
-msgstr ""
+msgstr "१ बिन्दु से फ़ॉन्ट आकार वृद्धि करें"
 
 #: src/input/command.zig:231
 msgid "Decrease Font Size"
-msgstr ""
+msgstr "फ़ॉन्ट आकार घटाएँ"
 
 #: src/input/command.zig:232
 msgid "Decrease the font size by 1 point."
-msgstr ""
+msgstr "१ बिन्दु से फ़ॉन्ट आकार कम करें"
 
 #: src/input/command.zig:237
 msgid "Reset Font Size"
@@ -520,7 +520,7 @@ msgstr ""
 
 #: src/input/command.zig:243
 msgid "Clear Screen"
-msgstr ""
+msgstr "पर्दा साफ करें"
 
 #: src/input/command.zig:244
 msgid "Clear the screen and scrollback."
@@ -528,7 +528,7 @@ msgstr ""
 
 #: src/input/command.zig:249
 msgid "Select All"
-msgstr ""
+msgstr "सभी चुनें"
 
 #: src/input/command.zig:250
 msgid "Select all text on the screen."
@@ -536,7 +536,7 @@ msgstr ""
 
 #: src/input/command.zig:255
 msgid "Scroll to Top"
-msgstr ""
+msgstr "सबसे ऊपर जाएँ"
 
 #: src/input/command.zig:256
 msgid "Scroll to the top of the screen."
@@ -544,23 +544,23 @@ msgstr ""
 
 #: src/input/command.zig:261
 msgid "Scroll to Bottom"
-msgstr ""
+msgstr "सबसे नीचे जाएँ"
 
 #: src/input/command.zig:262
 msgid "Scroll to the bottom of the screen."
-msgstr ""
+msgstr "पर्दा के सबसे नीचे तक जाएँ ।"
 
 #: src/input/command.zig:267
 msgid "Scroll to Selection"
-msgstr ""
+msgstr "चयन तक जाएँ"
 
 #: src/input/command.zig:268
 msgid "Scroll to the selected text."
-msgstr ""
+msgstr "चयनित पाठ तक जाएँ ।"
 
 #: src/input/command.zig:273
 msgid "Scroll Page Up"
-msgstr ""
+msgstr "ऊपर पृष्ठ"
 
 #: src/input/command.zig:274
 msgid "Scroll the screen up by a page."
@@ -1063,7 +1063,7 @@ msgstr ""
 
 #: src/input/command.zig:690
 msgid "Undo"
-msgstr ""
+msgstr "पूर्ववत् करें"
 
 #: src/input/command.zig:691
 msgid "Undo the last action."
@@ -1071,19 +1071,19 @@ msgstr ""
 
 #: src/input/command.zig:696
 msgid "Redo"
-msgstr ""
+msgstr "फिर से करें"
 
 #: src/input/command.zig:697
 msgid "Redo the last undone action."
-msgstr ""
+msgstr "पिछली पूर्ववत् की गई कार्रवाई को फिर से करें"
 
 #: src/input/command.zig:703
 msgid "Quit the application."
-msgstr ""
+msgstr "बाहर जाएँ"
 
 #: src/input/command.zig:708
 msgid "Ghostty"
-msgstr ""
+msgstr "घोस्टी"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."
