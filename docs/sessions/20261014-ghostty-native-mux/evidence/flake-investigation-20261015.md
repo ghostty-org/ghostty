@@ -11,14 +11,14 @@
 
 Attempts on main (all from this session):
 
-| # | Method | Result |
-|---|--------|--------|
-| 1 | `zig build test -Dtest-filter=terminal.search.Thread` (cold, full build) | 76/76 passed |
-| 2 | `zig build test -Dtest-filter=terminal.search.Thread` (warm cache) | 76/76 passed |
-| 3 | `zig build test -Dtest-filter=terminal.search.Thread` (warm cache) | 76/76 passed |
-| 4 | `zig build test -Dtest-filter="terminal.search.Thread.test_0"` (warm cache) | 76/76 passed |
-| 5 | Direct binary loop, `--test-filter terminal.search.Thread.test_0`, 30 iters | 30/30 clean |
-| 6 | Direct binary loop, full suite, 25 iters | 25/25 clean |
+| #   | Method                                                                      | Result       |
+| --- | --------------------------------------------------------------------------- | ------------ |
+| 1   | `zig build test -Dtest-filter=terminal.search.Thread` (cold, full build)    | 76/76 passed |
+| 2   | `zig build test -Dtest-filter=terminal.search.Thread` (warm cache)          | 76/76 passed |
+| 3   | `zig build test -Dtest-filter=terminal.search.Thread` (warm cache)          | 76/76 passed |
+| 4   | `zig build test -Dtest-filter="terminal.search.Thread.test_0"` (warm cache) | 76/76 passed |
+| 5   | Direct binary loop, `--test-filter terminal.search.Thread.test_0`, 30 iters | 30/30 clean  |
+| 6   | Direct binary loop, full suite, 25 iters                                    | 25/25 clean  |
 
 The flake **did** reproduce in the original phase0 evidence logs (2/3 runs crashed).
 
@@ -67,6 +67,7 @@ error: 'terminal.search.Thread.test_0' terminated with signal ABRT with stderr:
 ```
 
 The `agent-ipc-incremental-20261014.log` shows a slightly different crash path:
+
 - Crash at `Thread.zig:661:5` (the `waitTimeout` call in the **test thread**, NOT the search thread)
 - Then the search thread's `tick()` at `kqueue.zig:1476:37 in setup` (the FIRST tick, calling kevent for wakeup registration)
 - Same `.BADF => unreachable` panic
@@ -79,18 +80,18 @@ The crash is a **race between the test thread's teardown and the search thread's
 
 ## 4. Affected files
 
-| File | Lines | Role |
-|------|-------|------|
-| `src/terminal/search/Thread.zig` | 134-238 (especially 197, 211) | `threadMain_` loop where the crash fires — calls `loop.run(.once)` which crashes when kqueue FD is closed |
-| `src/terminal/search/Thread.zig` | 622-680 | The failing test (`test {}` block); race-prone teardown at line 664-665 (`stop.notify` + `os_thread.join`) |
-| `src/terminal/search/Thread.zig` | 462-471 | `stopCallback` — calls `loop.stop()` and returns `.disarm` (no rearm), leaving loop in stopped state but search thread may re-enter `loop.run` |
-| `src/terminal/search/Thread.zig` | 118-131 | `deinit` — closes `loop` (kqueue_fd) via `loop.deinit()` after thread exits |
-| `src/terminal/search.zig` | 22 | `Thread = @import("search/Thread.zig")` for `.ghostty` artifact only — Thread test is wired on main via ghostty root |
-| `src/main_agent_ipc.zig` | (phase0-only, lines 41-48) | Phase 0 test root — adds the test root that exercises enough tests to surface the race |
-| `src/apprt/ipc/app_host.zig` | (phase0-only) | Phase 0's `app_host.zig` integration — adds memory pressure that exposes the race |
-| `zig-pkg/libxev-.../src/backend/kqueue.zig` | 131-134 (Loop.deinit) | `xev_posix.close(self.kqueue_fd)` — FD close site |
-| `zig-pkg/libxev-.../src/backend/kqueue.zig` | 1916 | `.BADF => unreachable` assertion — the actual crash point |
-| `zig-pkg/libxev-.../src/backend/kqueue.zig` | 305-307 | `run()` — dispatches to `tick(1)` for `.once` mode |
+| File                                        | Lines                         | Role                                                                                                                                           |
+| ------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/terminal/search/Thread.zig`            | 134-238 (especially 197, 211) | `threadMain_` loop where the crash fires — calls `loop.run(.once)` which crashes when kqueue FD is closed                                      |
+| `src/terminal/search/Thread.zig`            | 622-680                       | The failing test (`test {}` block); race-prone teardown at line 664-665 (`stop.notify` + `os_thread.join`)                                     |
+| `src/terminal/search/Thread.zig`            | 462-471                       | `stopCallback` — calls `loop.stop()` and returns `.disarm` (no rearm), leaving loop in stopped state but search thread may re-enter `loop.run` |
+| `src/terminal/search/Thread.zig`            | 118-131                       | `deinit` — closes `loop` (kqueue_fd) via `loop.deinit()` after thread exits                                                                    |
+| `src/terminal/search.zig`                   | 22                            | `Thread = @import("search/Thread.zig")` for `.ghostty` artifact only — Thread test is wired on main via ghostty root                           |
+| `src/main_agent_ipc.zig`                    | (phase0-only, lines 41-48)    | Phase 0 test root — adds the test root that exercises enough tests to surface the race                                                         |
+| `src/apprt/ipc/app_host.zig`                | (phase0-only)                 | Phase 0's `app_host.zig` integration — adds memory pressure that exposes the race                                                              |
+| `zig-pkg/libxev-.../src/backend/kqueue.zig` | 131-134 (Loop.deinit)         | `xev_posix.close(self.kqueue_fd)` — FD close site                                                                                              |
+| `zig-pkg/libxev-.../src/backend/kqueue.zig` | 1916                          | `.BADF => unreachable` assertion — the actual crash point                                                                                      |
+| `zig-pkg/libxev-.../src/backend/kqueue.zig` | 305-307                       | `run()` — dispatches to `tick(1)` for `.once` mode                                                                                             |
 
 ## 5. Suggested fix direction
 

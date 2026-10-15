@@ -10,15 +10,15 @@ commit `d503ef762`).
 
 ## Result
 
-| Metric                | Recorded baseline | This run | Delta |
-|-----------------------|-------------------|----------|-------|
-| Wall clock            | 30m 24s           | 27m 29s  | -2m 55s (faster) |
-| Build steps           | 83/85             | 83/85    | same |
-| Tests passed          | 3899/3925         | 3899/3925| same |
-| Tests skipped         | 25                | 25       | same |
-| Tests crashed         | 1                 | 1        | same |
-| Peak RSS              | 4 GB              | 648 MB   | measured differently (RSS via `time -l` not `ps`); the test process peaked lower in this run, but the crashed subagent consumed additional memory before its trace. |
-| Build artifact        | (khostty-test)    | (khostty-test) | same |
+| Metric         | Recorded baseline | This run       | Delta                                                                                                                                                               |
+| -------------- | ----------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wall clock     | 30m 24s           | 27m 29s        | -2m 55s (faster)                                                                                                                                                    |
+| Build steps    | 83/85             | 83/85          | same                                                                                                                                                                |
+| Tests passed   | 3899/3925         | 3899/3925      | same                                                                                                                                                                |
+| Tests skipped  | 25                | 25             | same                                                                                                                                                                |
+| Tests crashed  | 1                 | 1              | same                                                                                                                                                                |
+| Peak RSS       | 4 GB              | 648 MB         | measured differently (RSS via `time -l` not `ps`); the test process peaked lower in this run, but the crashed subagent consumed additional memory before its trace. |
+| Build artifact | (khostty-test)    | (khostty-test) | same                                                                                                                                                                |
 
 **Verdict: same as baseline.** Slightly faster, identical pass/fail profile.
 
