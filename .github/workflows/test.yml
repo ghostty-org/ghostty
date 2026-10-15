@@ -167,6 +167,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -225,6 +226,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -259,6 +261,7 @@ jobs:
             xcode
           path: |
             /Users/runner/zig
+            /Users/runner/.cache/nix
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
       - uses: DeterminateSystems/nix-installer-action@main
@@ -293,6 +296,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -360,6 +364,7 @@ jobs:
             xcode
           path: |
             /Users/runner/zig
+            /Users/runner/.cache/nix
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
       - uses: DeterminateSystems/nix-installer-action@main
@@ -399,6 +404,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -437,6 +443,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -554,6 +561,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -588,6 +596,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -632,6 +641,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -670,6 +680,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
@@ -702,6 +713,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -793,6 +805,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -859,6 +872,7 @@ jobs:
             xcode
           path: |
             /Users/runner/zig
+            /Users/runner/.cache/nix
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
       - uses: DeterminateSystems/nix-installer-action@main
@@ -906,6 +920,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -998,6 +1013,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -1027,6 +1043,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -1060,6 +1077,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -1142,6 +1160,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -1182,6 +1201,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -1314,6 +1334,7 @@ jobs:
             xcode
           path: |
             /Users/runner/zig
+            /Users/runner/.cache/nix
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
       - uses: DeterminateSystems/nix-installer-action@main
@@ -1366,6 +1387,7 @@ jobs:
             xcode
           path: |
             /Users/runner/zig
+            /Users/runner/.cache/nix
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
       - uses: DeterminateSystems/nix-installer-action@main
@@ -1406,6 +1428,7 @@ jobs:
             xcode
           path: |
             /Users/runner/zig
+            /Users/runner/.cache/nix
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
       - uses: DeterminateSystems/nix-installer-action@main
@@ -1459,6 +1482,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -1516,6 +1540,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -1553,6 +1578,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -1605,7 +1631,9 @@ jobs:
       - name: Setup Cache
         uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
         with:
-          path: /nix
+          path: |
+            /nix
+            /home/runner/.cache/nix
 
       # Install Nix so the verifier uses the pinned compiler and runtimes.
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
@@ -1640,6 +1668,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -1688,6 +1717,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -1723,6 +1753,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -1755,6 +1786,7 @@ jobs:
             xcode
           path: |
             /Users/runner/zig
+            /Users/runner/.cache/nix
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
       - uses: DeterminateSystems/nix-installer-action@main
@@ -1798,6 +1830,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -1829,6 +1862,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -1873,6 +1907,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
@@ -1904,6 +1939,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
@@ -1934,6 +1970,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
@@ -1962,6 +1999,7 @@ jobs:
             xcode
           path: |
             /Users/runner/zig
+            /Users/runner/.cache/nix
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
       - uses: DeterminateSystems/nix-installer-action@main
@@ -1992,6 +2030,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
@@ -2020,6 +2059,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
@@ -2048,6 +2088,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
@@ -2081,6 +2122,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
@@ -2109,6 +2151,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
@@ -2148,6 +2191,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.
@@ -2210,6 +2254,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       # Install Nix and use that to run our tests so our environment matches exactly.

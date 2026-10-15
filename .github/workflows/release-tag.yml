@@ -87,6 +87,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
@@ -143,6 +144,7 @@ jobs:
             xcode
           path: |
             /Users/runner/zig
+            /Users/runner/.cache/nix
 
       - uses: DeterminateSystems/nix-installer-action@main
         with:
