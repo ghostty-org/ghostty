@@ -1,3 +1,40 @@
+# CORRECTION (operator 2026-10-15T21:19:47Z)
+
+> The framing in the rest of this document is partially wrong. The
+> Phase 0 work was NEVER meant to land on `ghostty-org/ghostty` —
+> the khostty fork is fork-only. The upstream interactions described
+> below (PR #14720, Discussion #14719, Discussion #14721) were
+> filed in error. The "pull permission means use Discussions instead"
+> reasoning used to justify filing the discussions is itself a
+> violation: this account is not permitted to publish to
+> `ghostty-org/ghostty` in any form, regardless of which surface
+> (Issues, PRs, Discussions, REST API) is reachable.
+>
+> **Binding rule saved** (memory id
+> `mem_1792099237411_16193025759751338582`, scope=global, and
+> appended to all 6 AGENTS.md files:
+> `~/AGENTS.md`, `~/.jcode/AGENTS.md`, `~/.codex/AGENTS.md`,
+> `~/.forge/AGENTS.md`, `~/.kcode/AGENTS.md`, `~/.helioslite/AGENTS.md`):
+>
+> "The khostty fork (and any `KooshaPari/<upstream-name>` fork) is
+> FORK-ONLY. No `gh pr create`, `gh issue create`, `gh discussion
+create`, `gh api POST/PATCH/DELETE` against `ghostty-org/ghostty`
+> or any other upstream repo from this account. Reading upstream,
+> copying files, tracking branches, running `zig build` against
+> upstream checkouts — all fine. Publishing to `KooshaPari/*` repos
+> is fine. The constraint is specifically about other people's
+> projects where the operator does not have maintainer-equivalent
+> authority."
+>
+> The Phase 0 work itself (branch `test/agent-ipc-phase0`, the
+> `app_host.zig` build-graph wiring, the fresh verification) is
+> correct and stays on the fork as originally intended. The
+> SonarCloud PR `KooshaPari/Khostty#14` is fine — that is the
+> operator's own org. The upstream PR and the two upstream
+> discussions are the error.
+
+---
+
 # Ghostty-native mux — Phase 0 wrap session close
 
 **Session span:** 2026-10-14 to 2026-10-15
