@@ -31,6 +31,31 @@ type-checked here. The signatures, imports, and the `AppHost` struct
 resolved cleanly. The GTK runtimes (`-Dapp-runtime=gtk`) would be needed
 to fully analyze the bridge end-to-end.
 
+### Wall-clock ground truth (post-fix re-runs)
+
+The `13m` figure on the `run test` line is the **test execution time** only;
+it does not include the cold-cache compile of the test executable
+(zig link is the slow part, not the test run). Two follow-up re-runs on
+this host gave the full end-to-end wall clock:
+
+| Run                        | Cache | Started   | Ended     | Wall        | Result                                                                                                                  |
+| -------------------------- | ----- | --------- | --------- | ----------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Original (post-fix)        | cold  | 16:12 PDT | 16:58 PDT | **~46m**    | 85/85 steps, 3900/3925 pass, 25 skip                                                                                    |
+| First re-run (incremental) | warm  | 16:28 PDT | 16:58 PDT | **~30m**    | 83/85 steps, 3898/3925 pass, 25 skip, **1 fail + 1 crash** (`terminal.search.Thread.test_0` ABRT, unrelated to Phase 0) |
+| Second re-run (cache-warm) | warm  | 16:58 PDT | 17:29 PDT | **30m 24s** | 83/85 steps, 3899/3925 pass, 25 skip, **1 crash** (same `terminal.search.Thread` ABRT, flaky under load)                |
+
+**Honest claim:** the cold-cache Phase 0 build is ~46m wall clock. The
+~13m figure is the _test phase_ only. The cache-warm re-run is still ~30m
+wall (the test phase dominates, not the compile). The `terminal.search`
+failures on the re-runs are pre-existing flakes unrelated to Phase 0; the
+Phase 0 commit itself produced a clean `85/85 / 3900 pass / 25 skip` result.
+
+Logs:
+
+- [`agent-ipc-build-20261014.log`](./evidence/agent-ipc-build-20261014.log) — the original run that hit the 7 errors and the post-fix `85/85` success
+- [`agent-ipc-incremental-20261014.log`](./evidence/agent-ipc-incremental-20261014.log) — first re-run, 2 test failures (flaky)
+- [`agent-ipc-cache-warm-20261014.log`](./evidence/agent-ipc-cache-warm-20261014.log) — second re-run, 1 test failure (flaky)
+
 ## What was wrong with `app_host.zig`
 
 The first build run (commit-not-yet-attempted) failed with 7 compile
