@@ -83,6 +83,8 @@
   # developer shell
   glycin-loaders,
   librsvg,
+  # Leave out the tools that only developers use, for the CI shell.
+  ci ? false,
 }: let
   # See package.nix. Keep in sync.
   ld_library_path = import ./build-support/ld-library-path.nix {
@@ -99,53 +101,34 @@
   ]);
 in
   mkShell {
-    name = "ghostty";
+    name =
+      if ci
+      then "ghostty-ci"
+      else "ghostty";
     packages =
       [
         # For builds
         cmake
-        doxygen
         jq
-        llvmPackages_latest.llvm
         minisign
         ncurses
         pandoc
         pkg-config
-        scdoc
         zig
         zip
-        zon2nix.packages.${stdenv.hostPlatform.system}.zon2nix
 
         # For web and wasm stuff
         nodejs
 
-        # Linting
-        prettier
-        alejandra
-        pinact
-        typos
-        shellcheck
-
         # Testing
-        parallel
         python
-        vttest
-        hyperfine
-        kaitai-struct-compiler
 
         # wasm
         binaryen
-        twiggy
-        wabt
         wasm-tools
-        wasmtime
-        wizer
 
         # Localization
         gettext
-
-        # CI
-        uv
 
         # Scripting
         nushell
@@ -156,21 +139,41 @@ in
         libadwaita
         gtk4
       ]
+      ++ lib.optionals (!ci) [
+        # For builds
+        doxygen
+        llvmPackages_latest.llvm
+        scdoc
+        zon2nix.packages.${stdenv.hostPlatform.system}.zon2nix
+
+        # Linting
+        prettier
+        alejandra
+        pinact
+        typos
+        shellcheck
+
+        # Testing
+        parallel
+        vttest
+        hyperfine
+        kaitai-struct-compiler
+
+        # wasm
+        twiggy
+        wabt
+        wasmtime
+        wizer
+
+        # CI
+        uv
+      ]
       ++ lib.optionals stdenv.hostPlatform.isLinux [
         # My nix shell environment installs the non-interactive version
         # by default so we have to include this.
         bashInteractive
 
-        # Used for testing SIMD codegen. This is Linux only because the macOS
-        # build only has the qemu-system files.
-        qemu
-
-        appstream
-        flatpak-builder
-        gdb
-        # snapcraft
         valgrind
-        wraptest
 
         bzip2
         expat
@@ -210,11 +213,22 @@ in
         # developer shell
         glycin-loaders
         librsvg
+      ]
+      ++ lib.optionals (stdenv.hostPlatform.isLinux && !ci) [
+        # Used for testing SIMD codegen. This is Linux only because the macOS
+        # build only has the qemu-system files.
+        qemu
+
+        appstream
+        flatpak-builder
+        gdb
+        # snapcraft
+        wraptest
 
         # for benchmarking
         poop
       ]
-      ++ lib.optionals stdenv.hostPlatform.isDarwin [
+      ++ lib.optionals (stdenv.hostPlatform.isDarwin && !ci) [
         swiftlint
       ];
 

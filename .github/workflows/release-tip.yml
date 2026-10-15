@@ -103,7 +103,7 @@ jobs:
       - name: Determine skip
         id: check
         run: |
-          if nix develop -c nu .github/scripts/ghostty-tip "$(git rev-parse HEAD)"; then
+          if nix develop .#ci -c nu .github/scripts/ghostty-tip "$(git rev-parse HEAD)"; then
             echo "Tip already built for this commit, skipping"
             echo "should_skip=true" >> "$GITHUB_OUTPUT"
           elif [ "${{ steps.changes.outputs.build }}" = "false" ] &&
@@ -229,14 +229,14 @@ jobs:
       - name: Create Tarball
         run: |
           rm -rf zig-out/dist
-          nix develop -c zig build distcheck
+          nix develop .#ci -c zig build distcheck
           cp zig-out/dist/*.tar.gz ghostty-source.tar.gz
 
       - name: Sign Tarball
         run: |
           echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
           echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
-          nix develop -c minisign -S -m ghostty-source.tar.gz -s minisign.key < minisign.password
+          nix develop .#ci -c minisign -S -m ghostty-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -284,14 +284,14 @@ jobs:
       - name: Create Tarball
         run: |
           rm -rf zig-out/dist
-          nix develop -c zig build dist -Demit-lib-vt=true
+          nix develop .#ci -c zig build dist -Demit-lib-vt=true
           cp zig-out/dist/*.tar.gz libghostty-vt-source.tar.gz
 
       - name: Sign Tarball
         run: |
           echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
           echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
-          nix develop -c minisign -S -m libghostty-vt-source.tar.gz -s minisign.key < minisign.password
+          nix develop .#ci -c minisign -S -m libghostty-vt-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -365,7 +365,7 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_26.6.app
 
       - name: Build XCFramework
-        run: nix develop -c zig build -Demit-lib-vt -Doptimize=ReleaseFast
+        run: nix develop .#ci -c zig build -Demit-lib-vt -Doptimize=ReleaseFast
 
       - name: Zip XCFramework
         run: |
@@ -376,7 +376,7 @@ jobs:
         run: |
           echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
           echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
-          nix develop -c minisign -S -m ghostty-vt.xcframework.zip -s minisign.key < minisign.password
+          nix develop .#ci -c minisign -S -m ghostty-vt.xcframework.zip -s minisign.key < minisign.password
 
       - name: Update Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -446,14 +446,14 @@ jobs:
 
       - name: Build ReleaseFast WASM
         run: |
-          nix develop -c zig build \
+          nix develop .#ci -c zig build \
             -Demit-lib-vt \
             -Dtarget=wasm32-freestanding \
             -Doptimize=ReleaseFast
 
       - name: Optimize ReleaseFast WASM
         run: |
-          nix develop -c wasm-opt -O3 --strip-dwarf \
+          nix develop .#ci -c wasm-opt -O3 --strip-dwarf \
             --enable-simd \
             --enable-bulk-memory \
             --enable-sign-ext \
@@ -465,14 +465,14 @@ jobs:
 
       - name: Build ReleaseSmall WASM
         run: |
-          nix develop -c zig build \
+          nix develop .#ci -c zig build \
             -Demit-lib-vt \
             -Dtarget=wasm32-freestanding \
             -Doptimize=ReleaseSmall
 
       - name: Optimize ReleaseSmall WASM
         run: |
-          nix develop -c wasm-opt -O3 \
+          nix develop .#ci -c wasm-opt -O3 \
             --enable-simd \
             --enable-bulk-memory \
             --enable-sign-ext \
@@ -487,8 +487,8 @@ jobs:
           # wasm-tools names the simd128 proposal "simd". The artifact must
           # fail validation when that feature is disabled.
           for artifact in ghostty-vt.wasm ghostty-vt-small.wasm; do
-            nix develop -c wasm-tools validate "${artifact}"
-            if nix develop -c wasm-tools validate \
+            nix develop .#ci -c wasm-tools validate "${artifact}"
+            if nix develop .#ci -c wasm-tools validate \
               --features=-simd "${artifact}"; then
               echo "${artifact} unexpectedly validates with simd128 disabled" >&2
               exit 1
@@ -500,8 +500,8 @@ jobs:
         run: |
           echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
           echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
-          nix develop -c minisign -S -m ghostty-vt.wasm -s minisign.key < minisign.password
-          nix develop -c minisign -S -m ghostty-vt-small.wasm -s minisign.key < minisign.password
+          nix develop .#ci -c minisign -S -m ghostty-vt.wasm -s minisign.key < minisign.password
+          nix develop .#ci -c minisign -S -m ghostty-vt-small.wasm -s minisign.key < minisign.password
 
       - name: Update Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -602,7 +602,7 @@ jobs:
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access. Build this in release mode.
       - name: Build GhosttyKit
-        run: nix develop -c zig build -Doptimize=ReleaseFast -Demit-macos-app=false
+        run: nix develop .#ci -c zig build -Doptimize=ReleaseFast -Demit-macos-app=false
 
       # The native app is built with native XCode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
@@ -858,7 +858,7 @@ jobs:
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access. Build this in release mode.
       - name: Build GhosttyKit
-        run: nix develop -c zig build -Doptimize=Debug -Demit-macos-app=false
+        run: nix develop .#ci -c zig build -Doptimize=Debug -Demit-macos-app=false
 
       # The native app is built with native XCode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
@@ -1055,7 +1055,7 @@ jobs:
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access. Build this in release mode.
       - name: Build GhosttyKit
-        run: nix develop -c zig build -Doptimize=ReleaseSafe -Demit-macos-app=false
+        run: nix develop .#ci -c zig build -Doptimize=ReleaseSafe -Demit-macos-app=false
 
       # The native app is built with native XCode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.

@@ -101,7 +101,7 @@ jobs:
       - name: Create Tarball
         run: |
           rm -rf zig-out/dist
-          nix develop -c zig build distcheck
+          nix develop .#ci -c zig build distcheck
           cp zig-out/dist/ghostty-${GHOSTTY_VERSION}.tar.gz .
           cp zig-out/dist/ghostty-${GHOSTTY_VERSION}.tar.gz ghostty-source.tar.gz
 
@@ -109,8 +109,8 @@ jobs:
         run: |
           echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
           echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
-          nix develop -c minisign -S -m "ghostty-${GHOSTTY_VERSION}.tar.gz" -s minisign.key < minisign.password
-          nix develop -c minisign -S -m "ghostty-source.tar.gz" -s minisign.key < minisign.password
+          nix develop .#ci -c minisign -S -m "ghostty-${GHOSTTY_VERSION}.tar.gz" -s minisign.key < minisign.password
+          nix develop .#ci -c minisign -S -m "ghostty-source.tar.gz" -s minisign.key < minisign.password
 
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -172,7 +172,7 @@ jobs:
       # Mac app to access. Build this in release mode.
       - name: Build GhosttyKit
         run: |
-          nix develop -c \
+          nix develop .#ci -c \
             zig build \
             -Doptimize=ReleaseFast \
             -Demit-macos-app=false \

@@ -179,7 +179,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Build Benchmarks
-        run: nix develop -c zig build -Demit-bench
+        run: nix develop .#ci -c zig build -Demit-bench
 
   list-examples:
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
@@ -239,7 +239,7 @@ jobs:
       - name: Build Example
         run: |
           cd example/${{ matrix.dir }}
-          nix develop -c zig build
+          nix develop .#ci -c zig build
 
   build-example-zig-vt-macos-no-sdk:
     name: Example zig-vt (macOS, no SDK)
@@ -271,7 +271,7 @@ jobs:
 
       - name: Build Example without SDK
         working-directory: example/zig-vt
-        run: nix develop -c env DEVELOPER_DIR=/nonexistent zig build
+        run: nix develop .#ci -c env DEVELOPER_DIR=/nonexistent zig build
 
   build-examples-cmake:
     strategy:
@@ -307,8 +307,8 @@ jobs:
       - name: Build Example
         run: |
           cd example/${{ matrix.dir }}
-          nix develop -c cmake -B build -DFETCHCONTENT_SOURCE_DIR_GHOSTTY=${{ github.workspace }}
-          nix develop -c cmake --build build
+          nix develop .#ci -c cmake -B build -DFETCHCONTENT_SOURCE_DIR_GHOSTTY=${{ github.workspace }}
+          nix develop .#ci -c cmake --build build
 
   build-examples-cmake-windows:
     strategy:
@@ -374,7 +374,7 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_26.6.app
 
       - name: Build XCFramework
-        run: nix develop -c zig build -Demit-lib-vt
+        run: nix develop .#ci -c zig build -Demit-lib-vt
 
       - name: Verify XCFramework artifact
         run: test -f zig-out/lib/ghostty-vt.xcframework/Info.plist
@@ -412,8 +412,8 @@ jobs:
 
       - name: Build
         run: |
-          nix develop -c cmake -B build
-          nix develop -c cmake --build build
+          nix develop .#ci -c cmake -B build
+          nix develop .#ci -c cmake --build build
 
       - name: Verify artifacts
         run: |
@@ -449,7 +449,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Build libghostty-vt
-        run: nix develop -c zig build -Demit-lib-vt
+        run: nix develop .#ci -c zig build -Demit-lib-vt
 
       - name: Verify pkg-config file
         run: |
@@ -490,7 +490,7 @@ jobs:
       - name: Test shared link via pkg-config
         run: |
           export PKG_CONFIG_PATH="$PWD/zig-out/share/pkgconfig"
-          nix develop -c cc -o /tmp/test_shared /tmp/test_libghostty_vt.c \
+          nix develop .#ci -c cc -o /tmp/test_shared /tmp/test_libghostty_vt.c \
             $(pkg-config --cflags --libs libghostty-vt) \
             -Wl,-rpath,"$PWD/zig-out/lib"
           /tmp/test_shared
@@ -500,7 +500,7 @@ jobs:
           export PKG_CONFIG_PATH="$PWD/zig-out/share/pkgconfig"
           # The static archive must link cleanly into a plain C program
           # without any extra C++ runtime flags.
-          nix develop -c cc -o /tmp/test_static /tmp/test_libghostty_vt.c \
+          nix develop .#ci -c cc -o /tmp/test_static /tmp/test_libghostty_vt.c \
             $(pkg-config --cflags libghostty-vt) \
             "$PWD/zig-out/lib/libghostty-vt.a" \
             $(pkg-config --libs-only-l --static libghostty-vt | sed 's/-lghostty-vt//')
@@ -515,7 +515,7 @@ jobs:
       - name: Rebuild with system simdutf
         run: |
           rm -rf zig-out
-          nix develop -c zig build -Demit-lib-vt -fsys=simdutf
+          nix develop .#ci -c zig build -Demit-lib-vt -fsys=simdutf
 
       - name: Verify pkg-config with system simdutf
         run: |
@@ -567,7 +567,7 @@ jobs:
 
       - name: Build with Flatpak
         run: |
-          nix develop -c \
+          nix develop .#ci -c \
             zig build \
             -Dflatpak
 
@@ -601,7 +601,7 @@ jobs:
 
       - name: Build with Snap
         run: |
-          nix develop -c \
+          nix develop .#ci -c \
             zig build \
             -Dsnap
 
@@ -645,7 +645,7 @@ jobs:
 
       - name: Build
         run: |
-          nix develop -c zig build -Demit-lib-vt \
+          nix develop .#ci -c zig build -Demit-lib-vt \
             -Dtarget=${{ matrix.target }}
 
   build-libghostty-vt-freestanding:
@@ -682,7 +682,7 @@ jobs:
 
       - name: Build
         run: |
-          nix develop -c zig build -Demit-lib-vt \
+          nix develop .#ci -c zig build -Demit-lib-vt \
             -Dtarget=${{ matrix.target }} \
             -Dcpu=${{ matrix.cpu }} \
             -Doptimize=ReleaseSafe
@@ -715,14 +715,14 @@ jobs:
 
       - name: Build ReleaseFast WASM
         run: |
-          nix develop -c zig build \
+          nix develop .#ci -c zig build \
             -Demit-lib-vt \
             -Dtarget=wasm32-freestanding \
             -Doptimize=ReleaseFast
 
       - name: Optimize ReleaseFast WASM
         run: |
-          nix develop -c wasm-opt -O3 --strip-dwarf \
+          nix develop .#ci -c wasm-opt -O3 --strip-dwarf \
             --enable-simd \
             --enable-bulk-memory \
             --enable-sign-ext \
@@ -734,20 +734,20 @@ jobs:
 
       - name: Build ReleaseSmall WASM
         run: |
-          nix develop -c zig build \
+          nix develop .#ci -c zig build \
             -Demit-lib-vt \
             -Dtarget=wasm32-freestanding \
             -Doptimize=ReleaseSmall
 
       - name: Validate WASM ABI manifest
         run: |
-          nix develop -c zig build test-lib-vt-schema \
+          nix develop .#ci -c zig build test-lib-vt-schema \
             -Dtarget=wasm32-freestanding \
             -Doptimize=ReleaseSmall
 
       - name: Optimize ReleaseSmall WASM
         run: |
-          nix develop -c wasm-opt -O3 \
+          nix develop .#ci -c wasm-opt -O3 \
             --enable-simd \
             --enable-bulk-memory \
             --enable-sign-ext \
@@ -762,8 +762,8 @@ jobs:
           # wasm-tools names the simd128 proposal "simd". The artifact must
           # fail validation when that feature is disabled.
           for artifact in ghostty-vt.wasm ghostty-vt-small.wasm; do
-            nix develop -c wasm-tools validate "${artifact}"
-            if nix develop -c wasm-tools validate \
+            nix develop .#ci -c wasm-tools validate "${artifact}"
+            if nix develop .#ci -c wasm-tools validate \
               --features=-simd "${artifact}"; then
               echo "${artifact} unexpectedly validates with simd128 disabled" >&2
               exit 1
@@ -773,8 +773,8 @@ jobs:
 
       - name: Test WASM allocator
         run: |
-          nix develop -c node test/wasm-alloc.mjs ghostty-vt.wasm
-          nix develop -c node test/wasm-alloc.mjs ghostty-vt-small.wasm
+          nix develop .#ci -c node test/wasm-alloc.mjs ghostty-vt.wasm
+          nix develop .#ci -c node test/wasm-alloc.mjs ghostty-vt-small.wasm
 
   # Compile-only checks for the -Dvt-features flags so that future changes
   # don't regress any feature combination.
@@ -814,10 +814,10 @@ jobs:
             echo "::group::-Dvt-features=$cfg"
             # The wasm lib build compiles the C API export block; the
             # test build compiles every module test without running any.
-            nix develop -c zig build -Demit-lib-vt \
+            nix develop .#ci -c zig build -Demit-lib-vt \
               "-Dvt-features=$cfg" \
               -Dtarget=wasm32-freestanding
-            nix develop -c zig build test-lib-vt-build \
+            nix develop .#ci -c zig build test-lib-vt-build \
               "-Dvt-features=$cfg"
             echo "::endgroup::"
           done
@@ -874,12 +874,12 @@ jobs:
 
       - name: Build
         run: |
-          nix develop -c zig build -Demit-lib-vt \
+          nix develop .#ci -c zig build -Demit-lib-vt \
             -Dtarget=${{ matrix.target }}
 
       - name: Verify Apple dylib
         run: |
-          nix develop -c nu .github/scripts/check-apple-libghostty-vt.nu \
+          nix develop .#ci -c nu .github/scripts/check-apple-libghostty-vt.nu \
             zig-out/lib/libghostty-vt.dylib \
             --expect-platform ${{ matrix.platform }} \
             --expect-arch ${{ matrix.arch }} \
@@ -928,7 +928,7 @@ jobs:
 
       - name: Build
         run: |
-          nix develop -c zig build -Demit-lib-vt \
+          nix develop .#ci -c zig build -Demit-lib-vt \
             -Dtarget=${{ matrix.target }}
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
@@ -1010,7 +1010,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Test Build
-        run: nix develop -c zig build
+        run: nix develop .#ci -c zig build
 
   build-linux-libghostty:
     runs-on: namespace-profile-ghostty-md
@@ -1039,7 +1039,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Build Libghostty
-        run: nix develop -c zig build -Dapp-runtime=none
+        run: nix develop .#ci -c zig build -Dapp-runtime=none
 
   build-nix:
     strategy:
@@ -1156,7 +1156,7 @@ jobs:
       - name: Build and Check Source Tarball
         run: |
           rm -rf zig-out/dist
-          nix develop -c zig build distcheck
+          nix develop .#ci -c zig build distcheck
           cp zig-out/dist/*.tar.gz ghostty-source.tar.gz
 
       - name: Upload artifact
@@ -1196,7 +1196,7 @@ jobs:
       - name: Build and Check Source Tarball
         run: |
           rm -rf zig-out/dist
-          nix develop -c zig build distcheck -Demit-lib-vt=true
+          nix develop .#ci -c zig build distcheck -Demit-lib-vt=true
 
       - name: Verify tarball size
         run: |
@@ -1337,7 +1337,7 @@ jobs:
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access.
       - name: Build GhosttyKit
-        run: nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false
+        run: nix develop .#ci -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false
 
       # The native app is built with native Xcode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
@@ -1387,7 +1387,7 @@ jobs:
         run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
 
       - name: Build with Xcode 27
-        run: nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false
+        run: nix develop .#ci -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false
 
   build-macos-freetype:
     runs-on: namespace-profile-ghostty-macos-tahoe
@@ -1430,11 +1430,11 @@ jobs:
       # but skips Xcode tests
       - name: Test All
         run: |
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_freetype -Dtest-filter=""
+          nix develop .#ci -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_freetype -Dtest-filter=""
 
       - name: Build All
         run: |
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_freetype
+          nix develop .#ci -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_freetype
 
   test:
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
@@ -1471,10 +1471,10 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: test
-        run: nix develop -c zig build -Dapp-runtime=none test
+        run: nix develop .#ci -c zig build -Dapp-runtime=none test
 
       - name: Test GTK Build
-        run: nix develop -c zig build -Dapp-runtime=gtk -Demit-docs -Demit-webdata
+        run: nix develop .#ci -c zig build -Dapp-runtime=gtk -Demit-docs -Demit-webdata
 
         # NOTE: This used to point to the Zig global cache directory before
         # 0.16.0. Now, the cache directory exclusively stores "minified"
@@ -1498,7 +1498,7 @@ jobs:
         # it disables fetching altogether (even, seemingly, from the local
         # cache).
       - name: Test System Build
-        run: nix develop -c zig build --system "$(realpath zig-pkg)"
+        run: nix develop .#ci -c zig build --system "$(realpath zig-pkg)"
 
   test-lib-vt:
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
@@ -1528,10 +1528,10 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Test
-        run: nix develop -c zig build test-lib-vt
+        run: nix develop .#ci -c zig build test-lib-vt
 
       - name: Validate native ABI manifest
-        run: nix develop -c zig build test-lib-vt-schema
+        run: nix develop .#ci -c zig build test-lib-vt-schema
 
   # Runs esctest against libghostty-vt. Report-only: many tests fail today,
   # so this never fails and isn't in the required checks. See
@@ -1566,7 +1566,7 @@ jobs:
 
       - name: Run esctest
         working-directory: test/esctest
-        run: nix develop -c zig build run > esctest.log || true
+        run: nix develop .#ci -c zig build run > esctest.log || true
 
       - name: Summarize
         if: always()
@@ -1653,7 +1653,7 @@ jobs:
 
       - name: Test
         run: |
-          nix develop -c \
+          nix develop .#ci -c \
             zig build \
             -Dapp-runtime=gtk \
             -Dgtk-x11=${{ matrix.x11 }} \
@@ -1662,7 +1662,7 @@ jobs:
 
       - name: Build
         run: |
-          nix develop -c \
+          nix develop .#ci -c \
             zig build \
             -Dapp-runtime=gtk \
             -Dgtk-x11=${{ matrix.x11 }} \
@@ -1701,7 +1701,7 @@ jobs:
 
       - name: Test
         run: |
-          nix develop -c zig build test -Dsimd=${{ matrix.simd }}
+          nix develop .#ci -c zig build test -Dsimd=${{ matrix.simd }}
 
   test-sentry-linux:
     strategy:
@@ -1736,7 +1736,7 @@ jobs:
 
       - name: Test Sentry Build
         run: |
-          nix develop -c zig build -Dsentry=${{ matrix.sentry }}
+          nix develop .#ci -c zig build -Dsentry=${{ matrix.sentry }}
 
   test-macos:
     runs-on: namespace-profile-ghostty-macos-tahoe
@@ -1776,7 +1776,7 @@ jobs:
         run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
 
       - name: test
-        run: nix develop -c zig build test --system ${{ steps.deps.outputs.deps }}
+        run: nix develop .#ci -c zig build test --system ${{ steps.deps.outputs.deps }}
 
   test-i18n:
     strategy:
@@ -1811,7 +1811,7 @@ jobs:
 
       - name: Test
         run: |
-          nix develop -c zig build -Di18n=${{ matrix.i18n }}
+          nix develop .#ci -c zig build -Di18n=${{ matrix.i18n }}
 
   test-fuzz-libghostty:
     name: Build test/fuzz-libghostty
@@ -2092,7 +2092,7 @@ jobs:
           skipPush: true
           useDaemon: false # sometimes fails on short jobs
       - name: check translations
-        run: nix develop -c .github/scripts/check-translations.sh
+        run: nix develop .#ci -c .github/scripts/check-translations.sh
 
   blueprint-compiler:
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true' && needs.skip.outputs.blueprints == 'true'
@@ -2120,7 +2120,7 @@ jobs:
           skipPush: true
           useDaemon: false # sometimes fails on short jobs
       - name: check blueprints
-        run: nix develop -c ./nix/build-support/check-blueprints.sh
+        run: nix develop .#ci -c ./nix/build-support/check-blueprints.sh
       - name: check unchanged
         run: git diff --exit-code
 
@@ -2161,7 +2161,7 @@ jobs:
 
       - name: Test ${{ matrix.pkg }} Build
         run: |
-          nix develop -c sh -c "cd pkg/${{ matrix.pkg }} ; zig build test ${{ matrix.args }}"
+          nix develop .#ci -c sh -c "cd pkg/${{ matrix.pkg }} ; zig build test ${{ matrix.args }}"
 
   test-debian-13:
     name: Test build on Debian 13
@@ -2228,7 +2228,7 @@ jobs:
 
       - name: valgrind
         run: |
-          nix develop -c zig build test-valgrind
+          nix develop .#ci -c zig build test-valgrind
 
   # build-freebsd:
   #   name: Build on FreeBSD
