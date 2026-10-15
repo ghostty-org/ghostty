@@ -233,7 +233,7 @@ msgstr "नया विभाजन"
 
 #: src/apprt/gtk/ui/1.5/window.blp:71 src/apprt/gtk/ui/1.5/window.blp:129
 msgid "View Open Tabs"
-msgstr ""
+msgstr "खुले टैब देखें"
 
 #: src/apprt/gtk/ui/1.5/window.blp:81 src/apprt/gtk/ui/1.5/window.blp:143
 msgid "Main Menu"
@@ -444,15 +444,15 @@ msgstr "क्लिपबोर्ड से चिपकाएँ"
 
 #: src/input/command.zig:186
 msgid "Paste the contents of the main clipboard."
-msgstr ""
+msgstr "मुख्य क्लिपबोर्ड की सामग्री चिपकाएँ।"
 
 #: src/input/command.zig:191
 msgid "Paste from Selection"
-msgstr ""
+msgstr "चयन में से चिपकाएँ"
 
 #: src/input/command.zig:192
 msgid "Paste the contents of the selection clipboard."
-msgstr ""
+msgstr "चयन क्लिपबोर्ड की सामग्री चिपकाएँ।"
 
 #: src/input/command.zig:197
 msgid "Start Search"
@@ -460,7 +460,7 @@ msgstr "खोज प्रारंभ"
 
 #: src/input/command.zig:198
 msgid "Start a search if one isn't already active."
-msgstr ""
+msgstr "यदि कोई खोज पहले से सक्रिय नहीं है, तो खोज प्रारंभ करें।"
 
 #: src/input/command.zig:203
 msgid "Search Selection"
@@ -532,7 +532,7 @@ msgstr "सभी चुनें"
 
 #: src/input/command.zig:250
 msgid "Select all text on the screen."
-msgstr ""
+msgstr "पर्दे पर मौजूद पूरा पाठ चुनें।"
 
 #: src/input/command.zig:255
 msgid "Scroll to Top"
@@ -540,7 +540,7 @@ msgstr "सबसे ऊपर जाएँ"
 
 #: src/input/command.zig:256
 msgid "Scroll to the top of the screen."
-msgstr ""
+msgstr "पर्दे के सबसे ऊपर तक जाएँ।"
 
 #: src/input/command.zig:261
 msgid "Scroll to Bottom"
@@ -564,15 +564,15 @@ msgstr "ऊपर पृष्ठ"
 
 #: src/input/command.zig:274
 msgid "Scroll the screen up by a page."
-msgstr ""
+msgstr "एक पृष्ठ ऊपर जाएँ।"
 
 #: src/input/command.zig:279
 msgid "Scroll Page Down"
-msgstr ""
+msgstr "एक पृष्ठ नीचे जाएँ"
 
 #: src/input/command.zig:280
 msgid "Scroll the screen down by a page."
-msgstr ""
+msgstr "एक पृष्ठ नीचे जाएँ।"
 
 #: src/input/command.zig:286
 msgid "Copy Screen to Temporary File and Copy Path"
@@ -755,27 +755,27 @@ msgstr "नया टैब खोलें।"
 
 #: src/input/command.zig:434
 msgid "Move Tab Left"
-msgstr ""
+msgstr "टैब बाईं ओर ले जाएँ"
 
 #: src/input/command.zig:435
 msgid "Move the current tab to the left."
-msgstr ""
+msgstr "वर्तमान टैब को बाईं ओर ले जाएँ।"
 
 #: src/input/command.zig:439
 msgid "Move Tab Right"
-msgstr ""
+msgstr "टैब दाईं ओर ले जाएँ"
 
 #: src/input/command.zig:440
 msgid "Move the current tab to the right."
-msgstr ""
+msgstr "वर्तमान टैब को दाईं ओर ले जाएँ।"
 
 #: src/input/command.zig:446
 msgid "Move Tab to New Window"
-msgstr ""
+msgstr "टैब नई विंडो में ले जाएँ"
 
 #: src/input/command.zig:447
 msgid "Move the current tab to a new window."
-msgstr ""
+msgstr "वर्तमान टैब को नई विंडो में ले जाएँ।"
 
 #: src/input/command.zig:452
 msgid "Toggle Tab Overview"
@@ -791,11 +791,11 @@ msgstr "टर्मिनल का शीर्षक बदलें…"
 
 #: src/input/command.zig:459
 msgid "Prompt for a new title for the current terminal."
-msgstr ""
+msgstr "वर्तमान टर्मिनल के लिए नया शीर्षक पूछें।"
 
 #: src/input/command.zig:465
 msgid "Prompt for a new title for the current tab."
-msgstr ""
+msgstr "वर्तमान टैब के लिए नया शीर्षक पूछें।"
 
 #: src/input/command.zig:478
 msgid "Split the terminal to the left."
@@ -979,7 +979,7 @@ msgstr ""
 
 #: src/input/command.zig:623
 msgid "Close Tabs to the Right"
-msgstr ""
+msgstr "दाईं ओर के टैब बंद करें"
 
 #: src/input/command.zig:624
 msgid "Close all tabs to the right of the current one."
