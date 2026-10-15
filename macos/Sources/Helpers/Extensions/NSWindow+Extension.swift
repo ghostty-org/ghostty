@@ -100,7 +100,10 @@ extension NSWindow {
 
     /// Returns the visual tab index and matching tab button at the given screen point.
     func tabButtonHit(atScreenPoint screenPoint: NSPoint) -> (index: Int, tabButton: NSView)? {
-        guard let tabBarView, let tabBarWindow = tabBarView.window else { return nil }
+        // The tab bar can be hidden (we show tabs in the tab sidebar) but its tab
+        // buttons keep their frames, so clicks on the titlebar would hit them.
+        guard let tabBarView, !tabBarView.isHiddenOrHasHiddenAncestor,
+              let tabBarWindow = tabBarView.window else { return nil }
 
         // In fullscreen, AppKit can host the titlebar and tab bar in a separate
         // NSToolbarFullScreenWindow. Hit testing has to use that window's base
@@ -122,5 +125,23 @@ extension NSWindow {
     /// Returns the index of the tab button at the given screen point, if any.
     func tabIndex(atScreenPoint screenPoint: NSPoint) -> Int? {
         tabButtonHit(atScreenPoint: screenPoint)?.index
+    }
+}
+
+extension NSWindow {
+    /// Performs the action the user chose for double clicking a window's title bar in
+    /// System Settings (Desktop & Dock), defaulting to zoom.
+    func performTitlebarDoubleClickAction() {
+        let defaults = UserDefaults.standard
+        switch defaults.string(forKey: "AppleActionOnDoubleClick") {
+        case "Minimize":
+            performMiniaturize(nil)
+        case "None":
+            break
+        case nil where defaults.bool(forKey: "AppleMiniaturizeOnDoubleClick"):
+            performMiniaturize(nil)
+        default:
+            performZoom(nil)
+        }
     }
 }

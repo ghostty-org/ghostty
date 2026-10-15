@@ -143,6 +143,23 @@ struct TabColorMenuView: View {
         .padding(.bottom, 4)
     }
 
+    /// Creates a menu item that hosts the tab color palette. This is used by both the
+    /// native tab context menu and the tab sidebar context menu.
+    static func makeMenuItem(
+        selectedColor: TerminalTabColor,
+        onSelect: @escaping (TerminalTabColor) -> Void
+    ) -> NSMenuItem {
+        let hostingView = NSHostingView(rootView: TabColorMenuView(
+            selectedColor: selectedColor,
+            onSelect: onSelect
+        ))
+        hostingView.frame.size = hostingView.intrinsicContentSize
+
+        let item = NSMenuItem()
+        item.view = hostingView
+        return item
+    }
+
     static let paletteRows: [[TerminalTabColor]] = [
         [.none, .blue, .purple, .pink, .red],
         [.orange, .yellow, .green, .teal, .graphite],

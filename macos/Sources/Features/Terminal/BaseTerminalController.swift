@@ -414,7 +414,8 @@ class BaseTerminalController: NSWindowController,
     ) {
         Task {
             guard let response = await confirmCloseAsync(messageText: messageText, informativeText: informativeText, confirmButtonTitle: confirmButtonTitle) else {
-                completion()
+                // An existing confirmation sheet owns the pending close. A second
+                // request must not close the terminal before that sheet is answered.
                 return
             }
             if [.alertFirstButtonReturn, .OK].contains(response) {
@@ -1318,15 +1319,11 @@ class BaseTerminalController: NSWindowController,
     }
 
     @IBAction func changeTabTitle(_ sender: Any) {
-        if let targetWindow = window {
-            let inlineHostWindow =
-                targetWindow.tabbedWindows?
-                    .first(where: { $0.tabBarView != nil }) as? TerminalWindow
-                ?? (targetWindow as? TerminalWindow)
-
-            if let inlineHostWindow, inlineHostWindow.beginInlineTabTitleEdit(for: targetWindow) {
-                return
-            }
+        // Prefer renaming inline in the tab sidebar of our own window. If the
+        // sidebar is hidden (or we have none), we fall back to a prompt.
+        if let targetWindow = window as? TerminalWindow,
+           targetWindow.beginInlineTabTitleEdit(for: targetWindow) {
+            return
         }
 
         promptTabTitle()

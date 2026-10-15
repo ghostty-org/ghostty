@@ -66,6 +66,7 @@ class TerminalWindow: NSWindow {
             guard tabColor != oldValue else { return }
             tabColorIndicator.rootView = TabColorIndicatorView(tabColor: tabColor)
             invalidateRestorableState()
+            notifyTabSidebar()
         }
     }
 
@@ -83,6 +84,11 @@ class TerminalWindow: NSWindow {
     override func awakeFromNib() {
         // Notify that this terminal window has loaded
         NotificationCenter.default.post(name: Self.terminalDidAwake, object: self)
+
+        // The title is shown in the bar above the terminal (`TerminalTitleStripView`)
+        // rather than in the titlebar. The window keeps its title for the Window menu,
+        // Mission Control, etc.
+        titleVisibility = .hidden
 
         // This is fragile, but there doesn't seem to be an official API for customizing
         // native tab bar menus.
@@ -189,11 +195,55 @@ class TerminalWindow: NSWindow {
             return
         }
 
+        if isTitlebarDoubleClick(event) {
+            performTitlebarDoubleClickAction()
+            return
+        }
+
         super.sendEvent(event)
+    }
+
+    /// Returns true for a double click on the titlebar or the header of the tab sidebar
+    /// that isn't on a control. We handle these ourselves because the terminal (and the
+    /// hidden native tab bar) can sit under the transparent titlebar and swallow them.
+    private func isTitlebarDoubleClick(_ event: NSEvent) -> Bool {
+        guard event.type == .leftMouseDown, event.clickCount == 2,
+              event.window === self, !styleMask.contains(.fullScreen),
+              let themeFrame = contentView?.superview,
+              let hitView = themeFrame.hitTest(event.locationInWindow)
+        else { return false }
+
+        var isSidebarHeader = false
+        var ancestor: NSView? = hitView
+        while let view = ancestor {
+            if view is NSControl || view is NSText { return false }
+            if view is TabSidebarHeaderView || view is TerminalTitleStripView { isSidebarHeader = true }
+            ancestor = view.superview
+        }
+        if isSidebarHeader { return true }
+
+        // The hidden titlebar style has no titlebar, the top of the window is terminal.
+        guard !(self is HiddenTitlebarTerminalWindow),
+              event.locationInWindow.y >= contentLayoutRect.maxY else { return false }
+
+        // Titlebar accessories (e.g. the reset zoom button) are SwiftUI views that
+        // opt out of window dragging. Let them handle their own clicks.
+        if let titlebarContainer, hitView.isDescendant(of: titlebarContainer) {
+            ancestor = hitView
+            while let view = ancestor, view !== titlebarContainer {
+                if !view.mouseDownCanMoveWindow, view.className.contains("HostingView") {
+                    return false
+                }
+                ancestor = view.superview
+            }
+        }
+
+        return true
     }
 
     override func close() {
         tabTitleEditor.finishEditing(commit: true)
+        terminalController?.terminalViewContainer?.tabSidebar?.finishEditing(commit: true)
         NotificationCenter.default.post(name: Self.terminalWillCloseNotification, object: self)
         super.close()
     }
@@ -207,6 +257,7 @@ class TerminalWindow: NSWindow {
         super.resignKey()
         resetZoomTabButton.contentTintColor = .secondaryLabelColor
         tabTitleEditor.finishEditing(commit: true)
+        terminalController?.terminalViewContainer?.tabSidebar?.finishEditing(commit: true)
     }
 
     override func becomeMain() {
@@ -215,6 +266,7 @@ class TerminalWindow: NSWindow {
         // Its possible we miss the accessory titlebar call so we check again
         // whenever the window becomes main. Both of these are idempotent.
         if tabBarView != nil {
+            hideNativeTabBar()
             tabBarDidAppear()
         } else {
             tabBarDidDisappear()
@@ -229,7 +281,17 @@ class TerminalWindow: NSWindow {
 
     @discardableResult
     func beginInlineTabTitleEdit(for targetWindow: NSWindow) -> Bool {
-        tabTitleEditor.beginEditing(for: targetWindow)
+        // Tabs are shown in the tab sidebar, so we edit there. The native tab
+        // bar is hidden so the native inline editor would not be visible.
+        guard let targetController = targetWindow.windowController as? TerminalController,
+              let sidebar = terminalController?.terminalViewContainer?.tabSidebar else { return false }
+        return sidebar.beginRename(for: targetController)
+    }
+
+    /// Notify the tab sidebars that something they display for this tab changed.
+    private func notifyTabSidebar() {
+        guard let terminalController else { return }
+        NotificationCenter.default.post(name: .terminalTabSidebarItemDidChange, object: terminalController)
     }
 
     @objc private func renameTabFromContextMenu(_ sender: NSMenuItem) {
@@ -260,8 +322,26 @@ class TerminalWindow: NSWindow {
         // it. This has been verified to work on macOS 12 to 26
         if isTabBar(childViewController) {
             childViewController.identifier = Self.tabBarIdentifier
+            hideNativeTabBar(childViewController)
             tabBarDidAppear()
         }
+    }
+
+    // The native tab bar is replaced by the tab sidebar. "Show Tab Bar" toggles
+    // the sidebar instead.
+    override func toggleTabBar(_ sender: Any?) {
+        TabSidebarSettings.shared.toggleVisible()
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        // AppKit automatically inserts "Show/Hide Tab Bar" into the View menu. Our
+        // own "Show/Hide Tab Sidebar" item replaces it.
+        if item.action == #selector(NSWindow.toggleTabBar(_:)) {
+            (item as? NSMenuItem)?.isHidden = true
+            return false
+        }
+
+        return super.validateUserInterfaceItem(item)
     }
 
     override func removeTitlebarAccessoryViewController(at index: Int) {
@@ -300,6 +380,30 @@ class TerminalWindow: NSWindow {
         // View controllers should be tagged with this as soon as possible to
         // increase our accuracy. We do this manually.
         return childViewController.identifier == Self.tabBarIdentifier
+    }
+
+    /// Observations that keep the native tab bar hidden if AppKit tries to show it again.
+    private var nativeTabBarHiddenObservations: [(
+        target: Weak<NSTitlebarAccessoryViewController>,
+        observation: NSKeyValueObservation
+    )] = []
+
+    /// Hides the native tab bar. We keep native tabbing (each tab is a window in a
+    /// tab group) but tabs are shown in the tab sidebar instead.
+    private func hideNativeTabBar(_ childViewController: NSTitlebarAccessoryViewController? = nil) {
+        let targets = childViewController.map { [$0] } ?? titlebarAccessoryViewControllers.filter(isTabBar)
+        nativeTabBarHiddenObservations.removeAll { $0.target.value == nil }
+
+        for target in targets {
+            if !target.isHidden { target.isHidden = true }
+
+            guard !nativeTabBarHiddenObservations.contains(where: { $0.target.value === target }) else { continue }
+            let observation = target.observe(\.isHidden, options: [.new]) { controller, _ in
+                guard !controller.isHidden else { return }
+                DispatchQueue.main.async { controller.isHidden = true }
+            }
+            nativeTabBarHiddenObservations.append((Weak(target), observation))
+        }
     }
 
     private func tabBarDidAppear() {
@@ -357,6 +461,7 @@ class TerminalWindow: NSWindow {
             // Show/hide our reset zoom button depending on if we're zoomed.
             // We want to show it if we are zoomed.
             resetZoomTabButton.isHidden = !surfaceIsZoomed
+            if surfaceIsZoomed != oldValue { notifyTabSidebar() }
 
             DispatchQueue.main.async {
                 self.viewModel.isSurfaceZoomed = self.surfaceIsZoomed
@@ -394,6 +499,7 @@ class TerminalWindow: NSWindow {
             guard title != oldValue else { return }
 
             syncWindowTitleAppearance()
+            notifyTabSidebar()
         }
     }
 
@@ -662,15 +768,9 @@ class TerminalWindow: NSWindow {
             self.backgroundBlur = config.backgroundBlur
             self.macosTitlebarStyle = config.macosTitlebarStyle
 
-            // Set corner radius based on macos-titlebar-style
-            // Native, transparent, and hidden styles use 16pt radius
-            // Tabs style uses 20pt radius
-            switch config.macosTitlebarStyle {
-            case .tabs:
-                self.windowCornerRadius = 20
-            default:
-                self.windowCornerRadius = 16
-            }
+            // All titlebar styles use a 16pt radius. The tabs style used a 20pt
+            // radius for its toolbar but tabs are now shown in the tab sidebar.
+            self.windowCornerRadius = 16
         }
     }
 }
@@ -828,27 +928,14 @@ extension TerminalWindow {
         changeTitleItem.setImageIfDesired(systemSymbolName: "pencil.line")
         menu.addItem(changeTitleItem)
 
-        let paletteItem = NSMenuItem()
-        paletteItem.identifier = Self.tabColorPaletteIdentifier
-        paletteItem.view = makeTabColorPaletteView(
+        let paletteItem = TabColorMenuView.makeMenuItem(
             selectedColor: (target?.window as? TerminalWindow)?.tabColor ?? .none
         ) { [weak target] color in
             (target?.window as? TerminalWindow)?.tabColor = color
         }
+        paletteItem.identifier = Self.tabColorPaletteIdentifier
         menu.addItem(paletteItem)
     }
-}
-
-private func makeTabColorPaletteView(
-    selectedColor: TerminalTabColor,
-    selectionHandler: @escaping (TerminalTabColor) -> Void
-) -> NSView {
-    let hostingView = NSHostingView(rootView: TabColorMenuView(
-        selectedColor: selectedColor,
-        onSelect: selectionHandler
-    ))
-    hostingView.frame.size = hostingView.intrinsicContentSize
-    return hostingView
 }
 
 // MARK: - Inline Tab Title Editing

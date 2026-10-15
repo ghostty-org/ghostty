@@ -63,6 +63,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuSelectSplitRight: NSMenuItem?
     @IBOutlet private var menuReturnToDefaultSize: NSMenuItem?
     @IBOutlet private var menuFloatOnTop: NSMenuItem?
+    private var menuToggleTabSidebar: NSMenuItem?
     @IBOutlet private var menuUseAsDefault: NSMenuItem?
     @IBOutlet private var menuSetAsDefaultTerminal: NSMenuItem?
 
@@ -328,6 +329,7 @@ class AppDelegate: NSObject,
 
         // Setup our menu
         setupMenuImages()
+        setupTabSidebarMenuItem()
 
         // Setup signal handlers
         setupSignals()
@@ -375,7 +377,9 @@ class AppDelegate: NSObject,
             //   - if we're restoring from persisted state
             if TerminalController.all.isEmpty && derivedConfig.initialWindow {
                 undoManager.disableUndoRegistration()
-                _ = TerminalController.newWindow(ghostty)
+                if !TabSessionStore.restoreClosedWindow(ghostty) {
+                    _ = TerminalController.newWindow(ghostty)
+                }
                 undoManager.enableUndoRegistration()
             }
         }
@@ -467,8 +471,10 @@ class AppDelegate: NSObject,
             }
         }
 
-        // No visible windows, open a new one.
-        _ = TerminalController.newWindow(ghostty)
+        // No visible windows, restore the last closed window or open a new one.
+        if !TabSessionStore.restoreClosedWindow(ghostty) {
+            _ = TerminalController.newWindow(ghostty)
+        }
         return false
     }
 
@@ -666,7 +672,7 @@ class AppDelegate: NSObject,
         self.menuQuickTerminal?.state = if quickController.visible { .on } else { .off }
     }
 
-    @objc private func ghosttyConfigDidChange(_ notification: Notification) {
+    @MainActor @objc private func ghosttyConfigDidChange(_ notification: Notification) {
         // We only care if the configuration is a global configuration, not a surface one.
         guard notification.object == nil else { return }
 
@@ -785,18 +791,20 @@ class AppDelegate: NSObject,
         NSApp.dockTile.display()
     }
 
-    private func ghosttyConfigDidChange(config: Ghostty.Config) {
+    @MainActor private func ghosttyConfigDidChange(config: Ghostty.Config) {
         // Update the config we need to store
         self.derivedConfig = DerivedConfig(config)
 
         // Depending on the "window-save-state" setting we have to set the NSQuitAlwaysKeepsWindows
         // configuration. This is the only way to carefully control whether macOS invokes the
-        // state restoration system.
+        // state restoration system. Like Warp, tabs are restored by default so "default"
+        // behaves like "always".
         switch config.windowSaveState {
-        case "never": UserDefaults.ghostty.setValue(false, forKey: "NSQuitAlwaysKeepsWindows")
-        case "always": UserDefaults.ghostty.setValue(true, forKey: "NSQuitAlwaysKeepsWindows")
-        case "default": fallthrough
-        default: UserDefaults.ghostty.removeObject(forKey: "NSQuitAlwaysKeepsWindows")
+        case "never":
+            UserDefaults.ghostty.setValue(false, forKey: "NSQuitAlwaysKeepsWindows")
+            TabSessionStore.discard()
+        default:
+            UserDefaults.ghostty.setValue(true, forKey: "NSQuitAlwaysKeepsWindows")
         }
 
         // Sync our auto-update settings. If SUEnableAutomaticChecks (in our Info.plist) is
@@ -1176,6 +1184,78 @@ extension AppDelegate {
         self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
     }
 
+    /// Adds the "Show/Hide Tab Sidebar" item to the View menu. This is not a Ghostty
+    /// keybind action so it has a fixed shortcut that isn't synced with the config.
+    private func setupTabSidebarMenuItem() {
+        guard menuToggleTabSidebar == nil,
+              let commandPalette = menuCommandPalette,
+              let viewMenu = commandPalette.menu else { return }
+
+        let item = NSMenuItem(
+            title: "Hide Tab Sidebar",
+            action: #selector(toggleTabSidebar(_:)),
+            keyEquivalent: "b")
+        item.keyEquivalentModifierMask = [.command, .shift]
+        item.target = self
+        item.setImageIfDesired(systemSymbolName: "sidebar.left")
+        viewMenu.insertItem(item, at: viewMenu.index(of: commandPalette) + 1)
+        menuToggleTabSidebar = item
+
+        let searchItem = NSMenuItem(
+            title: "Search Tabs",
+            action: #selector(searchTabs(_:)),
+            keyEquivalent: "k")
+        searchItem.keyEquivalentModifierMask = [.command, .shift]
+        searchItem.target = self
+        searchItem.setImageIfDesired(systemSymbolName: "magnifyingglass")
+        viewMenu.insertItem(searchItem, at: viewMenu.index(of: item) + 1)
+
+        let filesItem = NSMenuItem(
+            title: "Show Files",
+            action: #selector(showFiles(_:)),
+            keyEquivalent: "e")
+        filesItem.keyEquivalentModifierMask = [.command, .shift]
+        filesItem.target = self
+        filesItem.setImageIfDesired(systemSymbolName: "folder")
+        viewMenu.insertItem(filesItem, at: viewMenu.index(of: searchItem) + 1)
+
+        let finderItem = NSMenuItem(
+            title: "Open Working Directory in Finder",
+            action: #selector(openWorkingDirectoryInFinder(_:)),
+            keyEquivalent: "")
+        finderItem.target = self
+        finderItem.setImageIfDesired(systemSymbolName: "folder")
+        viewMenu.insertItem(finderItem, at: viewMenu.index(of: filesItem) + 1)
+    }
+
+    @IBAction func toggleTabSidebar(_ sender: Any?) {
+        TabSidebarSettings.shared.toggleVisible()
+    }
+
+    /// The terminal controller of the key window, if any.
+    private var keyTerminalController: TerminalController? {
+        NSApp.keyWindow?.windowController as? TerminalController
+    }
+
+    @IBAction func searchTabs(_ sender: Any?) {
+        keyTerminalController?.terminalViewContainer?.tabSidebar?.focusSearch()
+    }
+
+    @IBAction func showFiles(_ sender: Any?) {
+        keyTerminalController?.terminalViewContainer?.tabSidebar?.focusFiles()
+    }
+
+    /// The working directory of the focused terminal of the key window, if any.
+    private var keyWorkingDirectory: String? {
+        guard let pwd = keyTerminalController?.focusedSurface?.pwd, !pwd.isEmpty else { return nil }
+        return pwd
+    }
+
+    @IBAction func openWorkingDirectoryInFinder(_ sender: Any?) {
+        guard let pwd = keyWorkingDirectory else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: pwd, isDirectory: true))
+    }
+
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
     @MainActor private func syncMenuShortcuts(_ config: Ghostty.Config) {
         guard ghostty.readiness == .ready else { return }
@@ -1311,6 +1391,17 @@ extension AppDelegate: NSMenuItemValidation {
         switch item.action {
         case #selector(setAsDefaultTerminal(_:)):
             return NSWorkspace.shared.defaultTerminal != Bundle.main.bundleURL
+
+        case #selector(toggleTabSidebar(_:)):
+            item.title = TabSidebarSettings.shared.isVisible ? "Hide Tab Sidebar" : "Show Tab Sidebar"
+            return true
+
+        case #selector(searchTabs(_:)),
+            #selector(showFiles(_:)):
+            return keyTerminalController?.terminalViewContainer?.tabSidebar != nil
+
+        case #selector(openWorkingDirectoryInFinder(_:)):
+            return keyWorkingDirectory != nil
 
         case #selector(floatOnTop(_:)),
             #selector(useAsDefault(_:)):

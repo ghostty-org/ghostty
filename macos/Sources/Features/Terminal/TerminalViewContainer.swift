@@ -1,10 +1,30 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Use this container to achieve a glass effect at the window level.
 /// Modifying `NSThemeFrame` can sometimes be unpredictable.
 class TerminalViewContainer: NSView {
     private let terminalView: NSView
+
+    /// The vertical tab sidebar on the leading edge, if this container has one.
+    let tabSidebar: TabSidebarView?
+
+    /// The bar above the terminal showing the tab title. Only present with a sidebar.
+    let titleStrip: TerminalTitleStripView?
+
+    /// The pane on the trailing edge previewing a file of the file explorer. Only present
+    /// with a sidebar.
+    let filePreview: FilePreviewView?
+
+    /// The width constraint of the tab sidebar, updated on layout.
+    private var sidebarWidthConstraint: NSLayoutConstraint?
+
+    /// The width constraint of the file preview, updated on layout.
+    private var previewWidthConstraint: NSLayoutConstraint?
+
+    /// Subscriptions to the shared tab sidebar settings.
+    private var sidebarCancellables: Set<AnyCancellable> = []
 
     /// Background color applied with glass effect
     private(set) var glassEffectView: NSView?
@@ -22,8 +42,15 @@ class TerminalViewContainer: NSView {
         return window.value(forKey: "_cornerRadius") as? CGFloat
     }
 
-    init<Root: View>(@ViewBuilder rootView: () -> Root) {
+    init<Root: View>(
+        sidebar: TabSidebarView? = nil,
+        titleStrip: TerminalTitleStripView? = nil,
+        @ViewBuilder rootView: () -> Root
+    ) {
         self.terminalView = NSHostingView(rootView: rootView())
+        self.tabSidebar = sidebar
+        self.titleStrip = sidebar == nil ? nil : titleStrip
+        self.filePreview = sidebar == nil ? nil : FilePreviewView()
         super.init(frame: .zero)
         setup()
     }
@@ -40,6 +67,19 @@ class TerminalViewContainer: NSView {
     var initialContentSize: NSSize?
 
     override var intrinsicContentSize: NSSize {
+        // The sidebar is added on top of the terminal size so that configured
+        // sizes such as `window-width` still describe the terminal itself.
+        var size = terminalIntrinsicContentSize
+        if size.width != NSView.noIntrinsicMetric {
+            size.width += sidebarIntrinsicWidth
+        }
+        if size.height != NSView.noIntrinsicMetric, titleStrip != nil {
+            size.height += TerminalTitleStripView.contentHeight
+        }
+        return size
+    }
+
+    private var terminalIntrinsicContentSize: NSSize {
         let hostingSize = terminalView.intrinsicContentSize
         // The hosting view returns a valid size once SwiftUI has laid out
         // with the correct idealWidth/idealHeight. Before that (when
@@ -52,15 +92,155 @@ class TerminalViewContainer: NSView {
         return hostingSize
     }
 
+    /// The width the sidebar would like to have, ignoring the container size.
+    private var sidebarIntrinsicWidth: CGFloat {
+        guard tabSidebar != nil else { return 0 }
+        let settings = TabSidebarSettings.shared
+        return settings.isVisible ? settings.width : 0
+    }
+
     private func setup() {
         addSubview(terminalView)
         terminalView.translatesAutoresizingMaskIntoConstraints = false
+
+        guard let tabSidebar else {
+            NSLayoutConstraint.activate([
+                terminalView.topAnchor.constraint(equalTo: topAnchor),
+                terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
+                terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            ])
+            return
+        }
+
+        addSubview(tabSidebar)
+        tabSidebar.translatesAutoresizingMaskIntoConstraints = false
+
+        // We start the sidebar below the titlebar (if the content extends into it)
+        // so that rows never sit beneath the traffic lights.
+        let widthConstraint = tabSidebar.widthAnchor.constraint(equalToConstant: 0)
+        sidebarWidthConstraint = widthConstraint
         NSLayoutConstraint.activate([
-            terminalView.topAnchor.constraint(equalTo: topAnchor),
-            terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            tabSidebar.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            tabSidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            tabSidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            widthConstraint,
+            terminalView.leadingAnchor.constraint(equalTo: tabSidebar.trailingAnchor),
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
+
+        // The file preview sits on the trailing edge, collapsed until a file is previewed.
+        // Like the title bar it extends up under the (transparent) titlebar.
+        let trailingEdge: NSLayoutXAxisAnchor
+        if let filePreview {
+            addSubview(filePreview)
+            filePreview.translatesAutoresizingMaskIntoConstraints = false
+            filePreview.isHidden = true
+            filePreview.onClose = { [weak self] in self?.closeFilePreview() }
+            let previewWidth = filePreview.widthAnchor.constraint(equalToConstant: 0)
+            previewWidthConstraint = previewWidth
+            NSLayoutConstraint.activate([
+                filePreview.topAnchor.constraint(equalTo: topAnchor),
+                filePreview.bottomAnchor.constraint(equalTo: bottomAnchor),
+                filePreview.trailingAnchor.constraint(equalTo: trailingAnchor),
+                previewWidth,
+            ])
+            trailingEdge = filePreview.leadingAnchor
+        } else {
+            trailingEdge = trailingAnchor
+        }
+        terminalView.trailingAnchor.constraint(equalTo: trailingEdge).isActive = true
+
+        // The title bar sits right above the terminal. It extends up under the
+        // (transparent) titlebar so there is no gap, but its content is below it.
+        if let titleStrip {
+            addSubview(titleStrip)
+            titleStrip.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                titleStrip.topAnchor.constraint(equalTo: topAnchor),
+                titleStrip.leadingAnchor.constraint(equalTo: tabSidebar.trailingAnchor),
+                titleStrip.trailingAnchor.constraint(equalTo: trailingEdge),
+                titleStrip.bottomAnchor.constraint(
+                    equalTo: safeAreaLayoutGuide.topAnchor,
+                    constant: TerminalTitleStripView.contentHeight),
+                terminalView.topAnchor.constraint(equalTo: titleStrip.bottomAnchor),
+            ])
+        } else {
+            terminalView.topAnchor.constraint(equalTo: topAnchor).isActive = true
+        }
+
+        // Keep every window in sync with the shared sidebar settings. Note that
+        // @Published emits before the property changes so we use the emitted values.
+        let settings = TabSidebarSettings.shared
+        settings.$isVisible
+            .combineLatest(settings.$width)
+            .removeDuplicates { $0 == $1 }
+            .sink { [weak self] visible, width in
+                self?.tabSidebarSettingsDidChange(visible: visible, width: width)
+            }
+            .store(in: &sidebarCancellables)
+        settings.$previewWidth
+            .removeDuplicates()
+            .sink { [weak self] width in
+                self?.updatePreviewWidthConstraint(width: width)
+            }
+            .store(in: &sidebarCancellables)
+    }
+
+    private func tabSidebarSettingsDidChange(visible: Bool, width: CGFloat) {
+        guard let tabSidebar else { return }
+        tabSidebar.isHidden = !visible
+        updateSidebarWidthConstraint(visible: visible, width: width)
+        invalidateIntrinsicContentSize()
+
+        // If the sidebar is hidden while it is being edited, then the terminal must
+        // get focus back.
+        if !visible { tabSidebar.sidebarDidHide() }
+    }
+
+    private func updateSidebarWidthConstraint(visible: Bool? = nil, width: CGFloat? = nil) {
+        guard let sidebarWidthConstraint else { return }
+        let settings = TabSidebarSettings.shared
+        let effective = min(bounds.width, TabSidebarLogic.effectiveWidth(
+            stored: width ?? settings.width,
+            containerWidth: bounds.width,
+            visible: visible ?? settings.isVisible))
+        if sidebarWidthConstraint.constant != effective {
+            sidebarWidthConstraint.constant = effective
+        }
+    }
+
+    private func updatePreviewWidthConstraint(width: CGFloat? = nil) {
+        guard let filePreview, let previewWidthConstraint else { return }
+        let available = bounds.width - (sidebarWidthConstraint?.constant ?? 0)
+        let effective = filePreview.isHidden ? 0 : FileExplorerLogic.effectivePreviewWidth(
+            stored: width ?? TabSidebarSettings.shared.previewWidth,
+            available: available)
+        if previewWidthConstraint.constant != effective {
+            previewWidthConstraint.constant = effective
+        }
+    }
+
+    // MARK: File Preview
+
+    /// Shows the given file in the preview pane. The terminal keeps focus.
+    func showFilePreview(_ url: URL) {
+        guard let filePreview else { return }
+        filePreview.show(url)
+        filePreview.isHidden = false
+        updatePreviewWidthConstraint()
+    }
+
+    /// Closes the preview pane and gives focus back to the terminal.
+    func closeFilePreview() {
+        guard let filePreview, !filePreview.isHidden else { return }
+        filePreview.isHidden = true
+        filePreview.clear()
+        updatePreviewWidthConstraint()
+
+        if let surface = (window?.windowController as? BaseTerminalController)?.focusedSurface {
+            window?.makeFirstResponder(surface)
+        }
     }
 
     override func viewDidMoveToWindow() {
@@ -70,11 +250,17 @@ class TerminalViewContainer: NSView {
     }
 
     override func layout() {
+        updateSidebarWidthConstraint()
+        updatePreviewWidthConstraint()
         super.layout()
         updateGlassEffectTopInsetIfNeeded()
     }
 
     func ghosttyConfigDidChange(_ config: Ghostty.Config, preferredBackgroundColor: NSColor?) {
+        tabSidebar?.updateAppearance(backgroundColor: preferredBackgroundColor ?? NSColor(config.backgroundColor))
+        titleStrip?.updateAppearance(backgroundColor: preferredBackgroundColor ?? NSColor(config.backgroundColor))
+        filePreview?.updateAppearance(backgroundColor: preferredBackgroundColor ?? NSColor(config.backgroundColor))
+
         let newValue = DerivedConfig(config: config, preferredBackgroundColor: preferredBackgroundColor, cornerRadius: windowCornerRadius)
         guard newValue != derivedConfig else { return }
         derivedConfig = newValue

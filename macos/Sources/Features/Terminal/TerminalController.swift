@@ -22,16 +22,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         case .native: "Terminal"
         case .hidden: "TerminalHiddenTitlebar"
         case .transparent: "TerminalTransparentTitlebar"
-        case .tabs:
-#if compiler(>=6.2)
-            if #available(macOS 26.0, *) {
-                "TerminalTabsTitlebarTahoe"
-            } else {
-                "TerminalTabsTitlebarVentura"
-            }
-#else
-            "TerminalTabsTitlebarVentura"
-#endif
+
+        // Tabs are shown in the tab sidebar so the tabs style is
+        // the same as the transparent style.
+        case .tabs: "TerminalTransparentTitlebar"
         }
 
         return nib
@@ -319,7 +313,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             ) { target in
                 // Close the window when undoing
                 undoManager.disableUndoRegistration {
-                    target.closeWindow(nil)
+                    target.closeWindow(nil, remembersTabs: false)
                 }
 
                 // Register redo action
@@ -394,7 +388,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             ) { target in
                 undoManager.disableUndoRegistration {
                     if confirmUndo {
-                        target.closeWindow(nil)
+                        target.closeWindow(nil, remembersTabs: false)
                     } else {
                         target.closeWindowImmediately()
                     }
@@ -486,18 +480,20 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 // set while `-[NSWindowController showWindow:]` is called, but we're
                 // dispatching it to resolve other issues.
                 parent.tabGroup?.selectedWindow = window
+
+                // Populate the tab sidebar of the new window before it is shown so
+                // it doesn't briefly show only itself.
+                controller.terminalViewContainer?.tabSidebar?.reloadStructure(includingTabGroup: true)
             }
         }
 
         // showWindow makes regular windows key and ordered front. AppKit can
         // throw while selecting a tab if its fullscreen stack is inconsistent,
         // so this must cross the Objective-C exception bridge.
-        // We don't need to dispatch this because `tabbingMode = .disallowed`
-        // for HiddenTitlebarTerminalWindow.
         controller.showWindowSafely(self)
 
-        // Windows with `macos-titlebar-style = hidden` create new windows when the
-        // new tab binding is pressed, we should cascade those windows as well.
+        // If tabbing is disallowed (e.g. by the system), new tabs create new
+        // windows and we should cascade those windows as well.
 
         // We're dispatching this async because otherwise the lastCascadePoint doesn't
         // take effect after position in `showWindow`. Our best theory is there is some
@@ -613,6 +609,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             }
         }
+
+        // The tab sidebars show the same tab list so they need to update too.
+        NotificationCenter.default.post(name: .terminalTabSidebarNeedsReload, object: self)
     }
 
     private func fixTabBar() {
@@ -712,9 +711,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
 
-        // 1 window, closing the window
+        // 1 window, closing the window. This closes the last tab rather than the
+        // window so we don't remember its tabs.
         if withConfirmation {
-            closeWindow(nil)
+            closeWindow(nil, remembersTabs: false)
         } else {
             closeWindowImmediately()
         }
@@ -845,10 +845,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// Closes the current window (including any other tabs) immediately and without
     /// confirmation. This will setup proper undo state so the action can be undone.
-    func closeWindowImmediately() {
+    ///
+    /// If `remembersTabs` is true and this is the last window, its tabs are restored the
+    /// next time Ghostty opens a window (see `TabSessionStore`).
+    func closeWindowImmediately(remembersTabs: Bool = false) {
         guard let window = window else { return }
 
         cancelPendingInitialPresentation()
+
+        if remembersTabs {
+            TabSessionStore.windowWillClose(self)
+        }
 
         registerUndoForCloseWindow()
 
@@ -1012,7 +1019,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static private func closeAllWindowsImmediately() {
         let undoManager = (NSApp.delegate as? AppDelegate)?.undoManager
         undoManager?.beginUndoGrouping()
-        all.forEach { $0.closeWindowImmediately() }
+        all.forEach { $0.closeWindowImmediately(remembersTabs: true) }
         undoManager?.setActionName("Close All Windows")
         undoManager?.endUndoGrouping()
     }
@@ -1027,6 +1034,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let tabIndex: Int?
         weak var tabGroup: NSWindowTabGroup?
         let tabColor: TerminalTabColor
+        let titleOverride: String?
     }
 
     convenience init(_ ghostty: Ghostty.App, with undoState: UndoState) {
@@ -1039,6 +1047,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             if let terminalWindow = window as? TerminalWindow {
                 terminalWindow.tabColor = undoState.tabColor
             }
+            titleOverride = undoState.titleOverride
 
             // If we have a tab group and index, restore the tab to its original position
             if let tabGroup = undoState.tabGroup,
@@ -1082,7 +1091,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             focusedSurface: focusedSurface?.id,
             tabIndex: window.tabGroup?.windows.firstIndex(of: window),
             tabGroup: window.tabGroup,
-            tabColor: (window as? TerminalWindow)?.tabColor ?? .none)
+            tabColor: (window as? TerminalWindow)?.tabColor ?? .none,
+            titleOverride: titleOverride)
     }
 
     // MARK: - NSWindowController
@@ -1095,6 +1105,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     override func windowDidLoad() {
         super.windowDidLoad()
         guard let window else { return }
+
+        // A remembered closed window is only restored while no terminal window is open.
+        TabSessionStore.discard()
 
         // I copy this because we may change the source in the future but also because
         // I regularly audit our codebase for "ghostty.config" access because generally
@@ -1112,8 +1125,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             focusedSurface = view
         }
 
-        // Initialize our content view to the SwiftUI root
-        let container = TerminalViewContainer {
+        // Initialize our content view to the SwiftUI root, with the vertical tab
+        // sidebar on the leading edge.
+        let container = TerminalViewContainer(
+            sidebar: TabSidebarView(controller: self),
+            titleStrip: TerminalTitleStripView(controller: self)
+        ) {
             TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
         }
 
@@ -1324,7 +1341,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     @IBAction func closeTab(_ sender: Any?) {
         guard let window = window else { return }
         guard window.tabGroup?.windows.count ?? 0 > 1 else {
-            closeWindow(sender)
+            // Closing the last tab one by one forgets it, unlike closing the window.
+            closeWindow(sender, remembersTabs: false)
             return
         }
 
@@ -1437,6 +1455,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @IBAction override func closeWindow(_ sender: Any?) {
+        closeWindow(sender, remembersTabs: true)
+    }
+
+    /// Closes the window, asking for confirmation if necessary. See `closeWindowImmediately`
+    /// for `remembersTabs`.
+    func closeWindow(_ sender: Any?, remembersTabs: Bool) {
         guard let window = window else { return }
 
         // We need to check all the windows in our tab group for confirmation
@@ -1449,7 +1473,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard
             !confirmControllers.isEmpty
         else {
-            closeWindowImmediately()
+            closeWindowImmediately(remembersTabs: remembersTabs)
             return
         }
         if confirmControllers.count == 1 {
@@ -1459,7 +1483,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 messageText: "Close Window?",
                 informativeText: "All terminal sessions in this window will be terminated.",
             ) {
-                self.closeWindowImmediately()
+                self.closeWindowImmediately(remembersTabs: remembersTabs)
             }
             return
         }
@@ -1473,7 +1497,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             case .alertFirstButtonReturn:
                 await reviewWindows(confirmControllers, window: window)
             case .alertSecondButtonReturn:
-                closeWindowImmediately()
+                closeWindowImmediately(remembersTabs: remembersTabs)
             default:
                 break
             }
@@ -1530,6 +1554,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             .dropFirst()
             .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
             .store(in: &surfaceAppearanceCancellables)
+
+        // The tab sidebar shows the working directory of the focused surface. We
+        // observe it directly since background tabs can change directories too.
+        NotificationCenter.default.post(name: .terminalTabSidebarItemDidChange, object: self)
+        focusedSurface.$pwd
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                NotificationCenter.default.post(name: .terminalTabSidebarItemDidChange, object: self)
+            }
+            .store(in: &surfaceAppearanceCancellables)
     }
 
     private func syncAppearanceOnPropertyChange(_ surface: Ghostty.SurfaceView?) {
@@ -1562,19 +1597,27 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let selectedIndex = tabbedWindows.firstIndex(where: { $0 == selectedWindow }) else { return }
 
         // Determine the final index we want to insert our tab
-        let finalIndex: Int
-        if action.amount < 0 {
-            finalIndex = selectedIndex - min(selectedIndex, -action.amount)
-        } else {
-            let remaining: Int = tabbedWindows.count - 1 - selectedIndex
-            finalIndex = selectedIndex + min(remaining, action.amount)
-        }
+        let finalIndex = TabSidebarLogic.moveIndex(
+            selected: selectedIndex,
+            amount: action.amount,
+            count: tabbedWindows.count)
 
-        // If our index is the same we do nothing
-        guard finalIndex != selectedIndex else { return }
+        Self.moveTab(selectedWindow, to: finalIndex)
+    }
+
+    /// Moves the given tab window to the final index in its tab group. The tab that
+    /// was selected before the move remains selected.
+    static func moveTab(_ window: NSWindow, to finalIndex: Int) {
+        guard let tabGroup = window.tabGroup else { return }
+        let tabbedWindows = tabGroup.windows
+        guard let currentIndex = tabbedWindows.firstIndex(of: window),
+              currentIndex != finalIndex,
+              tabbedWindows.indices.contains(finalIndex) else { return }
 
         // Get our target window
         let targetWindow = tabbedWindows[finalIndex]
+        let ordered: NSWindow.OrderingMode = finalIndex < currentIndex ? .below : .above
+        let selectedWindow = tabGroup.selectedWindow ?? window
 
         // Moving tabs on macOS 26 RC causes very nasty visual glitches in the titlebar tabs.
         // I believe this is due to messed up constraints for our hacky tab bar. I'd like to
@@ -1583,10 +1626,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Reproduction: titlebar tabs, create two tabs, "move tab left"
         if #available(macOS 26, *) {
             if window is TitlebarTabsTahoeTerminalWindow {
-                tabGroup.removeWindow(selectedWindow)
-                targetWindow.addTabbedWindowSafely(selectedWindow, ordered: action.amount < 0 ? .below : .above)
+                tabGroup.removeWindow(window)
+                targetWindow.addTabbedWindowSafely(window, ordered: ordered)
                 DispatchQueue.main.async {
                     selectedWindow.makeKey()
+                    (window.windowController as? TerminalController)?.relabelTabs()
                 }
 
                 return
@@ -1598,13 +1642,22 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         NSAnimationContext.current.duration = 0
 
         // Remove and re-add the window in the correct position
-        tabGroup.removeWindow(selectedWindow)
-        targetWindow.addTabbedWindowSafely(selectedWindow, ordered: action.amount < 0 ? .below : .above)
+        tabGroup.removeWindow(window)
+        targetWindow.addTabbedWindowSafely(window, ordered: ordered)
 
-        // Ensure our window remains selected
+        // Ensure the previously selected window remains selected. When moving a
+        // background tab (e.g. dragging in the tab sidebar), re-adding it must not
+        // select it.
+        if selectedWindow !== window {
+            targetWindow.tabGroup?.selectedWindow = selectedWindow
+        }
         selectedWindow.makeKey()
 
         NSAnimationContext.endGrouping()
+
+        // Our tab shortcuts depend on the order so we need to relabel. The native
+        // tab bar used to trigger this via frame changes but we don't rely on that.
+        (window.windowController as? TerminalController)?.relabelTabs()
     }
 
     @objc private func onGotoTab(notification: SwiftUI.Notification) {
