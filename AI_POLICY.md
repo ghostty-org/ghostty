@@ -11,6 +11,13 @@ The Ghostty project has strict rules for AI usage:
   greater system without the aid of AI tools, do not contribute
   to this project.
 
+- **A human must be accountable for every commit.** AI tools may
+  create commits, but the commit author must be a human who takes
+  full responsibility for the change. Do not list AI tools or agents
+  (e.g. Claude, Amp, Codex) as an author or co-author, including via
+  `Co-authored-by:` trailers. Disclose AI usage in the pull request
+  instead.
+
 - **Issues and discussions can use AI assistance but must have a full
   human-in-the-loop.** This means that any content generated with AI
   must have been reviewed _and edited_ by a human before submission.
