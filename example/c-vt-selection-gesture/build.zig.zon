@@ -2,7 +2,7 @@
     .name = .c_vt_selection_gesture,
     .version = "0.0.0",
     .fingerprint = 0x5a4e72d27b582404,
-    .minimum_zig_version = "0.15.1",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         // Ghostty dependency. In reality, you'd probably use a URL-based
         // dependency like the one showed (and commented out) below this one.

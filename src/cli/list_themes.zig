@@ -458,7 +458,10 @@ const Preview = struct {
                             self.mode = .help;
                         if (key.matches('/', .{}))
                             self.mode = .search;
-                        if (key.matchesAny(&.{ vaxis.Key.enter, vaxis.Key.kp_enter }, .{}))
+                        // The save screen shows the selected theme, so there
+                        // must be one to select.
+                        if (key.matchesAny(&.{ vaxis.Key.enter, vaxis.Key.kp_enter }, .{}) and
+                            self.filtered.items.len > 0)
                             self.mode = .save;
                         if (key.matchesAny(&.{ 'x', '/' }, .{ .ctrl = true })) {
                             self.text_input.buf.clearRetainingCapacity();
@@ -467,31 +470,37 @@ const Preview = struct {
                         if (key.matchesAny(&.{ vaxis.Key.home, vaxis.Key.kp_home, 'g' }, .{}))
                             self.current = 0;
                         if (key.matchesAny(&.{ vaxis.Key.end, vaxis.Key.kp_end, 'G' }, .{}))
-                            self.current = self.filtered.items.len - 1;
+                            self.current = self.filtered.items.len -| 1;
                         if (key.matchesAny(&.{ 'j', '+', vaxis.Key.down, vaxis.Key.kp_down, vaxis.Key.kp_add }, .{}))
                             self.down(1);
-                        if (key.matchesAny(&.{ vaxis.Key.page_down, vaxis.Key.kp_down }, .{}))
+                        if (key.matchesAny(&.{ vaxis.Key.page_down, vaxis.Key.kp_page_down }, .{}))
+                            self.down(20);
+                        if (key.matches('d', .{ .ctrl = true }))
                             self.down(20);
                         if (key.matchesAny(&.{ 'k', '-', vaxis.Key.up, vaxis.Key.kp_up, vaxis.Key.kp_subtract }, .{}))
                             self.up(1);
                         if (key.matchesAny(&.{ vaxis.Key.page_up, vaxis.Key.kp_page_up }, .{}))
                             self.up(20);
+                        if (key.matches('u', .{ .ctrl = true }))
+                            self.up(20);
                         if (key.matchesAny(&.{ 'h', 'x' }, .{}))
                             self.hex = true;
                         if (key.matches('d', .{}))
                             self.hex = false;
-                        if (key.matches('c', .{}))
-                            try self.vx.copyToSystemClipboard(
-                                self.tty.writer(),
-                                self.themes[self.filtered.items[self.current]].theme,
-                                alloc,
-                            )
-                        else if (key.matches('c', .{ .shift = true }))
-                            try self.vx.copyToSystemClipboard(
-                                self.tty.writer(),
-                                self.themes[self.filtered.items[self.current]].path,
-                                alloc,
-                            );
+                        if (self.filtered.items.len > 0) {
+                            if (key.matches('c', .{}))
+                                try self.vx.copyToSystemClipboard(
+                                    self.tty.writer(),
+                                    self.themes[self.filtered.items[self.current]].theme,
+                                    alloc,
+                                )
+                            else if (key.matches('c', .{ .shift = true }))
+                                try self.vx.copyToSystemClipboard(
+                                    self.tty.writer(),
+                                    self.themes[self.filtered.items[self.current]].path,
+                                    alloc,
+                                );
+                        }
                         if (key.matches('f', .{})) {
                             switch (self.theme_filter) {
                                 .all => self.theme_filter = .dark,
@@ -771,10 +780,10 @@ const Preview = struct {
                     .{ .keys = "f", .help = "Cycle through theme filters." },
                     .{ .keys = "k, ↑", .help = "Move up 1 theme." },
                     .{ .keys = "ScrollUp", .help = "Move up 1 theme." },
-                    .{ .keys = "PgUp", .help = "Move up 20 themes." },
+                    .{ .keys = "PgUp, ^U", .help = "Move up 20 themes." },
                     .{ .keys = "j, ↓", .help = "Move down 1 theme." },
                     .{ .keys = "ScrollDown", .help = "Move down 1 theme." },
-                    .{ .keys = "PgDown", .help = "Move down 20 themes." },
+                    .{ .keys = "PgDown, ^D", .help = "Move down 20 themes." },
                     .{ .keys = "h, x", .help = "Show palette numbers in hexadecimal." },
                     .{ .keys = "d", .help = "Show palette numbers in decimal." },
                     .{ .keys = "c", .help = "Copy theme name to the clipboard." },

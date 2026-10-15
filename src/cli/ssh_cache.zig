@@ -34,12 +34,15 @@ pub const Options = struct {
 /// inspects and maintains that cache.
 ///
 /// The cache stores destinations (a hostname or user@hostname) along with
-/// timestamps.
+/// timestamps. A destination on a port other than 22 carries it as a
+/// `:port` suffix (`user@hostname:2222`, or `user@[2001:db8::1]:2222` for an
+/// IPv6 address), since each port can be a different machine.
 ///
 /// A positional destination queries the cache: `user@hostname` shows that
 /// exact entry, while a bare `hostname` shows every cached entry for that
-/// host regardless of user. With no destination and no action, the entire
-/// cache is listed. A query that matches nothing exits 1.
+/// host regardless of user and port, and a bare `hostname:port` every entry
+/// for that port. With no destination and no action, the entire cache is
+/// listed. A query that matches nothing exits 1.
 ///
 /// At most one action (`--clear`, `--add`, `--remove`, or `--prune`) may be
 /// specified, and not together with a positional destination; combining them
@@ -54,6 +57,7 @@ pub const Options = struct {
 ///     ghostty +ssh-cache                           # List all cached destinations
 ///     ghostty +ssh-cache user@example.com          # Show that destination
 ///     ghostty +ssh-cache example.com               # Show all users on that host
+///     ghostty +ssh-cache user@example.com:2222     # Show that destination on port 2222
 ///     ghostty +ssh-cache --add=user@example.com    # Manually add a destination
 ///     ghostty +ssh-cache --remove=user@example.com # Remove a destination
 ///     ghostty +ssh-cache --prune=30d               # Remove entries older than 30 days
@@ -205,7 +209,7 @@ pub fn runInner(
         ) catch |err| switch (err) {
             error.InvalidCacheKey => {
                 try stderr.print(
-                    "Error: invalid destination '{s}' (expected hostname or user@hostname)\n",
+                    "Error: invalid destination '{s}' (expected [user@]hostname[:port])\n",
                     .{dest},
                 );
                 return 2;
@@ -225,7 +229,7 @@ pub fn runInner(
         const removed = cache.remove(alloc, dest) catch |err| switch (err) {
             error.InvalidCacheKey => {
                 try stderr.print(
-                    "Error: invalid destination '{s}' (expected hostname or user@hostname)\n",
+                    "Error: invalid destination '{s}' (expected [user@]hostname[:port])\n",
                     .{dest},
                 );
                 return 2;
@@ -280,7 +284,7 @@ pub fn runInner(
     if (query) |q| {
         if (!DiskCache.isValidCacheKey(q)) {
             try stderr.print(
-                "Error: invalid destination '{s}' (expected hostname or user@hostname)\n",
+                "Error: invalid destination '{s}' (expected [user@]hostname[:port])\n",
                 .{q},
             );
             return 2;
@@ -347,17 +351,25 @@ fn listEntries(
 }
 
 /// Whether a cache `key` matches a positional `query`. A `user@host` query
-/// (containing `@`) matches one exact key; a bare `host` query matches every
-/// key on that host regardless of user, comparing against the key's host
-/// component (everything after its first `@`, or the whole key if userless).
+/// (containing `@`) matches one exact destination; a bare `host` query
+/// matches every key on that host regardless of user and port, and a bare
+/// `host:port` query every key on that host and port regardless of user.
+/// A missing port is the same as port 22.
 fn matchesQuery(key: []const u8, query: []const u8) bool {
-    if (std.mem.indexOfScalar(u8, query, '@') != null) {
-        return std.mem.eql(u8, key, query);
+    const key_at = std.mem.indexOfScalar(u8, key, '@');
+    const query_at = std.mem.indexOfScalar(u8, query, '@');
+    if (query_at) |i| {
+        const key_user = if (key_at) |j| key[0..j] else return false;
+        if (!std.mem.eql(u8, key_user, query[0..i])) return false;
     }
 
-    const at = std.mem.indexOfScalar(u8, key, '@');
-    const host = if (at) |i| key[i + 1 ..] else key;
-    return std.mem.eql(u8, host, query);
+    const key_hp = DiskCache.splitHostPort(if (key_at) |i| key[i + 1 ..] else key);
+    const query_hp = DiskCache.splitHostPort(if (query_at) |i| query[i + 1 ..] else query);
+    if (!std.mem.eql(u8, key_hp.host, query_hp.host)) return false;
+
+    // Only a bare host query matches every port.
+    if (query_at == null and query_hp.port == null) return true;
+    return std.mem.eql(u8, key_hp.port orelse "22", query_hp.port orelse "22");
 }
 
 test matchesQuery {
@@ -373,6 +385,30 @@ test matchesQuery {
     try testing.expect(matchesQuery("root@example.com", "example.com"));
     try testing.expect(matchesQuery("example.com", "example.com"));
     try testing.expect(!matchesQuery("user@other.com", "example.com"));
+
+    // Bare host: every port on that host too.
+    try testing.expect(matchesQuery("user@example.com:2222", "example.com"));
+    try testing.expect(matchesQuery("user@[::1]:2222", "::1"));
+    try testing.expect(matchesQuery("user@::1", "::1"));
+
+    // Bare host:port: that port only, any user.
+    try testing.expect(matchesQuery("user@example.com:2222", "example.com:2222"));
+    try testing.expect(matchesQuery("root@example.com:2222", "example.com:2222"));
+    try testing.expect(!matchesQuery("user@example.com", "example.com:2222"));
+    try testing.expect(!matchesQuery("user@example.com:2223", "example.com:2222"));
+    try testing.expect(matchesQuery("user@[::1]:2222", "[::1]:2222"));
+
+    // Exact user@host:port.
+    try testing.expect(matchesQuery("user@example.com:2222", "user@example.com:2222"));
+    try testing.expect(!matchesQuery("user@example.com", "user@example.com:2222"));
+    try testing.expect(!matchesQuery("user@example.com:2222", "user@example.com"));
+
+    // A missing port is port 22.
+    try testing.expect(matchesQuery("user@example.com", "example.com:22"));
+    try testing.expect(matchesQuery("user@example.com", "user@example.com:22"));
+    try testing.expect(matchesQuery("user@example.com:22", "user@example.com"));
+    try testing.expect(matchesQuery("user@[::1]:22", "user@::1"));
+    try testing.expect(!matchesQuery("user@example.com:2222", "example.com:22"));
 }
 
 /// Format a Unix timestamp as an ISO-8601 UTC string

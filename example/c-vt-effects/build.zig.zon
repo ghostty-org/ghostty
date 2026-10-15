@@ -2,7 +2,7 @@
     .name = .c_vt_effects,
     .version = "0.0.0",
     .fingerprint = 0xc02634cd65f5b583,
-    .minimum_zig_version = "0.15.1",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         // Ghostty dependency. In reality, you'd probably use a URL-based
         // dependency like the one showed (and commented out) below this one.

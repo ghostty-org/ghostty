@@ -57,9 +57,7 @@ const terminal = struct {
 const log = std.log.scoped(.config);
 
 /// Used on Unixes for some defaults.
-const c = @cImport({
-    @cInclude("unistd.h");
-});
+const c = @import("posix_c");
 
 pub const compatibility = std.StaticStringMap(
     cli.CompatibilityHandler(Config),
@@ -2494,7 +2492,7 @@ keybind: Keybinds = .{},
 
 /// Require confirmation before pasting text that appears unsafe. This helps
 /// prevent a "copy/paste attack" where a user may accidentally execute unsafe
-/// commands by pasting text with newlines.
+/// commands by pasting text with newlines or carriage returns.
 @"clipboard-paste-protection": bool = true,
 
 /// If true, bracketed pastes will be considered safe. By default, bracketed
@@ -3054,6 +3052,76 @@ keybind: Keybinds = .{},
 /// if you know you need KAM, you know. If you don't know if you
 /// need KAM, you don't need it.
 @"vt-kam-allowed": bool = false,
+
+/// If true, allows the running program to resize the window using the
+/// xterm `CSI 8 ; rows ; columns t` escape sequence. If a parameter is zero
+/// or omitted, the current size of that dimension is kept. Sizes smaller
+/// than 40 columns by 10 rows are raised to that size so that a program
+/// can't shrink the window to hide its output.
+///
+/// The request is ignored if the terminal is in a split, in a window with
+/// multiple tabs, or the quick terminal, or if the window manager controls
+/// the window size, such as when it is fullscreen, maximized, or tiled.
+/// Sizes larger than the screen are clamped to the screen.
+///
+/// This is disabled by default because it lets any program, including one
+/// running on a remote machine, change the size of your window.
+///
+/// Available since: 1.4.0
+@"vt-window-resize-allowed": bool = false,
+
+/// Enables or disables checksum reporting (DECRQCRA, `CSI Pi ; Pg ; Pt ;
+/// Pl ; Pb ; Pr * y`). This escape sequence allows the running program to
+/// ask for a checksum of an area of the screen. Terminal test suites use it
+/// to check what is on the screen.
+///
+/// This is disabled by default because a program can ask for the checksum of
+/// one cell at a time and so read back everything on the screen, including
+/// the output of other programs.
+///
+/// While this is disabled, XTCHECKSUM (`CSI Ps # y`), which changes how the
+/// checksum is calculated, is ignored as well.
+///
+/// Available since: 1.4.0
+@"vt-xt-checksum-report": bool = false,
+
+/// How the checksum reported for DECRQCRA (see `vt-xt-checksum-report`) is
+/// calculated. This is the calculation used after a reset, like xterm's
+/// `checksumExtension` resource. A running program can change it with
+/// XTCHECKSUM (`CSI Ps # y`) until the next reset. The default is the
+/// calculation of a real DEC terminal.
+///
+/// Valid values are:
+///
+///   * `negate` - Report the negated sum, as DEC terminals do.
+///
+///   * `attributes` - Add bold, underline, blink, inverse, invisible, and
+///     protected attributes to the value of each cell.
+///
+///   * `trim` - Omit plain spaces other than the first cell of the area.
+///
+///   * `undrawn` - Count cells that were never written to as spaces
+///     instead of skipping them.
+///
+///   * `full` - Use the full codepoint of each cell instead of the DEC
+///     8-bit value.
+///
+/// Prefix a value with `no-` to disable it. For example, esctest expects
+/// `no-negate,no-attributes,no-trim,full` when run with `--xterm-checksum`,
+/// which is xterm's `checksumExtension: 23`.
+///
+/// The bits of xterm's resource are described in its
+/// [man page](https://github.com/ThomasDickey/xterm-snapshots/blob/xterm-411/xterm.man#L2870-L2896)
+/// and its [control sequence documentation](https://github.com/ThomasDickey/xterm-snapshots/blob/xterm-411/ctlseqs.ms#L2562-L2569),
+/// but where those disagree with xterm's
+/// [implementation](https://github.com/ThomasDickey/xterm-snapshots/blob/xterm-411/screen.c#L3162-L3290),
+/// Ghostty follows the implementation. The documentation describes bit 3
+/// as omitting cells that were never written to, but xterm skips those
+/// cells by default and counts them as spaces with the bit set, which is
+/// `undrawn` here. It also lists a bit 5 that xterm doesn't implement.
+///
+/// Available since: 1.4.0
+@"vt-xt-checksum-extension": XtChecksumExtension = .{},
 
 /// Custom shaders to run after the default shaders. This is a file path
 /// to a GLSL-syntax shader for all platforms.
@@ -3748,6 +3816,13 @@ else
 /// with keybinds.
 @"gtk-tabs-location": GtkTabsLocation = .top,
 
+/// If true, the close button of each tab is shown at the start of the tab
+/// (the left, in left-to-right languages) and the tab's icon at the end.
+/// This applies to both the tab bar and the tab overview. GTK only.
+///
+/// Available since: 1.4.0
+@"gtk-tabs-inverted": bool = false,
+
 /// If this is `true`, the titlebar will be hidden when the window is maximized,
 /// and shown when the titlebar is unmaximized. GTK only.
 ///
@@ -4339,7 +4414,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
 
     // Any paths referenced from the CLI are relative to the current working
     // directory.
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     try self.expandPaths(buf[0..try std.Io.Dir.cwd().realPathFile(
         global.io(),
         ".",
@@ -4778,7 +4853,7 @@ pub fn finalize(self: *Config) !void {
                     if (wd == .home) {
                         var environ_map = try global.environMap();
                         defer environ_map.deinit();
-                        var buf: [std.fs.max_path_bytes]u8 = undefined;
+                        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
                         if (try internal_os.home(global.io(), &environ_map, &buf)) |home| {
                             wd = .{ .path = try alloc.dupe(u8, home) };
                         } else {
@@ -5528,7 +5603,7 @@ pub const WorkingDirectory = union(enum) {
             else => return,
         };
 
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const expanded = expandHome(path, &buf);
 
         if (std.mem.eql(u8, expanded, path)) return;
@@ -5589,7 +5664,7 @@ pub const WorkingDirectory = union(enum) {
             var wd: Self = .{ .path = "~/projects/ghostty" };
             try wd.finalize(alloc);
 
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const expected = internal_os.expandHome(
                 testing.io,
                 &environ_map,
@@ -8830,6 +8905,15 @@ pub const ShellIntegrationFeatures = packed struct {
     path: bool = true,
 };
 
+/// See vt-xt-checksum-extension
+pub const XtChecksumExtension = packed struct {
+    negate: bool = true,
+    attributes: bool = true,
+    trim: bool = true,
+    undrawn: bool = false,
+    full: bool = false,
+};
+
 pub const SplitPreserveZoom = packed struct {
     navigation: bool = false,
 };
@@ -10090,7 +10174,7 @@ pub const Theme = struct {
 
     /// Expand tilde paths in light/dark theme values.
     pub fn finalize(self: *Theme, alloc: Allocator) Allocator.Error!void {
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
 
         const light = expandHome(self.light, &buf);
         if (!std.mem.eql(u8, light, self.light))
@@ -10162,7 +10246,7 @@ pub const Theme = struct {
             var environ_map = try testing.environ.createMap(alloc);
             defer environ_map.deinit();
 
-            var home_buf: [std.fs.max_path_bytes]u8 = undefined;
+            var home_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const home = try internal_os.expandHome(
                 testing.io,
                 &environ_map,
@@ -10174,7 +10258,7 @@ pub const Theme = struct {
             try v.parseCLI(alloc, "light:~/foo, dark:~/bar");
             try v.finalize(alloc);
 
-            var expected_buf: [std.fs.max_path_bytes]u8 = undefined;
+            var expected_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             try testing.expectEqualStrings(
                 try std.fmt.bufPrint(&expected_buf, "{s}foo", .{home}),
                 v.light,
@@ -10690,9 +10774,9 @@ test "clone can then change conditional state" {
         try writer.interface.writeAll(@embedFile("testdata/theme_dark"));
         try writer.end();
     }
-    var light_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var light_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const light = light_buf[0..try td.dir.realPathFile(testing.io, "theme_light", &light_buf)];
-    var dark_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var dark_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const dark = dark_buf[0..try td.dir.realPathFile(testing.io, "theme_dark", &dark_buf)];
 
     var cfg_light = try Config.default(alloc);
@@ -10767,7 +10851,7 @@ test "working-directory expands tilde" {
     try cfg.loadIter(alloc, &it);
     try cfg.finalize();
 
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const expected = internal_os.expandHome(
         io,
         &environ_map,
@@ -10847,7 +10931,7 @@ test "theme loading" {
         try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
         try writer.end();
     }
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = path_buf[0..try td.dir.realPathFile(testing.io, "theme", &path_buf)];
 
     var cfg = try Config.default(alloc);
@@ -10886,7 +10970,7 @@ test "theme loading preserves conditional state" {
         try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
         try writer.end();
     }
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = path_buf[0..try td.dir.realPathFile(testing.io, "theme", &path_buf)];
 
     var cfg = try Config.default(alloc);
@@ -10919,7 +11003,7 @@ test "theme priority is lower than config" {
         try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
         try writer.end();
     }
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = path_buf[0..try td.dir.realPathFile(testing.io, "theme", &path_buf)];
 
     var cfg = try Config.default(alloc);
@@ -10963,9 +11047,9 @@ test "theme loading correct light/dark" {
         try writer.interface.writeAll(@embedFile("testdata/theme_dark"));
         try writer.end();
     }
-    var light_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var light_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const light = light_buf[0..try td.dir.realPathFile(testing.io, "theme_light", &light_buf)];
-    var dark_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var dark_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const dark = dark_buf[0..try td.dir.realPathFile(testing.io, "theme_dark", &dark_buf)];
 
     // Light

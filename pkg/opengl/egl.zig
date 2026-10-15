@@ -8,7 +8,7 @@
 //! Call `load()` once before using any EGL extension functions.
 
 const std = @import("std");
-pub const c = @import("c");
+pub const c = @import("opengl_c");
 
 const log = std.log.scoped(.opengl_egl);
 
@@ -71,9 +71,59 @@ pub fn bindApi(api: c.EGLenum) Error!void {
     }
 }
 
+/// Returns the client extensions, which are those that are independent
+/// of any display, such as the platforms that can be passed to
+/// `Display.initPlatform`. Returns null if the implementation does not
+/// support EGL_EXT_client_extensions or no driver could be loaded.
+pub fn queryClientExtensions() ?[:0]const u8 {
+    const exts = c.eglQueryString(null, c.EGL_EXTENSIONS) orelse return null;
+    return std.mem.span(exts);
+}
+
+/// Returns true if `name` appears in the space-separated
+/// extension string `exts`.
+pub fn hasExtension(exts: []const u8, name: []const u8) bool {
+    var it = std.mem.tokenizeScalar(u8, exts, ' ');
+    while (it.next()) |ext| {
+        if (std.mem.eql(u8, ext, name)) return true;
+    }
+    return false;
+}
+
 pub const Display = opaque {
-    pub fn init(id: c.EGLNativeDisplayType) Error!*Display {
-        const display = c.eglGetDisplay(id) orelse return mustError();
+    pub fn initPlatform(
+        platform: c.EGLenum,
+        id: c.EGLNativeDisplayType,
+        attribs: ?[*:c.EGL_NONE]const c.EGLAttrib,
+    ) Error!*Display {
+        // 2026-10-15 (fork-local): the generated `opengl_c` header that
+        // `fe9cf6a26` ("build: fully transition away from cImport/addTranslateC")
+        // introduced is internally inconsistent for this one call:
+        //
+        //   pub const EGLNativeDisplayType = c_int;
+        //   pub const EGL_DEFAULT_DISPLAY = EGL_CAST(EGLNativeDisplayType, 0);
+        //   pub extern fn eglGetPlatformDisplay(..., native_display: ?*anyopaque, ...);
+        //
+        // EGL/eglplatform.h defines EGLNativeDisplayType per platform and the
+        // Khronos-recommended branch (EGL_NO_PLATFORM_SPECIFIC_TYPES, the one
+        // Apple uses) makes it `void *`. The translator resolved the wrong
+        // branch and emitted `c_int`, so passing the id does not type-check.
+        //
+        // `eglGetDisplay` in the same header still takes EGLNativeDisplayType
+        // correctly, which is why only this call fails.
+        //
+        // Coerce at the call site rather than patching the vendored generated
+        // header: the header is regenerated on every build, so an edit there
+        // would not survive. The runtime value is unchanged either way - this
+        // is a type-level fix only.
+        //
+        // `id` arrives as `c_int` (0 for EGL_DEFAULT_DISPLAY, the only value
+        // the sole call site passes) and the parameter is `?*anyopaque`, so
+        // `@ptrFromInt` is the correct conversion: it reinterprets the integer
+        // as an address, which is what the C ABI wants. `@ptrCast` is wrong
+        // here - it rejects an integer outright - and `@ptrFromInt` needs a
+        // `usize`, hence the explicit cast.
+        const display = c.eglGetPlatformDisplay(platform, @ptrFromInt(@as(usize, @intCast(id))), attribs) orelse return mustError();
         return initialize(display);
     }
 

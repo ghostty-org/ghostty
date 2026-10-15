@@ -39,7 +39,7 @@ const global = @import("../global.zig");
 const log = std.log.scoped(.font_shared_grid);
 
 /// Cache for codepoints to font indexes in a group.
-codepoints: std.AutoHashMapUnmanaged(CodepointKey, ?Collection.Index) = .{},
+codepoints: std.HashMapUnmanaged(CodepointKey, ?Collection.Index, CodepointKey.Context, 80) = .{},
 
 /// Cache for glyph renders into the atlas.
 glyphs: std.HashMapUnmanaged(GlyphKey, Render, GlyphKey.Context, 80) = .{},
@@ -160,7 +160,7 @@ pub fn getIndex(
     style: Style,
     p: ?Presentation,
 ) !?Collection.Index {
-    const key: CodepointKey = .{ .style = style, .codepoint = cp, .presentation = p };
+    const key = CodepointKey.from(.{ .style = style, .codepoint = cp, .presentation = p });
 
     // Fast path: the cache has the value. This is almost always true and
     // only requires a read lock.
@@ -385,7 +385,7 @@ pub fn renderGlyph(
 ) RenderGlyphError!Render {
     const tw = renderGlyph_tw;
 
-    const key: GlyphKey = .{ .index = index, .glyph = glyph_index, .opts = opts };
+    const key = GlyphKey.from(.{ .index = index, .glyph = glyph_index, .opts = opts });
 
     // Fast path: the cache has the value. This is almost always true and
     // only requires a read lock.
@@ -463,56 +463,79 @@ pub fn renderGlyph(
     return gop.value_ptr.*;
 }
 
-const CodepointKey = struct {
-    style: Style,
+const CodepointKey = packed struct(u64) {
     codepoint: u32,
-    presentation: ?Presentation,
+    style: Style,
+    has_presentation: bool,
+    presentation: Presentation,
+    _padding: u27 = 0,
+
+    const Context = struct {
+        pub fn hash(_: Context, key: CodepointKey) u64 {
+            const x: u64 = @bitCast(key);
+            return x ^ (x >> 32);
+        }
+
+        pub fn eql(_: Context, a: CodepointKey, b: CodepointKey) bool {
+            return @as(u64, @bitCast(a)) == @as(u64, @bitCast(b));
+        }
+    };
+
+    inline fn from(k: struct {
+        style: Style,
+        codepoint: u32,
+        presentation: ?Presentation,
+    }) CodepointKey {
+        return .{
+            .codepoint = k.codepoint,
+            .style = k.style,
+            .has_presentation = k.presentation != null,
+            .presentation = k.presentation orelse .text,
+        };
+    }
 };
 
-const GlyphKey = struct {
-    index: Collection.Index,
+/// Cache key for rendered glyphs. Packed to 8 bytes so HashMap stores
+/// and compares a u64 instead of a full RenderOptions (metrics,
+/// nerd-font constraint, etc. are not part of the identity).
+const GlyphKey = packed struct(u64) {
     glyph: u32,
-    opts: RenderOptions,
+    index: Collection.Index,
+    opts: packed struct(u16) {
+        cell_width: u2,
+        thicken: bool,
+        thicken_strength: u8,
+        constraint_width: u2,
+        _padding: u3 = 0,
+    },
 
     const Context = struct {
         pub fn hash(_: Context, key: GlyphKey) u64 {
-            // Packed is a u64 but std.hash.int improves uniformity and
-            // avoids collisions in our hashmap.
-            const packed_key = Packed.from(key);
-            return std.hash.int(@as(u64, @bitCast(packed_key)));
+            const x: u64 = @bitCast(key);
+            return x ^ (x >> 32);
         }
 
         pub fn eql(_: Context, a: GlyphKey, b: GlyphKey) bool {
-            // Packed checks glyphs but in most cases the glyphs are NOT
-            // equal so the first check leads to increased throughput.
-            return a.glyph == b.glyph and Packed.from(a) == Packed.from(b);
+            return @as(u64, @bitCast(a)) == @as(u64, @bitCast(b));
         }
     };
 
-    const Packed = packed struct(u64) {
+    inline fn from(k: struct {
         index: Collection.Index,
         glyph: u32,
-        opts: packed struct(u16) {
-            cell_width: u2,
-            thicken: bool,
-            thicken_strength: u8,
-            constraint_width: u2,
-            _padding: u3 = 0,
-        },
-
-        inline fn from(key: GlyphKey) Packed {
-            return .{
-                .index = key.index,
-                .glyph = key.glyph,
-                .opts = .{
-                    .cell_width = key.opts.cell_width orelse 0,
-                    .thicken = key.opts.thicken,
-                    .thicken_strength = key.opts.thicken_strength,
-                    .constraint_width = key.opts.constraint_width,
-                },
-            };
-        }
-    };
+        opts: RenderOptions,
+    }) GlyphKey {
+        return .{
+            .glyph = k.glyph,
+            .index = k.index,
+            .opts = .{
+                .cell_width = k.opts.cell_width orelse 0,
+                .thicken = k.opts.thicken,
+                .thicken_strength = k.opts.thicken_strength,
+                .constraint_width = k.opts.constraint_width,
+            },
+        };
+    }
 };
 
 const TestMode = enum { normal };
@@ -599,7 +622,7 @@ test "renderGlyph error after cache insert rolls back cache entry" {
     };
 
     const render_opts: RenderOptions = .{ .grid_metrics = grid.metrics };
-    const key: GlyphKey = .{ .index = idx, .glyph = glyph_index, .opts = render_opts };
+    const key = GlyphKey.from(.{ .index = idx, .glyph = glyph_index, .opts = render_opts });
 
     // Verify the cache is empty for this glyph
     try testing.expect(grid.glyphs.get(key) == null);

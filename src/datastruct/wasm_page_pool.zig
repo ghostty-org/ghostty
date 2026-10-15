@@ -113,6 +113,14 @@ pub fn WasmPagePool(comptime Item: type) type {
             return true;
         }
 
+        /// Return the number of unused items this pool holds, which is
+        /// always zero. Freed items go to a free list shared by every pool
+        /// of this item type in the module, so no single pool owns them.
+        pub fn freeCount(self: *const Self) usize {
+            _ = self;
+            return 0;
+        }
+
         pub fn create(self: *Self) Allocator.Error!ItemPtr {
             _ = self;
 

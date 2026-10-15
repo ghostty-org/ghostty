@@ -64,6 +64,11 @@ pub const Options = struct {
     /// a fallback to static.
     link_system_libs: []const []const u8 = &.{},
 
+    /// The libraries that you want to link against using `linkLibrary`. These
+    /// will likely be C/C++ libraries compiled with the Zig build system that
+    /// install headers alongside their other artifacts.
+    link_libs: []const *std.Build.Step.Compile = &.{},
+
     /// Any additional include paths. These will be added using `-I` to the
     /// translation process, and made available to the translated code, in the
     /// order they are specified.
@@ -81,6 +86,11 @@ pub const Options = struct {
     /// You likely don't need this if you are not building for an Apple
     /// platform.
     link_frameworks: []const []const u8 = &.{},
+
+    /// Whether or not struct fields should be initialized by default. This
+    /// passes the `default-init` flag directly to the translate-c process in
+    /// its literal form (null means no flag added).
+    default_init: ?bool = null,
 
     /// Supply an external libc file. The expected format here is exactly what
     /// you would get if you ran `zig libc` and can be used if the toolchain on
@@ -136,6 +146,7 @@ pub fn addImportToModule(
 /// `addImportToModule`.
 pub fn init(b: *std.Build, options: Options) !Translator {
     const translated = try initTranslator(b, options);
+    for (options.link_libs) |lib| translated.linkLibrary(lib);
     for (options.include_paths) |path| translated.addIncludePath(path);
     for (options.system_include_paths) |path| translated.addSystemIncludePath(path);
     for (options.link_frameworks) |framework| translated.mod.linkFramework(framework, .{});
@@ -161,6 +172,7 @@ pub fn initTranslator(b: *std.Build, options: Options) !Translator {
         .optimize = options.optimize,
         .link_libc = options.link_libc,
         .link_system_libs = try marshalSystemLibs(b, options.link_system_libs),
+        .default_init = options.default_init,
         .libc_file = switch (options.libc_file) {
             .detect_darwin => if (options.target.result.os.tag.isDarwin()) libc_file: {
                 switch (try apple_sdk.pathsForTarget(this_dep.builder, options.target.result)) {

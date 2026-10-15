@@ -144,7 +144,7 @@ test "expandHomeUnix" {
     const allocator = testing.allocator;
     var environ_map = try testing.environ.createMap(testing.allocator);
     defer environ_map.deinit();
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const home_dir = try expandHomeUnix(io, &environ_map, "~/", &buf);
     // Joining the home directory `~` with the path `/`
     // the result should end with a separator here. (e.g. `/home/user/`)

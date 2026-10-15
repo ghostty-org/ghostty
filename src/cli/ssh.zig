@@ -438,12 +438,15 @@ fn resolveDestination(
     return parseDestination(alloc, result.stdout);
 }
 
-/// Parse `ssh -G` output for `user` and `hostname` and return the
-/// formatted `user@hostname`. Returns null if either key is missing
-/// or formatting fails.
+/// Parse `ssh -G` output for `user`, `hostname` and `port` and return the
+/// formatted `user@hostname`, or `user@hostname:port` when the port isn't
+/// the default 22 (`user@[hostname]:port` for an IPv6 address), so that
+/// different sshd instances behind one address are cached separately.
+/// Returns null if user or hostname is missing or formatting fails.
 fn parseDestination(alloc: Allocator, stdout: []const u8) ?[]const u8 {
     var user: []const u8 = "";
     var host: []const u8 = "";
+    var port: []const u8 = "";
     var it = std.mem.tokenizeScalar(u8, stdout, '\n');
     while (it.next()) |line| {
         const space = std.mem.indexOfScalar(u8, line, ' ') orelse continue;
@@ -453,8 +456,10 @@ fn parseDestination(alloc: Allocator, stdout: []const u8) ?[]const u8 {
             user = value;
         } else if (std.mem.eql(u8, key, "hostname")) {
             host = value;
+        } else if (std.mem.eql(u8, key, "port")) {
+            port = value;
         }
-        if (user.len > 0 and host.len > 0) break;
+        if (user.len > 0 and host.len > 0 and port.len > 0) break;
     }
 
     if (user.len == 0) {
@@ -466,7 +471,14 @@ fn parseDestination(alloc: Allocator, stdout: []const u8) ?[]const u8 {
         return null;
     }
 
-    return std.fmt.allocPrint(alloc, "{s}@{s}", .{ user, host }) catch null;
+    if (port.len == 0 or std.mem.eql(u8, port, "22")) {
+        return std.fmt.allocPrint(alloc, "{s}@{s}", .{ user, host }) catch null;
+    }
+
+    if (std.mem.indexOfScalar(u8, host, ':') != null) {
+        return std.fmt.allocPrint(alloc, "{s}@[{s}]:{s}", .{ user, host, port }) catch null;
+    }
+    return std.fmt.allocPrint(alloc, "{s}@{s}:{s}", .{ user, host, port }) catch null;
 }
 
 /// Install Ghostty's terminfo on the remote host over a short-lived SSH
@@ -664,4 +676,52 @@ test "parseDestination: IPv6 hostname" {
     const stdout = "user alice\nhostname ::1\n";
     const result = parseDestination(arena.allocator(), stdout);
     try testing.expectEqualStrings("alice@::1", result.?);
+}
+
+test "parseDestination: non-default port" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const stdout =
+        \\user alice
+        \\hostname example.com
+        \\port 2222
+        \\
+    ;
+    const result = parseDestination(arena.allocator(), stdout);
+    try testing.expectEqualStrings("alice@example.com:2222", result.?);
+}
+
+test "parseDestination: port before hostname" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const stdout = "port 2222\nuser alice\nhostname example.com\n";
+    const result = parseDestination(arena.allocator(), stdout);
+    try testing.expectEqualStrings("alice@example.com:2222", result.?);
+}
+
+test "parseDestination: IPv6 hostname with non-default port" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const stdout = "user alice\nhostname ::1\nport 2222\n";
+    const result = parseDestination(arena.allocator(), stdout);
+    try testing.expectEqualStrings("alice@[::1]:2222", result.?);
+}
+
+test "parseDestination: result is a valid cache key" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const outputs = [_][]const u8{
+        "user alice\nhostname example.com\nport 22\n",
+        "user alice\nhostname example.com\nport 2222\n",
+        "user alice\nhostname 2001:db8::1\nport 22\n",
+        "user alice\nhostname 2001:db8::1\nport 2222\n",
+    };
+    for (outputs) |stdout| {
+        const result = parseDestination(arena.allocator(), stdout).?;
+        try testing.expect(DiskCache.isValidCacheKey(result));
+    }
 }

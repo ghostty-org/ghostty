@@ -38,8 +38,11 @@ const macos = switch (builtin.os.tag) {
     else => void,
 };
 
+/// The display link used to pace drawing to the display's refresh
+/// rate. Only macOS has one. Everywhere else this is void and the
+/// display link code paths compile away.
 const DisplayLink = switch (builtin.os.tag) {
-    .macos => *macos.video.DisplayLink,
+    .macos => @import("DisplayLink.zig"),
     else => void,
 };
 
@@ -91,6 +94,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         pub const API = GraphicsAPI;
 
         pub const ExportedFrame = if (@hasDecl(GraphicsAPI, "ExportedFrame")) GraphicsAPI.ExportedFrame else void;
+
+        /// Whether +Y is down in the coordinate space of exported
+        /// frames. Apprts use this to orient frames when presenting.
+        pub const custom_shader_y_is_down = GraphicsAPI.custom_shader_y_is_down;
 
         const Target = GraphicsAPI.Target;
         const Buffer = GraphicsAPI.Buffer;
@@ -214,13 +221,25 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Graphics API state.
         api: GraphicsAPI,
 
-        /// The CVDisplayLink used to drive the rendering loop in
-        /// sync with the display. This is void on platforms that
-        /// don't support a display link.
-        display_link: ?DisplayLink = null,
+        /// The display link that paces drawing to the display's refresh
+        /// rate. It is created lazily on the render thread the first
+        /// time `syncDisplayLink` runs, and stays null if vsync is
+        /// disabled or creation failed. This is void on platforms
+        /// without a display link.
+        ///
+        /// The link is only ever started and stopped on the main thread.
+        /// See `renderer/DisplayLink.zig` for why that matters.
+        display_link: if (DisplayLink != void) ?*DisplayLink else void =
+            if (DisplayLink != void) null else {},
 
         /// Health of the most recently completed frame.
         health: std.atomic.Value(Health) = .{ .raw = .healthy },
+
+        /// Health of how well the apprt can present our frames.
+        ///
+        /// This is separate from `health` because a renderer
+        /// can produce healthy frames that the apprt can't present.
+        presentation_health: std.atomic.Value(Health) = .{ .raw = .healthy },
 
         /// True when we have a graphics context that can create GPU
         /// resources. Creating any GPU resource while this is false is invalid.
@@ -686,9 +705,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         pub fn init(alloc: Allocator, options: renderer.Options) !Self {
             // Initialize our graphics API wrapper, this will prepare the
-            // surface provided by the apprt and set up any API-specific
-            // GPU resources.
-            var api = try GraphicsAPI.init(alloc, options);
+            // surface provided by the apprt and set up any API- and surface-
+            // specific GPU resources.
+            var api = try GraphicsAPI.init(
+                alloc,
+                options.device,
+                options,
+            );
             errdefer api.deinit();
 
             const has_custom_shaders = options.config.custom_shaders.value.items.len > 0;
@@ -821,10 +844,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             self.latest_frame.deinit(global.io());
 
+            // Stop and release the display link. Surfaces are destroyed
+            // on the main thread, where `close` stops the link before
+            // returning. After this the display link callback is never
+            // invoked again, so `renderer.Thread` can free the `draw_now`
+            // handle the callback points at.
             if (DisplayLink != void) {
                 if (self.display_link) |display_link| {
-                    display_link.stop() catch {};
-                    display_link.release();
+                    display_link.close();
+                    self.display_link = null;
                 }
             }
 
@@ -882,7 +910,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.draw_mutex.lockUncancelable(global.io());
                 defer self.draw_mutex.unlock(global.io());
 
-                // Release swap chain and shaders.
+                // Release swap chain and shaders. Shaders are only freed
+                // while unrealized and not every apprt unrealizes before
+                // destroying a surface (macOS never does), so mark it
+                // unrealized. This also stops any later draw.
+                self.display_realized = false;
                 self.releaseGpuResources();
 
                 // We don't release images in `releaseGpuResources`
@@ -927,11 +959,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // If we don't support a display link we have no work to do.
             if (comptime DisplayLink == void) return;
 
-            // Stop our display link. If this fails its okay it just means
-            // that we either never started it or the view its attached to
-            // is gone which is fine.
+            // Ask the display link to stop. The stop itself happens on
+            // the main thread shortly after. `deinit` later stops the
+            // link for certain before anything the display link callback
+            // references is freed.
             const display_link = self.display_link orelse return;
-            display_link.stop() catch {};
+            display_link.setRunning(false);
         }
 
         /// This is called by the GTK apprt after the surface is
@@ -1032,6 +1065,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             return self.latest_frame.take(global.io());
         }
 
+        /// The display link output callback. CoreVideo invokes this on
+        /// its own thread once per display refresh while the link is
+        /// running. All it does is wake the render thread, which then
+        /// draws a frame.
         fn displayLinkCallback(
             _: *macos.video.DisplayLink,
             ud: ?*xev.Async,
@@ -1047,7 +1084,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.terminal_state.dirty = .full;
         }
 
-        /// Called when we get an updated display ID for our display link.
+        /// Called when the window moves to a different display, with
+        /// the CGDirectDisplayID of the new one. The display link is
+        /// bound to that display so that it follows its refresh rate.
+        ///
+        /// Must be called on the render thread.
         pub fn setMacOSDisplayID(
             self: *Self,
             id: u32,
@@ -1127,9 +1168,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             return null;
         }
 
-        /// True if our renderer is using vsync. If true, the renderer or apprt
-        /// is responsible for triggering draw_now calls to the render thread.
-        /// That is the only way to trigger a drawFrame.
+        /// Returns true if the display link is running, meaning frames
+        /// are paced by display refresh. In that case the render thread
+        /// must only draw when the display link wakes it through
+        /// `draw_now`, and not on its own.
+        ///
+        /// This reflects the link's actual state. Right after
+        /// `syncDisplayLink` asks the link to start, this is still false
+        /// until the main thread starts it, and the render thread draws
+        /// immediately in the meantime.
         pub fn hasVsync(self: *const Self) bool {
             if (comptime DisplayLink == void) return false;
             const display_link = self.display_link orelse return false;
@@ -1148,6 +1195,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.custom_shader_focused_changed = true;
 
             self.syncDisplayLink(null, null);
+        }
+
+        /// Called when the apprt reports a change in how well
+        /// frames can be presented.
+        pub fn setPresentationHealth(self: *Self, health: Health) void {
+            self.presentation_health.store(health, .seq_cst);
+        }
+
+        /// Returns how well frames can be presented.
+        pub fn presentationHealth(self: *Self) Health {
+            return self.presentation_health.load(.seq_cst);
         }
 
         /// Callback when the window is visible or occluded.
@@ -1191,14 +1249,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
         }
 
-        /// Create or update the display link and match it to the current
-        /// surface state.
+        /// Create the display link if needed, then ask it to match the
+        /// current surface state: bound to `display_id` if one is given,
+        /// and running only while the surface is visible and has
+        /// something to draw (rebuilt cells or a running animation).
         ///
-        /// Must be called on the render thread and must NOT be called
-        /// while holding `draw_mutex`. Stopping a CVDisplayLink is a
-        /// blocking join on CoreVideo's IO thread, and the apprt calls
-        /// `drawFrame` (which takes `draw_mutex`) from the CoreAnimation
-        /// layer display path on the main thread.
+        /// `draw_now` is required the first time this is called, since
+        /// creating the link needs the handle its callback will notify.
+        /// Later calls can pass null.
+        ///
+        /// Must be called on the render thread. This never blocks. The
+        /// display link applies the requested state on the main thread
+        /// shortly after, because starting and stopping a CVDisplayLink
+        /// anywhere else can deadlock against CoreVideo's own display
+        /// reconfiguration handling. See `renderer/DisplayLink.zig`
+        /// for the full explanation.
         fn syncDisplayLink(
             self: *Self,
             display_id: ?u32,
@@ -1209,20 +1274,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const display_link = self.display_link orelse display_link: {
                 if (!self.config.vsync) return;
                 const callback = draw_now orelse return;
-                const result = macos.video.DisplayLink.createWithActiveCGDisplays() catch |err| {
-                    // A locked macOS session can temporarily have no active
-                    // displays. Rendering can continue without vsync and a
-                    // later display update will retry this method.
-                    log.warn("error creating display link; using fallback rendering err={}", .{err});
-                    return;
-                };
-                result.setOutputCallback(
+                const result = DisplayLink.create(
+                    self.alloc,
                     xev.Async,
                     &displayLinkCallback,
                     callback,
                 ) catch |err| {
-                    log.warn("error configuring display link err={}", .{err});
-                    result.release();
+                    // A locked macOS session can temporarily have no active
+                    // displays. Rendering continues without vsync and the
+                    // next call to this function tries again.
+                    log.warn("error creating display link; using fallback rendering err={}", .{err});
                     return;
                 };
 
@@ -1231,12 +1292,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 break :display_link result;
             };
 
-            if (display_id) |id| {
-                log.info("updating display link display id={}", .{id});
-                display_link.setCurrentCGDisplay(id) catch |err| {
-                    log.warn("error setting display link display id err={}", .{err});
-                };
-            }
+            if (display_id) |id| display_link.setDisplay(id);
 
             const should_run =
                 // Non-visible windows never vsync
@@ -1244,13 +1300,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // Only vsync if we have cell changes or animation
                 (self.cells_rebuilt or self.animationWake() != null);
 
-            if (should_run) {
-                if (!display_link.isRunning()) {
-                    display_link.start() catch {};
-                }
-            } else {
-                display_link.stop() catch {};
-            }
+            display_link.setRunning(should_run);
         }
 
         /// Set the new font grid.
@@ -1659,9 +1709,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             sync: bool,
         ) !void {
             // Everything that touches draw state happens under the draw
-            // mutex. The display link is synced only after the mutex is
-            // released; see `syncDisplayLink` for why it must never be
-            // called with the draw mutex held.
+            // mutex. The display link is synced after the mutex is
+            // released. It doesn't need the lock, and this keeps the
+            // critical section to just drawing.
             const sync_display_link = locked: {
                 self.draw_mutex.lockUncancelable(global.io());
                 defer self.draw_mutex.unlock(global.io());
@@ -1675,9 +1725,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         ///
         /// Returns true if the display link should be resynced once the
         /// draw mutex is released. This is only ever true on the no-redraw
-        /// path, which a sync draw never takes, so the main thread's sync
-        /// draws never touch the display link and `syncDisplayLink` stays
-        /// on the render thread.
+        /// path, which a sync draw never takes. Sync draws come from the
+        /// main thread, so this keeps `syncDisplayLink` on the render
+        /// thread as its contract requires.
         fn drawFrameLocked(
             self: *Self,
             sync: bool,
@@ -1705,8 +1755,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             if (surface_size.width == 0 or surface_size.height == 0) return false;
 
             // If we have no graphics context we can't draw. This is
-            // only the case while unrealized (GTK); displayRealized
-            // rebuilds the swap chain.
+            // only the case while unrealized (GTK) or after the render
+            // thread exits; displayRealized rebuilds the swap chain.
             if (!self.display_realized) return false;
 
             // Get our swap chain, rebuilding it if it was released

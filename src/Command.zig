@@ -233,7 +233,7 @@ fn startPosix(self: *Command, arena: Allocator) !void {
             break :execve posix.errno(posix.system.execve(self.path, argsZ, envp));
         }
 
-        var path_expanded_buf: [std.fs.max_path_bytes]u8 = undefined;
+        var path_expanded_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const PATH = global.environ().getPosix("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
         var it = std.mem.tokenizeScalar(u8, PATH, ':');
         var err: posix.system.E = .NOENT;

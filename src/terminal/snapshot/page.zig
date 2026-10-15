@@ -103,6 +103,7 @@ const record = @import("record.zig");
 const style = @import("style.zig");
 const terminal_hyperlink = @import("../hyperlink.zig");
 const terminal_page = @import("../page.zig");
+const max_page_size = @import("../size.zig").max_page_size;
 const terminal_style = @import("../style.zig");
 
 // Frequent constants we use
@@ -559,6 +560,7 @@ pub const Header = struct {
 
     pub const CapacityError = error{
         InvalidDimensions,
+        PageTooLarge,
     };
 
     /// Validate native allocation requirements and produce the page capacity.
@@ -567,7 +569,7 @@ pub const Header = struct {
             return error.InvalidDimensions;
         }
 
-        return .{
+        const cap: TerminalPageCapacity = .{
             .cols = self.columns,
             .rows = self.rows,
             .styles = self.style_capacity,
@@ -575,6 +577,13 @@ pub const Header = struct {
             .grapheme_bytes = self.grapheme_capacity_bytes,
             .string_bytes = self.string_capacity_bytes,
         };
+
+        const page_layout = TerminalPage.layout(cap);
+        if (page_layout.total_size > max_page_size) {
+            return error.PageTooLarge;
+        }
+
+        return cap;
     }
 
     fn computeLen() usize {
@@ -1299,6 +1308,63 @@ test "decode normalizes invalid grid semantics" {
         third.content.color_palette.data,
     );
     try std.testing.expect(!third.hasGrapheme());
+}
+
+test "decode rejects capacity exceeding maximum page size" {
+    const cases = [_]Header{
+        .{
+            .columns = 80,
+            .rows = 24,
+            .style_count = 0,
+            .hyperlink_count = 0,
+            .style_capacity = 0,
+            .hyperlink_capacity_bytes = 0,
+            .grapheme_capacity_bytes = std.math.maxInt(u32),
+            .string_capacity_bytes = 0,
+        },
+        .{
+            .columns = 80,
+            .rows = 24,
+            .style_count = 0,
+            .hyperlink_count = 0,
+            .style_capacity = 0,
+            .hyperlink_capacity_bytes = 0,
+            .grapheme_capacity_bytes = 0,
+            .string_capacity_bytes = std.math.maxInt(u32),
+        },
+        .{
+            .columns = 23169,
+            .rows = 23170,
+            .style_count = 0,
+            .hyperlink_count = 0,
+            .style_capacity = 0,
+            .hyperlink_capacity_bytes = std.math.maxInt(u16),
+            .grapheme_capacity_bytes = 0,
+            .string_capacity_bytes = 0,
+        },
+        .{
+            .columns = std.math.maxInt(u16),
+            .rows = std.math.maxInt(u16),
+            .style_count = 0,
+            .hyperlink_count = 0,
+            .style_capacity = 0,
+            .hyperlink_capacity_bytes = 0,
+            .grapheme_capacity_bytes = 0,
+            .string_capacity_bytes = 0,
+        },
+    };
+
+    for (cases) |header| {
+        var encoded: [Header.len]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&encoded);
+        try header.encode(&writer);
+
+        var reader: std.Io.Reader = .fixed(writer.buffered());
+        try std.testing.expectError(
+            error.PageTooLarge,
+            decodePayload(&reader, std.testing.allocator),
+        );
+    }
 }
 
 test "decode validates dimensions" {

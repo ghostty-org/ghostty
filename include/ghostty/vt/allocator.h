@@ -110,8 +110,14 @@ typedef struct {
      *
      * @param ctx The allocator context
      * @param len Number of bytes to allocate
-     * @param alignment Required alignment for the allocation. Guaranteed to
-     *   be a power of two between 1 and 16 inclusive.
+     * @param alignment Required alignment for the allocation, as the number
+     *   of low bits of the returned address that must be zero. This is not
+     *   a byte count: convert it with `1 << alignment` before passing it to
+     *   aligned_alloc or posix_memalign. For example:
+     *   - 1: the lowest bit must be zero (2-byte aligned)
+     *   - 2: the lowest two bits must be zero (4-byte aligned)
+     *   - 4: the lowest four bits must be zero (16-byte aligned)
+     *   This matches Zig's `std.mem.Alignment`.
      * @param ret_addr First return address of the allocation call stack (0 if not provided)
      * @return Pointer to allocated memory, or NULL if allocation failed
      */

@@ -11,6 +11,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("terminal_options");
 const testing = std.testing;
+const ComptimeIntSet = @import("../datastruct/main.zig").ComptimeIntSet;
 
 /// A struct that maintains the state of all the settable modes.
 pub const ModeState = struct {
@@ -50,6 +51,11 @@ pub const ModeState = struct {
         return getPacked(&self.values, mode);
     }
 
+    /// Get the value a mode is reset to.
+    pub fn getDefault(self: *const ModeState, mode: Mode) bool {
+        return getPacked(&self.default, mode);
+    }
+
     /// Save the state of the given mode. This can then be restored
     /// with restore. This will only be accurate if the previous
     /// mode was saved exactly once and not restored. Otherwise this
@@ -75,7 +81,8 @@ pub const ModeState = struct {
     }
 
     /// Return a DECRPM report for the given mode tag. If the tag does
-    /// not correspond to a known mode, the report state is .not_recognized.
+    /// not correspond to a known mode, the report state is .not_recognized,
+    /// except for the permanently-reset modes below.
     pub fn getReport(self: *const ModeState, tag: Report.Tag) Report {
         // DECECM (Erase Color Mode, DEC private mode 117) controls whether erasing
         // and scrolling use the default background or the active background color.
@@ -89,6 +96,28 @@ pub const ModeState = struct {
 
         if (!tag.ansi and tag.value == 117) {
             return .{ .tag = tag, .state = .permanently_reset };
+        }
+
+        // These unimplemented ANSI modes report fixed reset, matching
+        // xterm: GATM, SRTM, VEM, HEM, PUM, FEAM, FETM, MATM, TTM, SATM,
+        // TSM, EBM. Report permanently_reset instead of not_recognized so
+        // DECRQM callers hear "unsupported" rather than "unknown".
+        if (tag.ansi) {
+            switch (tag.value) {
+                inline 1, 5, 7, 10, 11, 13, 14, 15, 16, 17, 18, 19 => |v| {
+                    comptime for (entries) |entry| {
+                        if (entry.ansi and entry.value == v) @compileError(
+                            std.fmt.comptimePrint(
+                                "ANSI mode {} is in the mode table and " ++
+                                    "must not be reported as permanently reset",
+                                .{v},
+                            ),
+                        );
+                    };
+                    return .{ .tag = tag, .state = .permanently_reset };
+                },
+                else => {},
+            }
         }
         const mode = modeFromInt(tag.value, tag.ansi) orelse return .{
             .tag = tag,
@@ -175,19 +204,55 @@ pub const ModeTag = packed struct(u16) {
     }
 };
 
+/// Returns the mode for a mode number as it appears in a control
+/// sequence, or null if the mode is unknown or disabled.
+///
+/// ANSI and DEC private modes are numbered separately, so the same
+/// number can mean two different modes. `ansi` selects which one. For
+/// example, `CSI ? 4 h` is `modeFromInt(4, false)` (slow scroll) and
+/// `CSI 4 h` is `modeFromInt(4, true)` (insert).
 pub fn modeFromInt(v: u16, ansi: bool) ?Mode {
-    inline for (entries) |entry| {
-        if (comptime !entry.disabled) {
-            if (entry.value == v and entry.ansi == ansi) {
-                const tag: ModeTag = .{ .ansi = ansi, .value = entry.value };
-                const int: ModeTag.Backing = @bitCast(tag);
-                return @enumFromInt(int);
-            }
-        }
+    // ModeTag stores the number in 15 bits. A larger number can't be a
+    // known mode, and packing it below would spill into the ansi bit.
+    if (v > std.math.maxInt(u15)) return null;
+
+    // This runs for every mode that is set, reset, or queried, so we use
+    // a sorted lookup instead of comparing against each entry in turn.
+    const tag: ModeTag = .{ .ansi = ansi, .value = @intCast(v) };
+    const int: ModeTag.Backing = @bitCast(tag);
+    const idx = EntrySet.indexOf(int) orelse return null;
+    if (comptime entries_any_disabled) {
+        if (entries_disabled[idx]) return null;
     }
 
-    return null;
+    return @enumFromInt(int);
 }
+
+/// The tag of every entry, in the same order as `entries`. Looking up
+/// a tag here returns the index of its entry.
+const EntrySet = ComptimeIntSet(ModeTag.Backing, keys: {
+    var keys: [entries.len]ModeTag.Backing = undefined;
+    for (entries, &keys) |entry, *key| key.* = @bitCast(ModeTag{
+        .value = entry.value,
+        .ansi = entry.ansi,
+    });
+    const final = keys;
+    break :keys &final;
+});
+
+/// Whether each entry is disabled, in the same order as `entries`.
+const entries_disabled: [entries.len]bool = disabled: {
+    var result: [entries.len]bool = undefined;
+    for (entries, &result) |entry, *v| v.* = entry.disabled;
+    break :disabled result;
+};
+
+/// True if any entry is disabled. When false, modeFromInt skips the
+/// disabled check entirely.
+const entries_any_disabled: bool = any: {
+    for (entries) |entry| if (entry.disabled) break :any true;
+    break :any false;
+};
 
 /// A DECRPM mode report response.
 pub const Report = struct {
@@ -365,6 +430,29 @@ test modeFromInt {
     try testing.expect(modeFromInt(9, true) == null);
     try testing.expect(modeFromInt(9, false).? == .mouse_event_x10);
     try testing.expect(modeFromInt(14, true) == null);
+
+    // Numbers too large for the tag must not be mistaken for an ANSI mode.
+    try testing.expect(modeFromInt(4 | 0x8000, false) == null);
+    try testing.expect(modeFromInt(std.math.maxInt(u16), true) == null);
+}
+
+test "modeFromInt matches entries exhaustively" {
+    // Compare every possible input against a plain scan of the entries.
+    for ([_]bool{ false, true }) |ansi| {
+        for (0..std.math.maxInt(u16) + 1) |v| {
+            const expected: ?Mode = expected: {
+                inline for (entries) |entry| {
+                    if (comptime !entry.disabled) {
+                        if (entry.value == v and entry.ansi == ansi) {
+                            break :expected @field(Mode, entry.name);
+                        }
+                    }
+                }
+                break :expected null;
+            };
+            try testing.expectEqual(expected, modeFromInt(@intCast(v), ansi));
+        }
+    }
 }
 
 test ModeState {
@@ -434,6 +522,24 @@ test "getReport DECECM permanently reset" {
     const report = state.getReport(.{ .value = 117, .ansi = false });
     try testing.expectEqual(Report.State.permanently_reset, report.state);
     try testing.expectEqual(false, report.tag.ansi);
+}
+
+test "getReport unsupported ANSI modes permanently reset" {
+    const state: ModeState = .{};
+    // GATM, SRTM, VEM, HEM, PUM, FEAM, FETM, MATM, TTM, SATM, TSM, EBM.
+    for ([_]u16{ 1, 5, 7, 10, 11, 13, 14, 15, 16, 17, 18, 19 }) |value| {
+        // None of these may gain a settable mode table entry without
+        // leaving this list first.
+        try testing.expect(modeFromInt(value, true) == null);
+        const report = state.getReport(.{ .value = value, .ansi = true });
+        try testing.expectEqual(Report.State.permanently_reset, report.state);
+        try testing.expectEqual(true, report.tag.ansi);
+        try testing.expectEqual(value, report.tag.value);
+    }
+
+    // An unlisted ANSI mode is still unknown, not permanently reset.
+    const unknown = state.getReport(.{ .value = 9, .ansi = true });
+    try testing.expectEqual(Report.State.not_recognized, unknown.state);
 }
 
 test "getReport unknown mode" {

@@ -39,7 +39,7 @@ pub fn init(resources_dir: []const u8) InitError!void {
                 return error.InvalidResourcesDir;
 
             // Build our locale path
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const path = std.fmt.bufPrintZ(&buf, "{s}/locale", .{share_dir}) catch
                 return error.OutOfMemory;
 

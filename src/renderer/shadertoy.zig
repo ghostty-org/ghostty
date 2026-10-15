@@ -37,8 +37,8 @@ pub const Uniforms = extern struct {
     foreground_color: [4]f32 align(16),
     cursor_color: [4]f32 align(16),
     cursor_text: [4]f32 align(16),
-    selection_background_color: [4]f32 align(16),
     selection_foreground_color: [4]f32 align(16),
+    selection_background_color: [4]f32 align(16),
 };
 
 /// The target to load shaders for.
@@ -352,6 +352,71 @@ fn testGlslZ(alloc: Allocator, src: []const u8) ![:0]const u8 {
     defer buf.deinit();
     try glslFromShader(&buf.writer, src);
     return try buf.toOwnedSliceSentinel(0);
+}
+
+test "custom shader selection uniform layout matches compiled GLSL" {
+    const testing = std.testing;
+    const c = spvcross.c;
+    const src = try testGlslZ(testing.allocator,
+        \\void mainImage(out vec4 color, in vec2 pixel) {
+        \\    color = vec4(iSelectionForegroundColor + iSelectionBackgroundColor, 1.0);
+        \\}
+    );
+    defer testing.allocator.free(src);
+
+    var buf: [4096 * 4]u8 align(4) = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try spirvFromGlsl(&writer, null, src);
+
+    var ctx: c.spvc_context = undefined;
+    try testing.expectEqual(c.SPVC_SUCCESS, c.spvc_context_create(&ctx));
+    defer c.spvc_context_destroy(ctx);
+    var ir: c.spvc_parsed_ir = undefined;
+    try testing.expectEqual(c.SPVC_SUCCESS, c.spvc_context_parse_spirv(
+        ctx,
+        @ptrCast(&buf),
+        writer.buffered().len / 4,
+        &ir,
+    ));
+    var compiler: c.spvc_compiler = undefined;
+    try testing.expectEqual(c.SPVC_SUCCESS, c.spvc_context_create_compiler(
+        ctx,
+        c.SPVC_BACKEND_NONE,
+        ir,
+        c.SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
+        &compiler,
+    ));
+    var resources: c.spvc_resources = undefined;
+    try testing.expectEqual(c.SPVC_SUCCESS, c.spvc_compiler_create_shader_resources(compiler, &resources));
+    var blocks: [*c]const c.spvc_reflected_resource = undefined;
+    var count: usize = 0;
+    try testing.expectEqual(c.SPVC_SUCCESS, c.spvc_resources_get_resource_list_for_type(
+        resources,
+        c.SPVC_RESOURCE_TYPE_UNIFORM_BUFFER,
+        &blocks,
+        &count,
+    ));
+    try testing.expectEqual(@as(usize, 1), count);
+    const id = blocks[0].base_type_id;
+    const typ = c.spvc_compiler_get_type_handle(compiler, id);
+
+    inline for (.{
+        .{ "selection_foreground_color", "iSelectionForegroundColor" },
+        .{ "selection_background_color", "iSelectionBackgroundColor" },
+    }) |field| {
+        var found = false;
+        for (0..c.spvc_type_get_num_member_types(typ)) |i| {
+            const index: c_uint = @intCast(i);
+            const name = std.mem.span(c.spvc_compiler_get_member_name(compiler, id, index));
+            if (!std.mem.eql(u8, field[1], name)) continue;
+            var offset: c_uint = 0;
+            try testing.expectEqual(c.SPVC_SUCCESS, c.spvc_compiler_type_struct_member_offset(compiler, typ, index, &offset));
+            try testing.expectEqual(@offsetOf(Uniforms, field[0]), offset);
+            found = true;
+            break;
+        }
+        try testing.expect(found);
+    }
 }
 
 test "spirv" {

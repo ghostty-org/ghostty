@@ -1,4 +1,1 @@
-pub const c = @cImport({
-    @cInclude("glslang/Include/glslang_c_interface.h");
-    @cInclude("glslang/Public/resource_limits_c.h");
-});
+pub const c = @import("glslang_c");

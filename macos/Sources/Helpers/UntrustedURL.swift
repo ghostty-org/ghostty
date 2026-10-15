@@ -51,7 +51,7 @@ struct UntrustedURL: Equatable {
         // a URL. UI frameworks can render those same characters as line breaks,
         // zero-width text, or bidirectional overrides, so reject them before
         // parsing changes their representation.
-        guard !string.unicodeScalars.contains(where: Self.isUnsafeCharacter) else {
+        guard !Self.containsUnsafeCharacters(string) else {
             return .deny(.unsafeCharacters)
         }
 
@@ -97,6 +97,13 @@ struct UntrustedURL: Equatable {
             // before allowing that dispatch.
             return .confirm(url)
         }
+    }
+
+    /// Whether `value` contains control, invisible, or text-reversing
+    /// characters. Use this to check a value before converting it to a URL,
+    /// since conversion can percent-encode these characters.
+    static func containsUnsafeCharacters(_ value: String) -> Bool {
+        value.unicodeScalars.contains(where: isUnsafeCharacter)
     }
 
     /// A single-line representation of the effective target. Paths are

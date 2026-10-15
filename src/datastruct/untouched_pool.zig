@@ -108,6 +108,12 @@ pub fn UntouchedPool(comptime Item: type, comptime alignment: Alignment) type {
             return true;
         }
 
+        /// Return the number of items that are allocated but not in use.
+        /// These wait in the free list until `create` hands them out again.
+        pub fn freeCount(self: *const Self) usize {
+            return self.free.items.len;
+        }
+
         /// Get an item. This pops a free item without touching it or,
         /// when none is free, allocates a new one from the item
         /// allocator.
@@ -170,12 +176,15 @@ test "UntouchedPool: create, destroy, reuse" {
     try testing.expect(a != b);
     try testing.expect(a != c);
     try testing.expect(b != c);
+    try testing.expectEqual(0, pool.freeCount());
 
     // Freed items are recycled, most recent first.
     pool.destroy(a);
     pool.destroy(b);
+    try testing.expectEqual(2, pool.freeCount());
     try testing.expectEqual(b, try pool.create());
     try testing.expectEqual(a, try pool.create());
+    try testing.expectEqual(0, pool.freeCount());
 
     pool.destroy(a);
     pool.destroy(b);

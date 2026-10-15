@@ -154,8 +154,9 @@ pub const Error = Allocator.Error ||
 ///
 /// The safety rule for a text paste (`input.paste.isSafeWith`): a
 /// bracketed paste is unsafe only if it contains the bracket terminator
-/// (CSI 201~); an unbracketed paste is unsafe if it contains a newline
-/// or the terminator. Embedders wanting a stricter rule check
+/// (CSI 201~); an unbracketed paste is unsafe if it contains a line
+/// terminator (newline or carriage return) or the bracket terminator.
+/// Embedders wanting a stricter rule check
 /// `input.paste.isSafe` themselves before calling. A paste event never
 /// puts the data on the input stream, so the rule doesn't apply to it.
 ///

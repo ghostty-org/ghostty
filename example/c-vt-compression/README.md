@@ -2,7 +2,8 @@
 
 This example shows how a libghostty-vt embedding application can track
 compression-relevant terminal activity and perform incremental scrollback
-compression after its own idle delay.
+compression after its own idle delay. It also reads the terminal's memory
+usage before and after compression to show how much memory was released.
 
 libghostty-vt does not create a timer or background thread. The embedding
 application remains responsible for scheduling compression and serializing it

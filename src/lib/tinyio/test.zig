@@ -145,13 +145,13 @@ test "realPath and deleteFile" {
 
     const dir: Dir = .{ .handle = tmp_dir.dir.handle };
     var file = try dir.openFile(test_io, "real.txt", .{});
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = path_buf[0..try file.realPath(test_io, &path_buf)];
     try testing.expect(std.mem.endsWith(u8, path, "real.txt"));
     file.close(test_io);
 
     // dirRealPathFile via absolute path from cwd.
-    var path_buf2: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf2: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path2 = path_buf2[0..try Dir.cwd().realPathFile(test_io, path, &path_buf2)];
     try testing.expectEqualStrings(path, path2);
 
@@ -260,7 +260,7 @@ test "openFile edge cases" {
     ));
 
     // Paths that can't fit in PATH_MAX must not be silently truncated.
-    const long_name = "a" ** (std.fs.max_path_bytes + 1);
+    const long_name = "a" ** (std.Io.Dir.max_path_bytes + 1);
     try testing.expectError(error.NameTooLong, dir.openFile(
         test_io,
         long_name,
@@ -318,7 +318,7 @@ test "openFile symlink handling" {
 
     // ...and realPath resolves through the link to the target. This is
     // the property the Kitty graphics path validation relies on.
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = path_buf[0..try file.realPath(test_io, &path_buf)];
     try testing.expect(std.mem.endsWith(u8, path, "target.txt"));
     file.close(test_io);
@@ -613,13 +613,13 @@ test "dirRealPathFile edge cases" {
 
     // Resolve the canonical path through an open file for reference.
     var file = try dir.openFile(test_io, "real.txt", .{});
-    var want_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var want_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const want = want_buf[0..try file.realPath(test_io, &want_buf)];
     file.close(test_io);
 
     // A non-cwd directory handle exercises the open-then-resolve
     // fallback branch rather than libc realpath.
-    var got_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var got_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const got = got_buf[0..try test_io.vtable.dirRealPathFile(
         test_io.userdata,
         dir,
@@ -630,10 +630,10 @@ test "dirRealPathFile edge cases" {
 
     // Missing paths report FileNotFound (libc realpath branch, via an
     // absolute path anchored at cwd).
-    var missing_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var missing_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const missing = std.fmt.bufPrint(&missing_buf, "{s}.missing", .{want}) catch
         return error.SkipZigTest;
-    var out_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var out_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     try testing.expectError(error.FileNotFound, Dir.cwd().realPathFile(
         test_io,
         missing,

@@ -1,5 +1,6 @@
 const std = @import("std");
 const build_zon = @import("build.zig.zon");
+const translate_c = @import("translate_c");
 const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 
 // NOTE: This build is becoming more and more complex; we need to continually
@@ -62,46 +63,41 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    // For dynamic linking, we prefer dynamic linking and to search by
-    // mode first. Mode first will search all paths for a dynamic library
-    // before falling back to static.
-    const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
-        .preferred_link_mode = .dynamic,
-        .search_strategy = .mode_first,
-    };
-
     const test_exe = b.addTest(.{
         .name = "test",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("main.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
+        .root_module = module,
     });
     const tests_run = b.addRunArtifact(test_exe);
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&tests_run.step);
 
-    if (b.systemIntegrationOption("fontconfig", .{})) {
-        module.linkSystemLibrary("fontconfig", dynamic_link_opts);
-        test_exe.root_module.linkSystemLibrary("fontconfig", dynamic_link_opts);
-    } else {
-        const lib = try buildLib(b, module, .{
+    const lib: union(enum) {
+        system,
+        static: *std.Build.Step.Compile,
+    } = if (b.systemIntegrationOption("fontconfig", .{}))
+        .system
+    else
+        .{ .static = try buildLib(b, .{
             .target = target,
             .optimize = optimize,
 
             .libxml2_enabled = libxml2_enabled,
             .libxml2_iconv_enabled = libxml2_iconv_enabled,
             .freetype_enabled = freetype_enabled,
+        }) };
 
-            .dynamic_link_opts = dynamic_link_opts,
-        });
-
-        test_exe.root_module.linkLibrary(lib);
-    }
+    try translate_c.addImportToModule(b, "fontconfig_c", module, .{
+        .source = .{ .includes = .{
+            .files = &.{.{ .path = "fontconfig/fontconfig.h" }},
+        } },
+        .target = target,
+        .optimize = optimize,
+        .link_system_libs = if (lib == .system) &.{"fontconfig"} else &.{},
+        .link_libs = if (lib == .static) &.{lib.static} else &.{},
+    });
 }
 
-fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Build.Step.Compile {
+fn buildLib(b: *std.Build, options: anytype) !*std.Build.Step.Compile {
     const target = options.target;
     const optimize = options.optimize;
 
@@ -119,7 +115,13 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         .linkage = .static,
     });
 
-    const dynamic_link_opts = options.dynamic_link_opts;
+    // For dynamic linking, we prefer dynamic linking and to search by
+    // mode first. Mode first will search all paths for a dynamic library
+    // before falling back to static.
+    const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
+        .preferred_link_mode = .dynamic,
+        .search_strategy = .mode_first,
+    };
 
     if (target.result.os.tag != .windows) {
         lib.root_module.linkSystemLibrary("pthread", dynamic_link_opts);
@@ -138,7 +140,6 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         "override/src",
     }) |override_dir| {
         lib.root_module.addIncludePath(b.path(override_dir));
-        module.addIncludePath(b.path(override_dir));
     }
 
     var flags: std.ArrayList([]const u8) = .empty;
@@ -310,7 +311,6 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
 
     if (b.lazyDependency("fontconfig", .{})) |upstream| {
         lib.root_module.addIncludePath(upstream.path(""));
-        module.addIncludePath(upstream.path(""));
         lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .files = srcs,
@@ -337,7 +337,6 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     }
 
     b.installArtifact(lib);
-
     return lib;
 }
 

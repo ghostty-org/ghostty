@@ -79,13 +79,13 @@ pub const Options = struct {
             if (std.mem.eql(u8, stripped, "home")) return try alloc.dupeZ(u8, arg);
             if (std.mem.eql(u8, stripped, "inherit")) return try alloc.dupeZ(u8, arg);
             const cwd: std.Io.Dir = .cwd();
-            var expandhome_buf: [std.fs.max_path_bytes]u8 = undefined;
+            var expandhome_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const expanded = expanded: {
                 var environ_map = try global.environMap();
                 defer environ_map.deinit();
                 break :expanded try homedir.expandHome(global.io(), &environ_map, stripped, &expandhome_buf);
             };
-            var realpath_buf: [std.fs.max_path_bytes]u8 = undefined;
+            var realpath_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const realpath = realpath_buf[0..try cwd.realPathFile(self._io, expanded, &realpath_buf)];
             self._working_directory_seen = true;
             return try std.fmt.allocPrintSentinel(alloc, "--working-directory={s}", .{realpath}, 0);
@@ -223,7 +223,7 @@ fn runArgs(
     if (!opts._working_directory_seen) {
         const alloc = opts._arena.?.allocator();
         const cwd: std.Io.Dir = .cwd();
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const wd = buf[0..try cwd.realPathFile(global.io(), ".", &buf)];
         // This should be inserted at the beginning of the list, just in case `-e` was used.
         try opts._arguments.insert(alloc, 0, try std.fmt.allocPrintSentinel(

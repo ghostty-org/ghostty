@@ -55,6 +55,10 @@ pub const StreamHandler = struct {
     /// (OSC 5522) write transaction; exceeding it aborts with EFBIG.
     clipboard_write_limit: usize,
 
+    /// Whether DECRQCRA may report the checksum of an area of the screen,
+    /// and XTCHECKSUM may change how it's calculated.
+    xt_checksum_report: bool,
+
     //---------------------------------------------------------------
     // Internal state
 
@@ -120,8 +124,10 @@ pub const StreamHandler = struct {
         self.clipboard_write = config.clipboard_write;
         self.clipboard_write_limit = config.clipboard_write_limit;
         self.enquiry_response = config.enquiry_response;
+        self.xt_checksum_report = config.xt_checksum_report;
         self.terminal.setDefaultCursorStyle(config.cursor_style);
         self.terminal.setDefaultCursorBlink(config.cursor_blink);
+        self.terminal.setDefaultXtChecksum(config.xt_checksum_extension);
 
         // The config could have changed any of our colors so update mode 2031
         self.messageWriter(.{ .color_scheme_report = .{ .force = false } });
@@ -275,6 +281,7 @@ pub const StreamHandler = struct {
             .next_line => try self.nextLine(),
             .reverse_index => try self.reverseIndex(),
             .full_reset => try self.fullReset(),
+            .soft_reset => self.terminal.softReset(),
             .set_mode => try self.setMode(value.mode, true),
             .reset_mode => try self.setMode(value.mode, false),
             .save_mode => self.terminal.modes.save(value.mode),
@@ -303,7 +310,12 @@ pub const StreamHandler = struct {
             .protected_mode_iso => self.terminal.setProtectedMode(.iso),
             .protected_mode_dec => self.terminal.setProtectedMode(.dec),
             .mouse_shift_capture => self.terminal.flags.mouse_shift_capture = if (value) .true else .false,
+            .xt_checksum_extension => if (self.xt_checksum_report) {
+                self.terminal.flags.xt_checksum = value.flags;
+            },
+            .request_xt_checksum => self.reportXtChecksum(value),
             .size_report => self.sendSizeReport(value),
+            .resize_window => self.surfaceMessageWriter(.{ .resize_window = value }),
             .xtversion => try self.reportXtversion(),
             .device_attributes => try self.deviceAttributes(value),
             .device_status => try self.deviceStatusReport(value.request),
@@ -341,6 +353,9 @@ pub const StreamHandler = struct {
             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
             .semantic_prompt => try self.semanticPrompt(value),
             .mouse_shape => try self.setMouseShape(value),
+            .mouse_shape_reset => try self.setMouseShape(
+                if (self.terminal.flags.mouse_event != .none) .default else .text,
+            ),
             .configure_charset => self.configureCharset(value.slot, value.charset),
             .set_attribute => {
                 @branchHint(.likely);
@@ -373,6 +388,8 @@ pub const StreamHandler = struct {
             .title_push,
             .title_pop,
             .kitty_dnd,
+            .osc_unknown,
+            .program_status,
             => {},
         }
     }
@@ -584,6 +601,24 @@ pub const StreamHandler = struct {
 
     fn requestModeUnknown(self: *StreamHandler, mode_raw: u16, ansi: bool) !void {
         self.sendModeReport(self.terminal.modes.getReport(.{ .value = mode_raw, .ansi = ansi }));
+    }
+
+    fn reportXtChecksum(self: *StreamHandler, req: terminal.xt_checksum.Request) void {
+        if (!self.xt_checksum_report) return;
+        var data: termio.Message.WriteReq.Small.Array = undefined;
+        var writer: std.Io.Writer = .fixed(&data);
+        terminal.xt_checksum.encode(
+            &writer,
+            req.id,
+            self.terminal.rectXtChecksum(req),
+        ) catch |err| {
+            log.err("error encoding checksum report err={}", .{err});
+            return;
+        };
+        self.messageWriter(.{ .write_small = .{
+            .data = data,
+            .len = @intCast(writer.buffered().len),
+        } });
     }
 
     fn sendModeReport(self: *StreamHandler, report: terminal.modes.Report) void {
@@ -812,6 +847,18 @@ pub const StreamHandler = struct {
         }
     }
 
+    /// The cursor position for a CPR/DECXCPR report, honoring origin mode
+    /// (relative to the scrolling region when DECOM is set).
+    fn cursorReportPos(self: *StreamHandler) struct { x: usize, y: usize } {
+        return if (self.terminal.modes.get(.origin)) .{
+            .x = self.terminal.screens.active.cursor.x -| self.terminal.scrolling_region.left,
+            .y = self.terminal.screens.active.cursor.y -| self.terminal.scrolling_region.top,
+        } else .{
+            .x = self.terminal.screens.active.cursor.x,
+            .y = self.terminal.screens.active.cursor.y,
+        };
+    }
+
     pub fn deviceStatusReport(
         self: *StreamHandler,
         req: terminal.device_status.Request,
@@ -820,22 +867,28 @@ pub const StreamHandler = struct {
             .operating_status => self.messageWriter(.{ .write_stable = "\x1B[0n" }),
 
             .cursor_position => {
-                const pos: struct {
-                    x: usize,
-                    y: usize,
-                } = if (self.terminal.modes.get(.origin)) .{
-                    .x = self.terminal.screens.active.cursor.x -| self.terminal.scrolling_region.left,
-                    .y = self.terminal.screens.active.cursor.y -| self.terminal.scrolling_region.top,
-                } else .{
-                    .x = self.terminal.screens.active.cursor.x,
-                    .y = self.terminal.screens.active.cursor.y,
-                };
+                const pos = self.cursorReportPos();
 
                 // Response always is at least 4 chars, so this leaves the
                 // remainder for the row/column as base-10 numbers. This
                 // will support a very large terminal.
                 var msg: termio.Message = .{ .write_small = .{} };
                 const resp = try std.fmt.bufPrint(&msg.write_small.data, "\x1B[{};{}R", .{
+                    pos.y + 1,
+                    pos.x + 1,
+                });
+                msg.write_small.len = @intCast(resp.len);
+
+                self.messageWriter(msg);
+            },
+
+            // DECXCPR: extended cursor position adds a page number. Ghostty has
+            // no page memory, so the page is always 1.
+            .cursor_position_extended => {
+                const pos = self.cursorReportPos();
+
+                var msg: termio.Message = .{ .write_small = .{} };
+                const resp = try std.fmt.bufPrint(&msg.write_small.data, "\x1B[?{};{};1R", .{
                     pos.y + 1,
                     pos.x + 1,
                 });
@@ -1792,6 +1845,7 @@ pub const StreamHandler = struct {
             .csi_14_t => self.messageWriter(.{ .size_report = .csi_14_t }),
             .csi_16_t => self.messageWriter(.{ .size_report = .csi_16_t }),
             .csi_18_t => self.messageWriter(.{ .size_report = .csi_18_t }),
+            .csi_19_t => self.messageWriter(.{ .size_report = .csi_19_t }),
             .csi_21_t => self.surfaceMessageWriter(.{ .report_title = .csi_21_t }),
         }
     }
