@@ -430,7 +430,7 @@ msgstr ""
 
 #: src/input/command.zig:179
 msgid "Copy Terminal Title to Clipboard"
-msgstr ""
+msgstr "टर्मिनल के शीर्षक की क्लिपबोर्ड पर प्रति बनाएँ"
 
 #: src/input/command.zig:180
 msgid ""
@@ -819,7 +819,7 @@ msgstr "पिछले विभाजन पर केन्द्रित �
 
 #: src/input/command.zig:501
 msgid "Focus the previous split, if any."
-msgstr ""
+msgstr "यदि पिछला विभाजन है, तो उस पर केन्द्रित करें।"
 
 #: src/input/command.zig:505
 msgid "Focus Split: Next"
@@ -827,7 +827,7 @@ msgstr "अगले विभाजन पर केन्द्रित क�
 
 #: src/input/command.zig:506
 msgid "Focus the next split, if any."
-msgstr ""
+msgstr "यदि अगला विभाजन है, तो उस पर केन्द्रित करें।"
 
 #: src/input/command.zig:510
 msgid "Focus Split: Left"
@@ -835,7 +835,7 @@ msgstr "बाएँ विभाजन पर केन्द्रित क�
 
 #: src/input/command.zig:511
 msgid "Focus the split to the left, if it exists."
-msgstr ""
+msgstr "यदि बाईं ओर विभाजन है, तो उस पर केन्द्रित करें।"
 
 #: src/input/command.zig:515
 msgid "Focus Split: Right"
@@ -843,7 +843,7 @@ msgstr "दाएँ विभाजन पर केन्द्रित क�
 
 #: src/input/command.zig:516
 msgid "Focus the split to the right, if it exists."
-msgstr ""
+msgstr "यदि दाईं ओर विभाजन है, तो उस पर केन्द्रित करें।"
 
 #: src/input/command.zig:520
 msgid "Focus Split: Up"
@@ -851,7 +851,7 @@ msgstr "ऊपर के विभाजन पर केन्द्रित �
 
 #: src/input/command.zig:521
 msgid "Focus the split above, if it exists."
-msgstr ""
+msgstr "यदि ऊपर विभाजन है, तो उस पर केन्द्रित करें।"
 
 #: src/input/command.zig:525
 msgid "Focus Split: Down"
@@ -859,7 +859,7 @@ msgstr "नीचे के विभाजन पर केन्द्रि�
 
 #: src/input/command.zig:526
 msgid "Focus the split below, if it exists."
-msgstr ""
+msgstr "यदि नीचे विभाजन है, तो उस पर केन्द्रित करें।"
 
 #: src/input/command.zig:533
 msgid "Focus Window: Previous"
@@ -867,7 +867,7 @@ msgstr "पिछली विंडो पर केन्द्रित क�
 
 #: src/input/command.zig:534
 msgid "Focus the previous window, if any."
-msgstr ""
+msgstr "यदि पिछली विंडो है, तो उस पर केन्द्रित करें।"
 
 #: src/input/command.zig:538
 msgid "Focus Window: Next"
@@ -875,7 +875,7 @@ msgstr "अगली विंडो पर केन्द्रित कर�
 
 #: src/input/command.zig:539
 msgid "Focus the next window, if any."
-msgstr ""
+msgstr "यदि अगली विंडो है, तो उस पर केन्द्रित करें।"
 
 #: src/input/command.zig:545
 msgid "Toggle Split Zoom"
