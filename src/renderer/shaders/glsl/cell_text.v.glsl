@@ -36,9 +36,7 @@ out CellTextVertexOut {
     vec2 tex_coord;
 } out_data;
 
-layout(binding = 1, std430) readonly buffer bg_cells {
-    uint bg_colors[];
-};
+layout(binding = 2) uniform usamplerBuffer bg_colors;
 
 void main() {
     uvec2 grid_size = unpack2u16(grid_size_packed_2u16);
@@ -116,10 +114,11 @@ void main() {
     // make it easier to handle minimum contrast calculations.
     out_data.color = load_color(color, true);
     // Get the BG color
-    out_data.bg_color = load_color(
-            unpack4u8(bg_colors[grid_pos.y * grid_size.x + grid_pos.x]),
-            true
-        );
+    uint bg_color = texelFetch(
+            bg_colors,
+            int(grid_pos.y * grid_size.x + grid_pos.x)
+        ).r;
+    out_data.bg_color = load_color(unpack4u8(bg_color), true);
     // Blend it with the global bg color
     vec4 global_bg = load_color(
             unpack4u8(bg_color_packed_4u8),
