@@ -39,7 +39,7 @@ msgstr "अनुमति दें"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
 msgid "Remember choice for this split"
-msgstr ""
+msgstr "इस विभाजन चयनको याद रखें"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
 msgid "Reload configuration to show this prompt again"
@@ -59,7 +59,7 @@ msgstr "बंद करें"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
 msgid "Configuration Errors"
-msgstr ""
+msgstr "विन्यास में त्रुटियाँ"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:8
 msgid ""
@@ -195,7 +195,7 @@ msgstr "विंडो"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:215
 msgid "Change Window Title…"
-msgstr "विंडो शीर्षक बदलें..."
+msgstr "विंडो शीर्षक बदलें…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:220
 #: src/input/command.zig:421
@@ -217,7 +217,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
-msgstr ""
+msgstr "विन्यास नई विंडो में खोलें"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
@@ -311,15 +311,15 @@ msgstr "घोस्टी से बाहर जाएँ?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
-msgstr ""
+msgstr "टैब बंद करें?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:186
 msgid "Close Window?"
-msgstr ""
+msgstr "विंडो बंद करें?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:187
 msgid "Close Split?"
-msgstr ""
+msgstr "विभाजन बंद करें?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions will be terminated."
@@ -339,7 +339,7 @@ msgstr ""
 
 #: src/apprt/gtk/class/surface.zig:1181
 msgid "Command Finished"
-msgstr ""
+msgstr "निर्देश पूरा हुआ"
 
 #: src/apprt/gtk/class/surface.zig:1182
 #: src/apprt/gtk/class/surface_child_exited.zig:109
@@ -353,15 +353,15 @@ msgstr "निर्देश विफल"
 
 #: src/apprt/gtk/class/title_dialog.zig:227
 msgid "Change Terminal Title"
-msgstr ""
+msgstr "टर्मिनल का शीर्षक बदलें"
 
 #: src/apprt/gtk/class/title_dialog.zig:228
 msgid "Change Tab Title"
-msgstr ""
+msgstr "टैब का शीर्षक बदलें"
 
 #: src/apprt/gtk/class/title_dialog.zig:229
 msgid "Change Window Title"
-msgstr ""
+msgstr "विंडो का शीर्षक बदलें"
 
 #: src/apprt/gtk/class/window.zig:1153
 msgid "Reloaded the configuration"
@@ -373,15 +373,15 @@ msgstr "क्लिपबोर्ड पर प्रति बनाई ग�
 
 #: src/apprt/gtk/class/window.zig:1832
 msgid "Cleared clipboard"
-msgstr ""
+msgstr "क्लिपबोर्ड साफ किया गया"
 
 #: src/apprt/gtk/class/window.zig:1972
 msgid "Ghostty Developers"
-msgstr ""
+msgstr "घोस्टी के विकासकर्ता"
 
 #: src/input/command.zig:149
 msgid "Reset Terminal"
-msgstr ""
+msgstr "टर्मिनल रीसेट करें"
 
 #: src/input/command.zig:150
 msgid "Reset the terminal to a clean state."
@@ -440,7 +440,7 @@ msgstr ""
 
 #: src/input/command.zig:185
 msgid "Paste from Clipboard"
-msgstr ""
+msgstr "क्लिपबोर्ड से चिपकाएँ"
 
 #: src/input/command.zig:186
 msgid "Paste the contents of the main clipboard."
@@ -747,7 +747,7 @@ msgstr ""
 
 #: src/input/command.zig:422
 msgid "Open a new window."
-msgstr ""
+msgstr "नई विंडो खोलें।"
 
 #: src/input/command.zig:428
 msgid "Open a new tab."
