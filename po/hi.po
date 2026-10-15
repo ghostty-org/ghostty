@@ -74,7 +74,7 @@ msgstr "अनदेखा करें"
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:13
 #: src/apprt/gtk/ui/1.2/surface.blp:439 src/apprt/gtk/ui/1.5/window.blp:318
 msgid "Reload Configuration"
-msgstr ""
+msgstr "विन्यास दोबारा लोड करें"
 
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
@@ -127,7 +127,7 @@ msgstr "चिपकाएँ"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:326
 msgid "Notify on Next Command Finish"
-msgstr ""
+msgstr "अगला निर्देश पूरा होने पर सूचित करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
@@ -135,7 +135,7 @@ msgstr "साफ करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:338 src/apprt/gtk/ui/1.5/window.blp:286
 msgid "Reset"
-msgstr ""
+msgstr "रीसेट करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split"
@@ -297,7 +297,7 @@ msgstr ""
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
 msgid "Warning: Potentially Unsafe Paste"
-msgstr ""
+msgstr "चेतावनी: चिपकाना असुरक्षित हो सकता है"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:206
 msgid ""
@@ -323,15 +323,15 @@ msgstr "विभाजन बंद करें?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions will be terminated."
-msgstr ""
+msgstr "सभी टर्मिनल सत्र समाप्त कर दिए जाएँगे।"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:194
 msgid "All terminal sessions in this tab will be terminated."
-msgstr ""
+msgstr "इस टैब के सभी टर्मिनल सत्र समाप्त कर दिए जाएँगे।"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:195
 msgid "All terminal sessions in this window will be terminated."
-msgstr ""
+msgstr "इस विंडो के सभी टर्मिनल सत्र समाप्त कर दिए जाएँगे।"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:196
 msgid "The currently running process in this split will be terminated."
@@ -365,7 +365,7 @@ msgstr "विंडो का शीर्षक बदलें"
 
 #: src/apprt/gtk/class/window.zig:1153
 msgid "Reloaded the configuration"
-msgstr ""
+msgstr "विन्यास दोबारा लोड किया गया"
 
 #: src/apprt/gtk/class/window.zig:1830
 msgid "Copied to clipboard"
@@ -385,7 +385,7 @@ msgstr "टर्मिनल रीसेट करें"
 
 #: src/input/command.zig:150
 msgid "Reset the terminal to a clean state."
-msgstr ""
+msgstr "टर्मिनल को साफ स्थिति में रीसेट करें।"
 
 #: src/input/command.zig:155
 msgid "Copy to Clipboard"
@@ -903,7 +903,7 @@ msgstr "सभी विभाजनों का आकार बराबर �
 
 #: src/input/command.zig:563
 msgid "Reset Window Size"
-msgstr ""
+msgstr "विंडो का आकार रीसेट करें"
 
 #: src/input/command.zig:564
 msgid "Reset the window size to the default."
@@ -927,11 +927,11 @@ msgstr ""
 
 #: src/input/command.zig:581
 msgid "Show On-Screen Keyboard"
-msgstr ""
+msgstr "पर्दे पर कुंजीपटल दिखाएँ"
 
 #: src/input/command.zig:582
 msgid "Show the on-screen keyboard if present."
-msgstr ""
+msgstr "यदि उपलब्ध हो, तो पर्दे पर कुंजीपटल दिखाएँ।"
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
@@ -943,7 +943,7 @@ msgstr ""
 
 #: src/input/command.zig:593
 msgid "Open Config in New Terminal Window"
-msgstr ""
+msgstr "विन्यास नई टर्मिनल विंडो में खोलें"
 
 #: src/input/command.zig:594
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
@@ -951,11 +951,11 @@ msgstr ""
 
 #: src/input/command.zig:600
 msgid "Reload Config"
-msgstr ""
+msgstr "विन्यास दोबारा लोड करें"
 
 #: src/input/command.zig:601
 msgid "Reload the config file."
-msgstr ""
+msgstr "विन्यास फ़ाइल दोबारा लोड करें।"
 
 #: src/input/command.zig:606
 msgid "Close Terminal"
