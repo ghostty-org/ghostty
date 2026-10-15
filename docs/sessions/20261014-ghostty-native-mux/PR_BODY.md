@@ -1,5 +1,11 @@
 # Phase 0: wire agent IPC into the Zig build graph
 
+> **Fork-internal record.** This was originally drafted as a PR body for
+> upstream `ghostty-org/ghostty` on 2026-10-15. That submission was voided by
+> the operator's fork-only ruling — see `UPSTREAM_BUG_REPORT.md` in this folder
+> for the full account. The technical content below was always correct and is
+> kept as the record of what Phase 0 did. **Nothing here is to be sent upstream.**
+
 ## Summary
 
 Wires `src/apprt/ipc/app_host.zig` (the `Host` vtable bridge onto the real app runtime) into the Zig build graph for the first time, behind a new `test-agent-ipc` step.
@@ -20,7 +26,11 @@ The IPC layer has been unit-tested against `fake_host.zig` since G4. The bridge 
 
 ## Flake note (pre-existing on `main`)
 
-Two of three follow-up re-runs hit a pre-existing `terminal.search.Thread.test_0` SIGABRT on macOS via libxev kqueue race (page integrity violations → FD close vs kevent race). Hidden under `zig build test` (76 tests, 26MB), surfaces under the heavier `test-agent-ipc` root (3900 tests, 4GB peak). Investigation report + draft upstream bug report: `docs/sessions/20261014-ghostty-native-mux/evidence/flake-investigation-20261015.md`. The Phase 0 commit itself produced a clean `85/85 / 3900 pass / 25 skip` result.
+**Symptom.** `terminal.search.Thread.test_0` aborts on macOS via a libxev
+kqueue race. Hidden under the lighter `zig build test` root (76 tests, 26MB);
+surfaces under the heavier `test-agent-ipc` root (~3900 tests, 4GB peak). Hit
+2 of 3 follow-up re-runs. **Pre-existing on `main` — not a Phase 0
+regression.** Investigation report: `docs/sessions/20261014-ghostty-native-mux/evidence/flake-investigation-20261015.md`. Two candidate fixes are recorded there (a `Thread.zig` guard, or treating libxev `.BADF` as recoverable); neither is implemented. If it is ever fixed, it is fixed **on the fork**. The Phase 0 commit itself produced a clean `85/85 / 3900 pass / 25 skip` result.
 
 ## Out-of-scope (Phase 1 needs GTK-runtimed CI)
 
