@@ -110,6 +110,36 @@ mux path, as the design brief
 (`docs/sessions/20261014-ghostty-native-mux/00_SESSION_OVERVIEW.md`)
 recommended.
 
+## `terminal.search.Thread.test_0` flake — characterized
+
+A 25-minute subagent investigation (2026-10-15) reproduced the flake
+analysis from the original cache-warm logs. Headline: the flake is a
+**race between the test thread's teardown and the search thread's
+libxev kqueue loop** in `src/terminal/search/Thread.zig`, surfacing as
+`kqueue.zig:1916 .BADF => unreachable` (the comment at that line literally
+says "Always a race condition"). The race is hidden under the standard
+`zig build test` root (76 tests, 26MB RSS) and only manifests under the
+larger `test-agent-ipc` root (3900 tests, 4GB peak) where memory and
+threading pressure is high enough to expose the FD close vs kevent
+collision. The crash is preceded by `[page] integrity violation` and
+`[terminal] alternate screen resize failed, replacing it err=error.OutOfMemory`
+warnings — the page allocator is being corrupted during teardown before
+the FD race fires.
+
+The flake did **NOT** reproduce on `main` across 59 attempts (4 invocation
+methods, including direct binary loops with `--test-filter
+terminal.search.Thread.test_0` and full-suite 25-iteration loops). The
+Phase 0 commit's effect was to lower the bar for the race to manifest by
+adding the larger test root; the underlying race is pre-existing in
+`main`.
+
+Full report with verbatim stack trace, root cause analysis, affected
+files, suggested fix direction, and a draft upstream Ghostty bug report
+is preserved at
+[`evidence/flake-investigation-20261015.md`](./evidence/flake-investigation-20261015.md).
+The operator can decide whether to file it upstream or address it in the
+Phase 1 work.
+
 ## Next
 
 - Phase 1 of the mux design needs the GTK runtime builds to fully analyze
