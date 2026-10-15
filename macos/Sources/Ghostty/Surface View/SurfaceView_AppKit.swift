@@ -568,6 +568,8 @@ extension Ghostty {
             NSCursor.setHiddenUntilMouseMoves(!visible)
         }
 
+        // MARK: - Title
+
         /// Set the title by prompting the user.
         func promptTitle() {
             // Create an alert dialog
@@ -596,18 +598,7 @@ extension Ghostty {
 
                 // Get the input text
                 let newTitle = textField.stringValue
-                if newTitle.isEmpty {
-                    // Empty means that user wants the title to be set automatically
-                    // We also need to reload the config for the "title" property to be
-                    // used again by this tab.
-                    let prevTitle = titleFromTerminal ?? "👻"
-                    titleFromTerminal = nil
-                    setTitle(prevTitle)
-                } else {
-                    // Set the title and prevent it from being changed automatically
-                    titleFromTerminal = title
-                    title = newTitle
-                }
+                self.titleOverride = newTitle.isEmpty ? nil : newTitle
             }
 
             // We prefer to run our alert in a sheet modal if we have a window.
@@ -618,6 +609,34 @@ extension Ghostty {
                 // visible. The above codepath should be taken most times but I'm just
                 // noting this as something I noticed consistently.
                 completionHandler(alert.runModal())
+            }
+        }
+
+        /// An override title for the surface set by the user or via AppleScript.
+        /// When set, this takes precedence over the title reported by pty.
+        /// This computed property is placed here for code locality.
+        var titleOverride: String? {
+            get {
+                titleFromTerminal != nil ? title : nil
+            }
+
+            set {
+                if let newValue, !newValue.isEmpty {
+                    // Set the title and prevent it from being changed automatically
+                    if titleFromTerminal == nil {
+                        // Only capture titleFromTerminal from pty, skip if it was set before by the user
+                        titleFromTerminal = title
+                    }
+                    title = newValue
+                    return
+                }
+
+                // Otherwise, set the title to be updated automatically
+                // We also need to reload the config for the "title" property to be
+                // used again by this surface, but only restore if an override was actually active.
+                guard let prevTitle = titleFromTerminal else { return }
+                titleFromTerminal = nil
+                setTitle(prevTitle)
             }
         }
 

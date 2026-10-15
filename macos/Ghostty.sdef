@@ -67,6 +67,9 @@
       <property name="name" code="pnam" type="text" access="r" description="The title of the tab.">
         <cocoa key="title"/>
       </property>
+      <property name="name override" code="GTno" type="text" access="rw" description="An override for the tab title. Set to an empty string to clear.">
+        <cocoa key="titleOverride"/>
+      </property>
       <property name="index" code="pidx" type="integer" access="r" description="1-based index of this tab in its window."/>
       <property name="selected" code="GTsl" type="boolean" access="r" description="Whether this tab is selected in its window."/>
       <property name="focused terminal" code="GTfT" type="terminal" access="r" description="The currently focused terminal surface in this tab.">
@@ -88,6 +91,9 @@
       <property name="id" code="ID  " type="text" access="r" description="Stable ID for this terminal surface."/>
       <property name="name" code="pnam" type="text" access="r" description="Current terminal title.">
         <cocoa key="title"/>
+      </property>
+      <property name="name override" code="GTno" type="text" access="rw" description="An override for the terminal title. Set to an empty string to clear.">
+        <cocoa key="titleOverride"/>
       </property>
       <property name="working directory" code="Gwdr" type="text" access="r" description="Current working directory for the terminal process."/>
       <property name="pid" code="Gpid" type="integer" access="r" description="PID of the foreground process in this terminal."/>
