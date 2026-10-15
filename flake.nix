@@ -90,6 +90,10 @@
             };
           };
         };
+
+      lint = pkgs.callPackage ./nix/lintShell.nix {
+        zig = zig.packages.${pkgs.stdenv.hostPlatform.system}."0.16.0";
+      };
     });
 
     packages =

@@ -1884,7 +1884,7 @@ jobs:
           skipPush: true
           useDaemon: false # sometimes fails on short jobs
       - name: zig fmt
-        run: nix develop -c zig fmt --check .
+        run: nix develop .#lint -c zig fmt --check .
 
   pinact:
     name: "GitHub Actions Pins"
@@ -1915,7 +1915,7 @@ jobs:
           skipPush: true
           useDaemon: false # sometimes fails on short jobs
       - name: pinact check
-        run: nix develop -c pinact run --check
+        run: nix develop .#lint -c pinact run --check
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -1945,7 +1945,7 @@ jobs:
           skipPush: true
           useDaemon: false # sometimes fails on short jobs
       - name: prettier check
-        run: nix develop -c prettier --check .
+        run: nix develop .#lint -c prettier --check .
 
   swiftlint:
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true' && needs.skip.outputs.macos == 'true'
@@ -1975,7 +1975,7 @@ jobs:
           useDaemon: false # sometimes fails on short jobs
 
       - name: swiftlint check
-        run: nix develop -c swiftlint lint --strict
+        run: nix develop .#lint -c swiftlint lint --strict
 
   alejandra:
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true' && needs.skip.outputs.nix == 'true'
@@ -2003,7 +2003,7 @@ jobs:
           skipPush: true
           useDaemon: false # sometimes fails on short jobs
       - name: alejandra check
-        run: nix develop -c alejandra --check .
+        run: nix develop .#lint -c alejandra --check .
 
   typos:
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
@@ -2031,7 +2031,7 @@ jobs:
           skipPush: true
           useDaemon: false # sometimes fails on short jobs
       - name: typos check
-        run: nix develop -c typos
+        run: nix develop .#lint -c typos
 
   shellcheck:
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true' && needs.skip.outputs.shell == 'true'
@@ -2060,7 +2060,7 @@ jobs:
           useDaemon: false # sometimes fails on short jobs
       - name: shellcheck
         run: |
-          nix develop -c shellcheck \
+          nix develop .#lint -c shellcheck \
             --check-sourced \
             --color=always \
             --severity=warning \
