@@ -209,7 +209,7 @@ test "decode no escape" {
 
     // TODO: many more test cases
     {
-        const str: [128 * 5]u8 = std.simd.repeat(128 * 5, "hello".*);
+        const str: [128 * 5]u8 = comptime std.simd.repeat(128 * 5, "hello".*);
         try testing.expectEqual(DecodeResult{
             .consumed = str.len,
             .decoded = str.len,
@@ -224,8 +224,8 @@ test "decode ASCII to escape" {
 
     // TODO: many more test cases
     {
-        const prefix: [64 * 5]u8 = std.simd.repeat(64 * 5, "hello".*);
-        const payload: [64 * 5]u8 = std.simd.repeat(64 * 5, "world".*);
+        const prefix: [64 * 5]u8 = comptime std.simd.repeat(64 * 5, "hello".*);
+        const payload: [64 * 5]u8 = comptime std.simd.repeat(64 * 5, "world".*);
         const str = prefix ++ "\x1b" ++ payload;
         try testing.expectEqual(DecodeResult{
             .consumed = prefix.len,
