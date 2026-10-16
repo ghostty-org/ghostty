@@ -1,0 +1,51 @@
+# EGL pickEglIdCast synthetic test proof
+# Date: 2026-10-16T01:53Z (UTC)
+# Operator: sauropod (do-all granted for test-only bounded work)
+# Worktree: khostty-sync-20261015-v2 / fix/egl-typed-platform-display @ a4f066abd
+
+## Command
+zig test --dep opengl_c -Mroot=pkg/opengl/egl.zig -Mopengl_c=.jcode-egl-synth/opengl_c_stub.zig
+
+## Why this is a real gate (not a mirror)
+- Tests the ACTUAL production file pkg/opengl/egl.zig
+- All 9 call sites (egl.zig:439,447,461,468,476,483,492,504,513,529) invoke the
+  production helper `fn pickEglIdCast(comptime T, id, platform, attribs, get)` at line 340
+- The synthetic stub supplies only the 44 opengl_c symbols referenced by egl.zig
+  (lazy analysis), so no FFI / no real libEGL needed
+- comptimeArmName is a documented test-side mirror that returns "rejected" instead
+  of @compileError on the rejected arm, so the test compiles even when production
+  dispatch rejects the type. NOT a duplicate algorithm.
+
+## Result
+DIRECT_RC=0
+VERIFIED_RC=0 (re-ran, no pipefail, no PIPESTATUS)
+13/13 OK:
+  1/13 pickEglIdCast arm selection: integer types
+  2/13 pickEglIdCast arm selection: pointer types
+  3/13 pickEglIdCast arm selection: optional types are rejected
+  4/13 pickEglIdCast integer arm: round-trip for a typical c_int id
+  5/13 pickEglIdCast integer arm: 0 maps to null (EGL_DEFAULT_DISPLAY contract)
+  6/13 pickEglIdCast integer arm: positive c_int round-trips
+  7/13 pickEglIdCast integer arm: usize width round-trip
+  8/13 pickEglIdCast pointer arm: *u8 id is a no-op cast
+  9/13 pickEglIdCast pointer arm: *anyopaque id is a no-op cast
+  10/13 pickEglIdCast pointer arm: many-pointer [*]u8 id
+  11/13 pickEglIdCast pointer arm: 0x1 is preserved (no null-mapping contract on pointer arm)
+  12/13 pickEglIdCast comptime_int arm: literal is converted via the int path
+  13/13 pickEglIdCast: actual c.EGLNativeDisplayType matches expected arm + zero mapping
+
+## Real-gate context (sauropod demand: prove before claiming)
+- ci/test on KooshaPari/Khostty fork is a stub echo: runs
+  `echo "✅ All test stages passed (gated via ci / lint)"`. It is NOT zig build test.
+- test.yml's real test job is gated to `if: github.repository == 'ghostty-org/ghostty'`,
+  so the fork (KooshaPari/Khostty) structurally cannot run zig build test on the fork.
+  Every test.yml run on the fork sits in `pending` forever.
+- Bird's prior `zig build -Dapp-runtime=none` on khostty-pr16 (sha 1e25ec8cd) only
+  built lib-vt, did not exercise pickEglIdCast (not in bird's branch).
+- Direct `zig test pkg/opengl/egl.zig` (no stub) fails on module wiring:
+  `error: no module named 'opengl_c' available within module 'test'` at egl.zig:11:23.
+- Full `zig build -Dapp-runtime=none` on this macOS dev host fails on libEGL.dylib
+  link (Zig 0.16 darwin-sdk doesn't ship libEGL.dylib). Captured exact emitted
+  linker text per sauropod demand; this is the env gap that the synthetic harness
+  side-steps.
+- The synthetic harness above is the next-best real gate available on this host.
