@@ -81,12 +81,12 @@ Initial draft used `.Pointer`/`.Int`/`.ComptimeInt` (uppercase, Zig 0.13 style).
 
 ## Verification (cheap, captured exit codes)
 
-| Check | Command | EXIT | Notes |
-|------|---------|------|-------|
-| zig fmt egl.zig | `zig fmt --check pkg/opengl/egl.zig` | 0 | Clean |
-| comptime logic (standalone stub) | `zig test .jcode-comptime-check.zig` | 0 | 3/3 tests passed; the dispatch shape is correct on Zig 0.16 |
-| API casing (Zig 0.16) | inline test inside `.jcode-comptime-check.zig` | 0 | `.pointer`/`.int`/`.comptime_int` accepted |
-| full `zig build test` | `zig build test -Dtest-filter="EGLNativeDisplayType ..." -j2` | 124 (timeout) | Hit 600s wall on 16GB host; only "Metal toolchain not found" warning in log; no compilation output. Per "ONE memory-heavy local build max" binding, NOT retried locally. |
+| Check                            | Command                                                       | EXIT          | Notes                                                                                                                                                                    |
+| -------------------------------- | ------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| zig fmt egl.zig                  | `zig fmt --check pkg/opengl/egl.zig`                          | 0             | Clean                                                                                                                                                                    |
+| comptime logic (standalone stub) | `zig test .jcode-comptime-check.zig`                          | 0             | 3/3 tests passed; the dispatch shape is correct on Zig 0.16                                                                                                              |
+| API casing (Zig 0.16)            | inline test inside `.jcode-comptime-check.zig`                | 0             | `.pointer`/`.int`/`.comptime_int` accepted                                                                                                                               |
+| full `zig build test`            | `zig build test -Dtest-filter="EGLNativeDisplayType ..." -j2` | 124 (timeout) | Hit 600s wall on 16GB host; only "Metal toolchain not found" warning in log; no compilation output. Per "ONE memory-heavy local build max" binding, NOT retried locally. |
 
 ### Why a full local test_exe was not run
 
@@ -175,21 +175,21 @@ Three operator-selectable resolutions, **deferred pending operator signal** (bir
 
 ## Audit trail
 
-| Step | Time (UTC) | Action | Result |
-|------|------------|--------|--------|
-| 1 | 2026-10-16T00:59Z | Inspected HEAD, confirmed merge ancestry | 81903d0c5 is true 2-parent merge |
-| 2 | 2026-10-16T00:59Z | Read vendor/glad/include/EGL/eglplatform.h | EGLNativeDisplayType typedef enumerated |
-| 3 | 2026-10-16T00:59Z | Created isolated worktree at /Users/kooshapari/.jcode/scratch/khostty-sync-20261015-v2 | Detached HEAD 81903d0c5 |
-| 4 | 2026-10-16T01:00Z | Replaced speculative comment + broken body with comptime branch | egl.zig 99-126 rewritten |
-| 5 | 2026-10-16T01:00Z | Appended 3 inline tests to egl.zig | Lines 310-372 added |
-| 6 | 2026-10-16T01:00Z | `zig build test -Dtest-filter=... -j2` | EXIT 124 (timeout) — no compilation output |
-| 7 | 2026-10-16T01:14Z | Forward-merge via `git merge --ff-only bd2b97e23` from 81903d0c5 | Stash 0/0/pop clean; HEAD = bd2b97e23 |
-| 8 | 2026-10-16T01:15Z | Wrote standalone comptime check `.jcode-comptime-check.zig` | 58 lines, mirrors fix's dispatch |
-| 9 | 2026-10-16T01:15Z | First `zig test .jcode-comptime-check.zig` | EXIT 1 — Zig 0.16 API drift (`.Pointer` not a member) |
-| 10 | 2026-10-16T01:16Z | Fixed casing in egl.zig + standalone check: `.Pointer`→`.pointer`, `.Int`→`.int`, `.ComptimeInt`→`.comptime_int` | Done |
-| 11 | 2026-10-16T01:17Z | Re-ran `zig test .jcode-comptime-check.zig` | EXIT 0 — 3/3 tests passed |
-| 12 | 2026-10-16T01:17Z | `zig fmt --check pkg/opengl/egl.zig` | EXIT 0 — clean |
-| 13 | 2026-10-16T01:18Z | Investigated alt-prefix regression (bird's question) | Test/library version mismatch; 3 resolution paths documented; deferred |
+| Step | Time (UTC)        | Action                                                                                                           | Result                                                                 |
+| ---- | ----------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| 1    | 2026-10-16T00:59Z | Inspected HEAD, confirmed merge ancestry                                                                         | 81903d0c5 is true 2-parent merge                                       |
+| 2    | 2026-10-16T00:59Z | Read vendor/glad/include/EGL/eglplatform.h                                                                       | EGLNativeDisplayType typedef enumerated                                |
+| 3    | 2026-10-16T00:59Z | Created isolated worktree at /Users/kooshapari/.jcode/scratch/khostty-sync-20261015-v2                           | Detached HEAD 81903d0c5                                                |
+| 4    | 2026-10-16T01:00Z | Replaced speculative comment + broken body with comptime branch                                                  | egl.zig 99-126 rewritten                                               |
+| 5    | 2026-10-16T01:00Z | Appended 3 inline tests to egl.zig                                                                               | Lines 310-372 added                                                    |
+| 6    | 2026-10-16T01:00Z | `zig build test -Dtest-filter=... -j2`                                                                           | EXIT 124 (timeout) — no compilation output                             |
+| 7    | 2026-10-16T01:14Z | Forward-merge via `git merge --ff-only bd2b97e23` from 81903d0c5                                                 | Stash 0/0/pop clean; HEAD = bd2b97e23                                  |
+| 8    | 2026-10-16T01:15Z | Wrote standalone comptime check `.jcode-comptime-check.zig`                                                      | 58 lines, mirrors fix's dispatch                                       |
+| 9    | 2026-10-16T01:15Z | First `zig test .jcode-comptime-check.zig`                                                                       | EXIT 1 — Zig 0.16 API drift (`.Pointer` not a member)                  |
+| 10   | 2026-10-16T01:16Z | Fixed casing in egl.zig + standalone check: `.Pointer`→`.pointer`, `.Int`→`.int`, `.ComptimeInt`→`.comptime_int` | Done                                                                   |
+| 11   | 2026-10-16T01:17Z | Re-ran `zig test .jcode-comptime-check.zig`                                                                      | EXIT 0 — 3/3 tests passed                                              |
+| 12   | 2026-10-16T01:17Z | `zig fmt --check pkg/opengl/egl.zig`                                                                             | EXIT 0 — clean                                                         |
+| 13   | 2026-10-16T01:18Z | Investigated alt-prefix regression (bird's question)                                                             | Test/library version mismatch; 3 resolution paths documented; deferred |
 
 ## Test outcomes
 
