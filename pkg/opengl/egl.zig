@@ -103,6 +103,23 @@ pub const Display = opaque {
         // (some legacy branches). Zig does not implicitly convert between
         // those and `?*anyopaque`, so dispatch on `@typeInfo` to pick the
         // correct conversion on every target.
+        //
+        // Linux (x86_64-linux-gnu, the only target the fork CI runs)
+        // exposes an extra wrinkle: eglplatform.h ends in `#error
+        // "Platform not recognized"` because none of its platform
+        // conditionals match a plain glibc target with no
+        // `-DUSE_X11`/`-DUSE_OZONE`/etc. translate-c silently drops the
+        // `#error` and, with no typedef in scope, defaults the
+        // unknown identifier to `?*anyopaque` (the most generic handle
+        // shape). So on Linux the actual T is `.optional` with child
+        // `.pointer`, and the original 3-arm switch hit `.else` and
+        // failed. The `.optional` arm below unwraps that and lets the
+        // value flow through to eglGetPlatformDisplay unchanged: a
+        // null `id` (EGL_DEFAULT_DISPLAY) maps to a null handle, which
+        // is the documented contract; a non-null opaque id passes
+        // through as-is. Other optional shapes (?c_int, ?struct, ...)
+        // are rejected with a clear message so a future translator
+        // shift is caught at the next test run.
         const display = (comptime_blk: {
             const T = @TypeOf(id);
             break :comptime_blk switch (@typeInfo(T)) {
@@ -112,6 +129,14 @@ pub const Display = opaque {
                     @ptrFromInt(@as(usize, @intCast(id))),
                     attribs,
                 ),
+                .optional => |opt| switch (@typeInfo(opt.child)) {
+                    .pointer => c.eglGetPlatformDisplay(platform, id, attribs),
+                    else => @compileError(
+                        "unsupported optional EGLNativeDisplayType for " ++
+                            "eglGetPlatformDisplay; expected ?*<pointer> " ++
+                            "per eglplatform.h, got ?<non-pointer>",
+                    ),
+                },
                 else => @compileError("unsupported EGLNativeDisplayType for eglGetPlatformDisplay"),
             };
         }) orelse return mustError();
@@ -356,12 +381,31 @@ fn pickEglIdCast(
             @ptrFromInt(@as(usize, @intCast(id))),
             attribs,
         ),
-        // Anything else — including `?*u8` (optional pointer) — is NOT a
-        // supported EGLNativeDisplayType shape per eglplatform.h. The
-        // call site would have a translator error or be misusing the API.
+        // Optional pointer targets (Linux glibc + translate-c on a
+        // host with no `-DUSE_X11`/etc., where eglplatform.h has no
+        // matching platform conditional and translate-c defaults the
+        // unknown identifier to `?*anyopaque`). Pass-through: the
+        // value IS already `?*anyopaque`, the get-stub's parameter
+        // type, so no cast is needed. A null id (EGL_DEFAULT_DISPLAY)
+        // flows as a null handle. This mirrors the production
+        // Display.initPlatform arm added on top of 431bc6fba for
+        // x86_64-linux-gnu CI.
+        .optional => |opt| switch (@typeInfo(opt.child)) {
+            .pointer => get(platform, id, attribs),
+            else => @compileError(
+                "pickEglIdCast: unsupported optional EGLNativeDisplayType " ++
+                    "shape; expected ?*<pointer>, got ?<non-pointer>",
+            ),
+        },
+        // Anything else — `?c_int`, `@TypeOf(null)`, structs, unions,
+        // enums, slices of non-pointer child, etc. — is NOT a
+        // supported EGLNativeDisplayType shape per eglplatform.h.
+        // The call site would have a translator error or be
+        // misusing the API.
         else => @compileError(
             "pickEglIdCast: unsupported EGLNativeDisplayType shape; " ++
-                "expected .pointer or .int/.comptime_int per eglplatform.h",
+                "expected .pointer, .int/.comptime_int, or .optional " ++
+                "with .pointer child per eglplatform.h",
         ),
     };
 }
@@ -375,6 +419,10 @@ fn comptimeArmName(comptime T: type) []const u8 {
         .pointer => "pointer",
         .int => "int",
         .comptime_int => "comptime_int",
+        .optional => |opt| switch (@typeInfo(opt.child)) {
+            .pointer => "pointer",
+            else => "rejected",
+        },
         else => "rejected",
     };
 }
@@ -403,6 +451,19 @@ test "pickEglIdCast arm selection: pointer types" {
     // as a sentinel-terminated c-string style). Non-const, matching
     // eglplatform.h:53-138.
     try testing.expectEqualStrings("pointer", comptimeArmName([*]u8));
+    // Optional-pointer flavor: x86_64-linux-gnu translate-c produces
+    // `?*anyopaque` for EGLNativeDisplayType when eglplatform.h fails
+    // to match any of its platform conditionals (the file ends in
+    // `#error "Platform not recognized"` and translate-c silently
+    // drops the error, defaulting the unknown identifier to the most
+    // generic handle shape). This is the actual T on the fork CI's
+    // Linux test target. The dispatch must select .pointer (via the
+    // .optional arm's .pointer-child pass-through), not .int and not
+    // .rejected. Without this assertion, a future translator shift
+    // that loses the optional wrapper would still pass the integer
+    // arm but break the Linux build.
+    try testing.expectEqualStrings("pointer", comptimeArmName(?*u8));
+    try testing.expectEqualStrings("pointer", comptimeArmName(?*anyopaque));
     // The translator's declared EGLNativeDisplayType itself — locked in
     // so any future translator flip (e.g. macOS to a pointer-typed native
     // display) is caught at the next test run on this branch.
@@ -412,17 +473,28 @@ test "pickEglIdCast arm selection: pointer types" {
     );
 }
 
-test "pickEglIdCast arm selection: optional types are rejected" {
-    // Per eglplatform.h, EGLNativeDisplayType is a non-optional pointer
-    // or int. Optional types (?*u8, ?c_int, @TypeOf(null)) are NOT in the
-    // supported ABI. The production .else arm fires @compileError on them;
-    // the test mirrors the classifier and asserts the classifier says
-    // "rejected" so the test compiles regardless of host.
+test "pickEglIdCast arm selection: non-ABI shapes are rejected" {
+    // The eglplatform.h ABI is .pointer, .int/.comptime_int, and
+    // .optional with .pointer child (Linux translate-c default).
+    // Everything else is rejected at comptime by the .else arm:
+    //   * `?c_int`  — optional of integer is ambiguous with
+    //                 EGL_DEFAULT_DISPLAY == 0; no target produces this.
+    //   * `@TypeOf(null)` — a bare null pointer, which is .optional
+    //                        with .pointer child on the value side but
+    //                        no useful address to flow to the
+    //                        get-stub. (Covered separately as
+    //                        ?*anyopaque above; this assertion is for
+    //                        the *type* @TypeOf(null), which is just
+    //                        the null literal's type, not a real
+    //                        EGL ABI shape.)
+    //   * `struct {}` — no translator would ever emit a struct here.
+    //
+    // The test mirrors the classifier and asserts "rejected" so the
+    // test itself compiles regardless of host.
     //
     // NOTE: `[]u8` is a SLICE — which Zig classifies as `.pointer`
     // (size=.slice), so the dispatch correctly selects the pointer arm.
     // A slice IS a pointer shape. Don't include it in the rejected set.
-    try testing.expectEqualStrings("rejected", comptimeArmName(?*u8));
     try testing.expectEqualStrings("rejected", comptimeArmName(?c_int));
     try testing.expectEqualStrings("rejected", comptimeArmName(@TypeOf(null)));
     try testing.expectEqualStrings("rejected", comptimeArmName(struct {}));
@@ -504,6 +576,40 @@ test "pickEglIdCast pointer arm: 0x1 is preserved (no null-mapping contract on p
     const got = pickEglIdCast(*u8, id, 0, null, stubGetPlatformDisplay);
     try testing.expect(got == @as(?*anyopaque, @ptrCast(id)));
     try testing.expect(@intFromPtr(got.?) == 0x1);
+}
+
+test "pickEglIdCast optional-pointer arm: ?*u8 id flows through unchanged" {
+    // The Linux translate-c default for EGLNativeDisplayType is `?*anyopaque`
+    // (see eglplatform.h #error handling note in Display.initPlatform). The
+    // optional-pointer arm is a no-op pass-through: id is already the
+    // shape the get-stub expects, so no cast is needed. Verify the
+    // address is preserved at a representative non-null sentinel.
+    const id: ?*u8 = @ptrFromInt(0x2000);
+    const got = pickEglIdCast(?*u8, id, 0, null, stubGetPlatformDisplay);
+    try testing.expect(got == @as(?*anyopaque, @ptrCast(id)));
+    try testing.expect(@intFromPtr(got.?) == 0x2000);
+}
+
+test "pickEglIdCast optional-pointer arm: null id maps to null handle" {
+    // EGL_DEFAULT_DISPLAY is the documented null handle. The optional-pointer
+    // arm must NOT coerce a null id to a non-null address; it must let the
+    // null flow through. On Linux, EGL_DEFAULT_DISPLAY is the C macro
+    // `((?*anyopaque)(0))`, which is `null` of type `?*anyopaque`, so
+    // this is the actual call site the production code must accept.
+    const id: ?*u8 = null;
+    const got = pickEglIdCast(?*u8, id, 0, null, stubGetPlatformDisplay);
+    try testing.expect(got == null);
+}
+
+test "pickEglIdCast optional-pointer arm: ?*anyopaque id flows through unchanged" {
+    // The translator's actual emitted shape on Linux is `?*anyopaque`,
+    // not `?*u8`. Pin the no-op pass-through on that exact type so
+    // any future translator shift to a different optional-pointer
+    // child (e.g. `?*c_int`) is caught at the next test run.
+    const id: ?*anyopaque = @ptrFromInt(0x3000);
+    const got = pickEglIdCast(?*anyopaque, id, 0, null, stubGetPlatformDisplay);
+    try testing.expect(got == id);
+    try testing.expect(@intFromPtr(got.?) == 0x3000);
 }
 
 test "pickEglIdCast comptime_int arm: literal is converted via the int path" {
