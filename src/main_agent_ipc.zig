@@ -52,8 +52,9 @@ const build_config = @import("build_config.zig");
 
 /// Mirrors `app_host.windowed` exactly. Only the GTK runtime qualifies today:
 /// the Windows runtime is a scaffold (WBS G3) and the lib/wasm artifacts have
-/// no windows. Reachable directly off `app_host` as `app_host.windowed`; this
-/// alias exists so the assertion below fails loudly if the two ever diverge.
+/// no windows. `app_host.windowed` is reachable directly; this local alias is
+/// for brevity only and is not a divergence-detection mechanism (the alias
+/// and the underlying declaration cannot differ — they are the same value).
 const app_host = @import("apprt/ipc/app_host.zig");
 const windowed: bool = app_host.windowed;
 
