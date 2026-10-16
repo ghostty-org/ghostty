@@ -4,6 +4,8 @@ const builtin = @import("builtin");
 const buildpkg = @import("src/build/main.zig");
 const translate_c = @import("translate_c");
 
+const c_deps = @import("src/build/c_deps.zig");
+
 /// App version from build.zig.zon.
 const app_zon_version = @import("build.zig.zon").version;
 
@@ -362,6 +364,10 @@ pub fn build(b: *std.Build) !void {
             .root_module = mod.vt,
             .filters = test_filters,
         });
+        try c_deps.add(b, .@"ghostty-vt-h", mod_vt_test.root_module, &config, .{
+            .optimize = .Debug,
+            .target = config.baselineTarget(b.graph.io),
+        });
         const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
         test_lib_vt_step.dependOn(&mod_vt_test_run.step);
         test_lib_vt_build_step.dependOn(&mod_vt_test.step);
@@ -369,6 +375,10 @@ pub fn build(b: *std.Build) !void {
         const mod_vt_c_test = b.addTest(.{
             .root_module = mod.vt_c,
             .filters = test_filters,
+        });
+        try c_deps.add(b, .@"ghostty-vt-h", mod_vt_c_test.root_module, &config, .{
+            .optimize = .Debug,
+            .target = config.baselineTarget(b.graph.io),
         });
         const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
         test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);
@@ -399,7 +409,16 @@ pub fn build(b: *std.Build) !void {
         }
         _ = try deps.add(test_exe);
 
-        addGhosttyH(b, test_exe.root_module, config.baselineTarget(b.graph.io), .Debug);
+        try c_deps.add(b, .@"ghostty-h", test_exe.root_module, &config, .{
+            .target = config.baselineTarget(b.graph.io),
+            .optimize = .Debug,
+        });
+        try c_deps.add(b, .@"ghostty-vt-h", test_exe.root_module, &config, .{
+            .target = config.baselineTarget(b.graph.io),
+            .optimize = .Debug,
+        });
+        // addGhosttyH(b, test_exe.root_module, config.baselineTarget(b.graph.io), .Debug);
+        // addGhosttyVTH(b, test_exe.root_module, config.baselineTarget(b.graph.io), .Debug);
 
         // Normal test running
         const test_run = b.addRunArtifact(test_exe);
@@ -432,18 +451,52 @@ pub fn build(b: *std.Build) !void {
     }
 }
 
-fn addGhosttyH(
-    b: *std.Build,
-    module: *std.Build.Module,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-) void {
-    translate_c.addImportToModule(b, "ghostty.h", module, .{
-        .source = .{ .includes = .{ .files = &.{
-            .{ .path = "ghostty.h" },
-        } } },
-        .target = target,
-        .optimize = optimize,
-        .system_include_paths = &.{b.path("include")},
-    }) catch unreachable;
-}
+// fn addGhosttyH(
+//     b: *std.Build,
+//     module: *std.Build.Module,
+//     target: std.Build.ResolvedTarget,
+//     optimize: std.builtin.OptimizeMode,
+// ) void {
+//     const translate_c = b.lazyImport(@This(), "translate_c") orelse return;
+//     const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse return;
+
+//     const translated: translate_c.Translator = .init(translate_c_dep, .{
+//         .c_source_file = b.addWriteFiles().add(
+//             "ghostty_h_c.h",
+//             \\#include <ghostty.h>
+//             ,
+//         ),
+//         .target = target,
+//         .optimize = optimize,
+//         .link_libc = true,
+//     });
+
+//     translated.addSystemIncludePath(b.path("include"));
+
+//     module.addImport("ghostty-h", translated.mod);
+// }
+
+// fn addGhosttyVTH(
+//     b: *std.Build,
+//     module: *std.Build.Module,
+//     target: std.Build.ResolvedTarget,
+//     optimize: std.builtin.OptimizeMode,
+// ) void {
+//     const translate_c = b.lazyImport(@This(), "translate_c") orelse return;
+//     const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse return;
+
+//     const translated: translate_c.Translator = .init(translate_c_dep, .{
+//         .c_source_file = b.addWriteFiles().add(
+//             "ghostty_vt_h_c.h",
+//             \\#include <ghostty/vt.h>
+//             ,
+//         ),
+//         .target = target,
+//         .optimize = optimize,
+//         .link_libc = true,
+//     });
+
+//     translated.addSystemIncludePath(b.path("include"));
+
+//     module.addImport("ghostty-vt-h", translated.mod);
+// }
