@@ -7,10 +7,10 @@ schedule list contained no Khostty wake). This record closes the arc.
 
 ## Landed on `main` (HEAD `6da47d0c2`)
 
-| PR | Merge | What |
-| --- | --- | --- |
-| #16 | `ccfa79f2a` | pytest job so the 162 python binding tests actually run |
-| #19 | `795383086` | EGL portability fix + upstream ghostty sync (ancestry preserved) |
+| PR  | Merge       | What                                                                      |
+| --- | ----------- | ------------------------------------------------------------------------- |
+| #16 | `ccfa79f2a` | pytest job so the 162 python binding tests actually run                   |
+| #19 | `795383086` | EGL portability fix + upstream ghostty sync (ancestry preserved)          |
 | #17 | `6da47d0c2` | nightly fork-only zig test steps (`test-agent-ipc`, `test-windows-apprt`) |
 
 Ancestry verified after the final merge:
