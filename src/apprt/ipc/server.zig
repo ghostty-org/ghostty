@@ -795,8 +795,20 @@ test "socket: an oversized frame is rejected and the connection closes" {
         failure.value.object.get("error").?.object.get("code").?.string,
     );
 
-    // The server closed its side: the next read reports end of stream.
-    try testing.expectEqual(@as(?[]const u8, null), try client.readFrame());
+    // The server closed its side. macOS surfaces a clean FIN as a null
+    // (EOF) frame; Linux sends a TCP RST instead when the server process
+    // closes a socket with pending unread data in the receive buffer, which
+    // surfaces here as `error.ConnectionResetByPeer`. Both are documented
+    // terminal rejection of the oversized frame; neither swallows a real
+    // protocol error. Any other error (UnexpectedEof, BrokenPipe, etc.) or
+    // a non-null frame still fails the test, so normal-close and valid-frame
+    // exchange regressions stay covered.
+    const frame = client.readFrame();
+    if (frame) |maybe_frame| {
+        try testing.expectEqual(@as(?[]const u8, null), maybe_frame);
+    } else |err| {
+        try testing.expectEqual(error.ConnectionResetByPeer, err);
+    }
 }
 
 test "socket: an empty line is an empty frame, not a skip" {
