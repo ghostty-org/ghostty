@@ -31,6 +31,28 @@ on:
     # sonar, or scorecard.
     - cron: "20 5 * * *"
   workflow_dispatch:
+  # 2026-10-15: narrowly-scoped `pull_request` trigger added so the workflow
+  # is observable on the PR head SHA before merge (the default-branch
+  # scheduler and workflow_dispatch API cannot see a workflow file that
+  # lives only on a non-default branch). Scope: the workflow file itself,
+  # the two fork-only test entry points, the two directories they
+  # transitively pull in, and build.zig (build-config changes can break
+  # these tests). Anything outside this set does not need a fork-zig
+  # test run; the upstream test.yml continues to cover `zig build test`
+  # and `test-lib-vt` for all other changes. Intended to remain as a
+  # validation channel pre- and post-merge; the long-term nightly
+  # schedule stays for catch-up coverage on slow PRs.
+  pull_request:
+    paths:
+      - ".github/workflows/zig-fork-tests.yml"
+      - "src/main_windows_apprt.zig"
+      - "src/main_agent_ipc.zig"
+      - "src/apprt/windows/**"
+      - "src/apprt/ipc/**"
+      - "build.zig"
+  # Keep `merge_group` out of the trigger list for now: this fork's
+  # default branch is not configured for merge queues, and an
+  # unhandled event type silently swallows the trigger.
 
 concurrency:
   group: zig-fork-tests
