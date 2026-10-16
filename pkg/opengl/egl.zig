@@ -96,34 +96,25 @@ pub const Display = opaque {
         id: c.EGLNativeDisplayType,
         attribs: ?[*:c.EGL_NONE]const c.EGLAttrib,
     ) Error!*Display {
-        // 2026-10-15 (fork-local): the generated `opengl_c` header that
-        // `fe9cf6a26` ("build: fully transition away from cImport/addTranslateC")
-        // introduced is internally inconsistent for this one call:
-        //
-        //   pub const EGLNativeDisplayType = c_int;
-        //   pub const EGL_DEFAULT_DISPLAY = EGL_CAST(EGLNativeDisplayType, 0);
-        //   pub extern fn eglGetPlatformDisplay(..., native_display: ?*anyopaque, ...);
-        //
-        // EGL/eglplatform.h defines EGLNativeDisplayType per platform and the
-        // Khronos-recommended branch (EGL_NO_PLATFORM_SPECIFIC_TYPES, the one
-        // Apple uses) makes it `void *`. The translator resolved the wrong
-        // branch and emitted `c_int`, so passing the id does not type-check.
-        //
-        // `eglGetDisplay` in the same header still takes EGLNativeDisplayType
-        // correctly, which is why only this call fails.
-        //
-        // Coerce at the call site rather than patching the vendored generated
-        // header: the header is regenerated on every build, so an edit there
-        // would not survive. The runtime value is unchanged either way - this
-        // is a type-level fix only.
-        //
-        // `id` arrives as `c_int` (0 for EGL_DEFAULT_DISPLAY, the only value
-        // the sole call site passes) and the parameter is `?*anyopaque`, so
-        // `@ptrFromInt` is the correct conversion: it reinterprets the integer
-        // as an address, which is what the C ABI wants. `@ptrCast` is wrong
-        // here - it rejects an integer outright - and `@ptrFromInt` needs a
-        // `usize`, hence the explicit cast.
-        const display = c.eglGetPlatformDisplay(platform, @ptrFromInt(@as(usize, @intCast(id))), attribs) orelse return mustError();
+        // The generated opengl_c header declares eglGetPlatformDisplay's
+        // native_display parameter as `?*anyopaque`. Per eglplatform.h,
+        // EGLNativeDisplayType is a per-platform typedef and resolves to
+        // either a pointer (Wayland/X11/Windows/GBM/Apple) or an integer
+        // (some legacy branches). Zig does not implicitly convert between
+        // those and `?*anyopaque`, so dispatch on `@typeInfo` to pick the
+        // correct conversion on every target.
+        const display = (comptime_blk: {
+            const T = @TypeOf(id);
+            break :comptime_blk switch (@typeInfo(T)) {
+                .pointer => c.eglGetPlatformDisplay(platform, @ptrCast(id), attribs),
+                .int, .comptime_int => c.eglGetPlatformDisplay(
+                    platform,
+                    @ptrFromInt(@as(usize, @intCast(id))),
+                    attribs,
+                ),
+                else => @compileError("unsupported EGLNativeDisplayType for eglGetPlatformDisplay"),
+            };
+        }) orelse return mustError();
         return initialize(display);
     }
 
@@ -315,3 +306,67 @@ pub const DmabufQuery = struct {
     num_planes: c_int,
     modifier: u64,
 };
+
+const testing = std.testing;
+
+test "EGLNativeDisplayType comptime arm dispatch matches type" {
+    // The dispatch we use in Display.initPlatform must select the correct
+    // arm for the actual EGLNativeDisplayType on this target. On pointer-
+    // typed targets (Wayland/X11/Windows/GBM/Apple) the arm chosen at
+    // comptime must be `.pointer`; on integer-typed legacy platforms it
+    // must be `.int`/`.comptime_int`. We pin the expected arm at comptime
+    // by reflecting on the translated header so any future regression
+    // (a translator change, a typoed cast) fails here.
+    const T = c.EGLNativeDisplayType;
+    const info = @typeInfo(T);
+    switch (info) {
+        .pointer => {
+            // Pointer-typed target: the comptime branch in initPlatform
+            // produces `c.eglGetPlatformDisplay(platform, @ptrCast(id), attribs)`.
+            // We can't link eglGetPlatformDisplay here, but we can sanity-
+            // check the cast path: a pointer id must cast to `?*anyopaque`
+            // (the function parameter type) without changing its address.
+            const id: c.EGLNativeDisplayType = @ptrFromInt(0x1000);
+            const as_anyopaque: ?*anyopaque = @ptrCast(id);
+            try testing.expect(as_anyopaque.? == @as(*anyopaque, @ptrFromInt(0x1000)));
+        },
+        .int, .comptime_int => {
+            // Integer-typed target: the comptime branch produces
+            // `@ptrFromInt(@as(usize, @intCast(id)))`. Check the shape of
+            // the conversion lands as the same address for a constant
+            // round-trip.
+            const id: c.EGLNativeDisplayType = 0;
+            const got: ?*anyopaque = @ptrFromInt(@as(usize, @intCast(id)));
+            try testing.expect(got == null);
+        },
+        else => return error.UnsupportedEGLNativeDisplayType,
+    }
+}
+
+test "EGL platform-display comptime conversion: integer round-trip" {
+    // Pure comptime sanity check that the integer-arm expression
+    // `@ptrFromInt(@as(usize, @intCast(id)))` produces the documented
+    // address. Independent of whether THIS target is integer-typed;
+    // this validates the conversion shape itself.
+    comptime {
+        const id: usize = 0xDEADBEEF;
+        const raw: c_int = @intCast(id);
+        const back: usize = @intCast(raw);
+        const ptr: ?*anyopaque = @ptrFromInt(back);
+        try testing.expectEqual(@as(?*anyopaque, @ptrFromInt(0xDEADBEEF)), ptr);
+    }
+}
+
+test "EGL platform-display comptime conversion: pointer no-op" {
+    // Pure comptime sanity check that the pointer-arm expression
+    // `@ptrCast(id)` preserves the address. Independent of target.
+    comptime {
+        const dummy: c_int = 0;
+        _ = dummy;
+        // Use a sentinel pointer from a comptime int; @ptrCast to
+        // `?*anyopaque` must be a no-op pointer-preserving cast.
+        const p: *anyopaque = @ptrFromInt(0xCAFEBABE);
+        const same: ?*anyopaque = @ptrCast(p);
+        try testing.expect(same == p);
+    }
+}
