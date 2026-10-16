@@ -178,7 +178,14 @@ jobs:
   pytest:
     name: Python Tests
     needs: detect
-    if: needs.detect.outputs.has_python_tests == 'true'
+    # 2026-10-15: this previously read `has_python_tests`, which the detect
+    # job never exported. The job's `if:` then evaluated to a missing/empty
+    # value, GitHub treated that as a skip, and the pytest job silently
+    # reported "skipped" on every push (real run 38824904579 on the final
+    # SHA de6971085 is the smoking gun: conclusion "success", but the
+    # "Python Tests" job is "skipped"). The detect step sets `has_python`,
+    # not `has_python_tests`; this guard now references the actual output.
+    if: needs.detect.outputs.has_python == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -195,17 +202,30 @@ jobs:
       - uses: ./.github/actions/install-zig
         with:
           version: "0.16.0"
+          # install-zig refuses to proceed without a 64-char lowercase hex
+          # SHA-256 (action.yml enforces `^[0-9a-f]{64}$`). The shasum is the
+          # ziglang.org-published value for zig-x86_64-linux-0.16.0.tar.xz
+          # (from https://ziglang.org/download/index.json key
+          # 0.16.0.x86_64-linux.shasum, captured 2026-10-15).
+          shasum: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
       - name: Build libghostty-vt
         run: zig build -Dapp-runtime=none
 
-      # `cffi` is declared in pyproject.toml, but nothing ever installed this
-      # package, so no dependency was ever resolved. On a clean machine the
-      # suite then produced 150 collection errors at import instead of a
-      # signal. Installing the project with its test extra resolves both.
+      # cffi, pytest, and setuptools are all hash-pinned in requirements-ci.txt
+      # (covers Sonar S8541/S8544). The first command installs the test
+      # dependencies the project declares in `optional-dependencies.test` plus
+      # the cffi runtime dep declared in `dependencies`, every line with
+      # `--require-hashes --only-binary :all:` for reproducibility. The second
+      # command installs the local package in editable mode; pip uses default
+      # build isolation (setuptools is in requirements-ci.txt) and resolves
+      # cffi from the already-installed copy. No `--no-deps` (cffi would be
+      # missing on a clean machine) and no `--no-build-isolation` flag — the
+      # prior combination was fragile and contradicted the "use the declared
+      # project test extra" directive.
       - name: Install package and test dependencies
         run: |
           pip install --require-hashes --only-binary :all: -r khostty-python/requirements-ci.txt
-          pip install -e khostty-python --no-deps --no-build-isolation
+          pip install -e khostty-python
 
       - name: pytest
         working-directory: khostty-python
@@ -307,6 +327,7 @@ jobs:
         typescript,
         security,
         dep-review,
+        pytest,
       ]
     runs-on: ubuntu-latest
     steps:
@@ -322,6 +343,7 @@ jobs:
             "typescript:${{ needs.typescript.result }}" \
             "security:${{ needs.security.result }}" \
             "dep-review:${{ needs.dep-review.result }}" \
+            "pytest:${{ needs.pytest.result }}" \
             ; do
             name="${pair%%:*}"
             result="${pair#*:}"
@@ -332,6 +354,7 @@ jobs:
               echo "  ✓ $name: $result"
             else
               echo "  ? $name: $result"
+              failed=$((failed + 1))
             fi
           done
           if [ "$failed" -gt 0 ]; then
@@ -345,10 +368,35 @@ jobs:
   test:
     name: ci / test
     if: always()
-    needs: [lint]
+    needs: [lint, pytest]
     runs-on: ubuntu-latest
     steps:
-      - name: Test gate
+      - name: Aggregate test gate
         run: |
-          # Test gate is currently combined with lint
-          echo "✅ All test stages passed (gated via ci / lint)"
+          # Real test gate: a pytest regression must propagate here. The prior
+          # body was an empty stub that echoed a fixed success string; it
+          # asserted nothing and silently masked every failure.
+          failed=0
+          for pair in \
+            "lint:${{ needs.lint.result }}" \
+            "pytest:${{ needs.pytest.result }}" \
+            ; do
+            name="${pair%%:*}"
+            result="${pair#*:}"
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "  ✗ $name: $result"
+              failed=$((failed + 1))
+            elif [ "$result" = "success" ] || [ "$result" = "skipped" ]; then
+              echo "  ✓ $name: $result"
+            else
+              echo "  ? $name: $result"
+              failed=$((failed + 1))
+            fi
+          done
+          if [ "$failed" -gt 0 ]; then
+            echo ""
+            echo "❌ $failed test gate(s) failed"
+            exit 1
+          fi
+          echo ""
+          echo "✅ All test gates passed"
