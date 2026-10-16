@@ -819,14 +819,13 @@ test "socket: an oversized frame is rejected and the connection closes" {
     if (frame) |maybe_frame| {
         try testing.expectEqual(@as(?[]const u8, null), maybe_frame);
     } else |err| switch (err) {
-        error.ConnectionResetByPeer => {},
         error.ReadFailed => {
-            // ReadFailed only accepted if the wrapped cause is the
-            // documented terminal reset.
+            // zig 0.16's std.Io.net.readVec flattens the underlying net
+            // error into generic ReadFailed; only accept when the wrapped
+            // cause exposed at client.reader.err is the documented reset.
             const underlying = client.reader.err orelse return error.ReadFailed;
             try testing.expectEqual(error.ConnectionResetByPeer, underlying);
         },
-        else => |other| return other,
     }
 }
 
