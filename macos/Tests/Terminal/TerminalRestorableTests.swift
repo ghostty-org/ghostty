@@ -9,7 +9,7 @@ struct TerminalRestorableTests {
         #expect(TerminalRestorableState.version == 7)
         #expect(TerminalRestorableState.minimumVersion == 5)
 
-        #expect(QuickTerminalRestorableState.version == 1)
+        #expect(QuickTerminalRestorableState.version == 2)
         #expect(QuickTerminalRestorableState.minimumVersion == 1)
     }
 
@@ -35,6 +35,56 @@ struct TerminalRestorableTests {
         #expect(state.screenStateEntries.isEmpty)
         #expect(state.surfaceTree.contains(where: { $0.id.uuidString == "2F2F2D93-944C-474A-83BA-4DC1868C3EB9" }))
         #expect(state.surfaceTree.contains(where: { $0.id.uuidString == "994C673F-B4C5-49EE-B044-65006652636D" }))
+
+        // v1 archives have no tab info; the v2 decoder must default these.
+        #expect(state.tabs.isEmpty)
+        #expect(state.currentTabIndex == 0)
+    }
+
+    @MainActor
+    @Test func quickTerminalRestorableV2Roundtrip() throws {
+        let tree1 = try SplitTreeTests.makeHorizontalSplit()
+        let tree2 = try SplitTreeTests.makeHorizontalSplit()
+
+        let internalState = QuickTerminalRestorableState.InternalState<MockView>(
+            focusedSurface: "focus-id",
+            surfaceTree: tree1.0,
+            screenStateEntries: [:],
+            tabs: [
+                QuickTerminalTabState(
+                    surfaceTree: tree1.0,
+                    title: "tab-one",
+                    titleOverride: nil,
+                    tabColor: .none
+                ),
+                QuickTerminalTabState(
+                    surfaceTree: tree2.0,
+                    title: "tab-two",
+                    titleOverride: "renamed",
+                    tabColor: .green
+                ),
+            ],
+            currentTabIndex: 1
+        )
+
+        let original = DummyQuickTerminalRestorableState(internalState)
+        let data = try archive(CodableBridge(original), className: "CodableBridge<QuickTerminal>")
+
+        let decoded: CodableBridge<DummyQuickTerminalRestorableState> = try unarchive(
+            data,
+            className: "CodableBridge<QuickTerminal>"
+        )
+        let restored = decoded.value.internalState
+
+        #expect(restored.focusedSurface == "focus-id")
+        #expect(restored.tabs.count == 2)
+        #expect(restored.tabs[0].title == "tab-one")
+        #expect(restored.tabs[0].titleOverride == nil)
+        #expect(restored.tabs[0].tabColor == .none)
+        #expect(restored.tabs[1].title == "tab-two")
+        #expect(restored.tabs[1].titleOverride == "renamed")
+        #expect(restored.tabs[1].tabColor == .green)
+        #expect(restored.currentTabIndex == 1)
     }
 
     // To generate old data: created a dummy class, archive, and copy the printed result
