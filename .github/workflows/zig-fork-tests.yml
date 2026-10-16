@@ -1,0 +1,125 @@
+# =============================================================================
+# Zig tests for the fork-only build steps
+# =============================================================================
+# Khostty adds two build steps that do not exist upstream:
+#
+#   test-windows-apprt  src/main_windows_apprt.zig  (Windows app runtime)
+#   test-agent-ipc      src/main_agent_ipc.zig      (agent IPC mux substrate)
+#
+# Neither was referenced by ANY workflow, so the 156 `test` declarations across
+# those two files had never executed in CI. They only ran when a human typed
+# `zig build test-agent-ipc` by hand — which is why Phase 0 verification
+# required ~27 minutes of local wall-clock and a hand-written evidence log.
+#
+# The inherited upstream `test.yml` DOES cover `zig build test` and
+# `test-lib-vt`. This workflow covers only what is missing.
+#
+# Why nightly rather than per-push:
+#   `test-agent-ipc` runs the full test tree (~3900 tests, ~4GB peak, ~27min
+#   warm). Running that on every push would dominate CI cost for a repo on the
+#   free Actions tier. The fork's own conventions already schedule heavier
+#   work off the push path (sonar.yml, trunk-check.yml, scorecard.yml all use
+#   weekly crons). This matches that pattern.
+# =============================================================================
+
+name: Fork Zig Tests
+
+on:
+  schedule:
+    # Daily 05:20 UTC — deliberately offset from the Monday 03:00/04:00/04:25
+    # weekly cluster so this does not compete for runners with trunk-check,
+    # sonar, or scorecard.
+    - cron: "20 5 * * *"
+  workflow_dispatch:
+  # 2026-10-15: narrowly-scoped `pull_request` trigger added so the workflow
+  # is observable on the PR head SHA before merge (the default-branch
+  # scheduler and workflow_dispatch API cannot see a workflow file that
+  # lives only on a non-default branch). Scope: the workflow file itself,
+  # the two fork-only test entry points, the directories and shared imports they
+  # transitively pull in (incl. src/App.zig + src/Surface.zig), and build.zig (build-config changes can break
+  # these tests). Anything outside this set does not need a fork-zig
+  # test run; the upstream test.yml continues to cover `zig build test`
+  # and `test-lib-vt` for all other changes. Intended to remain as a
+  # validation channel pre- and post-merge; the long-term nightly
+  # schedule stays for catch-up coverage on slow PRs.
+  pull_request:
+    paths:
+      - ".github/workflows/zig-fork-tests.yml"
+      - "src/main_windows_apprt.zig"
+      - "src/main_agent_ipc.zig"
+      - "src/apprt/windows/**"
+      - "src/apprt/ipc/**"
+      - "src/App.zig"
+      - "src/Surface.zig"
+      - "build.zig"
+  # Keep `merge_group` out of the trigger list for now: this fork's
+  # default branch is not configured for merge queues, and an
+  # unhandled event type silently swallows the trigger.
+
+concurrency:
+  group: zig-fork-tests
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-apprt:
+    name: test-windows-apprt
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # 2026-10-15: removed `continue-on-error: true`. The cheap windows-apprt
+    # job (1-3 min warm) is a real gate; a regression here MUST surface as
+    # a push-blocking failure, not a silent nightly red X. The earlier
+    # `continue-on-error` masked every failure through the schedule path
+    # (operator directive: "remove masks for real test failures"). The
+    # agent-ipc job is no longer masked either; the 60-min cost is offset
+    # by the nightly schedule and the workflow_dispatch manual path.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The step resolves its dependency tree from the default branch, so a
+          # shallow clone would silently change what gets tested.
+          fetch-depth: 0
+      - uses: ./.github/actions/install-zig
+        with:
+          version: "0.16.0"
+          # install-zig refuses to proceed without a 64-char lowercase hex
+          # SHA-256 (action.yml enforces `^[0-9a-f]{64}$`). The shasum is the
+          # ziglang.org-published value for zig-x86_64-linux-0.16.0.tar.xz
+          # (from https://ziglang.org/download/index.json key
+          # 0.16.0.x86_64-linux.shasum, captured 2026-10-15). Without this
+          # the regex check kills the step and the job is skipped.
+          shasum: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # No `cachix-action` step: this fork has no CACHIX_AUTH_TOKEN
+          # secret, and the cachix-action without credentials 401s. Nix
+          # itself is enough; flake.nix is the only thing the build
+          # actually needs (it supplies GTK4 / libadwaita / oniguruma /
+          # libxml2 / glib / pkg-config that the imported apprt/windows
+          # modules transitively link against).
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run test-windows-apprt
+        run: nix develop -c zig build test-windows-apprt
+
+  agent-ipc:
+    name: test-agent-ipc
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # 2026-10-15: removed `continue-on-error: true` (operator directive).
+    # The 60-min cost is the reason this whole workflow is cron+manual only;
+    # within those triggers a real regression is the signal we want.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/install-zig
+        with:
+          version: "0.16.0"
+          shasum: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run test-agent-ipc
+        run: nix develop -c zig build test-agent-ipc

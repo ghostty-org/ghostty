@@ -795,8 +795,59 @@ test "socket: an oversized frame is rejected and the connection closes" {
         failure.value.object.get("error").?.object.get("code").?.string,
     );
 
-    // The server closed its side: the next read reports end of stream.
-    try testing.expectEqual(@as(?[]const u8, null), try client.readFrame());
+    // The server closed its side. macOS surfaces a clean FIN as a null
+    // (EOF) frame. Linux sends a connection reset instead when the server process
+    // closes a socket with pending unread data in the receive buffer. The
+    // RST can surface here as either `error.ConnectionResetByPeer` (when
+    // the underlying net error reaches the API directly) or as a wrapped
+    // `error.ReadFailed` (when std.Io.net.readVec flattens the underlying
+    // error into a generic ReadFailed at std/Io/net.zig:1307). In both
+    // cases the *wrapped cause* is `error.ConnectionResetByPeer`, exposed
+    // by `std.Io.net.Stream.Reader.err` (zig 0.16).
+    //
+    // `Client.readFrame` is `!?[]const u8` and delegates to
+    // `std.Io.Reader.takeDelimiter`, whose inferred error set is exactly
+    // `error{ReadFailed, StreamTooLong}` (see std/Io/Reader.zig:895).
+    // `EndOfStream` is converted to null inside `takeDelimiter`, so it
+    // never reaches the test. We exhaustively switch on the two real
+    // members and never `else`-swallow.
+    //
+    // We accept:
+    //   1. a null (EOF) frame -- macOS clean FIN,
+    //   2. `error.ConnectionResetByPeer` -- Linux direct RST,
+    //   3. `error.ReadFailed` only when `client.reader.err` is
+    //      `error.ConnectionResetByPeer` -- Linux wrapped RST.
+    //
+    // `error.StreamTooLong` is propagated explicitly. After
+    // `readResponse` consumed the bad_request response, the client reader
+    // is empty, so this branch should not fire; if it ever does, the
+    // test fails with the actual error rather than a silent pass.
+    //
+    // Anything else (UnexpectedEof, BrokenPipe, a non-null frame, a
+    // ReadFailed whose wrapped cause is anything other than reset) fails
+    // the test, so normal-close and valid-frame exchange regressions stay
+    // covered.
+    const frame = client.readFrame();
+    if (frame) |maybe_frame| {
+        try testing.expectEqual(@as(?[]const u8, null), maybe_frame);
+    } else |err| switch (err) {
+        error.ReadFailed => {
+            // zig 0.16's std.Io.net.readVec flattens the underlying net
+            // error into generic ReadFailed; only accept when the wrapped
+            // cause exposed at client.reader.err is the documented reset.
+            const underlying = client.reader.err orelse return error.ReadFailed;
+            try testing.expectEqual(error.ConnectionResetByPeer, underlying);
+        },
+        error.StreamTooLong => {
+            // Not reachable in this scenario: the client buffer is empty
+            // after readResponse consumed the bad_request response, so
+            // takeDelimiter cannot find a full buffer without a delimiter.
+            // Propagate explicitly to keep the switch exhaustive (the
+            // IPC test root enforces this) and to surface a real bug
+            // rather than a swallowed result.
+            return error.StreamTooLong;
+        },
+    }
 }
 
 test "socket: an empty line is an empty frame, not a skip" {

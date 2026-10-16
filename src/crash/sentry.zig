@@ -17,7 +17,7 @@ var init_thread: ?std.Thread = null;
 
 /// Directory memory, holds the cache and state dirs persistently. This
 /// prevents any sort of crashes due to initialization races.
-var dir_mem: [std.fs.max_path_bytes * 2]u8 = undefined;
+var dir_mem: [std.Io.Dir.max_path_bytes * 2]u8 = undefined;
 
 /// Holds the XDG cache dir.
 var cache_dir_: ?[]const u8 = null;

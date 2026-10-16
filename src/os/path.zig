@@ -20,7 +20,7 @@ pub fn expand(
 
     const PATH = environ_map.get("PATH") orelse return null;
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     var it = std.mem.tokenizeScalar(u8, PATH, std.fs.path.delimiter);
     var seen_eacces = false;
     while (it.next()) |search_path| {

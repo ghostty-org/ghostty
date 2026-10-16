@@ -25,7 +25,7 @@ between the slice path (SIMD fast-path) and the scalar path.
 
 Install AFL++ so that `afl-cc` and `afl-fuzz` are on your `PATH`.
 
-- **macOS (Homebrew):** `brew install aflplusplus`
+- **macOS (Homebrew):** `brew install afl++`
 - **Linux:** build from source or use your distro's package (e.g.
   `apt install afl++` on Debian/Ubuntu).
 

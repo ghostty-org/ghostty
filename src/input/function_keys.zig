@@ -154,6 +154,7 @@ pub const keys = keys: {
         .{ .mods = .{ .alt = true, .shift = true }, .modify_other_keys = .set, .sequence = "\x1b\x7f" },
         .{ .mods = .{ .ctrl = true, .shift = true }, .modify_other_keys = .set, .sequence = "\x08" },
         .{ .mods = .{ .alt = true, .ctrl = true }, .modify_other_keys = .set, .sequence = "\x1b\x08" },
+        .{ .mods = .{ .alt = true, .shift = true, .ctrl = true }, .modify_other_keys = .set, .sequence = "\x1b\x08" },
         .{ .mods = .{ .super = true }, .modify_other_keys = .set, .sequence = "\x7f" },
         .{ .mods = .{ .super = true, .shift = true }, .modify_other_keys = .set, .sequence = "\x7f" },
         .{ .mods = .{ .alt = true, .super = true }, .modify_other_keys = .set, .sequence = "\x1b\x7f" },

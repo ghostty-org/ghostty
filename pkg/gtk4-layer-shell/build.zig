@@ -3,11 +3,6 @@ const translate_c = @import("translate_c");
 
 const version = @import("build.zig.zon").version;
 
-const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
-    .preferred_link_mode = .dynamic,
-    .search_strategy = .mode_first,
-};
-
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -19,38 +14,23 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    translate: {
-        const link_system_libs: []const []const u8, const include_paths =
-            if (b.systemIntegrationOption("gtk4-layer-shell", .{}))
-                .{ &.{ "gtk4", "gtk4-layer-shell-0" }, &.{} }
-            else
-                .{
-                    &.{"gtk4"},
-                    paths: {
-                        // local deps (non-system layer-shell/wayland)
-                        const deps = try LocalDeps.get(b) orelse break :translate;
-                        break :paths &.{
-                            deps.upstream.path("include"),
-                            deps.upstream.path("src"),
-                            deps.client_header_directory,
-                        };
-                    },
-                };
+    const lib: union(enum) {
+        system,
+        static: *std.Build.Step.Compile,
+    } = if (b.systemIntegrationOption("gtk4-layer-shell", .{}))
+        .system
+    else
+        .{ .static = try buildLib(b, .{ .target = target, .optimize = optimize }) };
 
-        try translate_c.addImportToModule(b, "c", module, .{
-            .source = .{ .includes = .{
-                .files = &.{.{ .path = "gtk4-layer-shell.h" }},
-            } },
-            .target = target,
-            .optimize = optimize,
-            .link_system_libs = link_system_libs,
-            .include_paths = include_paths,
-        });
-    }
-
-    if (!b.systemIntegrationOption("gtk4-layer-shell", .{})) {
-        _ = try buildLib(b, .{ .target = target, .optimize = optimize });
-    }
+    try translate_c.addImportToModule(b, "gtk4_layer_shell_c", module, .{
+        .source = .{ .includes = .{
+            .files = &.{.{ .path = "gtk4-layer-shell.h" }},
+        } },
+        .target = target,
+        .optimize = optimize,
+        .link_system_libs = if (lib == .system) &.{ "gtk4", "gtk4-layer-shell-0" } else &.{"gtk4"},
+        .link_libs = if (lib == .static) &.{lib.static} else &.{},
+    });
 }
 
 fn buildLib(b: *std.Build, options: anytype) !*std.Build.Step.Compile {
@@ -71,7 +51,10 @@ fn buildLib(b: *std.Build, options: anytype) !*std.Build.Step.Compile {
     b.installArtifact(lib);
 
     // GTK
-    lib.root_module.linkSystemLibrary("gtk4", dynamic_link_opts);
+    lib.root_module.linkSystemLibrary("gtk4", .{
+        .preferred_link_mode = .dynamic,
+        .search_strategy = .mode_first,
+    });
 
     // local deps (non-system layer-shell/wayland)
     const deps = try LocalDeps.get(b) orelse return lib;

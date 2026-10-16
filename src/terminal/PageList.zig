@@ -1234,6 +1234,18 @@ pub const Resize = struct {
     /// resize/reflow behavior depends on the cursor position.
     cursor: ?Cursor = null,
 
+    /// Whether the resize may pull rows out of scrollback back into the
+    /// active area. If false, growing rows always appends blank rows at the
+    /// bottom and a column reflow keeps the top of the active area on the
+    /// same content, so a line that is fully in scrollback stays there.
+    /// A wrapped line with at least one row still in the active area may
+    /// still unwrap back into view.
+    ///
+    /// This should be false for ptys that keep their own screen buffer
+    /// without scrollback (e.g. Windows ConPTY), since they can't pull
+    /// rows back and would otherwise get out of sync with us.
+    pull_scrollback: bool = true,
+
     pub const Cursor = struct {
         x: size.CellCountInt,
         y: size.CellCountInt,
@@ -1295,7 +1307,7 @@ pub fn resize(self: *PageList, opts: Resize) Allocator.Error!void {
         .gt => {
             // We grow rows after cols so that we can do our unwrapping/reflow
             // before we do a no-reflow grow.
-            try self.resizeCols(cols, opts.cursor);
+            try self.resizeCols(cols, opts);
             try self.resizeWithoutReflow(opts);
         },
 
@@ -1307,7 +1319,7 @@ pub fn resize(self: *PageList, opts: Resize) Allocator.Error!void {
                 copy.cols = self.cols;
                 break :opts copy;
             });
-            try self.resizeCols(cols, opts.cursor);
+            try self.resizeCols(cols, opts);
         },
     }
 
@@ -1331,9 +1343,20 @@ pub fn resize(self: *PageList, opts: Resize) Allocator.Error!void {
 fn resizeCols(
     self: *PageList,
     cols: size.CellCountInt,
-    cursor: ?Resize.Cursor,
+    opts: Resize,
 ) Allocator.Error!void {
     assert(cols != self.cols);
+    const cursor = opts.cursor;
+
+    // The active area is always the last `rows` rows, so a reflow that
+    // changes the number of rows our text needs slides the active area
+    // over the content. If we aren't allowed to pull scrollback then we
+    // track the top of the active area so we can restore it afterwards.
+    const active_top: ?*Pin = if (!opts.pull_scrollback)
+        try self.trackPin(self.getTopLeft(.active))
+    else
+        null;
+    defer if (active_top) |p| self.untrackPin(p);
 
     // If we have a cursor position (x,y), then we try under any col resizing
     // to keep the same number remaining active rows beneath it. This is a
@@ -1508,6 +1531,18 @@ fn resizeCols(
         },
     }
 
+    // If we can't pull scrollback then pad the bottom with blank rows until
+    // the old top of the active area is back at the top. If the reflow
+    // instead pushed it into scrollback (the text needs more rows than
+    // we have) then there is nothing to do. This subsumes the preserved
+    // cursor logic below since that also only exists to avoid a pull.
+    if (active_top) |p| {
+        if (self.pointFromPin(.active, p.*)) |pt| {
+            for (0..pt.active.y) |_| _ = try self.grow();
+        }
+        return;
+    }
+
     // See preserved_cursor setup for why.
     if (preserved_cursor) |c| cursor: {
         const active_pt = self.pointFromPin(
@@ -1650,6 +1685,9 @@ const ReflowCursor = struct {
         // compressed nodes purely for a comparison.
         var row_has_pins = false;
         {
+            // Deferred line breaks and pending wrap reset the destination column.
+            const dst_x = if (self.new_rows > 0 or self.pending_wrap) 0 else self.x;
+
             const pin_keys = list.tracked_pins.keys();
             for (pin_keys) |p| {
                 if (p.node != row.node or p.y != src_y) continue;
@@ -1664,7 +1702,7 @@ const ReflowCursor = struct {
                 // col width instead.
                 if (p.x >= cols_len) p.x = @min(
                     p.x,
-                    self.page.size.cols - 1 - self.x,
+                    self.page.size.cols - 1 - dst_x,
                 );
 
                 // We increase our col len to at least include this pin.
@@ -2785,7 +2823,10 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) Allocator.Error!void {
                     const rows = page.rows.ptr(page.memory);
                     for (0..page.size.rows) |i| {
                         const row = &rows[i];
-                        page.clearCells(row, cols, self.cols);
+                        // If the cut splits a wide char, clear its head too.
+                        const cells = row.cells.ptr(page.memory);
+                        const start = if (cells[cols - 1].wide == .wide) cols - 1 else cols;
+                        page.clearCells(row, start, self.cols);
                     }
 
                     page.size.cols = cols;
@@ -2855,12 +2896,18 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) Allocator.Error!void {
                 // we want to try to preserve the y value of the old cursor.
                 // In other words, we don't want to "pull down" scrollback.
                 // This is purely a UX feature.
-                if (opts.cursor) |cursor| cursor: {
-                    if (cursor.y >= self.rows - 1) break :cursor;
-
-                    // Cursor is not at the bottom, so we just grow our
-                    // rows and we're done. Cursor does NOT change for this
-                    // since we're not pulling down scrollback.
+                //
+                // If we're not allowed to pull scrollback at all then we
+                // always do this regardless of the cursor.
+                const pull = pull: {
+                    if (!opts.pull_scrollback) break :pull false;
+                    const cursor = opts.cursor orelse break :pull true;
+                    break :pull cursor.y >= self.rows - 1;
+                };
+                if (!pull) {
+                    // We just grow our rows and we're done. Cursor does
+                    // NOT change for this since we're not pulling down
+                    // scrollback.
                     const delta = rows - self.rows;
                     self.rows = rows;
                     for (0..delta) |_| _ = try self.grow();
@@ -4286,7 +4333,7 @@ pub fn increaseCapacity(
         },
     };
 
-    log.info("adjusting page capacity={}", .{cap});
+    log.debug("adjusting page capacity={}", .{cap});
 
     // Create our new page and clone the old page into it.
     const new_node = try self.createPage(.{ .cap = cap });
@@ -4383,15 +4430,41 @@ pub const PageAllocation = struct {
         prepend,
     };
 
+    /// Options for `finalize`.
+    pub const FinalizeOptions = struct {
+        /// Compress the page after it is added, unless it is visible in the
+        /// viewport.
+        ///
+        /// Use this when adding many pages of old history one at a time,
+        /// such as when restoring a snapshot, so that the full history is
+        /// never held uncompressed in memory. Compression is best effort.
+        /// A page that does not compress well, or a platform that does not
+        /// support compression, leaves the page uncompressed without an
+        /// error. Accessing a compressed page later uncompresses it
+        /// automatically.
+        compress: bool = false,
+    };
+
     /// Finalize this complete page and transfer its ownership to the PageList.
-    /// The parameter determines where it goes into the PageList.
+    /// The location determines where it goes into the PageList.
     ///
     /// Existing pages and tracked pins keep their identity. A pinned viewport
     /// keeps showing the same content while its cached absolute row offset
     /// moves down by the number of newly inserted rows.
-    pub fn finalize(self: *PageAllocation, location: Location) FinalizeError!void {
+    ///
+    /// ```zig
+    /// var allocation = try pages.allocatePage(capacity);
+    /// defer allocation.deinit();
+    /// // ... fill in allocation.page() ...
+    /// try allocation.finalize(.prepend, .{ .compress = true });
+    /// ```
+    pub fn finalize(
+        self: *PageAllocation,
+        location: Location,
+        options: FinalizeOptions,
+    ) FinalizeError!void {
         switch (location) {
-            .prepend => return try self.prepend(),
+            .prepend => return try self.prepend(options),
         }
     }
 
@@ -4403,7 +4476,7 @@ pub const PageAllocation = struct {
         MaxLinesExceeded,
     };
 
-    fn prepend(self: *PageAllocation) FinalizeError!void {
+    fn prepend(self: *PageAllocation, options: FinalizeOptions) FinalizeError!void {
         const destination = self.destination;
         const node = self.node.?;
 
@@ -4449,6 +4522,17 @@ pub const PageAllocation = struct {
 
         destination.assertIntegrity();
         self.node = null;
+
+        // A prepended page is above every existing page, so it is never part
+        // of the active area. It is visible only when the viewport is at the
+        // top of the scrollback, which makes it the first visible page. A
+        // failed compression leaves the page uncompressed and is not an error.
+        if (options.compress and
+            terminal_mem.canReclaim(.strict) and
+            destination.getTopLeft(.viewport).node != node)
+        {
+            _ = destination.compressPage(node);
+        }
     }
 };
 
@@ -6841,6 +6925,51 @@ pub fn memoryStats(self: *const PageList) MemoryStats {
     return result;
 }
 
+/// The memory held by a page list. Returned by `memoryUsage`.
+pub const MemoryUsage = struct {
+    /// Number of pages in the list, including compressed pages.
+    pages: usize = 0,
+
+    /// Bytes of address space reserved for page memory. This counts every
+    /// page in the list at its full allocated size, whether it is resident
+    /// or compressed, plus the unused items held by the page pool. Unused
+    /// pool items have had their physical memory released, so they add to
+    /// this figure but never to `resident_bytes`.
+    virtual_bytes: usize = 0,
+
+    /// Bytes of physical memory used by pages. A resident page counts its
+    /// full allocated size. A compressed page counts its encoded data plus
+    /// any unused tail of its pool item, which compression doesn't release.
+    /// This is the same as `MemoryStats.estimatedResidentBytes`.
+    resident_bytes: usize = 0,
+
+    /// Number of pages stored compressed.
+    compressed_pages: usize = 0,
+
+    /// Total size of the encoded data of compressed pages. This is already
+    /// part of `resident_bytes`.
+    compressed_bytes: usize = 0,
+};
+
+/// Return the memory held by this page list, summarized for callers that
+/// budget memory across many terminals. See `memoryStats` for a more
+/// detailed breakdown.
+///
+/// This never restores a compressed page. It does visit every page, so its
+/// cost grows with the scrollback. Call it periodically rather than after
+/// every write.
+pub fn memoryUsage(self: *const PageList) MemoryUsage {
+    const stats = self.memoryStats();
+    return .{
+        .pages = stats.resident_pages + stats.compressed_pages,
+        .virtual_bytes = self.page_size +
+            self.pool.pages.freeCount() * PagePool.item_size,
+        .resident_bytes = stats.estimatedResidentBytes(),
+        .compressed_pages = stats.compressed_pages,
+        .compressed_bytes = stats.encoded_bytes,
+    };
+}
+
 /// Grow the number of rows available in the page list by n.
 /// This is only used for testing so it isn't optimized in any way.
 fn growRows(self: *PageList, n: usize) Allocator.Error!void {
@@ -7799,7 +7928,7 @@ test "PageList PageAllocation finalizes pages and preserves live state" {
         const page = allocation.page();
         page.size.rows = 1;
         page.getRowAndCell(0, 0).cell.* = .init('B');
-        try allocation.finalize(.prepend);
+        try allocation.finalize(.prepend, .{});
     }
     {
         var allocation = try result.allocatePage(.{ .cols = 2, .rows = 2 });
@@ -7807,7 +7936,7 @@ test "PageList PageAllocation finalizes pages and preserves live state" {
         const page = allocation.page();
         page.size.rows = 2;
         page.getRowAndCell(0, 0).cell.* = .init('A');
-        try allocation.finalize(.prepend);
+        try allocation.finalize(.prepend, .{});
     }
 
     // Repeated prepends reconstruct oldest-to-newest order without replacing
@@ -7839,6 +7968,72 @@ test "PageList PageAllocation finalizes pages and preserves live state" {
     try testing.expectEqual(@as(usize, 2), scrollbar_state.len);
 
     result.assertIntegrity();
+}
+
+test "PageList PageAllocation compresses prepended pages unless visible" {
+    const testing = std.testing;
+
+    const Case = struct {
+        /// How to position the viewport before prepending.
+        viewport: enum { active, pin, top },
+
+        /// Whether the prepended page should end up compressed.
+        compressed: bool,
+    };
+    const cases = [_]Case{
+        // The viewport shows the active area, far below the new page.
+        .{ .viewport = .active, .compressed = true },
+
+        // The viewport is pinned to existing history, which is still below
+        // the new page.
+        .{ .viewport = .pin, .compressed = true },
+
+        // The viewport follows the top of the scrollback, so the new page
+        // becomes the first visible page.
+        .{ .viewport = .top, .compressed = false },
+    };
+
+    for (cases) |case| {
+        var s = try init(testing.allocator, .{ .cols = 80, .rows = 24 });
+        defer s.deinit();
+        try s.growColdPagesForTest(1);
+        switch (case.viewport) {
+            .active => {},
+            .pin => s.scroll(.{ .row = 1 }),
+            .top => s.scroll(.{ .top = {} }),
+        }
+        try testing.expectEqual(
+            @as(Viewport, switch (case.viewport) {
+                .active => .active,
+                .pin => .pin,
+                .top => .top,
+            }),
+            s.viewport,
+        );
+
+        // A full-size page so compression is worthwhile.
+        const capacity = s.pages.first.?.capacity();
+        var allocation = try s.allocatePage(capacity);
+        defer allocation.deinit();
+        const page = allocation.page();
+        page.size.rows = capacity.rows;
+        page.getRowAndCell(0, 0).cell.* = .init('X');
+        try allocation.finalize(.prepend, .{ .compress = true });
+
+        const node = s.pages.first.?;
+        try testing.expectEqual(case.compressed, node.isCompressed());
+        try testing.expectEqual(
+            @as(usize, if (case.compressed) 1 else 0),
+            s.memoryStats().compressed_pages,
+        );
+
+        // Reading the page uncompresses it with its contents intact.
+        try testing.expectEqual(
+            @as(u21, 'X'),
+            node.page().getRowAndCell(0, 0).cell.codepoint(),
+        );
+        s.assertIntegrity();
+    }
 }
 
 test "PageList PageAllocation stays detached until finalize" {
@@ -7875,7 +8070,7 @@ test "PageList PageAllocation stays detached until finalize" {
     defer invalid.deinit();
     try testing.expectError(
         error.InvalidPageDimensions,
-        invalid.finalize(.prepend),
+        invalid.finalize(.prepend, .{}),
     );
 
     try testing.expectEqual(initial_first, result.pages.first.?);
@@ -7902,7 +8097,7 @@ test "PageList PageAllocation rejects limits before modifying the destination" {
         var allocation = try result.allocatePage(.{ .cols = 1, .rows = 1 });
         defer allocation.deinit();
         allocation.page().size.rows = 1;
-        try allocation.finalize(.prepend);
+        try allocation.finalize(.prepend, .{});
     }
 
     const before_first = result.pages.first.?;
@@ -7914,7 +8109,7 @@ test "PageList PageAllocation rejects limits before modifying the destination" {
     allocation.page().size.rows = 1;
     try testing.expectError(
         error.MaxSizeExceeded,
-        allocation.finalize(.prepend),
+        allocation.finalize(.prepend, .{}),
     );
 
     try testing.expectEqual(before_first, result.pages.first.?);
@@ -8811,6 +9006,63 @@ test "PageList incremental compression keeps progress after tail growth" {
     const continued = s.compress(.incremental);
     try testing.expectEqual(IncrementalCompressionResult.pending, continued);
     try testing.expect(s.page_compression.flags.verifying);
+}
+
+test "PageList memory usage" {
+    const testing = std.testing;
+
+    var s = try init(testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer s.deinit();
+
+    // A fresh list holds the preheated pool items, one of which backs
+    // the only page.
+    const fresh = s.memoryUsage();
+    try testing.expectEqual(s.totalPages(), fresh.pages);
+    try testing.expectEqual(page_preheat * PagePool.item_size, fresh.virtual_bytes);
+    try testing.expectEqual(s.page_size, fresh.resident_bytes);
+    try testing.expect(fresh.resident_bytes <= fresh.virtual_bytes);
+    try testing.expectEqual(@as(usize, 0), fresh.compressed_pages);
+    try testing.expectEqual(@as(usize, 0), fresh.compressed_bytes);
+
+    try s.growColdPagesForTest(2);
+    const before = s.memoryUsage();
+    try testing.expectEqual(s.totalPages(), before.pages);
+    try testing.expectEqual(
+        s.page_size + s.pool.pages.freeCount() * PagePool.item_size,
+        before.virtual_bytes,
+    );
+    try testing.expect(before.resident_bytes <= before.virtual_bytes);
+
+    // Compression changes residency but not address space.
+    _ = s.compress(.full);
+    const compressed = s.memoryUsage();
+    try testing.expectEqual(before.pages, compressed.pages);
+    try testing.expectEqual(before.virtual_bytes, compressed.virtual_bytes);
+    try testing.expect(compressed.resident_bytes < before.resident_bytes);
+    try testing.expectEqual(@as(usize, 2), compressed.compressed_pages);
+    try testing.expect(compressed.compressed_bytes > 0);
+    try testing.expectEqual(
+        s.memoryStats().estimatedResidentBytes(),
+        compressed.resident_bytes,
+    );
+
+    // The query itself never restores a page.
+    try testing.expectEqual(compressed, s.memoryUsage());
+
+    // Reading a page restores it.
+    _ = s.pages.first.?.page();
+    const restored = s.memoryUsage();
+    try testing.expectEqual(@as(usize, 1), restored.compressed_pages);
+    try testing.expect(restored.resident_bytes > compressed.resident_bytes);
+    try testing.expectEqual(before.virtual_bytes, restored.virtual_bytes);
+
+    // Destroyed pages go back to the pool: the address space is kept but
+    // the memory is no longer resident.
+    s.eraseRows(.{ .history = .{} }, null);
+    const erased = s.memoryUsage();
+    try testing.expect(erased.pages < restored.pages);
+    try testing.expectEqual(before.virtual_bytes, erased.virtual_bytes);
+    try testing.expect(erased.resident_bytes < restored.resident_bytes);
 }
 
 test "PageList memory stats do not restore compressed pages" {
@@ -17877,6 +18129,58 @@ test "PageList resize reflow less cols cursor in final blank cell" {
     } }, s.pointFromPin(.active, p.*).?);
 }
 
+test "PageList resize reflow pin in blank cells after line break" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const cases = [_]struct {
+        first: []const u8,
+        wrap: bool,
+        pin_x: size.CellCountInt,
+        cols: size.CellCountInt,
+        expected: point.Coordinate,
+    }{
+        // A hard line break starts the pin row at column zero.
+        .{ .first = "abc", .wrap = false, .pin_x = 5, .cols = 8, .expected = .{ .x = 5, .y = 1 } },
+        // A soft continuation uses the remaining destination columns.
+        .{ .first = "abcdef", .wrap = true, .pin_x = 3, .cols = 8, .expected = .{ .x = 7, .y = 0 } },
+        // Pending wrap starts the continuation at column zero.
+        .{ .first = "abcdef", .wrap = true, .pin_x = 2, .cols = 3, .expected = .{ .x = 2, .y = 2 } },
+    };
+
+    for (cases) |case| {
+        var s = try init(alloc, .{ .cols = 6, .rows = 4 });
+        defer s.deinit();
+        const page = s.pages.first.?.page();
+        page.getRow(0).wrap = case.wrap;
+        for (case.first, 0..) |cp, x| {
+            page.getRowAndCell(x, 0).cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = .{ .data = cp } },
+            };
+        }
+        const rac = page.getRowAndCell(0, 1);
+        rac.row.wrap_continuation = case.wrap;
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = .{ .data = 'g' } },
+        };
+
+        const p = try s.trackPin(s.pin(.{ .active = .{
+            .x = case.pin_x,
+            .y = 1,
+        } }).?);
+        defer s.untrackPin(p);
+
+        try s.resize(.{ .cols = case.cols, .reflow = true });
+        try testing.expectEqual(
+            point.Point{ .active = case.expected },
+            s.pointFromPin(.active, p.*).?,
+        );
+        try testing.expect(p.rowAndCell().cell.isEmpty());
+    }
+}
+
 test "PageList resize reflow less cols cursor in wrapped blank cell" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -18101,6 +18405,48 @@ test "PageList resize reflow less cols cursor not on last line preserves locatio
     try testing.expectEqual(@as(usize, 10), s.totalRows());
 
     // Our cursor should move to the first row
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 0,
+        .y = 0,
+    } }, s.pointFromPin(.active, p.*).?);
+}
+
+test "PageList resize reflow less cols no scrollback pull blank active" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 5, .max_size = 1 });
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = s.pages.first.?.page();
+    for (0..s.rows) |y| {
+        for (0..2) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = .{ .data = @intCast(x) } },
+            };
+        }
+    }
+
+    // Grow blank rows to push our rows back into scrollback
+    try s.growRows(5);
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 0, .y = 0 } }).?);
+    defer s.untrackPin(p);
+
+    // Resize with no cursor. Normally the trailing blank rows would be
+    // trimmed and the active area would slide up over our history.
+    try s.resize(.{
+        .cols = 4,
+        .reflow = true,
+        .pull_scrollback = false,
+    });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    // The top of the active area should not move
     try testing.expectEqual(point.Point{ .active = .{
         .x = 0,
         .y = 0,

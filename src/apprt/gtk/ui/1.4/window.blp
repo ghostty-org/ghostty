@@ -25,6 +25,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
     notify::open => $overview_notify_open();
     view: tab_view;
     enable-new-tab: true;
+    inverted: bind template.tabs-inverted;
     // Disable the title buttons (close, maximize, minimize, ...)
     // *inside* the tab overview if CSDs are disabled.
     // We do spare the search button, though.
@@ -88,6 +89,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
       Adw.TabBar tab_bar {
         autohide: bind template.tabs-autohide;
         expand-tabs: bind template.tabs-wide;
+        inverted: bind template.tabs-inverted;
         view: tab_view;
         visible: bind template.tabs-visible;
 

@@ -91,6 +91,8 @@ class TerminalData(IntEnum):
     VT_GROUND = 38  #: bool
     CURSOR_AT_PROMPT = 39  #: bool
     CLIPBOARD_WRITE_MAX_BYTES = 40  #: int
+    MOUSE_SHAPE = 41  #: GhosttyMouseShape
+    MEMORY_USAGE = 42  #: GhosttyTerminalMemoryUsage
 
 
 class TerminalOption(IntEnum):
@@ -141,6 +143,14 @@ class TerminalOption(IntEnum):
     TERMINFO_NAME = 37  #: str
     CLIPBOARD_READ = 38  #: callback, not exposed
     CLIPBOARD_WRITE_MAX_BYTES = 39  #: int
+    RESIZE_PULL_SCROLLBACK = 40  #: bool
+    RENDER_HOLD = 41  #: callback, not exposed
+    SEMANTIC_PROMPT = 42  #: callback, not exposed
+    RESET = 43  #: callback, not exposed
+    XT_CHECKSUM_REPORT = 44  #: bool
+    XT_CHECKSUM_EXTENSION = 45  #: int
+    PROGRAM_STATUS = 46  #: callback, not exposed
+    RESIZE_WINDOW = 47  #: callback, not exposed
 
 
 class Screen(IntEnum):

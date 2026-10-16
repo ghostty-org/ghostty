@@ -17,6 +17,7 @@ const Application = @import("application.zig").Application;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const Surface = @import("surface.zig").Surface;
 const SurfaceScrolledWindow = @import("surface_scrolled_window.zig").SurfaceScrolledWindow;
+const Overrides = @import("Overrides.zig");
 
 const log = std.log.scoped(.gtk_ghostty_split_tree);
 
@@ -212,14 +213,7 @@ pub const SplitTree = extern struct {
         self: *Self,
         direction: Surface.Tree.Split.Direction,
         parent_: ?*Surface,
-        overrides: struct {
-            command: ?configpkg.Command = null,
-            shell_integration: ?configpkg.Config.ShellIntegration = null,
-            working_directory: ?[:0]const u8 = null,
-            title: ?[:0]const u8 = null,
-
-            pub const none: @This() = .{};
-        },
+        overrides: Overrides,
     ) Allocator.Error!void {
         const alloc = Application.default().allocator();
 
@@ -1111,7 +1105,7 @@ pub const SplitTree = extern struct {
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
                     .major = 1,
-                    .minor = 5,
+                    .minor = 0,
                     .name = "split-tree",
                 }),
             );
@@ -1492,7 +1486,7 @@ const SplitTreeSplit = extern struct {
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
                     .major = 1,
-                    .minor = 5,
+                    .minor = 0,
                     .name = "split-tree-split",
                 }),
             );

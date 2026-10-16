@@ -1,8 +1,7 @@
 using Gtk 4.0;
-// This is unused but if we remove it we get a blueprint-compiler error.
 using Adw 1;
 
-template $GhosttyClipboardConfirmationDialog: $GhosttyDialog {
+template $GhosttyClipboardConfirmationDialog: Adw.AlertDialog {
   styles [
     "clipboard-confirmation-dialog",
   ]

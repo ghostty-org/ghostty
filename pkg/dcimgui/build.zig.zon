@@ -22,5 +22,6 @@
 
         .apple_sdk = .{ .path = "../apple-sdk" },
         .freetype = .{ .path = "../freetype" },
+        .translate_c = .{ .path = "../translate-c" },
     },
 }

@@ -563,6 +563,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         if notification.object == nil {
             // Update our derived config
             self.derivedConfig = DerivedConfig(config)
+            syncRestoration(config)
 
             // If we have no surfaces in our window (is that possible?) then we update
             // our window appearance based on the root config. If we have surfaces, we
@@ -576,6 +577,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         /// Surface-level config will be updated in
         /// ``Ghostty/Ghostty/SurfaceView/derivedConfig`` then
         /// ``TerminalController/focusedSurfaceDidChange(to:)``
+    }
+
+    /// Updates the loaded window's restoration policy from the app configuration.
+    private func syncRestoration(_ config: Ghostty.Config) {
+        guard isWindowLoaded, let window else { return }
+        // Setting all three of these is required for restoration to work.
+        window.isRestorable = restorable && config.windowSaveState != "never"
+        window.restorationClass = TerminalWindowRestoration.self
+        window.identifier = .init(String(describing: TerminalWindowRestoration.self))
     }
 
     /// Update the accessory view of each tab according to the keyboard
@@ -1092,12 +1102,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // use whatever the latest app-level config is.
         let config = ghostty.config
 
-        // Setting all three of these is required for restoration to work.
-        window.isRestorable = restorable
-        if restorable {
-            window.restorationClass = TerminalWindowRestoration.self
-            window.identifier = .init(String(describing: TerminalWindowRestoration.self))
-        }
+        syncRestoration(config)
 
         // If we have only a single surface (no splits) and there is a default size then
         // we should resize to that default size.
@@ -1400,6 +1405,35 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     @IBAction func returnToDefaultSize(_ sender: Any?) {
         guard let window, let defaultSize else { return }
         defaultSize.apply(to: window)
+    }
+
+    /// Resize the window so that the given surface is the given size, keeping
+    /// any zero dimension as is. This is only done if the surface is the only
+    /// terminal in the window, since otherwise it would resize other terminals
+    /// (including other tabs, which share the window frame).
+    func resizeWindow(_ surfaceView: Ghostty.SurfaceView, to size: NSSize) -> Bool {
+        guard let window,
+              let screen = window.screen ?? NSScreen.main,
+              case .leaf(let view) = surfaceTree.root, view == surfaceView,
+              !surfaceView.inspectorVisible,
+              (window.tabGroup?.windows.count ?? 1) == 1,
+              !(fullscreenStyle?.isFullscreen ?? false) else { return false }
+
+        // Resize the window by the change in surface size so the titlebar and
+        // any other views are accounted for.
+        let dw = size.width > 0 ? size.width - surfaceView.frame.width : 0
+        let dh = size.height > 0 ? size.height - surfaceView.frame.height : 0
+
+        // Clamp to the screen first so the terminal is only resized once, and
+        // keep the top-left corner in place (the origin is the bottom-left).
+        let visible = screen.visibleFrame
+        var frame = window.frame
+        frame.size.width = min(frame.width + dw, visible.width)
+        frame.size.height = min(frame.height + dh, visible.height)
+        frame.origin.y = window.frame.maxY - frame.height
+        window.setFrame(frame, display: true)
+        window.constrainToScreen()
+        return true
     }
 
     @IBAction override func closeWindow(_ sender: Any?) {

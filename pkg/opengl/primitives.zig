@@ -1,4 +1,4 @@
-const c = @import("c");
+const c = @import("opengl_c");
 
 pub const Primitive = enum(c_int) {
     point = c.GL_POINTS,

@@ -58,7 +58,7 @@ fn runInner(
 
     // If a config path is passed, validate it, otherwise validate default configs
     if (opts.@"config-file") |config_path| {
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const abs_path = buf[0..try std.Io.Dir.cwd().realPathFile(
             global.io(),
             config_path,

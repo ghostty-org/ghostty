@@ -1,4 +1,5 @@
 const std = @import("std");
+const translate_c = @import("translate_c");
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -11,53 +12,43 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    // For dynamic linking, we prefer dynamic linking and to search by
-    // mode first. Mode first will search all paths for a dynamic library
-    // before falling back to static.
-    const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
-        .preferred_link_mode = .dynamic,
-        .search_strategy = .mode_first,
-    };
-
     var test_exe: ?*std.Build.Step.Compile = null;
     if (target.query.isNative()) {
         test_exe = b.addTest(.{
             .name = "test",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("main.zig"),
-                .target = target,
-                .optimize = optimize,
-            }),
+            .root_module = module,
         });
         const tests_run = b.addRunArtifact(test_exe.?);
         const test_step = b.step("test", "Run tests");
         test_step.dependOn(&tests_run.step);
     }
 
-    module.addIncludePath(b.path(""));
-
-    if (b.systemIntegrationOption("freetype", .{})) {
-        module.linkSystemLibrary("freetype2", dynamic_link_opts);
-        if (test_exe) |exe| {
-            exe.root_module.linkSystemLibrary("freetype2", dynamic_link_opts);
-        }
-    } else {
-        const lib = try buildLib(b, module, .{
+    const lib: union(enum) {
+        system,
+        static: *std.Build.Step.Compile,
+    } = if (b.systemIntegrationOption("freetype", .{}))
+        .system
+    else
+        .{ .static = try buildLib(b, .{
             .target = target,
             .optimize = optimize,
-
             .libpng_enabled = libpng_enabled,
+        }) };
 
-            .dynamic_link_opts = dynamic_link_opts,
-        });
-
-        if (test_exe) |exe| {
-            exe.root_module.linkLibrary(lib);
-        }
-    }
+    try translate_c.addImportToModule(b, "freetype_c", module, .{
+        .source = .{ .includes = .{
+            .files = &.{.{ .path = "freetype-zig.h" }},
+        } },
+        .target = target,
+        .optimize = optimize,
+        .link_system_libs = if (lib == .system) &.{"freetype2"} else &.{},
+        .link_libs = if (lib == .static) &.{lib.static} else &.{},
+        .include_paths = &.{b.path("")},
+        .default_init = true,
+    });
 }
 
-fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Build.Step.Compile {
+fn buildLib(b: *std.Build, options: anytype) !*std.Build.Step.Compile {
     const target = options.target;
     const optimize = options.optimize;
 
@@ -97,7 +88,13 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         try flags.append(b.allocator, "-fPIC");
     }
 
-    const dynamic_link_opts = options.dynamic_link_opts;
+    // For dynamic linking, we prefer dynamic linking and to search by
+    // mode first. Mode first will search all paths for a dynamic library
+    // before falling back to static.
+    const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
+        .preferred_link_mode = .dynamic,
+        .search_strategy = .mode_first,
+    };
 
     // Zlib
     if (b.systemIntegrationOption("zlib", .{})) {
@@ -125,7 +122,6 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
 
     if (b.lazyDependency("freetype", .{})) |upstream| {
         lib.root_module.addIncludePath(upstream.path("include"));
-        module.addIncludePath(upstream.path("include"));
         lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .files = srcs,

@@ -58,6 +58,20 @@ extension Ghostty {
             }
         }
 
+        /// Paste text into the terminal as if it came from the clipboard. Unlike `sendText`, this
+        /// honors paste protection, so unsafe text (e.g. containing newlines) prompts for
+        /// confirmation first. Use this for text from external sources such as drag and drop.
+        @MainActor
+        func pasteText(_ text: String) {
+            let len = text.utf8CString.count
+            if len <= 1 { return }
+
+            text.withCString { ptr in
+                // len includes the null terminator so we do len - 1
+                ghostty_surface_paste_text(surface, ptr, UInt(len - 1))
+            }
+        }
+
         /// Returns the modifiers that participate in text translation for key
         /// events on this surface. This honors configuration such as
         /// `macos-option-as-alt`, which may exclude option from translation.

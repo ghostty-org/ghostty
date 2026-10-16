@@ -1,8 +1,7 @@
 using Gtk 4.0;
-// This is unused but if we remove it we get a blueprint-compiler error.
 using Adw 1;
 
-template $GhosttyCloseConfirmationDialog: $GhosttyDialog {
+template $GhosttyCloseConfirmationDialog: Adw.AlertDialog {
   responses [
     cancel: _("Cancel"),
     close: _("Close") destructive,
