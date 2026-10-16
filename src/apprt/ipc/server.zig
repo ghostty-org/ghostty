@@ -796,18 +796,37 @@ test "socket: an oversized frame is rejected and the connection closes" {
     );
 
     // The server closed its side. macOS surfaces a clean FIN as a null
-    // (EOF) frame; Linux sends a TCP RST instead when the server process
-    // closes a socket with pending unread data in the receive buffer, which
-    // surfaces here as `error.ConnectionResetByPeer`. Both are documented
-    // terminal rejection of the oversized frame; neither swallows a real
-    // protocol error. Any other error (UnexpectedEof, BrokenPipe, etc.) or
-    // a non-null frame still fails the test, so normal-close and valid-frame
-    // exchange regressions stay covered.
+    // (EOF) frame. Linux sends a TCP RST instead when the server process
+    // closes a socket with pending unread data in the receive buffer. The
+    // RST can surface here as either `error.ConnectionResetByPeer` (when
+    // the underlying net error reaches the API directly) or as a wrapped
+    // `error.ReadFailed` (when std.Io.net.readVec flattens the underlying
+    // error into a generic ReadFailed at std/Io/net.zig:1307). In both
+    // cases the *wrapped cause* is `error.ConnectionResetByPeer`, exposed
+    // by `std.Io.net.Stream.Reader.err` (zig 0.16).
+    //
+    // We accept:
+    //   1. a null (EOF) frame -- macOS clean FIN,
+    //   2. `error.ConnectionResetByPeer` -- Linux direct RST,
+    //   3. `error.ReadFailed` only when `client.reader.err` is
+    //      `error.ConnectionResetByPeer` -- Linux wrapped RST.
+    //
+    // Anything else (UnexpectedEof, BrokenPipe, a non-null frame, a
+    // ReadFailed whose wrapped cause is anything other than reset) fails
+    // the test, so normal-close and valid-frame exchange regressions stay
+    // covered.
     const frame = client.readFrame();
     if (frame) |maybe_frame| {
         try testing.expectEqual(@as(?[]const u8, null), maybe_frame);
-    } else |err| {
-        try testing.expectEqual(error.ConnectionResetByPeer, err);
+    } else |err| switch (err) {
+        error.ConnectionResetByPeer => {},
+        error.ReadFailed => {
+            // ReadFailed only accepted if the wrapped cause is the
+            // documented terminal reset.
+            const underlying = client.reader.err orelse return error.ReadFailed;
+            try testing.expectEqual(error.ConnectionResetByPeer, underlying);
+        },
+        else => |other| return other,
     }
 }
 
