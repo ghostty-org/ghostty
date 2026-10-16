@@ -73,23 +73,29 @@
       revision = self.shortRev or self.dirtyShortRev or "dirty";
     };
   in {
-    devShells = forAllPlatforms (pkgs: {
-      default =
-        pkgs.callPackage ./nix/devShell.nix
-        {
-          zig = zig.packages.${pkgs.stdenv.hostPlatform.system}."0.16.0";
-          wraptest = pkgs.callPackage ./nix/pkgs/wraptest.nix {};
-          zon2nix = zon2nix;
+    devShells = forAllPlatforms (pkgs: let
+      devShellArgs = {
+        zig = zig.packages.${pkgs.stdenv.hostPlatform.system}."0.16.0";
+        wraptest = pkgs.callPackage ./nix/pkgs/wraptest.nix {};
+        zon2nix = zon2nix;
 
-          python3 = pkgs.python3.override {
-            self = pkgs.python3;
-            packageOverrides = pyfinal: pyprev: {
-              blessed = pyfinal.callPackage ./nix/pkgs/blessed.nix {};
-              ucs-detect = pyfinal.callPackage ./nix/pkgs/ucs-detect.nix {};
-              wcwidth = pyfinal.callPackage ./nix/pkgs/wcwidth.nix {};
-            };
+        python3 = pkgs.python3.override {
+          self = pkgs.python3;
+          packageOverrides = pyfinal: pyprev: {
+            blessed = pyfinal.callPackage ./nix/pkgs/blessed.nix {};
+            ucs-detect = pyfinal.callPackage ./nix/pkgs/ucs-detect.nix {};
+            wcwidth = pyfinal.callPackage ./nix/pkgs/wcwidth.nix {};
           };
         };
+      };
+    in {
+      default = pkgs.callPackage ./nix/devShell.nix devShellArgs;
+
+      ci = pkgs.callPackage ./nix/devShell.nix (devShellArgs // {ci = true;});
+
+      lint = pkgs.callPackage ./nix/lintShell.nix {
+        zig = zig.packages.${pkgs.stdenv.hostPlatform.system}."0.16.0";
+      };
     });
 
     packages =

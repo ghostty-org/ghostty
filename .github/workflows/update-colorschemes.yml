@@ -26,6 +26,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       - name: Setup Nix
