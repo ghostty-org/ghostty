@@ -92,6 +92,15 @@ jobs:
             echo "has_python=true" >> $GITHUB_OUTPUT
           fi
 
+          # Python TEST suite, tracked separately from has_python. The Python
+          # job above only runs ruff (lint + format); it never executed a
+          # single test. khostty-python/tests/ holds 162 tests that no workflow
+          # ever collected, so a regression in the bindings shipped silently
+          # to PyPI. Linting green is not testing green.
+          if find . -maxdepth 3 -type d -name tests -not -path '*/node_modules/*' 2>/dev/null | head -1 | grep -q .; then
+            echo "has_python_tests=true" >> $GITHUB_OUTPUT
+          fi
+
           # Go: a go.mod anywhere in the tree (khostty-go/go.mod).
           if find . -name go.mod -not -path '*/node_modules/*' -type f 2>/dev/null | head -1 | grep -q .; then
             echo "has_go=true" >> $GITHUB_OUTPUT
@@ -165,6 +174,62 @@ jobs:
         run: ruff check . 2>&1 || echo "::warning::ruff issues (advisory)"
       - name: ruff format --check
         run: ruff format --check . 2>&1 || echo "::warning::format issues (advisory)"
+
+  pytest:
+    name: Python Tests
+    needs: detect
+    # 2026-10-15: this previously read `has_python_tests`, which the detect
+    # job never exported. The job's `if:` then evaluated to a missing/empty
+    # value, GitHub treated that as a skip, and the pytest job silently
+    # reported "skipped" on every push (real run 38824904579 on the final
+    # SHA de6971085 is the smoking gun: conclusion "success", but the
+    # "Python Tests" job is "skipped"). The detect step sets `has_python`,
+    # not `has_python_tests`; this guard now references the actual output.
+    if: needs.detect.outputs.has_python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The bindings open the library with dlopen. khostty_vt/_ffi.py searches
+      # `../../zig-out/lib` and `../zig-out/lib` for libghostty-vt.{dylib,so},
+      # so the native library has to exist before anything can be collected.
+      # Without it every test errors at import time instead of reporting a
+      # real failure.
+      - uses: ./.github/actions/install-zig
+        with:
+          version: "0.16.0"
+          # install-zig refuses to proceed without a 64-char lowercase hex
+          # SHA-256 (action.yml enforces `^[0-9a-f]{64}$`). The shasum is the
+          # ziglang.org-published value for zig-x86_64-linux-0.16.0.tar.xz
+          # (from https://ziglang.org/download/index.json key
+          # 0.16.0.x86_64-linux.shasum, captured 2026-10-15).
+          shasum: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+      - name: Build libghostty-vt
+        run: zig build -Dapp-runtime=none
+
+      # cffi, pytest, and setuptools are all hash-pinned in requirements-ci.txt
+      # (covers Sonar S8541/S8544). The first command installs the test
+      # dependencies the project declares in `optional-dependencies.test` plus
+      # the cffi runtime dep declared in `dependencies`, every line with
+      # `--require-hashes --only-binary :all:` for reproducibility. The second
+      # command installs the local package in editable mode; pip uses default
+      # build isolation (setuptools is in requirements-ci.txt) and resolves
+      # cffi from the already-installed copy. No `--no-deps` (cffi would be
+      # missing on a clean machine) and no `--no-build-isolation` flag — the
+      # prior combination was fragile and contradicted the "use the declared
+      # project test extra" directive.
+      - name: Install package and test dependencies
+        run: |
+          pip install --require-hashes --only-binary :all: -r khostty-python/requirements-ci.txt
+          pip install -e khostty-python
+
+      - name: pytest
+        working-directory: khostty-python
+        run: python -m pytest tests/ -q
 
   go:
     name: Go
@@ -262,6 +327,7 @@ jobs:
         typescript,
         security,
         dep-review,
+        pytest,
       ]
     runs-on: ubuntu-latest
     steps:
@@ -277,6 +343,7 @@ jobs:
             "typescript:${{ needs.typescript.result }}" \
             "security:${{ needs.security.result }}" \
             "dep-review:${{ needs.dep-review.result }}" \
+            "pytest:${{ needs.pytest.result }}" \
             ; do
             name="${pair%%:*}"
             result="${pair#*:}"
@@ -287,6 +354,7 @@ jobs:
               echo "  ✓ $name: $result"
             else
               echo "  ? $name: $result"
+              failed=$((failed + 1))
             fi
           done
           if [ "$failed" -gt 0 ]; then
@@ -300,10 +368,35 @@ jobs:
   test:
     name: ci / test
     if: always()
-    needs: [lint]
+    needs: [lint, pytest]
     runs-on: ubuntu-latest
     steps:
-      - name: Test gate
+      - name: Aggregate test gate
         run: |
-          # Test gate is currently combined with lint
-          echo "✅ All test stages passed (gated via ci / lint)"
+          # Real test gate: a pytest regression must propagate here. The prior
+          # body was an empty stub that echoed a fixed success string; it
+          # asserted nothing and silently masked every failure.
+          failed=0
+          for pair in \
+            "lint:${{ needs.lint.result }}" \
+            "pytest:${{ needs.pytest.result }}" \
+            ; do
+            name="${pair%%:*}"
+            result="${pair#*:}"
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "  ✗ $name: $result"
+              failed=$((failed + 1))
+            elif [ "$result" = "success" ] || [ "$result" = "skipped" ]; then
+              echo "  ✓ $name: $result"
+            else
+              echo "  ? $name: $result"
+              failed=$((failed + 1))
+            fi
+          done
+          if [ "$failed" -gt 0 ]; then
+            echo ""
+            echo "❌ $failed test gate(s) failed"
+            exit 1
+          fi
+          echo ""
+          echo "✅ All test gates passed"

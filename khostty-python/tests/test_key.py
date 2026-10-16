@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 import khostty_vt
@@ -20,6 +22,8 @@ from khostty_vt import (
     encode_key,
 )
 from khostty_vt._verify import ENUM_TYPES
+
+IS_MACOS = sys.platform == "darwin"
 
 
 def test_generated_keys_match_the_manifest(library: str) -> None:
@@ -121,21 +125,93 @@ def test_setting_new_text_replaces_the_buffer(library: str) -> None:
 
 
 def test_alt_prefix_needs_both_settings(library: str) -> None:
-    """An Alt prefix requires the DEC 1036 mode and option-as-alt together."""
+    """Cross-platform truth table for the Alt ESC prefix.
+
+    Mirrors ``legacyAltPrefix`` in ``src/input/key_encode.zig`` (the only place
+    that emits the ``ESC`` byte before a typed character):
+
+    * ``binding_mods.alt`` must be set on the event (the only way to reach
+      this branch).
+    * ``opts.alt_esc_prefix`` must be ``true``; otherwise the prefix is
+      disabled on every platform.
+    * On macOS, ``opts.macos_option_as_alt`` must permit the side that was
+      pressed (``TRUE`` for either, ``LEFT`` for left alt, ``RIGHT`` for
+      right alt); ``FALSE`` skips the prefix because the OS does the
+      Option-to-Unicode translation itself.
+    * On non-macOS the platform-specific option is ignored — ``alt_esc_prefix``
+      alone is sufficient, which is why the same encoder can drive both
+      macOS and Linux bindings.
+
+    A previous revision of this test encoded only the macOS contract and
+    failed on the Linux CI runner. The platform-aware split below keeps
+    the macOS regression coverage while restoring green on Linux.
+    """
+    # Negative control: alt held but alt_esc_prefix disabled → no prefix.
     assert encode_key(Keys.A, Mods.ALT, utf8="a", library=library) == b"a"
 
-    assert encode_key(Keys.A, Mods.ALT, utf8="a", alt_esc_prefix=True, library=library) == b"a"
+    # Negative control: alt_esc_prefix enabled but Mods.ALT unset → no prefix.
     assert (
         encode_key(
             Keys.A,
-            Mods.ALT,
+            Mods.NONE,
             utf8="a",
             alt_esc_prefix=True,
             option_as_alt=OptionAsAlt.TRUE,
             library=library,
         )
-        == b"\x1ba"
+        == b"a"
     )
+
+    if IS_MACOS:
+        # macOS: option_as_alt=FALSE disables the prefix even with the mode on.
+        assert (
+            encode_key(
+                Keys.A,
+                Mods.ALT,
+                utf8="a",
+                alt_esc_prefix=True,
+                option_as_alt=OptionAsAlt.FALSE,
+                library=library,
+            )
+            == b"a"
+        )
+        # macOS: option_as_alt=TRUE emits the prefix.
+        assert (
+            encode_key(
+                Keys.A,
+                Mods.ALT,
+                utf8="a",
+                alt_esc_prefix=True,
+                option_as_alt=OptionAsAlt.TRUE,
+                library=library,
+            )
+            == b"\x1ba"
+        )
+    else:
+        # Non-macOS: alt_esc_prefix alone is sufficient; option_as_alt is ignored.
+        assert (
+            encode_key(
+                Keys.A,
+                Mods.ALT,
+                utf8="a",
+                alt_esc_prefix=True,
+                library=library,
+            )
+            == b"\x1ba"
+        )
+        # Non-macOS still emits the prefix when option_as_alt is set, because
+        # the underlying encoder does not consult the option on this platform.
+        assert (
+            encode_key(
+                Keys.A,
+                Mods.ALT,
+                utf8="a",
+                alt_esc_prefix=True,
+                option_as_alt=OptionAsAlt.TRUE,
+                library=library,
+            )
+            == b"\x1ba"
+        )
 
 
 def test_kitty_encoding_needs_the_codepoint(library: str) -> None:
