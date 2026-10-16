@@ -289,11 +289,9 @@ pub const Request = union(enum) {
             // we'll have stack space. We don't use much stack space in
             // the future function calls either, so try a stack allocator
             // here and fallback to heap as necessary.
-            var data_stack = std.heap.stackFallback(
-                max_payload_size,
-                alloc,
-            );
-            const data_alloc = data_stack.get();
+            var data_stack_buf: [max_payload_size]u8 = undefined;
+            var data_stack: std.heap.BufferFirstAllocator = .init(&data_stack_buf, alloc);
+            const data_alloc = data_stack.allocator();
             const data = try data_alloc.alloc(u8, size);
             defer data_alloc.free(data);
 

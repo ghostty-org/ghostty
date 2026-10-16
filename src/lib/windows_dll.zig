@@ -68,7 +68,7 @@ pub fn DllMain(
 }
 
 fn runGlobalConstructors() void {
-    if (comptime builtin.abi != .msvc) {
+    if (comptime builtin.target.abi != .msvc) {
         // We walk `__CTOR_LIST__` ourselves rather than calling `__main`,
         // which is what an executable would use. `__main` also performs
         // atexit and exception-handling registration that is not safe from

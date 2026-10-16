@@ -68,7 +68,7 @@ pub fn get(
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowData, @intFromEnum(data)) orelse {
+        _ = std.enums.fromInt(RowData, @backingInt(data)) orelse {
             return .invalid_value;
         };
     }
@@ -117,7 +117,7 @@ fn getTyped(
         .grapheme => out.* = row.grapheme,
         .styled => out.* = row.styled,
         .hyperlink => out.* = row.hyperlink,
-        .semantic_prompt => out.* = @enumFromInt(@intFromEnum(row.semantic_prompt)),
+        .semantic_prompt => out.* = @fromBackingInt(@backingInt(row.semantic_prompt)),
         .kitty_virtual_placeholder => out.* = row.kitty_virtual_placeholder,
         .dirty => out.* = row.dirty,
     }

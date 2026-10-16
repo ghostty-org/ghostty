@@ -1,0 +1,12 @@
+prefix=%PREFIX%
+includedir=${{prefix}}/include
+libdir=${{prefix}}/lib
+
+Name: libghostty-vt
+URL: https://github.com/ghostty-org/ghostty
+Description: Ghostty VT library
+Version: {f}
+Cflags: -I${{includedir}}
+Libs: -L${{libdir}} -lghostty-vt
+Libs.private: {s}
+Requires.private: {s}

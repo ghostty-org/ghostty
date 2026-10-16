@@ -31,7 +31,7 @@ const log = std.log.scoped(.page);
 /// require page-aligned, zeroed memory obtained directly from the OS
 /// (not the Zig allocator) because the allocation fast-path is
 /// performance-critical and the OS guarantees zeroed pages.
-const PageAlloc = switch (builtin.os.tag) {
+const PageAlloc = switch (builtin.target.os.tag) {
     .windows => AllocWindows,
     else => AllocPosix,
 };
@@ -370,8 +370,8 @@ pub const Page = struct {
     /// runtime safety is enabled. This is a no-op when runtime safety is
     /// disabled or the target is freestanding. This uses the libc allocator.
     pub inline fn assertIntegrity(self: *const Page) void {
-        if (comptime build_options.slow_runtime_safety and builtin.os.tag != .freestanding) {
-            var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+        if (comptime build_options.slow_runtime_safety and builtin.target.os.tag != .freestanding) {
+            var debug_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
             defer _ = debug_allocator.deinit();
             const alloc = debug_allocator.allocator();
             self.verifyIntegrity(alloc) catch |err| {
@@ -724,12 +724,12 @@ pub const Page = struct {
         // Track unique IDs using a bitset. Both style IDs and hyperlink IDs
         // are CellCountInt (u16), so we reuse this set for both to save
         // stack memory (~8KB instead of ~16KB).
-        const CellCountSet = std.StaticBitSet(std.math.maxInt(size.CellCountInt) + 1);
+        const CellCountSet = std.bit_set.Static(std.math.maxInt(size.CellCountInt) + 1);
         comptime assert(size.StyleCountInt == size.CellCountInt);
         comptime assert(size.HyperlinkCountInt == size.CellCountInt);
 
         // Accumulators
-        var id_set: CellCountSet = .initEmpty();
+        var id_set: CellCountSet = .empty;
         var grapheme_bytes: usize = 0;
         var string_bytes: usize = 0;
 
@@ -754,7 +754,7 @@ pub const Page = struct {
         // Second pass: count hyperlinks and string bytes
         // We count both unique hyperlinks (for hyperlink_set) and total
         // hyperlink cells (for hyperlink_map capacity).
-        id_set = .initEmpty();
+        id_set = .empty;
         var hyperlink_cells: usize = 0;
         for (rows) |*row| {
             const cells = row.cells.ptr(self.memory)[0..self.size.cols];
@@ -2416,7 +2416,7 @@ fn fieldMask(
         }
 
         // The type that fits all the bits we need to set.
-        const Ones = std.meta.Int(.unsigned, @bitSizeOf(Field));
+        const Ones = @Int(.unsigned, @bitSizeOf(Field));
 
         // Mask out the ones
         mask |= @as(Int, std.math.maxInt(Ones)) << offset;
@@ -2581,7 +2581,7 @@ pub fn Mask(
                 return group_len;
             }
 
-            const ok_bits: std.meta.Int(
+            const ok_bits: @Int(
                 .unsigned,
                 group_len,
             ) = @bitCast(ok);
@@ -2765,8 +2765,8 @@ test "Page.layout can take a maxed capacity" {
     // overflow. This simplifies some of our handling downstream of the
     // call (relevant to: https://github.com/ghostty-org/ghostty/issues/10258)
     var cap: Capacity = undefined;
-    inline for (@typeInfo(Capacity).@"struct".fields) |field| {
-        @field(cap, field.name) = std.math.maxInt(field.type);
+    inline for (@typeInfo(Capacity).@"struct".field_names, @typeInfo(Capacity).@"struct".field_types) |field, field_type| {
+        @field(cap, field) = std.math.maxInt(field_type);
     }
 
     // Note that a max capacity will exceed our max_page_size so we

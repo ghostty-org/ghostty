@@ -5,7 +5,9 @@
   fetchurl,
   fetchzip,
   runCommandLocal,
-  zig_0_16,
+  # nixpkgs has no Zig 0.17 yet, so until it does this has to be passed in:
+  # `zig_0_17 = zig-overlay.packages.${system}."0.17.0"`, for instance.
+  zig_0_17,
   zstd,
   name ? "zig-packages",
   # Accepted and ignored. Expressions from zon2nix before 0.8 built the
@@ -37,10 +39,11 @@
 
   # Every package, by the hash Zig knows it by, as Nix fetches it.
   packages = {
-    "aro-0.0.0-JSD1Qk6lNgDdcDV4Vh7Sfy-34m2TluIVOdPzMmj_0BjX" = fetchzip {
+    "aro-0.0.0-JSD1QtuBNwCASyBtNF3pqTl_W3oAJQGEVyFAtrBSE_Pa" = fetchZigGit {
       name = "aro";
-      url = "https://github.com/vancluever/arocc/archive/f97cdfc3779aec4b242299e2fc9a1c828c3547c6.tar.gz";
-      hash = "sha256-G/NNgk7KhJSLdy17ip1igIzpYhAUlzO7ef8r3/iCv/s=";
+      url = "https://codeberg.org/ziglang/arocc";
+      rev = "d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b";
+      hash = "sha256-dXITkdmanCYe4DpTzBDRtL0JdEeAyV4Qwlon5ndznHM=";
     };
     "N-V-__8AANT61wB--nJ95Gj_ctmzAtcjloZ__hRqNw5lC1Kr" = fetchurl {
       url = "https://deps.files.ghostty.org/DearBindings_v0.17_ImGui_v1.92.5-docking.tar.gz";
@@ -71,10 +74,10 @@
       url = "https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz";
       hash = "sha256-B6jVCeoFjd2H6+7tIses+Kj8DgHS6E2dkVzQAIzDHEc=";
     };
-    "gobject-0.3.2-Skun7F6HogCMynX2JqeSHS7xr-8pK4ob-qRFIcEasVi3" = fetchzip {
+    "gobject-0.3.2-Skun7LuIogBbEh-6WrLeEzMaRCnOMB3eOf__RaPYSMCZ" = fetchzip {
       name = "gobject";
-      url = "https://deps.files.ghostty.org/gobject-2026-07-28-36-1.tar.zst";
-      hash = "sha256-dyCfm2XjiAk30zccjD6AgKFBdE7IRsJuoqnscfvnWSQ=";
+      url = "https://github.com/ghostty-org/zig-gobject/releases/download/0.11.0-zig-0.17.0-2026-10-02-38-1/ghostty-gobject-0.11.0-zig-0.17.0-2026-10-02-38-1.tar.zst";
+      hash = "sha256-6ZoDkMCK8ytMLp+Ha9b2jJXwIXDxixuZwy+lEzdMwak=";
       nativeBuildInputs = [zstd];
     };
     "N-V-__8AALiNBAA-_0gprYr92CjrMj1I5bqNu0TSJOnjFNSr" = fetchzip {
@@ -111,10 +114,10 @@
       url = "https://deps.files.ghostty.org/libpng-1220aa013f0c83da3fb64ea6d327f9173fa008d10e28bc9349eac3463457723b1c66.tar.gz";
       hash = "sha256-Mo1M8TuVaoSIb7Hy2u6zgjZ1DKgpmgNmGRP6dGg/aTs=";
     };
-    "libxev-0.0.0-86vtcwIRFADbH4hk-EjROXxlrKIRPQdA41XiTSytYO-F" = fetchzip {
+    "libxev-0.0.0-86vtc8QQFACz0sVc7U-VDiDIgH-XfBuEY5JpABLjHNpn" = fetchzip {
       name = "libxev";
-      url = "https://deps.files.ghostty.org/libxev-9ce8e8e6ff89e583258a7f8e7adeeeaeae8611bf.tar.gz";
-      hash = "sha256-fOU1oxIxfoEgoLuWz7fVX6M+zmqpo7gqZObWiH/aDE0=";
+      url = "https://github.com/mitchellh/libxev/archive/819ffa180ca20e31c7eded74e2e1aceb1eab557f.tar.gz";
+      hash = "sha256-NQjVkejI44YRsXZoQeOfhb6Wb5+NMPXaA3VwmNaQM5c=";
     };
     "N-V-__8AAG3RoQEyRC2Vw7Qoro5SYBf62IHn3HjqtNVY6aWK" = fetchzip {
       name = "libxml2";
@@ -150,32 +153,20 @@
       url = "https://deps.files.ghostty.org/spirv_cross-1220fb3b5586e8be67bc3feb34cbe749cf42a60d628d2953632c2f8141302748c8da.tar.gz";
       hash = "sha256-7unyC2qPiuyaotRKCVC8HRT+3Kfj9qIxEKVyBlmpMds=";
     };
-    "translate_c-0.0.0-Q_BUWhVNBwDOEcIqub4VFPJPB6D9dgwzUMHTX5KWr8Xr" = fetchzip {
+    "translate_c-2.0.0-Q_BUWltOBwBYABF84EUL208pIFeUIwbBs29FmVBaafN5" = fetchzip {
       name = "translate_c";
-      url = "https://codeberg.org/vancluever/translate-c/archive/4e879eb8aba615de112eabd1231ea6e01920cead.tar.gz";
-      hash = "sha256-/sT7W8Kp+O11xaFBgpb/kDiWzfQ0MuXk/d/TuGq1Am8=";
+      url = "https://codeberg.org/ziglang/translate-c/archive/02ff0c523fb92a38939b04d0145c4a9602a74d56.tar.gz";
+      hash = "sha256-13iPyWXUhBQXhF7AKbzKwrVdIrDQrMBNL8OfMyFdde0=";
     };
-    "uucode-0.2.0-ZZjBPlK5VADj7fdoq7G8LIHzD5o6FSkcBXXrRWr4jnrA" = fetchZigGit {
+    "uucode-0.2.0-ZZjBPoGFVgCiflJNFc6Io8xzC67B6PA5bUkk4LT0kCxg" = fetchzip {
       name = "uucode";
-      url = "https://github.com/jacobsandlund/uucode";
-      rev = "2826a37a4562284fdacd8fa029d49509cc9bffcd";
-      hash = "sha256-R5RXW5tWIaDq5JOF2+oWd5YOYOyns6WH7f687WE+b20=";
+      url = "https://github.com/jacobsandlund/uucode/archive/ea62149739404a73c202b48a33bf6dd2af4bd9b0.tar.gz";
+      hash = "sha256-dKrRJhFThGSdv5k6pEF2adGZIKxUQssAO30XAtLOFQ8=";
     };
-    "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7" = fetchzip {
-      name = "uucode";
-      url = "https://github.com/jacobsandlund/uucode/archive/9d55524551411b493cca41ca06363625d90aff1e.tar.gz";
-      hash = "sha256-KZbp/0dlJc5BdxM19ZOXH74WEjEilTvzie/BjT1aYvw=";
-    };
-    "vaxis-0.6.0-BWNV_MjFCQCs9UDHiRkrgw_ayeiPkzOe4xVbaAqXkUWW" = fetchZigGit {
+    "vaxis-0.6.0-BWNV_MafDAAEzkVUvrW9NFUqnnMUoeHqrs2mecnD6D7w" = fetchzip {
       name = "vaxis";
-      url = "https://github.com/rockorager/libvaxis.git";
-      rev = "c1e1f23be38951c425cdf31af455ba23ef178940";
-      hash = "sha256-bIXu8lGwGo42QbItC0jOi/eN7u+f4snknBexw7dc0DI=";
-    };
-    "vaxis-0.6.0-BWNV_CrbCQCscGpzsAlR402rYQ_tV3aAl081c2iRRkka" = fetchzip {
-      name = "vaxis";
-      url = "https://deps.files.ghostty.org/vaxis-1dbbe575dff4586fe51e3217aa5c3fecdcbb6089.tar.gz";
-      hash = "sha256-z3J3w+oYapfAZZR+MvWXwg+th1hePDA1TptnKFO4r+M=";
+      url = "https://github.com/rockorager/libvaxis/archive/6fd944a27fb3d6f596e981076381a3131f2448b4.tar.gz";
+      hash = "sha256-jXHnvLMpER4Z1FmiN1NBnHlYJH6vQ2XB8CSyTPezYwY=";
     };
     "N-V-__8AAKrHGAAs2shYq8UkE6bGcR1QJtLTyOE_lcosMn6t" = fetchzip {
       name = "wayland";
@@ -197,36 +188,36 @@
       url = "https://deps.files.ghostty.org/wuffs-7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz";
       hash = "sha256-sOuwt3R6xG7oqXaA66QGUjFHrEjGnTXjwYs6rSRb+7I=";
     };
-    "z2d-0.12.1-j5P_Hsw8EQAKyZTQICCQnAH2xYkLDW8k9uefbsYdfPZ-" = fetchzip {
+    "z2d-0.12.2-pre-j5P_HilCEQDH_2RC0PZqYQd4rHTl13b-VXpaDQ1sE4kZ" = fetchzip {
       name = "z2d";
-      url = "https://deps.files.ghostty.org/z2d-7dbae85c81784dba9988320bf9543ed9a81350c8.tar.gz";
-      hash = "sha256-Fjr1ORn0ozxU7QY09o2ZOZQHIJsXfVw0UCdZxTKmZJ0=";
+      url = "https://github.com/vancluever/z2d/archive/f3cf28188dae39946964c81475ff234c008125a6.tar.gz";
+      hash = "sha256-VF45ZKB+EWy219JTRSWSo+SnXJXsdztfWe8Wa5fGB+k=";
     };
-    "zf-0.11.0-OIRy8X-RAAAwaRXHMYpj2uvBnuGTZWEE_3V7acqHQNtW" = fetchzip {
+    "zf-0.11.0-OIRy8XCRAAB6FiMwIrtD6FqlagnFwpI6YyOu7bXeYH5J" = fetchzip {
       name = "zf";
-      url = "https://deps.files.ghostty.org/zf-c35c421f84895193246db06c40683c1a30e616ef.tar.gz";
-      hash = "sha256-LHurWwqK8jhP8AZd/CXrMJNeVsKftRCTN31/EgEgKaA=";
+      url = "https://github.com/natecraddock/zf/archive/87153bb86b75d21fbac897b738f316d449f5d0c9.tar.gz";
+      hash = "sha256-ekfl/d+RAdCAjYC75bbAn/srS7RlfE2cuUGZLYg1ACw=";
     };
     "zig_js-0.0.0-rjCAV7-GAADvMTBL7lPMuvDk7xgS9PCMIZWiOUXLZSlj" = fetchzip {
       name = "zig_js";
       url = "https://deps.files.ghostty.org/zig_js-3c23860e47fdcdc5af805efb7fd0bdac5fd3e9bc.tar.gz";
       hash = "sha256-Q1643wb/MCX0QkPa9QEY9xeQbqpC2IOrjER0ZyL3mH0=";
     };
-    "zig_objc-0.0.0-Ir_Sp9gsAQCPAJc0oF5xoWePHWP6Y6tCphDeyNUThJoi" = fetchzip {
+    "zig_objc-0.0.0-Ir_Sp_4tAQDXtPi51nW_jD9LOEzBvU9lofwO9Pzi6IB4" = fetchzip {
       name = "zig_objc";
-      url = "https://deps.files.ghostty.org/zig_objc-c8de82ff80281215ad92900866dab7103a8efa8b.tar.gz";
-      hash = "sha256-t8cTTJm0crcoGAyOqXO0wB2w7Yit80J2Orwr6prd/G0=";
+      url = "https://github.com/mitchellh/zig-objc/archive/3352c12a868f8787ab71bf2ca6eab9fcfb635c52.tar.gz";
+      hash = "sha256-aapY5DWn7QITFfMKc04bwH2a6sersRXvOhvkHE6t8LQ=";
     };
-    "wayland-0.6.0-lQa1kqz8AQADQmdNJsNhLoNHcnEGEUjrOaPV-dtEnEmX" = fetchzip {
+    "wayland-0.7.0-dev-lQa1klz9AQB87V0pMKMdm8JvyOx32XR9FxcWnw9wh6XZ" = fetchzip {
       name = "zig_wayland";
-      url = "https://deps.files.ghostty.org/wayland-0.6.0-lQa1kqz8AQADQmdNJsNhLoNHcnEGEUjrOaPV-dtEnEmX.tar.gz";
-      hash = "sha256-3m/ITNhZUJ/5uD/Tqm+0uZSktGoYgWF5oldOqOCUkIE=";
+      url = "https://codeberg.org/ifreund/zig-wayland/archive/27dda01712ddf3cb46ebd93380d88b01a7c828f8.tar.gz";
+      hash = "sha256-rtPmYAd+suOBW9bPmP42Tv1NGK+U5W0EDqpkakD8gtY=";
     };
-    "zigimg-0.1.0-8_eo2oyaFwBZwJpmqPkCfVXWBrHcqbYwmrp1I6bTD3lI" = fetchZigGit {
+    "zigimg-0.1.0-8_eo2ri_FwBqF5UYiggLz4IGjHJO_n9-B6gT9Ayqg8G4" = fetchZigGit {
       name = "zigimg";
-      url = "https://github.com/zigimg/zigimg";
-      rev = "d695acd97c02e57bb151e8f659d1280f5cd6ca70";
-      hash = "sha256-0IYATQldT6eJxRR2T/2CsIYZuzomqjvmdVyjmsjguyE=";
+      url = "https://github.com/sergot/zigimg";
+      rev = "c701c9f99779d7ddf594dcc6da8f858fd277d61f";
+      hash = "sha256-E98GBI7t+CtgEyJjdIVEomXN+3Kn7to2XtZKixsPILk=";
     };
     "N-V-__8AAB0eQwD-0MdOEBmz7intriBReIsIDNlukNVoNu6o" = fetchzip {
       name = "zlib";
@@ -235,13 +226,9 @@
     };
   };
 
-  # The packages whose own manifest declares a dependency by `.path`. Zig
-  # 0.16.0 cannot build these through `zig build --system`: it spins in
-  # userspace forever, because a `.path` dependency's hash is computed against
-  # the system package directory during the fetch and against the real global
-  # cache afterwards, and in that mode the two disagree. A package that wants
-  # `--system` copies each of these into its build root and passes `--fork=`;
-  # see the README.
+  # The packages whose own manifest declares a dependency by `.path`, which
+  # Zig 0.16.0 cannot build through `zig build --system`. Listed here too so
+  # that every version's expression offers the same things; see the README.
   pathDependencyPackages = [
   ];
 in
@@ -258,28 +245,31 @@ in
   # the start, without a second copy of everything.
   runCommandLocal name
   {
-    nativeBuildInputs = [zig_0_16];
+    nativeBuildInputs = [zig_0_17];
     passthru = {inherit pathDependencyPackages;};
   }
   ''
     mkdir "$out"
 
-    # Each package gets a directory of its own to work in, since `zig fetch`
-    # leaves what it unpacked in `zig-pkg/` under the directory it ran in.
+    # Zig 0.17 runs `zig fetch` in a build runner it compiles into the global
+    # cache the first time, which takes a minute or more. Every package shares
+    # one cache, then, and it is compiled once here before they are fetched
+    # several at a time, rather than by each of them at once.
+    export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/cache"
+    mkdir -p "$ZIG_GLOBAL_CACHE_DIR"
+    zig fetch --help >/dev/null
+
+    # Without `--save`, which wants a project to save into, Zig 0.17 unpacks
+    # nothing where it can be found: what it keeps is `p/<hash>.tar.gz` in
+    # the global cache, the package filtered by its manifest's `.paths` under
+    # a single directory named by its hash. Unpacking that gives the
+    # directory `zig build --system` wants.
     unpack() {
       local work="$TMPDIR/work/$1"
-      mkdir -p "$work/src" "$work/cache/tmp"
-      # workaround https://codeberg.org/ziglang/zig/issues/31866
-      # https://github.com/Cloudef/zig2nix/issues/54
-      touch "$work/src/build.zig"
-      # `zig fetch` recompresses every package into `p/` at gzip level 9 for
-      # its own cache, which is nearly all of its time and of no use here.
-      # With `p` a file rather than a directory that step fails at once --
-      # Zig warns, and carries on -- and the package is left in `zig-pkg/`.
-      touch "$work/cache/p"
+      mkdir -p "$work"
 
       local hash
-      if ! hash="$(cd "$work/src" && zig fetch --global-cache-dir "$work/cache" "$2" 2>"$work/log")"; then
+      if ! hash="$(cd "$work" && zig fetch "$2" 2>"$work/log")"; then
         cat "$work/log" >&2
         return 1
       fi
@@ -287,7 +277,8 @@ in
         echo "$2 is $hash to Zig, not $1" >&2
         return 1
       fi
-      mv "$work/src/zig-pkg/$1" "$out/$1"
+      tar -xzf "$ZIG_GLOBAL_CACHE_DIR/p/$1.tar.gz" -C "$out"
+      rm -f "$ZIG_GLOBAL_CACHE_DIR/p/$1.tar.gz"
       rm -rf "$work"
     }
     export -f unpack

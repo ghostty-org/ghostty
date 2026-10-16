@@ -45,14 +45,12 @@ pub fn retarget(
     const retargeted_deps = try b.allocator.create(SharedDeps);
     retargeted_deps.* = try deps.retarget(b, target);
 
-    // Use unique module names to avoid collisions with the original target.
-    const arch_name = @tagName(target.result.cpu.arch);
     return initInner(
         b,
         retargeted_config,
         retargeted_deps,
-        b.fmt("ghostty-vt-{s}", .{arch_name}),
-        b.fmt("ghostty-vt-c-{s}", .{arch_name}),
+        null,
+        null,
     );
 }
 
@@ -60,8 +58,8 @@ fn initInner(
     b: *std.Build,
     cfg: *const Config,
     deps: *const SharedDeps,
-    vt_name: []const u8,
-    vt_c_name: []const u8,
+    vt_name: ?[]const u8,
+    vt_c_name: ?[]const u8,
 ) !GhosttyZig {
     // Terminal module build options
     var vt_options = cfg.terminalOptions(.lib, cfg.optimize);
@@ -103,7 +101,7 @@ fn initInner(
 }
 
 fn initVt(
-    name: []const u8,
+    name: ?[]const u8,
     b: *std.Build,
     cfg: *const Config,
     deps: *const SharedDeps,
@@ -114,7 +112,7 @@ fn initVt(
     const general_options = b.addOptions();
     try cfg.addOptions(general_options);
 
-    const vt = b.addModule(name, .{
+    const options: std.Build.Module.CreateOptions = .{
         .root_source_file = b.path("src/lib_vt.zig"),
         .target = cfg.target,
         .optimize = cfg.optimize,
@@ -127,7 +125,11 @@ fn initVt(
         .link_libcpp = if (cfg.simd and
             b.systemIntegrationOption("simdutf", .{}) and
             cfg.target.result.abi != .msvc) true else null,
-    });
+    };
+    const vt = if (name) |module_name|
+        b.addModule(module_name, options)
+    else
+        b.createModule(options);
     vt.addOptions("build_options", general_options);
     vt_options.add(b, vt);
 

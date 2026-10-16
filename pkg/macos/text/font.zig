@@ -37,7 +37,7 @@ pub const Font = opaque {
         return @ptrCast(@constCast(c.CTFontCreateForString(
             @ptrCast(self),
             @ptrCast(str),
-            @bitCast(range),
+            range.cval(),
         )));
     }
 
@@ -81,7 +81,7 @@ pub const Font = opaque {
     pub fn copyTable(self: *Font, tag: FontTableTag) ?*foundation.Data {
         return @ptrCast(@constCast(c.CTFontCopyTable(
             @ptrCast(self),
-            @intFromEnum(tag),
+            @backingInt(tag),
             c.kCTFontTableOptionNoOptions,
         )));
     }
@@ -131,9 +131,9 @@ pub const Font = opaque {
         rects: ?[]graphics.Rect,
     ) graphics.Rect {
         if (rects) |s| assert(glyphs.len == s.len);
-        return @bitCast(c.CTFontGetBoundingRectsForGlyphs(
+        return .fromC(c.CTFontGetBoundingRectsForGlyphs(
             @ptrCast(self),
-            @intFromEnum(orientation),
+            @backingInt(orientation),
             glyphs.ptr,
             @ptrCast(if (rects) |s| s.ptr else null),
             @intCast(glyphs.len),
@@ -149,7 +149,7 @@ pub const Font = opaque {
         if (advances) |s| assert(glyphs.len == s.len);
         return c.CTFontGetAdvancesForGlyphs(
             @ptrCast(self),
-            @intFromEnum(orientation),
+            @backingInt(orientation),
             glyphs.ptr,
             @ptrCast(if (advances) |s| s.ptr else null),
             @intCast(glyphs.len),
@@ -192,7 +192,7 @@ pub const Font = opaque {
     }
 
     pub fn getBoundingBox(self: *Font) graphics.Rect {
-        return @bitCast(c.CTFontGetBoundingBox(@ptrCast(self)));
+        return .fromC(c.CTFontGetBoundingBox(@ptrCast(self)));
     }
 
     pub fn getUnderlinePosition(self: *Font) f64 {
@@ -236,7 +236,7 @@ pub const FontTableTag = enum(u32) {
 
     pub fn init(v: *const [4]u8) FontTableTag {
         const raw: u32 = @bitCast(foundation.FourCharCode.init(v));
-        return @enumFromInt(raw);
+        return @fromBackingInt(raw);
     }
 };
 

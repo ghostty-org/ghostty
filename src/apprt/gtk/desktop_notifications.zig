@@ -217,10 +217,11 @@ fn formatId(
     surface_id: u64,
     hash: u64,
 ) [:0]u8 {
-    return std.fmt.bufPrintZ(
+    return std.mem.printSentinel(
         buf,
         "ghostty-surface-{x}-{x}",
         .{ surface_id, hash },
+        0,
     ) catch unreachable;
 }
 

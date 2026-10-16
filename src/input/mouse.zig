@@ -33,8 +33,8 @@ pub const Button = enum(c_int) {
     /// packed array, for example.
     pub const max = max: {
         var cur = 0;
-        for (@typeInfo(Self).@"enum".fields) |field| {
-            if (field.value > cur) cur = field.value;
+        for (@typeInfo(Self).@"enum".field_values) |value| {
+            if (value > cur) cur = value;
         }
 
         break :max cur;

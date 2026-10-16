@@ -16,7 +16,7 @@ pub fn create() !Buffer {
 
 /// glBindBuffer
 pub fn bind(self: Buffer, target: Target) !Binding {
-    glad.context.BindBuffer.?(@intFromEnum(target), self.id);
+    glad.context.BindBuffer.?(@backingInt(target), self.id);
     return Binding{ .id = self.id, .target = target };
 }
 
@@ -26,7 +26,7 @@ pub fn destroy(self: Buffer) void {
 
 pub fn bindBase(self: Buffer, target: Target, idx: c.GLuint) !void {
     glad.context.BindBufferBase.?(
-        @intFromEnum(target),
+        @backingInt(target),
         idx,
         self.id,
     );
@@ -41,7 +41,7 @@ pub const Binding = struct {
     target: Target,
 
     pub fn unbind(b: Binding) void {
-        glad.context.BindBuffer.?(@intFromEnum(b.target), 0);
+        glad.context.BindBuffer.?(@backingInt(b.target), 0);
     }
 
     /// Sets the data of this bound buffer. The data can be any array-like
@@ -53,10 +53,10 @@ pub const Binding = struct {
     ) !void {
         const info = dataInfo(data);
         glad.context.BufferData.?(
-            @intFromEnum(b.target),
+            @backingInt(b.target),
             info.size,
             info.ptr,
-            @intFromEnum(usage),
+            @backingInt(usage),
         );
         try errors.getError();
     }
@@ -70,7 +70,7 @@ pub const Binding = struct {
     ) !void {
         const info = dataInfo(data);
         glad.context.BufferSubData.?(
-            @intFromEnum(b.target),
+            @backingInt(b.target),
             @intCast(offset),
             info.size,
             info.ptr,
@@ -87,10 +87,10 @@ pub const Binding = struct {
         usage: Usage,
     ) !void {
         glad.context.BufferData.?(
-            @intFromEnum(b.target),
+            @backingInt(b.target),
             @sizeOf(T),
             null,
-            @intFromEnum(usage),
+            @backingInt(usage),
         );
         try errors.getError();
     }
@@ -102,10 +102,10 @@ pub const Binding = struct {
         usage: Usage,
     ) !void {
         glad.context.BufferData.?(
-            @intFromEnum(b.target),
+            @backingInt(b.target),
             @intCast(size),
             null,
-            @intFromEnum(usage),
+            @backingInt(usage),
         );
         try errors.getError();
     }

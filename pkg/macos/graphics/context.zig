@@ -116,14 +116,14 @@ pub fn Context(comptime T: type) type {
         pub fn setTextDrawingMode(self: *T, mode: TextDrawingMode) void {
             c.CGContextSetTextDrawingMode(
                 @ptrCast(self),
-                @intFromEnum(mode),
+                @backingInt(mode),
             );
         }
 
         pub fn setTextMatrix(self: *T, matrix: graphics.AffineTransform) void {
             c.CGContextSetTextMatrix(
                 @ptrCast(self),
-                @bitCast(matrix),
+                matrix.cval(),
             );
         }
 
@@ -138,7 +138,7 @@ pub fn Context(comptime T: type) type {
         pub fn fillRect(self: *T, rect: graphics.Rect) void {
             c.CGContextFillRect(
                 @ptrCast(self),
-                @bitCast(rect),
+                rect.cval(),
             );
         }
 

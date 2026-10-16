@@ -42,7 +42,7 @@ pub const Special = enum {
 };
 
 pub const Kind = union(enum) {
-    pub const max: usize = std.math.maxInt(u8) + @typeInfo(Special).@"enum".fields.len;
+    pub const max: usize = std.math.maxInt(u8) + @typeInfo(Special).@"enum".field_names.len;
 
     palette: u8,
     special: Special,
@@ -94,11 +94,11 @@ test "OSC: kitty color protocol kind string" {
 
     var buf: [256]u8 = undefined;
     {
-        const actual = try std.fmt.bufPrint(&buf, "{f}", .{Kind{ .special = .foreground }});
+        const actual = try std.mem.print(&buf, "{f}", .{Kind{ .special = .foreground }});
         try testing.expectEqualStrings("foreground", actual);
     }
     {
-        const actual = try std.fmt.bufPrint(&buf, "{f}", .{Kind{ .palette = 42 }});
+        const actual = try std.mem.print(&buf, "{f}", .{Kind{ .palette = 42 }});
         try testing.expectEqualStrings("42", actual);
     }
 

@@ -41,7 +41,7 @@ pub const ScreenOptions = extern struct {
         charsets: bool,
 
         comptime {
-            for (std.meta.fieldNames(formatterpkg.ScreenFormatter.Extra)) |name| {
+            for (@typeInfo(formatterpkg.ScreenFormatter.Extra).@"struct".field_names) |name| {
                 if (!@hasField(Extra, name))
                     @compileError("ScreenOptions.Extra missing field: " ++ name);
             }
@@ -84,7 +84,7 @@ pub const TerminalOptions = extern struct {
         screen: ScreenOptions.Extra,
 
         comptime {
-            for (std.meta.fieldNames(formatterpkg.TerminalFormatter.Extra)) |name| {
+            for (@typeInfo(formatterpkg.TerminalFormatter.Extra).@"struct".field_names) |name| {
                 if (!@hasField(Extra, name))
                     @compileError("TerminalOptions.Extra missing field: " ++ name);
             }

@@ -586,7 +586,7 @@ test "dnd: large data served in chunks" {
     _ = try h.command("t=a", "");
 
     // 3073 bytes: one full chunk plus one byte.
-    const data = [_]u8{'Z'} ** 3073;
+    const data: [3073]u8 = @splat('Z');
     try h.registered().dragDrop(testing.allocator, &h.output.writer, .{
         .cell_x = 0,
         .cell_y = 0,

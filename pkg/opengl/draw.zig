@@ -25,7 +25,7 @@ pub fn drawArraysInstanced(
     primcount: c.GLsizei,
 ) !void {
     glad.context.DrawArraysInstanced.?(
-        @intCast(@intFromEnum(mode)),
+        @intCast(@backingInt(mode)),
         first,
         count,
         primcount,
@@ -94,8 +94,8 @@ pub fn readPixels(
         y,
         width,
         height,
-        @intFromEnum(format),
-        @intFromEnum(typ),
+        @backingInt(format),
+        @backingInt(typ),
         data,
     );
     try errors.getError();
@@ -123,7 +123,7 @@ pub fn blitFramebuffer(
         dst_x1,
         dst_y1,
         @bitCast(mask),
-        @intCast(@intFromEnum(filter)),
+        @intCast(@backingInt(filter)),
     );
     try errors.getError();
 }
@@ -151,5 +151,5 @@ pub const BlitMask = packed struct(c.GLbitfield) {
     stencil_buffer_bit: bool = false,
     _pad3: u3 = 0,
     color_buffer_bit: bool = false,
-    _pad4: std.meta.Int(.unsigned, @bitSizeOf(c.GLbitfield) - 15) = 0,
+    _pad4: @Int(.unsigned, @bitSizeOf(c.GLbitfield) - 15) = 0,
 };

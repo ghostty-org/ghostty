@@ -22,7 +22,7 @@ pub const URL = opaque {
             @ptrFromInt(@intFromPtr(c.CFURLCreateWithFileSystemPath(
                 null,
                 @ptrCast(path),
-                @intFromEnum(style),
+                @backingInt(style),
                 if (dir) 1 else 0,
             ))),
         ) orelse error.OutOfMemory;

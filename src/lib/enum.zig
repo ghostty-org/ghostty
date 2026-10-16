@@ -72,7 +72,7 @@ test "stable values when removing a key" {
         const T = Enum(.c, &.{ "a", "b", null, "d" });
         const info = @typeInfo(T).@"enum";
         try testing.expectEqual(c_int, info.tag_type);
-        try testing.expectEqual(3, @intFromEnum(T.d));
+        try testing.expectEqual(3, @backingInt(T.d));
     }
 
     // Zig
@@ -80,7 +80,7 @@ test "stable values when removing a key" {
         const T = Enum(.zig, &.{ "a", "b", null, "d" });
         const info = @typeInfo(T).@"enum";
         try testing.expectEqual(u2, info.tag_type);
-        try testing.expectEqual(3, @intFromEnum(T.d));
+        try testing.expectEqual(3, @backingInt(T.d));
     }
 }
 
@@ -89,7 +89,7 @@ test "zig backing integer includes trailing holes" {
     const T = Enum(.zig, &.{ "a", null, null, null, null });
     const info = @typeInfo(T).@"enum";
     try testing.expectEqual(u3, info.tag_type);
-    try testing.expectEqual(0, @intFromEnum(T.a));
+    try testing.expectEqual(0, @backingInt(T.a));
 }
 
 test "zig values remain stable across multiple holes" {
@@ -97,9 +97,9 @@ test "zig values remain stable across multiple holes" {
     const T = Enum(.zig, &.{ null, "b", null, "d", null, "f" });
     const info = @typeInfo(T).@"enum";
     try testing.expectEqual(u3, info.tag_type);
-    try testing.expectEqual(1, @intFromEnum(T.b));
-    try testing.expectEqual(3, @intFromEnum(T.d));
-    try testing.expectEqual(5, @intFromEnum(T.f));
+    try testing.expectEqual(1, @backingInt(T.b));
+    try testing.expectEqual(3, @backingInt(T.d));
+    try testing.expectEqual(5, @backingInt(T.f));
 }
 
 /// Verify that for every key in enum T, there is a matching declaration in
@@ -113,36 +113,37 @@ pub fn checkGhosttyHEnum(
 
     try std.testing.expect(info == .@"enum");
     try std.testing.expect(info.@"enum".tag_type == c_int);
-    try std.testing.expect(info.@"enum".is_exhaustive == true);
+    try std.testing.expect(info.@"enum".mode == .exhaustive);
 
     @setEvalBranchQuota(100_000);
 
     const c = @import("ghostty.h");
 
-    var set: std.EnumSet(T) = .initFull();
+    var set: std.EnumSet(T) = .full;
 
-    const enum_fields = info.@"enum".fields;
+    const enum_fields = info.@"enum".field_names;
+    const enum_values = info.@"enum".field_values;
 
-    inline for (enum_fields) |field| {
-        const expected_name: *const [prefix.len + field.name.len]u8 = comptime e: {
-            var buf: [prefix.len + field.name.len]u8 = undefined;
+    inline for (enum_fields, enum_values) |field, value| {
+        const expected_name: *const [prefix.len + field.len]u8 = comptime e: {
+            var buf: [prefix.len + field.len]u8 = undefined;
             @memcpy(buf[0..prefix.len], prefix);
-            for (buf[prefix.len..], field.name) |*d, s| {
+            for (buf[prefix.len..], field) |*d, s| {
                 d.* = std.ascii.toUpper(s);
             }
             break :e &buf;
         };
 
         if (@hasDecl(c, expected_name)) {
-            std.testing.expectEqual(field.value, @field(c, expected_name)) catch |e| {
+            std.testing.expectEqual(value, @field(c, expected_name)) catch |e| {
                 std.log.err(
                     "{s} key {s} does not have the same backing int as " ++ expected_name,
-                    .{ @typeName(T), field.name },
+                    .{ @typeName(T), field },
                 );
                 return e;
             };
 
-            set.remove(@enumFromInt(field.value));
+            set.remove(@fromBackingInt(value));
         }
     }
 

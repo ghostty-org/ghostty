@@ -111,7 +111,7 @@ fn reinit(self: *Keymap) !void {
         break :layout @ptrCast(data.getPointer());
     };
 
-    if (comptime builtin.mode == .Debug) id: {
+    if (comptime builtin.mode == .debug) id: {
         var buf: [256]u8 = undefined;
         const id = self.sourceId(&buf) catch break :id;
         std.log.debug("keyboard layout={s}", .{id});

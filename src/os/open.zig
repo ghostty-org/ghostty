@@ -24,14 +24,14 @@ pub fn open(
 ) !void {
     // If an embedder declines an untrusted URL, refuse it rather than skip
     // the apprt's safety checks by passing it to `open`.
-    if (comptime builtin.os.tag == .macos) {
+    if (comptime builtin.target.os.tag == .macos) {
         switch (kind) {
             .unknown, .osc8 => return error.UntrustedLink,
             .text, .html => {},
         }
     }
 
-    var spawn_opts: std.process.SpawnOptions = switch (builtin.os.tag) {
+    var spawn_opts: std.process.SpawnOptions = switch (builtin.target.os.tag) {
         .linux, .freebsd => .{ .argv = &.{ "xdg-open", url } },
         .windows => .{ .argv = &.{ "rundll32", "url.dll,FileProtocolHandler", url } },
         .macos => switch (kind) {
@@ -72,7 +72,7 @@ pub fn open(
 }
 
 test "macOS untrusted links have no generic opener fallback" {
-    if (builtin.os.tag != .macos) return error.SkipZigTest;
+    if (builtin.target.os.tag != .macos) return error.SkipZigTest;
 
     try std.testing.expectError(
         error.UntrustedLink,

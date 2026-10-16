@@ -24,7 +24,7 @@ const fuzzers: []const Fuzzer = &.{
 
 pub fn build(b: *std.Build) void {
     // Ensure the AFL++ output directory exists.
-    b.build_root.handle.createDirPath(b.graph.io, "afl-out") catch |err| {
+    b.root.createDirPath(b.graph.io, "afl-out") catch |err| {
         std.log.warn("failed to create afl-out directory: {any}", .{err});
     };
 

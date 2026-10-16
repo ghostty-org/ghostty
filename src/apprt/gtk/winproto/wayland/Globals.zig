@@ -211,7 +211,7 @@ fn decoManagerListener(
 ) void {
     switch (event) {
         .default_mode => |mode| {
-            self.state.default_deco_mode = @enumFromInt(mode.mode);
+            self.state.default_deco_mode = @fromBackingInt(@intCast(mode.mode));
         },
     }
 }
@@ -234,7 +234,7 @@ fn outputOrderListener(
                 self.state.primary_output_name = null;
                 log.warn("ignoring empty primary output name from kde_output_order_v1", .{});
             } else {
-                self.state.primary_output_name = self.alloc.dupeZ(u8, name) catch |err| {
+                self.state.primary_output_name = self.alloc.dupeSentinel(u8, name, 0) catch |err| {
                     self.state.primary_output_name = null;
                     log.warn("failed to allocate primary output name: {}", .{err});
                     return;

@@ -509,8 +509,9 @@ pub const Glyf = struct {
             // Typical glyphs have small point counts, so use stack storage
             // first while still falling back to the caller's allocator for
             // unusually large outlines.
-            var flags_stack = std.heap.stackFallback(4096, alloc);
-            const flags_alloc = flags_stack.get();
+            var flags_stack_buf: [4096]u8 = undefined;
+            var flags_stack: std.heap.BufferFirstAllocator = .init(&flags_stack_buf, alloc);
+            const flags_alloc = flags_stack.allocator();
             const flags = try flags_alloc.alloc(SimpleFlags, point_count);
             defer flags_alloc.free(flags);
             {

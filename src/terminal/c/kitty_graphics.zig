@@ -305,7 +305,7 @@ pub fn placement_iterator_set(
     if (comptime !build_options.kitty_graphics) return .no_value;
 
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(PlacementIteratorOption, @intFromEnum(option)) orelse {
+        _ = std.enums.fromInt(PlacementIteratorOption, @backingInt(option)) orelse {
             return .invalid_value;
         };
     }
@@ -1065,7 +1065,8 @@ test "image_get exposes pending metadata without a data pointer" {
     var data_ptr: [*]const u8 = undefined;
     try testing.expectEqual(Result.no_value, image_get(img, .data_ptr, @ptrCast(&data_ptr)));
 
-    const pixels = try alloc.dupe(u8, "*" ** 12);
+    const pixels = try alloc.alloc(u8, 12);
+    @memset(pixels, '*');
     try testing.expect(pending.complete(graphics, testing.io, pixels));
     const completed_img = image_get_handle(graphics, 42);
     try testing.expect(completed_img != null);

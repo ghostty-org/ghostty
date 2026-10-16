@@ -87,7 +87,7 @@ pub const Action = union(enum) {
         /// bit can be mapped to Sep. The index of this bit set specifies
         /// the separator AFTER that param. For example: 0;4:3 would have
         /// index 1 set.
-        pub const SepList = std.StaticBitSet(MAX_PARAMS);
+        pub const SepList = std.bit_set.Static(MAX_PARAMS);
 
         /// The separator used for CSI params.
         pub const Sep = enum(u1) { semicolon = 0, colon = 1 };
@@ -151,10 +151,10 @@ pub const Action = union(enum) {
             try writer.writeAll(@tagName(@as(TagType, self)));
             try writer.writeAll(" = ");
 
-            inline for (info.fields) |u_field| {
+            inline for (info.field_names) |u_field| {
                 // If this is the active field...
-                if (self == @field(TagType, u_field.name)) {
-                    const value = @field(self, u_field.name);
+                if (self == @field(TagType, u_field)) {
+                    const value = @field(self, u_field);
                     switch (@TypeOf(value)) {
                         // Unicode
                         u21 => try writer.print("'{u}' (U+{X})", .{ value, value }),
@@ -176,7 +176,7 @@ pub const Action = union(enum) {
                         else => try writer.printValue(
                             "any",
                             .{},
-                            @field(self, u_field.name),
+                            @field(self, u_field),
                             1,
                         ),
                     }
@@ -229,7 +229,7 @@ pub fn init() Parser {
     var result: Parser = .{
         .state = .ground,
         .intermediates_idx = 0,
-        .params_sep = .initEmpty(),
+        .params_sep = .empty,
         .params_idx = 0,
         .param_acc = 0,
         .param_acc_idx = 0,
@@ -255,7 +255,7 @@ pub fn deinit(self: *Parser) void {
 /// Up to 3 actions may need to be executed -- in order -- representing
 /// the state exit, transition, and entry actions.
 pub fn next(self: *Parser, c: u8) [3]?Action {
-    const effect = table[c][@intFromEnum(self.state)];
+    const effect = table[c][@backingInt(self.state)];
 
     // log.info("next: {x}", .{c});
 
@@ -426,7 +426,7 @@ noinline fn warnCsiSepMismatch(csi: Action.CSI) void {
 pub inline fn clear(self: *Parser) void {
     self.intermediates_idx = 0;
     self.params_idx = 0;
-    self.params_sep = .initEmpty();
+    self.params_sep = .empty;
     self.param_acc = 0;
     self.param_acc_idx = 0;
 }

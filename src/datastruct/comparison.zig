@@ -55,11 +55,11 @@ pub fn deepEqual(comptime T: type, old: T, new: T) bool {
 
             // If a struct doesn't declare an "equal" function, we fall back
             // to a recursive field-by-field compare.
-            inline for (info.fields) |field_info| {
+            inline for (info.field_names, info.field_types) |field_name, field_type| {
                 if (!deepEqual(
-                    field_info.type,
-                    @field(old, field_info.name),
-                    @field(new, field_info.name),
+                    field_type,
+                    @field(old, field_name),
+                    @field(new, field_name),
                 )) return false;
             }
             return true;
@@ -73,12 +73,12 @@ pub fn deepEqual(comptime T: type, old: T, new: T) bool {
             const new_tag = std.meta.activeTag(new);
             if (old_tag != new_tag) return false;
 
-            inline for (info.fields) |field_info| {
-                if (@field(tag_type, field_info.name) == old_tag) {
+            inline for (info.field_names, info.field_types) |field_name, field_type| {
+                if (@field(tag_type, field_name) == old_tag) {
                     return deepEqual(
-                        field_info.type,
-                        @field(old, field_info.name),
-                        @field(new, field_info.name),
+                        field_type,
+                        @field(old, field_name),
+                        @field(new, field_name),
                     );
                 }
             }
@@ -142,8 +142,8 @@ fn expectApproxEqualInner(comptime T: type, expected: T, actual: T) !void {
             }
         },
         .@"struct" => |structType| {
-            inline for (structType.fields) |field| {
-                try expectApproxEqual(@field(expected, field.name), @field(actual, field.name));
+            inline for (structType.field_names) |field| {
+                try expectApproxEqual(@field(expected, field), @field(actual, field));
             }
         },
 

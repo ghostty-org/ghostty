@@ -100,13 +100,13 @@ pub fn encode(
 
     switch (value.id) {
         .implicit => |id| {
-            try writer.writeByte(@intFromEnum(Kind.implicit));
+            try writer.writeByte(@backingInt(Kind.implicit));
             try io.writeInt(writer, u32, id);
             try io.writeInt(writer, u32, @intCast(value.uri.len));
             try writer.writeAll(value.uri);
         },
         .explicit => |id| {
-            try writer.writeByte(@intFromEnum(Kind.explicit));
+            try writer.writeByte(@backingInt(Kind.explicit));
             try io.writeInt(writer, u32, @intCast(id.len));
             try writer.writeAll(id);
             try io.writeInt(writer, u32, @intCast(value.uri.len));

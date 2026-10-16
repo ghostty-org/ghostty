@@ -52,7 +52,7 @@ pub const Options = struct {
     target: std.Build.ResolvedTarget,
 
     /// The optimization mode to perform translation as.
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
 
     /// Whether or not to link in libc. Generally you want this.
     link_libc: bool = true,
@@ -128,8 +128,7 @@ pub fn addImportToModule(
 ) !void {
     var init_opts = options;
     if (init_opts.source == .includes and init_opts.source.includes.generated_name == null) {
-        init_opts.source.includes.generated_name = try std.fmt.allocPrint(
-            b.allocator,
+        init_opts.source.includes.generated_name = try b.allocator.print(
             "{s}.h",
             .{name},
         );
