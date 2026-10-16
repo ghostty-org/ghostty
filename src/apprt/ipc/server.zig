@@ -796,7 +796,7 @@ test "socket: an oversized frame is rejected and the connection closes" {
     );
 
     // The server closed its side. macOS surfaces a clean FIN as a null
-    // (EOF) frame. Linux sends a TCP RST instead when the server process
+    // (EOF) frame. Linux sends a connection reset instead when the server process
     // closes a socket with pending unread data in the receive buffer. The
     // RST can surface here as either `error.ConnectionResetByPeer` (when
     // the underlying net error reaches the API directly) or as a wrapped

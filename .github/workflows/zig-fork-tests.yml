@@ -35,8 +35,8 @@ on:
   # is observable on the PR head SHA before merge (the default-branch
   # scheduler and workflow_dispatch API cannot see a workflow file that
   # lives only on a non-default branch). Scope: the workflow file itself,
-  # the two fork-only test entry points, the two directories they
-  # transitively pull in, and build.zig (build-config changes can break
+  # the two fork-only test entry points, the directories and shared imports they
+  # transitively pull in (incl. src/App.zig + src/Surface.zig), and build.zig (build-config changes can break
   # these tests). Anything outside this set does not need a fork-zig
   # test run; the upstream test.yml continues to cover `zig build test`
   # and `test-lib-vt` for all other changes. Intended to remain as a
@@ -49,6 +49,8 @@ on:
       - "src/main_agent_ipc.zig"
       - "src/apprt/windows/**"
       - "src/apprt/ipc/**"
+      - "src/App.zig"
+      - "src/Surface.zig"
       - "build.zig"
   # Keep `merge_group` out of the trigger list for now: this fork's
   # default branch is not configured for merge queues, and an
