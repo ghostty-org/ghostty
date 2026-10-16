@@ -646,7 +646,7 @@ const Subprocess = struct {
 
             // Assume that the resources directory is adjacent to the terminfo
             // database
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const dir = try std.fmt.bufPrint(&buf, "{s}/terminfo", .{
                 std.fs.path.dirname(base) orelse unreachable,
             });
@@ -671,7 +671,7 @@ const Subprocess = struct {
                 break :ghostty_path;
             }
 
-            var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
+            var exe_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const exe_bin_path = exe_buf[0 .. std.process.executablePath(
                 global.io(),
                 &exe_buf,
@@ -711,7 +711,7 @@ const Subprocess = struct {
         if (comptime builtin.target.os.tag.isDarwin()) darwin: {
             const resources_dir = cfg.resources_dir orelse break :darwin;
 
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
 
             const xdg_data_dir_key = "XDG_DATA_DIRS";
             if (std.fmt.bufPrint(&buf, "{s}/..", .{resources_dir})) |data_dir| {

@@ -12,6 +12,7 @@ const Terminal = @import("../Terminal.zig");
 const Layout = @import("layout.zig").Layout;
 const control = @import("control.zig");
 const output = @import("output.zig");
+const TerminalStream = @import("../stream_terminal.zig").Stream;
 
 const log = std.log.scoped(.terminal_tmux_viewer);
 
@@ -261,8 +262,28 @@ pub const Viewer = struct {
 
     pub const Pane = struct {
         terminal: Terminal,
+        output_stream: ?*TerminalStream = null,
+
+        fn outputStream(self: *Pane, alloc: Allocator) Allocator.Error!*TerminalStream {
+            if (self.output_stream == null) {
+                const stream = try alloc.create(TerminalStream);
+                stream.* = self.terminal.vtStream();
+                self.output_stream = stream;
+            }
+
+            const stream = self.output_stream.?;
+            // Pane values can move when the pane map is rebuilt.
+            stream.handler.terminal = &self.terminal;
+            return stream;
+        }
 
         pub fn deinit(self: *Pane, alloc: Allocator) void {
+            if (self.output_stream) |stream| {
+                // The pane may have moved since its last output.
+                stream.handler.terminal = &self.terminal;
+                stream.deinit();
+                alloc.destroy(stream);
+            }
             self.terminal.deinit(alloc);
         }
     };
@@ -942,6 +963,9 @@ pub const Viewer = struct {
             // Determine which screen to use based on alternate_on
             const screen_key: ScreenSet.Key = if (data.alternate_on) .alternate else .primary;
 
+            // Restore the active screen reported by tmux.
+            _ = try t.switchScreen(screen_key);
+
             // Set cursor position on the appropriate screen (tmux uses 0-based)
             if (t.screens.get(screen_key)) |screen| {
                 cursor: {
@@ -1025,6 +1049,12 @@ pub const Viewer = struct {
                     size.CellCountInt,
                     data.scroll_region_lower,
                 ) orelse break :scroll;
+
+                // Ignore invalid regions. The terminal assumes the scroll
+                // region is always within the screen bounds.
+                if (scroll_top >= scroll_bottom or
+                    scroll_bottom >= t.rows) break :scroll;
+
                 t.scrolling_region.top = scroll_top;
                 t.scrolling_region.bottom = scroll_bottom;
             }
@@ -1118,10 +1148,7 @@ pub const Viewer = struct {
             return;
         };
         const pane: *Pane = entry.value_ptr;
-        const t: *Terminal = &pane.terminal;
-
-        var stream = t.vtStream();
-        defer stream.deinit();
+        const stream = try pane.outputStream(self.alloc);
         stream.nextSlice(data);
     }
 
@@ -2308,4 +2335,260 @@ test "two pane flow with pane state" {
             .contains_tags = &.{.exit},
         },
     });
+}
+
+test "tmux output state unsplit CSI" {
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+
+    var terminal: Terminal = try .init(testing.io, testing.allocator, .{
+        .cols = 80,
+        .rows = 24,
+    });
+
+    viewer.panes.put(testing.allocator, 42, .{
+        .terminal = terminal,
+    }) catch |err| {
+        terminal.deinit(testing.allocator);
+        return err;
+    };
+
+    try viewer.receivedOutput(42, "\x1b[32mX");
+
+    const entry = viewer.panes.getEntry(42) orelse return error.ExpectedPane42;
+    const screen = entry.value_ptr.terminal.screens.active;
+    const text = try screen.dumpStringAlloc(testing.allocator, .{ .active = .{} });
+    defer testing.allocator.free(text);
+    try testing.expectEqualStrings("X", text);
+}
+
+test "tmux output state split CSI" {
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+
+    var terminal: Terminal = try .init(testing.io, testing.allocator, .{
+        .cols = 80,
+        .rows = 24,
+    });
+
+    viewer.panes.put(testing.allocator, 42, .{
+        .terminal = terminal,
+    }) catch |err| {
+        terminal.deinit(testing.allocator);
+        return err;
+    };
+
+    try viewer.receivedOutput(42, "\x1b[32");
+    try viewer.receivedOutput(42, "mX");
+
+    const entry = viewer.panes.getEntry(42) orelse return error.ExpectedPane42;
+    const screen = entry.value_ptr.terminal.screens.active;
+    const text = try screen.dumpStringAlloc(testing.allocator, .{ .active = .{} });
+    defer testing.allocator.free(text);
+    try testing.expectEqualStrings("X", text);
+}
+
+test "pane state ignores out of bounds scroll region" {
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 0,
+                .name = "0",
+            } } },
+            .contains_command = "display-message",
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = "3.5a" } },
+            .contains_command = "list-windows",
+        },
+        .{
+            .input = .{ .tmux = .{
+                .block_end = "$0 @0 80 24 b25d,80x24,0,0,0",
+            } },
+            .contains_tags = &.{ .windows, .command },
+        },
+        // capture-pane primary/alternate history/visible
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        // list-panes with a scroll region bottom far past the screen
+        .{
+            .input = .{ .tmux = .{
+                .block_end = "%0;0;5;1;;;0;0;4294967295;4294967295;0;1;0;0;0;0;0;0;0;0;0;0;0;60000;",
+            } },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    const pane: *Viewer.Pane = v.panes.getEntry(0).?.value_ptr;
+                    const t: *Terminal = &pane.terminal;
+                    // Verify the line parsed and was applied.
+                    try testing.expectEqual(5, t.screens.active.cursor.y);
+                    try testing.expectEqual(0, t.scrolling_region.top);
+                    try testing.expectEqual(t.rows - 1, t.scrolling_region.bottom);
+                }
+            }).check,
+        },
+        // Vertical tabs act as linefeeds and must scroll within the screen.
+        .{
+            .input = .{ .tmux = .{ .output = .{
+                .pane_id = 0,
+                .data = "\x0b" ** 30,
+            } } },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    const pane: *Viewer.Pane = v.panes.getEntry(0).?.value_ptr;
+                    const t: *Terminal = &pane.terminal;
+                    try testing.expectEqual(t.rows - 1, t.screens.active.cursor.y);
+                }
+            }).check,
+        },
+    });
+}
+
+test "tmux raw startup selects primary screen" {
+    try testRawStartupScreen(false);
+}
+
+test "tmux raw startup selects alternate screen" {
+    try testRawStartupScreen(true);
+}
+
+fn testRawStartupScreen(comptime alternate_on: bool) !void {
+    var parser: control.Parser = .{ .buffer = .init(testing.allocator) };
+
+    defer parser.deinit();
+
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+
+    const input =
+        // Initial connection.
+        "%begin 1 1 0\n" ++
+        "%end 1 1 0\n" ++
+        "%session-changed $42 main\n" ++
+
+        // Tmux version response.
+        "%begin 2 2 0\n" ++
+        "3.5a\n" ++
+        "%end 2 2 0\n" ++
+
+        // Window and pane layout.
+        "%begin 3 3 0\n" ++
+        "$42 @0 80 24 d962,80x24,0,0,42\n" ++
+        "%end 3 3 0\n" ++
+
+        // Primary screen history.
+        "%begin 4 4 0\n" ++
+        "%end 4 4 0\n" ++
+
+        // Primary screen visible contents.
+        "%begin 5 5 0\n" ++
+        "%end 5 5 0\n" ++
+
+        // Alternate screen history.
+        "%begin 6 6 0\n" ++
+        "%end 6 6 0\n" ++
+
+        // Alternate screen visible contents.
+        "%begin 7 7 0\n" ++
+        "%end 7 7 0\n" ++
+
+        // Cursor position and terminal modes.
+        "%begin 8 8 0\n" ++
+        "%42;0;0;1;block;default;0;" ++
+        (if (alternate_on) "1;0;0;" else "0;0;0;") ++
+        "0;1;0;0;0;" ++
+        "0;0;0;0;0;" ++
+        "0;0;0;23;8,16,24,32,40,48,56,64,72\n" ++
+        "%end 8 8 0\n" ++
+
+        // Live output after initialization.
+        "%output %42 hello\n";
+
+    const expected_commands = [_][]const u8{
+        "display-message",
+        "list-windows",
+        "capture-pane -p -e -q -S - -E -1 -t %42\n",
+        "capture-pane -p -e -q -t %42\n",
+        "capture-pane -p -e -q -a -S - -E -1 -t %42\n",
+        "capture-pane -p -e -q -a -t %42\n",
+        "list-panes",
+    };
+
+    var command_index: usize = 0;
+
+    for (input) |byte| {
+        if (try parser.put(byte)) |notification| {
+            const actions = viewer.next(.{ .tmux = notification });
+
+            for (actions) |action| {
+                switch (action) {
+                    .command => |command| {
+                        try testing.expect(command_index < expected_commands.len);
+                        const expected = expected_commands[command_index];
+                        try testing.expect(
+                            std.mem.startsWith(
+                                u8,
+                                command,
+                                expected,
+                            ),
+                        );
+                        command_index += 1;
+                    },
+                    .windows => {},
+                    .exit => {
+                        return error.UnexpectedViewerExit;
+                    },
+                }
+            }
+        }
+    }
+    try testing.expectEqual(expected_commands.len, command_index);
+    try testing.expectEqual(@as(usize, 42), viewer.session_id);
+    try testing.expectEqualStrings("3.5a", viewer.tmux_version);
+
+    try testing.expectEqual(@as(usize, 1), viewer.windows.items.len);
+    try testing.expectEqual(@as(usize, 1), viewer.panes.count());
+    try testing.expect(viewer.panes.contains(42));
+    try testing.expect(viewer.command_queue.empty());
+    const entry = viewer.panes.getEntry(42) orelse
+        return error.ExpectedPane42;
+
+    const pane = entry.value_ptr;
+
+    const expected_key: ScreenSet.Key =
+        if (alternate_on) .alternate else .primary;
+
+    try testing.expectEqual(
+        expected_key,
+        pane.terminal.screens.active_key,
+    );
+
+    const screen = pane.terminal.screens.active;
+
+    const text = try screen.dumpStringAlloc(
+        testing.allocator,
+        .{ .active = .{} },
+    );
+    defer testing.allocator.free(text);
+
+    try testing.expectEqualStrings("hello", text);
+
+    const other_key: ScreenSet.Key =
+        if (alternate_on) .primary else .alternate;
+
+    const other_screen = pane.terminal.screens.get(other_key) orelse
+        return error.ExpectedOtherScreen;
+
+    const other_text = try other_screen.dumpStringAlloc(
+        testing.allocator,
+        .{ .active = .{} },
+    );
+    defer testing.allocator.free(other_text);
+
+    try testing.expectEqualStrings("", other_text);
 }

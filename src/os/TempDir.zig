@@ -81,7 +81,7 @@ pub fn close(self: *TempDir, mode: CloseMode) void {
 test {
     const testing = std.testing;
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     var path_len: usize = undefined;
     {
         var td = try init();
@@ -110,7 +110,7 @@ test {
 test "close retains temporary directory" {
     const testing = std.testing;
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     var path_len: usize = undefined;
     {
         var td = try init();

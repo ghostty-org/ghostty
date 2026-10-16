@@ -106,30 +106,26 @@ label.resize-overlay {
  * Child Exited Overlay
  */
 .child-exited.normal revealer widget {
-  background-color: rgba(38, 162, 105, 0.5);
-  /* after GTK 4.16 is a requirement, switch to the following: */
-  /* background-color: color-mix(in srgb, var(--success-bg-color), transparent 50%); */
+  background-color: color-mix(
+    in srgb,
+    var(--success-bg-color),
+    transparent 50%
+  );
 }
 
 .child-exited.abnormal revealer widget {
-  background-color: rgba(192, 28, 40, 0.5);
-  /* after GTK 4.16 is a requirement, switch to the following: */
-  /* background-color: color-mix(in srgb, var(--error-bg-color), transparent 50%); */
+  background-color: color-mix(in srgb, var(--error-bg-color), transparent 50%);
 }
 
 /*
  * Surface
  */
 .surface progressbar.error trough progress {
-  background-color: rgba(192, 28, 40, 0.5);
-  /* after GTK 4.16 is a requirement, switch to the following: */
-  /* background-color: color-mix(in srgb, var(--error-bg-color), transparent 50%); */
+  background-color: color-mix(in srgb, var(--error-bg-color), transparent 50%);
 }
 
 .surface .bell-overlay {
-  border-color: rgba(53, 132, 228, 0.5);
-  /* after GTK 4.16 is a requirement, switch to the following: */
-  /* background-color: color-mix(in srgb, var(--accent-color), transparent 50%); */
+  background-color: color-mix(in srgb, var(--accent-color), transparent 50%);
   border-width: 3px;
   border-style: solid;
 }
@@ -144,6 +140,7 @@ label.resize-overlay {
   outline-style: solid;
   outline-width: 1px;
 }
+
 /*
  * Drag and drop overlay
  */
@@ -152,47 +149,44 @@ label.resize-overlay {
   opacity: 0;
   transition: 0.1s opacity;
 }
+
 .drag-handle:hover {
   opacity: 1;
 }
+
 .drop-overlay.drop-left {
-  /* after GTK 4.16 is a requirement, switch to the following: */
-  /* background: linear-gradient(to left, transparent, 50%, color-mix(in srgb, var(--accent-color), transparent 50%) 50%); */
   background: linear-gradient(
     to left,
     transparent,
     50%,
-    rgba(53, 132, 228, 0.2) 50%
+    color-mix(in srgb, var(--accent-color), transparent 50%) 50%
   );
 }
+
 .drop-overlay.drop-right {
-  /* after GTK 4.16 is a requirement, switch to the following: */
-  /* background: linear-gradient(to right, transparent, 50%, color-mix(in srgb, var(--accent-color), transparent 50%) 50%); */
   background: linear-gradient(
     to right,
     transparent,
     50%,
-    rgba(53, 132, 228, 0.2) 50%
+    color-mix(in srgb, var(--accent-color), transparent 50%) 50%
   );
 }
+
 .drop-overlay.drop-top {
-  /* after GTK 4.16 is a requirement, switch to the following: */
-  /* background: linear-gradient(to top, transparent, 50%, color-mix(in srgb, var(--accent-color), transparent 50%) 50%); */
   background: linear-gradient(
     to top,
     transparent,
     50%,
-    rgba(53, 132, 228, 0.2) 50%
+    color-mix(in srgb, var(--accent-color), transparent 50%) 50%
   );
 }
+
 .drop-overlay.drop-bottom {
-  /* after GTK 4.16 is a requirement, switch to the following: */
-  /* background: linear-gradient(to bottom, transparent, 50%, color-mix(in srgb, var(--accent-color), transparent 50%) 50%); */
   background: linear-gradient(
     to bottom,
     transparent,
     50%,
-    rgba(53, 132, 228, 0.2) 50%
+    color-mix(in srgb, var(--accent-color), transparent 50%) 50%
   );
 }
 
@@ -214,9 +208,7 @@ label.resize-overlay {
  */
 
 .window .split paned > separator {
-  background-color: rgba(250, 250, 250, 1);
-  /* after GTK 4.16 is a requirement, switch to the following: */
-  /* background-color: color-mix(in srgb, var(--window-bg-color), transparent 0%); */
+  background-color: color-mix(in srgb, var(--window-bg-color), transparent 0%);
   background-clip: content-box;
 
   /* This works around the oversized drag area for the right side of GtkPaned.

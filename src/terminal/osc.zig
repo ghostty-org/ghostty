@@ -20,6 +20,7 @@ const encoding = @import("osc/encoding.zig");
 pub const color = parsers.color;
 pub const semantic_prompt = parsers.semantic_prompt;
 pub const program_status = parsers.program_status;
+pub const hierarchical_context = parsers.hierarchical_context;
 
 const log = std.log.scoped(.osc);
 
@@ -163,7 +164,7 @@ pub const Command = union(Key) {
 
     /// OSC 3008. Hierarchical context signalling (UAPI spec).
     /// https://uapi-group.org/specifications/specs/osc_context/
-    context_signal: parsers.context_signal.Command,
+    hierarchical_context: parsers.hierarchical_context.Command,
 
     /// Kitty desktop notifications (OSC 99)
     kitty_desktop_notification: KittyDesktopNotification,
@@ -178,6 +179,7 @@ pub const Command = union(Key) {
     program_status: ProgramStatus,
 
     pub const SemanticPrompt = parsers.semantic_prompt.Command;
+    pub const HierarchicalContext = parsers.hierarchical_context.Command;
 
     pub const KittyClipboardProtocol = parsers.kitty_clipboard_protocol.OSC;
 
@@ -216,7 +218,7 @@ pub const Command = union(Key) {
             "kitty_text_sizing",
             "kitty_clipboard_protocol",
             "kitty_dnd_protocol",
-            "context_signal",
+            "hierarchical_context",
             "kitty_desktop_notification",
             "unknown",
             "program_status",
@@ -551,7 +553,7 @@ pub const Parser = struct {
             .kitty_clipboard_protocol,
             .kitty_dnd_protocol,
             .kitty_desktop_notification,
-            .context_signal,
+            .hierarchical_context,
             .unknown,
             .program_status,
             => {},
@@ -1165,7 +1167,7 @@ pub const Parser = struct {
 
             .@"52" => parsers.clipboard_operation.parse(self, terminator_ch),
 
-            .@"3008" => parsers.context_signal.parse(self, terminator_ch),
+            .@"3008" => parsers.hierarchical_context.parse(self, terminator_ch),
 
             .@"66" => parsers.kitty_text_sizing.parse(self, terminator_ch),
 

@@ -4333,7 +4333,7 @@ pub fn increaseCapacity(
         },
     };
 
-    log.info("adjusting page capacity={}", .{cap});
+    log.debug("adjusting page capacity={}", .{cap});
 
     // Create our new page and clone the old page into it.
     const new_node = try self.createPage(.{ .cap = cap });

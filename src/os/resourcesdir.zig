@@ -67,7 +67,7 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
     };
 
     // Get the path to our running binary
-    var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var exe_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     var exe: []const u8 = exe_buf[0 .. std.process.executablePath(
         global.io(),
         &exe_buf,
@@ -75,7 +75,7 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
 
     // We have an exe path! Climb the tree looking for the terminfo
     // bundle as we expect it.
-    var dir_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var dir_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     while (std.fs.path.dirname(exe)) |dir| {
         exe = dir;
 
