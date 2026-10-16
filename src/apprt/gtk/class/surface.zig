@@ -1279,15 +1279,7 @@ pub const Surface = extern struct {
             // This can trigger an input method so we need to notify the im context
             // where the cursor is so it can render the dropdowns in the correct
             // place.
-            if (priv.core_surface) |surface| {
-                const ime_point = surface.imePoint();
-                priv.im_context.as(gtk.IMContext).setCursorLocation(&.{
-                    .f_x = @intFromFloat(ime_point.x),
-                    .f_y = @intFromFloat(ime_point.y),
-                    .f_width = 1,
-                    .f_height = 1,
-                });
-            }
+            self.updateImePosition();
 
             // We note that we're in a keypress because we want some logic to
             // depend on this. For example, we don't want to send character events
@@ -2823,7 +2815,12 @@ pub const Surface = extern struct {
         priv.focused = focused;
 
         const ctx = priv.im_context.as(gtk.IMContext);
-        if (focused) ctx.focusIn() else ctx.focusOut();
+        if (focused) {
+            self.updateImePosition();
+            ctx.focusIn();
+        } else {
+            ctx.focusOut();
+        }
 
         _ = glib.idleAddOnce(idleFocus, self.ref());
         self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
@@ -3168,6 +3165,33 @@ pub const Surface = extern struct {
         return @intFromBool(glib.SOURCE_REMOVE);
     }
 
+    /// Tell GTK where our cursor is so that the IME can place the candidate
+    /// window at the right position.
+    fn updateImePosition(self: *Self) void {
+        const priv = self.private();
+        const surface = priv.core_surface orelse return;
+
+        // GTK wants widget coordinates, so we divide by the surface scale
+        // only and leave out the font DPI scale (gtk-xft-dpi).
+        const surface_scale: f32 = @floatCast(scale_util.widgetSurfaceScale(
+            priv.render_surface.as(gtk.Widget),
+        ));
+        const ime_point = surface.imePointScaled(.{
+            .x = surface_scale,
+            .y = surface_scale,
+        });
+
+        // Snap outward to whole pixels; an empty rectangle means "unset".
+        const top = @floor(ime_point.y - ime_point.height);
+        const bottom = @ceil(ime_point.y);
+        priv.im_context.as(gtk.IMContext).setCursorLocation(&.{
+            .f_x = @intFromFloat(@floor(ime_point.x)),
+            .f_y = @intFromFloat(top),
+            .f_width = 1,
+            .f_height = @intFromFloat(@max(1, bottom - top)),
+        });
+    }
+
     fn imPreeditStart(
         _: *gtk.IMMulticontext,
         self: *Self,
@@ -3179,6 +3203,8 @@ pub const Surface = extern struct {
         const priv = self.private();
         priv.im_composing = true;
         priv.im_len = 0;
+
+        self.updateImePosition();
     }
 
     fn imPreeditChanged(
@@ -3218,6 +3244,8 @@ pub const Surface = extern struct {
                 .{err},
             );
         };
+
+        self.updateImePosition();
     }
 
     fn imPreeditEnd(
