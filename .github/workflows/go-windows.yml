@@ -1,0 +1,64 @@
+name: Go bindings (Windows)
+
+on:
+  pull_request:
+    paths:
+      - 'khostty-go/**'
+      - 'include/ghostty/**'
+      - 'src/**'
+      - 'pkg/**'
+      - 'build.zig'
+      - 'build.zig.zon'
+      - '.github/workflows/go-windows.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'khostty-go/**'
+      - 'include/ghostty/**'
+      - 'src/**'
+      - 'pkg/**'
+      - 'build.zig'
+      - 'build.zig.zon'
+      - '.github/workflows/go-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go-windows:
+    if: github.repository == 'KooshaPari/Khostty'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: '0.16.0'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.3'
+          cache: false
+      - name: Build DLL and import library
+        run: zig build -Demit-lib-vt -Doptimize=ReleaseFast
+      - name: Build Go packages and examples
+        working-directory: khostty-go
+        run: |
+          . ./tools/windows-env.ps1
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Vet Go packages
+        working-directory: khostty-go
+        run: |
+          . ./tools/windows-env.ps1
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run Go tests against DLL
+        working-directory: khostty-go
+        run: |
+          . ./tools/windows-env.ps1
+          go test -count=1 -v ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

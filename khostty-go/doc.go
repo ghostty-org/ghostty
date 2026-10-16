@@ -65,6 +65,24 @@
 // `DYLD_LIBRARY_PATH`) is required for tests and binaries to start.
 // On Linux the equivalent is `LD_LIBRARY_PATH`.
 //
+// # Windows (PowerShell 7)
+//
+// Use the installed Zig 0.16.0 as the cgo C compiler; GCC is not required.
+// Add Zig's directory to PATH for this session, then from the checkout root:
+//
+//	zig build -Demit-lib-vt -Doptimize=ReleaseFast
+//	cd khostty-go
+//	. ./tools/windows-env.ps1
+//	go build ./...
+//	go vet ./...
+//	go test -count=1 -v ./...
+//
+// windows-env.ps1 enables cgo, sets CC to the Zig wrapper, checks the DLL and
+// import library exist, and prepends zig-out/bin to this session's PATH.
+// Windows has no rpath: the DLL must be on PATH even though its import
+// library is linked from zig-out/lib. Keep that DLL available when running
+// built examples outside this shell as well.
+//
 // # macOS toolchain caveat (darwin only)
 //
 // If `go test` fails at link time with `tapi error: malformed file` and

@@ -8,7 +8,10 @@ package khostty
 //
 // ${SRCDIR} is expanded by the go tool to the absolute directory holding
 // this file, so the flags below resolve to <checkout>/include and
-// <checkout>/zig-out/lib without any environment setup.
+// <checkout>/zig-out/lib. On Windows, tools/windows-env.ps1 sets up the
+// compiler and runtime DLL search path for the current PowerShell session.
+// Zig's Windows linker resolves -lghostty-vt to ghostty-vt.lib (the DLL
+// import library), distinct from the standalone ghostty-vt-static.lib.
 //
 // The rpath entry is what makes a built test binary or example start: the
 // macOS shared object records `@rpath/libghostty-vt.dylib` as its install
@@ -16,7 +19,7 @@ package khostty
 //
 // Build the library with:
 //
-//	zig build install -Doptimize=ReleaseFast
+//	zig build -Demit-lib-vt -Doptimize=ReleaseFast
 //
 // To link against a library elsewhere, build with `-tags khostty_custom_lib`
 // and supply CGO_LDFLAGS. See doc.go.
