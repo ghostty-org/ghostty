@@ -1245,8 +1245,12 @@ pub const PageFormatter = struct {
 
             // If this row is blank, accumulate to avoid a bunch of extra
             // work later. If it isn't blank, make sure we dump all our
-            // blanks.
-            if (!Cell.hasTextAny(cells_subset)) {
+            // blanks. In VT a row of cells that only carry a background
+            // (erased while a background color was set) isn't blank,
+            // since dropping it would lose the color.
+            if (!Cell.hasTextAny(cells_subset) and
+                !(emit == .vt and hasBackgroundAny(cells_subset)))
+            {
                 blank_rows += 1;
                 continue;
             }
@@ -1334,6 +1338,13 @@ pub const PageFormatter = struct {
                         if (style_id == invalid_style_id) break :fast;
                     }
 
+                    // VT blanks carried over from a wrapped row (when
+                    // unwrapping) can't be stepped over, so the run only
+                    // starts with blanks on this row.
+                    if (comptime emit == .vt) {
+                        if (blank_cells > cell_i) break :fast;
+                    }
+
                     // Pages without hyperlinks take a copy of the run
                     // loop that never checks for them.
                     const consumed = if (formatStyled(emit) and page_hyperlinks)
@@ -1407,6 +1418,24 @@ pub const PageFormatter = struct {
 
                 // This cell is not blank. If we have accumulated blank cells
                 // then we want to emit them now.
+                if (comptime emit == .vt) if (blank_cells > 0) {
+                    if (blank_cells <= cell_i) {
+                        // Blanks on this row are stepped over (CUF).
+                        // Spaces would turn them into text, in the pen
+                        // of the text before them.
+                        try self.writeBlankStep(writer, blank_cells, x, y);
+                        blank_cells = 0;
+                    } else if (!style.default()) {
+                        // Blanks carried over from a wrapped row can't
+                        // be: CUF stops at the end of the row. They are
+                        // written as spaces, without the pen of the text
+                        // before them.
+                        try self.formatStyleClose(emit, writer);
+                        style = .{};
+                        style_id = 0;
+                    }
+                };
+
                 if (blank_cells > 0) {
                     // Blank cells have no hyperlink. In VT output an open
                     // hyperlink would apply to the spaces written for them,
@@ -1585,9 +1614,38 @@ pub const PageFormatter = struct {
                         }
                     },
 
-                    // Cells with only background color (no text). Emit a space
-                    // with the appropriate background color SGR sequence.
+                    // Cells with only background color (no text).
                     .bg_color_palette, .bg_color_rgb => {
+                        // VT restores them as they are made: erasing with
+                        // the background set (ECH) leaves empty cells
+                        // carrying it, where a space would be text. The
+                        // pen is already the background, from the style
+                        // block above. A run of the same background is
+                        // erased at once, then stepped over (CUF).
+                        if (comptime emit == .vt) {
+                            var run: usize = 1;
+                            while (cell_i + run < cells_subset.len and
+                                sameBackground(cell, &cells_subset[cell_i + run])) run += 1;
+
+                            var buf: [32]u8 = undefined;
+                            const seq = std.fmt.bufPrint(
+                                &buf,
+                                "\x1b[{d}X\x1b[{d}C",
+                                .{ run, run },
+                            ) catch unreachable;
+                            try writer.writeAll(seq);
+                            if (self.point_map) |*map| map.map.appendNTimes(
+                                map.alloc,
+                                .{ .x = x, .y = y },
+                                seq.len,
+                            ) catch return error.WriteFailed;
+
+                            // The continue expression adds the last one.
+                            cell_i += run - 1;
+                            continue;
+                        }
+
+                        // HTML emits a space, in the background's style.
                         try writer.writeByte(' ');
                         if (self.point_map) |*map| map.map.append(
                             map.alloc,
@@ -1742,13 +1800,16 @@ pub const PageFormatter = struct {
             const x: size.CellCountInt = @intCast(run_x + i);
 
             // This cell produces output: materialize accumulated blanks.
-            if (pending > 0) {
-                // The slow path closes an open hyperlink before writing
-                // blanks in VT output, so leave them to it.
-                if (comptime emit == .vt and hyperlinks) {
-                    if (run_hyperlink_id != null) break;
-                }
+            // VT steps over them (CUF), which the caller guarantees stays
+            // on this row.
+            if (comptime emit == .vt) if (pending > 0) {
+                try writer.writeAll(buf[0..len]);
+                len = 0;
+                try self.writeBlankStep(writer, pending, x, run_y);
+                pending = 0;
+            };
 
+            if (pending > 0) {
                 if (track_points) try self.appendBlankPoints(
                     &self.point_map.?,
                     pending,
@@ -1895,6 +1956,46 @@ pub const PageFormatter = struct {
         }
 
         return len.* - start;
+    }
+
+    /// Step over `count` blank cells (CUF) just before the cell at
+    /// (x, y), all on that row. The point map entries map to the first
+    /// blank cell.
+    fn writeBlankStep(
+        self: *const PageFormatter,
+        writer: *std.Io.Writer,
+        count: usize,
+        x: size.CellCountInt,
+        y: size.CellCountInt,
+    ) std.Io.Writer.Error!void {
+        var buf: [32]u8 = undefined;
+        const seq = std.fmt.bufPrint(&buf, "\x1b[{d}C", .{count}) catch unreachable;
+        try writer.writeAll(seq);
+        if (self.point_map) |*map| map.map.appendNTimes(
+            map.alloc,
+            .{ .x = x - @as(size.CellCountInt, @intCast(count)), .y = y },
+            seq.len,
+        ) catch return error.WriteFailed;
+    }
+
+    /// Whether any of the cells only carries a background color.
+    fn hasBackgroundAny(cells: []const Cell) bool {
+        for (cells) |*cell| switch (cell.content_tag) {
+            .bg_color_palette, .bg_color_rgb => return true,
+            .codepoint, .codepoint_grapheme => {},
+        };
+        return false;
+    }
+
+    /// Whether two cells both only carry the same background color.
+    fn sameBackground(a: *const Cell, b: *const Cell) bool {
+        if (a.content_tag != b.content_tag) return false;
+        return switch (a.content_tag) {
+            .bg_color_palette => a.content.color_palette.data ==
+                b.content.color_palette.data,
+            .bg_color_rgb => std.meta.eql(a.content.color_rgb, b.content.color_rgb),
+            .codepoint, .codepoint_grapheme => false,
+        };
     }
 
     /// Append the point map entries for a run of `count` blank cells
@@ -5785,7 +5886,7 @@ test "Page VT with hyperlink across rows" {
     );
 }
 
-test "Page VT closes a hyperlink before blank cells" {
+test "Page VT steps over blank cells in a hyperlink" {
     const testing = std.testing;
     const alloc = testing.allocator;
     const io = testing.io;
@@ -5803,7 +5904,8 @@ test "Page VT closes a hyperlink before blank cells" {
     defer s.deinit();
 
     // The cells skipped by the cursor movement are blank and have no
-    // hyperlink, so the spaces written for them must not have one either.
+    // hyperlink. Stepping over them doesn't write them, so the
+    // hyperlink stays open.
     s.nextSlice("\x1b]8;;https://example.com\x1b\\ab\x1b[5Gcd\x1b]8;;\x1b\\");
 
     const pages = &t.screens.active.pages;
@@ -5812,9 +5914,43 @@ test "Page VT closes a hyperlink before blank cells" {
 
     try formatter.format(&builder.writer);
     try testing.expectEqualStrings(
-        "\x1b]8;;https://example.com\x1b\\ab\x1b]8;;\x1b\\" ++
-            "  " ++
-            "\x1b]8;;https://example.com\x1b\\cd\x1b]8;;\x1b\\",
+        "\x1b]8;;https://example.com\x1b\\ab\x1b[2Ccd\x1b]8;;\x1b\\",
+        builder.writer.buffered(),
+    );
+}
+
+test "Page VT unwrap closes a hyperlink before blank cells" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // The blanks before the wrapped wide character carry over to the
+    // next row, so they are written as spaces, which must not have the
+    // hyperlink.
+    s.nextSlice("\x1b]8;;https://example.com\x1b\\abc\x1b[10G中\x1b]8;;\x1b\\");
+
+    const pages = &t.screens.active.pages;
+    const page = pages.pages.last.?.page();
+    var formatter: PageFormatter = .init(page, .vt);
+    formatter.opts.unwrap = true;
+
+    try formatter.format(&builder.writer);
+    try testing.expectEqualStrings(
+        "\x1b]8;;https://example.com\x1b\\abc\x1b]8;;\x1b\\" ++
+            "      " ++
+            "\x1b]8;;https://example.com\x1b\\中\x1b]8;;\x1b\\",
         builder.writer.buffered(),
     );
 }
@@ -7412,6 +7548,217 @@ test "Page VT background color on trailing blank cells" {
 
     // This should be true but currently fails due to the bug
     try testing.expect(has_red_bg_line1);
+}
+
+test "Page VT steps over a gap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 20,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // The gap after the red text is empty and has no background.
+    s.nextSlice("\x1b[41mred\x1b[0m\x1b[10Gplain");
+
+    const pages = &t.screens.active.pages;
+    const page = pages.pages.last.?.page();
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    var formatter: PageFormatter = .init(page, .vt);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    try testing.expectEqualStrings(
+        "\x1b[0m\x1b[48;5;1mred\x1b[6C\x1b[0mplain",
+        output,
+    );
+    try testing.expectEqual(output.len, point_map.items.len);
+
+    // The CUF maps to the first cell of the gap.
+    const cuf = std.mem.indexOf(u8, output, "\x1b[6C").?;
+    for (cuf..cuf + 4) |i| try testing.expectEqual(
+        Coordinate{ .x = 3, .y = 0 },
+        point_map.items[i],
+    );
+}
+
+test "Page VT erases cells that only have a background" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Erasing to the end of the row with a background set.
+    s.nextSlice("CPU:\x1b[41m\x1b[K\x1b[0m");
+
+    const pages = &t.screens.active.pages;
+    const page = pages.pages.last.?.page();
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    var formatter: PageFormatter = .init(page, .vt);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    try testing.expectEqualStrings(
+        "CPU:\x1b[0m\x1b[48;5;1m\x1b[6X\x1b[6C\x1b[0m",
+        output,
+    );
+    try testing.expectEqual(output.len, point_map.items.len);
+}
+
+test "Page VT keeps rows that only have a background" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 5,
+        .rows = 2,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Erasing the screen with a background set paints every cell.
+    s.nextSlice("\x1b[44m\x1b[2J\x1b[Hab\x1b[0m");
+
+    const pages = &t.screens.active.pages;
+    const page = pages.pages.last.?.page();
+    var formatter: PageFormatter = .init(page, .vt);
+
+    try formatter.format(&builder.writer);
+    try testing.expectEqualStrings(
+        "\x1b[0m\x1b[48;5;4mab\x1b[3X\x1b[3C\x1b[0m\r\n" ++
+            "\x1b[0m\x1b[48;5;4m\x1b[5X\x1b[5C\x1b[0m",
+        builder.writer.buffered(),
+    );
+}
+
+test "Page VT unwrap writes blanks before a wrapped wide character" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // The wide character doesn't fit in the last column, so it wraps,
+    // and the blanks before it carry over to the next row.
+    s.nextSlice("\x1b[41mabc\x1b[0m\x1b[10G中");
+
+    const pages = &t.screens.active.pages;
+    const page = pages.pages.last.?.page();
+    var formatter: PageFormatter = .init(page, .vt);
+    formatter.opts.unwrap = true;
+
+    // CUF can't cross the row, so the blanks are spaces, written
+    // without the pen of the text before them.
+    try formatter.format(&builder.writer);
+    try testing.expectEqualStrings(
+        "\x1b[0m\x1b[48;5;1mabc\x1b[0m      中",
+        builder.writer.buffered(),
+    );
+}
+
+test "Terminal vt restores gaps and cells that only have a background" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var source = try Terminal.init(io, alloc, .{
+        .cols = 20,
+        .rows = 4,
+    });
+    defer source.deinit(alloc);
+
+    var source_stream = source.vtStream();
+    defer source_stream.deinit();
+    source_stream.nextSlice(
+        "\x1b[41mred\x1b[0m\x1b[10Gplain\r\n" ++
+            "\x1b[44m\x1b[K\x1b[0m\r\n" ++
+            "CPU:\x1b[42m\x1b[K\x1b[48;2;1;2;3m\x1b[15G\x1b[3X\x1b[0m\x1b[19Gx\r\n" ++
+            "  spaces  \x1b[1mbold\x1b[0m",
+    );
+
+    var formatter: TerminalFormatter = .init(&source, .vt);
+    try formatter.format(&builder.writer);
+
+    var target = try Terminal.init(io, alloc, .{
+        .cols = 20,
+        .rows = 4,
+    });
+    defer target.deinit(alloc);
+
+    var target_stream = target.vtStream();
+    defer target_stream.deinit();
+    target_stream.nextSlice(builder.writer.buffered());
+
+    for (0..4) |y| for (0..20) |x| {
+        const pt: @import("point.zig").Point = .{ .active = .{
+            .x = @intCast(x),
+            .y = @intCast(y),
+        } };
+        const a = source.screens.active.pages.getCell(pt).?;
+        const b = target.screens.active.pages.getCell(pt).?;
+        try testing.expectEqual(a.cell.content_tag, b.cell.content_tag);
+        try testing.expectEqual(a.cell.wide, b.cell.wide);
+        switch (a.cell.content_tag) {
+            .codepoint, .codepoint_grapheme => try testing.expectEqual(
+                a.cell.codepoint(),
+                b.cell.codepoint(),
+            ),
+            .bg_color_palette => try testing.expectEqual(
+                a.cell.content.color_palette,
+                b.cell.content.color_palette,
+            ),
+            .bg_color_rgb => try testing.expectEqual(
+                a.cell.content.color_rgb,
+                b.cell.content.color_rgb,
+            ),
+        }
+        try testing.expect(a.style().eql(b.style()));
+    };
 }
 
 test "Page HTML with hyperlinks" {
