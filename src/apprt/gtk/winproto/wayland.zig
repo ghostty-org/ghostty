@@ -16,6 +16,7 @@ const org = wayland.client.org;
 const xdg = wayland.client.xdg;
 
 const Config = @import("../../../config.zig").Config;
+const global = @import("../../../global.zig");
 const Globals = @import("wayland/Globals.zig");
 const Hotkeys = @import("wayland/Hotkeys.zig");
 const input = @import("../../../input.zig");
@@ -256,6 +257,50 @@ pub const Window = struct {
     pub fn addSubprocessEnv(self: *Window, env: *std.process.Environ.Map) !void {
         _ = self;
         _ = env;
+    }
+
+    /// Ask the compositor to raise and focus this window on behalf of a
+    /// user interaction that happened in some other process, such as
+    /// picking a result in the GNOME Shell search. Returns false if this
+    /// compositor gives us no way to do that, in which case the caller
+    /// should fall back to GTK.
+    ///
+    /// `gtk_window_present` on Wayland asks the compositor for an
+    /// xdg-activation token and proves the request was wanted with the
+    /// serial of the last input event we received. When the interaction
+    /// happened elsewhere that serial is stale, Mutter refuses the token,
+    /// and the most it will do is mark the window as demanding attention,
+    /// which GNOME Shell shows as a "Ghostty is ready" notification.
+    ///
+    /// Mutter also accepts an activation that names a startup sequence it
+    /// already knows about, and `gtk_shell1.notify_launch` registers one,
+    /// stamped with the current time, under whatever ID we give it. That
+    /// is how GTK's own app launch context tells Mutter about the apps it
+    /// starts, and it is the same trust Mutter extends to X11 clients,
+    /// where a `_NET_ACTIVE_WINDOW` with a recent timestamp is enough.
+    /// Focus stealing prevention still applies: if the user has interacted
+    /// with another window since, the sequence is too old and the window
+    /// is only marked as demanding attention.
+    ///
+    /// gtk_shell1 is Mutter's private protocol with GTK, so this only ever
+    /// works on GNOME.
+    pub fn present(self: *Window) bool {
+        const shell = self.globals.get(.gtk_shell) orelse return false;
+        const activation = self.globals.get(.xdg_activation) orelse return false;
+
+        // Mutter only ever compares the ID as a string, so it just has to
+        // be one nobody else is using.
+        var bytes: [16]u8 = undefined;
+        const rng_impl: std.Random.IoSource = .{ .io = global.io() };
+        rng_impl.interface().bytes(&bytes);
+        var buf: [bytes.len * 2 + 1]u8 = undefined;
+        const id = std.fmt.bufPrintZ(&buf, "{x}", .{bytes[0..]}) catch unreachable;
+
+        // Both requests go out on the same connection, so the compositor
+        // sees the sequence before the activation that names it.
+        shell.notifyLaunch(id.ptr);
+        activation.activate(id.ptr, self.surface);
+        return true;
     }
 
     pub fn setUrgent(self: *Window, urgent: bool) !void {

@@ -339,6 +339,12 @@ pub const Window = struct {
         self.x11_surface.setUrgencyHint(@intFromBool(urgent));
     }
 
+    /// `gtk_window_present_with_time` hands the timestamp to the window
+    /// manager itself on X11, so there is nothing for us to do.
+    pub fn present(_: *Window) bool {
+        return false;
+    }
+
     fn getWindowProperty(
         self: *Window,
         comptime T: type,
