@@ -882,44 +882,72 @@ pub fn addSimd(
     m: *std.Build.Module,
     static_libs: ?*LazyPathList,
 ) !void {
+    // We attach SIMD dependency outputs directly to the module via
+    // addObjectFile below rather than populating static_libs. This bundles
+    // the object files into the library directly at build time and keeps
+    // static_libs empty, avoiding a redundant secondary CombineArchivesStep
+    // pass in static library builds (such as Apple universal/dylib builds).
+    _ = static_libs;
+
     const target = m.resolved_target.?;
     const optimize = m.optimize.?;
     const system_highway = b.systemIntegrationOption("highway", .{ .default = false });
 
+    // Simd static library containing C++ SIMD implementations.
+    // We compile this into an isolated static library so that C++ compilation flags
+    // and standard library requirements do not propagate to pure C consumers of libghostty-vt.
+    const simd_lib = b.addLibrary(.{
+        .name = "ghostty-simd",
+        .linkage = .static,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .link_libcpp = target.result.abi != .msvc,
+            .pic = target.result.os.tag != .freestanding,
+        }),
+    });
+
+    if (target.result.os.tag.isDarwin()) {
+        try @import("apple_sdk").addPaths(b, simd_lib);
+    }
+    if (target.result.abi.isAndroid()) {
+        try @import("android_ndk").addPaths(b, simd_lib);
+    }
+
     // Simdutf
     if (b.systemIntegrationOption("simdutf", .{})) {
         m.linkSystemLibrary("simdutf", dynamic_link_opts);
+        simd_lib.root_module.linkSystemLibrary("simdutf", dynamic_link_opts);
     } else {
         if (b.lazyDependency("simdutf", .{
             .target = target,
             .optimize = optimize,
             .no_libcxx = true,
         })) |simdutf_dep| {
-            m.linkLibrary(simdutf_dep.artifact("simdutf"));
-            if (static_libs) |v| try v.append(
-                b.allocator,
-                simdutf_dep.artifact("simdutf").getEmittedBin(),
-            );
+            const simdutf_artifact = simdutf_dep.artifact("simdutf");
+            simd_lib.root_module.linkLibrary(simdutf_artifact);
+            m.addObjectFile(simdutf_artifact.getEmittedBin());
         }
     }
 
     // Highway
     if (system_highway) {
         m.linkSystemLibrary("libhwy", dynamic_link_opts);
+        simd_lib.root_module.linkSystemLibrary("libhwy", dynamic_link_opts);
     } else {
         if (b.lazyDependency("highway", .{
             .target = target,
             .optimize = optimize,
         })) |highway_dep| {
-            m.linkLibrary(highway_dep.artifact("highway"));
-            if (static_libs) |v| try v.append(
-                b.allocator,
-                highway_dep.artifact("highway").getEmittedBin(),
-            );
+            const highway_art = highway_dep.artifact("highway");
+            simd_lib.root_module.linkLibrary(highway_art);
+            m.addObjectFile(highway_art.getEmittedBin());
         }
     }
 
     // SIMD C++ files
+    simd_lib.root_module.addIncludePath(b.path("src"));
     m.addIncludePath(b.path("src"));
     {
         // From hwy/detect_targets.h
@@ -967,6 +995,16 @@ pub fn addSimd(
             "-DSIMDUTF_NO_LIBCXX",
         );
 
+        // Disable exceptions and RTTI to avoid referencing C++ runtime
+        // symbols (unwind personality routines, typeinfo metadata) and
+        // eliminate bloat across Highway's multi-target code generation.
+        // This also matches NO_LIBCXX mode where standard exception and
+        // typeinfo headers are unavailable.
+        try flags.appendSlice(b.allocator, &.{
+            "-fno-exceptions",
+            "-fno-rtti",
+        });
+
         // Disable ubsan for Windows C/C++ objects to avoid undefined
         // __ubsan_handle_* references. The Zig libraries on Windows don't
         // currently bundle a matching UBSan runtime for these objects in
@@ -981,7 +1019,7 @@ pub fn addSimd(
             "-fno-autolink",
         });
 
-        m.addCSourceFiles(.{
+        simd_lib.root_module.addCSourceFiles(.{
             .files = &.{
                 "src/simd/base64.cpp",
                 "src/simd/codepoint_width.cpp",
@@ -991,6 +1029,8 @@ pub fn addSimd(
             .flags = flags.items,
         });
     }
+
+    m.addObjectFile(simd_lib.getEmittedBin());
 }
 
 pub const GtkResources = struct {
