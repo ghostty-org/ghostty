@@ -20,10 +20,6 @@
 #   free Actions tier. The fork's own conventions already schedule heavier
 #   work off the push path (sonar.yml, trunk-check.yml, scorecard.yml all use
 #   weekly crons). This matches that pattern.
-#
-# Why continue-on-error: consistent with every other job in this repo, which
-# treats quality signal as advisory rather than merge-blocking. A regression
-# here is still visible as a red nightly; it just does not block a push.
 # =============================================================================
 
 name: Fork Zig Tests
@@ -48,7 +44,13 @@ jobs:
     name: test-windows-apprt
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    continue-on-error: true
+    # 2026-10-15: removed `continue-on-error: true`. The cheap windows-apprt
+    # job (1-3 min warm) is a real gate; a regression here MUST surface as
+    # a push-blocking failure, not a silent nightly red X. The earlier
+    # `continue-on-error` masked every failure through the schedule path
+    # (operator directive: "remove masks for real test failures"). The
+    # agent-ipc job is no longer masked either; the 60-min cost is offset
+    # by the nightly schedule and the workflow_dispatch manual path.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,14 +60,32 @@ jobs:
       - uses: ./.github/actions/install-zig
         with:
           version: "0.16.0"
+          # install-zig refuses to proceed without a 64-char lowercase hex
+          # SHA-256 (action.yml enforces `^[0-9a-f]{64}$`). The shasum is the
+          # ziglang.org-published value for zig-x86_64-linux-0.16.0.tar.xz
+          # (from https://ziglang.org/download/index.json key
+          # 0.16.0.x86_64-linux.shasum, captured 2026-10-15). Without this
+          # the regex check kills the step and the job is skipped.
+          shasum: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # No `cachix-action` step: this fork has no CACHIX_AUTH_TOKEN
+          # secret, and the cachix-action without credentials 401s. Nix
+          # itself is enough; flake.nix is the only thing the build
+          # actually needs (it supplies GTK4 / libadwaita / oniguruma /
+          # libxml2 / glib / pkg-config that the imported apprt/windows
+          # modules transitively link against).
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run test-windows-apprt
-        run: zig build test-windows-apprt
+        run: nix develop -c zig build test-windows-apprt
 
   agent-ipc:
     name: test-agent-ipc
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    continue-on-error: true
+    # 2026-10-15: removed `continue-on-error: true` (operator directive).
+    # The 60-min cost is the reason this whole workflow is cron+manual only;
+    # within those triggers a real regression is the signal we want.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,5 +93,9 @@ jobs:
       - uses: ./.github/actions/install-zig
         with:
           version: "0.16.0"
+          shasum: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run test-agent-ipc
-        run: zig build test-agent-ipc
+        run: nix develop -c zig build test-agent-ipc
