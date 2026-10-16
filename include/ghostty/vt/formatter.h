@@ -59,6 +59,9 @@ typedef struct {
 
   /** Emit character set designations and invocations. */
   bool charsets;
+
+  /** Emit Kitty graphics protocol state. */
+  bool kitty_graphics;
 } GhosttyFormatterScreenExtra;
 
 /**
