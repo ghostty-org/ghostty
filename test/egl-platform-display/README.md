@@ -34,8 +34,8 @@ recent capture.
 
 - `pkg/opengl/egl.zig` helpers + inline tests: commits `431bc6fba`
   (`fix(opengl): comptime-branch eglGetPlatformDisplay id for typed
-  EGLNativeDisplayType`) and `5055d2c17` (`test(egl): expand
-  pickEglIdCast coverage to BOTH arms with synthetic types`).
+EGLNativeDisplayType`) and `5055d2c17` (`test(egl): expand
+pickEglIdCast coverage to BOTH arms with synthetic types`).
 - This harness persistence: tracked here so the next reviewer can
   re-run the same gate without rebuilding the probe state.
 - Original (now-deprecated) location was `.jcode-egl-synth/`; the
@@ -49,6 +49,6 @@ are declared in `opengl_c_stub.zig`. If production code adds new
 
 ## Files
 
-- `opengl_c_stub.zig`  — the lazy-analysis stub (88 lines).
-- `PROOF-LOG.txt`      — the most recent successful run's transcript.
-- `README.md`          — this file.
+- `opengl_c_stub.zig` — the lazy-analysis stub (88 lines).
+- `PROOF-LOG.txt` — the most recent successful run's transcript.
+- `README.md` — this file.
