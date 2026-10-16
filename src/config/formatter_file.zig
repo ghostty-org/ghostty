@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Config = @import("Config.zig");
-const Key = @import("key.zig").Key;
+const Key = Config.Key;
 const help_strings = @import("help_strings");
 const formatter = @import("formatter.zig");
 
@@ -16,7 +16,10 @@ pub const FileFormatter = struct {
     alloc: Allocator,
     config: *const Config,
 
-    /// Include comments for documentation of each key
+    /// Only include these options in the output, or all of them if null.
+    include: ?std.EnumSet(Key) = null,
+
+    /// Include comments for documentation of each key.
     docs: bool = false,
 
     /// Only include changed values from the default.
@@ -29,24 +32,28 @@ pub const FileFormatter = struct {
     ) std.Io.Writer.Error!void {
         @setEvalBranchQuota(10_000);
 
+        // Fast path in case no options are included.
+        if (self.include) |in| if (in.count() == 0) return;
+
         // If we're change-tracking then we need the default config to
         // compare against.
         var default: ?Config = if (self.changed)
             Config.default(self.alloc) catch return error.WriteFailed
         else
             null;
-        defer if (default) |*v| v.deinit();
+        defer if (default) |*d| d.deinit();
 
         inline for (@typeInfo(Config).@"struct".fields) |field| {
             if (field.name[0] == '_') continue;
 
-            const value = @field(self.config, field.name);
-            const do_format = if (default) |*d| format: {
+            const do_format = format: {
                 const key = @field(Key, field.name);
-                break :format d.changed(self.config, key);
-            } else true;
+                const show = if (self.include) |in| in.contains(key) else true;
+                break :format show and if (default) |*d| d.changed(self.config, key) else true;
+            };
 
             if (do_format) {
+                const value = @field(self.config, field.name);
                 const do_docs = self.docs and @hasDecl(help_strings.Config, field.name);
                 if (do_docs) {
                     const help = @field(help_strings.Config, field.name);
@@ -107,4 +114,51 @@ test "format default config changed" {
     try fmt.format(&buf.writer);
 
     //std.log.warn("{s}", .{buf.written()});
+}
+
+test "format only included options" {
+    const alloc = std.testing.allocator;
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.@"font-size" = 42;
+
+    const include: std.EnumSet(Key) = .initOne(.@"font-size");
+    const fmt: FileFormatter = .{
+        .alloc = alloc,
+        .config = &cfg,
+        .include = include,
+    };
+    try std.testing.expectFmt("font-size = 42\n", "{f}", .{fmt});
+}
+
+test "format only changed included options" {
+    const alloc = std.testing.allocator;
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.@"font-size" = 42;
+
+    // An included option that is unchanged is not printed.
+    const include: std.EnumSet(Key) = .initMany(
+        &.{ .@"font-size", .@"font-family" },
+    );
+    const fmt: FileFormatter = .{
+        .alloc = alloc,
+        .config = &cfg,
+        .include = include,
+        .changed = true,
+    };
+    try std.testing.expectFmt("font-size = 42\n", "{f}", .{fmt});
+}
+
+test "format empty include" {
+    const alloc = std.testing.allocator;
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+
+    const fmt: FileFormatter = .{
+        .alloc = alloc,
+        .config = &cfg,
+        .include = .empty,
+    };
+    try std.testing.expectFmt("", "{f}", .{fmt});
 }
