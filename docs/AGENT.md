@@ -18,8 +18,8 @@ it will not work.
 | Encode key / mouse / focus events | **Available** | `key/encoder.h`, `mouse/encoder.h`, `focus.h` |
 | Run the parser in a browser or Node | **Available** | `@khostty/libghostty-vt-wasm` |
 | Open a new window / tab in a running instance | **Available (narrow)** | `khostty +new-window`, `+new-tab`, `+toggle-quick-terminal` |
-| Create, write to, focus, or query a **pane** | **Not reachable** | Modules implemented (G4); no `server.zig`, not wired |
-| Subscribe to terminal events over IPC | **Not reachable** | `events.zig` implemented (G4); no server |
+| Create, write to, focus, or query a **pane** | **In-process only today** | `src/apprt/ipc/{server,app_host,pane,handler,...}.zig` are implemented; `Server.bind` is exercised by the `test-agent-ipc` build step (`build.zig:79-508`); GTK runtime wire-up is pending |
+| Subscribe to terminal events over IPC | **In-process only today** | `events.zig` is implemented; no GTK runtime wires `Broker` into the runtime's title/exit/resize/bell callbacks yet |
 | Drive a Windows instance over IPC | **NOT AVAILABLE** | Named-pipe stub returns `error.Unimplemented` (G3) |
 
 **The reliable agent path today is embedding, not IPC.** An agent that needs to
@@ -180,14 +180,17 @@ Upstream `src/apprt/ipc/mod.zig` (the three-action `new_window` / `new_tab` /
 
 | Missing | Consequence |
 |---|---|
-| `src/apprt/ipc/server.zig` | **No accept loop. Nothing is listening.** The spec's §7 describes it; the file is not present. |
-| `src/apprt/ipc/app_host.zig` | No real app-backed `Host` implementation; only `fake_host.zig` for tests |
-| Re-export from `mod.zig` | The new modules are not reachable through the `apprt` interface |
-| Runtime wiring | No runtime constructs a server, so no running instance exposes the socket |
+| `Server.bind` not invoked from any GUI runtime | The protocol is fully implemented at the module level and exercised end-to-end by `test-agent-ipc` (`build.zig:79-508`), but no running Khostty exposes the socket. GTK wire-up is Phase B1. |
+| Runtime event publication | `events.zig` (`Broker`) is built and tested; the runtime's title/exit/resize/bell callbacks do not yet publish into it. Phase B4 wires the four hooks. |
+| Runtime app-thread hop for `pane.write` | `app_host.zig:290-298` writes the VT bytes directly to the parser from a connection thread. This must become a `Surface.queueIo(...)` mailbox hop before a windowed build touches the surface from outside its owning thread. Phase B2. |
+| `pane.focus` and `pane.search` against the GTK runtime | Both return `error.Unsupported` (`app_host.zig:177-178, 208-232`), mapped to `host_unsupported` in the protocol. The closure is upstream-core API work (no surface-by-id focus; no synchronous scan-and-return), which is out of fork-only scope. Agents should treat this as "ask the user", not as a transient failure to retry. |
 
-**Conclusion:** the protocol is designed and partially implemented, but there is no
-end-to-end path. An agent cannot connect today. Do not build against it, and do not
-report it as shipped.
+**Conclusion:** the protocol is implemented at the module level and is verified
+end-to-end in-process (`test-agent-ipc`). The remaining work is wiring
+`Server.bind` into a real runtime (Phase B), not designing more protocol. An agent
+today can connect to `test-agent-ipc` and exercise every command, including
+`pane.focus` and `pane.search` against `fake_host.zig`; it cannot drive a GUI
+instance, and `pane.focus` / `pane.search` will refuse under `app_host.zig`.
 
 ### Protocol outline (see the spec for detail)
 

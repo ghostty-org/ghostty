@@ -225,11 +225,7 @@ This is the fork's headline delta: upstream has no Windows application runtime.
 - **No real Win32 calls.** `win32api.zig` declares function pointers; no code
   invokes them.
 
-### Known defect (observed 2026-09-17)
-
-`src/apprt/windows/mod.zig` imports `"Surface.zig"`, but the tracked file is
-`surface.zig`. The import resolves only on a case-insensitive filesystem. Any
-case-sensitive build that pulls `mod.zig` into the graph will fail.
+| `mod.zig:4` now imports `surface.zig` (lowercase) — fixed |
 
 ### Windows IPC sketch
 

@@ -125,16 +125,20 @@ directory permissions for isolation.
 
 | Gap | Why it matters |
 |---|---|
-| **No `server.zig`** | Nothing listens. The auth code is not reachable end to end, so its behaviour is unverified in situ. |
-| No `app_host.zig` | The real host adapter and its thread-marshalling are unimplemented |
-| Not wired into any runtime | No running Khostty exposes the socket |
-| Concurrency untested | The spec promises "concurrent pane operations do not deadlock"; no test exercises it |
+| `server.zig` exists (1,238 lines, 14 tests) but is not wired into a runtime | The accept loop and client wire types are covered end to end (`Server.bind` / `Server.start` / `Client.connect` round-trip tests), but no running `khostty` exposes the socket, so the auth path is exercised in-process, not under a real GUI. |
+| `app_host.zig` exists (574 lines, full `Host` vtable) but is not wired into a runtime | The `Host` vtable is implemented and exercised against `fake_host.zig` in tests; it is not yet invoked from GTK or any other app runtime, so the `windowed_vtable` path is reachable only through the test build. |
+| Not wired into any runtime | No running Khostty exposes the socket (build graph has `test-agent-ipc` at `build.zig:79-508` for in-process coverage, but no GUI runtime constructs `Server.bind`). |
+| Concurrency untested under a real runtime | The spec promises "concurrent pane operations do not deadlock"; the in-process tests cover it, but the GTK runtime wire-up is the only true e2e. |
 | Scope of tokens | One token grants all commands. There is no per-command or per-pane capability granularity. |
-| No rate limiting | No documented bound on commands per connection |
+| No rate limiting | No documented bound on commands per connection (Phase B3 will add `max_connections` + per-connection token-bucket). |
 | Loose token-file permissions tolerated | Logged only; a world-readable token would still work |
+| `pane.focus` and `pane.search` return `error.Unsupported` on GTK | `app_host.zig:177-178` (focus) and `app_host.zig:208-232` (search) refuse the call against the real runtime because no core or apprt API focuses a surface by id and there is no synchronous "scan and return matches" core API. The agent protocol maps this to `host_unsupported`; agents should treat it as "ask the user", not as a transient failure to retry. |
 
-The last three are design weaknesses to settle before the protocol ships, not
-implementation bugs.
+The first three are the wire-up gap, not implementation gaps. The next two
+are design weaknesses to settle before the protocol ships. The
+`pane.focus` / `pane.search` row is an honest disclosure, not a deferred
+feature: closing either requires upstream-core API work that is out of
+fork-only scope.
 
 ---
 
@@ -143,42 +147,44 @@ implementation bugs.
 `src/apprt/windows/ipc.zig` sketches a named pipe for the Windows equivalent of a
 Unix domain socket. Observed 2026-09-17 03:58 PT (rewritten by commit `1e6687dd2`).
 
-**The pipe path is currently malformed.** The constant is:
+**The pipe path is correct and unit-tested.** The constant is:
 
 ```zig
-pub const PIPE_PREFIX: []const u8 = "\\.\\pipe\\khostty-";
+pub const PIPE_PREFIX: []const u8 = &.{
+    backslash, backslash, '.', backslash, 'p', 'i', 'p', 'e', backslash,
+    'k',       'h',       'o', 's',       't', 't', 'y', '-',
+};
 ```
 
-Read that as Zig source. Each `\\` is one runtime backslash, so the runtime value
-is `\.\pipe\khostty-` — **one leading backslash**, not two. Win32 named pipes live
-in the device namespace and require `\\.\pipe\` at runtime (two leading
-backslashes). A path with a single leading backslash is an absolute path on the
-current drive, which is not the named-pipe namespace at all.
+(`src/apprt/windows/ipc.zig:34-39`.) Every byte is spelled individually on purpose:
+Zig has no raw strings, so a `"\\.\\pipe\\khostty-"` literal has to double every
+backslash, and an earlier revision of this constant lost exactly that doubling.
+The unit test at `windows/ipc.zig:181-200` asserts byte positions (length 17,
+two leading backslashes, `.`, `\`, `pipe`, `\`, `khostty-`) rather than comparing
+two literals, so a regression cannot agree with itself.
 
-Two consequences:
+**ACL decided, not yet wired into `Server.init`.** The chosen DACL is:
 
-1. A server would not be reachable at the documented path, so the transport would
-   silently fail rather than error clearly.
-2. If a later implementation resolves it to a filesystem-relative location instead,
-   the isolation property that `\\.\pipe\` was chosen for is lost.
+```zig
+pub const PIPE_DACL_SDDL: []const u8 = "D:P(A;;GA;;;OW)";
+pub const PIPE_HANDLE_INHERITABLE: bool = false;
+```
 
-The in-file comment and the unit test both encode the same mistake — the test asserts
-`"\.\pipe\khostty-"`, which passes while the value stays wrong. A test that agrees
-with a bug is not a control.
-
-**ACL undecided.** The earlier revision of this file declared
-`SECURITY_ATTRIBUTES { .lpSecurityDescriptor = null, .bInheritHandle = TRUE }` —
-default DACL, inheritable handle, i.e. the Windows equivalent of a world-writable
-socket. Commit `1e6687dd2` removed that declaration, so the file no longer asserts
-insecure attributes, but it also no longer decides anything. **No ACL design exists
-for the Windows transport**, and the v1 IPC auth design in
-[`src/apprt/ipc/protocol.md`](../src/apprt/ipc/protocol.md) is Unix-socket-shaped.
+(`src/apprt/windows/ipc.zig`.) `D:P(A;;GA;;;OW)` is the SDDL form of "Deny
+nothing, then Allow Generic All to the Owner (the server process's user
+account)"; the unit test asserts the byte shape (`D:P` prefix, `;;;OW)`
+suffix, single parenthesized ACE). `PIPE_HANDLE_INHERITABLE = false` keeps
+the pipe handle out of child processes spawned by the server. The DACL and
+the inheritable-handle flag are passed to `CreateNamedPipeW` once
+`Server.init` moves past `error.Unimplemented`; today the call still returns
+`Unimplemented`, so the authorization model is documented and tested in
+isolation, not yet exercised end to end.
 
 `MessageFrame` (`extern struct { action: u16, length: u32 }`, payload packed after
 the header) is unchanged, and every operation still returns
 `error.Unimplemented`, so none of this is reachable today. **The Windows IPC
-transport needs its own authorization design, including an explicit DACL, before G3
-and G4 converge.** Recorded here so it is not discovered later.
+transport has its authorization design, including an explicit DACL and a
+test asserting it; what remains is wiring it into `Server.init`.**
 
 ---
 
@@ -310,7 +316,7 @@ continuously checks the C/Zig surface or the vendored code.
 | Untrusted output exfiltrates clipboard | Clipboard read is a host-gated callback | Implemented upstream |
 | Memory corruption at the FFI boundary | Opaque handles, RAII wrappers, ABI manifest assertions, copy-before-free | Implemented in Rust and WASM wrappers |
 | ABI drift corrupts memory silently | `ghostty_type_json()` manifest + layout tests | Implemented |
-| Other process in the session connects to the Windows pipe | Named pipe DACL | **Not defended** — no ACL design exists; the intended pipe path is also currently malformed |
+| Other process in the session connects to the Windows pipe | Named pipe DACL `D:P(A;;GA;;;OW)` + non-inheritable handle | **Designed and unit-tested**; not yet wired into `Server.init` (still `error.Unimplemented`) |
 | Compromised build dependency | Content-hash pinning | Implemented |
 | Known-vulnerable dependency introduced | Automated scanning | **Not implemented** |
 | Privilege escalation from the terminal process | OS sandboxing | **Not attempted.** The terminal runs with the user's full privileges, as upstream does. |
@@ -347,7 +353,7 @@ Listing these prevents them from being mistaken for solved:
 - No fuzzing run recorded, and no sanitizer or Valgrind run recorded
 - No IPC server, so no end-to-end authorization verification
 - No per-command or per-pane token scoping; no rate limiting
-- Windows named pipe has no ACL design, and its path constant is malformed (§4)
+- Windows named pipe has its authorization model documented and unit-tested (`PIPE_DACL_SDDL = "D:P(A;;GA;;;OW)"`, `PIPE_HANDLE_INHERITABLE = false`), but not yet wired into `Server.init` (§4)
 - No security review of the Rust, Go, or WASM wrappers by anyone other than their authors
 - No independent threat-model review
 - No release, therefore no security-fix channel
