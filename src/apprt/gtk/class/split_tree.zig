@@ -770,6 +770,14 @@ pub const SplitTree = extern struct {
         const tree = self.getTree() orelse return;
         priv.pending_close = tree.locate(surface) orelse return;
 
+        var iterator = tree.iterator();
+        _ = iterator.next();
+        if (iterator.next() == null and surface.as(gtk.Widget).activateAction(
+            "tab.close",
+            glib.ext.VariantType.stringFor([:0]const u8),
+            "this",
+        ) != 0) return;
+
         // If we don't need to confirm then just close immediately.
         if (!core.needsConfirmQuit()) {
             closeConfirmationClose(

@@ -1630,6 +1630,36 @@ pub const Window = extern struct {
         self.as(gtk.Window).destroy();
     }
 
+    pub fn restoreClosedTab(self: *Self, tab: *Tab, position: c_int, pinned: bool) void {
+        const tab_view = self.private().tab_view;
+        const page = if (pinned)
+            tab_view.insertPinned(tab.as(gtk.Widget), @min(position, tab_view.getNPinnedPages()))
+        else
+            tab_view.insert(tab.as(gtk.Widget), @max(tab_view.getNPinnedPages(), @min(position, tab_view.getNPages())));
+        _ = tab.as(gobject.Object).bindProperty(
+            "title",
+            page.as(gobject.Object),
+            "title",
+            .{ .sync_create = true },
+        );
+        _ = tab.as(gobject.Object).bindProperty(
+            "tooltip",
+            page.as(gobject.Object),
+            "tooltip",
+            .{ .sync_create = true },
+        );
+        tab_view.setSelectedPage(page);
+        // Restored surfaces were initialized before, so their init signal
+        // won't fire again to size a new window.
+        if (tab.getActiveSurface()) |surface| {
+            if (surface.core() != null) surfaceInit(surface, self);
+        }
+    }
+
+    fn retainClosedTab(self: *Self, page: *adw.TabPage) void {
+        Application.default().retainClosedTab(self, page);
+    }
+
     fn closeConfirmationCloseTab(
         _: *CloseConfirmationDialog,
         page: *adw.TabPage,
@@ -1641,6 +1671,9 @@ pub const Window = extern struct {
             log.warn("close confirmation called for non-existent page", .{});
             return;
         };
+        if (ext.getAncestor(Self, tab_view.as(gtk.Widget))) |window| {
+            window.retainClosedTab(page);
+        }
         tab_view.closePageFinish(page, @intFromBool(true));
     }
 
@@ -1671,6 +1704,7 @@ pub const Window = extern struct {
         // If the tab says it doesn't need confirmation then we go ahead
         // and close immediately.
         if (!tab.getNeedsConfirmQuit()) {
+            self.retainClosedTab(page);
             priv.tab_view.closePageFinish(page, @intFromBool(true));
             return @intFromBool(true);
         }
