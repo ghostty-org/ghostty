@@ -485,6 +485,11 @@ pub const StreamHandler = struct {
                         .windows => {
                             // TODO
                         },
+
+                        .active_window => {
+                            // TODO: notify the GUI that tmux's current
+                            // window changed.
+                        },
                     }
                 }
             },
@@ -2020,5 +2025,71 @@ test "kitty clipboard write: oversized text replies EFBIG" {
 
     // Teardown leaves no transaction that could be committed and
     // forwarded to the macOS clipboard path.
+    try testing.expect(mailbox.spsc.queue.pop(global.io()) == null);
+}
+
+test "tmux active_window notification is handled" {
+    if (comptime !StreamHandler.tmux_enabled) return error.SkipZigTest;
+
+    const testing = std.testing;
+
+    var mailbox = try termio.Mailbox.initSPSC(testing.allocator);
+    defer mailbox.deinit(testing.allocator);
+
+    var mutex: std.Io.Mutex = .init;
+    mutex.lockUncancelable(global.io());
+    defer mutex.unlock(global.io());
+
+    var renderer_state: renderer.State = .{
+        .mutex = &mutex,
+        .terminal = undefined,
+    };
+    var handler: StreamHandler = undefined;
+    handler.alloc = testing.allocator;
+    handler.termio_mailbox = &mailbox;
+    handler.renderer_state = &renderer_state;
+    handler.termio_messaged = false;
+    handler.tmux_viewer = null;
+    defer if (handler.tmux_viewer) |viewer| {
+        viewer.deinit();
+        testing.allocator.destroy(viewer);
+        handler.tmux_viewer = null;
+    };
+
+    var enter_cmd: terminal.dcs.Command = .{ .tmux = .enter };
+    try handler.dcsCommand(&enter_cmd);
+    try testing.expect(handler.tmux_viewer != null);
+
+    var startup: terminal.dcs.Command = .{ .tmux = .{ .block_end = "" } };
+    try handler.dcsCommand(&startup);
+
+    var session: terminal.dcs.Command = .{ .tmux = .{
+        .session_changed = .{ .id = 7, .name = "main" },
+    } };
+    try handler.dcsCommand(&session);
+    try testing.expect(handler.termio_messaged);
+    if (mailbox.spsc.queue.pop(global.io())) |msg| msg.deinit();
+
+    // %session-window-changed for our session reaches the active_window
+    // arm. That arm does not write to the PTY.
+    handler.termio_messaged = false;
+    var changed: terminal.dcs.Command = .{ .tmux = .{
+        .session_window_changed = .{ .session_id = 7, .window_id = 3 },
+    } };
+    try handler.dcsCommand(&changed);
+    try testing.expect(!handler.termio_messaged);
+    try testing.expect(mailbox.spsc.queue.pop(global.io()) == null);
+    try testing.expect(handler.tmux_viewer != null);
+
+    // Other sessions and pane changes must not write either.
+    var other: terminal.dcs.Command = .{ .tmux = .{
+        .session_window_changed = .{ .session_id = 99, .window_id = 1 },
+    } };
+    try handler.dcsCommand(&other);
+    var pane: terminal.dcs.Command = .{ .tmux = .{
+        .window_pane_changed = .{ .window_id = 3, .pane_id = 1 },
+    } };
+    try handler.dcsCommand(&pane);
+    try testing.expect(!handler.termio_messaged);
     try testing.expect(mailbox.spsc.queue.pop(global.io()) == null);
 }

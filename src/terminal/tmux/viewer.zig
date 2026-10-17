@@ -215,6 +215,11 @@ pub const Viewer = struct {
         /// never reuses window IDs within a server process lifetime.
         windows: []const Window,
 
+        /// Tmux's current window changed (`%session-window-changed`)
+        /// for the session this viewer is attached to, including from
+        /// an external `select-window`.
+        active_window: usize,
+
         pub fn format(self: Action, writer: *std.Io.Writer) !void {
             const T = Action;
             const info = @typeInfo(T).@"union";
@@ -533,8 +538,31 @@ pub const Viewer = struct {
                 return self.defunct();
             },
 
+            // A window was closed. Refresh the window list so removed
+            // windows disappear from the viewer model.
+            .window_close => |info| self.windowClose(info.id) catch {
+                log.warn("failed to handle window close, becoming defunct", .{});
+                return self.defunct();
+            },
+
+            // %session-window-changed is broadcast to every control
+            // client for every session. Only the session we are
+            // attached to should move the active window.
+            .session_window_changed => |info| if (info.session_id == self.session_id) {
+                var arena = self.action_arena.promote(self.alloc);
+                defer self.action_arena = arena.state;
+                actions.append(
+                    arena.allocator(),
+                    .{ .active_window = info.window_id },
+                ) catch {
+                    log.warn("failed to record active window, becoming defunct", .{});
+                    return self.defunct();
+                };
+            },
+
             // The active pane changed. We don't care about this because
-            // we handle our own focus.
+            // we handle our own focus. It does not mean the current
+            // window changed; only %session-window-changed does.
             .window_pane_changed => {},
 
             // We ignore this one. It means a session was created or
@@ -645,6 +673,16 @@ pub const Viewer = struct {
         _ = window_id; // We refresh all windows via list-windows
 
         // Queue list-windows to get the updated window list
+        try self.queueCommands(&.{.list_windows});
+    }
+
+    /// When a window is closed, refresh the list so removed windows
+    /// disappear from the viewer model.
+    fn windowClose(
+        self: *Viewer,
+        window_id: usize,
+    ) !void {
+        _ = window_id;
         try self.queueCommands(&.{.list_windows});
     }
 
@@ -882,11 +920,14 @@ pub const Viewer = struct {
         errdefer actions.shrinkRetainingCapacity(actions_len);
 
         // This stores our new window state from this list-windows output.
-        // Ownership of each Window's layout arena transfers into
-        // `self.windows` via syncLayouts; this list only owns the
-        // ArrayList buffer itself.
+        // Each Window owns a layout arena until syncLayouts copies it into
+        // self.windows. A later line that fails to parse must free the
+        // windows already built.
         var windows: std.ArrayList(Window) = .empty;
-        defer windows.deinit(self.alloc);
+        errdefer {
+            for (windows.items) |*window| window.deinit(self.alloc);
+            windows.deinit(self.alloc);
+        }
 
         // Parse all our windows
         var it = std.mem.splitScalar(u8, content, '\n');
@@ -928,9 +969,14 @@ pub const Viewer = struct {
 
         // Sync into self.windows first. The `.windows` action must point at
         // `self.windows.items` (stable for the duration of next()), not the
-        // temporary list buffer which is freed by the defer above — otherwise
+        // temporary list buffer which is freed below — otherwise
         // logging/formatting the action is a use-after-free.
         try self.syncLayouts(windows.items);
+        // Layout arenas now belong to self.windows. Drop our copies without
+        // freeing them, then release only the temporary buffer.
+        var transferred = windows;
+        windows = .empty;
+        transferred.deinit(self.alloc);
         try actions.append(arena_alloc, .{ .windows = self.windows.items });
     }
 
@@ -2092,6 +2138,148 @@ test "window_add queues list_windows when queue empty" {
         },
         .{
             .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
+}
+
+test "session_window_changed emits active_window for this session" {
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "test",
+            } } },
+            .contains_command = "display-message",
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(1, v.session_id);
+                }
+            }).check,
+        },
+        // Matching session: this is the only notification that moves
+        // the active window, including an external select-window.
+        .{
+            .input = .{ .tmux = .{ .session_window_changed = .{
+                .session_id = 1,
+                .window_id = 9,
+            } } },
+            .contains_tags = &.{.active_window},
+            .check = (struct {
+                fn check(_: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(1, actions.len);
+                    switch (actions[0]) {
+                        .active_window => |id| try testing.expectEqual(9, id),
+                        else => return error.TestUnexpectedResult,
+                    }
+                }
+            }).check,
+        },
+        // Broadcasts for other sessions must be ignored.
+        .{
+            .input = .{ .tmux = .{ .session_window_changed = .{
+                .session_id = 2,
+                .window_id = 4,
+            } } },
+            .check = (struct {
+                fn check(_: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(0, actions.len);
+                }
+            }).check,
+        },
+        // Active pane within a window is not a window change.
+        .{
+            .input = .{ .tmux = .{ .window_pane_changed = .{
+                .window_id = 9,
+                .pane_id = 1,
+            } } },
+            .check = (struct {
+                fn check(_: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(0, actions.len);
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
+}
+
+test "window_close queues list_windows" {
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "test",
+            } } },
+            .contains_command = "display-message",
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    // tmux_version is in flight and list_windows is queued.
+                    try testing.expectEqual(2, v.command_queue.len());
+                }
+            }).check,
+        },
+        // Queue is not empty, so list-windows is queued but not sent yet.
+        .{
+            .input = .{ .tmux = .{ .window_close = .{ .id = 3 } } },
+            .check = (struct {
+                fn check(v: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    for (actions) |action| {
+                        try testing.expect(action != .command);
+                    }
+                    try testing.expectEqual(3, v.command_queue.len());
+                    var list_windows: usize = 0;
+                    var it = v.command_queue.iterator(.forward);
+                    while (it.next()) |cmd| {
+                        if (cmd.* == .list_windows) list_windows += 1;
+                    }
+                    try testing.expectEqual(2, list_windows);
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
+}
+
+test "list-windows parse failure frees earlier windows" {
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "test",
+            } } },
+            .contains_command = "display-message",
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = "3.5a" } },
+            .contains_command = "list-windows",
+        },
+        // First line is a real window. The second is not, so parsing
+        // stops after the first layout arena has been allocated.
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\$0 @0 83 44 b7dd,83x44,0,0,0
+                \\not a window
+                ,
+            } },
             .contains_tags = &.{.exit},
         },
     });
