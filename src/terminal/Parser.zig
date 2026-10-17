@@ -1218,3 +1218,47 @@ test "dcs: too many params" {
     try testing.expect(a[1] == null);
     try testing.expect(a[2] == null);
 }
+
+test "csi: separators past the first bitset word, after a colon sequence" {
+    // Separators are cleared a word at a time, and only the words a
+    // colon reaches. A sequence whose colons are all in the first word
+    // but whose parameters run past it would read the next word as
+    // whatever the sequence before it left there, so run a colon-heavy
+    // sequence first to leave something behind.
+    var p = init();
+
+    _ = p.next(0x1B);
+    _ = p.next('[');
+    _ = p.next('1');
+    for (0..80) |_| {
+        _ = p.next(':');
+        _ = p.next('1');
+    }
+    {
+        const a = p.next('m');
+        const csi = a[1].?.csi_dispatch;
+        const seps = csi.params_sep.?;
+        try testing.expectEqual(@as(usize, 81), csi.params.len);
+        for (0..80) |i| try testing.expect(seps.isSet(i));
+    }
+
+    // Now one colon in the first word, then only semicolons, running
+    // well past 64 parameters.
+    _ = p.next(0x1B);
+    _ = p.next('[');
+    _ = p.next('4');
+    _ = p.next(':');
+    _ = p.next('3');
+    for (0..80) |_| {
+        _ = p.next(';');
+        _ = p.next('1');
+    }
+    {
+        const a = p.next('m');
+        const csi = a[1].?.csi_dispatch;
+        const seps = csi.params_sep.?;
+        try testing.expectEqual(@as(usize, 82), csi.params.len);
+        try testing.expect(seps.isSet(0));
+        for (1..csi.params.len) |i| try testing.expect(!seps.isSet(i));
+    }
+}
