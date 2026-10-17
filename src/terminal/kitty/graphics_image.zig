@@ -694,7 +694,7 @@ pub const LoadingImage = struct {
             else
                 return error.OutOfMemory,
         };
-        defer decode_alloc.free(result.data);
+        defer result.deinit(decode_alloc);
 
         if (result.data.len > max_size) {
             log.warn("png image too large size={} max_size={}", .{ result.data.len, max_size });
@@ -2037,6 +2037,7 @@ test "image load: png rejects oversized decoder allocation" {
                 .width = 1,
                 .height = 1,
                 .data = data,
+                .capacity = data.len,
             };
         }
     }.decode;

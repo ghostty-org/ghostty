@@ -24,12 +24,24 @@ pub const DecodeError = Allocator.Error || error{InvalidData};
 pub const DecodePngFn = *const fn (Allocator, []const u8) DecodeError!Image;
 
 /// The result of decoding an image. The caller owns the returned data
-/// and must free it with the same allocator that was passed to the
-/// decode function.
+/// and must free it with `deinit` using the same allocator that was
+/// passed to the decode function.
 pub const Image = struct {
     width: u32,
     height: u32,
+
+    /// The decoded RGBA pixel data.
     data: []u8,
+
+    /// The number of bytes allocated for `data`. Decoders are allowed to
+    /// over-allocate, so this can be larger than `data.len`, and it is the
+    /// length the allocation must be freed with. Use `deinit` rather than
+    /// freeing `data` directly.
+    capacity: usize,
+
+    pub fn deinit(self: Image, alloc: Allocator) void {
+        alloc.free(self.data.ptr[0..self.capacity]);
+    }
 };
 
 fn decodePngWuffs(
@@ -50,6 +62,7 @@ fn decodePngWuffs(
         .width = result.width,
         .height = result.height,
         .data = result.data,
+        .capacity = result.data.len,
     };
 }
 
