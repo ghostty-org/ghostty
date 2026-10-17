@@ -484,6 +484,16 @@ pub const Parser = struct {
             },
 
             4 => {
+                // `countColon` only counts a colon that has a value
+                // after it, so six of them are here. Checked anyway,
+                // because the alternative to being wrong about that is
+                // a read past the end of the parameters.
+                if (slice.len < 6) {
+                    @branchHint(.cold);
+                    self.consumeUnknownColon();
+                    return null;
+                }
+
                 self.idx += 5;
                 return @unionInit(Attribute, @tagName(tag), .{
                     .r = @truncate(slice[3]),
