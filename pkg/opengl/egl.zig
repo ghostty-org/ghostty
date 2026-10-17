@@ -466,10 +466,17 @@ test "pickEglIdCast arm selection: pointer types" {
     try testing.expectEqualStrings("pointer", comptimeArmName(?*anyopaque));
     // The translator's declared EGLNativeDisplayType itself — locked in
     // so any future translator flip (e.g. macOS to a pointer-typed native
-    // display) is caught at the next test run on this branch.
-    try testing.expectEqualStrings(
-        comptimeArmName(c.EGLNativeDisplayType),
-        comptimeArmName(c.EGLNativeDisplayType),
+    // display) is caught at the next test run on this branch. The arm the
+    // translator picked must be one of the three ABI-legal shapes
+    // (pointer / int / comptime_int); "rejected" — or anything else the
+    // switch above does not yet know about — means translate-c changed
+    // its mind and the dispatch in pickEglIdCast needs to learn about the
+    // new shape too.
+    const egl_native_display_arm = comptimeArmName(c.EGLNativeDisplayType);
+    try testing.expect(
+        std.mem.eql(u8, egl_native_display_arm, "pointer") or
+            std.mem.eql(u8, egl_native_display_arm, "int") or
+            std.mem.eql(u8, egl_native_display_arm, "comptime_int"),
     );
 }
 
