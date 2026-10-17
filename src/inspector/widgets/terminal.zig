@@ -597,7 +597,7 @@ fn modesTable(t: *Terminal) void {
         defer cimgui.c.ImGui_PopID();
         {
             _ = cimgui.c.ImGui_TableSetColumnIndex(0);
-            var value: bool = t.modes.get(@field(terminal.Mode, field.name));
+            var value: bool = t.getMode(@field(terminal.Mode, field.name));
             _ = cimgui.c.ImGui_Checkbox("##checkbox", &value);
         }
         {
