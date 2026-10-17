@@ -92,6 +92,21 @@ pub const Action = union(enum) {
         /// The separator used for CSI params.
         pub const Sep = enum(u1) { semicolon = 0, colon = 1 };
 
+        /// Whether this command defines subparameters, which a colon
+        /// joins to the parameter before them (ECMA-48 5.4.2). Colons
+        /// mean NOTHING to any other command or ruins positional reads.
+        pub fn allowsSubparams(self: CSI) bool {
+            return switch (self.final) {
+                // SGR
+                'm' => true,
+
+                // Kitty multiple cursors
+                'q' => std.mem.eql(u8, self.intermediates, "> "),
+
+                else => false,
+            };
+        }
+
         // Implement formatter for logging
         pub fn format(
             self: CSI,
