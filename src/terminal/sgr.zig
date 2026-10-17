@@ -515,21 +515,32 @@ pub const Parser = struct {
     /// Returns true if the present position has a colon separator.
     /// This always returns false for the last value since it has no
     /// separator.
-    inline fn isColon(self: *Parser) bool {
-        // Call inlined for performance reasons.
-        return @call(
-            .always_inline,
-            SepList.isSet,
-            .{ self.params_sep, self.idx },
-        );
+    inline fn isColon(self: *const Parser) bool {
+        return self.colonAfter(self.idx);
     }
 
-    fn countColon(self: *Parser) usize {
+    /// Returns true if a colon separates the value at `idx` from what
+    /// follows, which a trailing colon does even with nothing after it.
+    /// A value that isn't there has no separator, which bounds every
+    /// walk over them by the number of values.
+    inline fn colonAfter(self: *const Parser, idx: usize) bool {
+        // Almost no sequence has a colon in it, so this leaves before
+        // the bound is worth checking.
+        const seps = self.params_sep orelse return false;
+        return idx < self.params.len and seps.isSet(idx);
+    }
+
+    /// The number of colons joining the value at the present position to
+    /// those after it, which is therefore a count of following values.
+    ///
+    /// A colon after the last value joins nothing, so it isn't counted.
+    /// Counting it would say a value is there that isn't: a trailing
+    /// colon on `38:2:1:2:3:` would make the count name the colorspace
+    /// form and read a sixth value past the end.
+    fn countColon(self: *const Parser) usize {
         var count: usize = 0;
-        var idx = self.idx;
-        while (idx < self.params.len - 1 and self.params_sep.isSet(idx)) : (idx += 1) {
-            count += 1;
-        }
+        while (self.idx + count + 1 < self.params.len and
+            self.colonAfter(self.idx + count)) count += 1;
         return count;
     }
 
