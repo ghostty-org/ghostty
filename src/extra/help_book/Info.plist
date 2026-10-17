@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+<key>CFBundleDevelopmentRegion</key><string>en</string>
+<key>CFBundleIdentifier</key><string>{{identifier}}</string>
+<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+<key>CFBundleName</key><string>{{title}}</string>
+<key>CFBundlePackageType</key><string>BNDL</string>
+<key>CFBundleShortVersionString</key><string>{{short_version}}</string>
+<key>CFBundleSignature</key><string>hbwr</string>
+<key>CFBundleVersion</key><string>{{version}}</string>
+<key>HPDBookAccessPath</key><string>index.html</string>
+<key>HPDBookCSIndexPath</key><string>Ghostty.cshelpindex</string>
+<key>HPDBookIndexPath</key><string>Ghostty.helpindex</string>
+<key>HPDBookTitle</key><string>{{title}}</string>
+<key>HPDBookType</key><string>3</string>
+</dict>
+</plist>
