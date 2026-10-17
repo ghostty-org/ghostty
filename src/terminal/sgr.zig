@@ -1146,3 +1146,27 @@ test "sgr: underline colon with trailing separator and short slice" {
 
     try testing.expect(p.next() == null);
 }
+
+test "sgr: direct color with a trailing colon" {
+    // `ESC[38:2:1:2:3:m` leaves a colon on the last parameter with no
+    // sixth value after it. Counting that separator made the parameters
+    // look like the colorspace form, whose red is the third value and
+    // whose blue is one past the end.
+    inline for (.{
+        .{ 38, Attribute.Tag.direct_color_fg },
+        .{ 48, Attribute.Tag.direct_color_bg },
+        .{ 58, Attribute.Tag.underline_color },
+    }) |pair| {
+        const params = [_]u16{ pair[0], 2, 1, 2, 3 };
+        var seps: SepList = .initEmpty();
+        for (0..params.len) |i| seps.set(i);
+
+        var p: Parser = .{ .params = &params, .params_sep = &seps };
+        const v = p.next().?;
+        try testing.expectEqual(pair[1], @as(Attribute.Tag, v));
+        const rgb = @field(v, @tagName(pair[1]));
+        try testing.expectEqual(@as(u8, 1), rgb.r);
+        try testing.expectEqual(@as(u8, 2), rgb.g);
+        try testing.expectEqual(@as(u8, 3), rgb.b);
+    }
+}
