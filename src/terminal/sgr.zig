@@ -183,7 +183,10 @@ pub const Attribute = union(Tag) {
 /// Parser parses the attributes from a list of SGR parameters.
 pub const Parser = struct {
     params: []const u16 = &.{},
-    params_sep: SepList = .empty,
+
+    /// The separators, or null if every one is a semicolon.
+    params_sep: ?*const SepList = null,
+
     idx: usize = 0,
 
     /// Empty state parser.
@@ -205,12 +208,7 @@ pub const Parser = struct {
         }
 
         const slice = self.params[self.idx..self.params.len];
-        // Call inlined for performance reasons.
-        const colon = @call(
-            .always_inline,
-            SepList.isSet,
-            .{ self.params_sep, self.idx },
-        );
+        const colon = self.isColon();
         self.idx += 1;
 
         // Our last one will have an idx be the last value.
@@ -233,7 +231,7 @@ pub const Parser = struct {
                     // Consume all the colon separated
                     // values and return them as unknown.
                     const start = self.idx;
-                    while (self.params_sep.isSet(self.idx)) self.idx += 1;
+                    while (self.isColon()) self.idx += 1;
                     self.idx += 1;
                     return .{ .unknown = .{
                         .full = self.params,
@@ -539,9 +537,10 @@ fn testParse(params: []const u16) Attribute {
 }
 
 fn testParseColon(params: []const u16) Attribute {
-    var p: Parser = .{ .params = params };
     // Mark all parameters except the last as having a colon after.
-    for (0..params.len - 1) |i| p.params_sep.set(i);
+    var seps: SepList = .initEmpty();
+    for (0..params.len - 1) |i| seps.set(i);
+    var p: Parser = .{ .params = params, .params_sep = &seps };
     return p.next().?;
 }
 
@@ -585,7 +584,7 @@ test "sgr: Parser multiple" {
 test "sgr: unsupported with colon" {
     var p: Parser = .{
         .params = &[_]u16{ 0, 4, 1 },
-        .params_sep = sep: {
+        .params_sep = &comptime sep: {
             var list = SepList.empty;
             list.set(0);
             break :sep list;
@@ -599,7 +598,7 @@ test "sgr: unsupported with colon" {
 test "sgr: unsupported with multiple colon" {
     var p: Parser = .{
         .params = &[_]u16{ 0, 4, 2, 1 },
-        .params_sep = sep: {
+        .params_sep = &comptime sep: {
             var list = SepList.empty;
             list.set(0);
             list.set(1);
@@ -689,7 +688,7 @@ test "sgr: underline styles" {
 test "sgr: underline style with more" {
     var p: Parser = .{
         .params = &[_]u16{ 4, 2, 1 },
-        .params_sep = sep: {
+        .params_sep = &comptime sep: {
             var list = SepList.empty;
             list.set(0);
             break :sep list;
@@ -704,7 +703,7 @@ test "sgr: underline style with more" {
 test "sgr: underline style with too many colons" {
     var p: Parser = .{
         .params = &[_]u16{ 4, 2, 3, 1 },
-        .params_sep = sep: {
+        .params_sep = &comptime sep: {
             var list = SepList.empty;
             list.set(0);
             list.set(1);
@@ -939,7 +938,7 @@ test "sgr: direct fg/bg/underline ignore optional color space" {
 test "sgr: direct fg colon with too many colons" {
     var p: Parser = .{
         .params = &[_]u16{ 38, 2, 0, 1, 2, 3, 4, 1 },
-        .params_sep = sep: {
+        .params_sep = &comptime sep: {
             var list = SepList.empty;
             for (0..6) |idx| list.set(idx);
             break :sep list;
@@ -954,7 +953,7 @@ test "sgr: direct fg colon with too many colons" {
 test "sgr: direct fg colon with colorspace and extra param" {
     var p: Parser = .{
         .params = &[_]u16{ 38, 2, 0, 1, 2, 3, 1 },
-        .params_sep = sep: {
+        .params_sep = &comptime sep: {
             var list = SepList.empty;
             for (0..5) |idx| list.set(idx);
             break :sep list;
@@ -976,7 +975,7 @@ test "sgr: direct fg colon with colorspace and extra param" {
 test "sgr: direct fg colon no colorspace and extra param" {
     var p: Parser = .{
         .params = &[_]u16{ 38, 2, 1, 2, 3, 1 },
-        .params_sep = sep: {
+        .params_sep = &comptime sep: {
             var list = SepList.empty;
             for (0..4) |idx| list.set(idx);
             break :sep list;
@@ -1000,7 +999,7 @@ test "sgr: kakoune input" {
     // This used to crash
     var p: Parser = .{
         .params = &[_]u16{ 0, 4, 3, 38, 2, 175, 175, 215, 58, 2, 0, 190, 80, 70 },
-        .params_sep = sep: {
+        .params_sep = &comptime sep: {
             var list = SepList.empty;
             list.set(1);
             list.set(8);
@@ -1046,7 +1045,7 @@ test "sgr: kakoune input issue underline, fg, and bg" {
     // This used to crash
     var p: Parser = .{
         .params = &[_]u16{ 4, 3, 38, 2, 51, 51, 51, 48, 2, 170, 170, 170, 58, 2, 255, 97, 136 },
-        .params_sep = sep: {
+        .params_sep = &comptime sep: {
             var list = SepList.empty;
             list.set(0);
             break :sep list;
@@ -1094,7 +1093,7 @@ test "sgr: kakoune input issue underline, fg, and bg" {
 test "sgr: underline colon with trailing separator and short slice" {
     var p: Parser = .{
         .params = &[_]u16{ 58, 4 },
-        .params_sep = sep: {
+        .params_sep = &comptime sep: {
             var list = SepList.empty;
             list.set(0);
             list.set(1);

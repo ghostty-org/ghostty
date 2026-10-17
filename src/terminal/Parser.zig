@@ -80,7 +80,11 @@ pub const Action = union(enum) {
     pub const CSI = struct {
         intermediates: []u8,
         params: []u16,
-        params_sep: SepList,
+
+        /// The separators, or null if every one is a semicolon, as in
+        /// nearly every sequence.
+        params_sep: ?*const SepList,
+
         final: u8,
 
         /// The list of separators used for CSI params. The value of the
@@ -550,9 +554,9 @@ test "csi: SGR ESC [ 38 : 2 m" {
         try testing.expect(d.final == 'm');
         try testing.expect(d.params.len == 2);
         try testing.expectEqual(@as(u16, 38), d.params[0]);
-        try testing.expect(d.params_sep.isSet(0));
+        try testing.expect(d.params_sep.?.isSet(0));
         try testing.expectEqual(@as(u16, 2), d.params[1]);
-        try testing.expect(!d.params_sep.isSet(1));
+        try testing.expect(!d.params_sep.?.isSet(1));
     }
 }
 
@@ -625,15 +629,15 @@ test "csi: SGR ESC [ 48 : 2 m" {
         try testing.expect(d.final == 'm');
         try testing.expect(d.params.len == 5);
         try testing.expectEqual(@as(u16, 48), d.params[0]);
-        try testing.expect(d.params_sep.isSet(0));
+        try testing.expect(d.params_sep.?.isSet(0));
         try testing.expectEqual(@as(u16, 2), d.params[1]);
-        try testing.expect(d.params_sep.isSet(1));
+        try testing.expect(d.params_sep.?.isSet(1));
         try testing.expectEqual(@as(u16, 240), d.params[2]);
-        try testing.expect(d.params_sep.isSet(2));
+        try testing.expect(d.params_sep.?.isSet(2));
         try testing.expectEqual(@as(u16, 143), d.params[3]);
-        try testing.expect(d.params_sep.isSet(3));
+        try testing.expect(d.params_sep.?.isSet(3));
         try testing.expectEqual(@as(u16, 104), d.params[4]);
-        try testing.expect(!d.params_sep.isSet(4));
+        try testing.expect(!d.params_sep.?.isSet(4));
     }
 }
 
@@ -656,9 +660,9 @@ test "csi: SGR ESC [4:3m colon" {
         try testing.expect(d.final == 'm');
         try testing.expect(d.params.len == 2);
         try testing.expectEqual(@as(u16, 4), d.params[0]);
-        try testing.expect(d.params_sep.isSet(0));
+        try testing.expect(d.params_sep.?.isSet(0));
         try testing.expectEqual(@as(u16, 3), d.params[1]);
-        try testing.expect(!d.params_sep.isSet(1));
+        try testing.expect(!d.params_sep.?.isSet(1));
     }
 }
 
@@ -683,17 +687,17 @@ test "csi: SGR with many blank and colon" {
         try testing.expect(d.final == 'm');
         try testing.expect(d.params.len == 6);
         try testing.expectEqual(@as(u16, 58), d.params[0]);
-        try testing.expect(d.params_sep.isSet(0));
+        try testing.expect(d.params_sep.?.isSet(0));
         try testing.expectEqual(@as(u16, 2), d.params[1]);
-        try testing.expect(d.params_sep.isSet(1));
+        try testing.expect(d.params_sep.?.isSet(1));
         try testing.expectEqual(@as(u16, 0), d.params[2]);
-        try testing.expect(d.params_sep.isSet(2));
+        try testing.expect(d.params_sep.?.isSet(2));
         try testing.expectEqual(@as(u16, 240), d.params[3]);
-        try testing.expect(d.params_sep.isSet(3));
+        try testing.expect(d.params_sep.?.isSet(3));
         try testing.expectEqual(@as(u16, 143), d.params[4]);
-        try testing.expect(d.params_sep.isSet(4));
+        try testing.expect(d.params_sep.?.isSet(4));
         try testing.expectEqual(@as(u16, 104), d.params[5]);
-        try testing.expect(!d.params_sep.isSet(5));
+        try testing.expect(!d.params_sep.?.isSet(5));
     }
 }
 
@@ -719,33 +723,33 @@ test "csi: SGR mixed colon and semicolon with blank" {
         try testing.expect(d.final == 'm');
         try testing.expectEqual(14, d.params.len);
         try testing.expectEqual(@as(u16, 0), d.params[0]);
-        try testing.expect(!d.params_sep.isSet(0));
+        try testing.expect(!d.params_sep.?.isSet(0));
         try testing.expectEqual(@as(u16, 4), d.params[1]);
-        try testing.expect(d.params_sep.isSet(1));
+        try testing.expect(d.params_sep.?.isSet(1));
         try testing.expectEqual(@as(u16, 3), d.params[2]);
-        try testing.expect(!d.params_sep.isSet(2));
+        try testing.expect(!d.params_sep.?.isSet(2));
         try testing.expectEqual(@as(u16, 38), d.params[3]);
-        try testing.expect(!d.params_sep.isSet(3));
+        try testing.expect(!d.params_sep.?.isSet(3));
         try testing.expectEqual(@as(u16, 2), d.params[4]);
-        try testing.expect(!d.params_sep.isSet(4));
+        try testing.expect(!d.params_sep.?.isSet(4));
         try testing.expectEqual(@as(u16, 175), d.params[5]);
-        try testing.expect(!d.params_sep.isSet(5));
+        try testing.expect(!d.params_sep.?.isSet(5));
         try testing.expectEqual(@as(u16, 175), d.params[6]);
-        try testing.expect(!d.params_sep.isSet(6));
+        try testing.expect(!d.params_sep.?.isSet(6));
         try testing.expectEqual(@as(u16, 215), d.params[7]);
-        try testing.expect(!d.params_sep.isSet(7));
+        try testing.expect(!d.params_sep.?.isSet(7));
         try testing.expectEqual(@as(u16, 58), d.params[8]);
-        try testing.expect(d.params_sep.isSet(8));
+        try testing.expect(d.params_sep.?.isSet(8));
         try testing.expectEqual(@as(u16, 2), d.params[9]);
-        try testing.expect(d.params_sep.isSet(9));
+        try testing.expect(d.params_sep.?.isSet(9));
         try testing.expectEqual(@as(u16, 0), d.params[10]);
-        try testing.expect(d.params_sep.isSet(10));
+        try testing.expect(d.params_sep.?.isSet(10));
         try testing.expectEqual(@as(u16, 190), d.params[11]);
-        try testing.expect(d.params_sep.isSet(11));
+        try testing.expect(d.params_sep.?.isSet(11));
         try testing.expectEqual(@as(u16, 80), d.params[12]);
-        try testing.expect(d.params_sep.isSet(12));
+        try testing.expect(d.params_sep.?.isSet(12));
         try testing.expectEqual(@as(u16, 70), d.params[13]);
-        try testing.expect(!d.params_sep.isSet(13));
+        try testing.expect(!d.params_sep.?.isSet(13));
     }
 }
 
@@ -771,53 +775,64 @@ test "csi: SGR mixed colon and semicolon setting underline, bg, fg" {
         try testing.expect(d.final == 'm');
         try testing.expectEqual(17, d.params.len);
         try testing.expectEqual(@as(u16, 4), d.params[0]);
-        try testing.expect(d.params_sep.isSet(0));
+        try testing.expect(d.params_sep.?.isSet(0));
         try testing.expectEqual(@as(u16, 3), d.params[1]);
-        try testing.expect(!d.params_sep.isSet(1));
+        try testing.expect(!d.params_sep.?.isSet(1));
         try testing.expectEqual(@as(u16, 38), d.params[2]);
-        try testing.expect(!d.params_sep.isSet(2));
+        try testing.expect(!d.params_sep.?.isSet(2));
         try testing.expectEqual(@as(u16, 2), d.params[3]);
-        try testing.expect(!d.params_sep.isSet(3));
+        try testing.expect(!d.params_sep.?.isSet(3));
         try testing.expectEqual(@as(u16, 51), d.params[4]);
-        try testing.expect(!d.params_sep.isSet(4));
+        try testing.expect(!d.params_sep.?.isSet(4));
         try testing.expectEqual(@as(u16, 51), d.params[5]);
-        try testing.expect(!d.params_sep.isSet(5));
+        try testing.expect(!d.params_sep.?.isSet(5));
         try testing.expectEqual(@as(u16, 51), d.params[6]);
-        try testing.expect(!d.params_sep.isSet(6));
+        try testing.expect(!d.params_sep.?.isSet(6));
         try testing.expectEqual(@as(u16, 48), d.params[7]);
-        try testing.expect(!d.params_sep.isSet(7));
+        try testing.expect(!d.params_sep.?.isSet(7));
         try testing.expectEqual(@as(u16, 2), d.params[8]);
-        try testing.expect(!d.params_sep.isSet(8));
+        try testing.expect(!d.params_sep.?.isSet(8));
         try testing.expectEqual(@as(u16, 170), d.params[9]);
-        try testing.expect(!d.params_sep.isSet(9));
+        try testing.expect(!d.params_sep.?.isSet(9));
         try testing.expectEqual(@as(u16, 170), d.params[10]);
-        try testing.expect(!d.params_sep.isSet(10));
+        try testing.expect(!d.params_sep.?.isSet(10));
         try testing.expectEqual(@as(u16, 170), d.params[11]);
-        try testing.expect(!d.params_sep.isSet(11));
+        try testing.expect(!d.params_sep.?.isSet(11));
         try testing.expectEqual(@as(u16, 58), d.params[12]);
-        try testing.expect(!d.params_sep.isSet(12));
+        try testing.expect(!d.params_sep.?.isSet(12));
         try testing.expectEqual(@as(u16, 2), d.params[13]);
-        try testing.expect(!d.params_sep.isSet(13));
+        try testing.expect(!d.params_sep.?.isSet(13));
         try testing.expectEqual(@as(u16, 255), d.params[14]);
-        try testing.expect(!d.params_sep.isSet(14));
+        try testing.expect(!d.params_sep.?.isSet(14));
         try testing.expectEqual(@as(u16, 97), d.params[15]);
-        try testing.expect(!d.params_sep.isSet(15));
+        try testing.expect(!d.params_sep.?.isSet(15));
         try testing.expectEqual(@as(u16, 136), d.params[16]);
-        try testing.expect(!d.params_sep.isSet(16));
+        try testing.expect(!d.params_sep.?.isSet(16));
     }
 }
 
-test "csi: colon for non-m final" {
-    var p = init();
-    _ = p.next(0x1B);
-    for ("[38:2h") |c| {
-        const a = p.next(c);
-        try testing.expect(a[0] == null);
-        try testing.expect(a[1] == null);
-        try testing.expect(a[2] == null);
+test "csi: colons only for commands with subparameters" {
+    const cases = [_]struct { []const u8, bool }{
+        // SGR
+        .{ "[38:2::1:2:3m", true },
+        // Kitty multiple cursors
+        .{ "[>1;2:3:4 q", true },
+        // Commands that share bytes with those
+        .{ "[38:2h", false },
+        .{ "[1:2H", false },
+        .{ "[2:1 q", false },
+        .{ "[>1:2q", false },
+        .{ "[?1:2 q", false },
+    };
+    for (cases) |case| {
+        const seq, const dispatched = case;
+        var p = init();
+        _ = p.next(0x1B);
+        for (seq[0 .. seq.len - 1]) |c| _ = p.next(c);
+        const a = p.next(seq[seq.len - 1]);
+        try testing.expect(p.state == .ground);
+        try testing.expectEqual(dispatched, a[1] != null);
     }
-
-    try testing.expect(p.state == .ground);
 }
 
 test "csi: request mode decrqm" {
