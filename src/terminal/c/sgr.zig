@@ -12,7 +12,13 @@ const log = std.log.scoped(.sgr);
 const ParserWrapper = struct {
     parser: sgr.Parser,
     alloc: Allocator,
+
+    /// The separators the parser reads, set up by `setParams` when it is
+    /// given any.
+    seps: SepList = undefined,
 };
+
+const SepList = @import("../Parser.zig").Action.CSI.SepList;
 
 /// C: GhosttySgrParser
 pub const Parser = ?*ParserWrapper;
@@ -62,20 +68,23 @@ pub fn setParams(
     if (parser.params.len > 0) alloc.free(parser.params);
     parser.params = params_slice;
 
-    // If we have separators, set that state too.
-    parser.params_sep = .initEmpty();
+    // If we have separators, set that state too. Without them the list
+    // is never read, so it isn't worth clearing.
+    parser.params_sep = null;
     if (seps_) |seps| {
-        if (len > @TypeOf(parser.params_sep).bit_length) {
+        if (len > SepList.bit_length) {
             log.warn("ghostty_sgr_set_params: separators length {} exceeds max supported length {}", .{
                 len,
-                @TypeOf(parser.params_sep).bit_length,
+                SepList.bit_length,
             });
             return .invalid_value;
         }
 
+        wrapper.seps = .initEmpty();
         for (seps[0..len], 0..) |sep, i| {
-            if (sep == ':') parser.params_sep.set(i);
+            if (sep == ':') wrapper.seps.set(i);
         }
+        parser.params_sep = &wrapper.seps;
     }
 
     // Reset our parsing state
@@ -165,4 +174,37 @@ test "simple params, no seps" {
 
     // Nothing else
     try testing.expect(!next(p, &attr));
+}
+
+test "params with seps" {
+    var p: Parser = undefined;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &p,
+    ));
+    defer free(p);
+
+    // A colon makes 4:3 a single underline style, and the 3 is what
+    // picks curly: reading only the tag would pass for any style.
+    try testing.expectEqual(Result.success, setParams(p, &.{ 4, 3 }, ":;", 2));
+    var attr: sgr.Attribute.C = undefined;
+    try testing.expect(next(p, &attr));
+    try testing.expectEqual(.underline, attr.tag);
+    try testing.expectEqual(
+        sgr.Attribute.Underline.curly.cval(),
+        attribute_value(&attr).underline,
+    );
+    try testing.expect(!next(p, &attr));
+
+    // Without separators, the colon is forgotten: underline, then italic.
+    // The 4 alone is a single underline, and the 3 becomes italic.
+    try testing.expectEqual(Result.success, setParams(p, &.{ 4, 3 }, null, 2));
+    try testing.expect(next(p, &attr));
+    try testing.expectEqual(.underline, attr.tag);
+    try testing.expectEqual(
+        sgr.Attribute.Underline.single.cval(),
+        attribute_value(&attr).underline,
+    );
+    try testing.expect(next(p, &attr));
+    try testing.expectEqual(.italic, attr.tag);
 }
