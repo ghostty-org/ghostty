@@ -888,6 +888,20 @@ test "sgr: underline, bg, and fg" {
     }
 }
 
+test "sgr: a colon joins nothing past the last parameter" {
+    // Every parameter joined to the next, filling the separators. Walking
+    // them stops at the end of the parameters rather than reading a
+    // separator that no parameter has.
+    var seps: SepList = .initEmpty();
+    seps.setRangeValue(.{ .start = 0, .end = seps.capacity() }, true);
+    const params: [SepList.bit_length]u16 = @splat(99);
+
+    // One unknown attribute swallows the whole colon-joined group.
+    var p: Parser = .{ .params = &params, .params_sep = &seps };
+    try testing.expect(p.next().? == .unknown);
+    try testing.expect(p.next() == null);
+}
+
 test "sgr: direct color fg missing color" {
     // This used to crash
     var p: Parser = .{ .params = &[_]u16{ 38, 5 } };
