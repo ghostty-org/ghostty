@@ -1076,6 +1076,8 @@ pub const Surface = extern struct {
         switch (value.state) {
             // Remove the progress bar
             .remove => {
+                // Set a value to stop the pulse animation, if there is one.
+                progress_bar.setFraction(0);
                 progress_bar.as(gtk.Widget).setVisible(@intFromBool(false));
                 return;
             },
