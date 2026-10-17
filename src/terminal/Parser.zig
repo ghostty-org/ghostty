@@ -345,9 +345,6 @@ pub inline fn param(self: *Parser, c: u8) void {
 /// Finish a CSI with the final byte `c`. Returns null if the sequence must
 /// be dropped: it has too many parameters, or colons in a command without
 /// subparameters (see `Action.CSI.allowsSubparams`).
-///
-/// This is the parser's own `csi_dispatch` action, which `Stream` also
-/// takes directly on its fast paths.
 pub inline fn csiDispatch(self: *Parser, c: u8) ?Action.CSI {
     var csi: Action.CSI = .{
         .intermediates = self.intermediates[0..self.intermediates_idx],
@@ -436,17 +433,11 @@ pub fn next(self: *Parser, c: u8) [3]?Action {
                 break :osc_string null;
             },
             .dcs_passthrough => dcs_hook: {
-                // Ignore too many parameters
-                if (self.params_idx >= MAX_PARAMS) break :dcs_hook null;
-                // Finalize parameters
-                if (self.param_acc_idx > 0) {
-                    self.params[self.params_idx] = self.param_acc;
-                    self.params_idx += 1;
-                }
+                const params_ = self.finishParams() orelse break :dcs_hook null;
                 break :dcs_hook .{
                     .dcs_hook = .{
                         .intermediates = self.intermediates[0..self.intermediates_idx],
-                        .params = self.params[0..self.params_idx],
+                        .params = params_,
                         .final = c,
                     },
                 };
@@ -478,67 +469,14 @@ inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
             break :collect null;
         },
         .param => param: {
-            // Semicolon separates parameters. If we encounter a semicolon
-            // we need to store and move on to the next parameter.
-            if (c == ';' or c == ':') {
-                // Ignore too many parameters
-                if (self.params_idx >= MAX_PARAMS) break :param null;
-
-                // Set param final value
-                self.params[self.params_idx] = self.param_acc;
-                if (c == ':') self.params_sep.set(self.params_idx);
-                self.params_idx += 1;
-
-                // Reset current param value to 0
-                self.param_acc = 0;
-                self.param_acc_idx = 0;
-                break :param null;
-            }
-
-            // A numeric value. Add it to our accumulator.
-            self.param_acc *|= 10;
-            self.param_acc +|= c - '0';
-
-            // Increment our accumulator index. If we overflow then
-            // we're out of bounds and we exit immediately.
-            self.param_acc_idx, const overflow = @addWithOverflow(self.param_acc_idx, 1);
-            if (overflow > 0) break :param null;
-
-            // The client is expected to perform no action.
+            self.param(c);
             break :param null;
         },
         .osc_put => osc_put: {
             @call(.always_inline, osc.Parser.next, .{ &self.osc_parser, c });
             break :osc_put null;
         },
-        .csi_dispatch => csi_dispatch: {
-            // Ignore too many parameters
-            if (self.params_idx >= MAX_PARAMS) break :csi_dispatch null;
-
-            // Finalize parameters if we have one
-            if (self.param_acc_idx > 0) {
-                self.params[self.params_idx] = self.param_acc;
-                self.params_idx += 1;
-            }
-
-            const result: Action = .{
-                .csi_dispatch = .{
-                    .intermediates = self.intermediates[0..self.intermediates_idx],
-                    .params = self.params[0..self.params_idx],
-                    .params_sep = self.params_sep,
-                    .final = c,
-                },
-            };
-
-            // We only allow colon or mixed separators for the 'm' command.
-            if (c != 'm' and self.params_sep.count() > 0) {
-                @branchHint(.cold);
-                warnCsiSepMismatch(result.csi_dispatch);
-                break :csi_dispatch null;
-            }
-
-            break :csi_dispatch result;
-        },
+        .csi_dispatch => self.csiDispatchAction(c),
         .esc_dispatch => Action{
             .esc_dispatch = .{
                 .intermediates = self.intermediates[0..self.intermediates_idx],
@@ -551,15 +489,15 @@ inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
 }
 
 /// Log a warning for a CSI dispatch with colon/mixed separators on a
-/// non-'m' command.
+/// command without subparameters.
 ///
 /// This is noinline on purpose so that this unlikely (cold) behavior
 /// doesn't bloat the hot dispatch path which has been measured to actually
 /// affect both binary size and performance due to icache busts.
-noinline fn warnCsiSepMismatch(csi: Action.CSI) void {
+noinline fn warnCsiSubparams(csi: Action.CSI) void {
     @branchHint(.cold);
     log.warn(
-        "CSI colon or mixed separators only allowed for 'm' command, got: {f}",
+        "CSI colon or mixed separators on a command without subparameters: {f}",
         .{csi},
     );
 }
@@ -567,9 +505,9 @@ noinline fn warnCsiSepMismatch(csi: Action.CSI) void {
 pub inline fn clear(self: *Parser) void {
     self.intermediates_idx = 0;
     self.params_idx = 0;
-    self.params_sep = .initEmpty();
+    self.sep_upto = 0;
     self.param_acc = 0;
-    self.param_acc_idx = 0;
+    self.param_acc_set = false;
 }
 
 test {
