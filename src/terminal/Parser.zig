@@ -5,6 +5,7 @@
 const Parser = @This();
 
 const std = @import("std");
+const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const table = @import("parse_table.zig").table;
 const osc = @import("osc.zig");
@@ -214,32 +215,43 @@ pub const Action = union(enum) {
 /// can be at most 4 bytes.
 pub const MAX_INTERMEDIATE = 4;
 
-/// Maximum number of CSI parameters. This is arbitrary. Practically, the
-/// only CSI command that uses more than 3 parameters is the SGR command
-/// which can be infinitely long. 24 is a reasonable limit based on empirical
-/// data. This used to be 16 but Kakoune has a SGR command that uses 17
-/// parameters.
+/// Maximum number of CSI and DCS parameters. A sequence with more is
+/// dropped entirely.
 ///
-/// We could in the future make this the static limit and then allocate after
-/// but that's a lot more work and practically its so rare to exceed this
-/// number. I implore TUI authors to not use more than this number of CSI
-/// params, but I suspect we'll introduce a slow path with heap allocation
-/// one day.
-pub const MAX_PARAMS = 24;
+/// This is kitty's limit, which matters because the kitty multiple
+/// cursors protocol is the one protocol which adores sending parameters in bulk:
+/// a single painted cell costs three of them (`2:row:column`), so this
+/// takes *up to* a batch of 85 of them, or 51 rectangles of any size. A program
+/// wanting more splits it over several sequences.
+pub const MAX_PARAMS = 256;
 
 /// Current state of the state machine
 state: State,
 
 /// Intermediate tracking.
-intermediates: [MAX_INTERMEDIATE]u8,
 intermediates_idx: u8,
 
-/// Param tracking, building
-params: [MAX_PARAMS]u16,
-params_sep: Action.CSI.SepList,
-params_idx: u8,
+/// The number of parameters collected so far, or `MAX_PARAMS + 1` once
+/// there have been more than fit. The one after them is being
+/// accumulated in `param_acc`. See `pushParam`.
+params_idx: u16,
 param_acc: u16,
-param_acc_idx: u8,
+
+/// Whether `param_acc` has taken a digit, and so names a parameter that
+/// hasn't been stored yet.
+param_acc_set: bool,
+
+/// The separators below this index say what they mean for this
+/// sequence. Zero means no colon has turned up, and so that the
+/// separators have not been touched at all. See `clearSeps`.
+sep_upto: u16,
+
+intermediates: [MAX_INTERMEDIATE]u8,
+
+/// The values.
+params: [MAX_PARAMS]u16,
+
+params_sep: Action.CSI.SepList,
 
 /// Parser for OSC sequences
 osc_parser: osc.Parser,
@@ -248,22 +260,132 @@ pub fn init() Parser {
     var result: Parser = .{
         .state = .ground,
         .intermediates_idx = 0,
-        .params_sep = .empty,
         .params_idx = 0,
         .param_acc = 0,
-        .param_acc_idx = 0,
+        .param_acc_set = false,
+        .sep_upto = 0,
         .osc_parser = .init(null),
 
         .intermediates = undefined,
         .params = undefined,
+        .params_sep = undefined,
     };
     if (std.valgrind.runningOnValgrind() > 0) {
         // Initialize our undefined fields so Valgrind can catch it.
         // https://github.com/ziglang/zig/issues/19148
         result.intermediates = undefined;
         result.params = undefined;
+        result.params_sep = undefined;
     }
     return result;
+}
+
+/// The number of separator bits that share one word of `params_sep`.
+const sep_word_bits = @bitSizeOf(Action.CSI.SepList.MaskInt);
+
+/// Make the separators below `upto` mean what they say for this
+/// sequence, so that the ones no colon reached read as semicolons.
+///
+/// The separators are cleared here rather than in `clear`, so that a
+/// sequence with no colon in it, which is nearly all of them, never
+/// messes with em.
+inline fn clearSeps(self: *Parser, upto: usize) void {
+    assert(upto <= MAX_PARAMS);
+    if (self.sep_upto >= upto) return;
+    // `MAX_PARAMS` need not be a whole number of words, and the set is
+    // only that many bits wide, so the last word can stop early
+    const end = @min(
+        std.mem.alignForward(usize, upto, sep_word_bits),
+        MAX_PARAMS,
+    );
+    self.params_sep.setRangeValue(.{ .start = self.sep_upto, .end = end }, false);
+    self.sep_upto = @intCast(end);
+}
+
+/// Mark the separator after parameter `i` a colon. Separators are written
+/// for increasing `i`, (lets `clearSeps` run behind them).
+pub inline fn setColon(self: *Parser, i: usize) void {
+    self.clearSeps(i + 1);
+    self.params_sep.set(i);
+}
+
+/// Store the parameter being accumulated and begin the next one.
+///
+/// This is the only place a parameter is stored. `Stream` mirrors it with
+/// the count and accumulator in locals for its bulk loop.
+inline fn pushParam(self: *Parser, colon: bool) void {
+    if (self.params_idx < MAX_PARAMS) {
+        self.params[self.params_idx] = self.param_acc;
+        if (colon) self.setColon(self.params_idx);
+        self.params_idx += 1;
+    } else {
+        @branchHint(.cold);
+        self.params_idx = MAX_PARAMS + 1;
+    }
+    self.param_acc = 0;
+    self.param_acc_set = false;
+}
+
+/// Collect a parameter byte: a digit, or a separator ending the parameter
+/// before it.
+pub inline fn param(self: *Parser, c: u8) void {
+    switch (c) {
+        '0'...'9' => {
+            self.param_acc *|= 10;
+            self.param_acc +|= c - '0';
+            self.param_acc_set = true;
+        },
+
+        ':', ';' => self.pushParam(c == ':'),
+
+        else => unreachable,
+    }
+}
+
+/// Finish a CSI with the final byte `c`. Returns null if the sequence must
+/// be dropped: it has too many parameters, or colons in a command without
+/// subparameters (see `Action.CSI.allowsSubparams`).
+///
+/// This is the parser's own `csi_dispatch` action, which `Stream` also
+/// takes directly on its fast paths.
+pub inline fn csiDispatch(self: *Parser, c: u8) ?Action.CSI {
+    var csi: Action.CSI = .{
+        .intermediates = self.intermediates[0..self.intermediates_idx],
+        .params = self.finishParams() orelse return null,
+        .params_sep = null,
+        .final = c,
+    };
+
+    if (self.sep_upto > 0) {
+        @branchHint(.unlikely);
+        if (!csi.allowsSubparams()) {
+            @branchHint(.cold);
+            warnCsiSubparams(csi);
+            return null;
+        }
+        self.clearSeps(self.params_idx);
+        csi.params_sep = &self.params_sep;
+    }
+
+    return csi;
+}
+
+/// The state machine's `csi_dispatch` action. Inlined into `next`, this
+/// slows down every byte the parser handles, CSI or not.
+noinline fn csiDispatchAction(self: *Parser, c: u8) ?Action {
+    return .{ .csi_dispatch = self.csiDispatch(c) orelse return null };
+}
+
+/// Store the parameter being collected, if there is one, and return every
+/// parameter, or null if the sequence had more than `MAX_PARAMS` of them
+/// and so must be dropped.
+inline fn finishParams(self: *Parser) ?[]u16 {
+    if (self.param_acc_set) self.pushParam(false);
+    if (self.params_idx > MAX_PARAMS) {
+        @branchHint(.unlikely);
+        return null;
+    }
+    return self.params[0..self.params_idx];
 }
 
 pub fn deinit(self: *Parser) void {
@@ -1021,7 +1143,7 @@ test "csi: too many params" {
     var p = init();
     _ = p.next(0x1B);
     _ = p.next('[');
-    for (0..100) |_| {
+    for (0..MAX_PARAMS) |_| {
         _ = p.next('1');
         _ = p.next(';');
     }
@@ -1134,7 +1256,8 @@ test "dcs: params" {
 
 test "dcs: too many params" {
     // Regression test for a crash found by fuzzing (afl). When a DCS
-    // sequence has more than MAX_PARAMS parameters and param_acc_idx > 0,
+    // sequence has more than MAX_PARAMS parameters and a parameter is
+    // still being accumulated,
     // entering dcs_passthrough wrote to params[params_idx] without a
     // bounds check, causing an out-of-bounds access.
     var p = init();
@@ -1146,7 +1269,8 @@ test "dcs: too many params" {
     for (0..MAX_PARAMS) |_| {
         _ = p.next(';');
     }
-    // Feed another digit so param_acc_idx > 0 while params_idx == MAX_PARAMS.
+    // Feed another digit so a parameter is pending while params_idx is
+    // already MAX_PARAMS.
     _ = p.next('7');
 
     // A final byte triggers entry to dcs_passthrough. The DCS should
