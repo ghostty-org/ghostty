@@ -29,6 +29,11 @@ inspector: ?*Inspector = null,
 /// a future exercise.
 preedit: ?Preedit = null,
 
+/// Link hint labels to draw over the viewport. Owned by the surface and
+/// only valid to read while `mutex` is held.
+hints: []const Hint = &.{},
+hint_style: HintStyle = .{},
+
 /// Mouse state. This only contains state relevant to what renderers
 /// need about the mouse.
 mouse: Mouse = .{},
@@ -103,6 +108,23 @@ pub fn yieldToDemand(self: *State, io: std.Io) void {
         .{ .duration = .{ .raw = .fromNanoseconds(handoff_timeout_ns), .clock = .awake } },
     ) catch {};
 }
+
+/// A label drawn over the viewport cell at (x, y).
+pub const Hint = struct {
+    x: terminalpkg.size.CellCountInt,
+    y: terminalpkg.size.CellCountInt,
+    label: [2]u8,
+    len: u8,
+    /// How many leading label characters were already typed.
+    typed: u8,
+};
+
+pub const HintStyle = struct {
+    fg: terminalpkg.color.RGB = .{ .r = 0x1d, .g = 0x1f, .b = 0x21 },
+    bg: terminalpkg.color.RGB = .{ .r = 0xe9, .g = 0xff, .b = 0x5e },
+    typed_fg: terminalpkg.color.RGB = .{ .r = 0xe9, .g = 0xff, .b = 0x5e },
+    typed_bg: terminalpkg.color.RGB = .{ .r = 0x1d, .g = 0x1f, .b = 0x21 },
+};
 
 pub const Mouse = struct {
     /// The point on the viewport where the mouse currently is. We use

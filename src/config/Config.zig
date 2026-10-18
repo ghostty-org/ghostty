@@ -1465,6 +1465,18 @@ scrollbar: Scrollbar = .system,
 /// TODO: This can't currently be set!
 link: RepeatableLink = .{},
 
+/// The keys used to label links for the `url_hints` keybind action. Each
+/// character must be unique ASCII. One-key labels are used when there are
+/// no more links than characters, otherwise two-key labels.
+@"hint-alphabet": [:0]const u8 = "jfkdls;ahgurieowncmvtyqpzbx",
+
+/// Colors of the labels drawn by `url_hints`, and of the part of a label
+/// that has already been typed.
+@"hint-foreground": Color = .{ .r = 0x1d, .g = 0x1f, .b = 0x21 },
+@"hint-background": Color = .{ .r = 0xe9, .g = 0xff, .b = 0x5e },
+@"hint-typed-foreground": Color = .{ .r = 0xe9, .g = 0xff, .b = 0x5e },
+@"hint-typed-background": Color = .{ .r = 0x1d, .g = 0x1f, .b = 0x21 },
+
 /// Enable URL matching. URLs are matched on hover with control (Linux) or
 /// command (macOS) pressed and open using the default system application for
 /// the linked URL.

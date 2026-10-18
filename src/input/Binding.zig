@@ -300,6 +300,8 @@ pub fn lessThan(_: void, lhs: Binding, rhs: Binding) bool {
 }
 
 /// The set of actions that a keybinding can take.
+pub const UrlHints = enum { open, persist, copy };
+
 pub const Action = union(enum) {
     /// Ignore this key combination.
     ///
@@ -669,6 +671,22 @@ pub const Action = union(enum) {
     ///   - Warn before quit is always enabled in this state even if an active
     ///     process is not running
     toggle_readonly,
+
+    /// Label every link visible in the viewport (see the `link` option) with
+    /// a short key sequence, like Alacritty's hints. Typing a label acts on
+    /// that link. Escape cancels and backspace undoes a key. All other keys
+    /// are swallowed while the labels are shown.
+    ///
+    /// Valid values:
+    ///
+    ///   * `open` - Open the link and leave hint mode.
+    ///   * `persist` - Open the link and stay in hint mode.
+    ///   * `copy` - Copy the link to the clipboard and leave hint mode.
+    ///
+    /// There is no default keybind; for example
+    /// `keybind = ctrl+shift+o=url_hints:open`. See also `hint-alphabet`
+    /// and the `hint-*` color options.
+    url_hints: UrlHints,
 
     /// Resize the current split in the specified direction and amount in
     /// pixels. The two arguments should be joined with a comma (`,`),
@@ -1456,6 +1474,7 @@ pub const Action = union(enum) {
             .goto_window,
             .toggle_split_zoom,
             .toggle_readonly,
+            .url_hints,
             .resize_split,
             .equalize_splits,
             .inspector,
@@ -4581,6 +4600,12 @@ test "parse: copy to clipboard explicit" {
         try testing.expect(binding.action == .copy_to_clipboard);
         try testing.expectEqual(Action.CopyToClipboard.html, binding.action.copy_to_clipboard);
     }
+}
+
+test "parse: url hints" {
+    const testing = std.testing;
+    const binding = try parseSingle("a=url_hints:copy");
+    try testing.expectEqual(UrlHints.copy, binding.action.url_hints);
 }
 
 test "parse: write screen file no format" {

@@ -1395,6 +1395,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 preedit: ?renderer.State.Preedit,
                 scrollbar: terminal.Scrollbar,
                 overlay_features: []const Overlay.Feature,
+                hints: []const renderer.State.Hint,
+                hint_style: renderer.State.HintStyle,
             };
 
             // Update all our data as tightly as possible within the mutex.
@@ -1543,7 +1545,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     ) catch &.{};
                 };
 
+                const hints = arena_alloc.dupe(
+                    renderer.State.Hint,
+                    state.hints,
+                ) catch &.{};
+
                 break :critical .{
+                    .hints = hints,
+                    .hint_style = state.hint_style,
                     .links = links,
                     .mouse = state.mouse,
                     .preedit = preedit,
@@ -1556,6 +1565,38 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // within it. This must be done before anything reads the
             // render state (e.g. rebuildCells).
             self.terminal_state.endUpdate();
+
+            // Draw link hint labels over the cells. The labels are only in
+            // our render state copy, so clearing the hints (which dirties the
+            // terminal) restores the real cells.
+            if (critical.hints.len > 0) {
+                const row_data = self.terminal_state.row_data.slice();
+                for (critical.hints) |hint| {
+                    if (hint.y >= row_data.len) continue;
+                    const cells = row_data.items(.cells)[hint.y].slice();
+                    for (hint.label[0..hint.len], 0..) |c, i| {
+                        const x = hint.x + i;
+                        if (x >= cells.len) break;
+                        var raw = cells.items(.raw)[x];
+                        raw.content_tag = .codepoint;
+                        raw.content = .{ .codepoint = .{ .data = c } };
+                        raw.wide = .narrow;
+                        raw.style_id = 1; // any non-default so the style below is used
+                        cells.items(.raw)[x] = raw;
+                        const typed = i < hint.typed;
+                        const hs = critical.hint_style;
+                        cells.items(.style)[x] = .{
+                            .fg_color = .{ .rgb = if (typed) hs.typed_fg else hs.fg },
+                            .bg_color = .{ .rgb = if (typed) hs.typed_bg else hs.bg },
+                            .flags = .{ .bold = true },
+                        };
+                    }
+                    row_data.items(.dirty)[hint.y] = true;
+                }
+                if (self.terminal_state.dirty == .false) {
+                    self.terminal_state.dirty = .partial;
+                }
+            }
 
             // Outside the critical area we can update our links to contain
             // our regex results.

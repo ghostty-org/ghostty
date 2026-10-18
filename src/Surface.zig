@@ -174,6 +174,10 @@ selection_scroll_active: bool = false,
 /// always enabled in this state.
 readonly: bool = false,
 
+/// Active link hints (see `url_hints`). While non-null, key events are
+/// consumed by `hintsKey`.
+hints: ?Hints = null,
+
 /// Used to send notifications that long running commands have finished.
 /// Requires that shell integration be active. Should represent a nanosecond
 /// precision timestamp. It does not necessarily need to correspond to the
@@ -344,6 +348,8 @@ const DerivedConfig = struct {
     links: []DerivedConfig.Link,
     link_osc8: bool,
     link_previews: configpkg.LinkPreviews,
+    hint_alphabet: []const u8,
+    hint_style: rendererpkg.State.HintStyle,
     scroll_to_bottom: configpkg.Config.ScrollToBottom,
     notify_on_command_finish: configpkg.Config.NotifyOnCommandFinish,
     notify_on_command_finish_action: configpkg.Config.NotifyOnCommandFinishAction,
@@ -425,6 +431,13 @@ const DerivedConfig = struct {
             .links = links,
             .link_osc8 = config.@"link-osc8",
             .link_previews = config.@"link-previews",
+            .hint_alphabet = try alloc.dupe(u8, config.@"hint-alphabet"),
+            .hint_style = .{
+                .fg = config.@"hint-foreground".toTerminalRGB(),
+                .bg = config.@"hint-background".toTerminalRGB(),
+                .typed_fg = config.@"hint-typed-foreground".toTerminalRGB(),
+                .typed_bg = config.@"hint-typed-background".toTerminalRGB(),
+            },
             .scroll_to_bottom = config.@"scroll-to-bottom",
             .notify_on_command_finish = config.@"notify-on-command-finish",
             .notify_on_command_finish_action = config.@"notify-on-command-finish-action",
@@ -852,6 +865,7 @@ pub fn deinit(self: *Surface) void {
 
     // Clean up our render state
     if (self.renderer_state.preedit) |p| self.alloc.free(p.codepoints);
+    self.hintsEnd();
     self.alloc.destroy(self.renderer_state.mutex);
     self.config.deinit();
 
@@ -1807,6 +1821,8 @@ pub fn updateConfig(
         log.err("error updating configuration err={}", .{err});
         return;
     };
+    // Labels were built from the old config (alphabet).
+    self.hintsEnd();
     self.config.deinit();
     self.config = derived;
 
@@ -2805,6 +2821,12 @@ pub fn keyCallback(
         }
     };
 
+    // Link hints are modal: they swallow every key until they finish.
+    if (self.hints != null) {
+        try self.hintsKey(event);
+        return .consumed;
+    }
+
     // Handle keybindings first. We need to handle this on all events
     // (press, repeat, release) because a press may perform a binding but
     // a release should not encode if we consumed the press.
@@ -3566,6 +3588,9 @@ pub fn scrollCallback(
     // Crash metadata in case we crash in here
     crash.sentry.thread_state = self.crashThreadState();
     defer crash.sentry.thread_state = null;
+
+    // Scrolling moves the text out from under the hint labels.
+    self.hintsEnd();
 
     // Always show the mouse again if it is hidden
     if (self.mouse.hidden) self.showMouse();
@@ -4534,11 +4559,7 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
             });
             defer self.alloc.free(str);
 
-            const resolved_path = try self.resolvePathForOpening(str);
-            defer if (resolved_path) |p| self.alloc.free(p);
-
-            const url_to_open = resolved_path orelse str;
-            try self.openUrl(.{ .kind = .unknown, .url = url_to_open });
+            try self.openLinkText(str);
         },
 
         ._open_osc8 => {
@@ -4551,6 +4572,212 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
     }
 
     return true;
+}
+
+fn openLinkText(self: *Surface, str: []const u8) !void {
+    const resolved_path = try self.resolvePathForOpening(str);
+    defer if (resolved_path) |p| self.alloc.free(p);
+
+    const url_to_open = resolved_path orelse str;
+    try self.openUrl(.{ .kind = .unknown, .url = url_to_open });
+}
+
+const Hints = struct {
+    /// Every link in the viewport. `text` is owned.
+    items: []Item,
+
+    /// Keys typed so far.
+    typed: [2]u8 = undefined,
+    typed_len: u8 = 0,
+
+    mode: input.Binding.UrlHints,
+
+    /// Label length, same for all items so no label prefixes another.
+    label_len: u8,
+
+    const Item = struct {
+        hint: rendererpkg.State.Hint,
+        text: [:0]const u8,
+    };
+};
+
+/// Label the links in the viewport and enter hint mode.
+fn hintsStart(self: *Surface, mode: input.Binding.UrlHints) !void {
+    if (self.hints != null) return;
+
+    const alphabet = self.config.hint_alphabet;
+    if (alphabet.len < 2) {
+        log.warn("hint-alphabet needs at least 2 characters", .{});
+        return;
+    }
+    for (alphabet, 0..) |c, i| {
+        if (!std.ascii.isPrint(c) or std.mem.indexOfScalar(u8, alphabet[0..i], c) != null) {
+            log.warn("hint-alphabet must be unique printable ASCII", .{});
+            return;
+        }
+    }
+
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+
+    const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
+    const tl = screen.pages.getTopLeft(.viewport);
+    const br = screen.pages.getBottomRight(.viewport) orelse return;
+    const strmap = try screen.selectionStringMap(self.alloc, .{
+        .sel = .init(tl, br, false),
+        .trim = false,
+    });
+    defer strmap.deinit(self.alloc);
+
+    var items: std.ArrayList(Hints.Item) = .empty;
+    errdefer {
+        for (items.items) |item| self.alloc.free(item.text);
+        items.deinit(self.alloc);
+    }
+
+    // shortcut: two-char labels cap us at alphabet.len^2 links, plenty for a viewport.
+    for (self.config.links) |link| {
+        if (link.action != .open) continue;
+        var it = strmap.searchIterator(link.regex);
+        while (try it.next()) |m_| {
+            var m = m_;
+            defer m.deinit();
+            if (items.items.len >= alphabet.len * alphabet.len) break;
+            const sel = m.selection();
+            const vp = screen.pages.pointFromPin(.viewport, sel.start()) orelse continue;
+            const text = try screen.selectionString(self.alloc, .{ .sel = sel, .trim = false });
+            errdefer self.alloc.free(text);
+            try items.append(self.alloc, .{
+                .hint = .{ .x = vp.viewport.x, .y = @intCast(vp.viewport.y), .label = undefined, .len = 0, .typed = 0 },
+                .text = text,
+            });
+        }
+    }
+    if (items.items.len == 0) return;
+
+    const label_len = hintLabelLen(items.items.len, alphabet.len);
+    for (items.items, 0..) |*item, i| item.hint.label = hintLabel(alphabet, label_len, i);
+
+    self.hints = .{ .items = try items.toOwnedSlice(self.alloc), .label_len = label_len, .mode = mode };
+    // Don't stay modal with nothing drawn if rendering fails.
+    errdefer self.hintsFree();
+    try self.hintsRender();
+}
+
+/// One-key labels while they fit, otherwise two-key labels for all links
+/// so that no label is a prefix of another.
+fn hintLabelLen(count: usize, alphabet_len: usize) u8 {
+    return if (count <= alphabet_len) 1 else 2;
+}
+
+fn hintLabel(alphabet: []const u8, label_len: u8, i: usize) [2]u8 {
+    if (label_len == 1) return .{ alphabet[i], 0 };
+    return .{ alphabet[i / alphabet.len], alphabet[i % alphabet.len] };
+}
+
+test "hint labels" {
+    const testing = std.testing;
+    const abc = "abc";
+    try testing.expectEqual(@as(u8, 1), hintLabelLen(3, abc.len));
+    try testing.expectEqual(@as(u8, 2), hintLabelLen(4, abc.len));
+    try testing.expectEqual([2]u8{ 'c', 0 }, hintLabel(abc, 1, 2));
+    try testing.expectEqual([2]u8{ 'b', 'c' }, hintLabel(abc, 2, 5));
+
+    // Two-key labels are unique and never a prefix of each other.
+    var seen: [9][2]u8 = undefined;
+    for (&seen, 0..) |*l, i| l.* = hintLabel(abc, 2, i);
+    for (seen, 0..) |a, i| for (seen[i + 1 ..]) |b| try testing.expect(!std.mem.eql(u8, &a, &b));
+}
+
+/// Publish the labels matching the typed prefix to the renderer. Requires
+/// the renderer mutex.
+fn hintsRender(self: *Surface) !void {
+    const h = &self.hints.?;
+    var visible: std.ArrayList(rendererpkg.State.Hint) = .empty;
+    errdefer visible.deinit(self.alloc);
+    for (h.items) |item| {
+        if (!std.mem.startsWith(u8, item.hint.label[0..h.label_len], h.typed[0..h.typed_len])) continue;
+        var hint = item.hint;
+        hint.len = h.label_len;
+        hint.typed = h.typed_len;
+        try visible.append(self.alloc, hint);
+    }
+
+    self.alloc.free(self.renderer_state.hints);
+    self.renderer_state.hints = try visible.toOwnedSlice(self.alloc);
+    self.renderer_state.hint_style = self.config.hint_style;
+    // Force a full rebuild so labels that went away are restored.
+    self.renderer_state.terminal.flags.dirty.clear = true;
+    try self.queueRender();
+}
+
+/// Free our hint state without touching the renderer (no locking).
+fn hintsFree(self: *Surface) void {
+    const h = self.hints orelse return;
+    self.hints = null;
+    for (h.items) |item| self.alloc.free(item.text);
+    self.alloc.free(h.items);
+}
+
+/// Leave hint mode. Safe to call when inactive.
+fn hintsEnd(self: *Surface) void {
+    if (self.hints == null) return;
+    self.hintsFree();
+
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+    self.alloc.free(self.renderer_state.hints);
+    self.renderer_state.hints = &.{};
+    self.renderer_state.terminal.flags.dirty.clear = true;
+    self.queueRender() catch {};
+}
+
+fn hintsKey(self: *Surface, event: input.KeyEvent) !void {
+    if (event.action == .release) return;
+    // The press is swallowed, so the release must not reach the program
+    // once hint mode is over (see keyCallback's release handling).
+    self.keyboard.last_trigger = event.bindingHash();
+    const h = &self.hints.?;
+
+    if (event.key == .escape) return self.hintsEnd();
+    if (event.key == .backspace) {
+        if (h.typed_len > 0) h.typed_len -= 1;
+    } else {
+        if (event.utf8.len != 1) return;
+        if (std.mem.indexOfScalar(u8, self.config.hint_alphabet, event.utf8[0]) == null) return;
+        h.typed[h.typed_len] = event.utf8[0];
+        h.typed_len += 1;
+    }
+
+    if (h.typed_len == h.label_len) {
+        for (h.items) |item| {
+            if (!std.mem.eql(u8, item.hint.label[0..h.label_len], h.typed[0..h.label_len])) continue;
+            // Copy before hintsEnd frees it.
+            const text = try self.alloc.dupeZ(u8, item.text);
+            defer self.alloc.free(text);
+            const mode = h.mode;
+            if (mode == .persist) {
+                h.typed_len = 0;
+                self.renderer_state.mutex.lockUncancelable(global.io());
+                defer self.renderer_state.mutex.unlock(global.io());
+                try self.hintsRender();
+            } else self.hintsEnd();
+            switch (mode) {
+                .open, .persist => try self.openLinkText(text),
+                .copy => try self.rt_surface.setClipboard(.standard, &.{.{
+                    .mime = "text/plain",
+                    .data = text,
+                }}, false),
+            }
+            return;
+        }
+        // No such label: drop the last key.
+        h.typed_len -= 1;
+    }
+
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+    try self.hintsRender();
 }
 
 fn openUrl(
@@ -5524,6 +5751,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .toggle_split_zoom,
             {},
         ),
+
+        .url_hints => |mode| {
+            try self.hintsStart(mode);
+            return true;
+        },
 
         .toggle_readonly => {
             self.readonly = !self.readonly;

@@ -552,6 +552,24 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Toggle read-only mode for the current surface."),
         }},
 
+        .url_hints => comptime &.{
+            .{
+                .action = .{ .url_hints = .open },
+                .title = i18n.N_("Open Link Hints"),
+                .description = i18n.N_("Label visible links so one can be opened with the keyboard."),
+            },
+            .{
+                .action = .{ .url_hints = .persist },
+                .title = i18n.N_("Open Link Hints (Keep Open)"),
+                .description = i18n.N_("Label visible links and stay in hint mode after opening one."),
+            },
+            .{
+                .action = .{ .url_hints = .copy },
+                .title = i18n.N_("Copy Link Hints"),
+                .description = i18n.N_("Label visible links so one can be copied with the keyboard."),
+            },
+        },
+
         .equalize_splits => comptime &.{.{
             .action = .equalize_splits,
             .title = i18n.N_("Equalize Splits"),
