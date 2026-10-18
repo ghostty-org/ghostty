@@ -284,7 +284,7 @@ test "a11y text: rows joined by newline, trailing blanks trimmed" {
 
     // Row 2 is empty, so it contributes its leading '\n' and nothing else.
     try testing.expectEqualStrings("hello\nworld\n", buffer.written());
-    try testing.expectEqual(@as(usize, 12), result.cp_count);
+    try testing.expectEqual(12, result.cp_count);
 }
 
 test "a11y text: widths report the columns each codepoint covers" {
@@ -323,9 +323,9 @@ test "a11y text: widths report the columns each codepoint covers" {
     // to the left, inside 語.
     const t_byte = std.mem.indexOf(u8, buffer.written(), "tail").?;
     const cp_idx = unicode.utf8.cpCount(buffer.written()[0..t_byte]);
-    try testing.expectEqual(@as(usize, 9), cp_idx);
+    try testing.expectEqual(9, cp_idx);
     try testing.expectEqual(
-        @as(u32, 12),
+        12,
         offsets.cpToGrid(buffer.written(), .{ .per_cp = widths.written() }, cp_idx).col,
     );
 }
@@ -396,7 +396,7 @@ test "a11y text: cursor anchors past trailing blanks" {
     // "hi\nabc", with the cursor on the blank after "abc". That is
     // trailing, so it anchors at end-of-text.
     try testing.expectEqualStrings("hi\nabc", buffer.written());
-    try testing.expectEqual(@as(usize, 6), result.cursor_byte.?);
+    try testing.expectEqual(6, result.cursor_byte.?);
 }
 
 test "a11y text: cursor inside an interior blank run lands on its column" {
@@ -419,7 +419,7 @@ test "a11y text: cursor inside an interior blank run lands on its column" {
     try testing.expectEqualStrings("ab    cd", buffer.written());
     // Byte 3 is the second of the four spaces, the cell the cursor is
     // on, not the start or the end of the run.
-    try testing.expectEqual(@as(usize, 3), result.cursor_byte.?);
+    try testing.expectEqual(3, result.cursor_byte.?);
 }
 
 test "a11y text: cursor on a wide character's spacer lands on the character" {
@@ -441,5 +441,5 @@ test "a11y text: cursor on a wide character's spacer lands on the character" {
     // character's own offset. A spacer has no text and is skipped without
     // accumulating a blank, so the deferred blank-run path can never
     // resolve it and it would otherwise fall through to end-of-row.
-    try testing.expectEqual(@as(usize, 2), result.cursor_byte.?);
+    try testing.expectEqual(2, result.cursor_byte.?);
 }

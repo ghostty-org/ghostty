@@ -53,7 +53,7 @@ pub const PrefixSuffixDiff = struct {
 /// then pull both offsets back to UTF-8 codepoint boundaries.
 ///
 /// Alignment matters because two multi-byte codepoints can share a
-/// leading byte (e.g. `│` and `├`, both starting with 0xE2 0x94), and a
+/// leading byte (e.g. U+2502 and U+251C, both starting with 0xE2 0x94), and a
 /// byte-wise compare can land inside a character.
 ///
 /// Aligning against `old_text` alone also aligns `new_text`: the bytes at
@@ -558,18 +558,19 @@ pub fn contentsAt(
 
 const testing = std.testing;
 
-// A three-byte codepoint whose leading two bytes are shared with `├`
+// Two three-byte codepoints that share their leading two bytes
 // (0xE2 0x94 0x82 vs 0xE2 0x94 0x9C). This pair is what makes a
-// byte-wise diff land mid-character.
-const box_v = "│";
-const box_t = "├";
+// byte-wise diff land mid-character. Escaped because both glyphs look
+// like ASCII punctuation.
+const box_v = "\u{2502}"; // BOX DRAWINGS LIGHT VERTICAL
+const box_t = "\u{251C}"; // BOX DRAWINGS LIGHT VERTICAL AND RIGHT
 
 test "diff: prefixSuffix on a plain single-character edit" {
     const old_text = "hello world";
     const new_text = "hello Xorld";
     const d = prefixSuffix(old_text, new_text);
-    try testing.expectEqual(@as(usize, 6), d.prefix_len);
-    try testing.expectEqual(@as(usize, 4), d.suffix_len);
+    try testing.expectEqual(6, d.prefix_len);
+    try testing.expectEqual(4, d.suffix_len);
 }
 
 test "diff: prefixSuffix pulls back off a shared multi-byte lead" {
@@ -580,7 +581,7 @@ test "diff: prefixSuffix pulls back off a shared multi-byte lead" {
     const new_text = "a" ++ box_t ++ "z";
 
     const d = prefixSuffix(old_text, new_text);
-    try testing.expectEqual(@as(usize, 1), d.prefix_len);
+    try testing.expectEqual(1, d.prefix_len);
     try testing.expect(std.unicode.utf8ValidateSlice(old_text[0..d.prefix_len]));
     try testing.expect(std.unicode.utf8ValidateSlice(old_text[d.prefix_len .. old_text.len - d.suffix_len]));
     try testing.expect(std.unicode.utf8ValidateSlice(new_text[0..d.prefix_len]));
@@ -591,22 +592,22 @@ test "diff: prefixSuffix when old is a prefix of new" {
     const old_text = "abc";
     const new_text = "abcdef";
     const d = prefixSuffix(old_text, new_text);
-    try testing.expectEqual(@as(usize, 3), d.prefix_len);
-    try testing.expectEqual(@as(usize, 0), d.suffix_len);
+    try testing.expectEqual(3, d.prefix_len);
+    try testing.expectEqual(0, d.suffix_len);
 }
 
 test "diff: prefixSuffix on identical and empty inputs" {
     const same = prefixSuffix("abc", "abc");
-    try testing.expectEqual(@as(usize, 3), same.prefix_len);
-    try testing.expectEqual(@as(usize, 0), same.suffix_len);
+    try testing.expectEqual(3, same.prefix_len);
+    try testing.expectEqual(0, same.suffix_len);
 
     const empty = prefixSuffix("", "");
-    try testing.expectEqual(@as(usize, 0), empty.prefix_len);
-    try testing.expectEqual(@as(usize, 0), empty.suffix_len);
+    try testing.expectEqual(0, empty.prefix_len);
+    try testing.expectEqual(0, empty.suffix_len);
 
     const from_empty = prefixSuffix("", "new");
-    try testing.expectEqual(@as(usize, 0), from_empty.prefix_len);
-    try testing.expectEqual(@as(usize, 0), from_empty.suffix_len);
+    try testing.expectEqual(0, from_empty.prefix_len);
+    try testing.expectEqual(0, from_empty.suffix_len);
 }
 
 test "diff: prefix and suffix never overlap" {
@@ -623,7 +624,7 @@ test "diff: scrollK detects a whole-line shift" {
     const old_text = "line1\nline2\nline3\n";
     const new_text = "line2\nline3\nline4\n";
     // One line scrolled off: K is the byte just past the first newline.
-    try testing.expectEqual(@as(usize, 6), scrollK(old_text, new_text));
+    try testing.expectEqual(6, scrollK(old_text, new_text));
 }
 
 test "diff: scrollK rejects a trailing-newline-only match" {
@@ -632,13 +633,13 @@ test "diff: scrollK rejects a trailing-newline-only match" {
     // be reported as a scroll.
     const old_text = "abc\n";
     const new_text = "abz\n";
-    try testing.expectEqual(@as(usize, 0), scrollK(old_text, new_text));
+    try testing.expectEqual(0, scrollK(old_text, new_text));
 }
 
 test "diff: scrollK returns 0 with no newline or no match" {
-    try testing.expectEqual(@as(usize, 0), scrollK("", "anything"));
-    try testing.expectEqual(@as(usize, 0), scrollK("no newlines", "still none"));
-    try testing.expectEqual(@as(usize, 0), scrollK("a\nb\n", "totally different"));
+    try testing.expectEqual(0, scrollK("", "anything"));
+    try testing.expectEqual(0, scrollK("no newlines", "still none"));
+    try testing.expectEqual(0, scrollK("a\nb\n", "totally different"));
 }
 
 test "diff: scrollK detects a downward shift with the arguments swapped" {
@@ -648,8 +649,8 @@ test "diff: scrollK detects a downward shift with the arguments swapped" {
     const old_text = "line1\nline2\nline3\n";
     const new_text = "line0\nline1\nline2\n";
 
-    try testing.expectEqual(@as(usize, 0), scrollK(old_text, new_text));
-    try testing.expectEqual(@as(usize, 6), scrollK(new_text, old_text));
+    try testing.expectEqual(0, scrollK(old_text, new_text));
+    try testing.expectEqual(6, scrollK(new_text, old_text));
 }
 
 test "diff: choose prefers a shift over replacing the viewport" {
@@ -689,8 +690,8 @@ test "diff: choose keeps typing echo as a replacement" {
 
     const diff = chooseDiff(old_text, new_text);
     try testing.expect(diff == .replace);
-    try testing.expectEqual(@as(usize, 8), diff.replace.prefix_len);
-    try testing.expectEqual(@as(usize, 0), diff.replace.suffix_len);
+    try testing.expectEqual(8, diff.replace.prefix_len);
+    try testing.expectEqual(0, diff.replace.suffix_len);
 }
 
 test "diff: choose says nothing for identical snapshots" {
@@ -765,25 +766,25 @@ test "grid: rowColToCp counts codepoints, not bytes" {
     // Row 1 begins 7 bytes in but only 3 codepoints in (two box drawing
     // characters plus the newline, which is itself a codepoint). Counting
     // bytes here would report 7 and push every offset off the end.
-    try testing.expectEqual(@as(?usize, 3), rowColToCp(text, .uniform, 1, 0));
-    try testing.expectEqual(@as(?usize, 5), rowColToCp(text, .uniform, 1, 2));
-    try testing.expectEqual(@as(?usize, 1), rowColToCp(text, .uniform, 0, 1));
+    try testing.expectEqual(3, rowColToCp(text, .uniform, 1, 0));
+    try testing.expectEqual(5, rowColToCp(text, .uniform, 1, 2));
+    try testing.expectEqual(1, rowColToCp(text, .uniform, 0, 1));
 }
 
 test "grid: rowColToCp clamps column, fails past the last row" {
     const text = "ab\ncd";
-    try testing.expectEqual(@as(?usize, 5), rowColToCp(text, .uniform, 1, 99));
-    try testing.expectEqual(@as(?usize, null), rowColToCp(text, .uniform, 7, 0));
+    try testing.expectEqual(5, rowColToCp(text, .uniform, 1, 99));
+    try testing.expectEqual(null, rowColToCp(text, .uniform, 7, 0));
 }
 
 test "grid: offsetAtGrid clamps instead of failing" {
     const text = "ab\ncd";
     // Same in-range answers as rowColToCp...
-    try testing.expectEqual(@as(usize, 3), offsetAtGrid(text, .uniform, 1, 0));
+    try testing.expectEqual(3, offsetAtGrid(text, .uniform, 1, 0));
     // ...but a row past the end resolves into the last row rather than
     // returning nothing.
-    try testing.expectEqual(@as(usize, 3), offsetAtGrid(text, .uniform, 7, 0));
-    try testing.expectEqual(@as(usize, 5), offsetAtGrid(text, .uniform, 7, 99));
+    try testing.expectEqual(3, offsetAtGrid(text, .uniform, 7, 0));
+    try testing.expectEqual(5, offsetAtGrid(text, .uniform, 7, 99));
 }
 
 // Three double-width characters followed by ASCII: one codepoint each,
@@ -796,18 +797,18 @@ test "grid: a wide character spans two columns" {
     // 'a' is codepoint 3 but column 6. Reading the codepoint index as a
     // column is the bug this exists to prevent: it lands three columns
     // to the left, on 語.
-    try testing.expectEqual(@as(?usize, 3), rowColToCp(wide_row, wide_widths, 0, 6));
-    try testing.expectEqual(@as(u32, 6), cpToGrid(wide_row, wide_widths, 3).col);
+    try testing.expectEqual(3, rowColToCp(wide_row, wide_widths, 0, 6));
+    try testing.expectEqual(6, cpToGrid(wide_row, wide_widths, 3).col);
 
     // Both cells of a wide character resolve to that character, so a
     // click on either half routes to the same place.
-    try testing.expectEqual(@as(?usize, 1), rowColToCp(wide_row, wide_widths, 0, 2));
-    try testing.expectEqual(@as(?usize, 1), rowColToCp(wide_row, wide_widths, 0, 3));
+    try testing.expectEqual(1, rowColToCp(wide_row, wide_widths, 0, 2));
+    try testing.expectEqual(1, rowColToCp(wide_row, wide_widths, 0, 3));
 
     // Round trip: every codepoint's column maps back to itself.
     for (0..5) |cp| {
         const col = cpToGrid(wide_row, wide_widths, cp).col;
-        try testing.expectEqual(@as(?usize, cp), rowColToCp(wide_row, wide_widths, 0, col));
+        try testing.expectEqual(cp, rowColToCp(wide_row, wide_widths, 0, col));
     }
 }
 
@@ -816,11 +817,11 @@ test "grid: widths are per row, and rows keep their own columns" {
     const widths: CellWidths = .{ .per_cp = &.{ 2, 2, 0, 1, 1 } };
 
     // Row 0: column 2 is the second wide character.
-    try testing.expectEqual(@as(?usize, 1), rowColToCp(text, widths, 0, 2));
+    try testing.expectEqual(1, rowColToCp(text, widths, 0, 2));
     // Row 1 starts its column count over, and its offsets are unaffected
     // by the wide characters above it.
-    try testing.expectEqual(@as(?usize, 3), rowColToCp(text, widths, 1, 0));
-    try testing.expectEqual(@as(?usize, 4), rowColToCp(text, widths, 1, 1));
+    try testing.expectEqual(3, rowColToCp(text, widths, 1, 0));
+    try testing.expectEqual(4, rowColToCp(text, widths, 1, 1));
     try testing.expectEqual(GridPos{ .row = 1, .col = 1 }, cpToGrid(text, widths, 4));
 }
 
@@ -830,21 +831,21 @@ test "grid: zero-width codepoints share their base character's cell" {
     const widths: CellWidths = .{ .per_cp = &.{ 1, 0, 1 } };
 
     // Column 0 resolves to the base character, never to the mark.
-    try testing.expectEqual(@as(?usize, 0), rowColToCp(text, widths, 0, 0));
+    try testing.expectEqual(0, rowColToCp(text, widths, 0, 0));
     // 'x' follows in the next column even though it is codepoint 2.
-    try testing.expectEqual(@as(?usize, 2), rowColToCp(text, widths, 0, 1));
-    try testing.expectEqual(@as(u32, 1), cpToGrid(text, widths, 2).col);
+    try testing.expectEqual(2, rowColToCp(text, widths, 0, 1));
+    try testing.expectEqual(1, cpToGrid(text, widths, 2).col);
     // The mark itself reports its base character's column.
-    try testing.expectEqual(@as(u32, 0), cpToGrid(text, widths, 1).col);
+    try testing.expectEqual(0, cpToGrid(text, widths, 1).col);
 }
 
 test "grid: missing widths degrade to one column per codepoint" {
     // Short slices and empty ones read as width 1 past their end, which
     // is the pre-widths behaviour rather than an out-of-bounds read.
     const short: CellWidths = .{ .per_cp = &.{2} };
-    try testing.expectEqual(@as(?usize, 1), rowColToCp(wide_row, short, 0, 2));
-    try testing.expectEqual(@as(?usize, 2), rowColToCp(wide_row, short, 0, 3));
-    try testing.expectEqual(@as(?usize, 3), rowColToCp(wide_row, .uniform, 0, 3));
+    try testing.expectEqual(1, rowColToCp(wide_row, short, 0, 2));
+    try testing.expectEqual(2, rowColToCp(wide_row, short, 0, 3));
+    try testing.expectEqual(3, rowColToCp(wide_row, .uniform, 0, 3));
 }
 
 test "grid: cpToGrid clamps an offset past the end" {
@@ -865,8 +866,8 @@ test "grid: a newline belongs to the row it terminates" {
     try testing.expectEqual(GridPos{ .row = 2, .col = 0 }, cpToGrid(text, .uniform, 6));
 
     // `extentsCells` shares the same walk, so it agrees.
-    try testing.expectEqual(@as(u32, 0), extentsCells(text, .uniform, 2, 3).row);
-    try testing.expectEqual(@as(u32, 1), extentsCells(text, .uniform, 3, 4).row);
+    try testing.expectEqual(0, extentsCells(text, .uniform, 2, 3).row);
+    try testing.expectEqual(1, extentsCells(text, .uniform, 3, 4).row);
 }
 
 test "grid: pointToGrid survives negative and non-finite input" {
@@ -890,25 +891,25 @@ test "grid: pointToGrid survives negative and non-finite input" {
     // A finite but absurd magnitude saturates at the guard instead of
     // overflowing the float-to-int conversion.
     const huge = pointToGrid(1e30, 1e30, cw, ch);
-    try testing.expectEqual(@as(u32, 1_000_000), huge.row);
-    try testing.expectEqual(@as(u32, 1_000_000), huge.col);
+    try testing.expectEqual(1_000_000, huge.row);
+    try testing.expectEqual(1_000_000, huge.col);
 }
 
 test "extents: each row reports a distinct row index" {
     const text = "row0\nrow1\nrow2";
     // Flat review collapses to one line if these ever coincide.
-    try testing.expectEqual(@as(u32, 0), extentsCells(text, .uniform, 0, 1).row);
-    try testing.expectEqual(@as(u32, 1), extentsCells(text, .uniform, 5, 6).row);
-    try testing.expectEqual(@as(u32, 2), extentsCells(text, .uniform, 10, 11).row);
+    try testing.expectEqual(0, extentsCells(text, .uniform, 0, 1).row);
+    try testing.expectEqual(1, extentsCells(text, .uniform, 5, 6).row);
+    try testing.expectEqual(2, extentsCells(text, .uniform, 10, 11).row);
 }
 
 test "extents: column and width are in cells, not bytes" {
     const text = box_v ++ box_v ++ "abc";
     // Third codepoint sits at column 2 even though it is byte 6.
     const r = extentsCells(text, .uniform, 2, 5);
-    try testing.expectEqual(@as(u32, 0), r.row);
-    try testing.expectEqual(@as(u32, 2), r.col);
-    try testing.expectEqual(@as(u32, 3), r.width_cols);
+    try testing.expectEqual(0, r.row);
+    try testing.expectEqual(2, r.col);
+    try testing.expectEqual(3, r.width_cols);
 }
 
 test "extents: a wide character is two cells wide and shifts what follows" {
@@ -916,38 +917,38 @@ test "extents: a wide character is two cells wide and shifts what follows" {
     // start at column 6, or a screen reader's highlight sits a
     // character behind the text it is reading.
     const wide = extentsCells(wide_row, wide_widths, 2, 3);
-    try testing.expectEqual(@as(u32, 4), wide.col);
-    try testing.expectEqual(@as(u32, 2), wide.width_cols);
+    try testing.expectEqual(4, wide.col);
+    try testing.expectEqual(2, wide.width_cols);
 
     const after = extentsCells(wide_row, wide_widths, 3, 5);
-    try testing.expectEqual(@as(u32, 6), after.col);
-    try testing.expectEqual(@as(u32, 2), after.width_cols);
+    try testing.expectEqual(6, after.col);
+    try testing.expectEqual(2, after.width_cols);
 
     // The whole row: three wide characters plus two narrow ones.
-    try testing.expectEqual(@as(u32, 8), extentsCells(wide_row, wide_widths, 0, 5).width_cols);
+    try testing.expectEqual(8, extentsCells(wide_row, wide_widths, 0, 5).width_cols);
 }
 
 test "extents: width stops at the row end and never reports zero" {
     const text = "ab\ncdef";
     // Range spans the newline; width covers only the first row.
     const spanning = extentsCells(text, .uniform, 0, 6);
-    try testing.expectEqual(@as(u32, 2), spanning.width_cols);
+    try testing.expectEqual(2, spanning.width_cols);
 
     // An empty range still reports one cell so the rect is visible.
     const empty = extentsCells(text, .uniform, 1, 1);
-    try testing.expectEqual(@as(u32, 1), empty.width_cols);
+    try testing.expectEqual(1, empty.width_cols);
 
     // So does a range covering only zero-width codepoints: a combining
     // mark alone sums to no columns, but an AT client still needs a rect.
     const marks: CellWidths = .{ .per_cp = &.{ 1, 0, 1 } };
-    try testing.expectEqual(@as(u32, 1), extentsCells("e\u{0301}x", marks, 1, 2).width_cols);
+    try testing.expectEqual(1, extentsCells("e\u{0301}x", marks, 1, 2).width_cols);
 }
 
 test "contents: character granularity returns one whole codepoint" {
     const text = "a" ++ box_v ++ "b";
     const c = contentsAt(text, 1, .character);
-    try testing.expectEqual(@as(usize, 1), c.start_cp);
-    try testing.expectEqual(@as(usize, 2), c.end_cp);
+    try testing.expectEqual(1, c.start_cp);
+    try testing.expectEqual(2, c.end_cp);
     try testing.expectEqualStrings(box_v, c.bytes);
     try testing.expect(std.unicode.utf8ValidateSlice(c.bytes));
 }
@@ -955,8 +956,8 @@ test "contents: character granularity returns one whole codepoint" {
 test "contents: character granularity past the end is empty" {
     const text = "abc";
     const c = contentsAt(text, 99, .character);
-    try testing.expectEqual(@as(usize, 3), c.start_cp);
-    try testing.expectEqual(@as(usize, 3), c.end_cp);
+    try testing.expectEqual(3, c.start_cp);
+    try testing.expectEqual(3, c.end_cp);
     try testing.expectEqualStrings("", c.bytes);
 }
 
@@ -965,13 +966,13 @@ test "contents: word granularity stops at spaces and newlines" {
 
     const mid = contentsAt(text, 7, .word);
     try testing.expectEqualStrings("beta", mid.bytes);
-    try testing.expectEqual(@as(usize, 6), mid.start_cp);
-    try testing.expectEqual(@as(usize, 10), mid.end_cp);
+    try testing.expectEqual(6, mid.start_cp);
+    try testing.expectEqual(10, mid.end_cp);
 
     // A word bounded by a newline rather than a space.
     const after_nl = contentsAt(text, 12, .word);
     try testing.expectEqualStrings("gamma", after_nl.bytes);
-    try testing.expectEqual(@as(usize, 11), after_nl.start_cp);
+    try testing.expectEqual(11, after_nl.start_cp);
 
     // Sitting on the separator itself walks back to the start of the
     // preceding word and stops immediately going forward, so the offset
@@ -980,8 +981,8 @@ test "contents: word granularity stops at spaces and newlines" {
     // when stepping word-by-word across a line.
     const on_space = contentsAt(text, 5, .word);
     try testing.expectEqualStrings("alpha", on_space.bytes);
-    try testing.expectEqual(@as(usize, 0), on_space.start_cp);
-    try testing.expectEqual(@as(usize, 5), on_space.end_cp);
+    try testing.expectEqual(0, on_space.start_cp);
+    try testing.expectEqual(5, on_space.end_cp);
 }
 
 test "contents: line granularity includes the trailing newline" {
@@ -989,14 +990,14 @@ test "contents: line granularity includes the trailing newline" {
 
     const first = contentsAt(text, 2, .line);
     try testing.expectEqualStrings("first\n", first.bytes);
-    try testing.expectEqual(@as(usize, 0), first.start_cp);
-    try testing.expectEqual(@as(usize, 6), first.end_cp);
+    try testing.expectEqual(0, first.start_cp);
+    try testing.expectEqual(6, first.end_cp);
 
     // The final line has no newline to include.
     const last = contentsAt(text, 14, .line);
     try testing.expectEqualStrings("third", last.bytes);
-    try testing.expectEqual(@as(usize, 13), last.start_cp);
-    try testing.expectEqual(@as(usize, 18), last.end_cp);
+    try testing.expectEqual(13, last.start_cp);
+    try testing.expectEqual(18, last.end_cp);
 }
 
 test "contents: line granularity with multi-byte rows" {
@@ -1004,8 +1005,8 @@ test "contents: line granularity with multi-byte rows" {
     const second = contentsAt(text, 3, .line);
     try testing.expectEqualStrings("abc", second.bytes);
     // Row 1 begins at codepoint 3 (two box chars plus the newline).
-    try testing.expectEqual(@as(usize, 3), second.start_cp);
-    try testing.expectEqual(@as(usize, 6), second.end_cp);
+    try testing.expectEqual(3, second.start_cp);
+    try testing.expectEqual(6, second.end_cp);
 }
 
 test "contents: every granularity yields valid UTF-8 on multi-byte text" {
@@ -1177,15 +1178,15 @@ test "diff: events round-trip on the shapes we emit by name" {
     // Multi-byte content shifting, including a row that is pure emoji --
     // the case where a byte-wise prefix/suffix would cut mid-codepoint.
     try expectRoundTrip("日本\nx\n😀", "x\n😀\n日本");
-    try expectRoundTrip("│a\n├b", "├b\n│a");
+    try expectRoundTrip(box_v ++ "a\n" ++ box_t ++ "b", box_t ++ "b\n" ++ box_v ++ "a");
 }
 
 test "diff: events round-trip over generated viewports" {
     const alloc = testing.allocator;
-    // Deliberately includes characters that share leading bytes (│ and ├)
-    // and a 4-byte codepoint, since the prefix/suffix scan walks bytes and
-    // then backs up to a boundary.
-    const glyphs = [_][]const u8{ "a", "b", " ", "$", "é", "日", "│", "├", "😀" };
+    // Deliberately includes characters that share leading bytes (box_v
+    // and box_t) and a 4-byte codepoint, since the prefix/suffix scan walks
+    // bytes and then backs up to a boundary.
+    const glyphs = [_][]const u8{ "a", "b", " ", "$", "é", "日", box_v, box_t, "😀" };
 
     var prng = std.Random.DefaultPrng.init(0x9057e11);
     const rand = prng.random();
