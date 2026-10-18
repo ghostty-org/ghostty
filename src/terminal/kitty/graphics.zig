@@ -21,6 +21,7 @@ pub const pixel = @import("graphics_pixel.zig");
 pub const unicode = @import("graphics_unicode.zig");
 pub const Animation = animation.Animation;
 pub const Command = command.Command;
+pub const Transmission = command.Transmission;
 pub const CommandParser = command.Parser;
 pub const Image = image.Image;
 pub const LoadingImage = image.LoadingImage;
