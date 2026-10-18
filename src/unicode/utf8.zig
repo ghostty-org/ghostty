@@ -41,28 +41,28 @@ pub fn isContinuation(b: u8) bool {
 
 test "utf8: codepoint length, count and index" {
     const testing = std.testing;
-    const box_v = "│"; // three bytes: 0xE2 0x94 0x82
+    const euro = "€"; // three bytes: 0xE2 0x82 0xAC
 
-    try testing.expectEqual(@as(usize, 1), cpLen('a'));
-    try testing.expectEqual(@as(usize, 2), cpLen("é"[0]));
-    try testing.expectEqual(@as(usize, 3), cpLen(box_v[0]));
-    try testing.expectEqual(@as(usize, 4), cpLen("😀"[0]));
+    try testing.expectEqual(1, cpLen('a'));
+    try testing.expectEqual(2, cpLen("é"[0]));
+    try testing.expectEqual(3, cpLen(euro[0]));
+    try testing.expectEqual(4, cpLen("😀"[0]));
 
     // Continuation bytes advance by one so a malformed scan terminates.
-    try testing.expectEqual(@as(usize, 1), cpLen(0x80));
+    try testing.expectEqual(1, cpLen(0x80));
     try testing.expect(isContinuation(0x80));
     try testing.expect(!isContinuation('a'));
-    try testing.expect(!isContinuation(box_v[0]));
-    try testing.expect(isContinuation(box_v[1]));
+    try testing.expect(!isContinuation(euro[0]));
+    try testing.expect(isContinuation(euro[1]));
 
-    const s = "a" ++ box_v ++ "b😀";
-    try testing.expectEqual(@as(usize, 4), cpCount(s));
-    try testing.expectEqual(@as(usize, 9), s.len);
+    const s = "a" ++ euro ++ "b😀";
+    try testing.expectEqual(4, cpCount(s));
+    try testing.expectEqual(9, s.len);
 
-    try testing.expectEqual(@as(usize, 0), cpToByte(s, 0));
-    try testing.expectEqual(@as(usize, 1), cpToByte(s, 1));
-    try testing.expectEqual(@as(usize, 4), cpToByte(s, 2));
-    try testing.expectEqual(@as(usize, 5), cpToByte(s, 3));
+    try testing.expectEqual(0, cpToByte(s, 0));
+    try testing.expectEqual(1, cpToByte(s, 1));
+    try testing.expectEqual(4, cpToByte(s, 2));
+    try testing.expectEqual(5, cpToByte(s, 3));
     // Past the end clamps rather than overruns.
-    try testing.expectEqual(s.len, cpToByte(s, 99));
+    try testing.expectEqual(s.len, cpToByte(s, std.math.maxInt(usize)));
 }
