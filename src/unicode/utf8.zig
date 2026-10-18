@@ -1,11 +1,13 @@
 //! UTF-8 codepoint offset helpers.
 //!
-//! These are total functions (rather than error unions like e.g.
-//! `std.unicode.utf8CountCodepoints`): a stray continuation byte
-//! advances one byte instead of erroring, so a scan over malformed
-//! input can't stall. That suits call sites with no useful error path,
-//! such as accessibility callbacks reading buffers that are built
-//! codepoint by codepoint and always well-formed.
+//! `cpLen`, `cpToByte` and `isContinuation` are total functions (rather
+//! than error unions like e.g. `std.unicode.utf8CountCodepoints`): a
+//! stray continuation byte advances one byte instead of erroring, so a
+//! scan over malformed input can't stall. That suits call sites with no
+//! useful error path, such as accessibility callbacks reading buffers
+//! that are built codepoint by codepoint and always well-formed.
+//!
+//! `cpCount` is the exception: it asserts its input is valid UTF-8.
 
 const std = @import("std");
 const simd = @import("../simd/main.zig");
@@ -18,7 +20,7 @@ pub fn cpLen(b: u8) usize {
 }
 
 /// Count UTF-8 codepoints in `s`, via simdutf when the build has SIMD
-/// enabled.
+/// enabled. Asserts that `s` is valid UTF-8; see `simd.countUtf8`.
 pub fn cpCount(s: []const u8) usize {
     return simd.countUtf8(s);
 }
