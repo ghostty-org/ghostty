@@ -42,6 +42,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
 
       - run: sudo apt install -y udev

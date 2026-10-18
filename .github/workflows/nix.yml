@@ -45,6 +45,7 @@ jobs:
         with:
           path: |
             /nix
+            /home/runner/.cache/nix
             /zig
       - name: Setup Nix
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
