@@ -1119,8 +1119,12 @@ pub const Surface = struct {
         };
     }
 
-    pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) void {
-        _ = self.core_surface.preeditCallback(preedit_) catch |err| {
+    pub fn preeditCallback(
+        self: *Surface,
+        preedit_: ?[]const u8,
+        selected: ?[2]usize,
+    ) void {
+        _ = self.core_surface.preeditCallback(preedit_, selected) catch |err| {
             log.err("error in preedit callback err={}", .{err});
             return;
         };
@@ -2133,7 +2137,23 @@ pub const CAPI = struct {
         ptr: [*]const u8,
         len: usize,
     ) void {
-        surface.preeditCallback(if (len == 0) null else ptr[0..len]);
+        surface.preeditCallback(if (len == 0) null else ptr[0..len], null);
+    }
+
+    /// Same as ghostty_surface_preedit but also marks the byte range
+    /// [sel_start, sel_start + sel_len) of the UTF-8 text as the selected
+    /// segment, i.e. the clause the input method is currently converting.
+    export fn ghostty_surface_preedit_selected(
+        surface: *Surface,
+        ptr: [*]const u8,
+        len: usize,
+        sel_start: usize,
+        sel_len: usize,
+    ) void {
+        surface.preeditCallback(
+            if (len == 0) null else ptr[0..len],
+            if (sel_len == 0) null else .{ sel_start, sel_start + sel_len },
+        );
     }
 
     /// Returns true if the surface currently has mouse capturing

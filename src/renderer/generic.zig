@@ -2884,12 +2884,18 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Setup our preedit text.
             if (preedit) |preedit_v| preedit: {
                 const range = preedit_range orelse break :preedit;
+                // Only distinguish a clause when the input method marked
+                // one, so other preedits (e.g. Korean) look as before.
+                const has_selected = for (preedit_v.codepoints) |cp| {
+                    if (cp.selected) break true;
+                } else false;
                 var x = range.x[0];
                 for (preedit_v.codepoints[range.cp_offset..]) |cp| {
                     self.addPreeditCell(
                         cp,
                         .{ .x = x, .y = range.y },
                         state.colors.foreground,
+                        has_selected,
                     ) catch |err| {
                         log.warn("error building preedit cell, will be invalid x={} y={}, err={}", .{
                             x,
@@ -3368,14 +3374,25 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             color: terminal.color.RGB,
             alpha: u8,
         ) !void {
-            const sprite: font.Sprite = switch (style) {
+            try self.addUnderlineSprite(x, y, switch (style) {
                 .none => unreachable,
                 .single => .underline,
                 .double => .underline_double,
                 .dotted => .underline_dotted,
                 .dashed => .underline_dashed,
                 .curly => .underline_curly,
-            };
+            }, color, alpha);
+        }
+
+        /// Add the given underline sprite to the specified cell
+        fn addUnderlineSprite(
+            self: *Self,
+            x: terminal.size.CellCountInt,
+            y: terminal.size.CellCountInt,
+            sprite: font.Sprite,
+            color: terminal.color.RGB,
+            alpha: u8,
+        ) !void {
 
             const render = try self.font_grid.renderGlyph(
                 self.alloc,
@@ -3619,7 +3636,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             cp: renderer.State.Preedit.Codepoint,
             coord: terminal.Coordinate,
             screen_fg: terminal.color.RGB,
+            has_selected: bool,
         ) !void {
+            // Draw the clause the input method is converting thick and the
+            // rest dotted, which is easier to tell apart than thin and thick.
+            const underline: font.Sprite = if (!has_selected)
+                .underline
+            else if (cp.selected)
+                .underline_thick
+            else
+                .underline_dotted;
+
             // Render the glyph for our preedit text
             const render_ = self.font_grid.renderCodepoint(
                 self.alloc,
@@ -3654,9 +3681,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             });
 
             // Add underline
-            try self.addUnderline(@intCast(coord.x), @intCast(coord.y), .single, screen_fg, 255);
+            try self.addUnderlineSprite(@intCast(coord.x), @intCast(coord.y), underline, screen_fg, 255);
             if (cp.wide and coord.x < self.cells.size.columns - 1) {
-                try self.addUnderline(@intCast(coord.x + 1), @intCast(coord.y), .single, screen_fg, 255);
+                try self.addUnderlineSprite(@intCast(coord.x + 1), @intCast(coord.y), underline, screen_fg, 255);
             }
         }
 

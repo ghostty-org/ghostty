@@ -24,6 +24,7 @@ pub const Sprite = enum(u32) {
     underline_dotted,
     underline_dashed,
     underline_curly,
+    underline_thick,
 
     strikethrough,
 

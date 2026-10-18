@@ -1979,7 +1979,9 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     }
 
     func validAttributesForMarkedText() -> [NSAttributedString.Key] {
-        return []
+        // Input methods mark the clause being converted with a thick
+        // underline; we need it to tell that clause apart in syncPreedit.
+        return [.underlineStyle]
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
@@ -2145,9 +2147,12 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             let str = markedText.string
             let len = str.utf8CString.count
             if len > 0 {
+                let selected = Self.selectedClauseUTF8Range(markedText)
                 markedText.string.withCString { ptr in
                     // Subtract 1 for the null terminator
-                    ghostty_surface_preedit(surface, ptr, UInt(len - 1))
+                    ghostty_surface_preedit_selected(
+                        surface, ptr, UInt(len - 1),
+                        UInt(selected.lowerBound), UInt(selected.count))
                 }
             }
         } else if clearIfNeeded {
@@ -2155,6 +2160,30 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             // in a preedit state so we can clear it.
             ghostty_surface_preedit(surface, nil, 0)
         }
+    }
+
+    /// The UTF-8 byte range of the clause the input method is converting,
+    /// which it marks with a thick underline. Empty if there is none.
+    static func selectedClauseUTF8Range(_ text: NSAttributedString) -> Range<Int> {
+        let thick = NSUnderlineStyle.thick.rawValue
+        var found = NSRange(location: NSNotFound, length: 0)
+        text.enumerateAttribute(
+            .underlineStyle,
+            in: NSRange(location: 0, length: text.length)
+        ) { value, range, stop in
+            guard let style = value as? Int, style & 0xFF == thick else { return }
+            found = range
+            stop.pointee = true
+        }
+
+        // Apple's Japanese input method underlines all of the text thick
+        // while kana is being typed; that marks no clause.
+        guard found.location != NSNotFound, found.length < text.length else { return 0..<0 }
+
+        let str = text.string as NSString
+        let start = str.substring(to: found.location).utf8.count
+        let len = str.substring(with: found).utf8.count
+        return start..<(start + len)
     }
 
     /// True when `text` is a single C0 control character (U+0000-U+001F)

@@ -1464,7 +1464,7 @@ pub const Surface = extern struct {
                 // such as quotation mark ordering for Chinese input.
                 if (priv.im_composing) {
                     priv.im_context.as(gtk.IMContext).reset();
-                    surface.preeditCallback(null) catch {};
+                    surface.preeditCallback(null, null) catch {};
                 }
 
                 // Bell stops ringing when any key is pressed that is used by
@@ -3214,7 +3214,7 @@ pub const Surface = extern struct {
 
         // Update our preedit state in Ghostty core
         // log.warn("GTKIM: preedit change str={s}", .{str});
-        surface.preeditCallback(str) catch |err| {
+        surface.preeditCallback(str, null) catch |err| {
             log.warn(
                 "error in preedit callback err={}",
                 .{err},
@@ -3234,7 +3234,7 @@ pub const Surface = extern struct {
 
         // End our preedit state in Ghostty core
         const surface = priv.core_surface orelse return;
-        surface.preeditCallback(null) catch |err| {
+        surface.preeditCallback(null, null) catch |err| {
             log.warn("error in preedit callback err={}", .{err});
         };
     }
@@ -3303,7 +3303,7 @@ pub const Surface = extern struct {
         if (priv.core_surface) |surface| {
             // End our preedit state. Well-behaved input methods do this for us
             // by triggering a preedit-end event but some do not (ibus 1.5.29).
-            surface.preeditCallback(null) catch |err| {
+            surface.preeditCallback(null, null) catch |err| {
                 log.warn("error in preedit callback err={}", .{err});
             };
 

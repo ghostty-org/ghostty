@@ -125,6 +125,10 @@ pub const Preedit = struct {
     pub const Codepoint = struct {
         codepoint: u21,
         wide: bool = false,
+
+        /// True if this codepoint is in the segment the input method
+        /// is currently converting.
+        selected: bool = false,
     };
 
     /// Deinit this preedit that was cre

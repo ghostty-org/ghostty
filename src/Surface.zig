@@ -2639,8 +2639,14 @@ fn balancePaddingIfNeeded(self: *Surface) void {
 /// keyCallback and we rely completely on the apprt implementation to track
 /// the preedit state correctly.
 ///
-/// The preedit input must be UTF-8 encoded.
-pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) !void {
+/// The preedit input must be UTF-8 encoded. `selected` is an optional
+/// byte range [start, end) of the preedit marking the segment the input
+/// method is currently converting.
+pub fn preeditCallback(
+    self: *Surface,
+    preedit_: ?[]const u8,
+    selected: ?[2]usize,
+) !void {
     // log.debug("text preeditCallback value={any}", .{preedit_});
 
     // Crash metadata in case we crash in here
@@ -2685,7 +2691,9 @@ pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) !void {
     const Codepoint = rendererpkg.State.Preedit.Codepoint;
     var codepoints: std.ArrayList(Codepoint) = .empty;
     defer codepoints.deinit(self.alloc);
-    while (it.nextCodepoint()) |cp| {
+    while (true) {
+        const start = it.i;
+        const cp = it.nextCodepoint() orelse break;
         const width: usize = @intCast(unicode.table.get(cp).width);
 
         // I've never seen a preedit text with a zero-width character. In
@@ -2695,7 +2703,11 @@ pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) !void {
 
         try codepoints.append(
             self.alloc,
-            .{ .codepoint = cp, .wide = width >= 2 },
+            .{
+                .codepoint = cp,
+                .wide = width >= 2,
+                .selected = if (selected) |r| start >= r[0] and start < r[1] else false,
+            },
         );
     }
 

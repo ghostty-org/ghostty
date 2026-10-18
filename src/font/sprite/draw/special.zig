@@ -164,6 +164,31 @@ pub fn underline_dashed(
     }
 }
 
+pub fn underline_thick(
+    cp: u32,
+    canvas: *font.sprite.Canvas,
+    width: u32,
+    height: u32,
+    metrics: font.Metrics,
+) !void {
+    _ = cp;
+
+    // Twice the usual thickness, grown upward from the usual underline
+    // position so it stays within the canvas like the single underline.
+    const thick = 2 * metrics.underline_thickness;
+    const y = @min(
+        metrics.underline_position,
+        height +| canvas.padding_y -| metrics.underline_thickness,
+    ) +| metrics.underline_thickness -| thick;
+
+    canvas.rect(.{
+        .x = 0,
+        .y = @intCast(y),
+        .width = @intCast(width),
+        .height = @intCast(thick),
+    }, .on);
+}
+
 pub fn underline_curly(
     cp: u32,
     canvas: *font.sprite.Canvas,
