@@ -17,6 +17,7 @@ const Application = @import("application.zig").Application;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const Surface = @import("surface.zig").Surface;
 const SurfaceScrolledWindow = @import("surface_scrolled_window.zig").SurfaceScrolledWindow;
+const Tab = @import("tab.zig").Tab;
 const Window = @import("window.zig").Window;
 const Overrides = @import("Overrides.zig");
 
@@ -168,9 +169,8 @@ pub const SplitTree = extern struct {
         /// once it is mapped again.
         restore_focus_source: ?c_uint = null,
 
-        /// Used to store state about a pending surface close for the
-        /// close dialog.
-        pending_close: ?Surface.Tree.Node.Handle,
+        pending_close: WeakRef(Surface) = .empty,
+        pending_dialog: WeakRef(CloseConfirmationDialog) = .empty,
 
         pub var offset: c_int = 0;
     };
@@ -180,10 +180,6 @@ pub const SplitTree = extern struct {
 
         // Initialize our actions
         self.initActionMap();
-
-        // Initialize some basic state
-        const priv = self.private();
-        priv.pending_close = null;
     }
 
     fn initActionMap(self: *Self) void {
@@ -276,6 +272,74 @@ pub const SplitTree = extern struct {
 
         // Replace our tree
         self.setTree(&new_tree);
+    }
+
+    pub fn setSurface(self: *Self, surface: *Surface) Allocator.Error!void {
+        var tree = try Surface.Tree.init(Application.default().allocator(), surface);
+        defer tree.deinit();
+        surface.bindIsSplit(self);
+        self.private().last_focused.set(surface);
+        self.setTree(&tree);
+    }
+
+    pub const ClosedSplit = struct {
+        surface: *Surface,
+        anchor: WeakRef(Surface) = .empty,
+        sibling_end: WeakRef(Surface) = .empty,
+        tab: WeakRef(Tab) = .empty,
+        window_id: c_uint,
+        tab_position: c_int,
+        pinned: bool,
+        direction: Surface.Tree.Split.Direction,
+        ratio: f16,
+    };
+
+    pub fn restoreClosedSplitState(
+        self: *Self,
+        state: *const ClosedSplit,
+        anchor: ?*Surface,
+        end: ?*Surface,
+    ) bool {
+        const surface_tree = self.getTree() orelse return false;
+        const reference = reference: {
+            for ([_]?*Surface{ anchor, end }) |candidate| {
+                const surface = candidate orelse continue;
+                if (surface_tree.locate(surface) != null) break :reference surface;
+            }
+            if (self.getActiveSurface()) |surface| break :reference surface;
+            var iterator = surface_tree.iterator();
+            break :reference (iterator.next() orelse return false).view;
+        };
+        return self.restoreClosedSplit(state.surface, reference, end, state.direction, state.ratio) catch |err| {
+            log.warn("unable to restore closed split: {}", .{err});
+            return false;
+        };
+    }
+
+    fn restoreClosedSplit(
+        self: *Self,
+        surface: *Surface,
+        anchor: *Surface,
+        sibling_end: ?*Surface,
+        direction: Surface.Tree.Split.Direction,
+        ratio: f16,
+    ) Allocator.Error!bool {
+        const alloc = Application.default().allocator();
+        const old_tree = self.getTree() orelse return false;
+        const handle = old_tree.locate(anchor) orelse return false;
+        const target = if (sibling_end) |v|
+            if (old_tree.locate(v)) |end| old_tree.commonAncestor(handle, end) else handle
+        else
+            handle;
+        var single_tree = try Surface.Tree.init(alloc, surface);
+        defer single_tree.deinit();
+        var new_tree = try old_tree.split(alloc, target, direction, ratio, &single_tree);
+        defer new_tree.deinit();
+        surface.bindIsSplit(self);
+        self.private().last_focused.set(surface);
+        self.setTree(&new_tree);
+        self.restoreFocus(surface);
+        return true;
     }
 
     pub fn resize(
@@ -695,6 +759,8 @@ pub const SplitTree = extern struct {
         const priv = self.private();
         priv.last_focused.deinit();
         priv.pending_focus.deinit();
+        priv.pending_close.deinit();
+        priv.pending_dialog.deinit();
         if (priv.rebuild_source) |v| {
             if (glib.Source.remove(v) == 0) {
                 log.warn("unable to remove rebuild source", .{});
@@ -815,24 +881,36 @@ pub const SplitTree = extern struct {
         // Closed tabs retain completed surfaces until restoration or expiry.
         if (ext.getAncestor(Window, self.as(gtk.Widget)) == null) return;
         const core = surface.core() orelse return;
-
-        // Reset our pending close state
         const priv = self.private();
-        priv.pending_close = null;
-
-        // Find the surface in the tree to verify this is valid and
-        // set our pending close handle.
         const tree = self.getTree() orelse return;
-        priv.pending_close = tree.locate(surface) orelse return;
-
-        // If we don't need to confirm then just close immediately.
-        if (!core.needsConfirmQuit()) {
-            closeConfirmationClose(
-                null,
-                self,
-            );
+        _ = tree.locate(surface) orelse return;
+        const needs_confirm = core.needsConfirmQuit();
+        if (!needs_confirm) {
+            if (priv.pending_close.get()) |pending| {
+                defer pending.unref();
+                if (pending == surface) {
+                    priv.pending_close.set(null);
+                    if (priv.pending_dialog.get()) |dialog| {
+                        priv.pending_dialog.set(null);
+                        dialog.close();
+                        dialog.unref();
+                    }
+                }
+            }
+        } else if (priv.pending_dialog.get()) |dialog| {
+            // A dialog destroyed with its window leaves a stale pending close.
+            dialog.unref();
             return;
         }
+        if (!tree.isSplit()) {
+            if (ext.getAncestor(Tab, self.as(gtk.Widget))) |tab| tab.requestClose();
+            return;
+        }
+        if (!needs_confirm) {
+            self.closeSurface(surface);
+            return;
+        }
+        priv.pending_close.set(surface);
 
         // Show a confirmation dialog
         const dialog: *CloseConfirmationDialog = .new(.surface);
@@ -843,21 +921,157 @@ pub const SplitTree = extern struct {
             self,
             .{},
         );
+        _ = CloseConfirmationDialog.signals.cancel.connect(
+            dialog,
+            *Self,
+            closeConfirmationCancel,
+            self,
+            .{},
+        );
+        priv.pending_dialog.set(dialog);
         dialog.present(self.as(gtk.Widget));
     }
 
+    fn closeConfirmationCancel(dialog: *CloseConfirmationDialog, self: *Self) callconv(.c) void {
+        const priv = self.private();
+        const pending = priv.pending_dialog.get() orelse return;
+        defer pending.unref();
+        if (pending != dialog) return;
+        priv.pending_close.set(null);
+        priv.pending_dialog.set(null);
+    }
+
     fn closeConfirmationClose(
-        _: ?*CloseConfirmationDialog,
+        dialog: *CloseConfirmationDialog,
         self: *Self,
     ) callconv(.c) void {
-        // Get the handle we're closing
         const priv = self.private();
-        const handle = priv.pending_close orelse return;
-        priv.pending_close = null;
+        const pending = priv.pending_dialog.get() orelse return;
+        defer pending.unref();
+        if (pending != dialog) return;
+        const surface = priv.pending_close.get() orelse return;
+        defer surface.unref();
+        priv.pending_close.set(null);
+        priv.pending_dialog.set(null);
+        self.closeSurface(surface);
+    }
 
+    fn closeSurface(self: *Self, surface: *Surface) void {
+        const old_tree = self.getTree() orelse return;
+        const handle = old_tree.locate(surface) orelse return;
+        if (!old_tree.isSplit()) {
+            const tab = ext.getAncestor(Tab, self.as(gtk.Widget)) orelse return;
+            const window = ext.getAncestor(Window, self.as(gtk.Widget)) orelse return;
+            window.closeConfirmedTab(tab);
+            return;
+        }
+        const app = Application.default();
+        const placement = if (app.undoEnabled()) old_tree.removalPlacement(handle) else null;
+
+        // Callers hold a reference, so the surface outlives its removal.
         self.removeHandle(handle) catch |err| {
             log.warn("unable to remove surface from tree: {}", .{err});
+            return;
         };
+        if (placement) |value| {
+            self.retainClosedSplit(
+                surface,
+                value.anchor,
+                value.sibling_end,
+                value.direction,
+                value.ratio,
+            );
+        }
+    }
+
+    fn retainClosedSplit(
+        self: *Self,
+        surface: *Surface,
+        anchor: *Surface,
+        sibling_end: *Surface,
+        direction: Surface.Tree.Split.Direction,
+        ratio: f16,
+    ) void {
+        const app = Application.default();
+        const tab = ext.getAncestor(Tab, self.as(gtk.Widget)) orelse return;
+        const window = ext.getAncestor(Window, self.as(gtk.Widget)) orelse return;
+        const page = window.getTabView().getPage(tab.as(gtk.Widget));
+        const state = app.allocator().create(ClosedSplit) catch |err| {
+            log.warn("unable to retain closed split: {}", .{err});
+            return;
+        };
+        state.* = .{
+            .surface = surface,
+            .window_id = window.as(gtk.ApplicationWindow).getId(),
+            .tab_position = window.getTabView().getPagePosition(page),
+            .pinned = page.getPinned() != 0,
+            .direction = direction,
+            .ratio = ratio,
+        };
+        state.anchor.set(anchor);
+        state.sibling_end.set(sibling_end);
+        state.tab.set(tab);
+        _ = surface.as(gobject.Object).ref();
+        app.registerUndo(.{
+            .context = state,
+            .window = Window.windowForClosedSplit,
+            .restore = Window.undoClosedSplit,
+            .release = releaseClosedSplit,
+        }) catch |err| {
+            log.warn("unable to retain closed split: {}", .{err});
+            releaseClosedSplit(state, app);
+        };
+    }
+
+    fn releaseClosedSplit(context: *anyopaque, app: *Application) void {
+        const state: *ClosedSplit = @ptrCast(@alignCast(context));
+        state.anchor.deinit();
+        state.sibling_end.deinit();
+        state.tab.deinit();
+        state.surface.as(gobject.Object).unref();
+        app.allocator().destroy(state);
+    }
+
+    pub fn retainSurfaceClose(surface: *Surface) void {
+        const app = Application.default();
+        if (!app.undoEnabled()) return;
+        const state = app.allocator().create(WeakRef(Surface)) catch |err| {
+            log.warn("unable to record split close: {}", .{err});
+            return;
+        };
+        state.* = .empty;
+        state.set(surface);
+        app.registerUndo(.{
+            .context = state,
+            .window = windowForSurfaceClose,
+            .restore = undoSurfaceClose,
+            .release = releaseSurfaceClose,
+        }) catch |err| {
+            log.warn("unable to record split close: {}", .{err});
+            releaseSurfaceClose(state, app);
+        };
+    }
+
+    fn windowForSurfaceClose(context: *anyopaque, _: *Application) ?*Window {
+        const state: *WeakRef(Surface) = @ptrCast(@alignCast(context));
+        const surface = state.get() orelse return null;
+        defer surface.unref();
+        return ext.getAncestor(Window, surface.as(gtk.Widget));
+    }
+
+    fn undoSurfaceClose(context: *anyopaque, _: *Window) bool {
+        const state: *WeakRef(Surface) = @ptrCast(@alignCast(context));
+        const surface = state.get() orelse return false;
+        defer surface.unref();
+        const tree = ext.getAncestor(Self, surface.as(gtk.Widget)) orelse return false;
+        tree.closeSurface(surface);
+        return true;
+    }
+
+    fn releaseSurfaceClose(context: *anyopaque, app: *Application) void {
+        const state: *WeakRef(Surface) = @ptrCast(@alignCast(context));
+        state.deinit();
+        app.allocator().destroy(state);
     }
 
     /// Remove the node with the given handle from the tree, making the

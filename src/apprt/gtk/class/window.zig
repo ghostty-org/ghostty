@@ -699,6 +699,69 @@ pub const Window = extern struct {
         app.allocator().destroy(state);
     }
 
+    pub fn windowForClosedSplit(context: *anyopaque, app: *Application) ?*Self {
+        const state: *SplitTree.ClosedSplit = @ptrCast(@alignCast(context));
+        if (state.surface.core() == null) return null;
+
+        if (state.tab.get()) |tab| {
+            defer tab.unref();
+            if (ext.getAncestor(Self, tab.as(gtk.Widget))) |window| return window;
+        }
+
+        for ([_]*WeakRef(Surface){ &state.anchor, &state.sibling_end }) |reference| {
+            const surface = reference.get() orelse continue;
+            defer surface.unref();
+            if (ext.getAncestor(Self, surface.as(gtk.Widget))) |window| return window;
+        }
+
+        return app.windowForUndo(state.window_id);
+    }
+
+    pub fn undoClosedSplit(context: *anyopaque, window: *Self) bool {
+        const state: *SplitTree.ClosedSplit = @ptrCast(@alignCast(context));
+        const anchor = state.anchor.get();
+        defer if (anchor) |surface| surface.unref();
+        const end = state.sibling_end.get();
+        defer if (end) |surface| surface.unref();
+
+        if (state.tab.get()) |tab| {
+            defer tab.unref();
+            if (ext.getAncestor(Self, tab.as(gtk.Widget)) == window and
+                window.restoreSplitInTab(state, tab, anchor, end)) return true;
+        }
+        for ([_]?*Surface{ anchor, end }) |candidate| {
+            const surface = candidate orelse continue;
+            const tab = ext.getAncestor(Tab, surface.as(gtk.Widget)) orelse continue;
+            if (ext.getAncestor(Self, tab.as(gtk.Widget)) != window) continue;
+            if (window.restoreSplitInTab(state, tab, anchor, end)) return true;
+        }
+
+        window.restoreTab(.{
+            .tab = Tab.newFromSurface(window.getConfig(), state.surface),
+            .window_id = state.window_id,
+            .position = state.tab_position,
+            .pinned = state.pinned,
+        });
+        SplitTree.retainSurfaceClose(state.surface);
+        gtk.Window.present(window.as(gtk.Window));
+        return true;
+    }
+
+    fn restoreSplitInTab(
+        self: *Self,
+        state: *const SplitTree.ClosedSplit,
+        tab: *Tab,
+        anchor: ?*Surface,
+        end: ?*Surface,
+    ) bool {
+        const tab_view = self.getTabView();
+        tab_view.setSelectedPage(tab_view.getPage(tab.as(gtk.Widget)));
+        if (!tab.getSplitTree().restoreClosedSplitState(state, anchor, end)) return false;
+        SplitTree.retainSurfaceClose(state.surface);
+        gtk.Window.present(self.as(gtk.Window));
+        return true;
+    }
+
     pub fn closeConfirmedTab(self: *Self, tab: *Tab) void {
         const tab_view = self.private().tab_view;
         const page = tab_view.getPage(tab.as(gtk.Widget));

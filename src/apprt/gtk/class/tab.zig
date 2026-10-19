@@ -193,10 +193,30 @@ pub const Tab = extern struct {
     }
 
     pub fn new(config: ?*Config, overrides: Overrides) *Self {
+        const tab = create(config);
+
+        tab.private().split_tree.newSplit(.right, null, .{
+            .command = overrides.command,
+            .shell_integration = overrides.shell_integration,
+            .working_directory = overrides.working_directory,
+            .title = overrides.title,
+        }) catch |err| switch (err) {
+            error.OutOfMemory => @panic("oom"),
+        };
+
+        return tab;
+    }
+
+    pub fn newFromSurface(config: ?*Config, surface: *Surface) *Self {
+        const tab = create(config);
+        tab.private().split_tree.setSurface(surface) catch @panic("oom");
+        return tab;
+    }
+
+    fn create(config: ?*Config) *Self {
         const tab = gobject.ext.newInstance(Tab, .{});
 
         const priv: *Private = tab.private();
-
         if (config) |c| priv.config = c.ref();
 
         // If our configuration is null then we get the configuration
@@ -207,21 +227,6 @@ pub const Tab = extern struct {
         }
 
         tab.as(gobject.Object).notifyByPspec(properties.config.impl.param_spec);
-
-        // Create our initial surface in the split tree.
-        priv.split_tree.newSplit(.right, null, .{
-            .command = overrides.command,
-            .shell_integration = overrides.shell_integration,
-            .working_directory = overrides.working_directory,
-            .title = overrides.title,
-        }) catch |err| switch (err) {
-            error.OutOfMemory => {
-                // TODO: We should make our "no surfaces" state more aesthetically
-                // pleasing and show something like an "Oops, something went wrong"
-                // message. For now, this is incredibly unlikely.
-                @panic("oom");
-            },
-        };
 
         return tab;
     }
