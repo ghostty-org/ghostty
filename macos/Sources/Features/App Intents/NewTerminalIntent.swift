@@ -74,7 +74,7 @@ struct NewTerminalIntent: AppIntent {
         // If we were given a working directory then open that directory
         if let url = workingDirectory?.fileURL {
             let dir = url.hasDirectoryPath ? url : url.deletingLastPathComponent()
-            config.workingDirectory = dir.path(percentEncoded: false)
+            config.workingDirectory = dir.pathWithoutTrailingSlash
         }
 
         // Parse environment variables from KEY=VALUE format

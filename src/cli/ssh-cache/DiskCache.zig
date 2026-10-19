@@ -58,6 +58,7 @@ pub fn add(
     self: DiskCache,
     alloc: Allocator,
     key: []const u8,
+    version: []const u8,
     timestamp: i64,
 ) !void {
     if (!isValidCacheKey(key)) return error.InvalidCacheKey;
@@ -111,16 +112,19 @@ pub fn add(
     // `deinitEntries` defer to walk.
     if (entries.getPtr(key)) |existing| {
         existing.timestamp = timestamp;
+        const version_copy = try alloc.dupe(u8, version);
+        alloc.free(existing.terminfo_version);
+        existing.terminfo_version = version_copy;
     } else {
         const key_copy = try alloc.dupe(u8, key);
         errdefer alloc.free(key_copy);
-        const terminfo_copy = try alloc.dupe(u8, "xterm-ghostty");
-        errdefer alloc.free(terminfo_copy);
+        const version_copy = try alloc.dupe(u8, version);
+        errdefer alloc.free(version_copy);
 
         try entries.put(key_copy, .{
             .hostname = key_copy,
             .timestamp = timestamp,
-            .terminfo_version = terminfo_copy,
+            .terminfo_version = version_copy,
         });
     }
 
@@ -225,12 +229,13 @@ pub fn prune(
     return expired.items.len;
 }
 
-/// Check if a key exists in the cache.
-/// Returns false if the cache file doesn't exist.
+/// Check if a key with `version` exists in the cache.
+/// Returns false if the cache file doesn't exist or the version doesn't match.
 pub fn contains(
     self: DiskCache,
     alloc: Allocator,
     key: []const u8,
+    version: []const u8,
 ) !bool {
     if (!isValidCacheKey(key)) return error.InvalidCacheKey;
 
@@ -249,7 +254,8 @@ pub fn contains(
     var entries = try readEntries(alloc, file);
     defer deinitEntries(alloc, &entries);
 
-    return entries.contains(key);
+    const entry = entries.get(key) orelse return false;
+    return std.mem.eql(u8, entry.terminfo_version, version);
 }
 
 fn fixupPermissions(file: std.Io.File) !void {
@@ -404,7 +410,8 @@ pub fn isFailure(err: anyerror) bool {
     };
 }
 
-// Supports both standalone hostnames and user@hostname format
+// Supports both standalone hostnames and user@hostname format, each with an
+// optional `:port` suffix (`[addr]:port` for IPv6 addresses).
 pub fn isValidCacheKey(key: []const u8) bool {
     if (key.len == 0) return false;
 
@@ -412,10 +419,59 @@ pub fn isValidCacheKey(key: []const u8) bool {
     if (std.mem.indexOfScalar(u8, key, '@')) |at_pos| {
         const user = key[0..at_pos];
         const hostname = key[at_pos + 1 ..];
-        return isValidUser(user) and isValidHost(hostname);
+        return isValidUser(user) and isValidHostPort(hostname);
     }
 
-    return isValidHost(key);
+    return isValidHostPort(key);
+}
+
+/// A host with an optional port, split apart.
+pub const HostPort = struct {
+    host: []const u8,
+    port: ?[]const u8 = null,
+};
+
+/// Split `host`, `host:port` or `[ipv6]:port` into its host and port. A
+/// bare IPv6 address (more than one colon, no brackets) has no port. The
+/// parts are not validated.
+pub fn splitHostPort(s: []const u8) HostPort {
+    if (s.len > 0 and s[0] == '[') {
+        if (std.mem.indexOf(u8, s, "]:")) |close| return .{
+            .host = s[1..close],
+            .port = s[close + 2 ..],
+        };
+        return .{ .host = s };
+    }
+
+    if (std.mem.indexOfScalar(u8, s, ':')) |colon| {
+        if (std.mem.indexOfScalarPos(u8, s, colon + 1, ':') == null) return .{
+            .host = s[0..colon],
+            .port = s[colon + 1 ..],
+        };
+    }
+
+    return .{ .host = s };
+}
+
+fn isValidHostPort(s: []const u8) bool {
+    const hp = splitHostPort(s);
+    const port = hp.port orelse return isValidHost(hp.host);
+
+    // Only IPv6 addresses are bracketed, and only when they carry a port.
+    const bracketed = s[0] == '[';
+    const ip6 = std.mem.indexOfScalar(u8, hp.host, ':') != null;
+    if (bracketed != ip6) return false;
+
+    return isValidHost(hp.host) and isValidPort(port);
+}
+
+fn isValidPort(port: []const u8) bool {
+    // Digits only and no leading zero (which also rules out port 0), so
+    // `host:22` and `host:022` can't become distinct keys.
+    if (port.len == 0 or port[0] == '0') return false;
+    for (port) |c| if (!std.ascii.isDigit(c)) return false;
+    _ = std.fmt.parseInt(u16, port, 10) catch return false;
+    return true;
 }
 
 // Checks if a host is a valid hostname or IP address
@@ -506,20 +562,25 @@ test "disk cache operations" {
     // Setup our cache. Adding the same key twice exercises both the new
     // and existing-entry paths.
     const cache: DiskCache = .{ .path = path };
-    try cache.add(alloc, "example.com", std.Io.Timestamp.now(testing.io, .real).toSeconds());
-    try cache.add(alloc, "example.com", std.Io.Timestamp.now(testing.io, .real).toSeconds());
-    try testing.expect(try cache.contains(alloc, "example.com"));
+    try cache.add(alloc, "example.com", "v1", std.Io.Timestamp.now(testing.io, .real).toSeconds());
+    try testing.expect(!try cache.contains(alloc, "example.com", "v2"));
+    try cache.add(alloc, "example.com", "v2", std.Io.Timestamp.now(testing.io, .real).toSeconds());
+    try testing.expect(try cache.contains(alloc, "example.com", "v2"));
 
     // List
     var entries = try cache.list(alloc);
-    deinitEntries(alloc, &entries);
+    defer deinitEntries(alloc, &entries);
+    try testing.expectEqualStrings(
+        "v2",
+        entries.get("example.com").?.terminfo_version,
+    );
 
     // Remove reports that it removed the entry, and a second remove of the
     // same key reports nothing to remove.
     try testing.expect(try cache.remove(alloc, "example.com"));
     try testing.expect(!try cache.remove(alloc, "example.com"));
-    try testing.expect(!(try cache.contains(alloc, "example.com")));
-    try cache.add(alloc, "example.com", std.Io.Timestamp.now(testing.io, .real).toSeconds());
+    try testing.expect(!(try cache.contains(alloc, "example.com", "v2")));
+    try cache.add(alloc, "example.com", "v2", std.Io.Timestamp.now(testing.io, .real).toSeconds());
 }
 
 test "disk cache cleans up temp files" {
@@ -535,8 +596,8 @@ test "disk cache cleans up temp files" {
     defer alloc.free(cache_path);
 
     const cache: DiskCache = .{ .path = cache_path };
-    try cache.add(alloc, "example.com", std.Io.Timestamp.now(testing.io, .real).toSeconds());
-    try cache.add(alloc, "example.org", std.Io.Timestamp.now(testing.io, .real).toSeconds());
+    try cache.add(alloc, "example.com", "v1", std.Io.Timestamp.now(testing.io, .real).toSeconds());
+    try cache.add(alloc, "example.org", "v1", std.Io.Timestamp.now(testing.io, .real).toSeconds());
 
     // Verify only the cache file exists and no temp files left behind
     var count: usize = 0;
@@ -566,20 +627,20 @@ test "disk cache prune" {
     const day = std.time.s_per_day;
     const hour = std.time.s_per_hour;
     const now = std.Io.Timestamp.now(testing.io, .real).toSeconds();
-    try cache.add(alloc, "recent.com", now - hour);
-    try cache.add(alloc, "old.com", now - 100 * day);
+    try cache.add(alloc, "recent.com", "v1", now - hour);
+    try cache.add(alloc, "old.com", "v1", now - 100 * day);
 
     // Prune entries older than 90 days: only old.com goes.
     try testing.expectEqual(@as(usize, 1), try cache.prune(alloc, 90 * day));
-    try testing.expect(try cache.contains(alloc, "recent.com"));
-    try testing.expect(!try cache.contains(alloc, "old.com"));
+    try testing.expect(try cache.contains(alloc, "recent.com", "v1"));
+    try testing.expect(!try cache.contains(alloc, "old.com", "v1"));
 
     // Pruning again removes nothing.
     try testing.expectEqual(@as(usize, 0), try cache.prune(alloc, 90 * day));
 
     // Sub-day granularity: a 30-minute max age prunes the hour-old entry.
     try testing.expectEqual(@as(usize, 1), try cache.prune(alloc, 30 * std.time.s_per_min));
-    try testing.expect(!try cache.contains(alloc, "recent.com"));
+    try testing.expect(!try cache.contains(alloc, "recent.com", "v1"));
 }
 
 test "disk cache prune missing file" {
@@ -707,7 +768,7 @@ test "disk cache add survives allocation failure" {
         );
         const alloc = failing.allocator();
 
-        if (cache.add(alloc, "user@example.com", 100)) |_| {
+        if (cache.add(alloc, "user@example.com", "v1", 100)) |_| {
             if (!failing.has_induced_failure) break;
         } else |err| {
             try testing.expectEqual(error.OutOfMemory, err);
@@ -774,6 +835,26 @@ test isValidUser {
     try testing.expect(!isValidUser("a" ** 65)); // too long
 }
 
+test splitHostPort {
+    const testing = std.testing;
+
+    const plain = splitHostPort("example.com");
+    try testing.expectEqualStrings("example.com", plain.host);
+    try testing.expect(plain.port == null);
+
+    const with_port = splitHostPort("example.com:2222");
+    try testing.expectEqualStrings("example.com", with_port.host);
+    try testing.expectEqualStrings("2222", with_port.port.?);
+
+    const ip6 = splitHostPort("2001:db8::1");
+    try testing.expectEqualStrings("2001:db8::1", ip6.host);
+    try testing.expect(ip6.port == null);
+
+    const ip6_port = splitHostPort("[2001:db8::1]:2222");
+    try testing.expectEqualStrings("2001:db8::1", ip6_port.host);
+    try testing.expectEqualStrings("2222", ip6_port.port.?);
+}
+
 test isValidCacheKey {
     const testing = std.testing;
 
@@ -785,6 +866,23 @@ test isValidCacheKey {
     try testing.expect(isValidCacheKey("user@example.com"));
     try testing.expect(isValidCacheKey("user@192.168.1.1"));
     try testing.expect(isValidCacheKey("user@::1"));
+    try testing.expect(isValidCacheKey("example.com:2222"));
+    try testing.expect(isValidCacheKey("user@example.com:2222"));
+    try testing.expect(isValidCacheKey("user@192.168.1.1:65535"));
+    try testing.expect(isValidCacheKey("user@[::1]:2222"));
+    try testing.expect(isValidCacheKey("[2001:db8::1]:22"));
+
+    // Invalid ports
+    try testing.expect(!isValidCacheKey("user@example.com:"));
+    try testing.expect(!isValidCacheKey("user@example.com:0"));
+    try testing.expect(!isValidCacheKey("user@example.com:022"));
+    try testing.expect(!isValidCacheKey("user@example.com:00"));
+    try testing.expect(!isValidCacheKey("user@example.com:65536"));
+    try testing.expect(!isValidCacheKey("user@example.com:+22"));
+    try testing.expect(!isValidCacheKey("user@example.com:ssh"));
+    try testing.expect(!isValidCacheKey("user@[::1]"));
+    try testing.expect(!isValidCacheKey("user@[::1]:"));
+    try testing.expect(!isValidCacheKey("user@[example.com]:22"));
 
     // Invalid
     try testing.expect(!isValidCacheKey(""));

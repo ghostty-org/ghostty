@@ -392,6 +392,15 @@ pub const ghostty: Source = .{
     },
 };
 
+/// A content-derived version of the encoded terminfo source.
+pub const version = version: {
+    @setEvalBranchQuota(100_000);
+    var hashing: std.Io.Writer.Hashing(std.hash.Wyhash) =
+        .initHasher(.init(0), &.{});
+    ghostty.encode(&hashing.writer) catch unreachable;
+    break :version std.fmt.comptimePrint("{x}", .{hashing.hasher.final()});
+};
+
 test "encode" {
     // Encode
     var buf: [1024 * 16]u8 = undefined;

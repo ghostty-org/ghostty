@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const apple_sdk = @import("apple_sdk");
+const translate_c = @import("translate_c");
 
 const Framework = struct {
     const Tag = enum { all, macos };
@@ -26,34 +27,28 @@ const extra_headers = [_][]const u8{
     "os/signpost.h",
 };
 
-const framework_header_fmt = "#include <{s}/{s}>\n";
-const extra_header_fmt = "#include <{s}>\n";
-
-fn cSourceLen(tag: Framework.Tag) usize {
+fn includeFiles(b: *std.Build, tag: Framework.Tag) ![]translate_c.Options.IncludeFile {
     var len: usize = 0;
     for (frameworks) |framework| {
         if (tag != .macos and framework.tag == .macos) continue;
-        for (framework.headers) |h| len += std.fmt.count(framework_header_fmt, .{ framework.name, h });
+        len += framework.headers.len;
     }
-    for (extra_headers) |h| len += std.fmt.count(extra_header_fmt, .{h});
-    return len;
-}
+    len += extra_headers.len;
+    var includes_builder: std.ArrayList(translate_c.Options.IncludeFile) =
+        try .initCapacity(b.allocator, len);
 
-fn genCSource(comptime tag: Framework.Tag) [cSourceLen(tag):0]u8 {
-    const len = cSourceLen(tag);
-    var buf: [len:0]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
     for (frameworks) |framework| {
         if (tag != .macos and framework.tag == .macos) continue;
-        for (framework.headers) |h| writer.print(framework_header_fmt, .{ framework.name, h }) catch unreachable;
+        for (framework.headers) |h| {
+            const path = try std.fmt.allocPrint(b.allocator, "{s}/{s}", .{ framework.name, h });
+            includes_builder.appendAssumeCapacity(.{ .path = path });
+        }
     }
-    for (extra_headers) |h| writer.print(extra_header_fmt, .{h}) catch unreachable;
-    buf[len] = 0;
-    return buf;
-}
 
-const c_source_macos = genCSource(.macos);
-const c_source_other = genCSource(.all);
+    for (extra_headers) |h| includes_builder.appendAssumeCapacity(.{ .path = h });
+
+    return includes_builder.items;
+}
 
 fn linkFrameworks(tag: Framework.Tag, module: *std.Build.Module) !void {
     for (frameworks) |framework| {
@@ -72,28 +67,14 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    translate: {
-        const translate_c = b.lazyImport(@This(), "translate_c") orelse break :translate;
-        const translate_c_dep = b.lazyDependency("translate_c", .{}) orelse break :translate;
-        const macos_c: translate_c.Translator = .init(translate_c_dep, .{
-            .c_source_file = b.addWriteFiles().add(
-                "macos_c.h",
-                if (target.result.os.tag == .macos) &c_source_macos else &c_source_other,
-            ),
-            .target = target,
-            .optimize = optimize,
-            .libc_file = if (target.result.os.tag.isDarwin()) libc_file: {
-                switch (try apple_sdk.pathsForTarget(b, target.result)) {
-                    inline else => |paths| break :libc_file paths.libc,
-                }
-            } else null,
-        });
-
-        // Blocks need to be enabled to use MacOS headers
-        macos_c.run.addArg("-fblocks");
-
-        module.addImport("macos_c", macos_c.mod);
-    }
+    try translate_c.addImportToModule(b, "macos_c", module, .{
+        .source = .{ .includes = .{ .files = try includeFiles(
+            b,
+            if (target.result.os.tag == .macos) .macos else .all,
+        ) } },
+        .target = target,
+        .optimize = optimize,
+    });
 
     const lib = b.addLibrary(.{
         .name = "macos",

@@ -48,6 +48,30 @@ pub const tables = [_]config.Table{
     },
     .{
         .name = "buildtime",
+        // Unpacked, because a packed table this size cannot be evaluated
+        // at comptime by Zig 0.16.0 and this one has to be, whether or not
+        // anything reads it.
+        //
+        // `uucode.get.FieldEnum` is built by walking `@TypeOf(tables)`, so
+        // instantiating anything that names a field -- `grapheme.Iterator`,
+        // among others -- materialises every table including this one. In a
+        // packed layout its rows are a `@bitCast` of a 32000 element `[_]u10`,
+        // and the compiler gives up on it two different ways depending on
+        // build options:
+        //
+        //     tables.zig: error: unable to evaluate comptime expression
+        //     thread panic: TODO implement writeToPackedMemory for more types
+        //
+        // Ghostty does not hit this, because its own uses of these fields go
+        // through the tables generated at build time rather than through
+        // `uucode.get`. A downstream pairing this config with libvaxis does:
+        // vaxis measures grapheme widths with `grapheme.Iterator`, so any
+        // program calling `Vaxis.render` fails to compile.
+        //
+        // The cost is the size of a table nothing reads at runtime. The fix
+        // belongs upstream in uucode or in the compiler; this is what makes
+        // the pairing build today.
+        .packing = .unpacked,
         .fields = &.{
             "width",
             "wcwidth_zero_in_grapheme",

@@ -15,16 +15,20 @@ const log = std.log.scoped(.@"os-open");
 /// This function is purposely simple for the sake of providing some portable
 /// way to open URLs. If you are implementing an apprt for Ghostty, you should
 /// consider doing something special-cased for your platform.
+///
+/// On macOS, untrusted kinds (`unknown`, `osc8`) return `error.UntrustedLink`
+/// because the apprt must check them first.
 pub fn open(
     kind: apprt.action.OpenUrl.Kind,
     url: []const u8,
 ) !void {
-    // On macOS, the apprt handles OSC 8 targets before this fallback. Ghostty's
-    // native apprt applies its allowlist, confirmation, and file safety policy.
-    // If a macOS embedder declines the action, fail closed rather than bypassing
-    // that policy by handing producer-controlled terminal output to `open`.
+    // If an embedder declines an untrusted URL, refuse it rather than skip
+    // the apprt's safety checks by passing it to `open`.
     if (comptime builtin.os.tag == .macos) {
-        if (kind == .osc8) return error.UnsafeOSC8Link;
+        switch (kind) {
+            .unknown, .osc8 => return error.UntrustedLink,
+            .text, .html => {},
+        }
     }
 
     var spawn_opts: std.process.SpawnOptions = switch (builtin.os.tag) {
@@ -32,8 +36,8 @@ pub fn open(
         .windows => .{ .argv = &.{ "rundll32", "url.dll,FileProtocolHandler", url } },
         .macos => switch (kind) {
             .text => .{ .argv = &.{ "open", "-t", url } },
-            .html, .unknown => .{ .argv = &.{ "open", url } },
-            .osc8 => unreachable,
+            .html => .{ .argv = &.{ "open", url } },
+            .unknown, .osc8 => unreachable,
         },
         .ios => return error.Unimplemented,
         else => @compileError("unsupported OS"),
@@ -67,12 +71,16 @@ pub fn open(
     thread.detach();
 }
 
-test "macOS OSC 8 links have no generic opener fallback" {
+test "macOS untrusted links have no generic opener fallback" {
     if (builtin.os.tag != .macos) return error.SkipZigTest;
 
     try std.testing.expectError(
-        error.UnsafeOSC8Link,
+        error.UntrustedLink,
         open(.osc8, "file:///tmp/payload.command"),
+    );
+    try std.testing.expectError(
+        error.UntrustedLink,
+        open(.unknown, "file:///tmp/payload.command"),
     );
 }
 
@@ -86,7 +94,11 @@ fn openThread(io: std.Io, exe_: std.process.Child) void {
         var stream = stderr.readerStreaming(io, &buffer);
         const reader = &stream.interface;
         while (true) {
-            const line = reader.takeDelimiterExclusive('\n') catch |outer| switch (outer) {
+            // Read inclusively so the delimiter is consumed:
+            // takeDelimiterExclusive leaves the '\n' buffered, so once the
+            // child writes a line this loop would receive an empty slice
+            // forever, pinning a core and spamming empty warnings.
+            const line = reader.takeDelimiterInclusive('\n') catch |outer| switch (outer) {
                 error.EndOfStream => break,
                 error.ReadFailed => break,
                 error.StreamTooLong => reader.take(buffer.len) catch |inner| switch (inner) {
@@ -94,7 +106,7 @@ fn openThread(io: std.Io, exe_: std.process.Child) void {
                     error.EndOfStream => break,
                 },
             };
-            log.warn("open stderr={s}", .{line});
+            log.warn("open stderr={s}", .{std.mem.trimEnd(u8, line, "\n")});
         }
     }
     _ = exe.wait(io) catch {};

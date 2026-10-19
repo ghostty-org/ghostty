@@ -265,6 +265,12 @@ class AppDelegate: NSObject,
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(keyboardSelectionDidChange(_:)),
+            name: NSTextInputContext.keyboardSelectionDidChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(ghosttyBellDidRing(_:)),
             name: .ghosttyBellDidRing,
             object: nil
@@ -438,6 +444,29 @@ class AppDelegate: NSObject,
         // but I haven't seen it happen in releases. I'm unsure why.
         guard applicationHasBecomeActive else { return true }
 
+        if #available(macOS 27.0, *) {
+            // It seems that with macOS 27, running an App Intent against an already
+            // running app (from Shortcuts, Spotlight, the `shortcuts` CLI, ...)
+            // opens the app through LaunchServices in the background before the
+            // intent is delivered, which we receive as a reopen event.
+            //
+            // Ignore reopens from the intents runner unless it asked for us to come to
+            // the front to prevent creating two windows (#14107).
+            let appIntentsRunnerBundleIdentifiers: Set<String> = [
+                "com.apple.WorkflowKit.BackgroundShortcutRunner",
+                "com.apple.shortcuts",
+                "com.apple.siriactionsd",
+            ]
+
+            if let event = NSAppleEventManager.shared().currentAppleEvent,
+               let sender = event.senderBundleIdentifier,
+               appIntentsRunnerBundleIdentifiers.contains(sender),
+               !event.expectsActivation {
+                AppDelegate.logger.info("reopen triggered by shortcuts (\(sender)), ignoring...")
+                return true
+            }
+        }
+
         // No visible windows, open a new one.
         _ = TerminalController.newWindow(ghostty)
         return false
@@ -477,6 +506,29 @@ class AppDelegate: NSObject,
             // because there is a sandbox escape possible if a sandboxed application
             // somehow is tricked into `open`-ing a non-sandboxed application.
             requiresConfirm = true
+
+            // Refuse to execute a file whose path contains control characters.
+            //
+            // We run the file by typing its quoted path into the shell (see
+            // `initialInput` below). Quoting can't protect against control
+            // characters, because they act as keys while being typed. For
+            // example, a file named "Foo<Ctrl-U>ls<Return>" erases the quoted
+            // path and runs `ls` instead. These characters are also invisible
+            // in the confirmation dialog, so the user would be approving a
+            // command they can't see. No legitimate file needs them, so we
+            // reject the file outright. See
+            // `Ghostty.Shell.containsControlCharacters` for more detail.
+            guard !Ghostty.Shell.containsControlCharacters(filename) else {
+                // `debugDescription` makes the hidden characters visible in the log.
+                Self.logger.warning("refusing to execute file with control characters path=\(filename.debugDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Cannot Execute File"
+                alert.informativeText = "This file's path contains hidden control characters, which could make Ghostty run a different command than the one shown."
+                alert.addButton(withTitle: "OK")
+                alert.alertStyle = .warning
+                alert.runModal()
+                return false
+            }
 
             // When opening a file, we want to execute the file. To do this, we
             // don't override the command directly, because it won't load the
@@ -647,6 +699,11 @@ class AppDelegate: NSObject,
         ] as? Ghostty.Config else { return }
 
         ghosttyConfigDidChange(config: config)
+    }
+
+    @MainActor @objc private func keyboardSelectionDidChange(_ notification: Notification) {
+        syncMenuShortcuts(ghostty.config)
+        TerminalController.all.forEach { $0.relabelTabs() }
     }
 
     @objc private func ghosttyBellDidRing(_ notification: Notification) {
@@ -1335,13 +1392,9 @@ extension AppDelegate {
 
             return .terminateLater
         } else {
-            let alert = NSAlert()
-            alert.messageText = "You have \(controllersNeedConfirmation.count) windows with running processes. Do you want to review these windows before quitting?"
-            alert.informativeText = "If you don't review your windows, any running processes will be terminated"
-            alert.addButton(withTitle: "Review Windows...")
-            alert.addButton(withTitle: "Terminate Processes")
-            alert.addButton(withTitle: "Cancel")
-            alert.alertStyle = .warning
+            let alert = NSAlert.reviewWindowsAlert(
+                messageText: "You have \(controllersNeedConfirmation.count) windows with running processes. Do you want to review these windows before quitting?"
+            )
 
             switch alert.runModal() {
             case .alertFirstButtonReturn:

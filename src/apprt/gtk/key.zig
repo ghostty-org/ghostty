@@ -227,6 +227,94 @@ pub fn keyFromKeyval(keyval: c_uint) ?input.Key {
     return null;
 }
 
+/// Returns the logical key after applying any eligible XKB remapping.
+///
+/// Modifier keyvals that Ghostty doesn't represent must not fall back to the
+/// physical key. XKB can turn any physical key into a modifier, and using the
+/// original key in that case would encode an unrelated key press.
+pub fn remapKey(
+    physical_key: input.Key,
+    keyval: c_uint,
+    is_modifier: bool,
+) input.Key {
+    if (keyFromKeyval(keyval)) |remapped| {
+        if (physical_key.shouldBeRemappable() or remapped.shouldBeRemappable())
+            return remapped;
+    }
+
+    if (is_modifier or isModifierKeyval(keyval)) return .unidentified;
+    return physical_key;
+}
+
+/// Returns whether a keyval has modifier semantics that GDK may not expose
+/// through `gdk_key_event_is_modifier`.
+///
+/// In particular, XKB can report ISO level and group modifiers as keyvals
+/// such as `Mode_switch` while GDK reports that the event is not a modifier.
+fn isModifierKeyval(keyval: c_uint) bool {
+    return switch (keyval) {
+        gdk.KEY_Shift_L,
+        gdk.KEY_Shift_R,
+        gdk.KEY_Shift_Lock,
+        gdk.KEY_Control_L,
+        gdk.KEY_Control_R,
+        gdk.KEY_Caps_Lock,
+        gdk.KEY_Meta_L,
+        gdk.KEY_Meta_R,
+        gdk.KEY_Alt_L,
+        gdk.KEY_Alt_R,
+        gdk.KEY_Super_L,
+        gdk.KEY_Super_R,
+        gdk.KEY_Hyper_L,
+        gdk.KEY_Hyper_R,
+        gdk.KEY_Num_Lock,
+        gdk.KEY_Mode_switch,
+        gdk.KEY_ISO_Lock,
+        gdk.KEY_ISO_Level2_Latch,
+        gdk.KEY_ISO_Level3_Shift,
+        gdk.KEY_ISO_Level3_Latch,
+        gdk.KEY_ISO_Level3_Lock,
+        gdk.KEY_ISO_Level5_Shift,
+        gdk.KEY_ISO_Level5_Latch,
+        gdk.KEY_ISO_Level5_Lock,
+        gdk.KEY_ISO_Group_Latch,
+        gdk.KEY_ISO_Group_Lock,
+        => true,
+
+        else => false,
+    };
+}
+
+test "remap key" {
+    const testing = std.testing;
+
+    // XKB remaps between non-writing-system keys are honored.
+    try testing.expectEqual(
+        input.Key.escape,
+        remapKey(.caps_lock, gdk.KEY_Escape, false),
+    );
+
+    // Writing-system keys retain their physical identity.
+    try testing.expectEqual(
+        input.Key.key_a,
+        remapKey(.key_a, gdk.KEY_b, false),
+    );
+
+    // GDK doesn't identify Mode_switch as a modifier, but it must not fall
+    // back to the physical key.
+    try testing.expectEqual(
+        input.Key.unidentified,
+        remapKey(.delete, gdk.KEY_Mode_switch, false),
+    );
+
+    // GDK's modifier flag also covers custom modifier actions whose keyval
+    // Ghostty doesn't represent.
+    try testing.expectEqual(
+        input.Key.unidentified,
+        remapKey(.delete, gdk.KEY_VoidSymbol, true),
+    );
+}
+
 /// Returns a keyval from an input key or null if we don't have a mapping.
 pub fn keyvalFromKey(key: input.Key) ?c_uint {
     switch (key) {

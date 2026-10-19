@@ -23,6 +23,13 @@ pub const DecodePngFn = *const fn (
     *Image,
 ) callconv(lib.calling_conv) bool;
 
+/// C: GhosttySysRandomSecureFn
+pub const RandomSecureFn = *const fn (
+    ?*anyopaque,
+    [*]u8,
+    usize,
+) callconv(lib.calling_conv) bool;
+
 /// C: GhosttySysLogLevel
 pub const LogLevel = enum(c_int) {
     @"error" = 0,
@@ -55,12 +62,14 @@ pub const Option = enum(c_int) {
     userdata = 0,
     decode_png = 1,
     log = 2,
+    random_secure = 3,
 
     pub fn InType(comptime self: Option) type {
         return switch (self) {
             .userdata => ?*const anyopaque,
             .decode_png => ?DecodePngFn,
             .log => ?LogFn,
+            .random_secure => ?RandomSecureFn,
         };
     }
 };
@@ -71,6 +80,7 @@ const Global = struct {
     userdata: ?*anyopaque = null,
     decode_png: ?DecodePngFn = null,
     log: ?LogFn = null,
+    random_secure: ?RandomSecureFn = null,
 };
 
 /// Global state for the C sys interface.
@@ -79,6 +89,9 @@ var global: Global = .{};
 /// Zig-compatible wrapper that calls through to the stored C callback.
 /// The C callback allocates the pixel data through the provided allocator,
 /// so we can take ownership directly.
+///
+/// Returns `error.InvalidData` if no callback is installed, if the callback
+/// returns false, or if it returns true without setting `data`.
 fn decodePngWrapper(
     alloc: std.mem.Allocator,
     data: []const u8,
@@ -86,8 +99,14 @@ fn decodePngWrapper(
     const func = global.decode_png orelse return error.InvalidData;
 
     const c_alloc = CAllocator.fromZig(&alloc);
-    var out: Image = undefined;
-    if (!func(global.userdata, &c_alloc, data.ptr, data.len, &out)) return error.InvalidData;
+
+    // Hand the callback a zeroed struct instead of an undefined one. The
+    // callback stores a pointer into it, and runtimes that track pointers
+    // (Go, for example) require the memory to be initialized first. It
+    // also means a callback that returns true without setting `data` is
+    // caught by the null check below. The header documents this guarantee.
+    var out: Image = std.mem.zeroes(Image);
+    if (!func(global.userdata, &c_alloc, lib.String.init(data).ptr, data.len, &out)) return error.InvalidData;
 
     const result_data = out.data orelse return error.InvalidData;
 
@@ -96,6 +115,12 @@ fn decodePngWrapper(
         .height = out.height,
         .data = result_data[0..out.data_len],
     };
+}
+
+/// Zig-compatible wrapper that calls through to the stored C callback.
+fn randomSecureWrapper(buffer: []u8) terminal_sys.RandomSecureError!void {
+    const func = global.random_secure orelse return error.EntropyUnavailable;
+    if (!func(global.userdata, buffer.ptr, buffer.len)) return error.EntropyUnavailable;
 }
 
 pub fn set(
@@ -127,6 +152,10 @@ fn setTyped(
             terminal_sys.decode_png = if (value != null) &decodePngWrapper else null;
         },
         .log => global.log = value,
+        .random_secure => {
+            global.random_secure = value;
+            terminal_sys.random_secure = if (value != null) &randomSecureWrapper else null;
+        },
     }
     return .success;
 }
@@ -292,6 +321,33 @@ test "set decode_png installs wrapper" {
     // Clear it again.
     try std.testing.expectEqual(Result.success, set(.decode_png, null));
     try std.testing.expect(terminal_sys.decode_png == null);
+}
+
+test "decode_png output is zeroed before the callback" {
+    const S = struct {
+        var seen: ?Image = null;
+        fn decode(_: ?*anyopaque, _: *const CAllocator, _: [*]const u8, _: usize, out: *Image) callconv(lib.calling_conv) bool {
+            // Record what we were given, then report success without
+            // filling anything in.
+            seen = out.*;
+            return true;
+        }
+    };
+
+    try std.testing.expectEqual(Result.success, set(
+        .decode_png,
+        @ptrCast(&S.decode),
+    ));
+    defer _ = set(.decode_png, null);
+
+    // Success with no data is rejected rather than read as garbage.
+    try std.testing.expectError(
+        error.InvalidData,
+        decodePngWrapper(std.testing.allocator, "png"),
+    );
+
+    // The callback saw an all-zero struct.
+    try std.testing.expectEqual(std.mem.zeroes(Image), S.seen.?);
 }
 
 test "set log with null clears" {

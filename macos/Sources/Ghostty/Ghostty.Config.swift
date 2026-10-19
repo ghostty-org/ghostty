@@ -111,11 +111,14 @@ extension Ghostty {
         /// configuration would be "quit" action.
         ///
         /// Returns nil if there is no key equivalent for the given action.
-        func keyboardShortcut(for action: String) -> KeyboardShortcut? {
-            guard let cfg = self.config else { return nil }
-
-            let trigger = ghostty_config_trigger(cfg, action, UInt(action.lengthOfBytes(using: .utf8)))
+        @MainActor func keyboardShortcut(for action: String) -> KeyboardShortcut? {
+            guard let trigger = keybindTrigger(for: action) else { return nil }
             return Ghostty.keyboardShortcut(for: trigger)
+        }
+
+        func keybindTrigger(for action: String) -> ghostty_input_trigger_s? {
+            guard let config else { return nil }
+            return ghostty_config_trigger(config, action, UInt(action.lengthOfBytes(using: .utf8)))
         }
 
         // MARK: - Configuration Values
@@ -125,10 +128,10 @@ extension Ghostty {
         /// due to the embedded library and Swift.
 
         var bellFeatures: BellFeatures {
-            guard let config = self.config else { return .init() }
+            guard let config = self.config else { return .defaultValue }
             var v: CUnsignedInt = 0
             let key = "bell-features"
-            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return .init() }
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return .defaultValue }
             return .init(rawValue: v)
         }
 
@@ -807,6 +810,8 @@ extension Ghostty.Config {
         static let attention = BellFeatures(rawValue: 1 << 2)
         static let title = BellFeatures(rawValue: 1 << 3)
         static let border = BellFeatures(rawValue: 1 << 4)
+
+        static let defaultValue = BellFeatures([.attention, .title])
     }
 
     struct SplitPreserveZoom: OptionSet {

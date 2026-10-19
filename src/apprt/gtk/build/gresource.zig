@@ -5,7 +5,6 @@
 //! Litmus test: `src/apprt/gtk` should exist relative to the pwd.
 
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 
 const build_info = @import("info.zig");
 
@@ -23,6 +22,14 @@ pub const css_path = "src/apprt/gtk/css";
 /// able to error when they don't exist that way.
 pub const icon_sizes: []const comptime_int = &.{ 16, 32, 128, 256, 512, 1024 };
 
+/// The oldest libadwaita Ghostty supports. Individual blueprints can
+/// require newer than this, never older, so the build checks the headers
+/// against whichever of the two is higher.
+pub const minimum_adwaita: struct { major: u16, minor: u16 } = .{
+    .major = 1,
+    .minor = 7,
+};
+
 /// The blueprint files that we will embed into the gresource file.
 /// We can't look these up at runtime [easily] because we require the
 /// compiled UI files as input. We can refactor this lator to maybe do
@@ -31,35 +38,30 @@ pub const icon_sizes: []const comptime_int = &.{ 16, 32, 128, 256, 512, 1024 };
 ///
 /// These will be asserted to exist at runtime.
 pub const blueprints: []const Blueprint = &.{
-    .{ .major = 1, .minor = 0, .name = "clipboard-confirmation-dialog" },
-    .{ .major = 1, .minor = 4, .name = "clipboard-confirmation-dialog" },
-    .{ .major = 1, .minor = 2, .name = "close-confirmation-dialog" },
-    .{ .major = 1, .minor = 2, .name = "config-errors-dialog" },
-    .{ .major = 1, .minor = 2, .name = "debug-warning" },
+    .{ .major = 1, .minor = 0, .name = "imgui-widget" },
+    .{ .major = 1, .minor = 0, .name = "inspector-widget" },
+    .{ .major = 1, .minor = 0, .name = "key-state-overlay" },
+    .{ .major = 1, .minor = 0, .name = "resize-overlay" },
+    .{ .major = 1, .minor = 0, .name = "search-overlay" },
+    .{ .major = 1, .minor = 0, .name = "split-tree" },
+    .{ .major = 1, .minor = 0, .name = "split-tree-split" },
+    .{ .major = 1, .minor = 0, .name = "surface" },
+    .{ .major = 1, .minor = 0, .name = "surface-scrolled-window" },
+    .{ .major = 1, .minor = 0, .name = "tab" },
     .{ .major = 1, .minor = 3, .name = "debug-warning" },
-    .{ .major = 1, .minor = 5, .name = "imgui-widget" },
-    .{ .major = 1, .minor = 5, .name = "inspector-widget" },
-    .{ .major = 1, .minor = 5, .name = "inspector-window" },
-    .{ .major = 1, .minor = 2, .name = "resize-overlay" },
-    .{ .major = 1, .minor = 2, .name = "search-overlay" },
-    .{ .major = 1, .minor = 2, .name = "key-state-overlay" },
-    .{ .major = 1, .minor = 5, .name = "split-tree" },
-    .{ .major = 1, .minor = 5, .name = "split-tree-split" },
-    .{ .major = 1, .minor = 2, .name = "surface" },
-    .{ .major = 1, .minor = 5, .name = "surface-scrolled-window" },
     .{ .major = 1, .minor = 3, .name = "surface-child-exited" },
-    .{ .major = 1, .minor = 5, .name = "tab" },
-    .{ .major = 1, .minor = 5, .name = "title-dialog" },
-    .{ .major = 1, .minor = 5, .name = "window" },
+    .{ .major = 1, .minor = 4, .name = "inspector-window" },
+    .{ .major = 1, .minor = 4, .name = "window" },
+    .{ .major = 1, .minor = 5, .name = "clipboard-confirmation-dialog" },
+    .{ .major = 1, .minor = 5, .name = "close-confirmation-dialog" },
     .{ .major = 1, .minor = 5, .name = "command-palette" },
+    .{ .major = 1, .minor = 5, .name = "config-errors-dialog" },
+    .{ .major = 1, .minor = 5, .name = "title-dialog" },
 };
 
 /// CSS files in css_path
 pub const css = [_][]const u8{
     "style.css",
-    "style-dark.css",
-    "style-hc.css",
-    "style-hc-dark.css",
 };
 
 pub const Blueprint = struct {
@@ -123,25 +125,6 @@ pub fn blueprint(comptime bp: Blueprint) [:0]const u8 {
 }
 
 pub fn main(init: std.process.Init) !void {
-    const alloc = init.arena.allocator();
-
-    // Collect the UI files that are passed in as arguments.
-    var ui_files: std.ArrayList([]const u8) = .empty;
-    defer {
-        for (ui_files.items) |item| alloc.free(item);
-        ui_files.deinit(alloc);
-    }
-
-    var it = try init.minimal.args.iterateAllocator(alloc);
-    defer it.deinit();
-    while (it.next()) |arg| {
-        if (!std.mem.endsWith(u8, arg, ".ui")) continue;
-        try ui_files.append(
-            alloc,
-            try alloc.dupe(u8, arg),
-        );
-    }
-
     var buf: [4096]u8 = undefined;
     var stdout = std.Io.File.stdout().writer(init.io, &buf);
     const writer = &stdout.interface;
@@ -153,7 +136,7 @@ pub fn main(init: std.process.Init) !void {
 
     try genRoot(init.io, writer);
     try genIcons(init.io, writer);
-    try genUi(alloc, writer, &ui_files);
+    try genUi(init.io, writer);
 
     try writer.writeAll(
         \\</gresources>
@@ -235,38 +218,44 @@ fn genRoot(io: std.Io, writer: *std.Io.Writer) !void {
     );
 }
 
-/// Generate all the UI resources. This works by looking up all the
-/// blueprint files in `${ui_path}/{major}.{minor}/{name}.blp` and
-/// assuming these will be
-fn genUi(
-    alloc: Allocator,
-    writer: *std.Io.Writer,
-    files: *const std.ArrayList([]const u8),
-) !void {
+/// Generate all the UI resources.
+///
+/// Each file is written as a *relative* path, `{major}.{minor}/{name}.ui`,
+/// which `glib-compile-resources` resolves against a `--sourcedir`. An
+/// absolute path into the Zig cache would change whenever the step that
+/// produced the `.ui` did, and this XML with it.
+///
+/// The compiled `.ui` files are not inputs here for the same reason. We
+/// check that the blueprint *sources* exist instead, as `genRoot` and
+/// `genIcons` do for the CSS and icons.
+fn genUi(io: std.Io, writer: *std.Io.Writer) !void {
+    // Two `comptimePrint` calls per blueprint exceed the default quota.
+    @setEvalBranchQuota(100_000);
+
     try writer.print(
         \\  <gresource prefix="{s}/ui">
         \\
     , .{build_info.resource_path});
 
-    for (files.items) |ui_file| {
-        for (blueprints) |bp| {
-            const expected = try std.fmt.allocPrint(
-                alloc,
-                "/{d}.{d}/{s}.ui",
-                .{ bp.major, bp.minor, bp.name },
-            );
-            defer alloc.free(expected);
-            if (!std.mem.endsWith(u8, ui_file, expected)) continue;
-            try writer.print(
-                "    <file compressed=\"true\" preprocess=\"xml-stripblanks\" alias=\"{d}.{d}/{s}.ui\">{s}</file>\n",
-                .{ bp.major, bp.minor, bp.name, ui_file },
-            );
-            break;
-        } else {
-            // The for loop never broke which means it didn't find
-            // a matching blueprint for this input.
-            return error.BlueprintNotFound;
-        }
+    const cwd: std.Io.Dir = .cwd();
+    inline for (blueprints) |bp| {
+        const source = std.fmt.comptimePrint("{s}/{d}.{d}/{s}.blp", .{
+            ui_path,
+            bp.major,
+            bp.minor,
+            bp.name,
+        });
+        try cwd.access(io, source, .{});
+
+        const alias = std.fmt.comptimePrint("{d}.{d}/{s}.ui", .{
+            bp.major,
+            bp.minor,
+            bp.name,
+        });
+        try writer.print(
+            \\    <file compressed="true" preprocess="xml-stripblanks" alias="{s}">{s}</file>
+            \\
+        , .{ alias, alias });
     }
 
     try writer.writeAll(

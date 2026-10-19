@@ -59,6 +59,7 @@ extend-ignore-re = [
 Pn = "Pn"
 thr = "thr"
 # Swift oddities
+Datas = "Datas"
 Requestor = "Requestor"
 iterm = "iterm"
 ACCES = "ACCES"

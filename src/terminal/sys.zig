@@ -52,3 +52,51 @@ fn decodePngWuffs(
         .data = result.data,
     };
 }
+
+/// Fill a buffer with cryptographically secure random bytes. If null,
+/// the terminal's `std.Io` (`randomSecure`) is used. This is an override
+/// for embedders whose Io has no entropy source (e.g. wasm32-freestanding,
+/// where TinyIo degrades to `std.Io.failing`) or that want to control
+/// the source; when set it is used on every target.
+///
+/// This is used for secrets, so it must be a real CSPRNG. An error
+/// makes the operation that needed the entropy fail; nothing falls back
+/// to weaker randomness.
+pub var random_secure: ?RandomSecureFn = null;
+
+pub const RandomSecureError = error{EntropyUnavailable};
+pub const RandomSecureFn = *const fn ([]u8) RandomSecureError!void;
+
+/// Fill `buffer` with secure random bytes from `random_secure` if set,
+/// otherwise from `io`. Every use of secure entropy in the terminal
+/// package goes through this so the override applies uniformly.
+pub fn randomSecure(io: std.Io, buffer: []u8) std.Io.RandomSecureError!void {
+    if (random_secure) |func| return func(buffer);
+    return io.randomSecure(buffer);
+}
+
+test "randomSecure: override is preferred over the Io" {
+    const testing = std.testing;
+    const S = struct {
+        fn fill(buffer: []u8) RandomSecureError!void {
+            @memset(buffer, 0xAB);
+        }
+        fn fail(_: []u8) RandomSecureError!void {
+            return error.EntropyUnavailable;
+        }
+    };
+
+    // Without the override a failing Io fails.
+    var buf: [8]u8 = @splat(0);
+    try testing.expectError(error.EntropyUnavailable, randomSecure(std.Io.failing, &buf));
+
+    // With it, the Io is never consulted.
+    random_secure = &S.fill;
+    defer random_secure = null;
+    try randomSecure(std.Io.failing, &buf);
+    try testing.expect(std.mem.allEqual(u8, &buf, 0xAB));
+
+    // An override failure surfaces as the Io's error.
+    random_secure = &S.fail;
+    try testing.expectError(error.EntropyUnavailable, randomSecure(testing.io, &buf));
+}

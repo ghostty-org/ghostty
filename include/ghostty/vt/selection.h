@@ -117,6 +117,29 @@ typedef struct {
 } GhosttySelection;
 
 /**
+ * A caller-provided buffer of selections.
+ *
+ * This follows the same conventions as GhosttyBuffer: ptr may be NULL with
+ * cap 0 to query the required capacity. APIs that fill this type set len to
+ * the number of entries written on GHOSTTY_SUCCESS, or to the required entry
+ * capacity on GHOSTTY_OUT_OF_SPACE.
+ *
+ * @ingroup selection
+ */
+typedef struct {
+  /** Destination buffer for selections. May be NULL when cap is 0 to query
+   * the required capacity. */
+  GhosttySelection* ptr;
+
+  /** Capacity of ptr in entries. */
+  size_t cap;
+
+  /** Entries written on success, or required entry capacity on
+   * GHOSTTY_OUT_OF_SPACE. */
+  size_t len;
+} GhosttySelectionBuffer;
+
+/**
  * Options for deriving a word selection from a terminal grid reference.
  *
  * This is a sized struct. Use GHOSTTY_INIT_SIZED() to initialize it.
@@ -884,6 +907,8 @@ GHOSTTY_API GhosttyResult ghostty_terminal_selection_format_buf(
  * The returned buffer is allocated using allocator, or the default allocator
  * if NULL is passed. The caller owns the returned buffer and must free it with
  * ghostty_free(), passing the same allocator and returned length.
+ * Empty output returns GHOSTTY_SUCCESS with *out_ptr set to NULL and
+ * *out_len set to zero. This result can be passed to ghostty_free().
  *
  * The returned bytes are not NUL-terminated. This supports plain text, VT, and
  * HTML uniformly as byte output.

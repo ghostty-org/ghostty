@@ -57,9 +57,7 @@ const terminal = struct {
 const log = std.log.scoped(.config);
 
 /// Used on Unixes for some defaults.
-const c = @cImport({
-    @cInclude("unistd.h");
-});
+const c = @import("posix_c");
 
 pub const compatibility = std.StaticStringMap(
     cli.CompatibilityHandler(Config),
@@ -100,6 +98,12 @@ pub const compatibility = std.StaticStringMap(
     // Ghostty 1.4 renamed `scrollback-limit` to `scrollback-limit-bytes`
     // when `scrollback-limit-lines` was added so the units are explicit.
     .{ "scrollback-limit", cli.compatibilityRenamed(Config, "scrollback-limit-bytes") },
+
+    // Ghostty 1.4 updated "copy-on-select", allow copying to the selection
+    // clipboard (on supported operating systems), the system clipboard, or
+    // both. The semantics also changed but this is the correct mapping.
+    // See: https://github.com/ghostty-org/ghostty/pull/12604
+    .{ "copy-on-select", compatCopyOnSelect },
 });
 
 /// Set Ghostty's graphical user interface language to a language other than the
@@ -2454,6 +2458,32 @@ keybind: Keybinds = .{},
 @"clipboard-read": ClipboardAccess = .ask,
 @"clipboard-write": ClipboardAccess = .allow,
 
+/// The maximum size in bytes of a single clipboard write by a program
+/// running in the terminal via the Kitty clipboard protocol (OSC 5522).
+/// This doesn't apply to OSC 52, which is limited by the maximum length
+/// of an escape sequence hardcoded into Ghostty for now.
+///
+/// Data beyond the limit fails the entire write with an `EFBIG` status,
+/// discards the transaction, and leaves the clipboard untouched. Later
+/// write-related packets are ignored until a new write begins.
+///
+/// The data is buffered in memory while the write is in progress, so
+/// this limit bounds how much memory a program can make Ghostty
+/// allocate per write. A future improvement will attempt to spool large
+/// writes to disk.
+///
+/// The default is 64 MiB, the minimum a conforming implementation must
+/// accept. Set this to `unlimited` to remove the limit, allowing writes
+/// bounded only by available memory. A value of `0` rejects every non-empty
+/// write. To reject clipboard writes entirely, use `clipboard-write = deny`
+/// instead.
+///
+/// This can be changed at runtime and applies to writes that begin
+/// after the change.
+///
+/// Available since: 1.4.0
+@"clipboard-write-limit-bytes": Limit(usize, 64 * 1024 * 1024) = .default,
+
 /// Trims trailing whitespace on data that is copied to the clipboard. This does
 /// not affect data sent to the clipboard via `clipboard-write`. This only
 /// applies to trailing whitespace on lines that have other characters.
@@ -2462,7 +2492,7 @@ keybind: Keybinds = .{},
 
 /// Require confirmation before pasting text that appears unsafe. This helps
 /// prevent a "copy/paste attack" where a user may accidentally execute unsafe
-/// commands by pasting text with newlines.
+/// commands by pasting text with newlines or carriage returns.
 @"clipboard-paste-protection": bool = true,
 
 /// If true, bracketed pastes will be considered safe. By default, bracketed
@@ -2491,25 +2521,28 @@ keybind: Keybinds = .{},
 /// limit per surface is double.
 @"image-storage-limit": u32 = 320 * 1000 * 1000,
 
-/// Whether to automatically copy selected text to the clipboard. `true`
-/// will prefer to copy to the selection clipboard, otherwise it will copy to
-/// the system clipboard.
+/// Whether to automatically copy selected text to the clipboard.
 ///
-/// The value `clipboard` will always copy text to the selection clipboard
-/// as well as the system clipboard.
+/// Valid values:
 ///
-/// Middle-click primary paste (see `middle-click-action`) is enabled by
-/// default even if this is `false`. The clipboard it pastes from follows
-/// this setting: with `true` (or `false`) it reads from the selection
-/// clipboard (falling back to the system clipboard on platforms without a
-/// selection clipboard); with `clipboard` it reads from the system
-/// clipboard.
+/// * `none` - Do not copy selected text automatically.
 ///
-/// The default value is true on Linux and macOS.
+/// * `primary` - On Linux, copy to the selection clipboard only. This has no
+///   effect on macOS. (Available since: 1.4.0)
+///
+/// * `clipboard` - Copy text to the system clipboard only.
+///
+/// * `both` - Copy to both clipboards on Linux, and only the system clipboard
+///   on macOS. (Available since: 1.4.0)
+///
+/// For backward compatibility and convenience, a value of `true` is the same as
+/// `primary` on Linux and `clipboard` on macOS, and `false` is an alias for
+/// `none`.
+///
+/// The default value is `primary` on Linux and `none` otherwise.
 @"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
-    .linux => .true,
-    .macos => .true,
-    else => .false,
+    .linux => .primary,
+    else => .none,
 },
 
 /// The action to take when the user right-clicks on the terminal surface.
@@ -2528,8 +2561,9 @@ keybind: Keybinds = .{},
 /// The action to take when the user middle-clicks on the terminal surface.
 ///
 /// Valid values:
-///   * `primary-paste` - Paste from the selection (or system) clipboard per
-///      `copy-on-select`.
+///   * `primary-paste` - Paste from the selection clipboard on Linux.
+///      Does nothing on macOS.
+///   * `clipboard-paste` - Paste from the system clipboard.
 ///   * `ignore` - Do nothing, ignore the middle click.
 ///
 /// The default value is `primary-paste`.
@@ -2931,10 +2965,9 @@ keybind: Keybinds = .{},
 ///     (Available since: 1.2.0)
 ///
 ///   * `ssh-terminfo` - Enable automatic terminfo installation on remote hosts.
-///     Attempts to install Ghostty's terminfo entry using `infocmp` and `tic` when
-///     connecting to hosts that lack it. Requires `infocmp` to be available locally
-///     and `tic` to be available on remote hosts. Once terminfo is installed on a
-///     remote host, it will be automatically "cached" to avoid repeat installations.
+///     Attempts to install Ghostty's embedded terminfo entry using `tic` on local
+///     cache misses. Requires `tic` to be available on remote hosts. Successful
+///     installations are cached locally to avoid repeat installations.
 ///     If desired, the `+ssh-cache` CLI action can be used to manage the installation
 ///     cache manually using various arguments.
 ///     (Available since: 1.2.0)
@@ -3019,6 +3052,76 @@ keybind: Keybinds = .{},
 /// if you know you need KAM, you know. If you don't know if you
 /// need KAM, you don't need it.
 @"vt-kam-allowed": bool = false,
+
+/// If true, allows the running program to resize the window using the
+/// xterm `CSI 8 ; rows ; columns t` escape sequence. If a parameter is zero
+/// or omitted, the current size of that dimension is kept. Sizes smaller
+/// than 40 columns by 10 rows are raised to that size so that a program
+/// can't shrink the window to hide its output.
+///
+/// The request is ignored if the terminal is in a split, in a window with
+/// multiple tabs, or the quick terminal, or if the window manager controls
+/// the window size, such as when it is fullscreen, maximized, or tiled.
+/// Sizes larger than the screen are clamped to the screen.
+///
+/// This is disabled by default because it lets any program, including one
+/// running on a remote machine, change the size of your window.
+///
+/// Available since: 1.4.0
+@"vt-window-resize-allowed": bool = false,
+
+/// Enables or disables checksum reporting (DECRQCRA, `CSI Pi ; Pg ; Pt ;
+/// Pl ; Pb ; Pr * y`). This escape sequence allows the running program to
+/// ask for a checksum of an area of the screen. Terminal test suites use it
+/// to check what is on the screen.
+///
+/// This is disabled by default because a program can ask for the checksum of
+/// one cell at a time and so read back everything on the screen, including
+/// the output of other programs.
+///
+/// While this is disabled, XTCHECKSUM (`CSI Ps # y`), which changes how the
+/// checksum is calculated, is ignored as well.
+///
+/// Available since: 1.4.0
+@"vt-xt-checksum-report": bool = false,
+
+/// How the checksum reported for DECRQCRA (see `vt-xt-checksum-report`) is
+/// calculated. This is the calculation used after a reset, like xterm's
+/// `checksumExtension` resource. A running program can change it with
+/// XTCHECKSUM (`CSI Ps # y`) until the next reset. The default is the
+/// calculation of a real DEC terminal.
+///
+/// Valid values are:
+///
+///   * `negate` - Report the negated sum, as DEC terminals do.
+///
+///   * `attributes` - Add bold, underline, blink, inverse, invisible, and
+///     protected attributes to the value of each cell.
+///
+///   * `trim` - Omit plain spaces other than the first cell of the area.
+///
+///   * `undrawn` - Count cells that were never written to as spaces
+///     instead of skipping them.
+///
+///   * `full` - Use the full codepoint of each cell instead of the DEC
+///     8-bit value.
+///
+/// Prefix a value with `no-` to disable it. For example, esctest expects
+/// `no-negate,no-attributes,no-trim,full` when run with `--xterm-checksum`,
+/// which is xterm's `checksumExtension: 23`.
+///
+/// The bits of xterm's resource are described in its
+/// [man page](https://github.com/ThomasDickey/xterm-snapshots/blob/xterm-411/xterm.man#L2870-L2896)
+/// and its [control sequence documentation](https://github.com/ThomasDickey/xterm-snapshots/blob/xterm-411/ctlseqs.ms#L2562-L2569),
+/// but where those disagree with xterm's
+/// [implementation](https://github.com/ThomasDickey/xterm-snapshots/blob/xterm-411/screen.c#L3162-L3290),
+/// Ghostty follows the implementation. The documentation describes bit 3
+/// as omitting cells that were never written to, but xterm skips those
+/// cells by default and counts them as spaces with the bit set, which is
+/// `undrawn` here. It also lists a bit 5 that xterm doesn't implement.
+///
+/// Available since: 1.4.0
+@"vt-xt-checksum-extension": XtChecksumExtension = .{},
 
 /// Custom shaders to run after the default shaders. This is a file path
 /// to a GLSL-syntax shader for all platforms.
@@ -3713,6 +3816,13 @@ else
 /// with keybinds.
 @"gtk-tabs-location": GtkTabsLocation = .top,
 
+/// If true, the close button of each tab is shown at the start of the tab
+/// (the left, in left-to-right languages) and the tab's icon at the end.
+/// This applies to both the tab bar and the tab overview. GTK only.
+///
+/// Available since: 1.4.0
+@"gtk-tabs-inverted": bool = false,
+
 /// If this is `true`, the titlebar will be hidden when the window is maximized,
 /// and shown when the titlebar is unmaximized. GTK only.
 ///
@@ -4304,7 +4414,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
 
     // Any paths referenced from the CLI are relative to the current working
     // directory.
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     try self.expandPaths(buf[0..try std.Io.Dir.cwd().realPathFile(
         global.io(),
         ".",
@@ -4518,6 +4628,29 @@ fn expandPaths(self: *Config, base: []const u8) !void {
     }
 }
 
+/// Expand tilde paths to absolute paths to the user's home directory.
+/// If expansion fails, an error is logged and the original path is returned.
+fn expandHome(path: []const u8, buf: []u8) []const u8 {
+    if (!std.mem.startsWith(u8, path, "~/"))
+        return path;
+
+    var environ_map = global.environMap() catch |err| {
+        log.warn("failed to get environment map for path \"{s}\": {}", .{ path, err });
+        return path;
+    };
+    defer environ_map.deinit();
+
+    return internal_os.expandHome(
+        global.io(),
+        &environ_map,
+        path,
+        buf,
+    ) catch |err| {
+        log.warn("failed to expand home directory in path \"{s}\": {}", .{ path, err });
+        return path;
+    };
+}
+
 fn loadTheme(self: *Config, theme: Theme) !void {
     // Load the correct theme depending on the conditional state.
     // Dark/light themes were programmed prior to conditional configuration
@@ -4617,14 +4750,17 @@ fn loadTheme(self: *Config, theme: Theme) !void {
 /// Call this once after you are done setting configuration. This
 /// is idempotent but will waste memory if called multiple times.
 pub fn finalize(self: *Config) !void {
+    const alloc = self._arena.?.allocator();
+
     // We always load the theme first because it may set other fields
     // in our config.
-    if (self.theme) |theme| {
+    if (self.theme) |*theme| {
+        try theme.finalize(alloc);
         const different = !std.mem.eql(u8, theme.light, theme.dark);
 
         // Warning: loadTheme will deinit our existing config and replace
         // it so all memory from self prior to this point will be freed.
-        try self.loadTheme(theme);
+        try self.loadTheme(theme.*);
 
         // If we have different light vs dark mode themes, disable
         // window-theme = auto since that breaks it.
@@ -4637,8 +4773,6 @@ pub fn finalize(self: *Config) !void {
             self._conditional_set.insert(.theme);
         }
     }
-
-    const alloc = self._arena.?.allocator();
 
     // Used for a variety of defaults. See the function docs as well the
     // specific variable use sites for more details.
@@ -4719,7 +4853,7 @@ pub fn finalize(self: *Config) !void {
                     if (wd == .home) {
                         var environ_map = try global.environMap();
                         defer environ_map.deinit();
-                        var buf: [std.fs.max_path_bytes]u8 = undefined;
+                        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
                         if (try internal_os.home(global.io(), &environ_map, &buf)) |home| {
                             wd = .{ .path = try alloc.dupe(u8, home) };
                         } else {
@@ -4992,6 +5126,31 @@ fn compatMacOSDockDropBehavior(
 
     if (std.mem.eql(u8, value orelse "", "window")) {
         self.@"macos-dock-drop-behavior" = .@"new-window";
+        return true;
+    }
+
+    return false;
+}
+
+fn compatCopyOnSelect(
+    self: *Config,
+    alloc: Allocator,
+    key: []const u8,
+    value: ?[]const u8,
+) bool {
+    _ = alloc;
+    assert(std.mem.eql(u8, key, "copy-on-select"));
+
+    if (std.mem.eql(u8, value orelse "", "true")) {
+        self.@"copy-on-select" = switch (builtin.os.tag) {
+            .linux, .freebsd => .primary,
+            else => .clipboard,
+        };
+        return true;
+    }
+
+    if (std.mem.eql(u8, value orelse "", "false")) {
+        self.@"copy-on-select" = .none;
         return true;
     }
 
@@ -5444,20 +5603,8 @@ pub const WorkingDirectory = union(enum) {
             else => return,
         };
 
-        if (!std.mem.startsWith(u8, path, "~/")) return;
-
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
-        const expanded = expanded: {
-            var environ_map = global.environMap() catch |err| break :expanded err;
-            defer environ_map.deinit();
-            break :expanded internal_os.expandHome(global.io(), &environ_map, path, &buf);
-        } catch |err| {
-            log.warn(
-                "error expanding home directory for working-directory path={s}: {}",
-                .{ path, err },
-            );
-            return;
-        };
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+        const expanded = expandHome(path, &buf);
 
         if (std.mem.eql(u8, expanded, path)) return;
         self.* = .{ .path = try alloc.dupe(u8, expanded) };
@@ -5517,7 +5664,7 @@ pub const WorkingDirectory = union(enum) {
             var wd: Self = .{ .path = "~/projects/ghostty" };
             try wd.finalize(alloc);
 
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const expected = internal_os.expandHome(
                 testing.io,
                 &environ_map,
@@ -8691,16 +8838,20 @@ pub const RepeatableLink = struct {
 
 /// Options for copy on select behavior.
 pub const CopyOnSelect = enum {
-    /// Disables copy on select entirely.
-    false,
+    /// Disables copy on select entirely. This is the default on macOS.
+    none,
 
     /// Copy on select is enabled, but goes to the selection clipboard.
-    /// This is not supported on platforms such as macOS. This is the default.
-    true,
+    /// This is not supported on platforms such as macOS. This is the default
+    /// on Linux.
+    primary,
+
+    /// Copy on select is enabled and goes to the system clipboard.
+    clipboard,
 
     /// Copy on select is enabled and goes to both the system clipboard
     /// and the selection clipboard (for Linux).
-    clipboard,
+    both,
 };
 
 /// Options for right-click actions.
@@ -8724,8 +8875,10 @@ pub const RightClickAction = enum {
 
 /// Options for middle-click actions.
 pub const MiddleClickAction = enum {
-    /// Paste from the selection/standard clipboard per `copy-on-select`.
+    /// Paste from the selection clipboard.
     @"primary-paste",
+    /// Paste from the standard clipboard.
+    @"clipboard-paste",
 
     /// No action is taken on middle click.
     ignore,
@@ -8750,6 +8903,15 @@ pub const ShellIntegrationFeatures = packed struct {
     @"ssh-env": bool = false,
     @"ssh-terminfo": bool = false,
     path: bool = true,
+};
+
+/// See vt-xt-checksum-extension
+pub const XtChecksumExtension = packed struct {
+    negate: bool = true,
+    attributes: bool = true,
+    trim: bool = true,
+    undrawn: bool = false,
+    full: bool = false,
 };
 
 pub const SplitPreserveZoom = packed struct {
@@ -8840,9 +9002,19 @@ pub const RepeatableCommand = struct {
             item.* = try item.clone(alloc);
         }
 
+        // Cloning value_c directly would copy Command.C structs
+        // whose string pointers still reference the source config's
+        // memory — the clone must stay valid after the source is
+        // freed.
+        var value_c: std.ArrayListUnmanaged(inputpkg.Command.C) = .empty;
+        try value_c.ensureTotalCapacityPrecise(alloc, value.items.len);
+        for (value.items) |item| {
+            value_c.appendAssumeCapacity(try item.cval(alloc));
+        }
+
         return .{
             .value = value,
-            .value_c = try self.value_c.clone(alloc),
+            .value_c = value_c,
         };
     }
 
@@ -8929,6 +9101,26 @@ pub const RepeatableCommand = struct {
 
         try list.parseCLI(alloc, "");
         try testing.expectEqual(inputpkg.command.defaults.len, list.value.items.len);
+    }
+
+    test "RepeatableCommand clone rebuilds the C mirror" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: RepeatableCommand = .{};
+        try list.parseCLI(alloc, "title:Foo,description:bar,action:new_tab");
+
+        const copy = try list.clone(alloc);
+        try testing.expectEqual(list.value_c.items.len, copy.value_c.items.len);
+        // The clone's C strings must not alias the source's — the
+        // source config can be freed while the clone lives on.
+        try testing.expect(list.value_c.items[0].title != copy.value_c.items[0].title);
+        try testing.expectEqualStrings(
+            std.mem.span(list.value_c.items[0].title),
+            std.mem.span(copy.value_c.items[0].title),
+        );
     }
 
     test "RepeatableCommand formatConfig empty" {
@@ -9980,6 +10172,19 @@ pub const Theme = struct {
         };
     }
 
+    /// Expand tilde paths in light/dark theme values.
+    pub fn finalize(self: *Theme, alloc: Allocator) Allocator.Error!void {
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+
+        const light = expandHome(self.light, &buf);
+        if (!std.mem.eql(u8, light, self.light))
+            self.light = try alloc.dupeZ(u8, light);
+
+        const dark = expandHome(self.dark, &buf);
+        if (!std.mem.eql(u8, dark, self.dark))
+            self.dark = try alloc.dupeZ(u8, dark);
+    }
+
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Theme, alloc: Allocator) Allocator.Error!Theme {
         return .{
@@ -10034,6 +10239,34 @@ pub const Theme = struct {
             try v.parseCLI(alloc, " light:foo,  dark : bar  ");
             try testing.expectEqualStrings("foo", v.light);
             try testing.expectEqualStrings("bar", v.dark);
+        }
+
+        // Expand tilde to home
+        {
+            var environ_map = try testing.environ.createMap(alloc);
+            defer environ_map.deinit();
+
+            var home_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+            const home = try internal_os.expandHome(
+                testing.io,
+                &environ_map,
+                "~/",
+                &home_buf,
+            );
+
+            var v: Theme = undefined;
+            try v.parseCLI(alloc, "light:~/foo, dark:~/bar");
+            try v.finalize(alloc);
+
+            var expected_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+            try testing.expectEqualStrings(
+                try std.fmt.bufPrint(&expected_buf, "{s}foo", .{home}),
+                v.light,
+            );
+            try testing.expectEqualStrings(
+                try std.fmt.bufPrint(&expected_buf, "{s}bar", .{home}),
+                v.dark,
+            );
         }
 
         var v: Theme = undefined;
@@ -10541,9 +10774,9 @@ test "clone can then change conditional state" {
         try writer.interface.writeAll(@embedFile("testdata/theme_dark"));
         try writer.end();
     }
-    var light_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var light_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const light = light_buf[0..try td.dir.realPathFile(testing.io, "theme_light", &light_buf)];
-    var dark_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var dark_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const dark = dark_buf[0..try td.dir.realPathFile(testing.io, "theme_dark", &dark_buf)];
 
     var cfg_light = try Config.default(alloc);
@@ -10618,7 +10851,7 @@ test "working-directory expands tilde" {
     try cfg.loadIter(alloc, &it);
     try cfg.finalize();
 
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const expected = internal_os.expandHome(
         io,
         &environ_map,
@@ -10698,7 +10931,7 @@ test "theme loading" {
         try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
         try writer.end();
     }
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = path_buf[0..try td.dir.realPathFile(testing.io, "theme", &path_buf)];
 
     var cfg = try Config.default(alloc);
@@ -10737,7 +10970,7 @@ test "theme loading preserves conditional state" {
         try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
         try writer.end();
     }
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = path_buf[0..try td.dir.realPathFile(testing.io, "theme", &path_buf)];
 
     var cfg = try Config.default(alloc);
@@ -10770,7 +11003,7 @@ test "theme priority is lower than config" {
         try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
         try writer.end();
     }
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = path_buf[0..try td.dir.realPathFile(testing.io, "theme", &path_buf)];
 
     var cfg = try Config.default(alloc);
@@ -10814,9 +11047,9 @@ test "theme loading correct light/dark" {
         try writer.interface.writeAll(@embedFile("testdata/theme_dark"));
         try writer.end();
     }
-    var light_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var light_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const light = light_buf[0..try td.dir.realPathFile(testing.io, "theme_light", &light_buf)];
-    var dark_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var dark_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const dark = dark_buf[0..try td.dir.realPathFile(testing.io, "theme_dark", &dark_buf)];
 
     // Light
@@ -10981,6 +11214,38 @@ test "scrollback limits" {
     try testing.expectEqual(
         std.math.maxInt(usize),
         cfg.@"scrollback-limit-lines".value,
+    );
+}
+
+test "clipboard write limit" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    try testing.expectEqual(
+        @as(usize, 64 * 1024 * 1024),
+        cfg.@"clipboard-write-limit-bytes".value,
+    );
+
+    var it: TestIterator = .{ .data = &.{
+        "--clipboard-write-limit-bytes=1234",
+    } };
+    try cfg.loadIter(alloc, &it);
+
+    try testing.expectEqual(
+        @as(usize, 1234),
+        cfg.@"clipboard-write-limit-bytes".value,
+    );
+
+    var unlimited_it: TestIterator = .{ .data = &.{
+        "--clipboard-write-limit-bytes=unlimited",
+    } };
+    try cfg.loadIter(alloc, &unlimited_it);
+
+    try testing.expectEqual(
+        std.math.maxInt(usize),
+        cfg.@"clipboard-write-limit-bytes".value,
     );
 }
 

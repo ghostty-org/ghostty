@@ -5,7 +5,7 @@ const log = std.log.scoped(.@"linux-cgroup");
 
 /// Returns the path to the cgroup for the given pid.
 pub fn current(buf: []u8, pid: u32) ?[]const u8 {
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
 
     // Read our cgroup by opening /proc/<pid>/cgroup and reading the first
     // line. The first line will look something like this:

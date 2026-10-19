@@ -1,3 +1,1 @@
-pub const c = @cImport({
-    @cInclude("oniguruma.h");
-});
+pub const c = @import("oniguruma_c");

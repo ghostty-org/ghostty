@@ -49,6 +49,7 @@
   adwaita-icon-theme,
   hicolor-icon-theme,
   harfbuzz,
+  libglvnd,
   libpng,
   libxkbcommon,
   libX11,
@@ -91,8 +92,10 @@
     inherit pkgs lib stdenv;
   };
   python = python3.withPackages (python-pkgs: [
+    python-pkgs.jsonschema
     python-pkgs.kaitaistruct
     python-pkgs.ucs-detect
+    python-pkgs.wasmtime
   ]);
 in
   mkShell {
@@ -183,6 +186,7 @@ in
         glslang
         spirv-cross
 
+        libglvnd
         libxkbcommon
         libX11
         libXcursor
@@ -250,6 +254,7 @@ in
         # We need to remove "xcrun" from the PATH. It is injected by
         # some dependency but we need to rely on system Xcode tools
         export PATH=$(echo "$PATH" | awk -v RS=: -v ORS=: '$0 !~ /xcrun/ || $0 == "/usr/bin" {print}' | sed 's/:$//')
-        export PATH="${python}/bin:/opt/homebrew/opt/llvm/bin:/opt/homebrew/bin:/usr/local/opt/llvm/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+        # Keep the project's Zig ahead of Homebrew's independently updated Zig.
+        export PATH="${zig}/bin:${python}/bin:/opt/homebrew/opt/llvm/bin:/opt/homebrew/bin:/usr/local/opt/llvm/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
       '');
   }

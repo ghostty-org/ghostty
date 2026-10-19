@@ -14,6 +14,17 @@
 //! resulting screen contents (scrollback included) are what each step
 //! formats.
 //!
+//! ## Formatters
+//!
+//! * `screen` (the default) formats the active screen with a
+//!   ScreenFormatter and no extras, as clipboard copy, `write_screen_file`
+//!   and search do.
+//! * `terminal` formats the whole terminal with a TerminalFormatter and
+//!   every extra (palette, modes, scrolling region, tabstops, cursor,
+//!   style and so on), as `ghostty_formatter_terminal_new` in the
+//!   libghostty-vt C API does for a snapshot of a terminal. Extras only
+//!   apply to `--emit=vt`.
+//!
 //! ## Modes
 //!
 //! * `noop` performs no formatting and establishes loop/setup overhead.
@@ -36,6 +47,12 @@
 //!       'ghostty-bench +terminal-formatter --mode=noop --data=/tmp/plain.vt' \
 //!       'ghostty-bench +terminal-formatter --emit=plain --loops=50 --data=/tmp/plain.vt' \
 //!       'ghostty-bench +terminal-formatter --emit=vt --loops=50 --data=/tmp/plain.vt'
+//!
+//! Measure the terminal formatter with every extra, and check that its
+//! output reconstructs the terminal state as well as the contents:
+//!
+//!     ghostty-bench +terminal-formatter --formatter=terminal --loops=50 --data=/tmp/plain.vt
+//!     ghostty-bench +terminal-formatter --formatter=terminal --mode=roundtrip --data=/tmp/plain.vt
 const TerminalFormatter = @This();
 
 const std = @import("std");
@@ -70,6 +87,9 @@ pub const Options = struct {
 
     /// The output format to emit.
     emit: Emit = .vt,
+
+    /// The formatter to measure.
+    formatter: Formatter = .screen,
 
     /// The region of the screen to format.
     region: Region = .screen,
@@ -133,6 +153,14 @@ pub const Emit = enum {
             .html => .html,
         };
     }
+};
+
+pub const Formatter = enum {
+    /// The active screen with a ScreenFormatter and no extras.
+    screen,
+
+    /// The whole terminal with a TerminalFormatter and every extra.
+    terminal,
 };
 
 pub const Region = enum {
@@ -230,21 +258,44 @@ fn teardown(ptr: *anyopaque) void {
     self.pins.clearRetainingCapacity();
 }
 
-/// Build the screen formatter matching our options. This mirrors how
-/// Surface clipboard copy and write_screen_file construct formatters.
-fn formatter(self: *TerminalFormatter) ?formatterpkg.ScreenFormatter {
-    const screen = self.terminal.?.screens.active;
+/// The formatter selected by `--formatter`.
+const AnyFormatter = union(Formatter) {
+    screen: formatterpkg.ScreenFormatter,
+    terminal: formatterpkg.TerminalFormatter,
 
-    var f: formatterpkg.ScreenFormatter = .init(screen, .{
+    fn setPinMap(self: *AnyFormatter, pin_map: formatterpkg.PinMap) void {
+        switch (self.*) {
+            inline else => |*f| f.pin_map = pin_map,
+        }
+    }
+
+    fn format(self: AnyFormatter, writer: *std.Io.Writer) !void {
+        switch (self) {
+            inline else => |f| try f.format(writer),
+        }
+    }
+};
+
+/// Build the formatter matching our options for the terminal t. The
+/// screen formatter mirrors how Surface clipboard copy and
+/// write_screen_file construct formatters; the terminal formatter mirrors
+/// the libghostty-vt C API's ghostty_formatter_terminal_new.
+fn formatter(
+    self: *TerminalFormatter,
+    t: *const Terminal,
+    region: Region,
+) ?AnyFormatter {
+    const screen = t.screens.active;
+    const opts: formatterpkg.Options = .{
         .emit = self.opts.emit.format(),
         .unwrap = self.opts.unwrap,
-    });
+    };
 
-    f.content = switch (self.opts.region) {
+    const content: formatterpkg.ScreenFormatter.Content = switch (region) {
         .screen => .{ .selection = null },
 
-        inline .active, .history => |region| content: {
-            const tag: terminalpkg.point.Tag = switch (region) {
+        inline .active, .history => |r| content: {
+            const tag: terminalpkg.point.Tag = switch (r) {
                 .active => .active,
                 .history => .history,
                 .screen => unreachable,
@@ -255,7 +306,20 @@ fn formatter(self: *TerminalFormatter) ?formatterpkg.ScreenFormatter {
         },
     };
 
-    return f;
+    switch (self.opts.formatter) {
+        .screen => {
+            var f: formatterpkg.ScreenFormatter = .init(screen, opts);
+            f.content = content;
+            return .{ .screen = f };
+        },
+
+        .terminal => {
+            var f: formatterpkg.TerminalFormatter = .init(t, opts);
+            f.content = content;
+            f.extra = .all;
+            return .{ .terminal = f };
+        },
+    }
 }
 
 fn stepNoop(ptr: *anyopaque) Benchmark.Error!void {
@@ -270,10 +334,10 @@ fn stepFormat(ptr: *anyopaque) Benchmark.Error!void {
     for (0..self.opts.loops) |_| {
         self.output.shrinkRetainingCapacity(0);
 
-        var f = self.formatter() orelse continue;
+        var f = self.formatter(&self.terminal.?, self.opts.region) orelse continue;
         if (self.opts.@"pin-map") {
             self.pins.clearRetainingCapacity();
-            f.pin_map = .{ .alloc = self.alloc, .map = &self.pins };
+            f.setPinMap(.{ .alloc = self.alloc, .map = &self.pins });
         }
 
         f.format(&self.output.writer) catch |err| {
@@ -291,11 +355,11 @@ fn stepReport(ptr: *anyopaque) Benchmark.Error!void {
     const self: *TerminalFormatter = @ptrCast(@alignCast(ptr));
 
     self.output.shrinkRetainingCapacity(0);
-    if (self.formatter()) |f_init| {
+    if (self.formatter(&self.terminal.?, self.opts.region)) |f_init| {
         var f = f_init;
         if (self.opts.@"pin-map") {
             self.pins.clearRetainingCapacity();
-            f.pin_map = .{ .alloc = self.alloc, .map = &self.pins };
+            f.setPinMap(.{ .alloc = self.alloc, .map = &self.pins });
         }
         f.format(&self.output.writer) catch |err| {
             log.warn("formatting failed err={}", .{err});
@@ -327,12 +391,13 @@ fn stepReport(ptr: *anyopaque) Benchmark.Error!void {
         pin_hasher.update(std.mem.asBytes(&y));
     }
 
-    std.debug.print(
-        "terminal-formatter emit={s} region={s} pages={d} rows={d} " ++
-            "cols={d} cells={d} out_bytes={d} pin_bytes={d} " ++
+    log.debug(
+        "terminal-formatter emit={s} formatter={s} region={s} pages={d} " ++
+            "rows={d} cols={d} cells={d} out_bytes={d} pin_bytes={d} " ++
             "out_hash={x} pin_hash={x}\n",
         .{
             @tagName(self.opts.emit),
+            @tagName(self.opts.formatter),
             @tagName(self.opts.region),
             pages,
             rows,
@@ -348,7 +413,7 @@ fn stepReport(ptr: *anyopaque) Benchmark.Error!void {
     // Pin map storage details on a separate line so the main report
     // line remains comparable across implementations.
     if (self.opts.@"pin-map") {
-        std.debug.print(
+        log.debug(
             "terminal-formatter-pins points={d} nodes={d}\n",
             .{ self.pins.points.items.len, self.pins.nodes.items.len },
         );
@@ -367,12 +432,14 @@ fn stepRoundtrip(ptr: *anyopaque) Benchmark.Error!void {
 /// same dimensions, format that, and require both outputs to be
 /// identical. This verifies that the emitted VT sequences faithfully
 /// reconstruct the terminal contents (text, styles, wrapping) without
-/// requiring any specific byte encoding of the first output.
+/// requiring any specific byte encoding of the first output. With
+/// `--formatter=terminal` both outputs include every extra, so the
+/// terminal state they describe (modes, scrolling region, cursor and so
+/// on) must be reconstructed too.
 fn stepRoundtripImpl(self: *TerminalFormatter) !void {
     // Format the original terminal.
     self.output.shrinkRetainingCapacity(0);
-    if (self.formatter()) |f_init| {
-        var f = f_init;
+    if (self.formatter(&self.terminal.?, self.opts.region)) |f| {
         try f.format(&self.output.writer);
     }
     const first = self.output.written();
@@ -391,20 +458,25 @@ fn stepRoundtripImpl(self: *TerminalFormatter) !void {
         stream.nextSlice(first);
     }
 
-    // Format the replayed terminal identically.
+    // Format all of the replayed terminal with the same formatter.
     var out2: std.Io.Writer.Allocating = .init(self.alloc);
     defer out2.deinit();
-    var f2: formatterpkg.ScreenFormatter = .init(t2.screens.active, .{
-        .emit = self.opts.emit.format(),
-        .unwrap = self.opts.unwrap,
-    });
-    try f2.format(&out2.writer);
+    if (self.formatter(&t2, .screen)) |f2| {
+        try f2.format(&out2.writer);
+    }
     const second = out2.written();
 
     const equal = std.mem.eql(u8, first, second);
-    std.debug.print(
-        "terminal-formatter roundtrip emit={s} bytes={d} replay_bytes={d} equal={}\n",
-        .{ @tagName(self.opts.emit), first.len, second.len, equal },
+    log.debug(
+        "terminal-formatter roundtrip emit={s} formatter={s} bytes={d} " ++
+            "replay_bytes={d} equal={}\n",
+        .{
+            @tagName(self.opts.emit),
+            @tagName(self.opts.formatter),
+            first.len,
+            second.len,
+            equal,
+        },
     );
 
     if (!equal) {
@@ -412,7 +484,7 @@ fn stepRoundtripImpl(self: *TerminalFormatter) !void {
         const n = @min(first.len, second.len);
         var i: usize = 0;
         while (i < n and first[i] == second[i]) i += 1;
-        std.debug.print(
+        log.debug(
             "terminal-formatter roundtrip mismatch offset={d} " ++
                 "first={f} second={f}\n",
             .{
@@ -447,31 +519,11 @@ test "TerminalFormatter roundtrip" {
     _ = try bench.run(.once);
 }
 
-test "TerminalFormatter formats all emit formats and regions" {
-    const testing = std.testing;
-
-    inline for (.{ Emit.plain, Emit.vt, Emit.html }) |emit| {
-        inline for (.{ Region.screen, Region.active, Region.history }) |region| {
-            const impl: *TerminalFormatter = try .create(testing.allocator, .{
-                .emit = emit,
-                .region = region,
-                .loops = 1,
-                .@"terminal-rows" = 4,
-                .@"terminal-cols" = 8,
-            });
-            defer impl.destroy(testing.allocator);
-
-            const bench = impl.benchmark();
-            _ = try bench.run(.once);
-        }
-    }
-}
-
-test "TerminalFormatter pin map" {
+test "TerminalFormatter terminal roundtrip" {
     const testing = std.testing;
     const impl: *TerminalFormatter = try .create(testing.allocator, .{
-        .@"pin-map" = true,
-        .loops = 1,
+        .mode = .roundtrip,
+        .formatter = .terminal,
         .@"terminal-rows" = 4,
         .@"terminal-cols" = 8,
     });
@@ -479,4 +531,45 @@ test "TerminalFormatter pin map" {
 
     const bench = impl.benchmark();
     _ = try bench.run(.once);
+}
+
+test "TerminalFormatter formats all emit formats and regions" {
+    const testing = std.testing;
+
+    inline for (.{ Formatter.screen, Formatter.terminal }) |formatter_| {
+        inline for (.{ Emit.plain, Emit.vt, Emit.html }) |emit| {
+            inline for (.{ Region.screen, Region.active, Region.history }) |region| {
+                const impl: *TerminalFormatter = try .create(testing.allocator, .{
+                    .emit = emit,
+                    .formatter = formatter_,
+                    .region = region,
+                    .loops = 1,
+                    .@"terminal-rows" = 4,
+                    .@"terminal-cols" = 8,
+                });
+                defer impl.destroy(testing.allocator);
+
+                const bench = impl.benchmark();
+                _ = try bench.run(.once);
+            }
+        }
+    }
+}
+
+test "TerminalFormatter pin map" {
+    const testing = std.testing;
+
+    inline for (.{ Formatter.screen, Formatter.terminal }) |formatter_| {
+        const impl: *TerminalFormatter = try .create(testing.allocator, .{
+            .@"pin-map" = true,
+            .formatter = formatter_,
+            .loops = 1,
+            .@"terminal-rows" = 4,
+            .@"terminal-cols" = 8,
+        });
+        defer impl.destroy(testing.allocator);
+
+        const bench = impl.benchmark();
+        _ = try bench.run(.once);
+    }
 }

@@ -240,9 +240,10 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         "simd",
         "Build with SIMD-accelerated code paths. Results in significant performance improvements.",
     ) orelse simd: {
-        // We can't build our SIMD dependencies for Wasm. Note that we may
-        // still use SIMD features in the Wasm-builds.
-        if (target.result.cpu.arch.isWasm()) break :simd false;
+        // We can't build our SIMD dependencies for Wasm or freestanding
+        // targets. Note that we may still use SIMD features in the Wasm-builds.
+        if (target.result.cpu.arch.isWasm() or
+            target.result.os.tag == .freestanding) break :simd false;
 
         break :simd true;
     };

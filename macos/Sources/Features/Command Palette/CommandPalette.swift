@@ -20,7 +20,7 @@ struct CommandOption: Identifiable, Hashable {
     /// Whether to visually emphasize this option.
     let emphasis: Bool
     /// Sort key for stable ordering when titles are equal.
-    let sortKey: AnySortKey?
+    let sortKey: ObjectIdentifier?
     /// The action to perform when this option is selected.
     let action: () -> Void
 
@@ -33,7 +33,7 @@ struct CommandOption: Identifiable, Hashable {
         leadingColor: Color? = nil,
         badge: String? = nil,
         emphasis: Bool = false,
-        sortKey: AnySortKey? = nil,
+        sortKey: ObjectIdentifier? = nil,
         action: @escaping () -> Void
     ) {
         self.title = title

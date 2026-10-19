@@ -137,6 +137,20 @@ fn initVt(
     // We need uucode for grapheme break support
     vt.addImport("uucode", deps.uucode_mod);
 
+    // We need wuffs for Kitty graphics pixel operations (format
+    // conversion and alpha blending). Unlike pure Zig dependencies
+    // its C code is compiled whenever the module is in the build
+    // graph regardless of analysis, so only wire it in when Kitty
+    // graphics is actually enabled.
+    if (vt_options.kittyGraphics(cfg.target.result)) {
+        if (b.lazyDependency("wuffs", .{
+            .target = cfg.target,
+            .optimize = cfg.optimize,
+        })) |dep| {
+            vt.addImport("wuffs", dep.module("wuffs"));
+        }
+    }
+
     // If SIMD is enabled, add all our SIMD dependencies.
     if (cfg.simd) {
         try SharedDeps.addSimd(b, vt, simd_libs);

@@ -89,6 +89,12 @@ pub const Shaders = struct {
     /// of shaders it will just be ignored, to prevent double-free.
     defunct: bool = false,
 
+    pub const uninit: Shaders = .{
+        .pipelines = undefined,
+        .post_pipelines = &.{},
+        .defunct = true,
+    };
+
     /// Initialize our shader set.
     ///
     /// "post_shaders" is an optional list of postprocess shaders to run

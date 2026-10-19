@@ -28,7 +28,7 @@ pub fn appSupportDir(
     return try commonDir(
         alloc,
         .NSApplicationSupportDirectory,
-        &.{ build_config.bundle_id, sub_path },
+        sub_path,
     );
 }
 
@@ -43,7 +43,7 @@ pub fn cacheDir(
     return try commonDir(
         alloc,
         .NSCachesDirectory,
-        &.{ build_config.bundle_id, sub_path },
+        sub_path,
     );
 }
 
@@ -110,7 +110,7 @@ pub const NSSearchPathDomainMask = enum(c_ulong) {
 fn commonDir(
     alloc: Allocator,
     directory: NSSearchPathDirectory,
-    sub_paths: []const []const u8,
+    sub_path: []const u8,
 ) (error{AppleAPIFailed} || Allocator.Error)![]const u8 {
     comptime assert(builtin.target.os.tag.isDarwin());
 
@@ -140,13 +140,10 @@ fn commonDir(
         return error.AppleAPIFailed;
     const base_dir = std.mem.sliceTo(c_str, 0);
 
-    // Create a new array with base_dir as the first element
-    var paths = try alloc.alloc([]const u8, sub_paths.len + 1);
-    paths[0] = base_dir;
-    @memcpy(paths[1..], sub_paths);
-    defer alloc.free(paths);
-
-    return try std.fs.path.join(alloc, paths);
+    return try std.fs.path.join(
+        alloc,
+        &.{ base_dir, build_config.bundle_id, sub_path },
+    );
 }
 
 test "cacheDir paths" {

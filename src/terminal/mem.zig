@@ -4,9 +4,15 @@
 //! discard the physical pages behind one of those mappings without releasing
 //! its virtual address range, then prepare the same range for reuse. It does
 //! not allocate memory or decide which terminal pages should be discarded.
+//!
+//! Decommit releases physical pages only. The address range and its memory
+//! accounting (the Linux VMA, the Windows commit charge) stay with the
+//! process, so a read after decommit returns zeros or the old contents rather
+//! than faulting, and recommit has nothing to acquire that could fail.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
+const windows = @import("../os/windows.zig");
 
 const log = std.log.scoped(.terminal_mem);
 
@@ -26,9 +32,9 @@ pub const DecommitMode = enum {
 ///
 /// Test builds support both modes because `decommit` simulates reclamation by
 /// clearing the supplied range. Runtime reclamation is intentionally limited
-/// to 64-bit Linux and Darwin. Other targets must leave strict callers' memory
-/// resident; zero mode still provides its documented memset fallback through
-/// `decommit` even when this function returns false.
+/// to 64-bit Linux, Darwin, and Windows. Other targets must leave strict
+/// callers' memory resident; zero mode still provides its documented memset
+/// fallback through `decommit` even when this function returns false.
 pub inline fn canReclaim(comptime mode: DecommitMode) bool {
     // Both modes use the same retained-mapping primitives. Keeping the switch
     // exhaustive makes additions to DecommitMode choose target support
@@ -57,6 +63,13 @@ pub inline fn canReclaim(comptime mode: DecommitMode) bool {
             // this feature, so using its madvise entry point adds no new
             // dependency to libghostty-vt.
             if (builtin.target.os.tag.isDarwin()) break :supported true;
+
+            // Windows provides DiscardVirtualMemory, which releases the
+            // physical pages behind a committed range while keeping it
+            // committed, so nothing has to be committed again before reuse.
+            // Page memory is already a VirtualAlloc region (see page.zig)
+            // and kernel32 is linked by every Windows build.
+            if (builtin.target.os.tag == .windows) break :supported true;
 
             // Other targets have no retained-mapping reclamation contract in
             // this module. Zero mode can still clear through its memset
@@ -144,16 +157,41 @@ pub fn decommit(
         }
     }
 
+    // DiscardVirtualMemory releases the physical pages behind the range but
+    // leaves it committed, so the commit charge stays with the process and a
+    // later access finds a zero page or the old contents instead of faulting.
+    // Zero mode clears its dirty prefix first, as on Darwin: the bytes read
+    // as zero afterward whether or not the discard took. Strict mode skips
+    // that write because its caller replaces the entire mapping after
+    // recommit. The call reports failure through its return value rather
+    // than the thread's last error.
+    if (comptime builtin.os.tag == .windows) {
+        if (comptime mode == .zero) @memset(memory[0..dirty_len], 0);
+
+        const rc = windows.exp.kernel32.DiscardVirtualMemory(
+            memory.ptr,
+            memory.len,
+        );
+        if (rc == windows.ERROR_SUCCESS) return true;
+
+        // Zero mode has already cleared its bytes and strict callers must
+        // leave the still-resident mapping alone, so there is nothing more
+        // to do for either mode.
+        log.warn("DiscardVirtualMemory failed err={d}", .{rc});
+        return false;
+    }
+
     if (comptime mode == .zero) @memset(memory[0..dirty_len], 0);
     return false;
 }
 
 /// Prepare a mapping previously passed to decommit for reuse.
 ///
-/// Linux and test builds need no explicit operation. Darwin pairs
-/// FREE_REUSABLE with FREE_REUSE so pages touched by the caller are accounted
-/// to the process again. Failure does not invalidate the retained mapping, so
-/// reuse can continue after logging the accounting failure.
+/// Linux, Windows, and test builds need no explicit operation because their
+/// mappings stay committed through decommit. Darwin pairs FREE_REUSABLE with
+/// FREE_REUSE so pages touched by the caller are accounted to the process
+/// again. Failure does not invalidate the retained mapping, so reuse can
+/// continue after logging the accounting failure.
 pub fn recommit(memory: []align(std.heap.page_size_min) u8) void {
     assert(memory.len > 0);
     assert(@intFromPtr(memory.ptr) % std.heap.page_size_min == 0);
