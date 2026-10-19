@@ -17,6 +17,7 @@ const Application = @import("application.zig").Application;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const Surface = @import("surface.zig").Surface;
 const SurfaceScrolledWindow = @import("surface_scrolled_window.zig").SurfaceScrolledWindow;
+const Window = @import("window.zig").Window;
 const Overrides = @import("Overrides.zig");
 
 const log = std.log.scoped(.gtk_ghostty_split_tree);
@@ -154,6 +155,7 @@ pub const SplitTree = extern struct {
         /// Last focused surface in the tree. We need this to handle various
         /// tree change states.
         last_focused: WeakRef(Surface) = .empty,
+        pending_focus: WeakRef(Surface) = .empty,
 
         /// The source that we use to rebuild the tree. This is also
         /// used to debounce updates.
@@ -522,6 +524,15 @@ pub const SplitTree = extern struct {
         return tree.nodes[handle.idx()].leaf;
     }
 
+    pub fn restoreFocus(self: *Self, surface: *Surface) void {
+        self.private().pending_focus.set(surface);
+        self.private().last_focused.set(surface);
+        if (self.private().restore_focus_source == null) self.private().restore_focus_source = glib.idleAdd(
+            onRestoreFocus,
+            self,
+        );
+    }
+
     fn getActiveSurfaceHandle(self: *Self) ?Surface.Tree.Node.Handle {
         const tree = self.getTree() orelse return null;
         var it = tree.iterator();
@@ -642,6 +653,7 @@ pub const SplitTree = extern struct {
     fn dispose(self: *Self) callconv(.c) void {
         const priv = self.private();
         priv.last_focused.deinit();
+        priv.pending_focus.deinit();
         if (priv.rebuild_source) |v| {
             if (glib.Source.remove(v) == 0) {
                 log.warn("unable to remove rebuild source", .{});
@@ -759,6 +771,8 @@ pub const SplitTree = extern struct {
         surface: *Surface,
         self: *Self,
     ) callconv(.c) void {
+        // Closed tabs retain completed surfaces until restoration or expiry.
+        if (ext.getAncestor(Window, self.as(gtk.Widget)) == null) return;
         const core = surface.core() orelse return;
 
         // Reset our pending close state
@@ -882,6 +896,7 @@ pub const SplitTree = extern struct {
 
         // If we were planning a rebuild or focus restore, always remove
         // that so we can start from a clean slate.
+        priv.pending_focus.set(null);
         if (priv.rebuild_source) |v| {
             if (glib.Source.remove(v) == 0) {
                 log.warn("unable to remove rebuild source", .{});
@@ -955,6 +970,16 @@ pub const SplitTree = extern struct {
         // Always mark our source as null since we're done.
         const priv = self.private();
         priv.restore_focus_source = null;
+
+        if (priv.pending_focus.get()) |surface| {
+            defer surface.unref();
+            if (surface.getMapped()) {
+                priv.pending_focus.set(null);
+                priv.last_focused.set(surface);
+                surface.grabFocus();
+            }
+            return 0;
+        }
 
         // If we have a last-focused surface and it is mapped, restore focus
         // to it. Depending on the available size, the surface might already
