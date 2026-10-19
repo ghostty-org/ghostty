@@ -1124,9 +1124,8 @@ pub const Surface = struct {
         preedit_: ?[]const u8,
         selected: ?[2]usize,
     ) void {
-        _ = self.core_surface.preeditCallback(preedit_, selected) catch |err| {
+        self.core_surface.preeditCallback(preedit_, selected) catch |err| {
             log.err("error in preedit callback err={}", .{err});
-            return;
         };
     }
 

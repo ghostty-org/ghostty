@@ -179,7 +179,7 @@ pub fn underline_thick(
     const y = @min(
         metrics.underline_position,
         height +| canvas.padding_y -| metrics.underline_thickness,
-    ) +| metrics.underline_thickness -| thick;
+    ) -| metrics.underline_thickness;
 
     canvas.rect(.{
         .x = 0,
