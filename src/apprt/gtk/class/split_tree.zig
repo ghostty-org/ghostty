@@ -528,6 +528,41 @@ pub const SplitTree = extern struct {
         attached: bool,
     };
 
+    pub fn moveSplitToWindow(self: *Self, surface: *Surface) Allocator.Error!bool {
+        const old_tree = self.getTree() orelse return false;
+        if (!old_tree.isSplit()) return false;
+        const handle = old_tree.locate(surface) orelse return false;
+        const source = ext.getAncestor(Tab, self.as(gtk.Widget)) orelse return false;
+        const app = Application.default();
+        var remaining = try old_tree.remove(app.allocator(), handle);
+        defer remaining.deinit();
+        var single = try Surface.Tree.init(app.allocator(), surface);
+        defer single.deinit();
+        const window = app.windowForUndo(0);
+        errdefer window.as(gtk.Window).destroy();
+        const tab = Tab.newEmpty(window.getConfig());
+        _ = tab.as(gobject.Object).refSink();
+        defer tab.unref();
+        const placement: Window.TabState = .{
+            .tab = tab,
+            .window_id = window.as(gtk.ApplicationWindow).getId(),
+            .position = 0,
+            .pinned = false,
+            .focused = surface,
+        };
+        try retainTabMove(&.{
+            .{ .tab = source, .window_id = 0, .position = 0, .pinned = false },
+            placement,
+        });
+        if (self.getActiveSurface() == surface) self.private().last_focused.set(nextFocus(old_tree, handle));
+        self.setTree(&remaining);
+        tab.getSplitTree().setTree(&single);
+        surface.bindIsSplit(tab.getSplitTree());
+        window.restoreTab(placement);
+        window.as(gtk.Window).present();
+        return true;
+    }
+
     const Move = struct {
         trees: []MovedTree,
         selected: ?*Tab = null,
