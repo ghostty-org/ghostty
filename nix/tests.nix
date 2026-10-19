@@ -509,8 +509,10 @@ in {
           left_size = terminal_size()
           press("ctrl-alt-x")
           press("ctrl-alt-p")
+          configure("undo-timeout = 0\n")
           press("ctrl-alt-s")
           added = remember("layout-added")
+          configure("undo-timeout = 60s\n")
           press("ctrl-alt-u")
           expect_session(left)
           assert terminal_size() == left_size
@@ -548,6 +550,9 @@ in {
               machine.wait_until_fails("kill -0 " + exited, timeout=timedelta(seconds=30))
               press("ctrl-alt-u")
               machine.wait_until_succeeds(${builtins.toJSON title} + " | grep -q completed-" + kind, timeout=timedelta(seconds=30))
+              if kind == "split":
+                  press("ctrl-alt-u")
+                  expect_session(anchor)
               press("ctrl-alt-u")
               expect_session(retained)
 
@@ -560,6 +565,9 @@ in {
               press("esc")
               expect_session(confirmed)
               press("ctrl-alt-u")
+              if kind == "split":
+                  expect_session(anchor)
+                  press("ctrl-alt-y")
               expect_session(confirmed)
               press(close)
               press("tab")
@@ -586,7 +594,7 @@ in {
           press("ctrl-alt-u")
           expect_session(newer)
           press("ctrl-alt-u")
-          expect_session(newer)
+          expect_session(anchor)
 
       for kind, create, close in (("tab", "ctrl-alt-t", "ctrl-alt-w"), ("split", "ctrl-alt-s", "ctrl-alt-x")):
           with subtest(f"redo closes a restored {kind} and remains undoable"):
@@ -601,6 +609,22 @@ in {
                   press("ctrl-alt-y")
                   expect_session(anchor)
                   machine.succeed("kill -0 " + closed)
+
+      with subtest("split creation undo and redo preserve the session and geometry"):
+          restart()
+          anchor = remember("create-split-anchor")
+          full_size = terminal_size()
+          press("ctrl-alt-s")
+          created = remember("create-split")
+          size = terminal_size()
+          for _ in range(3):
+              press("ctrl-alt-u")
+              expect_session(anchor)
+              assert terminal_size() == full_size
+              machine.succeed("kill -0 " + created)
+              press("ctrl-alt-y")
+              expect_session(created)
+              assert terminal_size() == size
 
       for kind, create, close in (("tab", "ctrl-alt-t", "ctrl-alt-w"), ("window", "ctrl-alt-n", "ctrl-alt-q")):
           for focused in (False, True):
@@ -737,6 +761,18 @@ in {
               wait_windows(2)
               history("redo")
               wait_windows(0)
+
+      with subtest("redo expiration releases a retained split"):
+          restart()
+          anchor = remember("redo-expiry-anchor")
+          press("ctrl-alt-s")
+          expired = remember("redo-expiry-split")
+          configure("undo-timeout = 1s\n")
+          press("ctrl-alt-u")
+          expect_session(anchor)
+          machine.wait_until_fails("kill -0 " + expired, timeout=timedelta(seconds=30))
+          press("ctrl-alt-y")
+          expect_session(anchor)
 
       for close, create in (("ctrl-alt-o", "ctrl-alt-t"), ("ctrl-alt-a", "ctrl-alt-n")):
           with subtest(f"cancelling grouped closure {close} preserves every session"):
