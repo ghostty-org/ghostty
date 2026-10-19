@@ -23,7 +23,7 @@
   };
 
   systemd.user.services = {
-    "org.gnome.Shell@wayland" = {
+    "org.gnome.Shell@user" = {
       serviceConfig = {
         ExecStart = [
           # Clear the list before overriding it.
