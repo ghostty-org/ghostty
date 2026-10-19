@@ -272,6 +272,7 @@ pub const SplitTree = extern struct {
 
         // Replace our tree
         self.setTree(&new_tree);
+        retainSurfaceClose(surface);
     }
 
     pub fn setSurface(self: *Self, surface: *Surface) Allocator.Error!void {
