@@ -517,6 +517,7 @@ pub const SplitTree = extern struct {
             var after_remove = try after_split.remove(alloc, handle);
             defer after_remove.deinit();
 
+            try retainMove(&.{self});
             self.setTree(&after_remove);
         } else {
             // :( Cross-tree moves are a bit more complicated.
@@ -534,6 +535,7 @@ pub const SplitTree = extern struct {
             // Remove the source from its own tree. This also moves focus
             // in the source tree to another surface, as closing it would.
             const handle = source_tree.locate(source) orelse return;
+            try retainMove(&.{ source_tree_widget, self });
             try source_tree_widget.removeHandle(handle);
 
             // Finally, set the final tree structure for this tree widget
@@ -542,6 +544,165 @@ pub const SplitTree = extern struct {
             // Re-bind vital properties like `is-split`
             source.bindIsSplit(self);
         }
+        self.restoreFocus(source);
+    }
+
+    const MovedTree = struct {
+        tab: Window.TabState,
+        tree: Surface.Tree,
+        attached: bool,
+    };
+
+    const Move = struct {
+        trees: []MovedTree,
+        selected: ?*Tab = null,
+    };
+
+    fn captureMovedTree(tab: *Tab, placement: Window.TabState) Allocator.Error!MovedTree {
+        const window = ext.getAncestor(Window, tab.as(gtk.Widget));
+        const tree = tab.getSurfaceTree() orelse &Surface.Tree.empty;
+        const copy = try tree.clone(Application.default().allocator());
+        var state = if (window) |v| v.getTabState(tab) else placement;
+        _ = state.tab.ref();
+        state.focused = tab.getActiveSurface();
+        return .{
+            .tab = state,
+            .tree = copy,
+            .attached = window != null,
+        };
+    }
+
+    fn retainMove(trees: []const *Self) Allocator.Error!void {
+        var tabs: [2]Window.TabState = undefined;
+        for (trees, tabs[0..trees.len]) |tree, *tab| {
+            tab.* = .{
+                .tab = ext.getAncestor(Tab, tree.as(gtk.Widget)) orelse unreachable,
+                .window_id = 0,
+                .position = 0,
+                .pinned = false,
+            };
+        }
+        try retainTabMove(tabs[0..trees.len]);
+    }
+
+    fn retainTabMove(tabs: []const Window.TabState) Allocator.Error!void {
+        const app = Application.default();
+        if (!app.undoEnabled()) return;
+        const alloc = app.allocator();
+        const state = try alloc.create(Move);
+        errdefer alloc.destroy(state);
+        state.* = .{ .trees = try alloc.alloc(MovedTree, tabs.len) };
+        errdefer alloc.free(state.trees);
+        var initialized: usize = 0;
+        errdefer for (state.trees[0..initialized]) |*tree| {
+            tree.tree.deinit();
+            tree.tab.tab.unref();
+        };
+        for (tabs, state.trees) |tab, *saved| {
+            saved.* = try captureMovedTree(tab.tab, tab);
+            initialized += 1;
+        }
+        state.selected = selectedMoveTab(state.trees);
+        try registerMove(state);
+    }
+
+    fn selectedMoveTab(trees: []const MovedTree) ?*Tab {
+        for (trees) |tree| {
+            const tab = tree.tab.tab;
+            const window = ext.getAncestor(Window, tab.as(gtk.Widget)) orelse continue;
+            if (window.as(gtk.Window).isActive() == 0) continue;
+            const page = window.getTabView().getSelectedPage() orelse continue;
+            if (page.getChild() == tab.as(gtk.Widget)) return tab;
+        }
+        return null;
+    }
+
+    fn registerMove(state: *Move) Allocator.Error!void {
+        try Application.default().registerUndo(.{
+            .context = state,
+            .window = windowForMove,
+            .restore = undoMove,
+            .release = releaseMove,
+            .references = moveReferences,
+        });
+    }
+
+    fn windowForMove(context: *anyopaque, app: *Application) ?*Window {
+        const state: *Move = @ptrCast(@alignCast(context));
+        for (state.trees) |tree| {
+            if (!tree.attached) continue;
+            if (ext.getAncestor(Window, tree.tab.tab.as(gtk.Widget))) |window| return window;
+            return app.windowForUndo(tree.tab.window_id);
+        }
+        return null;
+    }
+
+    fn undoMove(context: *anyopaque, window: *Window) bool {
+        const state: *Move = @ptrCast(@alignCast(context));
+        restoreMove(state, window) catch |err| {
+            log.warn("unable to restore split move: {}", .{err});
+            return false;
+        };
+        return true;
+    }
+
+    fn restoreMove(state: *Move, target: *Window) Allocator.Error!void {
+        const app = Application.default();
+        var tabs: [2]Window.TabState = undefined;
+        for (state.trees, tabs[0..state.trees.len]) |tree, *tab| tab.* = tree.tab;
+        try retainTabMove(tabs[0..state.trees.len]);
+        app.disableUndo();
+        defer app.enableUndo();
+        const target_id = for (state.trees) |tree| {
+            if (tree.attached) break tree.tab.window_id;
+        } else unreachable;
+        var remaining = state.trees.len;
+        while (remaining > 0) {
+            remaining -= 1;
+            const tree = &state.trees[remaining];
+            const tab = tree.tab.tab;
+            const split_tree = tab.getSplitTree();
+            split_tree.private().last_focused.set(tree.tab.focused);
+            split_tree.setTree(&tree.tree);
+            var iterator = tree.tree.iterator();
+            while (iterator.next()) |entry| entry.view.bindIsSplit(split_tree);
+            if (tree.attached) {
+                const window = ext.getAncestor(Window, tab.as(gtk.Widget)) orelse window: {
+                    const window = if (tree.tab.window_id == target_id) target else app.windowForUndo(tree.tab.window_id);
+                    window.restoreTab(tree.tab);
+                    break :window window;
+                };
+                if (tree.tab.focused) |surface| split_tree.restoreFocus(surface);
+                window.as(gtk.Widget).setVisible(1);
+            } else if (ext.getAncestor(Window, tab.as(gtk.Widget))) |window| {
+                window.closeConfirmedTab(tab);
+            }
+        }
+        if (state.selected) |tab| {
+            if (ext.getAncestor(Window, tab.as(gtk.Widget))) |window| {
+                const view = window.getTabView();
+                view.setSelectedPage(view.getPage(tab.as(gtk.Widget)));
+                window.as(gtk.Window).present();
+            }
+        }
+    }
+
+    fn releaseMove(context: *anyopaque, app: *Application) void {
+        const state: *Move = @ptrCast(@alignCast(context));
+        for (state.trees) |*tree| {
+            tree.tree.deinit();
+            tree.tab.tab.unref();
+        }
+        app.allocator().free(state.trees);
+        app.allocator().destroy(state);
+    }
+
+    fn moveReferences(context: *anyopaque, target: *gobject.Object) bool {
+        const state: *Move = @ptrCast(@alignCast(context));
+        for (state.trees) |tree| {
+            if (tree.tab.tab.as(gobject.Object) == target) return true;
+        }
+        return false;
     }
 
     fn disconnectSurfaceHandlers(self: *Self) void {
@@ -985,6 +1146,43 @@ pub const SplitTree = extern struct {
         }
     }
 
+    /// Remove the node with the given handle from the tree, making the
+    /// surface next to it the last focused surface of the tree.
+    fn removeHandle(
+        self: *Self,
+        handle: Surface.Tree.Node.Handle,
+    ) Allocator.Error!void {
+        // Figure out our next focus target. The next focus target is
+        // always the "previous" surface unless we're the leftmost then
+        // its the next.
+        const old_tree = self.getTree() orelse return;
+        const next_focus: ?*Surface = next_focus: {
+            const alloc = Application.default().allocator();
+            const next_handle: Surface.Tree.Node.Handle =
+                (old_tree.goto(alloc, handle, .previous) catch null) orelse
+                (old_tree.goto(alloc, handle, .next) catch null) orelse
+                break :next_focus null;
+            if (next_handle == handle) break :next_focus null;
+
+            // Note: we don't need to ref this or anything because its
+            // guaranteed to remain in the new tree since its not part
+            // of the handle we're removing.
+            break :next_focus old_tree.nodes[next_handle.idx()].leaf;
+        };
+
+        // Remove it from the tree.
+        var new_tree = try old_tree.remove(
+            Application.default().allocator(),
+            handle,
+        );
+        defer new_tree.deinit();
+        self.setTree(&new_tree);
+
+        // Grab focus. We have to set this on the "last focused" because our
+        // focus will be set when the tree is redrawn.
+        if (next_focus) |v| self.private().last_focused.set(v);
+    }
+
     fn retainClosedSplit(
         self: *Self,
         surface: *Surface,
@@ -1081,43 +1279,6 @@ pub const SplitTree = extern struct {
         const state: *WeakRef(Surface) = @ptrCast(@alignCast(context));
         state.deinit();
         app.allocator().destroy(state);
-    }
-
-    /// Remove the node with the given handle from the tree, making the
-    /// surface next to it the last focused surface of the tree.
-    fn removeHandle(
-        self: *Self,
-        handle: Surface.Tree.Node.Handle,
-    ) Allocator.Error!void {
-        // Figure out our next focus target. The next focus target is
-        // always the "previous" surface unless we're the leftmost then
-        // its the next.
-        const old_tree = self.getTree() orelse return;
-        const next_focus: ?*Surface = next_focus: {
-            const alloc = Application.default().allocator();
-            const next_handle: Surface.Tree.Node.Handle =
-                (old_tree.goto(alloc, handle, .previous) catch null) orelse
-                (old_tree.goto(alloc, handle, .next) catch null) orelse
-                break :next_focus null;
-            if (next_handle == handle) break :next_focus null;
-
-            // Note: we don't need to ref this or anything because its
-            // guaranteed to remain in the new tree since its not part
-            // of the handle we're removing.
-            break :next_focus old_tree.nodes[next_handle.idx()].leaf;
-        };
-
-        // Remove it from the tree.
-        var new_tree = try old_tree.remove(
-            Application.default().allocator(),
-            handle,
-        );
-        defer new_tree.deinit();
-        self.setTree(&new_tree);
-
-        // Grab focus. We have to set this on the "last focused" because our
-        // focus will be set when the tree is redrawn.
-        if (next_focus) |v| self.private().last_focused.set(v);
     }
 
     fn propSurfaceFocused(

@@ -373,6 +373,7 @@ in {
 
       def remember(name: str) -> str:
           path = "/tmp/undo-" + name
+          machine.succeed("rm -f " + path)
           machine.send_chars("echo $$ > " + path + "\n", delay=timedelta(milliseconds=100))
           machine.wait_until_succeeds("test -s " + path, timeout=timedelta(seconds=30))
           return str(int(machine.succeed("cat " + path)))
@@ -406,16 +407,137 @@ in {
           shell_eval(f"global.get_window_actors().find(w => w.meta_window.get_id() === {window}).meta_window.activate(global.get_current_time())")
           machine.sleep(timedelta(seconds=1))
 
+      def other_window(window: int) -> int:
+          return int(shell_eval(f"global.get_window_actors().find(w => w.meta_window.wm_class === 'com.mitchellh.ghostty-debug' && w.meta_window.get_id() !== {window}).meta_window.get_id()"))
+
       def place_window(window: int, x: int) -> tuple[int, int, int, int]:
           shell_eval(f"global.get_window_actors().find(w => w.meta_window.get_id() === {window}).meta_window.move_resize_frame(true, {x}, 40, 480, 480)")
           machine.sleep(timedelta(seconds=1))
           frame = json.loads(shell_eval(f"(r => [r.x, r.y, r.width, r.height])(global.get_window_actors().find(w => w.meta_window.get_id() === {window}).meta_window.get_frame_rect())"))
           return frame[0], frame[1], frame[2], frame[3]
 
+      def pointer(x: int, y: int) -> None:
+          width, height = json.loads(shell_eval("[global.stage.width, global.stage.height]"))
+          assert machine.qmp_client is not None
+          machine.qmp_client.send("input-send-event", {"events": [  # ty: ignore[invalid-argument-type] -- QMPSession.send incorrectly restricts nested QMP arguments to strings.
+              {"type": "abs", "data": {"axis": "x", "value": x * 32767 // width}},
+              {"type": "abs", "data": {"axis": "y", "value": y * 32767 // height}},
+          ]})
+          machine.sleep(timedelta(milliseconds=300))
+
+      def drag(start: tuple[int, int], end: tuple[int, int], cancel: bool = False) -> None:
+          pointer(*start)
+          machine.send_monitor_command("mouse_button 1")
+          pointer(start[0], start[1] + 40)
+          pointer(*end)
+          if cancel:
+              press("esc")
+          machine.send_monitor_command("mouse_button 0")
+          machine.sleep(timedelta(seconds=1))
+
       start_all()
       machine.wait_for_x()
       machine.wait_for_file("${bus_path}")
       machine.systemctl("enable app-com.mitchellh.ghostty-debug.service", user="${user.name}")
+
+      machine.wait_until_succeeds("ls /run/user/1000/.mutter-Xwaylandauth.*", timeout=timedelta(seconds=30))
+      authority = machine.succeed("ls /run/user/1000/.mutter-Xwaylandauth.*").strip()
+      assert "\n" not in authority
+      machine.systemctl("set-environment DISPLAY=:0 XAUTHORITY=" + shlex.quote(authority), user="${user.name}")
+
+      for backend in ("x11", "wayland"):
+          machine.systemctl("set-environment GDK_BACKEND=" + backend, user="${user.name}")
+          with subtest(f"{backend}: cancelling a split drag or dropping onto itself preserves the layout"):
+              restart("drag-handle = always\n")
+              source = focused_window()
+              x, y, width, height = place_window(source, 20)
+              original = remember("drag-original")
+              drag((x + width // 2, y + 102), (1000, 700))
+              wait_windows(1)
+              expect_session(original)
+              press("ctrl-alt-s")
+              split = remember("drag-split")
+              size = terminal_size()
+              handle = (x + width * 3 // 4, y + 102)
+              press("ctrl-alt-p")
+              expect_session(original)
+              drag(handle, (1000, 700), cancel=True)
+              wait_windows(1)
+              expect_session(split)
+              drag(handle, (x + width * 3 // 4, y + height // 2))
+              wait_windows(1)
+              expect_session(split)
+              assert terminal_size() == size
+              press("ctrl-alt-u")
+              expect_session(original)
+
+          with subtest(f"{backend}: moving a split within its window restores layout and focus"):
+              restart("drag-handle = always\n")
+              x, y, width, height = place_window(focused_window(), 20)
+              original = remember("local-move-original")
+              press("ctrl-alt-s")
+              split = remember("local-move-split")
+              size = terminal_size()
+              drag((x + width * 3 // 4, y + 102), (x + width // 4, y + 140))
+              wait_windows(1)
+              expect_session(split)
+              moved_size = terminal_size()
+              assert moved_size != size
+              for _ in range(3):
+                  press("ctrl-alt-u")
+                  wait_windows(1)
+                  expect_session(split)
+                  assert terminal_size() == size
+                  press("ctrl-alt-y")
+                  wait_windows(1)
+                  expect_session(split)
+                  assert terminal_size() == moved_size
+              machine.succeed("kill -0 " + original)
+
+          for last_split in (False, True):
+              with subtest(f"{backend}: moving a split between windows is reversible, last split {last_split}"):
+                  restart("drag-handle = always\n" if last_split else "")
+                  source = focused_window()
+                  x, y, width, height = place_window(source, 20)
+                  original = remember("cross-move-original-" + str(last_split))
+                  if not last_split:
+                      press("ctrl-alt-s")
+                  moved = remember("cross-move-split-" + str(last_split))
+                  size = terminal_size()
+                  press("ctrl-alt-n")
+                  target = focused_window()
+                  target_x, target_y, target_width, target_height = place_window(target, 700)
+                  destination = remember("cross-move-target-" + str(last_split))
+                  destination_size = terminal_size()
+                  drag((x + width * (2 if last_split else 3) // 4, y + 102), (target_x + 12, target_y + target_height // 2))
+                  wait_windows(1 if last_split else 2)
+                  focus_window(target)
+                  expect_session(moved)
+                  assert terminal_size() != destination_size
+                  for _ in range(3):
+                      press("ctrl-alt-u")
+                      wait_windows(2)
+                      source = other_window(target)
+                      focus_window(source)
+                      expect_session(moved)
+                      assert terminal_size() == size
+                      focus_window(target)
+                      expect_session(destination)
+                      assert terminal_size() == destination_size
+                      press("ctrl-alt-y")
+                      wait_windows(1 if last_split else 2)
+                      focus_window(target)
+                      expect_session(moved)
+                  if not last_split:
+                      press("ctrl-alt-u")
+                      wait_windows(2)
+                      source = other_window(target)
+                      x, y, width, height = place_window(source, 20)
+                      drag((x + width * 3 // 4, y + 102), (target_x + 12, target_y + target_height // 2))
+                      focus_window(target)
+                      expect_session(moved)
+                      assert terminal_size() != destination_size
+                  machine.succeed("kill -0 " + original)
 
       with subtest("split undo preserves the shell and restores focus"):
           restart()
@@ -647,28 +769,35 @@ in {
                   wait_windows(2 if kind == "window" else 1)
 
       for kind, create in (("tab", "ctrl-alt-t"), ("window", "ctrl-alt-n")):
-          with subtest(f"undoing {kind} creation discards its split history"):
-              restart("undo-timeout = 5m\n")
-              anchor = remember("discard-anchor-" + kind)
-              press(create)
-              created = remember("discard-created-" + kind)
-              press("ctrl-alt-s")
-              split = remember("discard-split-" + kind)
-              press("ctrl-alt-u")
-              press("ctrl-alt-u")
-              wait_windows(1)
-              expect_session(anchor)
-              for pid in (created, split):
-                  machine.wait_until_fails("kill -0 " + pid, timeout=timedelta(seconds=30))
-              machine.succeed("rm -f /tmp/undo-ready")
-              press("ctrl-alt-y")
-              machine.wait_for_file("/tmp/undo-ready", timeout=timedelta(seconds=30))
-              replacement = remember("discard-replacement-" + kind)
-              assert replacement != created
-              for _ in range(2):
+          for moved in (False, True):
+              with subtest(f"undoing {kind} creation discards its split history, moved {moved}"):
+                  restart("undo-timeout = 5m\ndrag-handle = always\n")
+                  anchor = remember("discard-anchor-" + kind)
+                  press(create)
+                  created = remember("discard-created-" + kind)
+                  if moved:
+                      x, y, width, height = place_window(focused_window(), 20)
+                  press("ctrl-alt-s")
+                  split = remember("discard-split-" + kind)
+                  if moved:
+                      drag((x + width * 3 // 4, y + 102), (x + width // 4, y + 140))
+                      expect_session(split)
+                      press("ctrl-alt-u")
+                  press("ctrl-alt-u")
+                  press("ctrl-alt-u")
+                  wait_windows(1)
+                  expect_session(anchor)
+                  for pid in (created, split):
+                      machine.wait_until_fails("kill -0 " + pid, timeout=timedelta(seconds=30))
+                  machine.succeed("rm -f /tmp/undo-ready")
                   press("ctrl-alt-y")
-                  expect_session(replacement)
-              wait_windows(2 if kind == "window" else 1)
+                  machine.wait_for_file("/tmp/undo-ready", timeout=timedelta(seconds=30))
+                  replacement = remember("discard-replacement-" + kind)
+                  assert replacement != created
+                  for _ in range(2):
+                      press("ctrl-alt-y")
+                      expect_session(replacement)
+                  wait_windows(2 if kind == "window" else 1)
 
       with subtest("split creation undo and redo preserve the session and geometry"):
           restart()
