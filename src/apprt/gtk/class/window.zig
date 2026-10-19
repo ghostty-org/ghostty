@@ -890,6 +890,116 @@ pub const Window = extern struct {
         tab_view.closePage(page);
     }
 
+    const CloseTabsRequest = struct {
+        window: WeakRef(Self) = .empty,
+        selected: WeakRef(Tab) = .empty,
+        tabs: std.ArrayList(*Tab) = .empty,
+
+        fn close(_: ?*CloseConfirmationDialog, self: *CloseTabsRequest) callconv(.c) void {
+            const window = self.window.get() orelse return;
+            defer window.unref();
+            const app = Application.default();
+            app.beginUndoGroup();
+            defer app.endUndoGroup();
+            var closed = false;
+            var remaining = self.tabs.items.len;
+            while (remaining > 0) {
+                remaining -= 1;
+                const tab = self.tabs.items[remaining];
+                if (ext.getAncestor(Self, tab.as(gtk.Widget)) != window) continue;
+                if (!closed) {
+                    if (self.selected.get()) |selected| {
+                        defer selected.unref();
+                        retainTabFocus(selected);
+                    }
+                }
+                window.closeConfirmedTab(tab);
+                closed = true;
+            }
+        }
+
+        fn destroy(self: *CloseTabsRequest) callconv(.c) void {
+            const alloc = Application.default().allocator();
+            self.window.deinit();
+            self.selected.deinit();
+            for (self.tabs.items) |tab| tab.unref();
+            self.tabs.deinit(alloc);
+            alloc.destroy(self);
+        }
+    };
+
+    pub fn closeTabs(self: *Self, page: *adw.TabPage, mode: apprt.action.CloseTabMode) void {
+        const alloc = Application.default().allocator();
+        const request = alloc.create(CloseTabsRequest) catch |err| {
+            log.warn("unable to close tabs: {}", .{err});
+            return;
+        };
+        request.* = .{};
+        request.window.set(self);
+        const view = self.getTabView();
+        if (view.getSelectedPage()) |selected| request.selected.set(gobject.ext.cast(Tab, selected.getChild()));
+        const position = view.getPagePosition(page);
+        var confirm = false;
+        for (0..@intCast(view.getNPages())) |i| {
+            const candidate = view.getNthPage(@intCast(i));
+            if (candidate == page or candidate.getPinned() != 0) continue;
+            if (mode == .right and i <= position) continue;
+            const tab = gobject.ext.cast(Tab, candidate.getChild()) orelse continue;
+            request.tabs.append(alloc, tab) catch |err| {
+                log.warn("unable to close tabs: {}", .{err});
+                CloseTabsRequest.destroy(request);
+                return;
+            };
+            _ = tab.ref();
+            confirm = confirm or tab.getNeedsConfirmQuit();
+        }
+        if (request.tabs.items.len == 0) {
+            CloseTabsRequest.destroy(request);
+            return;
+        }
+        if (confirm) {
+            const dialog: *CloseConfirmationDialog = .new(.tabs);
+            _ = CloseConfirmationDialog.signals.@"close-request".connect(dialog, *CloseTabsRequest, CloseTabsRequest.close, request, .{
+                .destroyData = CloseTabsRequest.destroy,
+            });
+            dialog.present(self.as(gtk.Widget));
+        } else {
+            defer CloseTabsRequest.destroy(request);
+            CloseTabsRequest.close(null, request);
+        }
+    }
+
+    fn retainTabFocus(tab: *Tab) void {
+        const app = Application.default();
+        if (!app.undoEnabled()) return;
+        const state = app.allocator().create(TabClose) catch |err| {
+            log.warn("unable to record tab focus: {}", .{err});
+            return;
+        };
+        state.* = .{};
+        state.tab.set(tab);
+        app.registerUndo(.{
+            .context = state,
+            .window = windowForTabClose,
+            .restore = undoTabFocus,
+            .release = releaseTabClose,
+        }) catch |err| {
+            log.warn("unable to record tab focus: {}", .{err});
+            releaseTabClose(state, app);
+        };
+    }
+
+    fn undoTabFocus(context: *anyopaque, window: *Self) bool {
+        const state: *TabClose = @ptrCast(@alignCast(context));
+        const tab = state.tab.get() orelse return false;
+        defer tab.unref();
+        const view = window.getTabView();
+        view.setSelectedPage(view.getPage(tab.as(gtk.Widget)));
+        if (tab.getActiveSurface()) |surface| surface.grabFocus();
+        retainTabFocus(tab);
+        return true;
+    }
+
     pub const SelectTab = union(enum) {
         previous,
         next,
@@ -1411,7 +1521,7 @@ pub const Window = extern struct {
     }
 
     /// Returns true if this window needs confirmation before quitting.
-    fn getNeedsConfirmQuit(self: *Self) bool {
+    pub fn getNeedsConfirmQuit(self: *Self) bool {
         const priv = self.private();
         const n = priv.tab_view.getNPages();
         assert(n >= 0);
