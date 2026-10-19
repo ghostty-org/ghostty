@@ -1002,7 +1002,7 @@ pub const SplitTree = extern struct {
         };
         state.* = .{
             .surface = surface,
-            .window_id = window.as(gtk.ApplicationWindow).getId(),
+            .window_id = window.getUndoId(),
             .tab_position = window.getTabView().getPagePosition(page),
             .pinned = page.getPinned() != 0,
             .direction = direction,
