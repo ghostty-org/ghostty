@@ -94,6 +94,7 @@ pub const InternalFormat = enum(c_int) {
 pub const Format = enum(c_uint) {
     red = c.GL_RED,
     rgb = c.GL_RGB,
+    bgr = c.GL_BGR,
     rgba = c.GL_RGBA,
     bgra = c.GL_BGRA,
 
