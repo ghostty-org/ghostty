@@ -312,6 +312,9 @@ in {
         keybind = ctrl+alt+k=quit
         keybind = ctrl+alt+u=undo
         keybind = ctrl+alt+y=redo
+        keybind = ctrl+alt+n=new_window
+        keybind = ctrl+alt+b=toggle_maximize
+        keybind = ctrl+alt+f=toggle_fullscreen
         keybind = ctrl+alt+m=move_tab_to_new_window
         keybind = ctrl+alt+1=goto_tab:1
         keybind = ctrl+alt+2=goto_tab:2
@@ -327,6 +330,8 @@ in {
       windows = su "${bus} gdbus call --session -d org.gnome.Shell -o /org/gnome/Shell -m org.gnome.Shell.Eval \"global.get_window_actors().filter(w => w.meta_window.wm_class === \\\"com.mitchellh.ghostty-debug\\\").length\"";
       title = su "${bus} gdbus call --session -d org.gnome.Shell -o /org/gnome/Shell -m org.gnome.Shell.Eval global.display.focus_window.title";
     in ''
+      import ast
+      import json
       import shlex
       from datetime import timedelta
 
@@ -381,6 +386,25 @@ in {
           machine.send_chars("stty size > /tmp/undo-size\n", delay=timedelta(milliseconds=100))
           machine.wait_until_succeeds("test -s /tmp/undo-size", timeout=timedelta(seconds=30))
           return machine.succeed("cat /tmp/undo-size").strip()
+
+      def shell_eval(script: str) -> str:
+          command = "${bus} gdbus call --session -d org.gnome.Shell -o /org/gnome/Shell -m org.gnome.Shell.Eval " + shlex.quote(script)
+          result = machine.succeed("su - ${user.name} -c " + shlex.quote(command)).strip()
+          assert result.startswith("(true, "), result
+          return ast.literal_eval(result[len("(true, "):-1])
+
+      def focused_window() -> int:
+          return int(shell_eval("global.display.focus_window.get_id()"))
+
+      def focus_window(window: int) -> None:
+          shell_eval(f"global.get_window_actors().find(w => w.meta_window.get_id() === {window}).meta_window.activate(global.get_current_time())")
+          machine.sleep(timedelta(seconds=1))
+
+      def place_window(window: int, x: int) -> tuple[int, int, int, int]:
+          shell_eval(f"global.get_window_actors().find(w => w.meta_window.get_id() === {window}).meta_window.move_resize_frame(true, {x}, 40, 480, 480)")
+          machine.sleep(timedelta(seconds=1))
+          frame = json.loads(shell_eval(f"(r => [r.x, r.y, r.width, r.height])(global.get_window_actors().find(w => w.meta_window.get_id() === {window}).meta_window.get_frame_rect())"))
+          return frame[0], frame[1], frame[2], frame[3]
 
       start_all()
       machine.wait_for_x()
@@ -443,16 +467,17 @@ in {
           expect_session(nested)
           wait_windows(2)
 
-      with subtest("split undo creates a window after its original window closes"):
+      with subtest("window undo precedes an earlier split closure"):
           press("ctrl-alt-x")
           expect_session(last)
           press("ctrl-alt-q")
           wait_windows(1)
-          machine.wait_until_fails("kill -0 " + last, timeout=timedelta(seconds=30))
+          machine.succeed("kill -0 " + last)
           press("ctrl-alt-u")
           wait_windows(2)
+          expect_session(last)
+          press("ctrl-alt-u")
           expect_session(nested)
-          assert terminal_size() == original_size
 
       with subtest("quit releases terminals retained by undo"):
           press("ctrl-alt-x")
@@ -574,7 +599,7 @@ in {
                   expect_session(anchor)
                   machine.succeed("kill -0 " + closed)
 
-      for kind, create, close in (("tab", "ctrl-alt-t", "ctrl-alt-w"),):
+      for kind, create, close in (("tab", "ctrl-alt-t", "ctrl-alt-w"), ("window", "ctrl-alt-n", "ctrl-alt-q")):
           for focused in (False, True):
               with subtest(f"closed {kind} preserves an exited split, focused {focused}"):
                   restart()
@@ -606,6 +631,96 @@ in {
                           press("ctrl-alt-g")
                       press("ctrl-alt-y")
                       wait_windows(1)
+
+      with subtest("whole window undo restores tabs, splits and selection together"):
+          restart()
+          left = remember("window-left")
+          press("ctrl-alt-s")
+          right = remember("window-right")
+          press("ctrl-alt-t")
+          second = remember("window-second")
+          press("ctrl-alt-1")
+          split_size = terminal_size()
+          press("ctrl-alt-2")
+          for _ in range(3):
+              press("ctrl-alt-q")
+              wait_windows(0)
+              machine.succeed("kill -0 " + " ".join((left, right, second)))
+              history("undo")
+              wait_windows(1)
+              expect_session(second)
+              press("ctrl-alt-1")
+              expect_session(right)
+              assert terminal_size() == split_size
+              press("ctrl-alt-2")
+              press("ctrl-alt-y")
+              wait_windows(0)
+              history("undo")
+              wait_windows(1)
+              expect_session(second)
+
+      for close in ("ctrl-alt-q", "ctrl-alt-w"):
+          with subtest(f"window geometry survives {close} despite configured maximization"):
+              restart("maximize = true\n")
+              press("ctrl-alt-b")
+              place_window(focused_window(), 20)
+              original = remember("geometry-" + close)
+              size = terminal_size()
+              press(close)
+              wait_windows(0)
+              history("undo")
+              wait_windows(1)
+              expect_session(original)
+              assert terminal_size() == size
+              assert shell_eval("global.display.focus_window.maximized_horizontally") == "false"
+
+      for mode in ("ctrl-alt-b", "ctrl-alt-f"):
+          with subtest(f"window undo restores display state {mode}"):
+              restart()
+              press(mode)
+              original = remember("display-state-" + mode)
+              size = terminal_size()
+              press("ctrl-alt-q")
+              wait_windows(0)
+              history("undo")
+              wait_windows(1)
+              expect_session(original)
+              assert terminal_size() == size
+              property = "maximized_horizontally" if mode == "ctrl-alt-b" else "is_fullscreen()"
+              assert shell_eval("global.display.focus_window." + property) == "true"
+
+      for timeout in ("1s", "0"):
+          with subtest(f"whole window releases every terminal with timeout {timeout}"):
+              restart(f"undo-timeout = {timeout}\n")
+              first = remember("window-expiry-first-" + timeout)
+              press("ctrl-alt-s")
+              second = remember("window-expiry-second-" + timeout)
+              press("ctrl-alt-t")
+              third = remember("window-expiry-third-" + timeout)
+              press("ctrl-alt-q")
+              wait_windows(0)
+              for pid in (first, second, third):
+                  machine.wait_until_fails("kill -0 " + pid, timeout=timedelta(seconds=30))
+
+      with subtest("cancelled whole window closure preserves all sessions"):
+          restart("confirm-close-surface = always\n")
+          first = remember("cancel-window-first")
+          press("ctrl-alt-s")
+          second = remember("cancel-window-second")
+          press("ctrl-alt-q")
+          press("esc")
+          expect_session(second)
+          press("ctrl-alt-q")
+          press("tab")
+          press("ret")
+          wait_windows(0)
+          history("undo")
+          wait_windows(1)
+          expect_session(second)
+          press("ctrl-alt-y")
+          press("esc")
+          expect_session(second)
+          machine.succeed("kill -0 " + first + " " + second)
 
       machine.systemctl("stop app-com.mitchellh.ghostty-debug.service", user="${user.name}")
     '';

@@ -563,6 +563,112 @@ pub const Window = extern struct {
         };
     }
 
+    const ClosedWindow = struct {
+        tabs: []TabState,
+        selected: c_int,
+    };
+
+    pub fn closeImmediately(self: *Self) void {
+        const app = Application.default();
+        if (app.undoEnabled()) self.retainClosedWindow() catch |err| {
+            log.warn("unable to retain closed window: {}", .{err});
+        };
+        self.as(gtk.Window).destroy();
+    }
+
+    fn retainClosedWindow(self: *Self) Allocator.Error!void {
+        const app = Application.default();
+        const alloc = app.allocator();
+        const tab_view = self.getTabView();
+        if (tab_view.getNPages() == 0) return;
+        const state = try alloc.create(ClosedWindow);
+        errdefer alloc.destroy(state);
+        const tabs = try alloc.alloc(TabState, @intCast(tab_view.getNPages()));
+        errdefer alloc.free(tabs);
+        for (tabs, 0..) |*tab, i| {
+            const page = tab_view.getNthPage(@intCast(i));
+            tab.* = self.getTabState(gobject.ext.cast(Tab, page.getChild()).?);
+            _ = tab.tab.ref();
+        }
+        errdefer for (tabs) |tab| tab.tab.unref();
+        state.* = .{
+            .tabs = tabs,
+            .selected = if (tab_view.getSelectedPage()) |page| tab_view.getPagePosition(page) else 0,
+        };
+        try app.registerUndo(.{
+            .context = state,
+            .window = windowForClosedWindow,
+            .restore = undoClosedWindow,
+            .release = releaseClosedWindow,
+        });
+    }
+
+    fn windowForClosedWindow(_: *anyopaque, app: *Application) ?*Self {
+        return app.windowForUndo(0);
+    }
+
+    fn undoClosedWindow(context: *anyopaque, window: *Self) bool {
+        const state: *ClosedWindow = @ptrCast(@alignCast(context));
+        for (state.tabs) |tab| window.restoreTab(tab);
+        const view = window.getTabView();
+        view.setSelectedPage(view.getNthPage(state.selected));
+        window.retainWindowClose();
+        window.as(gtk.Window).present();
+        return true;
+    }
+
+    fn releaseClosedWindow(context: *anyopaque, app: *Application) void {
+        const state: *ClosedWindow = @ptrCast(@alignCast(context));
+        for (state.tabs) |tab| tab.tab.unref();
+        app.allocator().free(state.tabs);
+        app.allocator().destroy(state);
+    }
+
+    fn retainWindowClose(self: *Self) void {
+        const app = Application.default();
+        if (!app.undoEnabled()) return;
+        const state = app.allocator().create(WeakRef(Self)) catch |err| {
+            log.warn("unable to record window close: {}", .{err});
+            return;
+        };
+        state.* = .empty;
+        state.set(self);
+        app.registerUndo(.{
+            .context = state,
+            .window = windowForClose,
+            .restore = undoWindowClose,
+            .release = releaseWindowClose,
+            .confirmation = confirmWindowClose,
+        }) catch |err| {
+            log.warn("unable to record window close: {}", .{err});
+            releaseWindowClose(state, app);
+        };
+    }
+
+    fn windowForClose(context: *anyopaque, _: *Application) ?*Self {
+        const state: *WeakRef(Self) = @ptrCast(@alignCast(context));
+        const window = state.get() orelse return null;
+        defer window.unref();
+        if (window.as(gtk.Widget).getRealized() == 0) return null;
+        return window;
+    }
+
+    fn undoWindowClose(_: *anyopaque, window: *Self) bool {
+        window.closeImmediately();
+        return true;
+    }
+
+    fn confirmWindowClose(context: *anyopaque) ?Application.UndoConfirmation {
+        const window = windowForClose(context, Application.default()) orelse return null;
+        return .{ .window = window, .target = .window, .required = window.getNeedsConfirmQuit() };
+    }
+
+    fn releaseWindowClose(context: *anyopaque, app: *Application) void {
+        const state: *WeakRef(Self) = @ptrCast(@alignCast(context));
+        state.deinit();
+        app.allocator().destroy(state);
+    }
+
     fn retainClosedTab(self: *Self, page: *adw.TabPage) void {
         const app = Application.default();
         if (!app.undoEnabled()) return;
@@ -1879,15 +1985,15 @@ pub const Window = extern struct {
             return @intFromBool(true);
         }
 
-        self.as(gtk.Window).destroy();
-        return @intFromBool(false);
+        self.closeImmediately();
+        return @intFromBool(true);
     }
 
     fn closeConfirmationClose(
         _: *CloseConfirmationDialog,
         self: *Self,
     ) callconv(.c) void {
-        self.as(gtk.Window).destroy();
+        self.closeImmediately();
     }
 
     fn closeConfirmationCloseTab(
