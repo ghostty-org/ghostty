@@ -898,6 +898,7 @@ pub const Action = union(enum) {
     ///   - New window, close window
     ///   - New tab, close tab
     ///   - New split, close split
+    ///   - Move split
     ///
     /// All actions are only undoable/redoable for a limited time.
     /// For example, restoring a closed split can only be done for

@@ -715,6 +715,7 @@ pub const Surface = extern struct {
         context_menu: *gtk.PopoverMenu,
         drop_target: *gtk.DropTarget,
         surface_drop_target: *gtk.DropTarget,
+        surface_drag_source: *gtk.DragSource,
         drag_handle: *gtk.Widget,
         drop_overlay: *gtk.Widget,
         progress_bar_overlay: *gtk.ProgressBar,
@@ -2779,6 +2780,10 @@ pub const Surface = extern struct {
         gtk_mods: gdk.ModifierType,
         self: *Self,
     ) callconv(.c) c_int {
+        if (keyval == gdk.KEY_Escape and self.private().surface_drag_source.getDrag() != null) {
+            self.private().surface_drag_source.dragCancel();
+            return 1;
+        }
         return @intFromBool(self.keyEvent(
             .press,
             ec_key,
@@ -3694,7 +3699,16 @@ pub const Surface = extern struct {
         _ = x;
         _ = y;
         var val = gobject.ext.Value.newFrom(self.core().?.id);
-        return gdk.ContentProvider.newForValue(&val);
+        if (Application.default().winproto().* != .wayland) return gdk.ContentProvider.newForValue(&val);
+        // Like AdwTabView, offer the compositor's desktop drop target so
+        // Wayland can distinguish a completed drop from cancellation.
+        const bytes = glib.Bytes.newStatic(null, 0);
+        defer bytes.unref();
+        var providers = [_]*gdk.ContentProvider{
+            gdk.ContentProvider.newForValue(&val),
+            gdk.ContentProvider.newForBytes("application/x-rootwindow-drop", bytes),
+        };
+        return gdk.ContentProvider.newUnion(&providers, providers.len);
     }
 
     fn surfaceDragBegin(
@@ -3702,6 +3716,8 @@ pub const Surface = extern struct {
         _: *gdk.Drag,
         self: *Self,
     ) callconv(.c) void {
+        self.grabFocus();
+
         // The scale of the preview
         const preview_scale: f32 = 0.2;
 
@@ -3743,33 +3759,66 @@ pub const Surface = extern struct {
         }
     }
 
+    fn surfaceDragCancel(
+        _: *gtk.DragSource,
+        drag: *gdk.Drag,
+        reason: gdk.DragCancelReason,
+        self: *Self,
+    ) callconv(.c) c_int {
+        if (reason != .no_target) return 0;
+        return @intFromBool(self.dropSplitAtPointer(drag) orelse false);
+    }
+
+    fn dropSplitAtPointer(self: *Self, drag: *gdk.Drag) ?bool {
+        // X11 can miss the drop target when a drag starts inside it.
+        // Hide the preview before querying the widget under the pointer.
+        if (drag.getDragSurface()) |icon| icon.hide();
+        var x: f64 = 0;
+        var y: f64 = 0;
+        const surface = drag.getDevice().getSurfaceAtPosition(&x, &y) orelse return null;
+        const native = gtk.Native.getForSurface(surface) orelse return null;
+        var tx: f64 = 0;
+        var ty: f64 = 0;
+        native.getSurfaceTransform(&tx, &ty);
+        const widget = native.as(gtk.Widget);
+        const picked = widget.pick(x - tx, y - ty, .{}) orelse return null;
+        const target = ext.getAncestor(Self, picked) orelse return null;
+        const origin = scale_util.widgetSurfaceOrigin(target.as(gtk.Widget));
+        return target.dropSplit(self, x - origin.x, y - origin.y);
+    }
+
     fn surfaceDrop(
         _: *gtk.DropTarget,
         v: *const gobject.Value,
         x: f64,
         y: f64,
         self: *Self,
-    ) callconv(.c) void {
+    ) callconv(.c) c_int {
         const dropped_id = v.getUint64();
-        const dropped = self.core().?.app.findSurfaceByID(dropped_id) orelse return;
+        const dropped = self.core().?.app.findSurfaceByID(dropped_id) orelse return 0;
         const from = dropped.rt_surface.gobj();
+        return @intFromBool(self.dropSplit(from, x, y));
+    }
+
+    fn dropSplit(self: *Self, from: *Self, x: f64, y: f64) bool {
+        defer self.setDropOverlayDirection(null);
+        if (from == self) return true;
 
         const st = ext.getAncestor(
             SplitTree,
             self.as(gtk.Widget),
         ) orelse {
             log.warn("surface is not placed in a split tree", .{});
-            return;
+            return false;
         };
 
         const dir = self.calcDropDirection(x, y);
 
         // The only error that could happen here is an OOM,
         // and in that case we're already milliseconds away from crashing, so...
-        st.moveSplit(from, self, dir) catch return;
+        st.moveSplit(from, self, dir) catch return false;
 
-        // Clean up overlay state
-        self.setDropOverlayDirection(null);
+        return true;
     }
 
     fn surfaceDropLeave(
@@ -3781,11 +3830,17 @@ pub const Surface = extern struct {
     }
 
     fn surfaceDropMotion(
-        _: *gtk.DropTarget,
+        target: *gtk.DropTarget,
         x: f64,
         y: f64,
         self: *Self,
     ) callconv(.c) gdk.DragAction {
+        if (target.getValue()) |value| {
+            if (value.getUint64() == self.core().?.id) {
+                self.setDropOverlayDirection(null);
+                return .{ .move = true };
+            }
+        }
         // Recalculate the drop region
         const dir = self.calcDropDirection(x, y);
         self.setDropOverlayDirection(dir);
@@ -3797,16 +3852,10 @@ pub const Surface = extern struct {
         _: *gobject.ParamSpec,
         self: *Self,
     ) callconv(.c) void {
-        // Reject the drop if we're dropping a surface onto itself.
-        // Note that we cannot implement this via the `accept` signal,
-        // since the decision of whether to accept or deny a drop is dependent
-        // on the payload (i.e. the surface being dropped). This is
-        // well-documented in GTK docs.
-
         const core_surface = self.core() orelse return;
         const value = tgt.getValue() orelse return;
         const surface_id = value.getUint64();
-        if (core_surface.id == surface_id) tgt.reject();
+        if (core_surface.id == surface_id) self.setDropOverlayDirection(null);
     }
 
     fn setDropOverlayDirection(self: *Self, dir: ?Tree.Split.Direction) void {
@@ -3879,6 +3928,7 @@ pub const Surface = extern struct {
             class.bindTemplateChildPrivate("terminal_page", .{});
             class.bindTemplateChildPrivate("drop_target", .{});
             class.bindTemplateChildPrivate("surface_drop_target", .{});
+            class.bindTemplateChildPrivate("surface_drag_source", .{});
             class.bindTemplateChildPrivate("drag_handle", .{});
             class.bindTemplateChildPrivate("drop_overlay", .{});
             class.bindTemplateChildPrivate("im_context", .{});
@@ -3925,6 +3975,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("should_drag_handle_be_shown", &closureShouldDragHandleBeShown);
             class.bindTemplateCallback("surface_drag_prepare", &surfaceDragPrepare);
             class.bindTemplateCallback("surface_drag_begin", &surfaceDragBegin);
+            class.bindTemplateCallback("surface_drag_cancel", &surfaceDragCancel);
             class.bindTemplateCallback("surface_drop", &surfaceDrop);
             class.bindTemplateCallback("surface_drop_leave", &surfaceDropLeave);
             class.bindTemplateCallback("surface_drop_motion", &surfaceDropMotion);
