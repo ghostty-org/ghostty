@@ -1018,6 +1018,7 @@ pub const SplitTree = extern struct {
             .window = Window.windowForClosedSplit,
             .restore = Window.undoClosedSplit,
             .release = releaseClosedSplit,
+            .references = closedSplitReferences,
         }) catch |err| {
             log.warn("unable to retain closed split: {}", .{err});
             releaseClosedSplit(state, app);
@@ -1031,6 +1032,13 @@ pub const SplitTree = extern struct {
         state.tab.deinit();
         state.surface.as(gobject.Object).unref();
         app.allocator().destroy(state);
+    }
+
+    fn closedSplitReferences(context: *anyopaque, target: *gobject.Object) bool {
+        const state: *ClosedSplit = @ptrCast(@alignCast(context));
+        const tab = state.tab.get() orelse return false;
+        defer tab.unref();
+        return tab.as(gobject.Object) == target;
     }
 
     pub fn retainSurfaceClose(surface: *Surface) void {
