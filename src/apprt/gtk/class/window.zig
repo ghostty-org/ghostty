@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const build_config = @import("../../../build_config.zig");
 const assert = @import("../../../quirks.zig").inlineAssert;
 const adw = @import("adw");
@@ -291,6 +292,8 @@ pub const Window = extern struct {
         /// setup by `setup-menu`.
         context_menu_page: ?*adw.TabPage = null,
 
+        confirmed_close_tab: ?*Tab = null,
+
         /// The manually overridden title.
         title_override: ?[:0]const u8 = null,
 
@@ -512,6 +515,201 @@ pub const Window = extern struct {
         );
 
         return page;
+    }
+
+    pub const TabState = struct {
+        tab: *Tab,
+        window_id: c_uint,
+        position: c_int,
+        pinned: bool,
+        focused: ?*Surface = null,
+        geometry: ?Geometry = null,
+    };
+
+    const Geometry = struct {
+        width: c_int,
+        height: c_int,
+        maximized: bool,
+        fullscreen: bool,
+
+        fn capture(window: *gtk.Window) Geometry {
+            var state: Geometry = .{
+                .width = 0,
+                .height = 0,
+                .maximized = window.isMaximized() != 0,
+                .fullscreen = window.isFullscreen() != 0,
+            };
+            window.getDefaultSize(&state.width, &state.height);
+            return state;
+        }
+
+        fn restore(self: Geometry, window: *gtk.Window) void {
+            window.setDefaultSize(self.width, self.height);
+            if (self.maximized) window.maximize() else window.unmaximize();
+            if (self.fullscreen) window.fullscreen() else window.unfullscreen();
+        }
+    };
+
+    pub fn getTabState(self: *Self, tab: *Tab) TabState {
+        const view = self.getTabView();
+        const page = view.getPage(tab.as(gtk.Widget));
+        return .{
+            .tab = tab,
+            .window_id = self.as(gtk.ApplicationWindow).getId(),
+            .position = view.getPagePosition(page),
+            .pinned = page.getPinned() != 0,
+            .focused = tab.getActiveSurface(),
+            .geometry = Geometry.capture(self.as(gtk.Window)),
+        };
+    }
+
+    fn retainClosedTab(self: *Self, page: *adw.TabPage) void {
+        const app = Application.default();
+        if (!app.undoEnabled()) return;
+        const tab = gobject.ext.cast(Tab, page.getChild()) orelse return;
+        // An exited tab has nothing to restore, and retaining it would delay quitting.
+        if (tab.getSplitTree().getChildrenExited()) return;
+        const state = app.allocator().create(TabState) catch |err| {
+            log.warn("unable to retain closed tab: {}", .{err});
+            return;
+        };
+        state.* = self.getTabState(tab);
+        _ = tab.as(gobject.Object).ref();
+        app.registerUndo(.{
+            .context = state,
+            .window = windowForClosedTab,
+            .restore = undoClosedTab,
+            .release = releaseClosedTab,
+        }) catch |err| {
+            log.warn("unable to retain closed tab: {}", .{err});
+            releaseClosedTab(state, app);
+        };
+    }
+
+    fn windowForClosedTab(context: *anyopaque, app: *Application) ?*Self {
+        const state: *TabState = @ptrCast(@alignCast(context));
+        if (state.tab.getSurfaceTree() == null) return null;
+        return app.windowForUndo(state.window_id);
+    }
+
+    fn undoClosedTab(context: *anyopaque, window: *Self) bool {
+        const state: *TabState = @ptrCast(@alignCast(context));
+        window.restoreTab(state.*);
+        retainTabClose(state.tab);
+        gtk.Window.present(window.as(gtk.Window));
+        return true;
+    }
+
+    pub fn restoreTab(self: *Self, state: TabState) void {
+        const tab_view = self.private().tab_view;
+        const position = restoredTabPosition(
+            state.position,
+            state.pinned,
+            tab_view.getNPinnedPages(),
+            tab_view.getNPages(),
+        );
+        const page = if (state.pinned)
+            tab_view.insertPinned(state.tab.as(gtk.Widget), position)
+        else
+            tab_view.insert(state.tab.as(gtk.Widget), position);
+        _ = state.tab.as(gobject.Object).bindProperty(
+            "title",
+            page.as(gobject.Object),
+            "title",
+            .{ .sync_create = true },
+        );
+        _ = state.tab.as(gobject.Object).bindProperty(
+            "tooltip",
+            page.as(gobject.Object),
+            "tooltip",
+            .{ .sync_create = true },
+        );
+        if (state.focused) |surface| state.tab.getSplitTree().restoreFocus(surface);
+        tab_view.setSelectedPage(page);
+        // Restored surfaces were initialized before, so their init signal
+        // won't fire again to size a new window.
+        if (state.tab.getActiveSurface()) |surface| {
+            if (surface.core() != null) surfaceInit(surface, self);
+        }
+        if (self.as(gtk.Widget).getRealized() == 0) {
+            if (state.geometry) |geometry| geometry.restore(self.as(gtk.Window));
+        }
+    }
+
+    fn releaseClosedTab(context: *anyopaque, app: *Application) void {
+        const state: *TabState = @ptrCast(@alignCast(context));
+        state.tab.as(gobject.Object).unref();
+        app.allocator().destroy(state);
+    }
+
+    const TabClose = struct {
+        tab: WeakRef(Tab) = .empty,
+    };
+
+    fn retainTabClose(tab: *Tab) void {
+        const app = Application.default();
+        if (!app.undoEnabled()) return;
+        const state = app.allocator().create(TabClose) catch |err| {
+            log.warn("unable to record tab close: {}", .{err});
+            return;
+        };
+        state.* = .{};
+        state.tab.set(tab);
+        app.registerUndo(.{
+            .context = state,
+            .window = windowForTabClose,
+            .restore = undoTabClose,
+            .release = releaseTabClose,
+            .confirmation = confirmTabClose,
+        }) catch |err| {
+            log.warn("unable to record tab close: {}", .{err});
+            releaseTabClose(state, app);
+        };
+    }
+
+    fn windowForTabClose(context: *anyopaque, _: *Application) ?*Self {
+        const state: *TabClose = @ptrCast(@alignCast(context));
+        const tab = state.tab.get() orelse return null;
+        defer tab.unref();
+        return ext.getAncestor(Self, tab.as(gtk.Widget));
+    }
+
+    fn undoTabClose(context: *anyopaque, window: *Self) bool {
+        const state: *TabClose = @ptrCast(@alignCast(context));
+        const tab = state.tab.get() orelse return false;
+        defer tab.unref();
+        window.closeConfirmedTab(tab);
+        return true;
+    }
+
+    fn confirmTabClose(context: *anyopaque) ?Application.UndoConfirmation {
+        const state: *TabClose = @ptrCast(@alignCast(context));
+        const tab = state.tab.get() orelse return null;
+        defer tab.unref();
+        return .{
+            .window = ext.getAncestor(Self, tab.as(gtk.Widget)) orelse return null,
+            .target = .tab,
+            .required = tab.getNeedsConfirmQuit(),
+        };
+    }
+
+    fn releaseTabClose(context: *anyopaque, app: *Application) void {
+        const state: *TabClose = @ptrCast(@alignCast(context));
+        state.tab.deinit();
+        app.allocator().destroy(state);
+    }
+
+    pub fn closeConfirmedTab(self: *Self, tab: *Tab) void {
+        const tab_view = self.private().tab_view;
+        const page = tab_view.getPage(tab.as(gtk.Widget));
+        if (tab.getCloseDialog()) |dialog| {
+            tab.setCloseDialog(null);
+            tab_view.closePageFinish(page, @intFromBool(false));
+            dialog.close();
+            dialog.unref();
+        }
+        self.private().confirmed_close_tab = tab;
+        tab_view.closePage(page);
     }
 
     pub const SelectTab = union(enum) {
@@ -1631,9 +1829,14 @@ pub const Window = extern struct {
     }
 
     fn closeConfirmationCloseTab(
-        _: *CloseConfirmationDialog,
+        dialog: *CloseConfirmationDialog,
         page: *adw.TabPage,
     ) callconv(.c) void {
+        const tab = gobject.ext.cast(Tab, page.getChild()) orelse return;
+        const pending = tab.getCloseDialog() orelse return;
+        defer pending.unref();
+        if (pending != dialog) return;
+        tab.setCloseDialog(null);
         const tab_view = ext.getAncestor(
             adw.TabView,
             page.getChild().as(gtk.Widget),
@@ -1641,13 +1844,21 @@ pub const Window = extern struct {
             log.warn("close confirmation called for non-existent page", .{});
             return;
         };
+        if (ext.getAncestor(Self, tab_view.as(gtk.Widget))) |window| {
+            window.retainClosedTab(page);
+        }
         tab_view.closePageFinish(page, @intFromBool(true));
     }
 
     fn closeConfirmationCancelTab(
-        _: *CloseConfirmationDialog,
+        dialog: *CloseConfirmationDialog,
         page: *adw.TabPage,
     ) callconv(.c) void {
+        const tab = gobject.ext.cast(Tab, page.getChild()) orelse return;
+        const pending = tab.getCloseDialog() orelse return;
+        defer pending.unref();
+        if (pending != dialog) return;
+        tab.setCloseDialog(null);
         const tab_view = ext.getAncestor(
             adw.TabView,
             page.getChild().as(gtk.Widget),
@@ -1668,9 +1879,17 @@ pub const Window = extern struct {
         const tab = gobject.ext.cast(Tab, child) orelse
             return @intFromBool(false);
 
+        if (priv.confirmed_close_tab == tab) {
+            priv.confirmed_close_tab = null;
+            self.retainClosedTab(page);
+            priv.tab_view.closePageFinish(page, @intFromBool(true));
+            return @intFromBool(true);
+        }
+
         // If the tab says it doesn't need confirmation then we go ahead
         // and close immediately.
         if (!tab.getNeedsConfirmQuit()) {
+            self.retainClosedTab(page);
             priv.tab_view.closePageFinish(page, @intFromBool(true));
             return @intFromBool(true);
         }
@@ -1691,6 +1910,7 @@ pub const Window = extern struct {
             page,
             .{},
         );
+        tab.setCloseDialog(dialog);
 
         // Show it
         dialog.present(child);
@@ -2379,3 +2599,34 @@ pub const Window = extern struct {
         pub const bindTemplateCallback = C.Class.bindTemplateCallback;
     };
 };
+
+fn restoredTabPosition(position: c_int, pinned: bool, n_pinned: c_int, n_pages: c_int) c_int {
+    return if (pinned) @min(position, n_pinned) else std.math.clamp(position, n_pinned, n_pages);
+}
+
+test "restored tab position" {
+    const testing = std.testing;
+    for ([_]struct {
+        position: c_int,
+        pinned: bool,
+        n_pinned: c_int,
+        n_pages: c_int,
+        expected: c_int,
+    }{
+        .{ .position = 1, .pinned = true, .n_pinned = 2, .n_pages = 4, .expected = 1 },
+        .{ .position = 3, .pinned = true, .n_pinned = 1, .n_pages = 4, .expected = 1 },
+        .{ .position = 2, .pinned = true, .n_pinned = 0, .n_pages = 2, .expected = 0 },
+        .{ .position = 1, .pinned = true, .n_pinned = 0, .n_pages = 0, .expected = 0 },
+        .{ .position = 2, .pinned = false, .n_pinned = 1, .n_pages = 4, .expected = 2 },
+        .{ .position = 3, .pinned = false, .n_pinned = 1, .n_pages = 2, .expected = 2 },
+        .{ .position = 0, .pinned = false, .n_pinned = 2, .n_pages = 4, .expected = 2 },
+        .{ .position = 3, .pinned = false, .n_pinned = 0, .n_pages = 0, .expected = 0 },
+    }) |case| {
+        try testing.expectEqual(case.expected, restoredTabPosition(
+            case.position,
+            case.pinned,
+            case.n_pinned,
+            case.n_pages,
+        ));
+    }
+}

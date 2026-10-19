@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-27 21:37+0100\n"
+"POT-Creation-Date: 2026-10-28 13:35-0700\n"
 "PO-Revision-Date: 2026-10-08 13:20+0200\n"
 "Last-Translator: Karl G. Nielsen <karl@bacano.dk>\n"
 "Language-Team: Danish <dansk@dansk-gruppen.dk>\n"
@@ -232,7 +232,7 @@ msgstr "Genindlæs konfigurationen for at se denne dialog igen"
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2152
+#: src/apprt/gtk/class/application.zig:2366
 msgid "Cancel"
 msgstr "Annullér"
 
@@ -264,27 +264,27 @@ msgstr "Lad feltet stå tomt for at gendanne standardtitlen."
 msgid "OK"
 msgstr "OK"
 
-#: src/apprt/gtk/class/application.zig:1736
+#: src/apprt/gtk/class/application.zig:1942
 msgid "The keybind was revoked by the system."
 msgstr "Tastaturgenvejen blev ophævet af systemet."
 
-#: src/apprt/gtk/class/application.zig:1738
+#: src/apprt/gtk/class/application.zig:1944
 msgid "The keybind was denied by the system."
 msgstr "Tastaturgenvejen blev afvist af systemet."
 
-#: src/apprt/gtk/class/application.zig:1750
+#: src/apprt/gtk/class/application.zig:1956
 msgid "Global keybind unavailable"
 msgstr "Global tastaturgenvej utilgængelig"
 
-#: src/apprt/gtk/class/application.zig:2148
+#: src/apprt/gtk/class/application.zig:2362
 msgid "Export Terminal IO Events"
 msgstr "Eksportér terminal IO-begivenheder"
 
-#: src/apprt/gtk/class/application.zig:2151
+#: src/apprt/gtk/class/application.zig:2365
 msgid "Export"
 msgstr "Eksportér"
 
-#: src/apprt/gtk/class/application.zig:2649
+#: src/apprt/gtk/class/application.zig:2863
 msgid "Editing configuration file"
 msgstr "Redigerer konfigurationsfil"
 
@@ -316,38 +316,51 @@ msgstr ""
 "Det kan være farligt at indsætte denne tekst i terminalen, da det ligner, at "
 "en eller flere kommandoer vil blive kørt."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:183
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Quit Ghostty?"
 msgstr "Afslut Ghostty?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:184
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
 msgid "Close Tab?"
 msgstr "Luk fane?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:187
 msgid "Close Window?"
 msgstr "Luk vindue?"
 
 # Her bruges opdeling igen da 'deling' kunne være tvetydigt
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:188
 msgid "Close Split?"
 msgstr "Luk opdeling?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:192
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:189
+msgid "Close Tabs?"
+msgstr ""
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:190
+msgid "Close All Windows?"
+msgstr ""
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:196
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:201
 msgid "All terminal sessions will be terminated."
 msgstr "Alle terminalsessioner vil blive afsluttet."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:193
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:197
 msgid "All terminal sessions in this tab will be terminated."
 msgstr "Alle terminalsessioner i denne fane vil blive afsluttet."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:194
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:198
 msgid "All terminal sessions in this window will be terminated."
 msgstr "Alle terminalsessioner i dette vindue vil blive afsluttet."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:195
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:199
 msgid "The currently running process in this split will be terminated."
 msgstr "Den kørende proces i denne opdeling vil blive afsluttet."
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:200
+msgid "All terminal sessions in these tabs will be terminated."
+msgstr ""
 
 #: src/apprt/gtk/class/surface.zig:1206
 msgid "Command Finished"
@@ -375,19 +388,19 @@ msgstr "Skift fanetitel"
 msgid "Change Window Title"
 msgstr "Skift vinduestitel"
 
-#: src/apprt/gtk/class/window.zig:1184
+#: src/apprt/gtk/class/window.zig:1382
 msgid "Reloaded the configuration"
 msgstr "Konfigurationen blev genindlæst"
 
-#: src/apprt/gtk/class/window.zig:1887
+#: src/apprt/gtk/class/window.zig:2107
 msgid "Copied to clipboard"
 msgstr "Kopieret til udklipsholder"
 
-#: src/apprt/gtk/class/window.zig:1889
+#: src/apprt/gtk/class/window.zig:2109
 msgid "Cleared clipboard"
 msgstr "Udklipsholderen blev ryddet"
 
-#: src/apprt/gtk/class/window.zig:2028
+#: src/apprt/gtk/class/window.zig:2248
 msgid "Ghostty Developers"
 msgstr "Ghostty udviklerne"
 

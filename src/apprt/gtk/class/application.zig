@@ -47,6 +47,7 @@ const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
 const OpenURI = @import("../portal.zig").OpenURI;
 const media = @import("../media.zig");
 const Overrides = @import("Overrides.zig");
+const UndoHistory = @import("../UndoHistory.zig");
 
 const log = std.log.scoped(.gtk_ghostty_application);
 
@@ -168,6 +169,17 @@ pub const Application = extern struct {
     };
 
     const Private = struct {
+        const UndoEntry = struct {
+            action: UndoAction,
+            timer: c_uint,
+            expires_us: i64,
+            entry: UndoHistory.Entry = .{},
+        };
+
+        undo_history: UndoHistory = .{},
+        undo_direction: ?UndoHistory.Direction = null,
+        undo_hold: bool = false,
+
         /// The apprt App. This is annoying that we need this it'd be
         /// nicer to just make THIS the apprt app but the current libghostty
         /// API doesn't allow that.
@@ -577,6 +589,7 @@ pub const Application = extern struct {
                 // If we are configured to always stay running, don't quit.
                 const config = priv.config.get();
                 if (!config.@"quit-after-last-window-closed") break :q false;
+                if (!priv.undo_history.isEmpty()) break :q false;
 
                 // If the quit timer has expired, quit.
                 if (priv.quit_timer == .expired) {
@@ -658,6 +671,10 @@ pub const Application = extern struct {
     }
 
     fn quitNow(self: *Self) void {
+        // Undo actions may retain detached surfaces that window destruction
+        // won't release before the core app tears down.
+        self.clearUndoHistory();
+
         // Get all our windows and destroy them, forcing them to free.
         const list = gtk.Window.listToplevels();
         defer list.free();
@@ -805,6 +822,9 @@ pub const Application = extern struct {
             .search_total => Action.searchTotal(target, value),
             .search_selected => Action.searchSelected(target, value),
 
+            .undo => return self.requestUndo(.undo),
+            .redo => return self.requestUndo(.redo),
+
             // Unimplemented
             .secure_input,
             .close_all_windows,
@@ -816,8 +836,6 @@ pub const Application = extern struct {
             .color_change,
             .reset_window_size,
             .check_for_updates,
-            .undo,
-            .redo,
             => {
                 log.warn("unimplemented action={}", .{action});
                 return false;
@@ -848,6 +866,176 @@ pub const Application = extern struct {
     /// Returns the open URI portal implementation.
     pub fn openUri(self: *Self) *OpenURI {
         return &self.private().open_uri;
+    }
+
+    pub const UndoAction = struct {
+        context: *anyopaque,
+        window: *const fn (*anyopaque, *Self) ?*Window,
+        restore: *const fn (*anyopaque, *Window) bool,
+        release: *const fn (*anyopaque, *Self) void,
+        confirmation: ?*const fn (*anyopaque) ?UndoConfirmation = null,
+    };
+
+    pub const UndoConfirmation = struct {
+        window: *Window,
+        target: @import("close_confirmation_dialog.zig").Target,
+        required: bool = true,
+    };
+
+    pub fn undoEnabled(self: *Self) bool {
+        return self.private().config.get().@"undo-timeout".duration > 0;
+    }
+
+    pub fn registerUndo(self: *Self, action: UndoAction) Allocator.Error!void {
+        const timeout = self.private().config.get().@"undo-timeout".duration;
+        assert(timeout > 0);
+        const entry = try self.allocator().create(Private.UndoEntry);
+        const now_us = glib.getMonotonicTime();
+        const expires_us = now_us + @as(i64, @intCast(std.math.divCeil(u64, timeout, std.time.ns_per_us) catch unreachable));
+        entry.* = .{
+            .action = action,
+            .timer = glib.timeoutAdd(undoDelay(now_us, expires_us), undoExpired, entry),
+            .expires_us = expires_us,
+        };
+        const direction = self.private().undo_direction orelse direction: {
+            self.clearUndoStack(.redo);
+            break :direction UndoHistory.Direction.undo;
+        };
+        self.private().undo_history.append(&entry.entry, direction);
+        if (!self.private().undo_hold) {
+            self.as(gio.Application).hold();
+            self.private().undo_hold = true;
+        }
+    }
+
+    pub fn windowForUndo(self: *Self, window_id: c_uint) *Window {
+        if (self.as(gtk.Application).getWindowById(window_id)) |gtk_window| {
+            if (gobject.ext.cast(Window, gtk_window)) |window| return window;
+        }
+        const window = Window.new(self, .none);
+        self.private().requested_window = true;
+        _ = self.as(gobject.Object).bindProperty(
+            "config",
+            window.as(gobject.Object),
+            "config",
+            .{},
+        );
+        return window;
+    }
+
+    pub fn beginUndoGroup(self: *Self) void {
+        self.private().undo_history.beginGroup();
+    }
+
+    pub fn endUndoGroup(self: *Self) void {
+        self.private().undo_history.endGroup();
+    }
+
+    fn requestUndo(self: *Self, direction: UndoHistory.Direction) bool {
+        const history = &self.private().undo_history;
+        while (history.last(direction)) |last| {
+            var node: ?*std.DoublyLinkedList.Node = &last.node;
+            var prompt: ?UndoConfirmation = null;
+            var required = false;
+            while (node) |value| : (node = value.prev) {
+                const item: *UndoHistory.Entry = @fieldParentPtr("node", value);
+                if (item.group != last.group) break;
+                const entry: *Private.UndoEntry = @fieldParentPtr("entry", item);
+                const confirmation = entry.action.confirmation orelse continue;
+                const target = confirmation(entry.action.context) orelse continue;
+                required = required or target.required;
+                if (prompt) |*previous| {
+                    previous.target = if (previous.window != target.window or previous.target == .windows) .windows else .tabs;
+                } else prompt = target;
+            }
+            if (required) {
+                const target = prompt.?;
+                const request = self.allocator().create(UndoRequest) catch |err| {
+                    log.warn("unable to confirm undo: {}", .{err});
+                    return false;
+                };
+                request.* = .{ .app = self.ref(), .direction = direction, .group = last.group };
+                const dialog: *CloseConfirmationDialog = .new(target.target);
+                _ = CloseConfirmationDialog.signals.@"close-request".connect(
+                    dialog,
+                    *UndoRequest,
+                    UndoRequest.confirm,
+                    request,
+                    .{ .destroyData = UndoRequest.destroy },
+                );
+                dialog.present(target.window.as(gtk.Widget));
+                return true;
+            }
+            if (self.performUndo(direction, last.group)) return true;
+        }
+        return false;
+    }
+
+    const UndoRequest = struct {
+        app: *Self,
+        direction: UndoHistory.Direction,
+        group: u64,
+
+        fn confirm(_: *CloseConfirmationDialog, self: *UndoRequest) callconv(.c) void {
+            const last = self.app.private().undo_history.last(self.direction) orelse return;
+            if (last.group == self.group) _ = self.app.performUndo(self.direction, self.group);
+        }
+
+        fn destroy(self: *UndoRequest) callconv(.c) void {
+            const app = self.app;
+            app.allocator().destroy(self);
+            app.unref();
+        }
+    };
+
+    fn performUndo(self: *Self, direction: UndoHistory.Direction, group: u64) bool {
+        assert(self.private().undo_direction == null);
+        self.private().undo_direction = if (direction == .undo) .redo else .undo;
+        defer self.private().undo_direction = null;
+        defer self.releaseUndoHoldIfEmpty();
+        self.beginUndoGroup();
+        defer self.endUndoGroup();
+        var changed = false;
+        while (self.private().undo_history.last(direction)) |item| {
+            if (item.group != group) break;
+            self.private().undo_history.remove(item);
+            const entry: *Private.UndoEntry = @fieldParentPtr("entry", item);
+            _ = glib.Source.remove(entry.timer);
+            const restored = if (entry.action.window(entry.action.context, self)) |window|
+                entry.action.restore(entry.action.context, window)
+            else
+                false;
+            self.releaseUndoEntry(entry);
+            changed = changed or restored;
+        }
+        return changed;
+    }
+
+    fn releaseUndoEntry(self: *Self, entry: *Private.UndoEntry) void {
+        entry.action.release(entry.action.context, self);
+        self.allocator().destroy(entry);
+    }
+
+    fn releaseUndoHoldIfEmpty(self: *Self) void {
+        const priv = self.private();
+        if (priv.undo_hold and priv.undo_history.isEmpty()) {
+            priv.undo_hold = false;
+            self.as(gio.Application).release();
+        }
+    }
+
+    fn clearUndoHistory(self: *Self) void {
+        self.clearUndoStack(.undo);
+        self.clearUndoStack(.redo);
+        self.releaseUndoHoldIfEmpty();
+    }
+
+    fn clearUndoStack(self: *Self, direction: UndoHistory.Direction) void {
+        while (self.private().undo_history.pop(direction)) |item| {
+            const entry: *Private.UndoEntry = @fieldParentPtr("entry", item);
+            _ = glib.Source.remove(entry.timer);
+            self.releaseUndoEntry(entry);
+        }
     }
 
     /// This will get called when there are no more open surfaces.
@@ -1458,6 +1646,8 @@ pub const Application = extern struct {
             .init("new-window", actionNewWindow, null),
             .init("new-window-command", actionNewWindow, as_variant_type),
             .init("new-tab", actionNewTab, tas_variant_type),
+            .init("undo", actionUndo, null),
+            .init("redo", actionRedo, null),
             .init("open-config", actionOpenConfig, s_variant_type),
             .init("present-surface", actionPresentSurface, t_variant_type),
             .init("quit", actionQuit, null),
@@ -1523,6 +1713,7 @@ pub const Application = extern struct {
 
     fn dispose(self: *Self) callconv(.c) void {
         const priv = self.private();
+        self.clearUndoHistory();
         if (priv.config_errors_dialog.get()) |diag| {
             diag.close();
             diag.unref(); // strong ref from get()
@@ -1588,6 +1779,21 @@ pub const Application = extern struct {
         const self: *Self = @ptrCast(@alignCast(ud));
         const priv = self.private();
         priv.quit_timer = .expired;
+        return 0;
+    }
+
+    fn undoExpired(user_data: ?*anyopaque) callconv(.c) c_int {
+        const entry: *Private.UndoEntry = @ptrCast(@alignCast(user_data.?));
+        // GLib's millisecond timer can be shorter than the configured timeout.
+        const delay = undoDelay(glib.getMonotonicTime(), entry.expires_us);
+        if (delay > 0) {
+            entry.timer = glib.timeoutAdd(delay, undoExpired, entry);
+            return 0;
+        }
+        const self = Self.default();
+        self.private().undo_history.remove(&entry.entry);
+        self.releaseUndoEntry(entry);
+        self.releaseUndoHoldIfEmpty();
         return 0;
     }
 
@@ -1783,6 +1989,14 @@ pub const Application = extern struct {
         priv.core_app.performAction(self.rt(), .quit) catch |err| {
             log.warn("error quitting err={}", .{err});
         };
+    }
+
+    fn actionUndo(_: *gio.SimpleAction, _: ?*glib.Variant, self: *Self) callconv(.c) void {
+        _ = self.requestUndo(.undo);
+    }
+
+    fn actionRedo(_: *gio.SimpleAction, _: ?*glib.Variant, self: *Self) callconv(.c) void {
+        _ = self.requestUndo(.redo);
     }
 
     /// Handle `app.new-window` and `app.new-window-command` GTK actions
@@ -3317,4 +3531,28 @@ fn findActiveWindow(data: ?*const anyopaque, _: ?*const anyopaque) callconv(.c) 
     // but we want to return 0 to indicate equality.
     // Abusing integers to be enums and booleans is a terrible idea, C.
     return if (window.isActive() != 0) 0 else -1;
+}
+
+fn undoDelay(now_us: i64, expires_us: i64) c_uint {
+    const remaining: u64 = @intCast(@max(0, expires_us - now_us));
+    return @intCast(@min(
+        std.math.divCeil(u64, remaining, std.time.us_per_ms) catch unreachable,
+        std.math.maxInt(c_uint),
+    ));
+}
+
+test "undo delay respects the deadline beyond the GLib timer limit" {
+    const testing = std.testing;
+    const limit = std.math.maxInt(c_uint);
+    const expires = @as(i64, limit) * std.time.us_per_ms + 1;
+    for ([_]struct { now: i64, delay: c_uint }{
+        .{ .now = 0, .delay = limit },
+        .{ .now = expires - 1001, .delay = 2 },
+        .{ .now = expires - 1000, .delay = 1 },
+        .{ .now = expires - 1, .delay = 1 },
+        .{ .now = expires, .delay = 0 },
+        .{ .now = expires + 1, .delay = 0 },
+    }) |case| {
+        try testing.expectEqual(case.delay, undoDelay(case.now, expires));
+    }
 }

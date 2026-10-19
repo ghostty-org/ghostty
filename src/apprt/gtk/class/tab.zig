@@ -11,6 +11,8 @@ const CoreSurface = @import("../../../Surface.zig");
 const ext = @import("../ext.zig");
 const gresource = @import("../build/gresource.zig");
 const Common = @import("../class.zig").Common;
+const WeakRef = @import("../weak_ref.zig").WeakRef;
+const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
 const SplitTree = @import("split_tree.zig").SplitTree;
@@ -157,6 +159,8 @@ pub const Tab = extern struct {
     };
 
     const Private = struct {
+        close_dialog: WeakRef(CloseConfirmationDialog) = .empty,
+
         /// The configuration that this surface is using.
         config: ?*Config = null,
 
@@ -244,6 +248,10 @@ pub const Tab = extern struct {
         _ = ext.actions.addAsGroup(Self, self, "tab", &actions);
     }
 
+    pub fn requestClose(self: *Self) void {
+        signals.@"close-request".impl.emit(self, null, .{}, null);
+    }
+
     //---------------------------------------------------------------
     // Properties
 
@@ -296,6 +304,14 @@ pub const Tab = extern struct {
         return priv.split_tree;
     }
 
+    pub fn setCloseDialog(self: *Self, dialog: ?*CloseConfirmationDialog) void {
+        self.private().close_dialog.set(dialog);
+    }
+
+    pub fn getCloseDialog(self: *Self) ?*CloseConfirmationDialog {
+        return self.private().close_dialog.get();
+    }
+
     /// Returns true if this tab needs confirmation before quitting based
     /// on the various Ghostty configurations.
     pub fn getNeedsConfirmQuit(self: *Self) bool {
@@ -322,6 +338,7 @@ pub const Tab = extern struct {
 
     fn dispose(self: *Self) callconv(.c) void {
         const priv = self.private();
+        priv.close_dialog.deinit();
         if (priv.config) |v| {
             v.unref();
             priv.config = null;
@@ -371,12 +388,7 @@ pub const Tab = extern struct {
         // If our tree is empty we close the tab.
         const tree: *const Surface.Tree = self.getSurfaceTree() orelse &.empty;
         if (tree.isEmpty()) {
-            signals.@"close-request".impl.emit(
-                self,
-                null,
-                .{},
-                null,
-            );
+            self.requestClose();
             return;
         }
     }

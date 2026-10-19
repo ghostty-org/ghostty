@@ -908,8 +908,6 @@ pub const Action = union(enum) {
     /// bounded memory usage over time, closed surfaces don't continue running
     /// in the background indefinitely, and the keybinds become available
     /// for terminal applications to use.
-    ///
-    /// Only implemented on macOS.
     undo,
 
     /// Redo the last undoable action for the focused surface or terminal,
