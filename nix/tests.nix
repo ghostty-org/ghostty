@@ -471,6 +471,31 @@ in {
               press("ctrl-alt-u")
               expect_session(original)
 
+          with subtest(f"{backend}: dragging a split into a new window preserves sessions through undo and redo"):
+              restart()
+              source = focused_window()
+              x, y, width, height = place_window(source, 20)
+              original = remember("detach-original")
+              press("ctrl-alt-s")
+              split = remember("detach-split")
+              size = terminal_size()
+              drag((x + width * 3 // 4, y + 102), (1000, 700))
+              wait_windows(2)
+              expect_session(split)
+              for _ in range(3):
+                  press("ctrl-alt-u")
+                  wait_windows(1)
+                  expect_session(split)
+                  assert terminal_size() == size
+                  press("ctrl-alt-y")
+                  wait_windows(2)
+                  expect_session(split)
+              press("ctrl-alt-u")
+              drag((x + width * 3 // 4, y + 102), (1000, 700))
+              wait_windows(2)
+              expect_session(split)
+              machine.succeed("kill -0 " + original)
+
           with subtest(f"{backend}: moving a split within its window restores layout and focus"):
               restart("drag-handle = always\n")
               x, y, width, height = place_window(focused_window(), 20)

@@ -730,6 +730,7 @@ pub const Surface = extern struct {
         surface_drop_target: *gtk.DropTarget,
         surface_drag_source: *gtk.DragSource,
         drag_handle: *gtk.Widget,
+        drag_moved: bool = false,
         drop_overlay: *gtk.Widget,
         progress_bar_overlay: *gtk.ProgressBar,
         error_page: *adw.StatusPage,
@@ -3768,8 +3769,18 @@ pub const Surface = extern struct {
         _ = src;
         _ = x;
         _ = y;
+        self.private().drag_moved = false;
         var val = gobject.ext.Value.newFrom(self.core().?.id);
-        return gdk.ContentProvider.newForValue(&val);
+        if (Application.default().winproto().* != .wayland) return gdk.ContentProvider.newForValue(&val);
+        // Like AdwTabView, offer the compositor's desktop drop target so
+        // Wayland can distinguish a completed drop from cancellation.
+        const bytes = glib.Bytes.newStatic(null, 0);
+        defer bytes.unref();
+        var providers = [_]*gdk.ContentProvider{
+            gdk.ContentProvider.newForValue(&val),
+            gdk.ContentProvider.newForBytes("application/x-rootwindow-drop", bytes),
+        };
+        return gdk.ContentProvider.newUnion(&providers, providers.len);
     }
 
     fn surfaceDragBegin(
@@ -3827,7 +3838,8 @@ pub const Surface = extern struct {
         self: *Self,
     ) callconv(.c) c_int {
         if (reason != .no_target) return 0;
-        return @intFromBool(self.dropSplitAtPointer(drag) orelse false);
+        if (self.dropSplitAtPointer(drag)) |moved| return @intFromBool(moved);
+        return @intFromBool(self.detachSplit());
     }
 
     fn dropSplitAtPointer(self: *Self, drag: *gdk.Drag) ?bool {
@@ -3848,6 +3860,25 @@ pub const Surface = extern struct {
         return target.dropSplit(self, x - origin.x, y - origin.y);
     }
 
+    fn surfaceDragEnd(
+        _: *gtk.DragSource,
+        _: *gdk.Drag,
+        delete_data: c_int,
+        self: *Self,
+    ) callconv(.c) void {
+        if (delete_data != 0 and !self.private().drag_moved) _ = self.detachSplit();
+    }
+
+    fn detachSplit(self: *Self) bool {
+        const tree = ext.getAncestor(SplitTree, self.as(gtk.Widget)) orelse return false;
+        const detached = tree.moveSplitToWindow(self) catch |err| {
+            log.warn("unable to detach split: {}", .{err});
+            return false;
+        };
+        self.private().drag_moved = detached;
+        return detached;
+    }
+
     fn surfaceDrop(
         _: *gtk.DropTarget,
         v: *const gobject.Value,
@@ -3866,7 +3897,11 @@ pub const Surface = extern struct {
 
     fn dropSplit(self: *Self, from: *Self, x: f64, y: f64) bool {
         defer self.setDropOverlayDirection(null);
-        if (from == self) return true;
+        // Accept self-drops so the compositor does not treat them as desktop drops.
+        if (from == self) {
+            from.private().drag_moved = true;
+            return true;
+        }
 
         const st = ext.getAncestor(
             SplitTree,
@@ -3881,6 +3916,7 @@ pub const Surface = extern struct {
         // The only error that could happen here is an OOM,
         // and in that case we're already milliseconds away from crashing, so...
         st.moveSplit(from, self, dir) catch return false;
+        from.private().drag_moved = true;
 
         return true;
     }
@@ -4040,6 +4076,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("surface_drag_prepare", &surfaceDragPrepare);
             class.bindTemplateCallback("surface_drag_begin", &surfaceDragBegin);
             class.bindTemplateCallback("surface_drag_cancel", &surfaceDragCancel);
+            class.bindTemplateCallback("surface_drag_end", &surfaceDragEnd);
             class.bindTemplateCallback("surface_drop", &surfaceDrop);
             class.bindTemplateCallback("surface_drop_leave", &surfaceDropLeave);
             class.bindTemplateCallback("surface_drop_motion", &surfaceDropMotion);
