@@ -499,6 +499,19 @@ in {
           wait_windows(1)
           expect_session(only)
 
+      for close in ("ctrl-alt-w", "ctrl-alt-q"):
+          with subtest(f"reopening after {close} leaves the closed terminal reachable"):
+              restart()
+              original = remember("reopen-" + close)
+              press(close)
+              wait_windows(0)
+              open_window()
+              reopened = remember("reopened-" + close)
+              press("ctrl-alt-u")
+              wait_windows(2)
+              expect_session(original)
+              machine.succeed("kill -0 " + reopened)
+
       with subtest("split undo preserves changes inside its sibling layout"):
           restart()
           left = remember("layout-left")
@@ -550,9 +563,8 @@ in {
               machine.wait_until_fails("kill -0 " + exited, timeout=timedelta(seconds=30))
               press("ctrl-alt-u")
               machine.wait_until_succeeds(${builtins.toJSON title} + " | grep -q completed-" + kind, timeout=timedelta(seconds=30))
-              if kind == "split":
-                  press("ctrl-alt-u")
-                  expect_session(anchor)
+              press("ctrl-alt-u")
+              expect_session(anchor)
               press("ctrl-alt-u")
               expect_session(retained)
 
@@ -568,6 +580,8 @@ in {
               if kind == "split":
                   expect_session(anchor)
                   press("ctrl-alt-y")
+              else:
+                  press("esc")
               expect_session(confirmed)
               press(close)
               press("tab")
@@ -609,6 +623,49 @@ in {
                   press("ctrl-alt-y")
                   expect_session(anchor)
                   machine.succeed("kill -0 " + closed)
+
+      for kind, create in (("tab", "ctrl-alt-t"), ("window", "ctrl-alt-n")):
+          with subtest(f"undo and redo {kind} creation start a new session"):
+              restart()
+              anchor = remember("creation-anchor-" + kind)
+              press(create)
+              created = remember("creation-" + kind)
+              for cycle in range(3):
+                  press("ctrl-alt-u")
+                  wait_windows(1)
+                  expect_session(anchor)
+                  machine.wait_until_fails("kill -0 " + created, timeout=timedelta(seconds=30))
+                  machine.succeed("rm -f /tmp/undo-ready")
+                  press("ctrl-alt-y")
+                  machine.wait_for_file("/tmp/undo-ready", timeout=timedelta(seconds=30))
+                  replacement = remember(f"creation-{kind}-{cycle}")
+                  assert replacement != created
+                  created = replacement
+                  wait_windows(2 if kind == "window" else 1)
+
+      for kind, create in (("tab", "ctrl-alt-t"), ("window", "ctrl-alt-n")):
+          with subtest(f"undoing {kind} creation discards its split history"):
+              restart("undo-timeout = 5m\n")
+              anchor = remember("discard-anchor-" + kind)
+              press(create)
+              created = remember("discard-created-" + kind)
+              press("ctrl-alt-s")
+              split = remember("discard-split-" + kind)
+              press("ctrl-alt-u")
+              press("ctrl-alt-u")
+              wait_windows(1)
+              expect_session(anchor)
+              for pid in (created, split):
+                  machine.wait_until_fails("kill -0 " + pid, timeout=timedelta(seconds=30))
+              machine.succeed("rm -f /tmp/undo-ready")
+              press("ctrl-alt-y")
+              machine.wait_for_file("/tmp/undo-ready", timeout=timedelta(seconds=30))
+              replacement = remember("discard-replacement-" + kind)
+              assert replacement != created
+              for _ in range(2):
+                  press("ctrl-alt-y")
+                  expect_session(replacement)
+              wait_windows(2 if kind == "window" else 1)
 
       with subtest("split creation undo and redo preserve the session and geometry"):
           restart()
@@ -762,6 +819,19 @@ in {
               history("redo")
               wait_windows(0)
 
+      with subtest("a new operation discards redo and releases its retained terminal"):
+          restart()
+          anchor = remember("branch-anchor")
+          press("ctrl-alt-s")
+          discarded = remember("branch-discarded")
+          press("ctrl-alt-u")
+          expect_session(anchor)
+          press("ctrl-alt-t")
+          replacement = remember("branch-replacement")
+          machine.wait_until_fails("kill -0 " + discarded, timeout=timedelta(seconds=30))
+          press("ctrl-alt-y")
+          expect_session(replacement)
+
       with subtest("redo expiration releases a retained split"):
           restart()
           anchor = remember("redo-expiry-anchor")
@@ -799,6 +869,22 @@ in {
               for pid in (first, second, third):
                   machine.wait_until_fails("kill -0 " + pid, timeout=timedelta(seconds=30))
 
+      for kind, create in (("tab", "ctrl-alt-t"), ("window", "ctrl-alt-n")):
+          with subtest(f"cancelled creation undo for {kind} preserves its history"):
+              restart("confirm-close-surface = always\n")
+              anchor = remember("cancel-create-anchor-" + kind)
+              press(create)
+              created = remember("cancel-create-" + kind)
+              for _ in range(2):
+                  press("ctrl-alt-u")
+                  press("esc")
+                  expect_session(created)
+              press("ctrl-alt-u")
+              press("tab")
+              press("ret")
+              expect_session(anchor)
+              machine.wait_until_fails("kill -0 " + created, timeout=timedelta(seconds=30))
+
       with subtest("cancelled whole window closure preserves all sessions"):
           restart("confirm-close-surface = always\n")
           first = remember("cancel-window-first")
@@ -818,6 +904,16 @@ in {
           press("esc")
           expect_session(second)
           machine.succeed("kill -0 " + first + " " + second)
+
+      with subtest("undo expiration while confirming does not close the tab"):
+          restart("confirm-close-surface = always\nundo-timeout = 15s\n")
+          press("ctrl-alt-t")
+          created = remember("expired-confirmation")
+          press("ctrl-alt-u")
+          machine.sleep(timedelta(seconds=16))
+          press("tab")
+          press("ret")
+          expect_session(created)
 
       machine.systemctl("stop app-com.mitchellh.ghostty-debug.service", user="${user.name}")
     '';

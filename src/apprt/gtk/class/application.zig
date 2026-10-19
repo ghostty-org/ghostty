@@ -178,6 +178,7 @@ pub const Application = extern struct {
 
         undo_history: UndoHistory = .{},
         undo_direction: ?UndoHistory.Direction = null,
+        undo_disabled: usize = 0,
         undo_hold: bool = false,
 
         /// The apprt App. This is annoying that we need this it'd be
@@ -873,6 +874,7 @@ pub const Application = extern struct {
         restore: *const fn (*anyopaque, *Window) bool,
         release: *const fn (*anyopaque, *Self) void,
         confirmation: ?*const fn (*anyopaque) ?UndoConfirmation = null,
+        references: ?*const fn (*anyopaque, *gobject.Object) bool = null,
     };
 
     pub const UndoConfirmation = struct {
@@ -882,7 +884,16 @@ pub const Application = extern struct {
     };
 
     pub fn undoEnabled(self: *Self) bool {
-        return self.private().config.get().@"undo-timeout".duration > 0;
+        return self.private().undo_disabled == 0 and self.private().config.get().@"undo-timeout".duration > 0;
+    }
+
+    pub fn disableUndo(self: *Self) void {
+        self.private().undo_disabled += 1;
+    }
+
+    pub fn enableUndo(self: *Self) void {
+        assert(self.private().undo_disabled > 0);
+        self.private().undo_disabled -= 1;
     }
 
     pub fn registerUndo(self: *Self, action: UndoAction) Allocator.Error!void {
@@ -905,6 +916,24 @@ pub const Application = extern struct {
             self.as(gio.Application).hold();
             self.private().undo_hold = true;
         }
+    }
+
+    pub fn removeUndoActions(self: *Self, target: *gobject.Object) void {
+        const history = &self.private().undo_history;
+        for ([_]UndoHistory.Direction{ .undo, .redo }) |direction| {
+            var node: ?*std.DoublyLinkedList.Node = if (history.last(direction)) |last| &last.node else null;
+            while (node) |value| {
+                node = value.prev;
+                const item: *UndoHistory.Entry = @fieldParentPtr("node", value);
+                const entry: *Private.UndoEntry = @fieldParentPtr("entry", item);
+                const references = entry.action.references orelse continue;
+                if (!references(entry.action.context, target)) continue;
+                history.remove(item);
+                _ = glib.Source.remove(entry.timer);
+                self.releaseUndoEntry(entry);
+            }
+        }
+        self.releaseUndoHoldIfEmpty();
     }
 
     pub fn windowForUndo(self: *Self, window_id: c_uint) *Window {
@@ -2791,6 +2820,10 @@ const Action = struct {
     }
 
     pub fn newWindow(self: *Application, parent: ?*CoreSurface, overrides: Overrides) !void {
+        // Reopening must leave closed windows reachable through the undo binding.
+        const reopening = @as(?*glib.List, self.as(gtk.Application).getWindows()) == null;
+        if (reopening) self.disableUndo();
+        defer if (reopening) self.enableUndo();
         // Note that we've requested a window at least once. This is used
         // to trigger quit on no windows. Note I'm not sure if this is REALLY
         // necessary, but I don't want to risk a bug where on a slow machine
@@ -3297,6 +3330,8 @@ const Action = struct {
             .@"quick-terminal" = true,
         });
         assert(win.isQuickTerminal());
+        self.disableUndo();
+        defer self.enableUndo();
         initAndShowWindow(self, win, null, .none);
         return true;
     }
