@@ -518,7 +518,125 @@ pub const Window = extern struct {
             .{ .sync_create = true },
         );
 
+        self.retainCreation(if (context == .window) .window else .{ .tab = tab }, parent_, overrides, false);
         return page;
+    }
+
+    const CreationTarget = union(enum) { window, tab: *Tab };
+    const Creation = struct {
+        arena: std.heap.ArenaAllocator,
+        window: WeakRef(Self) = .empty,
+        tab: ?WeakRef(Tab) = null,
+        parent: WeakRef(Surface) = .empty,
+        overrides: Overrides,
+        recreate: bool,
+        window_id: c_uint,
+    };
+
+    fn retainCreation(self: *Self, target: CreationTarget, parent: ?*CoreSurface, overrides: Overrides, recreate: bool) void {
+        const app = Application.default();
+        if (!app.undoEnabled()) return;
+        var arena: std.heap.ArenaAllocator = .init(app.allocator());
+        const state = arena.allocator().create(Creation) catch |err| {
+            log.warn("unable to record creation: {}", .{err});
+            arena.deinit();
+            return;
+        };
+        const copy = overrides.clone(arena.allocator()) catch |err| {
+            log.warn("unable to record creation: {}", .{err});
+            arena.deinit();
+            return;
+        };
+        state.* = .{
+            .arena = arena,
+            .overrides = copy,
+            .recreate = recreate,
+            .window_id = self.getUndoId(),
+        };
+        state.window.set(self);
+        if (parent) |surface| state.parent.set(surface.rt_surface.gobj());
+        if (target == .tab) {
+            state.tab = .empty;
+            state.tab.?.set(target.tab);
+        }
+        app.registerUndo(.{
+            .context = state,
+            .window = windowForCreation,
+            .restore = undoCreation,
+            .release = releaseCreation,
+            .confirmation = confirmCreation,
+        }) catch |err| {
+            log.warn("unable to record creation: {}", .{err});
+            releaseCreation(state, app);
+        };
+    }
+
+    fn windowForCreation(context: *anyopaque, app: *Application) ?*Self {
+        const state: *Creation = @ptrCast(@alignCast(context));
+        if (state.recreate) {
+            if (state.tab == null) return app.windowForUndo(0);
+            if (state.parent.get()) |parent| {
+                defer parent.unref();
+                if (ext.getAncestor(Self, parent.as(gtk.Widget))) |window| return window;
+            }
+            return app.windowForUndo(state.window_id);
+        }
+        if (state.tab) |*reference| {
+            const tab = reference.get() orelse return null;
+            defer tab.unref();
+            return ext.getAncestor(Self, tab.as(gtk.Widget));
+        }
+        return windowForClose(&state.window, app);
+    }
+
+    fn undoCreation(context: *anyopaque, window: *Self) bool {
+        const state: *Creation = @ptrCast(@alignCast(context));
+        const parent = state.parent.get();
+        defer if (parent) |surface| surface.unref();
+        const core = if (parent) |surface| surface.core() else null;
+        if (state.recreate) {
+            _ = window.newTabPage(core, if (state.tab == null) .window else .tab, state.overrides);
+            window.as(gtk.Window).present();
+            return true;
+        }
+        const tab = if (state.tab) |*reference| reference.get() orelse return false else null;
+        defer if (tab) |value| value.unref();
+        const app = Application.default();
+        // Creation redo starts a new session, so child history cannot survive it.
+        if (tab) |value| {
+            app.removeUndoActions(value.as(gobject.Object));
+        } else {
+            const view = window.getTabView();
+            for (0..@intCast(view.getNPages())) |i| {
+                app.removeUndoActions(view.getNthPage(@intCast(i)).getChild().as(gobject.Object));
+            }
+        }
+        window.retainCreation(if (tab) |value| .{ .tab = value } else .window, core, state.overrides, true);
+        app.disableUndo();
+        defer app.enableUndo();
+        if (tab) |value| window.closeConfirmedTab(value) else window.closeImmediately();
+        return true;
+    }
+
+    fn confirmCreation(context: *anyopaque) ?Application.UndoConfirmation {
+        const state: *Creation = @ptrCast(@alignCast(context));
+        if (state.recreate) return null;
+        const window = windowForCreation(context, Application.default()) orelse return null;
+        if (state.tab) |*reference| {
+            const tab = reference.get() orelse return null;
+            defer tab.unref();
+            return .{ .window = window, .target = .tab, .required = tab.getNeedsConfirmQuit() };
+        }
+        return .{ .window = window, .target = .window, .required = window.getNeedsConfirmQuit() };
+    }
+
+    fn releaseCreation(context: *anyopaque, _: *Application) void {
+        const state: *Creation = @ptrCast(@alignCast(context));
+        state.window.deinit();
+        if (state.tab) |*reference| reference.deinit();
+        state.parent.deinit();
+        var arena = state.arena;
+        arena.deinit();
     }
 
     pub const TabState = struct {
