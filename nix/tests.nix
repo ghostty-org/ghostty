@@ -302,13 +302,17 @@ in {
         confirm-close-surface = false
         undo-timeout = 60s
         keybind = ctrl+alt+t=new_tab
-        keybind = ctrl+alt+w=close_tab:this
         keybind = ctrl+alt+s=new_split:right
+        keybind = ctrl+alt+d=new_split:down
         keybind = ctrl+alt+g=goto_split:left
         keybind = ctrl+alt+p=goto_split:previous
-        keybind = ctrl+alt+y=redo
+        keybind = ctrl+alt+x=close_surface
+        keybind = ctrl+alt+w=close_tab:this
+        keybind = ctrl+alt+q=close_window
         keybind = ctrl+alt+k=quit
         keybind = ctrl+alt+u=undo
+        keybind = ctrl+alt+y=redo
+        keybind = ctrl+alt+m=move_tab_to_new_window
         keybind = ctrl+alt+1=goto_tab:1
         keybind = ctrl+alt+2=goto_tab:2
         keybind = ctrl+alt+3=goto_tab:3
@@ -383,14 +387,29 @@ in {
       machine.wait_for_file("${bus_path}")
       machine.systemctl("enable app-com.mitchellh.ghostty-debug.service", user="${user.name}")
 
-      with subtest("tab undo restores its position"):
+      with subtest("split undo preserves the shell and restores focus"):
           restart()
           original = remember("original")
+          original_size = terminal_size()
+          press("ctrl-alt-s")
+          split = remember("split")
+          split_size = terminal_size()
+          assert split != original
+          assert split_size != original_size
+          for _ in range(3):
+              press("ctrl-alt-x")
+              expect_session(original)
+              machine.succeed("kill -0 " + split)
+              press("ctrl-alt-u")
+              expect_session(split)
+              assert terminal_size() == split_size
+
+      with subtest("tab undo restores its position"):
           press("ctrl-alt-t")
           middle = remember("middle")
           press("ctrl-alt-t")
           last = remember("last")
-          assert len({original, middle, last}) == 3
+          assert len({original, split, middle, last}) == 4
           press("ctrl-alt-2")
           expect_session(middle)
           press("ctrl-alt-w")
@@ -398,14 +417,47 @@ in {
           press("ctrl-alt-u")
           expect_session(middle)
           press("ctrl-alt-1")
-          expect_session(original)
+          expect_session(split)
           press("ctrl-alt-3")
           expect_session(last)
 
-      with subtest("quit releases terminals retained by undo"):
+      with subtest("tab and split closures share undo order"):
+          press("ctrl-alt-s")
+          nested = remember("nested")
+          press("ctrl-alt-x")
+          expect_session(last)
           press("ctrl-alt-w")
+          expect_session(middle)
+          press("ctrl-alt-u")
+          expect_session(last)
+          press("ctrl-alt-u")
+          expect_session(nested)
+
+      with subtest("split undo follows a tab into another window"):
+          press("ctrl-alt-x")
+          expect_session(last)
+          press("ctrl-alt-m")
+          wait_windows(2)
+          expect_session(last)
+          press("ctrl-alt-u")
+          expect_session(nested)
+          wait_windows(2)
+
+      with subtest("split undo creates a window after its original window closes"):
+          press("ctrl-alt-x")
+          expect_session(last)
+          press("ctrl-alt-q")
+          wait_windows(1)
+          machine.wait_until_fails("kill -0 " + last, timeout=timedelta(seconds=30))
+          press("ctrl-alt-u")
+          wait_windows(2)
+          expect_session(nested)
+          assert terminal_size() == original_size
+
+      with subtest("quit releases terminals retained by undo"):
+          press("ctrl-alt-x")
           press("ctrl-alt-k")
-          for pid in (original, middle, last):
+          for pid in (original, split, middle, nested):
               machine.wait_until_fails("kill -0 " + pid, timeout=timedelta(seconds=30))
 
       with subtest("undo keeps the app alive after its last tab closes"):
@@ -419,7 +471,25 @@ in {
           wait_windows(1)
           expect_session(only)
 
+      with subtest("split undo preserves changes inside its sibling layout"):
+          restart()
+          left = remember("layout-left")
+          press("ctrl-alt-s")
+          press("ctrl-alt-d")
+          press("ctrl-alt-g")
+          expect_session(left)
+          left_size = terminal_size()
+          press("ctrl-alt-x")
+          press("ctrl-alt-p")
+          press("ctrl-alt-s")
+          added = remember("layout-added")
+          press("ctrl-alt-u")
+          expect_session(left)
+          assert terminal_size() == left_size
+          machine.succeed("kill -0 " + added)
+
       for kind, create, close in (
+          ("split", "ctrl-alt-s", "ctrl-alt-x"),
           ("tab", "ctrl-alt-t", "ctrl-alt-w"),
       ):
           for timeout in ("1s", "0"):
@@ -478,9 +548,9 @@ in {
           press("ctrl-alt-w")
           expect_session(anchor)
           configure("undo-timeout = 60s\n")
-          press("ctrl-alt-t")
+          press("ctrl-alt-s")
           newer = remember("newer")
-          press("ctrl-alt-w")
+          press("ctrl-alt-x")
           expect_session(anchor)
           machine.succeed("kill -0 " + older)
           machine.wait_until_fails("kill -0 " + older, timeout=timedelta(seconds=30))
@@ -490,7 +560,7 @@ in {
           press("ctrl-alt-u")
           expect_session(newer)
 
-      for kind, create, close in (("tab", "ctrl-alt-t", "ctrl-alt-w"),):
+      for kind, create, close in (("tab", "ctrl-alt-t", "ctrl-alt-w"), ("split", "ctrl-alt-s", "ctrl-alt-x")):
           with subtest(f"redo closes a restored {kind} and remains undoable"):
               restart()
               anchor = remember("redo-anchor-" + kind)
