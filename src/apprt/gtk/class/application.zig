@@ -909,8 +909,12 @@ pub const Application = extern struct {
     }
 
     pub fn windowForUndo(self: *Self, window_id: c_uint) *Window {
-        if (self.as(gtk.Application).getWindowById(window_id)) |gtk_window| {
-            if (gobject.ext.cast(Window, gtk_window)) |window| return window;
+        var current_: ?*glib.List = self.as(gtk.Application).getWindows();
+        while (current_) |node| : (current_ = node.f_next) {
+            const data = node.f_data orelse continue;
+            const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
+            const window = gobject.ext.cast(Window, gtk_window) orelse continue;
+            if (window.getUndoId() == window_id) return window;
         }
         const window = Window.new(self, .none);
         self.private().requested_window = true;
