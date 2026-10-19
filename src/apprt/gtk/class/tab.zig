@@ -194,7 +194,7 @@ pub const Tab = extern struct {
     }
 
     pub fn new(config: ?*Config, overrides: Overrides) *Self {
-        const tab = create(config);
+        const tab = newEmpty(config);
 
         tab.private().split_tree.newSplit(.right, null, .{
             .command = overrides.command,
@@ -209,12 +209,12 @@ pub const Tab = extern struct {
     }
 
     pub fn newFromSurface(config: ?*Config, surface: *Surface) *Self {
-        const tab = create(config);
+        const tab = newEmpty(config);
         tab.private().split_tree.setSurface(surface) catch @panic("oom");
         return tab;
     }
 
-    fn create(config: ?*Config) *Self {
+    pub fn newEmpty(config: ?*Config) *Self {
         const tab = gobject.ext.newInstance(Tab, .{});
 
         const priv: *Private = tab.private();
