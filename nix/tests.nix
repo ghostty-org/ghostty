@@ -313,8 +313,11 @@ in {
         keybind = ctrl+alt+u=undo
         keybind = ctrl+alt+y=redo
         keybind = ctrl+alt+n=new_window
+        keybind = ctrl+alt+a=close_all_windows
         keybind = ctrl+alt+b=toggle_maximize
         keybind = ctrl+alt+f=toggle_fullscreen
+        keybind = ctrl+alt+o=close_tab:other
+        keybind = ctrl+alt+r=close_tab:right
         keybind = ctrl+alt+m=move_tab_to_new_window
         keybind = ctrl+alt+1=goto_tab:1
         keybind = ctrl+alt+2=goto_tab:2
@@ -392,6 +395,9 @@ in {
           result = machine.succeed("su - ${user.name} -c " + shlex.quote(command)).strip()
           assert result.startswith("(true, "), result
           return ast.literal_eval(result[len("(true, "):-1])
+
+      def window_titled(title: str) -> int:
+          return int(shell_eval(f"global.get_window_actors().find(w => w.meta_window.title === '{title}').meta_window.get_id()"))
 
       def focused_window() -> int:
           return int(shell_eval("global.display.focus_window.get_id()"))
@@ -688,6 +694,91 @@ in {
               assert terminal_size() == size
               property = "maximized_horizontally" if mode == "ctrl-alt-b" else "is_fullscreen()"
               assert shell_eval("global.display.focus_window." + property) == "true"
+
+      for mode in ("ctrl-alt-o", "ctrl-alt-r"):
+          with subtest(f"empty tab closure {mode} leaves undo history unchanged"):
+              restart()
+              anchor = remember("empty-group-anchor-" + mode)
+              press("ctrl-alt-t")
+              closed = remember("empty-group-closed-" + mode)
+              press("ctrl-alt-w")
+              press(mode)
+              press("ctrl-alt-u")
+              expect_session(closed)
+              machine.succeed("kill -0 " + anchor)
+
+          with subtest(f"grouped tab closure {mode} preserves order and selection"):
+              restart()
+              first = remember("group-first-" + mode)
+              press("ctrl-alt-t")
+              second = remember("group-second-" + mode)
+              press("ctrl-alt-t")
+              third = remember("group-third-" + mode)
+              press("ctrl-alt-1")
+              press(mode)
+              expect_session(first)
+              for _ in range(3):
+                  press("ctrl-alt-u")
+                  expect_session(first)
+                  press("ctrl-alt-2")
+                  expect_session(second)
+                  press("ctrl-alt-3")
+                  expect_session(third)
+                  press("ctrl-alt-y")
+                  expect_session(first)
+
+      with subtest("close all windows is one reversible operation"):
+          restart()
+          first = remember("all-first")
+          press("ctrl-alt-n")
+          second = remember("all-second")
+          press("ctrl-alt-a")
+          wait_windows(0)
+          for _ in range(3):
+              machine.succeed("kill -0 " + first + " " + second)
+              history("undo")
+              wait_windows(2)
+              history("redo")
+              wait_windows(0)
+
+      for close, create in (("ctrl-alt-o", "ctrl-alt-t"), ("ctrl-alt-a", "ctrl-alt-n")):
+          with subtest(f"cancelling grouped closure {close} preserves every session"):
+              restart("confirm-close-surface = always\n")
+              first = remember("cancel-group-first-" + close)
+              press(create)
+              second = remember("cancel-group-second-" + close)
+              press(close)
+              press("esc")
+              expect_session(second)
+              machine.succeed("kill -0 " + first)
+              wait_windows(2 if create == "ctrl-alt-n" else 1)
+
+      with subtest("closing all windows during a split confirmation keeps later confirmations working"):
+          restart("confirm-close-surface = always\n")
+          first = remember("stale-confirm-first")
+          press("ctrl-alt-s")
+          second = remember("stale-confirm-second")
+          machine.send_chars("printf '\\033]0;stale-confirm\\007'\n", delay=timedelta(milliseconds=100))
+          machine.sleep(timedelta(seconds=1))
+          window = window_titled("stale-confirm")
+          press("ctrl-alt-n")
+          other = focused_window()
+          focus_window(window)
+          press("ctrl-alt-x")
+          focus_window(other)
+          press("ctrl-alt-a")
+          press("tab")
+          press("ret")
+          wait_windows(0)
+          history("undo")
+          wait_windows(2)
+          focus_window(window_titled("stale-confirm"))
+          expect_session(second)
+          press("ctrl-alt-x")
+          press("tab")
+          press("ret")
+          expect_session(first)
+          machine.succeed("kill -0 " + second)
 
       for timeout in ("1s", "0"):
           with subtest(f"whole window releases every terminal with timeout {timeout}"):

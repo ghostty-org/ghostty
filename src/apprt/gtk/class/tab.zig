@@ -17,6 +17,7 @@ const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
+const Window = @import("window.zig").Window;
 const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const Overrides = @import("Overrides.zig");
 
@@ -440,8 +441,10 @@ pub const Tab = extern struct {
         // a close-page signal that the parent can intercept.
         switch (mode) {
             .this => tab_view.closePage(page),
-            .other => tab_view.closeOtherPages(page),
-            .right => tab_view.closePagesAfter(page),
+            .other, .right => {
+                const window = ext.getAncestor(Window, self.as(gtk.Widget)) orelse return;
+                window.closeTabs(page, mode);
+            },
         }
     }
 

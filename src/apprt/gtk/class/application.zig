@@ -824,10 +824,10 @@ pub const Application = extern struct {
 
             .undo => return self.requestUndo(.undo),
             .redo => return self.requestUndo(.redo),
+            .close_all_windows => self.closeAllWindows(),
 
             // Unimplemented
             .secure_input,
-            .close_all_windows,
             .float_window,
             .toggle_visibility,
             .toggle_background_opacity,
@@ -1039,6 +1039,33 @@ pub const Application = extern struct {
             const entry: *Private.UndoEntry = @fieldParentPtr("entry", item);
             _ = glib.Source.remove(entry.timer);
             self.releaseUndoEntry(entry);
+        }
+    }
+
+    fn closeAllWindows(self: *Self) void {
+        const windows = gtk.Window.listToplevels();
+        defer windows.free();
+        var item: ?*glib.List = windows;
+        while (item) |node| : (item = node.f_next) {
+            const window = gobject.ext.cast(Window, @as(*gtk.Window, @ptrCast(@alignCast(node.f_data orelse continue)))) orelse continue;
+            if (window.isQuickTerminal() or !window.getNeedsConfirmQuit()) continue;
+            const dialog: *CloseConfirmationDialog = .new(.windows);
+            _ = CloseConfirmationDialog.signals.@"close-request".connect(dialog, *Self, closeAllConfirmed, self, .{});
+            dialog.present(window.as(gtk.Widget));
+            return;
+        }
+        closeAllConfirmed(null, self);
+    }
+
+    fn closeAllConfirmed(_: ?*CloseConfirmationDialog, self: *Self) callconv(.c) void {
+        self.beginUndoGroup();
+        defer self.endUndoGroup();
+        const windows = gtk.Window.listToplevels();
+        defer windows.free();
+        var item: ?*glib.List = windows;
+        while (item) |node| : (item = node.f_next) {
+            const window = gobject.ext.cast(Window, @as(*gtk.Window, @ptrCast(@alignCast(node.f_data orelse continue)))) orelse continue;
+            if (!window.isQuickTerminal()) window.closeImmediately();
         }
     }
 
