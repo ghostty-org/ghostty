@@ -187,6 +187,10 @@ in {
 
       machine.wait_for_file("${bus_path}")
 
+      with subtest("GNOME Shell allows window inspection"):
+          machine.wait_until_succeeds("${su "${gdbus} ${gseval} true"}")
+          assert machine.succeed("${su "${gdbus} ${gseval} true"}").strip() == "(true, 'true')"
+
       with subtest("Ensuring no pink is present without the terminal."):
           assert (
               check_for_pink() == False
