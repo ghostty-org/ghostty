@@ -34,14 +34,16 @@ pub const Action = enum {
 /// An entrypoint for the synthetic generator CLI.
 pub fn main(init: std.process.Init) !void {
     const alloc = std.heap.c_allocator;
-    const action_ = try cli.action.detectArgs(Action, alloc, init.minimal.args);
-    const action = action_ orelse return error.NoAction;
-    try mainAction(init.io, alloc, action, .{ .cli = init.minimal.args });
+    const result: cli.action.ActionParser(Action) = try .parseArgs(alloc, init.minimal.args);
+    defer result.deinit(alloc);
+    const action = result.action orelse return error.NoAction;
+    try mainAction(init.io, alloc, action, .{ .cli = result.args });
 }
 
 pub const Args = union(enum) {
-    /// The arguments passed to the CLI via argc/argv.
-    cli: std.process.Args,
+    /// The arguments passed to the CLI via argc/argv, with the action
+    /// removed.
+    cli: []const [:0]const u8,
 
     /// Simple string arguments, parsed via ArgIteratorGeneral.
     string: []const u8,
@@ -72,8 +74,8 @@ fn mainActionImpl(
     var opts: Options = .{};
     defer if (@hasDecl(Options, "deinit")) opts.deinit();
     switch (args) {
-        .cli => |process_args| {
-            var iter = try cli.args.argsIterator(alloc, process_args);
+        .cli => |cli_args| {
+            var iter = cli.args.argsIterator(cli_args);
             defer iter.deinit();
             try cli.args.parse(Options, alloc, &opts, &iter);
         },

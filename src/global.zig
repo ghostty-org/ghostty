@@ -78,7 +78,7 @@ pub fn init(opts: InitOpts) !void {
                 c.argv[0..c.argc] },
         },
         .tmp_dir_path = null,
-        .action = null,
+        .cli_result = .empty,
         .logging = .{},
         .rlimits = .{},
         .resources_dir = .{},
@@ -123,22 +123,20 @@ pub fn init(opts: InitOpts) !void {
     // Discover and save the temporary directory path
     self.tmp_dir_path = try allocTmpDir(self.alloc, self.environ);
 
-    // We first try to parse any action that we may be executing.
-    // Tool binaries (ghostty-bench, ghostty-gen) have their own action
-    // namespace and detect their own actions, so we skip detection here.
-    self.action = switch (opts) {
-        .main, .c => try cli.action.detectArgs(
-            cli.ghostty.Action,
-            self.alloc,
-            self.args,
-        ),
-        .tool => null,
+    // We first try to parse any action that we may be executing. This
+    // also keeps a copy of the args with the action removed for anything
+    // that parses the CLI args later. Tool binaries (ghostty-bench,
+    // ghostty-gen) have their own action namespace and detect their own
+    // actions, so we skip detection here.
+    self.cli_result = switch (opts) {
+        .main, .c => try .parseArgs(self.alloc, self.args),
+        .tool => .empty,
     };
 
     // If we have an action executing, we disable logging by default
     // since we write to stderr we don't want logs messing up our
     // output.
-    if (self.action != null) self.logging.stderr = false;
+    if (self.cli_result.action != null) self.logging.stderr = false;
 
     // I don't love the env var name but I don't have it in my heart
     // to parse CLI args 3 times (once for actions, once for config,
@@ -232,6 +230,7 @@ pub fn init(opts: InitOpts) !void {
 pub fn deinit() void {
     const self = &state.?;
 
+    self.cli_result.deinit(self.alloc);
     self.resources_dir.deinit(self.alloc);
 
     // Flush our crash logs
@@ -330,6 +329,18 @@ pub fn args() std.process.Args {
     return state.?.args;
 }
 
+/// Returns a copy of the process args (including argv0) with the CLI
+/// action removed, or an empty list when testing. Use this rather than
+/// `args` when parsing the CLI args, so that a `+`-prefixed argument
+/// after `-e` is passed through rather than mistaken for the action.
+///
+/// Asserts that the global state is initialized when not running as a test.
+pub fn cliArgs() []const [:0]const u8 {
+    if (builtin.is_test) return &.{};
+
+    return state.?.cli_result.args;
+}
+
 /// Returns the temporary directory discovered from the global environment
 /// (saves allocation of the temporary directory where you can get at global
 /// state).
@@ -368,7 +379,7 @@ pub fn logging() GlobalState.Logging {
 ///
 /// Asserts that the global state is initialized.
 pub fn action() ?cli.ghostty.Action {
-    return state.?.action;
+    return state.?.cli_result.action;
 }
 
 /// This represents the global process state. There should only
@@ -383,7 +394,10 @@ pub const GlobalState = struct {
     environ: std.process.Environ,
     args: std.process.Args,
     tmp_dir_path: ?[]const u8,
-    action: ?cli.ghostty.Action,
+
+    /// The CLI action, if any, and the CLI args with it removed.
+    cli_result: cli.ghostty.Action.ParseResult,
+
     logging: Logging,
     rlimits: ResourceLimits = .{},
 

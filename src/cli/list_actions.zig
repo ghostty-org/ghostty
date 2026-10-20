@@ -33,7 +33,7 @@ pub fn run(alloc: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc, global.args());
+        var iter = args.argsIterator(global.cliArgs());
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }

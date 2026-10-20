@@ -29,8 +29,9 @@ pub const Action = enum {
 
 pub fn main(init: std.process.Init) !void {
     const alloc = std.heap.c_allocator;
-    const action_ = try cli.action.detectArgs(Action, alloc, init.minimal.args);
-    const action = action_ orelse return error.NoAction;
+    const result: cli.action.ActionParser(Action) = try .parseArgs(alloc, init.minimal.args);
+    defer result.deinit(alloc);
+    const action = result.action orelse return error.NoAction;
 
     // Our output always goes to stdout.
     var buffer: [1024]u8 = undefined;

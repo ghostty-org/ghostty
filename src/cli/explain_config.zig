@@ -52,7 +52,7 @@ pub fn run(alloc: Allocator) !u8 {
     var positional: ?[]const u8 = null;
     var no_pager: bool = false;
 
-    var iter = try args.argsIterator(alloc, global.args());
+    var iter = args.argsIterator(global.cliArgs());
     defer iter.deinit();
     defer if (option_name) |s| alloc.free(s);
     defer if (keybind_name) |s| alloc.free(s);

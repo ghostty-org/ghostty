@@ -61,7 +61,7 @@ pub const Options = struct {
 ///     is identical to the `font-family` set of Ghostty configuration values, so
 ///     this can be used to debug why your desired font may not be loading.
 pub fn run(alloc: Allocator) !u8 {
-    var iter = try args.argsIterator(alloc, global.args());
+    var iter = args.argsIterator(global.cliArgs());
     defer iter.deinit();
     return try runArgs(alloc, &iter);
 }

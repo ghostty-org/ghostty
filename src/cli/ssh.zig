@@ -183,7 +183,7 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try cli_args.argsIterator(alloc_gpa, global.args());
+        var iter = cli_args.argsIterator(global.cliArgs());
         defer iter.deinit();
         try cli_args.parse(Options, alloc_gpa, &opts, &iter);
     }

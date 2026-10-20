@@ -34,7 +34,7 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc_gpa, global.args());
+        var iter = args.argsIterator(global.cliArgs());
         defer iter.deinit();
         try args.parse(Options, alloc_gpa, &opts, &iter);
     }

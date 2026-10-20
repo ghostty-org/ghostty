@@ -108,7 +108,7 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(gpa_alloc, global.args());
+        var iter = args.argsIterator(global.cliArgs());
         defer iter.deinit();
         try args.parse(Options, gpa_alloc, &opts, &iter);
     }

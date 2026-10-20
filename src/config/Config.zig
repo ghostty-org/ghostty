@@ -4389,7 +4389,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
     }
 
     // Initialize our CLI iterator.
-    var iter = try cli.args.argsIterator(alloc_gpa, global.args());
+    var iter = cli.args.argsIterator(global.cliArgs());
     defer iter.deinit();
     try self.loadIter(alloc_gpa, &iter);
 

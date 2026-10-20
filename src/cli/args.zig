@@ -1317,9 +1317,6 @@ test "parseIntoField: tagged union missing tag" {
 /// An iterator that considers its location to be CLI args. It
 /// iterates through an underlying iterator and increments a counter
 /// to track the current CLI arg index.
-///
-/// This also ignores any argument that starts with `+`. It assumes that
-/// actions were parsed out before this iterator was created.
 pub fn ArgsIterator(comptime Iterator: type) type {
     return struct {
         const Self = @This();
@@ -1341,12 +1338,6 @@ pub fn ArgsIterator(comptime Iterator: type) type {
         pub fn next(self: *Self) ?[]const u8 {
             const value = self.iterator.next() orelse return null;
             self.index += 1;
-
-            // We ignore any argument that starts with "+". This is used
-            // to indicate actions and are expected to be parsed out before
-            // this iterator is created.
-            if (value.len > 0 and value[0] == '+') return self.next();
-
             return value;
         }
 
@@ -1357,13 +1348,10 @@ pub fn ArgsIterator(comptime Iterator: type) type {
     };
 }
 
-/// Create an args iterator for the process args. This will skip argv0.
-pub fn argsIterator(
-    alloc_gpa: Allocator,
-    args: std.process.Args,
-) std.process.Args.Iterator.InitError!ArgsIterator(std.process.Args.Iterator) {
-    var iter: std.process.Args.Iterator = try .initAllocator(args, alloc_gpa);
-    errdefer iter.deinit();
+/// Create an args iterator for the process args with the action already
+/// removed (see `cli.action.ActionParser`). This will skip argv0.
+pub fn argsIterator(args: []const [:0]const u8) ArgsIterator(SliceIterator) {
+    var iter = sliceIterator(args);
     _ = iter.next(); // skip argv0
     return .{ .iterator = iter };
 }
@@ -1380,6 +1368,7 @@ test "ArgsIterator" {
     defer iter.deinit();
 
     try testing.expectEqualStrings("--what", iter.next().?);
+    try testing.expectEqualStrings("+list-things", iter.next().?);
     try testing.expectEqualStrings("--a=42", iter.next().?);
     try testing.expectEqual(@as(?[]const u8, null), iter.next());
     try testing.expectEqual(@as(?[]const u8, null), iter.next());

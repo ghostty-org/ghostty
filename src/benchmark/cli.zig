@@ -54,15 +54,17 @@ pub const Action = enum {
 pub fn main(minimal: std.process.Init.Minimal) !void {
     try global.init(.{ .tool = minimal });
     const alloc = std.heap.c_allocator;
-    const action_ = try cli.action.detectArgs(Action, alloc, minimal.args);
-    const action = action_ orelse return error.NoAction;
-    try mainAction(alloc, action, .{ .cli = minimal.args });
+    const result: cli.action.ActionParser(Action) = try .parseArgs(alloc, minimal.args);
+    defer result.deinit(alloc);
+    const action = result.action orelse return error.NoAction;
+    try mainAction(alloc, action, .{ .cli = result.args });
 }
 
 /// Arguments that can be passed to the benchmark.
 pub const Args = union(enum) {
-    /// The arguments passed to the CLI via argc/argv.
-    cli: std.process.Args,
+    /// The arguments passed to the CLI via argc/argv, with the action
+    /// removed.
+    cli: []const [:0]const u8,
 
     /// Simple string arguments, parsed via ArgIteratorGeneral.
     string: []const u8,
@@ -91,8 +93,8 @@ fn mainActionImpl(
     var opts: Options = .{};
     defer if (@hasDecl(Options, "deinit")) opts.deinit();
     switch (args) {
-        .cli => |process_args| {
-            var iter = try cli.args.argsIterator(alloc, process_args);
+        .cli => |cli_args| {
+            var iter = cli.args.argsIterator(cli_args);
             defer iter.deinit();
             try cli.args.parse(Options, alloc, &opts, &iter);
         },

@@ -63,7 +63,7 @@ pub const Options = struct {
 ///     style. Valid options are `text` and `emoji`. If unset, the presentation
 ///     style of a codepoint will be inferred from the Unicode standard.
 pub fn run(alloc: Allocator) !u8 {
-    var iter = try args.argsIterator(alloc, global.args());
+    var iter = args.argsIterator(global.cliArgs());
     defer iter.deinit();
 
     var stdout_buffer: [1024]u8 = undefined;

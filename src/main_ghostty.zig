@@ -44,6 +44,11 @@ pub fn main(minimal: std.process.Init.Minimal) !MainReturn {
                 .{},
             ),
 
+            error.MultipleFallbackActions => try stderr.print(
+                "Error: `--help` or `-h` was specified more than once.\n",
+                .{},
+            ),
+
             error.InvalidAction => try stderr.print(
                 "Error: unknown CLI action specified. CLI actions are specified with\n" ++
                     "the '+' character.\n\n" ++
