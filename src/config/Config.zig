@@ -2725,10 +2725,6 @@ keybind: Keybinds = .{},
 /// `1h1h` is equivalent to `2h`. This is confusing and should be avoided.
 /// A future update may disallow this.
 ///
-/// This configuration is only supported on macOS. Linux doesn't
-/// support undo operations at all so this configuration has no
-/// effect.
-///
 /// Available since: 1.2.0
 @"undo-timeout": Duration = .{ .duration = 5 * std.time.ns_per_s },
 
