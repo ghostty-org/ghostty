@@ -48,6 +48,295 @@ const DisplayLink = switch (builtin.os.tag) {
 
 const log = std.log.scoped(.generic_renderer);
 
+/// Where the frame on screen draws each animating region, for the surface
+/// to undo when it turns a pointer into a row: the offsets each frame in
+/// the swap chain was drawn with, and those of the frame presented last,
+/// each with the region scrolls the terminal has done since the frame was
+/// drawn folded in — they moved the terminal's rows, not the frame's.
+///
+/// A frame's offsets apply once it is on screen, not when it is drawn:
+/// until the GPU has finished it the previous frame is what is shown, and
+/// at the start of an ease one frame moves a region most of a row. Where
+/// the graphics API can say which target it is showing (`shownTarget`),
+/// that decides; otherwise the frame it last reported presented
+/// (`framePresented`) does. An API that does neither (OpenGL, today)
+/// publishes nothing, and its hit tests don't undo region offsets.
+///
+/// Guarded by its own mutex rather than the renderer state mutex, which
+/// drawFrame can't take: it holds `draw_mutex` and runs on the main thread
+/// too, while updateFrame takes the state mutex and then `draw_mutex`. This
+/// one is taken last everywhere (inside `draw_mutex` by drawFrame, inside
+/// the state mutex by updateFrame and the surface) and nothing is taken
+/// while it is held, so it can't be part of a deadlock.
+/// The focused cursor under `smooth-cursor`: the rectangle the cursor
+/// sprite would fill, in grid pixels, moving to where the terminal's
+/// cursor is rather than appearing there. The cell background shader
+/// fills it (`Uniforms.cursor_rect` / `cursor_fill`) and, for a block
+/// cursor, the text shader colors every glyph as cursor text by how much
+/// of each pixel the rect covers (`cursor_glide_text`), which is what a
+/// cursor halfway across a glyph looks like. The sprite is still added at
+/// alpha 0 so the custom shader uniforms keep describing the cursor's cell.
+const CursorGlide = struct {
+    /// The grid cell aimed at, for the region scroll shift.
+    cell: [2]u16,
+    /// Where the rect is going: left, top, width, height.
+    to: [4]f32,
+    /// Where it set out from and when; null once it has arrived.
+    from: [4]f32,
+    start: ?std.Io.Timestamp,
+    /// The rect last drawn, which a retarget mid-glide sets out from.
+    current: [4]f32,
+    /// Frames drawn since the glide began, for the log line when it lands.
+    frames: u32 = 0,
+    /// How far along the glide is, 0 to 1; 1 at rest.
+    progress: f64 = 1,
+
+    /// How long a glide takes.
+    pub const duration_s: f64 = 0.14;
+
+    /// The trail (`cursor-trail`): the fraction of the move the streak's
+    /// tail waits before following its head, the streak's peak opacity,
+    /// and the move, in cell heights, below which there is no streak
+    /// (typing moves one cell at a time; a streak there is noise).
+    pub const trail_tail_lag: f64 = 0.5;
+    pub const trail_opacity: f32 = 0.6;
+    pub const trail_min_move_cells: f32 = 1.5;
+
+    /// The streak behind a moving cursor: an axis-aligned box of
+    /// `half_size` swept along `from` → `to` (centers, grid pixels), at
+    /// `opacity`. The box slides rather than rotates, so a diagonal move
+    /// leaves a slanted streak with square ends, the shape a sliding
+    /// cursor would paint.
+    pub const Trail = struct {
+        from: [2]f32,
+        to: [2]f32,
+        half_size: [2]f32,
+        opacity: f32,
+    };
+
+    /// A cursor placed with nothing to glide from: drawn at `rect` at once.
+    fn resting(cell: [2]u16, rect: [4]f32) CursorGlide {
+        return .{ .cell = cell, .to = rect, .from = rect, .start = null, .current = rect };
+    }
+
+    /// The streak this moment of the glide leaves, or null at rest or for
+    /// a move too short to streak. The head is where the cursor is drawn
+    /// (`current`); the tail sets out `trail_tail_lag` of the way in and
+    /// the whole streak fades as the glide completes.
+    fn trail(self: *const CursorGlide, cell_height: f32) ?Trail {
+        if (self.start == null) return null;
+        const from = center(self.from);
+        const to = center(self.to);
+        const dx = to[0] - from[0];
+        const dy = to[1] - from[1];
+        if (@sqrt(dx * dx + dy * dy) < cell_height * trail_min_move_cells) return null;
+        const t = self.progress;
+        const tail: f32 = @floatCast(ease(std.math.clamp(
+            (t - trail_tail_lag) / (1.0 - trail_tail_lag),
+            0.0,
+            1.0,
+        )));
+        return .{
+            .from = .{ from[0] + dx * tail, from[1] + dy * tail },
+            .to = center(self.current),
+            .half_size = .{ self.current[2] * 0.5, self.current[3] * 0.5 },
+            .opacity = trail_opacity * @as(f32, @floatCast(1.0 - t)),
+        };
+    }
+
+    fn center(rect: [4]f32) [2]f32 {
+        return .{ rect[0] + rect[2] * 0.5, rect[1] + rect[3] * 0.5 };
+    }
+
+    /// Ease-out cubic: most of the distance goes early, the landing is soft.
+    fn ease(t: f64) f64 {
+        return 1.0 - std.math.pow(f64, 1.0 - t, 3.0);
+    }
+
+    /// Aim at `rect`. The rect already aimed at changes nothing; any
+    /// other starts a glide from wherever the rect is drawn now, so a
+    /// cursor retargeted mid-glide turns toward the new place instead of
+    /// jumping back to where the last glide began.
+    fn retarget(self: *CursorGlide, cell: [2]u16, rect: [4]f32, now: std.Io.Timestamp) void {
+        self.cell = cell;
+        if (std.meta.eql(rect, self.to)) return;
+        self.from = self.current;
+        self.to = rect;
+        self.start = now;
+        self.frames = 0;
+        self.progress = 0;
+    }
+
+    fn inFlight(self: *const CursorGlide) bool {
+        return self.start != null;
+    }
+
+    /// Advance to `now` and return the rect to draw.
+    fn step(self: *CursorGlide, now: std.Io.Timestamp) [4]f32 {
+        const start = self.start orelse return self.to;
+        const elapsed_ns: f64 = @floatFromInt(@max(start.durationTo(now).nanoseconds, 0));
+        const elapsed_s = elapsed_ns / std.time.ns_per_s;
+        self.current = rectAt(self.from, self.to, elapsed_s);
+        self.progress = std.math.clamp(elapsed_s / duration_s, 0.0, 1.0);
+        self.frames += 1;
+        if (elapsed_s >= duration_s) {
+            self.start = null;
+            log.debug(
+                "smooth cursor landed after {} frames in {d:.0}ms",
+                .{ self.frames, elapsed_s * std.time.ms_per_s },
+            );
+        }
+        return self.current;
+    }
+
+    /// The rect `elapsed_s` into a glide from `from` to `to`, eased. Each
+    /// edge is interpolated, so a bar growing into a block morphs.
+    fn rectAt(from: [4]f32, to: [4]f32, elapsed_s: f64) [4]f32 {
+        const t = std.math.clamp(elapsed_s / duration_s, 0.0, 1.0);
+        const e: f32 = @floatCast(ease(t));
+        var rect: [4]f32 = undefined;
+        for (&rect, from, to) |*out, a, b| out.* = a + (b - a) * e;
+        return rect;
+    }
+};
+
+test "CursorGlide eases out from where it is and lands exactly" {
+    const testing = std.testing;
+    const from: [4]f32 = .{ 0, 0, 10, 20 };
+    const to: [4]f32 = .{ 100, 40, 10, 20 };
+
+    // Nothing moved yet; everything moved at the end; exact landing.
+    try testing.expectEqual(from, CursorGlide.rectAt(from, to, 0));
+    try testing.expectEqual(to, CursorGlide.rectAt(from, to, CursorGlide.duration_s));
+    try testing.expectEqual(to, CursorGlide.rectAt(from, to, 10));
+
+    // Ease-out: past half the time it is well past half the distance.
+    const mid = CursorGlide.rectAt(from, to, CursorGlide.duration_s / 2);
+    try testing.expect(mid[0] > 80 and mid[0] < 100);
+    try testing.expect(mid[1] > 32 and mid[1] < 40);
+
+    // A resting cursor retargeted to the same rect stays at rest.
+    var glide: CursorGlide = .resting(.{ 0, 0 }, from);
+    const t0: std.Io.Timestamp = .now(testing.io, .awake);
+    glide.retarget(.{ 0, 0 }, from, t0);
+    try testing.expect(!glide.inFlight());
+
+    // Retargeted elsewhere it sets out from the rect it was drawing, so a
+    // second retarget mid-glide starts from the eased position.
+    glide.retarget(.{ 10, 2 }, to, t0);
+    try testing.expect(glide.inFlight());
+    try testing.expectEqual(from, glide.from);
+    glide.current = mid;
+    glide.retarget(.{ 0, 0 }, from, t0);
+    try testing.expectEqual(mid, glide.from);
+    try testing.expectEqual(from, glide.to);
+}
+
+test "CursorGlide trails a long move from its tail to the drawn head" {
+    const testing = std.testing;
+    const cell_h: f32 = 20;
+    const from: [4]f32 = .{ 0, 0, 10, cell_h };
+    const t0: std.Io.Timestamp = .now(testing.io, .awake);
+
+    // At rest there is no streak; nor for a move of a cell or two.
+    var glide: CursorGlide = .resting(.{ 0, 0 }, from);
+    try testing.expect(glide.trail(cell_h) == null);
+    glide.retarget(.{ 2, 0 }, .{ 20, 0, 10, cell_h }, t0);
+    glide.progress = 0.25;
+    try testing.expect(glide.trail(cell_h) == null);
+
+    // A long move: early on the tail is still at the start and the head
+    // is wherever the cursor is drawn, at near-full opacity.
+    glide = .resting(.{ 0, 0 }, from);
+    glide.retarget(.{ 10, 2 }, .{ 100, 40, 10, cell_h }, t0);
+    glide.progress = 0.25;
+    glide.current = .{ 50, 20, 10, cell_h };
+    const early = glide.trail(cell_h).?;
+    try testing.expectEqual([2]f32{ 5, 10 }, early.from);
+    try testing.expectEqual([2]f32{ 55, 30 }, early.to);
+    try testing.expectEqual([2]f32{ 5, 10 }, early.half_size);
+    try testing.expect(early.opacity > 0.4 and early.opacity < 0.5);
+
+    // Past the lag the tail follows, and at the end everything has faded.
+    glide.progress = 0.75;
+    const late = glide.trail(cell_h).?;
+    try testing.expect(late.from[0] > 5 and late.from[0] < 105);
+    glide.progress = 1;
+    try testing.expect(glide.trail(cell_h).?.opacity == 0);
+}
+
+fn PresentedRegions(comptime slots: usize) type {
+    return struct {
+        const Self = @This();
+        const RegionShifts = terminal.RenderState.RegionShifts;
+
+        mutex: std.Io.Mutex = .init,
+        presented: RegionShifts = .{},
+        frames: [slots]Frame = @splat(.{}),
+
+        const Frame = struct {
+            /// The target it was drawn to, as the graphics API names it
+            /// (`targetIdentity`), or 0 where the API can't say.
+            target: usize = 0,
+            shifts: RegionShifts = .{},
+        };
+
+        /// A frame was drawn to `target` in swap chain slot `slot` with
+        /// these offsets.
+        pub fn drew(self: *Self, io: std.Io, slot: usize, target: usize, shifts: RegionShifts) void {
+            self.mutex.lockUncancelable(io);
+            defer self.mutex.unlock(io);
+            // A rebuilt swap chain can reuse a released target's name; only
+            // the frame drawn last answers to it.
+            if (target != 0) for (&self.frames) |*frame| {
+                if (frame.target == target) frame.target = 0;
+            };
+            self.frames[slot] = .{ .target = target, .shifts = shifts };
+        }
+
+        /// The terminal scrolled these regions after every frame drawn so
+        /// far, the one on screen included.
+        pub fn scrolled(
+            self: *Self,
+            io: std.Io,
+            scrolls: []const terminal.Screen.RegionScroll,
+            cell_height: f64,
+        ) void {
+            self.mutex.lockUncancelable(io);
+            defer self.mutex.unlock(io);
+            for (scrolls) |scroll| {
+                self.presented.addScroll(scroll, cell_height);
+                for (&self.frames) |*frame| frame.shifts.addScroll(scroll, cell_height);
+            }
+        }
+
+        /// The frame last drawn into `slot` has been presented.
+        pub fn present(self: *Self, io: std.Io, slot: usize) void {
+            self.mutex.lockUncancelable(io);
+            defer self.mutex.unlock(io);
+            self.presented = self.frames[slot].shifts;
+        }
+
+        /// The offsets of the frame on screen: the one drawn to `shown`,
+        /// the target the graphics API says it is showing, when that is
+        /// known, and otherwise the frame presented last.
+        ///
+        /// On macOS the layer's contents change on the main thread while a
+        /// frame is presented from the GPU's completion thread, so the
+        /// frame presented last can be a frame ahead of the one a
+        /// main-thread hit test sees, or a frame behind; the layer itself
+        /// never is.
+        pub fn get(self: *Self, io: std.Io, shown: usize) RegionShifts {
+            self.mutex.lockUncancelable(io);
+            defer self.mutex.unlock(io);
+            if (shown != 0) for (self.frames) |frame| {
+                if (frame.target == shown) return frame.shifts;
+            };
+            return self.presented;
+        }
+    };
+}
+
 /// Create a renderer type with the provided graphics API wrapper.
 ///
 /// The graphics API wrapper must provide the interface outlined below.
@@ -178,6 +467,40 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// to determine if any possible changes have been made to the
         /// cells for the draw call.
         cells_rebuilt: bool = false,
+
+        /// Region scroll animations in flight (see `RegionAnim`), the
+        /// scrolls drained from the terminal that they have yet to take
+        /// in, and the clock the shifts decay against. `region_anim_screen`
+        /// is the screen they were recorded on; a switch drops them.
+        region_anims: std.ArrayListUnmanaged(RegionAnim) = .empty,
+        pending_region_scrolls: std.ArrayListUnmanaged(terminal.Screen.RegionScroll) = .empty,
+        region_anim_tick: ?std.Io.Timestamp = null,
+        region_anim_screen: ?terminal.ScreenSet.Key = null,
+
+        /// The clock a `smooth-scroll-rows` viewport move eases against
+        /// (`decayViewportScroll`); null while none is in flight.
+        viewport_anim_tick: ?std.Io.Timestamp = null,
+
+        /// The region scroll animations of the frame on screen, for the
+        /// surface to undo when it turns a pointer into a row (see
+        /// `regionShifts`).
+        presented_regions: PresentedRegions(SwapChain.buf_count) = .{},
+
+        /// The focused cursor's motion under `smooth-cursor` or
+        /// `cursor-trail` (see `CursorGlide`): null until a cursor has been
+        /// placed, and whether this frame's cells put a cursor there for
+        /// the shaders to draw from it. The rect and the trail are written
+        /// into the uniforms every drawn frame (`tickCursorGlide`).
+        cursor_glide: ?CursorGlide = null,
+        cursor_glide_shown: bool = false,
+
+        /// What is uploaded to the GPU while ghost rows exist: the live
+        /// background cells followed by one row per ghost, and the ghost
+        /// glyphs re-addressed to grid rows past the live grid. Rebuilt
+        /// whenever the animations change; empty otherwise.
+        ghost_bg_upload: std.ArrayListUnmanaged(shaderpkg.CellBg) = .empty,
+        ghost_fg_upload: std.ArrayListUnmanaged(shaderpkg.CellText) = .empty,
+        fg_upload_lists: std.ArrayListUnmanaged(std.ArrayListUnmanaged(shaderpkg.CellText)) = .empty,
 
         /// The current GPU uniform values.
         uniforms: shaderpkg.Uniforms,
@@ -593,6 +916,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             background: terminal.color.RGB,
             background_opacity: f64,
             background_opacity_cells: bool,
+            background_default_transparent: bool,
             foreground: terminal.color.RGB,
             selection_background: ?configpkg.Config.TerminalColor,
             selection_foreground: ?configpkg.Config.TerminalColor,
@@ -616,6 +940,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             blending: configpkg.Config.AlphaBlending,
             background_blur: configpkg.Config.BackgroundBlur,
             scroll_to_bottom_on_output: bool,
+            smooth_scroll: bool,
+            smooth_scroll_rows: bool,
+            smooth_cursor: bool,
+            cursor_trail: bool,
             custom_shader_animation: configpkg.CustomShaderAnimation,
 
             pub fn init(
@@ -654,6 +982,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 return .{
                     .background_opacity = @max(0, @min(1, config.@"background-opacity")),
                     .background_opacity_cells = config.@"background-opacity-cells",
+                    .background_default_transparent = config.@"background-default-transparent",
                     .font_thicken = config.@"font-thicken",
                     .font_thicken_strength = config.@"font-thicken-strength",
                     .font_features = font_features.list,
@@ -691,6 +1020,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .blending = config.@"alpha-blending",
                     .background_blur = config.@"background-blur",
                     .scroll_to_bottom_on_output = config.@"scroll-to-bottom".output,
+                    .smooth_scroll = config.@"smooth-scroll",
+                    .smooth_scroll_rows = config.@"smooth-scroll-rows",
+                    .smooth_cursor = config.@"smooth-cursor",
+                    .cursor_trail = config.@"cursor-trail",
                     .custom_shader_animation = config.@"custom-shader-animation",
                     .arena = arena,
                 };
@@ -753,6 +1086,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // Render state
                 .cells = .{},
                 .uniforms = .{
+                    .scroll_offset = .{ 0, 0, 0, 0 },
                     .projection_matrix = undefined,
                     .cell_size = undefined,
                     .grid_size = undefined,
@@ -857,6 +1191,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             self.cells.deinit(self.alloc);
+            self.clearRegionAnims();
+            self.region_anims.deinit(self.alloc);
+            self.pending_region_scrolls.deinit(self.alloc);
+            self.ghost_bg_upload.deinit(self.alloc);
+            self.ghost_fg_upload.deinit(self.alloc);
+            self.fg_upload_lists.deinit(self.alloc);
 
             self.font_shaper.deinit();
             self.font_shaper_cache.deinit(self.alloc);
@@ -1098,6 +1438,66 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.syncDisplayLink(id, draw_now);
         }
 
+        /// A scroll region of the alternate screen whose content a
+        /// program moved by whole rows (Helix scrolling a view, `less`
+        /// paging), being drawn as motion. The region's new content is
+        /// drawn `shift` pixels from where it belongs, which is where the
+        /// old content was, and slides home as the shift decays; the rows
+        /// that scrolled out stay on as ghosts, sliding out ahead of it
+        /// and clipped at the region's edge. Another scroll of the same
+        /// region while it is moving adds to the shift, so a program
+        /// stepping rows on a timer reads as one continuous motion.
+        ///
+        /// Ghost cells are the previous frame's GPU cells for the rows
+        /// that left: they need no terminal access, only the frame before.
+        const RegionAnim = struct {
+            region: terminal.Screen.RegionScroll,
+            /// Pixels the content is drawn below its final place (negative:
+            /// above).
+            shift: f64,
+            ghosts: std.ArrayListUnmanaged(Ghost) = .empty,
+            /// Frames drawn so far, for the log line when it ends.
+            frames: u32 = 0,
+
+            const Ghost = struct {
+                /// The grid row this row now belongs at, outside the region.
+                final_row: i32,
+                bg: []shaderpkg.CellBg,
+                fg: []shaderpkg.CellText,
+
+                fn deinit(self: *Ghost, alloc: Allocator) void {
+                    alloc.free(self.bg);
+                    alloc.free(self.fg);
+                }
+            };
+
+            fn deinit(self: *RegionAnim, alloc: Allocator) void {
+                for (self.ghosts.items) |*ghost| ghost.deinit(alloc);
+                self.ghosts.deinit(alloc);
+            }
+
+            /// Grid-pixel extent of the region: left, top, right, bottom.
+            fn rect(self: *const RegionAnim, cell_w: f32, cell_h: f32) [4]f32 {
+                const r = self.region;
+                return .{
+                    @as(f32, @floatFromInt(r.left)) * cell_w,
+                    @as(f32, @floatFromInt(r.top)) * cell_h,
+                    @as(f32, @floatFromInt(@as(u32, r.right) + 1)) * cell_w,
+                    @as(f32, @floatFromInt(@as(u32, r.bottom) + 1)) * cell_h,
+                };
+            }
+        };
+
+        comptime {
+            if (shaderpkg.Uniforms.max_region_anims > terminal.RenderState.RegionShifts.capacity)
+                @compileError("a frame's region animations must fit in what it publishes");
+        }
+
+        /// How long a region scroll takes to close 63% of its remaining
+        /// distance. A half-page jump lands in about a quarter second,
+        /// most of it in the first hundred milliseconds.
+        const region_anim_tau_s: f64 = 0.045;
+
         /// The cadence of continuous (draw-only) animation wakes,
         /// i.e. 120fps, and the floor for any animation wake delay.
         pub const draw_interval_ms: u64 = 8;
@@ -1156,16 +1556,407 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 break :kitty @max(next -| now_ms, draw_interval_ms);
             };
 
+            // Region scroll animations decay every draw while any is
+            // in flight, and the smooth cursor moves every draw while it
+            // is on its way; both are recomputed from the clock in
+            // drawFrame, so a draw wake is all they need.
+            const draw_delay: ?u64 = if (self.region_anims.items.len > 0 or
+                self.cursorGlideInFlight())
+                draw_interval_ms
+            else
+                shader_delay;
+
+            // A `smooth-scroll-rows` viewport move eases in the terminal's
+            // own offset, which only updateFrame can reach (it holds the
+            // lock), so it needs update wakes rather than draws.
+            const update_delay: ?u64 = if (self.viewport_anim_tick != null)
+                draw_interval_ms
+            else
+                kitty_delay;
+
             // An update wake includes a draw, so it wins ties.
-            if (kitty_delay) |k| {
-                if (shader_delay == null or k <= shader_delay.?) {
+            if (update_delay) |k| {
+                if (draw_delay == null or k <= draw_delay.?) {
                     return .{ .delay_ms = k, .kind = .update };
                 }
             }
 
-            if (shader_delay) |s| return .{ .delay_ms = s, .kind = .draw };
+            if (draw_delay) |s| return .{ .delay_ms = s, .kind = .draw };
 
             return null;
+        }
+
+        /// Drop every region scroll animation and its ghost rows.
+        fn clearRegionAnims(self: *Self) void {
+            for (self.region_anims.items) |*anim| anim.deinit(self.alloc);
+            self.region_anims.clearRetainingCapacity();
+            self.region_anim_tick = null;
+        }
+
+        /// Take the region scrolls recorded since the previous frame into
+        /// the animations, making ghost rows of the rows that scrolled out
+        /// from the previous frame's GPU cells. Must run in rebuildCells
+        /// before those cells are rebuilt, under the draw mutex.
+        fn applyRegionScrolls(
+            self: *Self,
+            state: *const terminal.RenderState,
+            grid_changed: bool,
+        ) void {
+            defer self.pending_region_scrolls.clearRetainingCapacity();
+
+            // A resize scrambles the cells the ghosts would come from, and
+            // a screen switch leaves nothing to animate.
+            if (grid_changed or
+                self.region_anim_screen == null or
+                self.region_anim_screen.? != state.screen)
+            {
+                self.clearRegionAnims();
+                self.region_anim_screen = state.screen;
+                if (grid_changed) {
+                    // The pending scrolls refer to the old grid; drop them
+                    // and leave the uniforms describing no animation.
+                    self.rebuildRegionUniforms();
+                    return;
+                }
+            }
+
+            const cell_h: f64 = @floatFromInt(self.grid_metrics.cell_height);
+            const cols: usize = self.cells.size.columns;
+            for (self.pending_region_scrolls.items) |scroll| {
+                const anim: *RegionAnim = anim: {
+                    for (self.region_anims.items) |*anim| {
+                        if (anim.region.sameRegion(scroll)) break :anim anim;
+                    }
+                    if (self.region_anims.items.len >= shaderpkg.Uniforms.max_region_anims) continue;
+                    self.region_anims.append(self.alloc, .{
+                        .region = scroll,
+                        .shift = 0,
+                    }) catch continue;
+                    break :anim &self.region_anims.items[self.region_anims.items.len - 1];
+                };
+
+                // The new content is drawn where the old was: `lines` rows
+                // away. Beyond the region's height nothing of the old
+                // content is left to slide, so the shift is capped there.
+                // The surface's hit test accumulates with the same rule.
+                anim.shift = terminal.RenderState.RegionShift.scrolledOffset(
+                    anim.shift,
+                    scroll,
+                    cell_h,
+                );
+                for (anim.ghosts.items) |*ghost| ghost.final_row -= scroll.lines;
+
+                // The rows that left the region, as the previous frame drew
+                // them. A scroll up loses rows at the top, a scroll down at
+                // the bottom; each ends up `lines` rows from where it was.
+                const count: usize = @intCast(@abs(scroll.lines));
+                const first: usize = if (scroll.lines > 0)
+                    scroll.top
+                else
+                    @as(usize, scroll.bottom) + 1 - count;
+                for (first..first + count) |row| {
+                    if (row >= self.cells.size.rows) break;
+                    const bg = self.alloc.dupe(
+                        shaderpkg.CellBg,
+                        self.cells.bg_cells[row * cols ..][0..cols],
+                    ) catch break;
+                    const fg = self.alloc.dupe(
+                        shaderpkg.CellText,
+                        self.cells.fg_rows[row + 1].items,
+                    ) catch {
+                        self.alloc.free(bg);
+                        break;
+                    };
+                    anim.ghosts.append(self.alloc, .{
+                        .final_row = @as(i32, @intCast(row)) - scroll.lines,
+                        .bg = bg,
+                        .fg = fg,
+                    }) catch {
+                        self.alloc.free(bg);
+                        self.alloc.free(fg);
+                        break;
+                    };
+                }
+            }
+
+            for (self.region_anims.items) |*anim| {
+                log.debug(
+                    "region scroll animation rows={}..{} cols={}..{} shift={d:.1}px ghosts={}",
+                    .{
+                        anim.region.top,
+                        anim.region.bottom,
+                        anim.region.left,
+                        anim.region.right,
+                        anim.shift,
+                        anim.ghosts.items.len,
+                    },
+                );
+            }
+
+            self.pruneGhosts();
+            self.rebuildRegionUniforms();
+        }
+
+        /// Drop ghost rows that have slid out of sight, and the oldest
+        /// ones beyond what the uniforms can carry.
+        fn pruneGhosts(self: *Self) void {
+            const cell_h: f64 = @floatFromInt(self.grid_metrics.cell_height);
+            var total: usize = 0;
+            for (self.region_anims.items) |*anim| {
+                const top: f64 = @as(f64, @floatFromInt(anim.region.top)) * cell_h;
+                const bottom: f64 = @as(f64, @floatFromInt(@as(u32, anim.region.bottom) + 1)) * cell_h;
+                var i: usize = 0;
+                while (i < anim.ghosts.items.len) {
+                    const ghost = &anim.ghosts.items[i];
+                    const y: f64 = @as(f64, @floatFromInt(ghost.final_row)) * cell_h + anim.shift;
+                    if (y + cell_h <= top or y >= bottom) {
+                        ghost.deinit(self.alloc);
+                        _ = anim.ghosts.orderedRemove(i);
+                        continue;
+                    }
+                    i += 1;
+                }
+                total += anim.ghosts.items.len;
+            }
+            // Oldest first: the earliest ghosts are the farthest out.
+            var over: usize = total -| shaderpkg.Uniforms.max_ghost_rows;
+            while (over > 0) : (over -= 1) {
+                for (self.region_anims.items) |*anim| {
+                    if (anim.ghosts.items.len == 0) continue;
+                    anim.ghosts.items[0].deinit(self.alloc);
+                    _ = anim.ghosts.orderedRemove(0);
+                    break;
+                }
+            }
+        }
+
+        /// Ease a `smooth-scroll-rows` viewport move toward its place: the
+        /// offset the surface left (`Surface.rowScrollOffset`) decays on the
+        /// region scroll animation's curve, so scrollback and a program's
+        /// own scrolled region move alike. It lives in the terminal, not
+        /// here, so the hit test, the cursor and selection all see what is
+        /// drawn without a copy of it. Called under the terminal lock before
+        /// the render state reads the offset.
+        fn decayViewportScroll(self: *Self, screen: *terminal.Screen) void {
+            const offset = screen.viewport_pixel_offset;
+            if (offset == 0) {
+                self.viewport_anim_tick = null;
+                return;
+            }
+            const now: std.Io.Timestamp = .now(global.io(), .awake);
+            // The first frame of a move draws it where it starts.
+            const last = self.viewport_anim_tick orelse {
+                self.viewport_anim_tick = now;
+                return;
+            };
+            self.viewport_anim_tick = now;
+            const dt_ns: f64 = @floatFromInt(@max(last.durationTo(now).nanoseconds, 0));
+            const next = offset * @exp(-(dt_ns / std.time.ns_per_s) / region_anim_tau_s);
+            if (@abs(next) < 0.5) {
+                screen.viewport_pixel_offset = 0;
+                self.viewport_anim_tick = null;
+            } else {
+                screen.viewport_pixel_offset = next;
+            }
+        }
+
+        /// Advance the region scroll animations to now. Called once per
+        /// drawn frame, before the uniforms are uploaded.
+        fn tickRegionAnims(self: *Self) void {
+            if (self.region_anims.items.len == 0) return;
+            const now: std.Io.Timestamp = .now(global.io(), .awake);
+            const last = self.region_anim_tick orelse now;
+            self.region_anim_tick = now;
+            const dt_ns: f64 = @floatFromInt(@max(last.durationTo(now).nanoseconds, 0));
+            const factor = @exp(-(dt_ns / std.time.ns_per_s) / region_anim_tau_s);
+
+            var i: usize = 0;
+            while (i < self.region_anims.items.len) {
+                const anim = &self.region_anims.items[i];
+                anim.shift *= factor;
+                anim.frames += 1;
+                if (@abs(anim.shift) < 0.5) {
+                    log.debug(
+                        "region scroll animation done rows={}..{} after {} frames",
+                        .{ anim.region.top, anim.region.bottom, anim.frames },
+                    );
+                    anim.deinit(self.alloc);
+                    _ = self.region_anims.orderedRemove(i);
+                    continue;
+                }
+                i += 1;
+            }
+            if (self.region_anims.items.len == 0) self.region_anim_tick = null;
+
+            self.pruneGhosts();
+            self.rebuildRegionUniforms();
+        }
+
+        /// Whether the smooth cursor is drawn and still on its way, which
+        /// is what keeps draw wakes coming until it lands.
+        fn cursorGlideInFlight(self: *const Self) bool {
+            const glide = self.cursor_glide orelse return false;
+            return self.cursor_glide_shown and glide.inFlight();
+        }
+
+        /// Advance the cursor's motion to now and place it in the
+        /// uniforms: under `smooth-cursor` the eased rect, under
+        /// `cursor-trail` the streak behind it, nothing for either while
+        /// this frame draws no cursor that way. Both are moved with the
+        /// region scroll the cursor's cell is riding so they stay under
+        /// its glyph (the text shader shifts those). Called once per
+        /// drawn frame, after `tickRegionAnims`.
+        fn tickCursorGlide(self: *Self) void {
+            self.uniforms.cursor_rect = @splat(0);
+            self.uniforms.cursor_trail = @splat(0);
+            self.uniforms.cursor_trail_size = @splat(0);
+            if (!self.cursor_glide_shown) return;
+            const glide: *CursorGlide = if (self.cursor_glide) |*g| g else return;
+
+            const rect = glide.step(.now(global.io(), .awake));
+            const shift: f32 = shift: {
+                const col: u32 = glide.cell[0];
+                const row: u32 = glide.cell[1];
+                for (self.region_anims.items) |*anim| {
+                    const r = anim.region;
+                    if (col >= r.left and col <= r.right and row >= r.top and row <= r.bottom) {
+                        break :shift @floatCast(anim.shift);
+                    }
+                }
+                break :shift 0;
+            };
+
+            if (self.config.smooth_cursor) {
+                self.uniforms.cursor_rect = .{ rect[0], rect[1] + shift, rect[2], rect[3] };
+            }
+            if (self.config.cursor_trail) {
+                const cell_h: f32 = @floatFromInt(self.grid_metrics.cell_height);
+                if (glide.trail(cell_h)) |trail| {
+                    self.uniforms.cursor_trail = .{
+                        trail.from[0], trail.from[1] + shift,
+                        trail.to[0],   trail.to[1] + shift,
+                    };
+                    self.uniforms.cursor_trail_size = .{
+                        trail.half_size[0], trail.half_size[1], trail.opacity, 0,
+                    };
+                }
+            }
+        }
+
+        /// Write the animations into the uniforms and rebuild the ghost
+        /// upload buffers. Ghost `k` is grid row `rows + k`.
+        fn rebuildRegionUniforms(self: *Self) void {
+            const cell_w: f32 = @floatFromInt(self.grid_metrics.cell_width);
+            const cell_h: f32 = @floatFromInt(self.grid_metrics.cell_height);
+            const rows: usize = self.cells.size.rows;
+            const cols: usize = self.cells.size.columns;
+
+            self.uniforms.region_rect = @splat(@splat(0));
+            self.uniforms.region_shift = @splat(@splat(0));
+            self.uniforms.ghost_rows = @splat(@splat(-1));
+            self.ghost_bg_upload.clearRetainingCapacity();
+            self.ghost_fg_upload.clearRetainingCapacity();
+
+            var ghost_count: usize = 0;
+            for (self.region_anims.items, 0..) |*anim, i| {
+                self.uniforms.region_rect[i] = anim.rect(cell_w, cell_h);
+                self.uniforms.region_shift[i] = .{ @floatCast(anim.shift), 0, 0, 0 };
+                for (anim.ghosts.items) |ghost| {
+                    if (ghost_count >= shaderpkg.Uniforms.max_ghost_rows) break;
+                    const grid_row: usize = rows + ghost_count;
+                    if (grid_row > std.math.maxInt(u16)) break;
+                    self.uniforms.ghost_rows[ghost_count] = .{ @intCast(i), ghost.final_row, 0, 0 };
+                    // Upload buffers only grow; a failure here leaves a
+                    // ghost undrawn, which is a gap in the motion, not an
+                    // error.
+                    if (ghost.bg.len == cols) {
+                        self.ghost_bg_upload.appendSlice(self.alloc, ghost.bg) catch break;
+                    } else {
+                        self.ghost_bg_upload.appendNTimes(self.alloc, .{ 0, 0, 0, 0 }, cols) catch break;
+                    }
+                    for (ghost.fg) |cell| {
+                        var moved = cell;
+                        moved.grid_pos[1] = @intCast(grid_row);
+                        self.ghost_fg_upload.append(self.alloc, moved) catch break;
+                    }
+                    ghost_count += 1;
+                }
+            }
+            self.uniforms.anim_counts = .{ @intCast(self.region_anims.items.len), @intCast(ghost_count), 0, 0 };
+            self.cells_rebuilt = true;
+        }
+
+        /// The region offsets the uniforms hand the shaders, as the surface
+        /// undoes them: read back from the uniforms, so what is published
+        /// is exactly what the frame is drawn with. Caller must hold the
+        /// draw mutex.
+        fn drawnRegionShifts(self: *const Self) terminal.RenderState.RegionShifts {
+            var shifts: terminal.RenderState.RegionShifts = .{
+                .screen = self.region_anim_screen orelse .primary,
+                .cols = self.cells.size.columns,
+                .rows = self.cells.size.rows,
+            };
+            for (self.region_anims.items, 0..) |*anim, i| shifts.append(.{
+                .top = anim.region.top,
+                .bottom = anim.region.bottom,
+                .left = anim.region.left,
+                .right = anim.region.right,
+                .offset = self.uniforms.region_shift[i][0],
+            });
+            return shifts;
+        }
+
+        /// The terminal scrolled these regions: every frame drawn so far,
+        /// the one on screen included, now shows their content that much
+        /// further from where the terminal has it. Folded into the
+        /// published offsets at once rather than when a frame showing the
+        /// scroll is presented, because until then a click resolves
+        /// against the terminal's rows, which have already moved.
+        ///
+        /// Called with the renderer state mutex held, so no scroll is ever
+        /// in neither place the surface looks: here, or still pending on
+        /// the screen.
+        fn regionsScrolled(
+            self: *Self,
+            scrolls: []const terminal.Screen.RegionScroll,
+        ) void {
+            if (scrolls.len == 0) return;
+            self.presented_regions.scrolled(
+                global.io(),
+                scrolls,
+                @floatFromInt(self.grid_metrics.cell_height),
+            );
+        }
+
+        /// Where the frame on screen draws each region it draws away from
+        /// where the terminal has it, and how far, with the region scrolls
+        /// this renderer has taken in since folded in. The surface adds the
+        /// ones still pending on the screen and undoes the result to turn a
+        /// pointer into the row drawn under it.
+        ///
+        /// Exact for the thread the layer's contents change on (the main
+        /// thread on macOS, where the hit tests run). Takes only the lock
+        /// guarding the offsets (see `PresentedRegions`), so it is safe
+        /// under any other.
+        pub fn regionShifts(self: *Self) terminal.RenderState.RegionShifts {
+            const shown: usize = if (@hasDecl(GraphicsAPI, "shownTarget"))
+                self.api.shownTarget()
+            else
+                0;
+            return self.presented_regions.get(global.io(), shown);
+        }
+
+        /// Called by the graphics API once it has presented the frame drawn
+        /// to `target`. Where it can't say which target it is showing, the
+        /// hit test undoes this frame's region offsets from here on.
+        pub fn framePresented(self: *Self, target: *const Target) void {
+            // The swap chain outlives every frame in flight: it is only
+            // torn down after they have all completed.
+            const swap_chain = if (self.swap_chain) |*sc| sc else return;
+            const slot = for (&swap_chain.frames, 0..) |*frame, i| {
+                if (&frame.target == target) break i;
+            } else return;
+            self.presented_regions.present(global.io(), slot);
         }
 
         /// Returns true if the display link is running, meaning frames
@@ -1327,6 +2118,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const metrics = grid.metrics;
             self.grid_metrics = metrics;
 
+            // The smooth cursor's rect is in pixels of the old cells; it
+            // starts over wherever the next frame puts it.
+            self.cursor_glide = null;
+
             // Reset our shaper cache. If our font changed (not just the size) then
             // the data in the shaper cache may be invalid and cannot be used, so we
             // always clear the cache just in case.
@@ -1443,10 +2238,38 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // denormalization) is deferred to the endUpdate call
                 // outside of this critical section, keeping our lock
                 // hold time as short as possible.
-                try self.terminal_state.beginUpdate(
+                //
+                // Smooth scrolling by rows: advance the viewport's move
+                // before the shift is resolved, so this frame draws it.
+                if (self.config.smooth_scroll and self.config.smooth_scroll_rows) {
+                    self.decayViewportScroll(state.terminal.screens.active);
+                } else {
+                    self.viewport_anim_tick = null;
+                }
+
+                // Smooth scrolling captures the rows a shifted grid reveals
+                // as overscan; with it off this is a plain beginUpdate.
+                try self.terminal_state.beginShiftedUpdate(
                     self.alloc,
                     state.terminal,
+                    self.viewportGeometry(),
                 );
+
+                // Region scrolls since the last frame, to animate. They
+                // are applied in rebuildCells, which still has the previous
+                // frame's cells to make ghost rows from. The hit test has
+                // to know about them now: the terminal's rows have moved,
+                // and what is on screen hasn't.
+                {
+                    const scrolls = &state.terminal.screens.active.region_scrolls;
+                    if (self.config.smooth_scroll) {
+                        for (scrolls.slice()) |scroll| {
+                            self.pending_region_scrolls.append(self.alloc, scroll) catch break;
+                        }
+                        self.regionsScrolled(scrolls.slice());
+                    }
+                    scrolls.clear();
+                }
 
                 // If our terminal state is dirty at all we need to redo
                 // the viewport search.
@@ -1682,6 +2505,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     else => {},
                 };
 
+                // The embedder composites the default background itself —
+                // the same effect as the glass styles above, but independent
+                // of blur mode and platform. Explicit cell backgrounds are
+                // unaffected (they follow `background-opacity-cells`).
+                if (self.config.background_default_transparent) {
+                    self.uniforms.bg_color[3] = 0;
+                }
+
                 // Prepare our overlay image for upload (or unload). This
                 // has to use our general allocator since it modifies
                 // state that survives frames.
@@ -1863,10 +2694,33 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Update per-frame custom shader uniforms.
             try self.updateCustomShaderUniformsForFrame();
 
-            // Setup our frame data
+            // Region scroll animations and the smooth cursor move every
+            // drawn frame; the cursor goes second to ride a region's shift.
+            self.tickRegionAnims();
+            self.tickCursorGlide();
+
+            // Setup our frame data. Ghost rows ride along after the live
+            // cells: background rows appended to the buffer, glyphs as one
+            // more row list.
             try frame.uniforms.sync(&.{self.uniforms});
-            try frame.cells_bg.sync(self.cells.bg_cells);
-            const fg_count = try frame.cells.syncFromArrayLists(self.cells.fg_rows);
+            const fg_count = if (self.ghost_bg_upload.items.len > 0) ghosts: {
+                self.fg_upload_lists.clearRetainingCapacity();
+                try self.fg_upload_lists.appendSlice(self.alloc, self.cells.fg_rows);
+                try self.fg_upload_lists.append(self.alloc, self.ghost_fg_upload);
+
+                var bg = try std.ArrayListUnmanaged(shaderpkg.CellBg).initCapacity(
+                    self.alloc,
+                    self.cells.bg_cells.len + self.ghost_bg_upload.items.len,
+                );
+                defer bg.deinit(self.alloc);
+                bg.appendSliceAssumeCapacity(self.cells.bg_cells);
+                bg.appendSliceAssumeCapacity(self.ghost_bg_upload.items);
+                try frame.cells_bg.sync(bg.items);
+                break :ghosts try frame.cells.syncFromArrayLists(self.fg_upload_lists.items);
+            } else plain: {
+                try frame.cells_bg.sync(self.cells.bg_cells);
+                break :plain try frame.cells.syncFromArrayLists(self.cells.fg_rows);
+            };
 
             // If our background image buffer has changed, sync it.
             if (frame.bg_image_buffer_modified != self.bg_image_buffer_modified) {
@@ -1896,6 +2750,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Get a frame context from the graphics API.
             var frame_ctx = try self.api.beginFrame(self, &frame.target);
             defer frame_ctx.complete(sync);
+
+            // What the hit test undoes once this frame is on screen.
+            self.presented_regions.drew(
+                global.io(),
+                swap_chain.frame_index,
+                if (@hasDecl(GraphicsAPI, "targetIdentity"))
+                    GraphicsAPI.targetIdentity(&frame.target)
+                else
+                    0,
+                self.drawnRegionShifts(),
+            );
 
             {
                 var pass = frame_ctx.renderPass(&.{.{
@@ -2205,6 +3070,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const old_blending = self.config.blending;
             const custom_shaders_changed = !self.config.custom_shaders.equal(config.custom_shaders);
 
+            // Toggling smooth-cursor or cursor-trail starts the cursor over
+            // from wherever the rebuild below puts it, drawn the way the
+            // new values say.
+            if (self.config.smooth_cursor != config.smooth_cursor or
+                self.config.cursor_trail != config.cursor_trail)
+            {
+                self.cursor_glide = null;
+                self.cursor_glide_shown = false;
+            }
+
             self.config.deinit();
             self.config = config.*;
 
@@ -2409,8 +3284,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 };
             }
 
-            // Cursor visibility
-            uniforms.cursor_visible = @intFromBool(self.terminal_state.cursor.visible);
+            // Cursor visibility is set per frame (see
+            // updateCustomShaderUniformsForFrame), from whether a cursor
+            // glyph was actually drawn rather than from DECTCEM alone.
 
             // Cursor style
             const cursor_style: renderer.CursorStyle = .fromTerminal(self.terminal_state.cursor.visual_style);
@@ -2468,10 +3344,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     cursor.grid_pos[0] * cell.width + padding.left,
                 );
                 // Top edge, relative to the top of the
-                // screen, of the cell the cursor is in.
+                // screen, of the cell the cursor is in. Grid rows are
+                // drawn shifted while smooth scrolling (see the
+                // scroll_offset uniform), so shift the cursor with them.
                 var pixel_y: f32 = @floatFromInt(
                     cursor.grid_pos[1] * cell.height + padding.top,
                 );
+                pixel_y += self.uniforms.scroll_offset[0] -
+                    self.uniforms.scroll_offset[1] * @as(f32, @floatFromInt(cell.height));
 
                 // If +Y is up in our shaders, we need to flip the coordinate
                 // so that it's instead the top edge of the cell relative to
@@ -2527,6 +3407,24 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     uniforms.current_cursor_color = cursor_color;
                     uniforms.cursor_change_time = uniforms.time;
                 }
+
+                // Whether a cursor glyph was drawn is the whole answer for
+                // the shader, and a stricter one than DECTCEM: it already
+                // accounts for the viewport, preedit, focus and blink. This
+                // per-frame pass is the only owner of the uniform, and it
+                // runs immediately before the uniforms are synced, so both
+                // arms must assign it -- a one-sided clear would stick at 0
+                // until the next frame the terminal state changed.
+                uniforms.cursor_visible = 1;
+            } else {
+                // No cursor glyph this frame: the cursor is hidden by the
+                // program, scrolled out of the viewport, or in the off phase
+                // of a blink. The position uniforms above keep their last
+                // value, so a shader that draws the cursor itself
+                // (cursor-opacity = 0) would leave a phantom at the stale
+                // cell. Report it hidden, which is what the terminal is
+                // showing.
+                uniforms.cursor_visible = 0;
             }
 
             // Update focus uniforms
@@ -2609,6 +3507,39 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             cp_offset: usize,
         };
 
+        /// The pixel geometry the render state needs to measure the height
+        /// the viewport's rows don't account for, so the grid can sit on it
+        /// instead of leaving it as a strip of padding (see
+        /// `terminal.RenderState.Geometry`).
+        ///
+        /// A grid only comes in whole rows, so that leftover grows as the
+        /// surface is resized until it is a full row and the viewport takes
+        /// one — and everything on screen jumps a cell at that instant.
+        /// Under `smooth-scroll` the grid is drawn that much lower instead,
+        /// with the row above partly revealed, so the same sequence of
+        /// sizes moves the content continuously.
+        ///
+        /// Only the pixels are handed over; the render state measures them
+        /// against the terminal's rows, not this renderer's grid — the two
+        /// are resized on different threads, and a frame caught between
+        /// them drew the grid a whole cell off.
+        ///
+        /// Under `smooth-scroll-rows` the leftover stays padding, as it does
+        /// without smooth scrolling and on the alternate screen, so the
+        /// viewport only ever comes to rest on whole rows: no terminal
+        /// height is handed over, and only a row move's offset shifts the
+        /// grid. A resize then steps a row at a time, as it does in `less`.
+        fn viewportGeometry(self: *const Self) terminal.RenderState.Geometry {
+            if (!self.config.smooth_scroll) return .none;
+            return .{
+                .cell_height = self.size.cell.height,
+                .terminal_height = if (self.config.smooth_scroll_rows)
+                    0
+                else
+                    self.size.terminal().height,
+            };
+        }
+
         /// Convert the terminal state to GPU cells stored in CPU memory. These
         /// are then synced to the GPU in the next frame. This only updates CPU
         /// memory and doesn't touch the GPU.
@@ -2624,19 +3555,58 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         ) Allocator.Error!void {
             const state: *terminal.RenderState = &self.terminal_state;
 
+            // The rows the grid holds: the viewport's, plus the ones smooth
+            // scrolling reveals beyond it (overscan), so the grid is laid
+            // from the first row captured. Without overscan this is exactly
+            // the viewport.
+            const captured = state.rowDataRange();
+            const captured_rows: terminal.size.CellCountInt =
+                @intCast(captured.end - captured.start);
+
             const grid_size_diff =
-                self.cells.size.rows != state.rows or
+                self.cells.size.rows != captured_rows or
                 self.cells.size.columns != state.cols;
 
             if (grid_size_diff) {
                 var new_size = self.cells.size;
-                new_size.rows = state.rows;
+                new_size.rows = captured_rows;
                 new_size.columns = state.cols;
                 try self.cells.resize(self.alloc, new_size);
 
                 // Update our uniforms accordingly, otherwise
                 // our background cells will be out of place.
                 self.uniforms.grid_size = .{ new_size.columns, new_size.rows };
+
+                // A reshaped grid moves every cell; the smooth cursor
+                // reappears at its cell rather than gliding to it.
+                self.cursor_glide = null;
+            }
+
+            // Region scroll animations take in this frame's scrolls now,
+            // while the cells still show the previous frame.
+            self.applyRegionScrolls(state, grid_size_diff);
+
+            // Smooth scrolling: where the grid sits relative to the
+            // viewport this frame. A change here is a visible change even
+            // when no cell is dirty (the same rows, drawn a few pixels
+            // over), so it must count as a rebuild or drawFrame would
+            // present the previous frame.
+            const scroll_offset: [4]f32 = .{
+                @floatCast(state.viewport_pixel_offset),
+                @floatFromInt(state.overscan.above),
+                // The leftover height only counts while the grid is
+                // actually shifted onto it; at rest it stays padding.
+                if (state.viewport_pixel_offset != 0)
+                    @floatCast(state.viewport_pixel_pad)
+                else
+                    0,
+                // The rows revealed below a grid shifted up, which the
+                // shaders' clip counts out of the visible grid.
+                @floatFromInt(state.overscan.below),
+            };
+            if (!std.meta.eql(scroll_offset, self.uniforms.scroll_offset)) {
+                self.uniforms.scroll_offset = scroll_offset;
+                self.cells_rebuilt = true;
             }
 
             const rebuild = state.dirty == .full or grid_size_diff;
@@ -2665,20 +3635,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // working terminal state, even if incorrect.
             errdefer comptime unreachable;
 
-            // Get our row data from our state
+            // Get our row data from our state, the captured rows only:
+            // grid row y is row_data index captured.start + y.
             const row_data = state.row_data.slice();
-            const row_raws = row_data.items(.raw);
-            const row_cells = row_data.items(.cells);
-            const row_dirty = row_data.items(.dirty);
-            const row_selection = row_data.items(.selection);
-            const row_highlights = row_data.items(.highlights);
+            const row_raws = row_data.items(.raw)[captured.start..captured.end];
+            const row_cells = row_data.items(.cells)[captured.start..captured.end];
+            const row_dirty = row_data.items(.dirty)[captured.start..captured.end];
+            const row_selection = row_data.items(.selection)[captured.start..captured.end];
+            const row_highlights = row_data.items(.highlights)[captured.start..captured.end];
 
             // If our cell contents buffer is shorter than the screen viewport,
             // we render the rows that fit, starting from the bottom. If instead
             // the viewport is shorter than the cell contents buffer, we align
             // the top of the viewport with the top of the contents buffer.
             const row_len: usize = @min(
-                state.rows,
+                captured_rows,
                 self.cells.size.rows,
             );
 
@@ -2686,9 +3657,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // here because we will render the preedit separately.
             const preedit_range: ?PreeditRange = if (preedit) |preedit_v| preedit: {
                 // We base the preedit on the position of the cursor in the
-                // viewport. If the cursor isn't visible in the viewport we
-                // don't show it.
-                const cursor_vp = state.cursor.viewport orelse
+                // grid. If the cursor isn't in a row we draw we don't show
+                // it.
+                const cursor_vp = state.cursor.captured orelse
                     break :preedit null;
 
                 // If our preedit row isn't dirty then we don't need the
@@ -2754,14 +3725,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     std.math.maxInt(u16),
                     std.math.maxInt(u16),
                 };
+                self.uniforms.bools.cursor_glide_text = false;
+                self.cursor_glide_shown = false;
 
-                // If the cursor isn't visible on the viewport, don't show
-                // a cursor. Otherwise, get our cursor cell, because we may
-                // need it for styling.
-                const cursor_vp = state.cursor.viewport orelse break :cursor;
+                // If the cursor isn't in a row we draw, don't show a
+                // cursor. That counts a row smooth scrolling reveals beyond
+                // the viewport, which is drawn partly on screen. Otherwise,
+                // get our cursor cell, because we may need it for styling.
+                const cursor_vp = state.cursor.captured orelse break :cursor;
                 const cursor_style: terminal.Style = cursor_style: {
-                    const cells = state.row_data.items(.cells);
-                    const cell = cells[cursor_vp.y].get(cursor_vp.x);
+                    const cell = row_cells[cursor_vp.y].get(cursor_vp.x);
                     break :cursor_style if (cell.raw.hasStyling())
                         cell.style
                     else
@@ -2824,16 +3797,24 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 if (style == .block) {
                     const wide = state.cursor.cell.wide;
 
-                    self.uniforms.cursor_pos = .{
-                        // If we are a spacer tail of a wide cell, our cursor needs
-                        // to move back one cell. The saturate is to ensure we don't
-                        // overflow but this shouldn't happen with well-formed input.
-                        switch (wide) {
-                            .narrow, .spacer_head, .wide => cursor_vp.x,
-                            .spacer_tail => cursor_vp.x -| 1,
-                        },
-                        @intCast(cursor_vp.y),
-                    };
+                    // Under smooth-cursor the text shader colors glyphs as
+                    // cursor text by how much of each pixel the drawn rect
+                    // covers, not by cell, so the cell is left unset and the
+                    // rect does the recoloring (see `CursorGlide`).
+                    if (self.cursor_glide_shown and self.config.smooth_cursor) {
+                        self.uniforms.bools.cursor_glide_text = true;
+                    } else {
+                        self.uniforms.cursor_pos = .{
+                            // If we are a spacer tail of a wide cell, our cursor needs
+                            // to move back one cell. The saturate is to ensure we don't
+                            // overflow but this shouldn't happen with well-formed input.
+                            switch (wide) {
+                                .narrow, .spacer_head, .wide => cursor_vp.x,
+                                .spacer_tail => cursor_vp.x -| 1,
+                            },
+                            @intCast(cursor_vp.y),
+                        };
+                    }
 
                     self.uniforms.bools.cursor_wide = switch (wide) {
                         .narrow, .spacer_head => false,
@@ -2959,6 +3940,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 },
             }
 
+            // Links are found in viewport rows, and smooth scrolling can
+            // draw the viewport from a grid row below the first. A row
+            // revealed above the viewport has none.
+            const link_y: ?terminal.size.CellCountInt =
+                if (y >= state.overscan.above) y - state.overscan.above else null;
+
             // Iterator of runs for shaping.
             var run_iter_opts: font.shape.RunOptions = .{
                 .grid = self.font_grid,
@@ -2968,7 +3955,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // We want to do font shaping as long as the cursor is
                 // visible on this viewport.
                 .cursor_x = cursor_x: {
-                    const vp = state.cursor.viewport orelse break :cursor_x null;
+                    const vp = state.cursor.captured orelse break :cursor_x null;
                     if (vp.y != y) break :cursor_x null;
                     break :cursor_x vp.x;
                 },
@@ -3235,9 +4222,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // an underline, in which case use a double underline to
                 // distinguish them.
                 const underline: terminal.Attribute.Underline = underline: {
-                    if (links.contains(.{
+                    if (link_y != null and links.contains(.{
                         .x = @intCast(x),
-                        .y = @intCast(y),
+                        .y = link_y.?,
                     })) {
                         break :underline if (style.flags.underline == .single)
                             .double
@@ -3531,7 +4518,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             cursor_style: renderer.CursorStyle,
             cursor_color: terminal.color.RGB,
         ) void {
-            const cursor_vp = cursor_state.viewport orelse return;
+            // In grid rows, which include any smooth scrolling reveals.
+            const cursor_vp = cursor_state.captured orelse return;
 
             // Add the cursor. We render the cursor over the wide character if
             // we're on the wide character tail.
@@ -3547,10 +4535,24 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 break :cell .{ true, cursor_vp.x - 1 };
             };
 
-            const alpha: u8 = if (!self.focused) 255 else alpha: {
+            const opacity_alpha: u8 = if (!self.focused) 255 else alpha: {
                 const alpha = 255 * self.config.cursor_opacity;
                 break :alpha @intFromFloat(@ceil(alpha));
             };
+
+            // A filled cursor's motion is tracked under smooth-cursor and
+            // cursor-trail (see `CursorGlide`). Under smooth-cursor the
+            // cursor itself is drawn by the cell background shader at the
+            // glide's rect instead of by this sprite, which is still added,
+            // invisible, so that the custom shader uniforms keep describing
+            // the cell the cursor is in; under the trail alone the sprite
+            // is the cursor and only the streak behind it is drawn.
+            const tracked = (self.config.smooth_cursor or self.config.cursor_trail) and
+                switch (cursor_style) {
+                    .block, .bar, .underline => true,
+                    .block_hollow, .lock => false,
+                };
+            const alpha: u8 = if (tracked and self.config.smooth_cursor) 0 else opacity_alpha;
 
             const render = switch (cursor_style) {
                 .block,
@@ -3599,6 +4601,35 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     return;
                 },
             };
+
+            if (tracked) {
+                const cell_w: f32 = @floatFromInt(self.grid_metrics.cell_width);
+                const cell_h: f32 = @floatFromInt(self.grid_metrics.cell_height);
+                // The sprite's rect in grid pixels: the X bearing is the
+                // distance from the cell's left edge, the Y bearing from
+                // the cell's bottom edge to the sprite's top.
+                const rect: [4]f32 = .{
+                    @as(f32, @floatFromInt(x)) * cell_w +
+                        @as(f32, @floatFromInt(render.glyph.offset_x)),
+                    @as(f32, @floatFromInt(cursor_vp.y)) * cell_h + cell_h -
+                        @as(f32, @floatFromInt(render.glyph.offset_y)),
+                    @floatFromInt(render.glyph.width),
+                    @floatFromInt(render.glyph.height),
+                };
+                const cell: [2]u16 = .{ @intCast(x), @intCast(cursor_vp.y) };
+                if (self.cursor_glide) |*glide| {
+                    glide.retarget(cell, rect, .now(global.io(), .awake));
+                } else {
+                    self.cursor_glide = .resting(cell, rect);
+                }
+                self.cursor_glide_shown = true;
+                self.uniforms.cursor_fill = .{
+                    cursor_color.r,
+                    cursor_color.g,
+                    cursor_color.b,
+                    opacity_alpha,
+                };
+            }
 
             self.cells.setCursor(.{
                 .atlas = .grayscale,
@@ -3679,4 +4710,68 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             try texture.replaceRegion(0, 0, atlas.size, atlas.size, atlas.data);
         }
     };
+}
+
+test "PresentedRegions answers with the offsets of the frame on screen" {
+    const testing = std.testing;
+    const io = testing.io;
+    const RegionShifts = terminal.RenderState.RegionShifts;
+
+    var regions: PresentedRegions(3) = .{};
+    const at = struct {
+        fn at(offset: f64) RegionShifts {
+            var shifts: RegionShifts = .{ .screen = .alternate, .cols = 10, .rows = 8 };
+            shifts.append(.{ .top = 1, .bottom = 6, .left = 0, .right = 9, .offset = offset });
+            return shifts;
+        }
+    }.at;
+    const offset = struct {
+        fn offset(r: *PresentedRegions(3), shown: usize) f64 {
+            const shifts = r.get(testing.io, shown);
+            return if (shifts.len == 0) 0 else shifts.items[0].offset;
+        }
+    }.offset;
+
+    // Drawn is not shown: until the frame is presented, the one before it
+    // is on screen.
+    regions.drew(io, 0, 100, at(30));
+    try testing.expectEqual(0, offset(&regions, 0));
+    regions.present(io, 0);
+    try testing.expectEqual(30, offset(&regions, 0));
+    try testing.expectEqual(30, offset(&regions, 100));
+
+    // The next frame, drawn 10px further into the ease, is presented, but
+    // the layer is still showing the first: the layer decides.
+    regions.drew(io, 1, 101, at(20));
+    regions.present(io, 1);
+    try testing.expectEqual(30, offset(&regions, 100));
+    try testing.expectEqual(20, offset(&regions, 101));
+    try testing.expectEqual(20, offset(&regions, 0));
+
+    // The program scrolls two more 20px rows: every frame drawn so far
+    // shows the content 40px further from the terminal's rows.
+    regions.scrolled(io, &.{.{ .top = 1, .bottom = 6, .left = 0, .right = 9, .lines = 2 }}, 20);
+    try testing.expectEqual(70, offset(&regions, 100));
+    try testing.expectEqual(60, offset(&regions, 101));
+    try testing.expectEqual(60, offset(&regions, 0));
+
+    // A frame drawn after the scroll drew it in already.
+    regions.drew(io, 2, 102, at(45));
+    regions.present(io, 2);
+    try testing.expectEqual(45, offset(&regions, 102));
+
+    // A rebuilt swap chain reuses a target's name: the frame drawn to it
+    // last is the one that answers.
+    regions.drew(io, 1, 100, at(12));
+    try testing.expectEqual(12, offset(&regions, 100));
+
+    // A target the layer shows that no frame here was drawn to (one from a
+    // released swap chain) falls back to the frame presented last.
+    try testing.expectEqual(45, offset(&regions, 999));
+
+    // Once the animation has settled there is nothing to undo.
+    regions.drew(io, 0, 103, .{ .screen = .alternate, .cols = 10, .rows = 8 });
+    regions.present(io, 0);
+    try testing.expectEqual(0, offset(&regions, 103));
+    try testing.expectEqual(0, offset(&regions, 0));
 }

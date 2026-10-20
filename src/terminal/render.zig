@@ -184,6 +184,25 @@ pub const RenderState = struct {
     /// This is set by the update and should not be modified.
     overscan: Overscan = .{},
 
+    /// Smooth scrolling: the validated sub-row offset in pixels the grid is
+    /// drawn at, set by `beginShiftedUpdate`. While it is non-zero the rows
+    /// being revealed are captured as overscan (`overscan.above` rows at the
+    /// top, or one below), and renderers draw `row_data` index `i` at
+    /// `viewportY(i) * cell_height + viewport_pixel_offset`. Zero when the
+    /// offset can't be honored (no such row).
+    ///
+    /// Two things add up here (see `Geometry`): the remainder of a scroll
+    /// gesture (`Screen.viewport_pixel_offset`) and the sub-row remainder
+    /// of the viewport's own height, which is what lets a resize move the
+    /// grid continuously instead of a row at a time. Their sum can exceed a
+    /// cell, which is why more than one row can be revealed above.
+    viewport_pixel_offset: f64 = 0,
+
+    /// The leftover height the grid was laid on this update (see
+    /// `Geometry`), for the renderer to draw as grid rather than padding
+    /// while the offset is non-zero. Zero without geometry.
+    viewport_pixel_pad: f64 = 0,
+
     /// The cached selection so we can avoid expensive selection calculations
     /// if possible.
     selection_cache: ?SelectionCache = null,
@@ -241,6 +260,14 @@ pub const RenderState = struct {
         /// The x/y position of the cursor within the viewport. This
         /// may be null if the cursor is not visible within the viewport.
         viewport: ?Viewport,
+
+        /// Smooth scrolling: the cursor's position among the captured
+        /// rows, counting from the first (`rowDataRange().start`), and
+        /// null only when no captured row holds it. Unlike `viewport`
+        /// this counts an overscan row: `beginShiftedUpdate` captures the
+        /// rows a shifted grid reveals, which are drawn partly on screen,
+        /// and the cursor with them.
+        captured: ?Viewport = null,
 
         /// The cell data for the cursor position. Managed memory is not
         /// safe to access from this.
@@ -487,6 +514,59 @@ pub const RenderState = struct {
         self.endUpdate();
     }
 
+    /// What the renderer knows about the viewport that the terminal does
+    /// not: pixels.
+    ///
+    /// The leftover is the height left over once the viewport's rows have
+    /// been laid out — `terminal_height - rows * cell_height`, under a cell
+    /// once the resize has settled. A grid only comes in whole rows, so as a surface is
+    /// resized that leftover grows until it is a full row and the viewport
+    /// takes one; everything on screen then jumps a cell at once. Drawing
+    /// the grid that leftover lower, with the row above partly revealed,
+    /// makes the same sequence continuous: the content slides down as the
+    /// leftover grows, and the row it gains arrives exactly where the
+    /// revealed sliver had got to. The renderer passes zero when smooth
+    /// scrolling is off, which is the behavior every renderer had before.
+    pub const Geometry = struct {
+        cell_height: u32 = 0,
+        /// The height of the terminal area (the screen less padding) in
+        /// pixels. The leftover is measured here, against the terminal's
+        /// own row count, and not by the renderer against its grid: the
+        /// two change on different threads, and a frame caught between
+        /// them drew the grid a whole cell off — the renderer already had
+        /// the new height while the terminal still had the old rows, or
+        /// the reverse — which every divider drag showed as a flash.
+        /// Zero measures no leftover, which keeps it padding while a
+        /// shift still has the cell height to count rows with
+        /// (`smooth-scroll-rows`).
+        terminal_height: u32 = 0,
+
+        pub const none: Geometry = .{};
+    };
+
+    /// `beginUpdate` for a renderer that draws smooth scrolling. Resolves
+    /// the shift (`resolveShift`), captures the rows it reveals as
+    /// overscan, and records where the grid is drawn
+    /// (`viewport_pixel_offset`, `viewport_pixel_pad`).
+    ///
+    /// This owns `overscan_request`: it is set to exactly the rows the
+    /// shift reveals, all of which exist, so the captured `overscan`
+    /// always matches it. With smooth scrolling off (no geometry and no
+    /// gesture remainder) that is no overscan at all, and this is
+    /// `beginUpdate`.
+    pub fn beginShiftedUpdate(
+        self: *RenderState,
+        alloc: Allocator,
+        t: *Terminal,
+        geometry: Geometry,
+    ) Allocator.Error!void {
+        const shift = resolveShift(t.screens.active, geometry);
+        self.overscan_request = shift.overscan;
+        try self.beginUpdate(alloc, t);
+        self.viewport_pixel_offset = shift.pixel_offset;
+        self.viewport_pixel_pad = shift.pixel_pad;
+    }
+
     /// Begin an update of the render state to the latest terminal
     /// state. Every begin must be completed with an `endUpdate` call
     /// before the render state is read.
@@ -515,6 +595,15 @@ pub const RenderState = struct {
     ) Allocator.Error!void {
         const s: *Screen = t.screens.active;
         const viewport_pin = s.pages.getTopLeft(.viewport);
+
+        // The cell the cursor is drawn on. A keyboard copy mode draws it
+        // on the head of the selection (`Terminal.flags.selection_cursor`),
+        // not on the pty's cursor, which stays where the program left it.
+        const cursor_on_selection = t.flags.selection_cursor and s.selection != null;
+        const cursor_pin: PageList.Pin = if (cursor_on_selection)
+            s.selection.?.end()
+        else
+            s.cursor.page_pin.*;
 
         // The overscan rows to capture beyond the viewport. The request
         // decides the layout of row_data, and the actual counts are
@@ -601,17 +690,27 @@ pub const RenderState = struct {
         self.cols = s.pages.cols;
         self.viewport_pin = viewport_pin;
         self.cursor.active = .{ .x = s.cursor.x, .y = s.cursor.y };
-        self.cursor.cell = s.cursor.page_cell.*;
+        self.cursor.cell = cursor_pin.rowAndCell().cell.*;
         self.cursor.style = s.cursor.style;
-        self.cursor.visual_style = s.cursor.cursor_style;
         self.cursor.password_input = t.flags.password_input;
-        self.cursor.visible = t.modes.get(.cursor_visible);
-        self.cursor.blinking = t.modes.get(.cursor_blinking);
+        if (cursor_on_selection) {
+            // The copy-mode cursor is a steady block whatever the program
+            // asked for its own cursor, and it shows while the program
+            // hides its own (a pager at a prompt hides it).
+            self.cursor.visual_style = .block;
+            self.cursor.visible = true;
+            self.cursor.blinking = false;
+        } else {
+            self.cursor.visual_style = s.cursor.cursor_style;
+            self.cursor.visible = t.modes.get(.cursor_visible);
+            self.cursor.blinking = t.modes.get(.cursor_blinking);
+        }
 
         // Always reset the cursor viewport position. In the future we can
         // probably cache this by comparing the cursor pin and viewport pin
         // but may not be worth it.
         self.cursor.viewport = null;
+        self.cursor.captured = null;
 
         // Colors.
         self.colors.cursor = t.colors.cursor.get();
@@ -739,27 +838,34 @@ pub const RenderState = struct {
             // Find our cursor if we haven't found it yet. We do this even
             // if rows are not dirty because the cursor is unrelated. We
             // can check the chunk bounds once rather than every row.
-            if (self.cursor.viewport == null and
-                node == s.cursor.page_pin.node)
+            if (self.cursor.captured == null and
+                node == cursor_pin.node)
             cursor: {
-                const cy = s.cursor.page_pin.y;
+                const cy = cursor_pin.y;
                 if (cy < chunk.start or cy >= chunk.start + take) break :cursor;
+
+                const idx = y + (cy - chunk.start);
+                const wide_tail = if (cursor_pin.x > 0)
+                    cursor_pin.left(1).rowAndCell().cell.wide == .wide
+                else
+                    false;
+                self.cursor.captured = .{
+                    .y = @intCast(idx - first),
+                    .x = cursor_pin.x,
+                    .wide_tail = wide_tail,
+                };
 
                 // The cursor may be in an overscan row, in which case it
                 // is not visible in the viewport.
-                const idx = y + (cy - chunk.start);
                 const vp_start = self.viewportStart();
                 if (idx < vp_start or idx >= vp_start + self.rows) break :cursor;
                 self.cursor.viewport = .{
                     .y = @intCast(idx - vp_start),
-                    .x = s.cursor.x,
+                    .x = cursor_pin.x,
 
                     // Future: we should use our own state here to look this
                     // up rather than calling this.
-                    .wide_tail = if (s.cursor.x > 0)
-                        s.cursorCellLeft(1).wide == .wide
-                    else
-                        false,
+                    .wide_tail = wide_tail,
                 };
             }
 
@@ -860,6 +966,12 @@ pub const RenderState = struct {
         // we can cache.
         if (s.selection) |*sel| selection: {
             @branchHint(.unlikely);
+
+            // A one-cell selection under the copy-mode cursor is that
+            // cursor: the cell draws as a cursor and not as a highlight, as
+            // in Helix. The rows were rebuilt with no selection (a change of
+            // the selection dirties the screen), so nothing stays marked.
+            if (cursor_on_selection and sel.start().eql(sel.end())) break :selection;
 
             // Populate our selection cache to avoid some expensive
             // recalculation.
@@ -1027,6 +1139,305 @@ pub const RenderState = struct {
         }
         self.pending_styles.clearRetainingCapacity();
     }
+
+    /// Where smooth scrolling puts the viewport for one update: the rows
+    /// it reveals beyond it and how far the grid is drawn from where its
+    /// rows fall. See `resolveShift`.
+    pub const Shift = struct {
+        /// The rows revealed beyond the viewport, captured as overscan:
+        /// rows above while the grid is drawn shifted down, rows below
+        /// while it is drawn shifted up. Every row counted exists.
+        overscan: Overscan = .{},
+        /// How far below its row-aligned position the viewport's first row
+        /// is drawn, in pixels; negative is above. Zero when there is no
+        /// row to reveal on that side.
+        pixel_offset: f64 = 0,
+        /// The leftover height measured for this update (see `Geometry`).
+        pixel_pad: f64 = 0,
+
+        /// How many rows above the viewport are drawn at `y`, pixels below
+        /// the top of the terminal area; 0 on the viewport's own rows.
+        /// The rows this shift reveals are drawn above the viewport's
+        /// first row, from the top of the terminal area down to
+        /// `pixel_offset`, and a point there is on one of them — not on
+        /// the first row, which is where a viewport coordinate (which
+        /// cannot go above it) clamps it. A point above the terminal area,
+        /// in the padding, is on the topmost row drawn, as it would be on
+        /// the first row with no shift.
+        pub fn rowsAboveAt(self: Shift, y: f64, cell_height: f64) usize {
+            if (self.overscan.above == 0 or cell_height <= 0) return 0;
+            const above = self.pixel_offset - @max(y, 0);
+            if (above <= 0) return 0;
+            return @min(
+                @as(usize, @intFromFloat(@ceil(above / cell_height))),
+                self.overscan.above,
+            );
+        }
+    };
+
+    /// The smooth-scroll shift of `s`, decided exactly as an update draws
+    /// it. Anything that turns a pixel into a row or a row into a pixel
+    /// must use this rather than redo the arithmetic: the surface's hit
+    /// test did, without the checks below, and put the pointer a row off
+    /// wherever one of them drops the shift — at the bottom of scrollback
+    /// after a scroll gesture, before a pane has scrollback, and on the
+    /// alternate screen (macterm#433).
+    ///
+    /// Reads the screen's page list, so the caller must hold the lock that
+    /// guards it (the renderer state mutex).
+    pub fn resolveShift(s: *const Screen, geometry: Geometry) Shift {
+        // Smooth scrolling: honor a sub-row offset only as far as the rows
+        // it reveals exist, and capture them as overscan. The
+        // gesture's remainder and the viewport's own leftover height both
+        // shift the grid down, so they add (see Geometry); a sum over a
+        // cell simply reveals more than one row.
+        const base_pin = s.pages.getTopLeft(.viewport);
+        var top_pin = base_pin;
+        var rows_above: size.CellCountInt = 0;
+        var rows_below: size.CellCountInt = 0;
+
+        // The gesture's remainder is validated on its own, before the
+        // viewport's leftover height is added: a remainder pointing at a
+        // row that doesn't exist is dropped, and the leftover still shifts
+        // the grid. Validating the sum instead made a gesture pinned at the
+        // bottom of scrollback bob the content: its remainder cycles
+        // through (-cell, 0] as row after row fails to commit, so the sum
+        // crossed zero on every event and flipped the grid between sat on
+        // the leftover and not — a wiggle of up to the leftover's height.
+        const gesture: f64 = gesture: {
+            const raw = s.viewport_pixel_offset;
+            if (raw > 0 and base_pin.up(1) == null) break :gesture 0;
+            if (raw < 0) {
+                const below = if (s.pages.getBottomRight(.viewport)) |br|
+                    br.down(1)
+                else
+                    null;
+                if (below == null) break :gesture 0;
+            }
+            break :gesture raw;
+        };
+        // The viewport's leftover height, from the terminal's row count
+        // (see `Geometry`). Mid-resize it can reach a cell or more — the
+        // terminal still has the old rows while the renderer has the new
+        // height — and the sum then reveals a second row, which is what
+        // keeps the content where it was until the rows catch up. More
+        // rows than fit is no leftover at all.
+        const pixel_pad: f64 = pad: {
+            if (geometry.cell_height == 0) break :pad 0;
+            const laid_out = @as(u64, s.pages.rows) * geometry.cell_height;
+            if (geometry.terminal_height <= laid_out) break :pad 0;
+            break :pad @floatFromInt(geometry.terminal_height - laid_out);
+        };
+        var pixel_offset: f64 = gesture + pixel_pad;
+        if (pixel_offset > 0) {
+            // How many rows the offset spans. A gesture's own remainder is
+            // always under a cell, so with no cell height to measure
+            // against — every caller that passes no geometry — one row is
+            // the answer and nothing is capped.
+            const cell_height: f64 = @floatFromInt(geometry.cell_height);
+            const wanted: usize = if (geometry.cell_height > 0) @intFromFloat(@min(
+                @ceil(pixel_offset / cell_height),
+                @as(f64, @floatFromInt(s.pages.rows)),
+            )) else 1;
+            while (rows_above < wanted) {
+                top_pin = top_pin.up(1) orelse break;
+                rows_above += 1;
+            }
+            if (rows_above == 0) {
+                // Nothing above to reveal: the grid stays where it is.
+                pixel_offset = 0;
+            } else if (geometry.cell_height > 0) {
+                // Scrollback ran out before the offset did: shift only as
+                // far as the rows we actually have, or the grid would be
+                // drawn off a strip nothing fills.
+                pixel_offset = @min(
+                    pixel_offset,
+                    @as(f64, @floatFromInt(rows_above)) * cell_height,
+                );
+            }
+        } else if (pixel_offset < 0) {
+            // A gesture's remainder reveals one row below; a
+            // `smooth-scroll-rows` move scrolling back can be drawn
+            // several rows up while it eases in, revealing as many.
+            const cell_height: f64 = @floatFromInt(geometry.cell_height);
+            const wanted: usize = if (geometry.cell_height > 0) @intFromFloat(@min(
+                @ceil(-pixel_offset / cell_height),
+                @as(f64, @floatFromInt(s.pages.rows)),
+            )) else 1;
+            var bottom_pin = s.pages.getBottomRight(.viewport);
+            while (rows_below < wanted) {
+                bottom_pin = (bottom_pin orelse break).down(1) orelse break;
+                rows_below += 1;
+            }
+            if (rows_below == 0) {
+                pixel_offset = 0;
+            } else if (geometry.cell_height > 0) {
+                pixel_offset = @max(
+                    pixel_offset,
+                    -@as(f64, @floatFromInt(rows_below)) * cell_height,
+                );
+            }
+        }
+
+        return .{
+            .overscan = .{ .above = rows_above, .below = rows_below },
+            .pixel_offset = pixel_offset,
+            .pixel_pad = pixel_pad,
+        };
+    }
+
+    /// A rectangle of the screen whose content is drawn `offset` pixels
+    /// below where the terminal has it (negative: above): a region scroll
+    /// animation (see `Screen.region_scrolls`) partway through its ease, or
+    /// a region the terminal has scrolled since the frame on screen was
+    /// drawn. Rows and columns are inclusive, as in `Screen.RegionScroll`.
+    pub const RegionShift = struct {
+        top: size.CellCountInt,
+        bottom: size.CellCountInt,
+        left: size.CellCountInt,
+        right: size.CellCountInt,
+        offset: f64,
+
+        /// What `offset` becomes once the region's content scrolls
+        /// `scroll.lines` more rows: that many rows further from its place,
+        /// since what was drawn hasn't moved. Capped at the region's
+        /// height, past which none of the drawn content is left in it. The
+        /// renderer's region scroll animation accumulates with this too, so
+        /// the shift it draws and the one the surface undoes can't drift.
+        pub fn scrolledOffset(
+            offset: f64,
+            scroll: Screen.RegionScroll,
+            cell_height: f64,
+        ) f64 {
+            const rows: u32 = @as(u32, scroll.bottom - scroll.top) + 1;
+            const height: f64 = @as(f64, @floatFromInt(rows)) * cell_height;
+            return std.math.clamp(
+                offset + @as(f64, @floatFromInt(scroll.lines)) * cell_height,
+                -height,
+                height,
+            );
+        }
+
+        fn sameRegion(self: RegionShift, scroll: Screen.RegionScroll) bool {
+            return self.top == scroll.top and self.bottom == scroll.bottom and
+                self.left == scroll.left and self.right == scroll.right;
+        }
+    };
+
+    /// The regions a frame draws away from where the terminal has them, and
+    /// the screen and grid the frame was drawn for: on any other the
+    /// offsets describe content that isn't there. The renderer publishes one
+    /// for the frame on screen, and the surface undoes it to turn a pointer
+    /// into the row drawn under it (`contentY`) and a row into where it is
+    /// drawn (`offsetAt`) — the region scroll counterpart of `resolveShift`,
+    /// and like it the only place that arithmetic lives.
+    pub const RegionShifts = struct {
+        /// Every region the renderer animates at once, plus as many
+        /// regions as the terminal records scrolls of between frames.
+        pub const capacity = Screen.RegionScrolls.capacity;
+
+        items: [capacity]RegionShift = undefined,
+        len: u8 = 0,
+
+        /// The screen and grid size the frame was drawn for. The default
+        /// matches no terminal, so nothing is undone before a frame is.
+        screen: ScreenSet.Key = .primary,
+        cols: size.CellCountInt = 0,
+        rows: size.CellCountInt = 0,
+
+        pub fn slice(self: *const RegionShifts) []const RegionShift {
+            return self.items[0..self.len];
+        }
+
+        /// Whether these offsets are about what `t` shows now. A screen
+        /// switch or a resize since the frame was drawn leaves its regions
+        /// describing content that is gone; the renderer drops their
+        /// animations on its next update.
+        pub fn describes(self: *const RegionShifts, t: *const Terminal) bool {
+            return self.screen == t.screens.active_key and
+                self.cols == t.cols and
+                self.rows == t.rows;
+        }
+
+        /// Add a region. Past capacity it is dropped: a region the hit
+        /// test doesn't know about is resolved as if drawn in place.
+        pub fn append(self: *RegionShifts, shift: RegionShift) void {
+            if (self.len == capacity) return;
+            self.items[self.len] = shift;
+            self.len += 1;
+        }
+
+        /// The terminal scrolled a region after these offsets were drawn.
+        /// What is on screen didn't move, so its content now sits that many
+        /// rows further from where the terminal has it — a region that was
+        /// drawn in place included.
+        pub fn addScroll(
+            self: *RegionShifts,
+            scroll: Screen.RegionScroll,
+            cell_height: f64,
+        ) void {
+            for (self.items[0..self.len]) |*shift| {
+                if (!shift.sameRegion(scroll)) continue;
+                shift.offset = RegionShift.scrolledOffset(shift.offset, scroll, cell_height);
+                return;
+            }
+            self.append(.{
+                .top = scroll.top,
+                .bottom = scroll.bottom,
+                .left = scroll.left,
+                .right = scroll.right,
+                .offset = RegionShift.scrolledOffset(0, scroll, cell_height),
+            });
+        }
+
+        /// Where the terminal has the content drawn at (`x`, `y`), a point
+        /// on the grid in pixels: the y it belongs at. Inside a region that
+        /// is drawn shifted that is `y` less the region's offset, the region
+        /// being decided by where the point is drawn, as the shaders do.
+        /// Content the region has scrolled out of (a ghost row sliding out,
+        /// or the gap one leaves) is no longer in the terminal, so it
+        /// resolves to the region's nearest edge row. Anywhere else, `y`.
+        pub fn contentY(
+            self: *const RegionShifts,
+            x: f64,
+            y: f64,
+            cell_width: f64,
+            cell_height: f64,
+        ) f64 {
+            for (self.slice()) |shift| {
+                const left: f64 = @as(f64, @floatFromInt(shift.left)) * cell_width;
+                const right: f64 = @as(f64, @floatFromInt(@as(u32, shift.right) + 1)) * cell_width;
+                const top: f64 = @as(f64, @floatFromInt(shift.top)) * cell_height;
+                const bottom: f64 = @as(f64, @floatFromInt(@as(u32, shift.bottom) + 1)) * cell_height;
+                if (x < left or x >= right or y < top or y >= bottom) continue;
+
+                const content = y - shift.offset;
+                if (content < top) return top;
+                if (content >= bottom) return bottom - 1;
+                return content;
+            }
+
+            return y;
+        }
+
+        /// How far below its place the cell at (`x`, `y`) is drawn, in
+        /// pixels: the offset of the region it belongs to, whose content
+        /// is shifted with it (the shaders decide by the cell's own
+        /// position), or zero.
+        pub fn offsetAt(
+            self: *const RegionShifts,
+            x: size.CellCountInt,
+            y: size.CellCountInt,
+        ) f64 {
+            for (self.slice()) |shift| {
+                if (x < shift.left or x > shift.right or
+                    y < shift.top or y > shift.bottom) continue;
+                return shift.offset;
+            }
+
+            return 0;
+        }
+    };
 
     /// Mark all render-state data as consumed by the renderer.
     ///
@@ -2241,6 +2652,69 @@ test "cursor state out of viewport" {
     try testing.expect(state.cursor.viewport == null);
 }
 
+test "cursor on the selection head" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    // Two rows, and the program hides its cursor, as a pager does.
+    s.nextSlice("ABCDE\r\nFGHIJ\x1b[?25l");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // Without the flag the pty cursor is the cursor, hidden.
+    try state.update(alloc, &t);
+    try testing.expect(!state.cursor.visible);
+    try testing.expectEqual(5, state.cursor.viewport.?.x);
+    try testing.expectEqual(1, state.cursor.viewport.?.y);
+
+    // A one-cell selection on B with the flag: the cursor is there, shown,
+    // a block, and the cell is not highlighted.
+    const screen = t.screens.active;
+    const b = screen.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+    try screen.select(Selection.init(b, b, false));
+    t.flags.selection_cursor = true;
+    try state.update(alloc, &t);
+    try testing.expect(state.cursor.visible);
+    try testing.expect(!state.cursor.blinking);
+    try testing.expectEqual(cursor.Style.block, state.cursor.visual_style);
+    try testing.expectEqual(1, state.cursor.viewport.?.x);
+    try testing.expectEqual(0, state.cursor.viewport.?.y);
+    try testing.expectEqual('B', state.cursor.cell.codepoint());
+    {
+        const sels = state.row_data.slice().items(.selection);
+        try testing.expectEqual(null, sels[state.rowDataRange().start]);
+    }
+
+    // The selection grows to C: the head is the cursor, the row is marked.
+    const c = screen.pages.pin(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+    try screen.select(Selection.init(b, c, false));
+    try state.update(alloc, &t);
+    try testing.expectEqual(2, state.cursor.viewport.?.x);
+    try testing.expectEqual('C', state.cursor.cell.codepoint());
+    {
+        const sels = state.row_data.slice().items(.selection);
+        try testing.expectEqualSlices(size.CellCountInt, &.{ 1, 2 }, &sels[state.rowDataRange().start].?);
+    }
+
+    // The flag off: the pty cursor again, still hidden.
+    t.flags.selection_cursor = false;
+    screen.dirty.selection = true;
+    try state.update(alloc, &t);
+    try testing.expect(!state.cursor.visible);
+    try testing.expectEqual(5, state.cursor.viewport.?.x);
+    try testing.expectEqual(1, state.cursor.viewport.?.y);
+}
+
 test "dirty state" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -3143,4 +3617,623 @@ test "overscan selection on overscan rows" {
         sels[vp + state.rows].?,
     );
     try testing.expect(sels[vp + state.rows - 2] == null);
+}
+
+fn testShiftedUpdate(
+    state: *RenderState,
+    t: *Terminal,
+    geometry: RenderState.Geometry,
+) !void {
+    try state.beginShiftedUpdate(std.testing.allocator, t, geometry);
+    state.endUpdate();
+}
+
+/// The rows an update captured, viewport and overscan together: what a
+/// smooth-scrolling renderer's grid holds.
+fn testCapturedRows(state: *const RenderState) usize {
+    const range = state.rowDataRange();
+    return range.end - range.start;
+}
+
+test "RenderState smooth scroll offset adds the revealed row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    // Five lines: "1" and "2" end up in scrollback, "3".."5" are active.
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("1\r\n2\r\n3\r\n4\r\n5");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try testShiftedUpdate(&state, &t, .none);
+    try testing.expectEqual(3, testCapturedRows(&state));
+    try testing.expect(state.overscan.eql(.{}));
+    try testing.expectEqual(0, state.viewport_pixel_offset);
+
+    // A fraction of a row up: the row above the viewport is included
+    // first and everything else shifts down one grid row.
+    t.screens.active.viewport_pixel_offset = 4;
+    try testShiftedUpdate(&state, &t, .none);
+    try testing.expectEqual(4, state.viewport_pixel_offset);
+    try testing.expect(state.overscan.eql(.{ .above = 1 }));
+    try testing.expectEqual(3, state.rows);
+    try testing.expectEqual(4, testCapturedRows(&state));
+    try testing.expectEqual(4, state.row_data.len);
+    {
+        const cells = state.row_data.slice().items(.cells);
+        try testing.expectEqual('2', cells[0].get(0).raw.codepoint());
+        try testing.expectEqual('3', cells[1].get(0).raw.codepoint());
+        try testing.expectEqual('5', cells[3].get(0).raw.codepoint());
+    }
+    try testing.expectEqual(2, state.cursor.viewport.?.y);
+    try testing.expectEqual(3, state.cursor.captured.?.y);
+
+    // At the bottom nothing lies below, so a fraction down is dropped.
+    t.screens.active.viewport_pixel_offset = -4;
+    try testShiftedUpdate(&state, &t, .none);
+    try testing.expectEqual(0, state.viewport_pixel_offset);
+    try testing.expect(state.overscan.eql(.{}));
+    try testing.expectEqual(3, testCapturedRows(&state));
+    try testing.expectEqual(2, state.cursor.viewport.?.y);
+    try testing.expectEqual(2, state.cursor.captured.?.y);
+
+    // A row-level viewport move clears any remainder.
+    t.screens.active.viewport_pixel_offset = 4;
+    t.scrollViewport(.{ .delta = -1 });
+    try testing.expectEqual(0, t.screens.active.viewport_pixel_offset);
+
+    // Scrolled up one row, a fraction down reveals the row below, last.
+    t.screens.active.viewport_pixel_offset = -4;
+    try testShiftedUpdate(&state, &t, .none);
+    try testing.expectEqual(-4, state.viewport_pixel_offset);
+    try testing.expect(state.overscan.eql(.{ .below = 1 }));
+    try testing.expectEqual(4, testCapturedRows(&state));
+    {
+        const cells = state.row_data.slice().items(.cells);
+        try testing.expectEqual('2', cells[0].get(0).raw.codepoint());
+        try testing.expectEqual('5', cells[3].get(0).raw.codepoint());
+    }
+
+    // The cursor is on that revealed row: outside the viewport, but drawn
+    // partly on screen, so the captured rows still hold it.
+    try testing.expect(state.cursor.viewport == null);
+    try testing.expectEqual(3, state.cursor.captured.?.y);
+
+    // At the top of scrollback nothing lies above.
+    t.scrollViewport(.top);
+    t.screens.active.viewport_pixel_offset = 4;
+    try testShiftedUpdate(&state, &t, .none);
+    try testing.expectEqual(0, state.viewport_pixel_offset);
+    try testing.expectEqual(3, testCapturedRows(&state));
+    {
+        const cells = state.row_data.slice().items(.cells);
+        try testing.expectEqual('1', cells[0].get(0).raw.codepoint());
+    }
+}
+
+test "RenderState geometry pad sits the grid on the leftover height" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("1\r\n2\r\n3\r\n4\r\n5");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // A viewport 6px taller than its three rows: the grid is drawn that
+    // much lower and the row above is revealed by the same amount, so the
+    // next pixel of height moves the content rather than the row count.
+    try testShiftedUpdate(&state, &t, .{ .cell_height = 10, .terminal_height = 36 });
+    try testing.expectEqual(6, state.viewport_pixel_offset);
+    try testing.expectEqual(1, state.overscan.above);
+    try testing.expectEqual(4, testCapturedRows(&state));
+    {
+        const cells = state.row_data.slice().items(.cells);
+        try testing.expectEqual('2', cells[0].get(0).raw.codepoint());
+    }
+
+    // A gesture pinned at the bottom of scrollback has nothing below to
+    // reveal, so its remainder is dropped on its own and the grid stays
+    // sat on the leftover — for any remainder, since the remainder cycles
+    // through a cell as the gesture keeps failing to commit a row.
+    for ([_]f64{ -4, -8 }) |remainder| {
+        t.screens.active.viewport_pixel_offset = remainder;
+        try testShiftedUpdate(&state, &t, .{ .cell_height = 10, .terminal_height = 36 });
+        try testing.expectEqual(6, state.viewport_pixel_offset);
+        try testing.expectEqual(1, state.overscan.above);
+        try testing.expectEqual(4, testCapturedRows(&state));
+    }
+
+    // It adds to a gesture's own remainder, and a sum over a cell reveals
+    // a second row rather than tearing a strip nothing fills.
+    t.screens.active.viewport_pixel_offset = 6;
+    try testShiftedUpdate(&state, &t, .{ .cell_height = 10, .terminal_height = 36 });
+    try testing.expectEqual(12, state.viewport_pixel_offset);
+    try testing.expectEqual(2, state.overscan.above);
+    try testing.expectEqual(5, testCapturedRows(&state));
+    {
+        const cells = state.row_data.slice().items(.cells);
+        try testing.expectEqual('1', cells[0].get(0).raw.codepoint());
+    }
+
+    // Only as far as the scrollback goes: at the top the offset is capped
+    // to the rows actually revealed.
+    t.screens.active.viewport_pixel_offset = 0;
+    t.scrollViewport(.top);
+    try testShiftedUpdate(&state, &t, .{ .cell_height = 10, .terminal_height = 36 });
+    try testing.expectEqual(0, state.viewport_pixel_offset);
+    try testing.expectEqual(0, state.overscan.above);
+    try testing.expectEqual(3, testCapturedRows(&state));
+
+    // The leftover follows the terminal's rows, not the renderer's grid,
+    // so the grid stays put whichever side of a resize a frame lands on.
+    // Three rows in 45px leave 15 — over a cell — so two rows above are
+    // revealed and row "3" sits at 0 × 10 + 15 = 15px...
+    t.scrollViewport(.bottom);
+    try testShiftedUpdate(&state, &t, .{ .cell_height = 10, .terminal_height = 45 });
+    try testing.expectEqual(15, state.viewport_pixel_offset);
+    try testing.expectEqual(15, state.viewport_pixel_pad);
+    try testing.expectEqual(2, state.overscan.above);
+    try testing.expectEqual(5, testCapturedRows(&state));
+    {
+        const cells = state.row_data.slice().items(.cells);
+        try testing.expectEqual('1', cells[0].get(0).raw.codepoint());
+        try testing.expectEqual('3', cells[2].get(0).raw.codepoint());
+    }
+
+    // ...and once the terminal takes the fourth row, 5px are left, one
+    // row above is revealed, and row "3" is still at 1 × 10 + 5 = 15px.
+    try t.resize(alloc, .{ .cols = 10, .rows = 4 });
+    try testShiftedUpdate(&state, &t, .{ .cell_height = 10, .terminal_height = 45 });
+    try testing.expectEqual(5, state.viewport_pixel_offset);
+    try testing.expectEqual(5, state.viewport_pixel_pad);
+    try testing.expectEqual(1, state.overscan.above);
+    try testing.expectEqual(5, testCapturedRows(&state));
+    {
+        const cells = state.row_data.slice().items(.cells);
+        try testing.expectEqual('1', cells[0].get(0).raw.codepoint());
+        try testing.expectEqual('3', cells[2].get(0).raw.codepoint());
+    }
+
+    // The other order — the terminal has the rows before the renderer has
+    // the height: four rows don't fit in 36px, so there is no leftover.
+    try testShiftedUpdate(&state, &t, .{ .cell_height = 10, .terminal_height = 36 });
+    try testing.expectEqual(0, state.viewport_pixel_offset);
+    try testing.expectEqual(0, state.viewport_pixel_pad);
+    try testing.expectEqual(0, state.overscan.above);
+    try testing.expectEqual(4, testCapturedRows(&state));
+
+    // No geometry, no shift — what a renderer with smooth scrolling off
+    // gets, which is exactly the update everyone else runs.
+    t.scrollViewport(.bottom);
+    try testShiftedUpdate(&state, &t, .none);
+    try testing.expectEqual(0, state.viewport_pixel_offset);
+    try testing.expect(state.overscan_request.eql(.{}));
+    try testing.expect(state.overscan.eql(.{}));
+}
+
+test "RenderState resolveShift is the shift an update draws" {
+    // The surface hit-tests the pointer, reports mouse cells and places the
+    // IME with resolveShift (macterm#433). Wherever an update drops or caps
+    // the shift, so must it, or a click lands a row off what is drawn.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // Three 10px rows in 36px: a 6px leftover.
+    const geometry: RenderState.Geometry = .{ .cell_height = 10, .terminal_height = 36 };
+    const expectShift = struct {
+        fn expectShift(
+            rs: *RenderState,
+            term: *Terminal,
+            g: RenderState.Geometry,
+            want: f64,
+        ) !void {
+            const shift = RenderState.resolveShift(term.screens.active, g);
+            try testShiftedUpdate(rs, term, g);
+            try std.testing.expectEqual(want, shift.pixel_offset);
+            try std.testing.expectEqual(rs.viewport_pixel_offset, shift.pixel_offset);
+            try std.testing.expectEqual(rs.viewport_pixel_pad, shift.pixel_pad);
+            // Every row the shift reveals exists, so the update captures
+            // exactly the overscan it asks for.
+            try std.testing.expect(rs.overscan.eql(shift.overscan));
+            try std.testing.expect(rs.overscan_request.eql(shift.overscan));
+        }
+    }.expectShift;
+
+    // No scrollback yet: nothing above to reveal, so the leftover stays
+    // padding and the grid is drawn where its rows fall.
+    s.nextSlice("1\r\n2");
+    try expectShift(&state, &t, geometry, 0);
+
+    // Once there is scrollback the grid sits on the leftover...
+    s.nextSlice("\r\n3\r\n4\r\n5");
+    try expectShift(&state, &t, geometry, 6);
+
+    // ...and stays there when a gesture pinned at the bottom leaves a
+    // remainder: nothing lies below to reveal, so the remainder is dropped.
+    t.screens.active.viewport_pixel_offset = -4;
+    try expectShift(&state, &t, geometry, 6);
+
+    // Scrolled into history there are rows on both sides; both count.
+    t.scrollViewport(.{ .delta = -1 });
+    t.screens.active.viewport_pixel_offset = -4;
+    try expectShift(&state, &t, geometry, 2);
+
+    // At the top of history nothing lies above: remainder and leftover
+    // both drop.
+    t.scrollViewport(.top);
+    t.screens.active.viewport_pixel_offset = 4;
+    try expectShift(&state, &t, geometry, 0);
+
+    // One row of scrollback above, asked for more than a row: capped at
+    // the row there is.
+    t.scrollViewport(.{ .delta = 1 });
+    t.screens.active.viewport_pixel_offset = 8;
+    try expectShift(&state, &t, geometry, 10);
+
+    // The alternate screen has no scrollback at all.
+    t.scrollViewport(.bottom);
+    s.nextSlice("\x1b[?1049h");
+    t.screens.active.viewport_pixel_offset = 4;
+    try expectShift(&state, &t, geometry, 0);
+}
+
+test "RenderState resolveShift reveals the rows below a row move scrolling back" {
+    // Under `smooth-scroll-rows` a move back through history is drawn
+    // where it was, rows above its place, while it eases in: the grid is
+    // shifted up by more than a row and every row it uncovers below the
+    // viewport has to be there.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // Three 10px rows in exactly 30px: no leftover to add.
+    const geometry: RenderState.Geometry = .{ .cell_height = 10, .terminal_height = 30 };
+
+    // At the top of history, 2.5 rows up reveals three rows below.
+    t.scrollViewport(.top);
+    t.screens.active.viewport_pixel_offset = -25;
+    const shift = RenderState.resolveShift(t.screens.active, geometry);
+    try testing.expectEqual(-25, shift.pixel_offset);
+    try testing.expect(shift.overscan.eql(.{ .below = 3 }));
+    try testShiftedUpdate(&state, &t, geometry);
+    try testing.expect(state.overscan.eql(.{ .below = 3 }));
+    try testing.expectEqual(6, testCapturedRows(&state));
+    {
+        const cells = state.row_data.slice().items(.cells);
+        try testing.expectEqual('1', cells[0].get(0).raw.codepoint());
+        try testing.expectEqual('4', cells[3].get(0).raw.codepoint());
+        try testing.expectEqual('6', cells[5].get(0).raw.codepoint());
+    }
+
+    // One row above the bottom only one row lies below: the shift is
+    // capped at it, as it is above when scrollback runs out.
+    t.scrollViewport(.bottom);
+    t.scrollViewport(.{ .delta = -1 });
+    t.screens.active.viewport_pixel_offset = -25;
+    const capped = RenderState.resolveShift(t.screens.active, geometry);
+    try testing.expectEqual(-10, capped.pixel_offset);
+    try testing.expect(capped.overscan.eql(.{ .below = 1 }));
+}
+
+test "RenderState resolveShift without a terminal height rests on whole rows" {
+    // `smooth-scroll-rows` hands over the cell height but no terminal
+    // height: the leftover stays padding, so a viewport with scrollback
+    // above is drawn where its rows fall, as without smooth scrolling,
+    // and only a row move's own offset shifts it.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("1\r\n2\r\n3\r\n4\r\n5\r\n6");
+
+    const rows_geometry: RenderState.Geometry = .{ .cell_height = 10 };
+    const at_rest = RenderState.resolveShift(t.screens.active, rows_geometry);
+    try testing.expectEqual(0, at_rest.pixel_offset);
+    try testing.expectEqual(0, at_rest.pixel_pad);
+    try testing.expect(at_rest.overscan.eql(.{}));
+
+    // The same screen with a 6px leftover measured sits on it.
+    const pixels: RenderState.Geometry = .{ .cell_height = 10, .terminal_height = 36 };
+    try testing.expectEqual(6, RenderState.resolveShift(t.screens.active, pixels).pixel_offset);
+
+    // A move forward easing in still reveals the rows above it.
+    t.screens.active.viewport_pixel_offset = 15;
+    const moving = RenderState.resolveShift(t.screens.active, rows_geometry);
+    try testing.expectEqual(15, moving.pixel_offset);
+    try testing.expect(moving.overscan.eql(.{ .above = 2 }));
+}
+
+test "RenderState Shift rowsAboveAt resolves the revealed rows" {
+    // The surface selects the rows a shift reveals above the viewport with
+    // this, so they select like any other row drawn.
+    const testing = std.testing;
+
+    // No shift, or one with nothing revealed: always the viewport.
+    const none: RenderState.Shift = .{};
+    try testing.expectEqual(0, none.rowsAboveAt(0, 10));
+    try testing.expectEqual(0, none.rowsAboveAt(-5, 10));
+    const below: RenderState.Shift = .{
+        .overscan = .{ .below = 1 },
+        .pixel_offset = -4,
+    };
+    try testing.expectEqual(0, below.rowsAboveAt(0, 10));
+
+    // Most of a row revealed: it fills the strip down to the grid.
+    const one: RenderState.Shift = .{
+        .overscan = .{ .above = 1 },
+        .pixel_offset = 8,
+    };
+    try testing.expectEqual(1, one.rowsAboveAt(0, 10));
+    try testing.expectEqual(1, one.rowsAboveAt(7.9, 10));
+    try testing.expectEqual(0, one.rowsAboveAt(8, 10));
+    try testing.expectEqual(0, one.rowsAboveAt(25, 10));
+    // The padding above is on the topmost row drawn.
+    try testing.expectEqual(1, one.rowsAboveAt(-20, 10));
+
+    // More than a row revealed (a gesture's remainder on the leftover).
+    const two: RenderState.Shift = .{
+        .overscan = .{ .above = 2 },
+        .pixel_offset = 14,
+    };
+    try testing.expectEqual(2, two.rowsAboveAt(0, 10));
+    try testing.expectEqual(2, two.rowsAboveAt(3.9, 10));
+    try testing.expectEqual(1, two.rowsAboveAt(4, 10));
+    try testing.expectEqual(0, two.rowsAboveAt(14, 10));
+}
+
+test "RenderState RegionShifts resolves a point to the row drawn there" {
+    const testing = std.testing;
+    const contentY = struct {
+        fn contentY(shifts: *const RenderState.RegionShifts, x: f64, y: f64) f64 {
+            return shifts.contentY(x, y, 10, 20);
+        }
+    }.contentY;
+
+    // Rows 2..9 and columns 1..8 of a grid of 10x20px cells, drawn 25px
+    // below where the terminal has them: most of the way home from a scroll
+    // of two rows up.
+    var shifts: RenderState.RegionShifts = .{};
+    shifts.append(.{ .top = 2, .bottom = 9, .left = 1, .right = 8, .offset = 25 });
+
+    // Nothing outside the region moves: above it, below it, and in the
+    // margins either side of it.
+    try testing.expectEqual(30, contentY(&shifts, 15, 30));
+    try testing.expectEqual(205, contentY(&shifts, 15, 205));
+    try testing.expectEqual(100, contentY(&shifts, 5, 100));
+    try testing.expectEqual(100, contentY(&shifts, 95, 100));
+
+    // Inside it, the content drawn at a point is 25px higher in the
+    // terminal.
+    try testing.expectEqual(75, contentY(&shifts, 15, 100));
+    try testing.expectEqual(174, contentY(&shifts, 85, 199));
+
+    // Its top 25px show rows that have scrolled out of the terminal, which
+    // resolve to the region's top row.
+    try testing.expectEqual(40, contentY(&shifts, 15, 40));
+    try testing.expectEqual(40, contentY(&shifts, 15, 64));
+    try testing.expectEqual(40, contentY(&shifts, 15, 65));
+
+    // Scrolled down, the content is drawn above its place and the rows
+    // that left are at the bottom: they resolve to the bottom row.
+    shifts.items[0].offset = -30;
+    try testing.expectEqual(180, contentY(&shifts, 15, 150));
+    try testing.expectEqual(199, contentY(&shifts, 15, 170));
+    try testing.expectEqual(199, contentY(&shifts, 15, 199));
+
+    // The first region a point is drawn in decides, as in the shaders.
+    shifts.append(.{ .top = 0, .bottom = 9, .left = 0, .right = 9, .offset = 7 });
+    try testing.expectEqual(180, contentY(&shifts, 15, 150));
+    try testing.expectEqual(143, contentY(&shifts, 5, 150));
+}
+
+test "RenderState RegionShifts offsetAt is where a cell is drawn" {
+    const testing = std.testing;
+
+    var shifts: RenderState.RegionShifts = .{};
+    try testing.expectEqual(0, shifts.offsetAt(3, 3));
+
+    shifts.append(.{ .top = 2, .bottom = 9, .left = 1, .right = 8, .offset = 25 });
+    try testing.expectEqual(25, shifts.offsetAt(1, 2));
+    try testing.expectEqual(25, shifts.offsetAt(8, 9));
+    try testing.expectEqual(0, shifts.offsetAt(0, 5));
+    try testing.expectEqual(0, shifts.offsetAt(9, 5));
+    try testing.expectEqual(0, shifts.offsetAt(4, 1));
+    try testing.expectEqual(0, shifts.offsetAt(4, 10));
+}
+
+test "RenderState RegionShifts addScroll moves the terminal's rows off the frame's" {
+    const testing = std.testing;
+
+    // Rows 2..9: eight 20px rows, 160px.
+    const up: Screen.RegionScroll = .{ .top = 2, .bottom = 9, .left = 0, .right = 9, .lines = 3 };
+    var down = up;
+    down.lines = -1;
+
+    // The renderer's animation and the hit test accumulate alike.
+    try testing.expectEqual(60, RenderState.RegionShift.scrolledOffset(0, up, 20));
+    try testing.expectEqual(-150, RenderState.RegionShift.scrolledOffset(-130, down, 20));
+    try testing.expectEqual(-160, RenderState.RegionShift.scrolledOffset(-150, down, 20));
+
+    // A region the frame drew in place: its content is now three rows
+    // below where the terminal has it.
+    var shifts: RenderState.RegionShifts = .{};
+    shifts.addScroll(up, 20);
+    try testing.expectEqual(1, shifts.len);
+    try testing.expectEqual(60, shifts.items[0].offset);
+
+    // More scrolling adds to it, and a scroll the other way takes it back.
+    shifts.addScroll(up, 20);
+    try testing.expectEqual(120, shifts.items[0].offset);
+    shifts.addScroll(down, 20);
+    try testing.expectEqual(100, shifts.items[0].offset);
+
+    // Past the region's height none of the drawn content is left in it.
+    shifts.addScroll(up, 20);
+    shifts.addScroll(up, 20);
+    try testing.expectEqual(1, shifts.len);
+    try testing.expectEqual(160, shifts.items[0].offset);
+
+    // Another region is an entry of its own, while there is room.
+    var other = up;
+    for (1..RenderState.RegionShifts.capacity) |i| {
+        other.left = @intCast(i);
+        shifts.addScroll(other, 20);
+    }
+    try testing.expectEqual(RenderState.RegionShifts.capacity, shifts.len);
+    other.left = 0;
+    other.right = 4;
+    shifts.addScroll(other, 20);
+    try testing.expectEqual(RenderState.RegionShifts.capacity, shifts.len);
+}
+
+test "RenderState RegionShifts land a click on the row that shows what is drawn" {
+    // A region scroll animation draws a region's content away from where
+    // the terminal has it, and the program may scroll it further before
+    // the next frame is on screen. Whatever the pointer is over, the row a
+    // click resolves to must hold that, or be the region's edge row when
+    // what is drawn there has scrolled out of the terminal.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+    const cell_h = 20;
+
+    var t = try Terminal.init(io, alloc, .{ .cols = 10, .rows = 8 });
+    defer t.deinit(alloc);
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // The label of a row of `state` ('0'..'7'), or 0 for a blank row.
+    const label = struct {
+        fn label(state: *const RenderState, row: usize) u21 {
+            const cells = state.row_data.slice().items(.cells);
+            return cells[row].get(1).raw.codepoint();
+        }
+    }.label;
+
+    // A click at every pixel row of a frame of `drawn` that shows region
+    // rows 1..6 `offset` low, against `now`, which has scrolled the region
+    // up `since` more rows: it lands on the row with the label drawn under
+    // it, or on an edge row where what is drawn is no longer in the region
+    // (a row the frame shows sliding out, or one scrolled out since).
+    const expectClicks = struct {
+        fn expectClicks(
+            drawn: *const RenderState,
+            offset: f64,
+            now: *const RenderState,
+            since: usize,
+            shifts: *const RenderState.RegionShifts,
+        ) !void {
+            const top = 1;
+            const bottom = 6;
+            for (0..8 * cell_h) |y| {
+                const at = shifts.contentY(5, @floatFromInt(y), 10, cell_h);
+                const row: usize = @intFromFloat(@floor(at / cell_h));
+
+                if (y < top * cell_h or y >= (bottom + 1) * cell_h) {
+                    try std.testing.expectEqual(label(drawn, y / cell_h), label(now, row));
+                    continue;
+                }
+
+                const content = @as(f64, @floatFromInt(y)) - offset;
+                const drawn_row: usize = if (content < 0) 0 else @intFromFloat(@floor(content / cell_h));
+                if (content < top * cell_h or drawn_row > bottom or drawn_row < top + since) {
+                    try std.testing.expect(row == top or row == bottom);
+                    continue;
+                }
+                try std.testing.expectEqual(drawn_row - since, row);
+                try std.testing.expectEqual(label(drawn, drawn_row), label(now, row));
+            }
+        }
+    }.expectClicks;
+
+    // The alternate screen, one labelled row per line.
+    s.nextSlice("\x1b[?1049h\x1b[H");
+    s.nextSlice("r0\r\nr1\r\nr2\r\nr3\r\nr4\r\nr5\r\nr6\r\nr7");
+    var before: RenderState = .empty;
+    defer before.deinit(alloc);
+    try before.update(alloc, &t);
+
+    // The frame on screen draws every row in place. The program scrolls
+    // rows 1..6 up by two, as helix scrolls a view, and the renderer hasn't
+    // taken the scroll in yet: the surface folds in what is pending.
+    s.nextSlice("\x1b[2;7r\x1b[2S");
+    try testing.expectEqual(1, t.screens.active.region_scrolls.len);
+    var shifts: RenderState.RegionShifts = .{ .screen = .alternate, .cols = 10, .rows = 8 };
+    try testing.expect(shifts.describes(&t));
+    for (t.screens.active.region_scrolls.slice()) |scroll| shifts.addScroll(scroll, cell_h);
+    var mid: RenderState = .empty;
+    defer mid.deinit(alloc);
+    try mid.update(alloc, &t);
+    try expectClicks(&before, 0, &mid, 2, &shifts);
+
+    // Taken in, the scroll is eased home: a frame drawn 13px from home
+    // shows the scrolled content 13px low, and that is what is published.
+    t.screens.active.region_scrolls.clear();
+    shifts = .{ .screen = .alternate, .cols = 10, .rows = 8 };
+    shifts.append(.{ .top = 1, .bottom = 6, .left = 0, .right = 9, .offset = 13 });
+    try expectClicks(&mid, 13, &mid, 0, &shifts);
+
+    // Momentum: another row scrolls while that frame is on screen.
+    s.nextSlice("\x1b[S");
+    for (t.screens.active.region_scrolls.slice()) |scroll| shifts.addScroll(scroll, cell_h);
+    var after: RenderState = .empty;
+    defer after.deinit(alloc);
+    try after.update(alloc, &t);
+    try expectClicks(&mid, 13, &after, 1, &shifts);
+
+    // Leaving the alternate screen leaves nothing they describe.
+    s.nextSlice("\x1b[?1049l");
+    try testing.expect(!shifts.describes(&t));
 }

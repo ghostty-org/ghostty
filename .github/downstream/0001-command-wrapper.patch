@@ -1,0 +1,175 @@
+From a09bf6112ff540eeb69e2fd545f1be2880df0564 Mon Sep 17 00:00:00 2001
+From: Ethan Lee <ethantlee21@gmail.com>
+Date: Sun, 21 Jun 2026 23:52:25 +0900
+Subject: [PATCH] config: add command-wrapper to run resolved command under a
+ supervisor
+
+Adds a command-wrapper config option (and the embedded C-ABI fields
+command_wrapper/command_wrapper_count plus disable_shell_integration)
+that prepends a wrapper argv to the final resolved command, after shell
+resolution, shell integration, and the macOS login(1) wrapping have all
+been applied. The resolved command runs as a child of the wrapper.
+
+This lets an embedder run the shell under a session-persistence
+multiplexer (e.g. zmx) while keeping Ghosttys shell resolution and
+shell integration fully intact, instead of replacing command outright.
+---
+ include/ghostty.h      |  3 +++
+ src/Surface.zig        |  1 +
+ src/apprt/embedded.zig | 32 ++++++++++++++++++++++++++++++++
+ src/config/Config.zig  | 16 ++++++++++++++++
+ src/termio/Exec.zig    | 21 ++++++++++++++++++++-
+ 5 files changed, 72 insertions(+), 1 deletion(-)
+
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 72bbb57a8..bcbd9d1fe 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -477,6 +477,9 @@ typedef struct {
+   const char* initial_input;
+   bool wait_after_command;
+   ghostty_surface_context_e context;
++  const char* const* command_wrapper;
++  size_t command_wrapper_count;
++  bool disable_shell_integration;
+ } ghostty_surface_config_s;
+ 
+ typedef struct {
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 2c4edc497..e55fe6677 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -648,6 +648,7 @@ pub fn init(
+         // Initialize our IO backend
+         var io_exec = try termio.Exec.init(alloc, .{
+             .command = command,
++            .command_wrapper = config.@"command-wrapper",
+             .env = env,
+             .env_override = config.env,
+             .shell_integration = config.@"shell-integration",
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index 7310159cc..77c5fcdca 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -462,6 +462,19 @@ pub const Surface = struct {
+ 
+         /// Context for the new surface
+         context: apprt.surface.NewSurfaceContext = .window,
++
++        /// A wrapper command (argv) prepended to the final resolved command.
++        /// See the `command-wrapper` config docs. Each element is a NUL
++        /// terminated argument; `command_wrapper_count` is the element count.
++        /// When null/empty, no wrapper is applied.
++        command_wrapper: ?[*]const [*:0]const u8 = null,
++        command_wrapper_count: usize = 0,
++
++        /// Force `shell-integration = none` for this surface only, regardless of
++        /// the global config. For surfaces that run a self-managing command
++        /// (e.g. a script runner that emits its own OSC sequences) and must not
++        /// have Ghostty's integration injected into the shell.
++        disable_shell_integration: bool = false,
+     };
+ 
+     pub fn init(self: *Surface, app: *App, opts: Options) !void {
+@@ -536,6 +549,25 @@ pub const Surface = struct {
+             }
+         }
+ 
++        // If we have a command wrapper from the options then we set it. This
++        // is always a direct (already-tokenized) command so paths with spaces
++        // survive without shell re-splitting.
++        if (opts.command_wrapper) |c_wrapper| {
++            if (opts.command_wrapper_count > 0) {
++                const alloc = config.arenaAlloc();
++                const argv = try alloc.alloc([:0]const u8, opts.command_wrapper_count);
++                for (c_wrapper[0..opts.command_wrapper_count], 0..) |arg, i| {
++                    argv[i] = try alloc.dupeZ(u8, std.mem.sliceTo(arg, 0));
++                }
++                config.@"command-wrapper" = .{ .direct = argv };
++            }
++        }
++
++        // Opt this surface out of shell integration regardless of global config.
++        if (opts.disable_shell_integration) {
++            config.@"shell-integration" = .none;
++        }
++
+         // Apply any environment variables that were requested.
+         if (opts.env_var_count > 0) {
+             const alloc = config.arenaAlloc();
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index d6a038d9d..c3bfdee53 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -1197,6 +1197,22 @@ command: ?Command = null,
+ ///     manually.
+ @"initial-command": ?Command = null,
+ 
++/// A wrapper command that is prepended to the final command Ghostty would
++/// otherwise execute, after shell resolution, shell integration, and (on
++/// macOS) the `login(1)` wrapping have all been applied. The wrapper's
++/// arguments are placed before the resolved argv, so the resolved command
++/// runs as a child of the wrapper.
++///
++/// This exists so an embedder can run the shell under a supervisor such as a
++/// session-persistence multiplexer while keeping Ghostty's normal shell
++/// resolution and shell integration fully intact. Without this, an embedder
++/// would have to replace `command` with the wrapper, which loses the user's
++/// configured `command`, shell detection, and integration.
++///
++/// Specified like `command`, e.g. `direct:zmx attach my-session`. Use the
++/// `direct:` prefix to avoid a `/bin/sh -c` roundtrip for the wrapper.
++@"command-wrapper": ?Command = null,
++
+ /// Controls when command finished notifications are sent. There are
+ /// three options:
+ ///
+diff --git a/src/termio/Exec.zig b/src/termio/Exec.zig
+index 0894f87b1..54fd6aaf8 100644
+--- a/src/termio/Exec.zig
++++ b/src/termio/Exec.zig
+@@ -562,6 +562,7 @@ pub const ThreadData = struct {
+ 
+ pub const Config = struct {
+     command: ?configpkg.Command = null,
++    command_wrapper: ?configpkg.Command = null,
+     env: EnvMap,
+     env_override: configpkg.RepeatableStringMap = .{},
+     shell_integration: configpkg.Config.ShellIntegration = .detect,
+@@ -818,7 +819,7 @@ const Subprocess = struct {
+         }
+ 
+         // Build our args list
+-        const args: []const [:0]const u8 = execCommand(
++        const base_args: []const [:0]const u8 = execCommand(
+             alloc,
+             shell_command,
+             internal_os.passwd,
+@@ -843,6 +844,24 @@ const Subprocess = struct {
+             error.SystemError => return err,
+         };
+ 
++        // If a command wrapper is configured, prepend its arguments to the
++        // resolved command so the resolved argv (including the macOS login(1)
++        // wrapping and any shell integration) runs as a child of the wrapper.
++        const args: []const [:0]const u8 = if (cfg.command_wrapper) |wrapper| wrap: {
++            var list: std.ArrayList([:0]const u8) = try .initCapacity(
++                alloc,
++                base_args.len + 4,
++            );
++            defer list.deinit(alloc);
++
++            var it = try wrapper.argIterator(alloc);
++            defer it.deinit();
++            while (it.next()) |arg| try list.append(alloc, try alloc.dupeZ(u8, arg));
++
++            try list.appendSlice(alloc, base_args);
++            break :wrap try list.toOwnedSlice(alloc);
++        } else base_args;
++
+         // We have to copy the cwd because there is no guarantee that
+         // pointers in full_config remain valid.
+         const cwd: ?[:0]u8 = if (cfg.working_directory) |cwd|
+-- 
+2.53.0
+

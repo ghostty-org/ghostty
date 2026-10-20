@@ -284,13 +284,15 @@ fn processExitCommon(td: *termio.Termio.ThreadData, exit_code: u32) void {
     log.debug("child process exited status={} runtime={}ms", .{ exit_code, runtime_ms });
 
     // We always notify the surface immediately that the child has
-    // exited and some metadata about the exit.
+    // exited and some metadata about the exit. Not forever: this runs on
+    // the IO thread, which the app thread joins on teardown without
+    // draining its mailbox (renderer.State.closing).
     _ = td.surface_mailbox.push(.{
         .child_exited = .{
             .exit_code = exit_code,
             .runtime_ms = runtime_ms,
         },
-    }, .{ .forever = {} });
+    }, .{ .abort = &td.renderer_state.closing });
 }
 
 fn processExit(
@@ -379,10 +381,13 @@ fn termiosTimer(
 
         // We have to notify the surface that we're in password input.
         // We must block on this because the balanced true/false state
-        // of this is critical to apprt behavior.
+        // of this is critical to apprt behavior. A surface being torn
+        // down is the exception: its apprt state goes with it, and the
+        // app thread that would drain this is waiting on our exit
+        // (renderer.State.closing).
         _ = td.surface_mailbox.push(.{
             .password_input = password_input,
-        }, .{ .forever = {} });
+        }, .{ .abort = &td.renderer_state.closing });
     }
 
     // Repeat the timer
@@ -567,6 +572,7 @@ pub const ThreadData = struct {
 
 pub const Config = struct {
     command: ?configpkg.Command = null,
+    command_wrapper: ?configpkg.Command = null,
     env: EnvMap,
     env_override: configpkg.RepeatableStringMap = .{},
     shell_integration: configpkg.Config.ShellIntegration = .detect,
@@ -822,7 +828,7 @@ const Subprocess = struct {
         }
 
         // Build our args list
-        const args: []const [:0]const u8 = execCommand(
+        const base_args: []const [:0]const u8 = execCommand(
             alloc,
             shell_command,
             internal_os.passwd,
@@ -846,6 +852,24 @@ const Subprocess = struct {
             // This logs on its own, this is a bad error.
             error.SystemError => return err,
         };
+
+        // If a command wrapper is configured, prepend its arguments to the
+        // resolved command so the resolved argv (including the macOS login(1)
+        // wrapping and any shell integration) runs as a child of the wrapper.
+        const args: []const [:0]const u8 = if (cfg.command_wrapper) |wrapper| wrap: {
+            var list: std.ArrayList([:0]const u8) = try .initCapacity(
+                alloc,
+                base_args.len + 4,
+            );
+            defer list.deinit(alloc);
+
+            var it = try wrapper.argIterator(alloc);
+            defer it.deinit();
+            while (it.next()) |arg| try list.append(alloc, try alloc.dupeZ(u8, arg));
+
+            try list.appendSlice(alloc, base_args);
+            break :wrap try list.toOwnedSlice(alloc);
+        } else base_args;
 
         // We have to copy the cwd because there is no guarantee that
         // pointers in full_config remain valid.

@@ -147,6 +147,13 @@ flags: packed struct {
     /// to true based on termios state.
     password_input: bool = false,
 
+    /// True while a keyboard copy mode owns the cursor. The render state
+    /// then draws the cursor on the head (`end`) of the selection, visible
+    /// and as a block, and not on this cursor, which stays where the
+    /// program left it. A one-cell selection draws as that cursor alone.
+    /// Set by the `selection_cursor` binding action.
+    selection_cursor: bool = false,
+
     /// True if the terminal should perform selection scrolling.
     selection_scroll: bool = false,
 
@@ -2438,6 +2445,10 @@ pub fn index(self: *Terminal) !void {
             // present case is handled out of line so this hot path
             // only pays a count check (a load from a cache line we
             // already write, above).
+            // A row scrolled off the alternate screen is a motion to
+            // animate (scrollUp notes its own path below).
+            self.noteRegionScroll(1);
+
             if (comptime build_options.kitty_graphics) {
                 if (screen.kitty_images.placements.count() != 0) {
                     @branchHint(.unlikely);
@@ -2458,6 +2469,8 @@ pub fn index(self: *Terminal) !void {
             try self.scrollUp(1);
             return;
         }
+
+        self.noteRegionScroll(1);
 
         // Kitty image placements may need adjusting around the scroll;
         // handled out of line like the scrollback path above.
@@ -2701,8 +2714,29 @@ pub fn setLeftAndRightMargin(self: *Terminal, left_req: usize, right_req: usize)
     self.setCursorPos(1, 1);
 }
 
+/// Record a scroll of the current scrolling region by `lines` rows for the
+/// renderer to animate (see `Screen.region_scrolls`). Only the alternate
+/// screen: on the primary screen a scroll creates scrollback, which the
+/// viewport's own smooth scrolling covers. A scroll of the region's whole
+/// height or more keeps nothing on screen and is not a motion.
+fn noteRegionScroll(self: *Terminal, lines: i32) void {
+    if (self.screens.active_key != .alternate) return;
+    const region = self.scrolling_region;
+    const height: i32 = @as(i32, region.bottom - region.top) + 1;
+    if (lines == 0 or @abs(lines) >= height) return;
+    self.screens.active.region_scrolls.push(.{
+        .top = region.top,
+        .bottom = region.bottom,
+        .left = region.left,
+        .right = region.right,
+        .lines = lines,
+    });
+}
+
 /// Scroll the text down by one row.
 pub fn scrollDown(self: *Terminal, count: usize) void {
+    self.noteRegionScroll(-@as(i32, @intCast(@min(count, std.math.maxInt(i32)))));
+
     // Preserve our x/y to restore.
     const old_x = self.screens.active.cursor.x;
     const old_y = self.screens.active.cursor.y;
@@ -2743,6 +2777,8 @@ pub fn scrollDown(self: *Terminal, count: usize) void {
 ///
 /// Does not change the (absolute) cursor position.
 pub fn scrollUp(self: *Terminal, count: usize) !void {
+    self.noteRegionScroll(@intCast(@min(count, std.math.maxInt(i32))));
+
     // Preserve our x/y to restore.
     const old_x = self.screens.active.cursor.x;
     const old_y = self.screens.active.cursor.y;
@@ -9213,6 +9249,49 @@ test "Terminal: insertLines left/right scroll region" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC123\nD   56\nGEF489\n HI7", str);
     }
+}
+
+test "Terminal: region scroll noted on the alternate screen only" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .rows = 6, .cols = 8 });
+    defer t.deinit(alloc);
+
+    // Primary screen: scrolls create scrollback and are not noted.
+    t.setTopAndBottomMargin(2, 5);
+    try t.scrollUp(1);
+    try testing.expectEqual(0, t.screens.active.region_scrolls.len);
+
+    try t.switchScreenMode(.@"1049", true);
+    t.setTopAndBottomMargin(2, 5);
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(3, 8);
+
+    try t.scrollUp(2);
+    {
+        const pending = t.screens.active.region_scrolls.slice();
+        try testing.expectEqual(1, pending.len);
+        try testing.expectEqual(1, pending[0].top);
+        try testing.expectEqual(4, pending[0].bottom);
+        try testing.expectEqual(2, pending[0].left);
+        try testing.expectEqual(7, pending[0].right);
+        try testing.expectEqual(2, pending[0].lines);
+    }
+
+    // Same region again merges; a scroll down subtracts.
+    t.scrollDown(1);
+    try testing.expectEqual(1, t.screens.active.region_scrolls.len);
+    try testing.expectEqual(1, t.screens.active.region_scrolls.slice()[0].lines);
+
+    // IND at the bottom margin is a scroll too.
+    t.setCursorPos(5, 3);
+    try t.index();
+    try testing.expectEqual(2, t.screens.active.region_scrolls.slice()[0].lines);
+
+    // Scrolling the whole region away is a clear, not a motion.
+    t.screens.active.region_scrolls.clear();
+    try t.scrollUp(4);
+    try testing.expectEqual(0, t.screens.active.region_scrolls.len);
 }
 
 test "Terminal: scrollUp simple" {

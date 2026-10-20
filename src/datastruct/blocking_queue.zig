@@ -51,7 +51,20 @@ pub fn BlockingQueue(
 
             /// Nanoseconds
             ns: u64,
+
+            /// Wait like `forever`, but give up (the push fails) once the
+            /// flag is true. For a producer on a thread that the consumer
+            /// joins during teardown: a `forever` push into a full queue
+            /// whose consumer has stopped draining — or is itself waiting
+            /// to join this producer — never returns, and neither does the
+            /// join. The flag is polled every `abort_poll_ns`, so whoever
+            /// sets it need not know about this queue.
+            abort: *const std.atomic.Value(bool),
         };
+
+        /// How often an `abort` wait re-reads its flag. Only the slow path
+        /// (a full queue) pays it.
+        const abort_poll_ns: u64 = 5 * std.time.ns_per_ms;
 
         /// Our data. The values are undefined until they are written.
         data: [bounds]T = undefined,
@@ -129,6 +142,23 @@ pub fn BlockingQueue(
                                 },
                             },
                         ) catch return 0;
+                    },
+
+                    .abort => |flag| while (self.full()) {
+                        if (flag.load(.acquire)) return 0;
+                        self.not_full_waiters += 1;
+                        defer self.not_full_waiters -= 1;
+                        compat_thread.waitTimeout(
+                            &self.cond_not_full,
+                            io,
+                            &self.mutex,
+                            .{
+                                .duration = .{
+                                    .raw = .fromNanoseconds(abort_poll_ns),
+                                    .clock = .awake,
+                                },
+                            },
+                        ) catch {};
                     },
                 }
 
@@ -258,4 +288,37 @@ test "timed push" {
 
     // Timed push should fail
     try testing.expectEqual(@as(Q.Size, 0), q.push(io, 2, .{ .ns = 1000 }));
+}
+
+test "abort push" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    const Q = BlockingQueue(u64, 1);
+    const q = try Q.create(alloc);
+    defer q.destroy(alloc);
+    try testing.expectEqual(@as(Q.Size, 1), q.push(io, 1, .{ .instant = {} }));
+
+    // A flag already set fails without waiting.
+    var flag: std.atomic.Value(bool) = .init(true);
+    try testing.expectEqual(@as(Q.Size, 0), q.push(io, 2, .{ .abort = &flag }));
+
+    // A flag set while a producer waits ends its wait.
+    flag.store(false, .release);
+    const Producer = struct {
+        fn run(queue: *Q, f: *const std.atomic.Value(bool), out: *Q.Size) void {
+            out.* = queue.push(std.testing.io, 2, .{ .abort = f });
+        }
+    };
+    var result: Q.Size = 1;
+    const thr = try std.Thread.spawn(.{}, Producer.run, .{ q, &flag, &result });
+    flag.store(true, .release);
+    thr.join();
+    try testing.expectEqual(@as(Q.Size, 0), result);
+
+    // Room made by the consumer lets the push through as usual.
+    flag.store(false, .release);
+    try testing.expect(q.pop(io) != null);
+    try testing.expectEqual(@as(Q.Size, 1), q.push(io, 2, .{ .abort = &flag }));
 }

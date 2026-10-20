@@ -69,6 +69,12 @@ terminal_stream: StreamHandler.Stream,
 /// flooding with cursor resets.
 last_cursor_reset: ?std.Io.Timestamp = null,
 
+/// Last time we emitted an output-activity heartbeat. This throttles
+/// the `output_activity` surface message (see processOutputLocked) so
+/// that a program producing a continuous stream of output only pokes
+/// the app thread a few times a second instead of once per pty chunk.
+last_output_activity: ?std.Io.Timestamp = null,
+
 /// State we have for thread enter. This may be null if we don't need
 /// to keep track of any state or if its already been freed.
 thread_enter_state: ?*ThreadEnterState = null,
@@ -442,7 +448,7 @@ pub fn queueMessage(
     self.mailbox.send(msg, switch (mutex) {
         .locked => self.renderer_state.mutex,
         .unlocked => null,
-    });
+    }, &self.renderer_state.closing);
     self.mailbox.notify();
 }
 
@@ -550,8 +556,12 @@ pub fn resize(
         }
     }
 
-    // Mail the renderer so that it can update the GPU and re-render
-    _ = self.renderer_mailbox.push(global.io(), .{ .resize = size }, .{ .forever = {} });
+    // Mail the renderer so that it can update the GPU and re-render. Not
+    // forever: the renderer thread is joined before this one on teardown,
+    // so a full queue then would never drain (renderer.State.closing).
+    _ = self.renderer_mailbox.push(global.io(), .{ .resize = size }, .{
+        .abort = &self.renderer_state.closing,
+    });
     self.renderer_wakeup.notify() catch {};
 }
 
@@ -745,12 +755,74 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
         self.terminal_stream.nextSlice(buf);
     }
 
+    // Emit a throttled "output activity" heartbeat to the app thread.
+    //
+    // This is a signal that the child/pty produced output. We route it
+    // through the SURFACE mailbox (app-tick -> performAction) rather than
+    // the renderer thread on purpose: the renderer parks itself while the
+    // surface is occluded (ghostty_surface_set_occlusion), which stops
+    // renderer-track signals like the .scrollbar action. Embedders that
+    // want an occlusion-independent activity signal (e.g. a tab spinner
+    // for in-place TUI redraws or fully backgrounded tabs) need something
+    // that keeps firing regardless of visibility, so it lives here on the
+    // IO path where every pty read chunk passes through.
+    //
+    // We throttle to at most once per 500ms because a program under heavy
+    // output would otherwise flood the app thread with one message per
+    // chunk. The timestamp comparison runs per chunk (cheap); the scrollbar
+    // read (which walks the page list) only happens when we actually emit.
+    // The first chunk after a quiet period emits immediately. This runs after
+    // parsing so the payload includes geometry changes from this chunk. The
+    // caller still holds the renderer state mutex throughout this function.
+    // Empty manual-API reads are not child output and must not emit activity.
+    if (shouldEmitOutputActivity(buf.len, self.last_output_activity, now)) {
+        const scrollbar = self.renderer_state.terminal.screens.active.pages.scrollbar();
+        const queued = self.surface_mailbox.push(.{
+            .output_activity = scrollbar,
+        }, .{ .instant = {} });
+        // A full mailbox drops this coalescible heartbeat. Keep the old
+        // timestamp so the next nonempty PTY chunk retries immediately rather
+        // than suppressing all retries for another 500ms.
+        if (queued > 0) self.last_output_activity = now;
+    }
+
     // If our stream handling caused messages to be sent to the mailbox
     // thread, then we need to wake it up so that it processes them.
     if (self.terminal_stream.handler.termio_messaged) {
         self.terminal_stream.handler.termio_messaged = false;
         self.mailbox.notify();
     }
+}
+
+fn shouldEmitOutputActivity(
+    buf_len: usize,
+    last: ?std.Io.Timestamp,
+    now: std.Io.Timestamp,
+) bool {
+    if (buf_len == 0) return false;
+    const previous = last orelse return true;
+    return previous.durationTo(now).toMilliseconds() > 500;
+}
+
+test "output activity ignores empty buffers" {
+    const start: std.Io.Timestamp = .fromNanoseconds(0);
+    try std.testing.expect(!shouldEmitOutputActivity(0, null, start));
+}
+
+test "output activity throttle boundary" {
+    const start: std.Io.Timestamp = .fromNanoseconds(0);
+
+    try std.testing.expect(shouldEmitOutputActivity(1, null, start));
+    try std.testing.expect(!shouldEmitOutputActivity(
+        1,
+        start,
+        .fromNanoseconds(500 * std.time.ns_per_ms),
+    ));
+    try std.testing.expect(shouldEmitOutputActivity(
+        1,
+        start,
+        .fromNanoseconds(501 * std.time.ns_per_ms),
+    ));
 }
 
 /// Sends a DSR response for the current color scheme to the pty.

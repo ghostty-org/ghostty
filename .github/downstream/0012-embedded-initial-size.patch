@@ -1,0 +1,72 @@
+From 28938ac2b7d44814df1b22132f939162c08c89f0 Mon Sep 17 00:00:00 2001
+From: Ethan Lee <ethantlee21@gmail.com>
+Date: Tue, 13 Oct 2026 01:11:48 -0400
+Subject: [PATCH] embedded: let the host give a surface its size at creation
+
+The embedded apprt starts every surface at 800x600 px and the host
+corrects it with ghostty_surface_set_size right after
+ghostty_surface_new. The pty opens at the placeholder size, so a child
+that reads its window size once at startup (a session multiplexer's
+attach client, for one) sees the placeholder grid whenever the
+correction loses the race with its startup. Under app launch load it
+loses.
+
+ghostty_surface_config_s gains initial_width_px and initial_height_px.
+A host that knows the view's backing size at creation passes it, and the
+pty opens at the real grid. Zero keeps the placeholder, so existing
+hosts are unchanged.
+---
+ include/ghostty.h      |  2 ++
+ src/apprt/embedded.zig | 16 +++++++++++++++-
+ 2 files changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 42fd131ea..7051de427 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -521,6 +521,8 @@ typedef struct {
+   const char* const* command_wrapper;
+   size_t command_wrapper_count;
+   bool disable_shell_integration;
++  uint32_t initial_width_px;
++  uint32_t initial_height_px;
+ } ghostty_surface_config_s;
+ 
+ typedef struct {
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index fb47c66f6..83148e2cd 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -512,6 +512,17 @@ pub const Surface = struct {
+         /// (e.g. a script runner that emits its own OSC sequences) and must not
+         /// have Ghostty's integration injected into the shell.
+         disable_shell_integration: bool = false,
++
++        /// The size of the view in pixels at creation, when the host already
++        /// knows it. Zero keeps the 800x600 placeholder that the host replaces
++        /// with its first `ghostty_surface_set_size`. The pty opens at the
++        /// size the surface has here, so a program that reads its window
++        /// size at startup (a session multiplexer's attach client, anything
++        /// that calls TIOCGWINSZ once) sees the placeholder grid when the host
++        /// reports the real size a moment later. That later resize is a race
++        /// with the child's startup, and under launch load the child wins.
++        initial_width_px: u32 = 0,
++        initial_height_px: u32 = 0,
+     };
+ 
+     pub fn init(self: *Surface, app: *App, opts: Options) !void {
+@@ -524,7 +535,10 @@ pub const Surface = struct {
+                 .x = @floatCast(opts.scale_factor),
+                 .y = @floatCast(opts.scale_factor),
+             },
+-            .size = .{ .width = 800, .height = 600 },
++            .size = if (opts.initial_width_px > 0 and opts.initial_height_px > 0)
++                .{ .width = opts.initial_width_px, .height = opts.initial_height_px }
++            else
++                .{ .width = 800, .height = 600 },
+             .cursor_pos = .{ .x = -1, .y = -1 },
+         };
+ 
+-- 
+2.54.0 (Apple Git-157)
+

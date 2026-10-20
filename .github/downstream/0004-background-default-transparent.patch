@@ -1,0 +1,100 @@
+From 3a3b0341f9f7c890fc401d5b5a7e0b32585536ad Mon Sep 17 00:00:00 2001
+From: Ethan Lee <ethantlee21@gmail.com>
+Date: Tue, 25 Aug 2026 20:57:27 -0400
+Subject: [PATCH] renderer: add background-default-transparent for
+ embedder-composited backgrounds
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+An embedder that composites the terminal background itself (its own
+tint, blur, or glass behind the surface) has no way to stop the
+renderer painting the default background without also destroying
+background-opacity-cells: the only lever is background-opacity = 0,
+which that feature multiplies into every explicit cell background,
+turning painted TUI cells invisible instead of translucent.
+
+Upstream already contains exactly this decoupling for its own macOS
+glass styles — updateFrame zeroes the default background's alpha and
+leaves cell alpha to the stock background-opacity-cells math, because
+the glass effect paints the background instead. Expose that mechanism
+as a config key, independent of blur mode and platform:
+
+    background-default-transparent = true
+
+With it, an embedder sets background-opacity to its real window
+opacity, background-opacity-cells behaves exactly as documented, and
+the default background is never painted. Defaults to false; no
+behavior change unless set.
+---
+ src/config/Config.zig    | 18 ++++++++++++++++++
+ src/renderer/generic.zig | 10 ++++++++++
+ 2 files changed, 28 insertions(+)
+
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index dab0b4e..ca624fb 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -1022,6 +1022,24 @@ palette: Palette = .{},
+ /// Available since: 1.2.0
+ @"background-opacity-cells": bool = false,
+ 
++/// If `true`, the renderer never paints the default background color —
++/// only cells with an explicit background color set are painted. The
++/// terminal background is then whatever the host composites behind the
++/// surface.
++///
++/// This is intended for embedders that draw the window background
++/// themselves (their own tint, blur, or glass) and would otherwise
++/// double-tint against the surface's background paint. It is the same
++/// mechanism the macOS glass `background-blur` styles use to skip the
++/// default background, but independent of blur mode and platform.
++///
++/// `background-opacity` continues to apply to explicit cell backgrounds
++/// via `background-opacity-cells`, which behaves exactly as documented
++/// above.
++///
++/// Downstream (thdxg/ghostty) extension; not part of upstream Ghostty.
++@"background-default-transparent": bool = false,
++
+ /// Whether to blur the background when `background-opacity` is less than 1.
+ ///
+ /// Valid values are:
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index c09f2cb..f568d60 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -566,6 +566,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             background: terminal.color.RGB,
+             background_opacity: f64,
+             background_opacity_cells: bool,
++            background_default_transparent: bool,
+             foreground: terminal.color.RGB,
+             selection_background: ?configpkg.Config.TerminalColor,
+             selection_foreground: ?configpkg.Config.TerminalColor,
+@@ -627,6 +628,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 return .{
+                     .background_opacity = @max(0, @min(1, config.@"background-opacity")),
+                     .background_opacity_cells = config.@"background-opacity-cells",
++                    .background_default_transparent = config.@"background-default-transparent",
+                     .font_thicken = config.@"font-thicken",
+                     .font_thicken_strength = config.@"font-thicken-strength",
+                     .font_features = font_features.list,
+@@ -1541,6 +1543,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     else => {},
+                 };
+ 
++                // The embedder composites the default background itself —
++                // the same effect as the glass styles above, but independent
++                // of blur mode and platform. Explicit cell backgrounds are
++                // unaffected (they follow `background-opacity-cells`).
++                if (self.config.background_default_transparent) {
++                    self.uniforms.bg_color[3] = 0;
++                }
++
+                 // Prepare our overlay image for upload (or unload). This
+                 // has to use our general allocator since it modifies
+                 // state that survives frames.
+-- 
+2.53.0
+

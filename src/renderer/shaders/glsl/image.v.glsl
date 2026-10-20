@@ -43,5 +43,9 @@ void main() {
     vec2 image_pos = (cell_size * grid_pos) + cell_offset;
     image_pos += dest_size * corner;
 
+    // Smooth scrolling: image placements are in terminal viewport rows,
+    // so they move by the sub-row offset alone.
+    image_pos.y += scroll_offset.x;
+
     gl_Position = projection_matrix * vec4(image_pos.xy, 1.0, 1.0);
 }

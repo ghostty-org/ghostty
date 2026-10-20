@@ -325,6 +325,8 @@ const DerivedConfig = struct {
     mouse_reporting: bool,
     mouse_scroll_multiplier: configpkg.MouseScrollMultiplier,
     mouse_shift_capture: configpkg.MouseShiftCapture,
+    smooth_scroll: bool,
+    smooth_scroll_rows: bool,
     fullscreen: configpkg.Fullscreen,
     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
     macos_option_as_alt: ?input.OptionAsAlt,
@@ -406,6 +408,8 @@ const DerivedConfig = struct {
             .mouse_reporting = config.@"mouse-reporting",
             .mouse_scroll_multiplier = config.@"mouse-scroll-multiplier",
             .mouse_shift_capture = config.@"mouse-shift-capture",
+            .smooth_scroll = config.@"smooth-scroll",
+            .smooth_scroll_rows = config.@"smooth-scroll-rows",
             .fullscreen = config.fullscreen,
             .macos_non_native_fullscreen = config.@"macos-non-native-fullscreen",
             .macos_option_as_alt = config.@"macos-option-as-alt",
@@ -673,6 +677,7 @@ pub fn init(
         // Initialize our IO backend
         var io_exec = try termio.Exec.init(alloc, .{
             .command = command,
+            .command_wrapper = config.@"command-wrapper",
             .env = env,
             .env_override = config.env,
             .shell_integration = config.@"shell-integration",
@@ -809,6 +814,11 @@ pub fn init(
 }
 
 pub fn deinit(self: *Surface) void {
+    // Tell producers on the threads joined below that their consumers are
+    // going away, so a mailbox push blocked on a full queue gives up rather
+    // than holding the join forever (see renderer.State.closing).
+    self.renderer_state.closing.store(true, .release);
+
     // Stop search thread
     if (self.search) |*s| s.deinit();
 
@@ -1139,6 +1149,8 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
         .scrollbar => |scrollbar| self.updateScrollbar(scrollbar),
 
+        .output_activity => |scrollbar| self.updateOutputActivity(scrollbar),
+
         .present_surface => try self.presentSurface(),
 
         .password_input => |v| try self.passwordInput(v),
@@ -1237,12 +1249,12 @@ fn selectionScrollTick(self: *Surface) !void {
     }
 
     const pos = try self.rt_surface.getCursorPos();
-    const pos_vp = self.posToViewport(pos.x, pos.y);
 
     // We need our locked state for the remainder
     self.renderer_state.mutex.lockUncancelable(global.io());
     defer self.renderer_state.mutex.unlock(global.io());
     const t: *terminal.Terminal = self.renderer_state.terminal;
+    const pos_vp = self.posToViewport(pos.x, pos.y);
 
     const selection = self.mouse.selection_gesture.autoscrollTick(t, .{
         .viewport = pos_vp,
@@ -1768,6 +1780,22 @@ fn redraw(self: *Surface) void {
     };
 }
 
+/// Called on each throttled output-activity heartbeat from the IO path.
+/// Unlike `.scrollbar` (a renderer-track signal that stops while the
+/// surface is occluded), this fires whenever the child produces output
+/// regardless of visibility, so embedders can drive an activity indicator
+/// for in-place TUI redraws and backgrounded surfaces. The payload carries
+/// the current scrollbar geometry.
+fn updateOutputActivity(self: *Surface, scrollbar: terminal.Scrollbar) void {
+    _ = self.rt_app.performAction(
+        .{ .surface = self },
+        .output_activity,
+        scrollbar,
+    ) catch |err| {
+        log.warn("failed to notify app of output activity err={}", .{err});
+    };
+}
+
 /// This should be called anytime `config_conditional_state` changes
 /// so that the apprt can reload the configuration.
 fn notifyConfigConditionalState(self: *Surface) void {
@@ -2194,17 +2222,21 @@ fn resolvePathForOpening(
 
 /// Returns the x/y coordinate of where the IME (Input Method Editor)
 /// keyboard should be rendered.
-pub fn imePoint(self: *const Surface) apprt.IMEPos {
+pub fn imePoint(self: *Surface) apprt.IMEPos {
     const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
     return self.imePointScaled(content_scale);
 }
 
 /// Same as `imePoint`, but divides our sizes by the given scale instead
 /// of the content scale.
-pub fn imePointScaled(self: *const Surface, scale: apprt.ContentScale) apprt.IMEPos {
+pub fn imePointScaled(self: *Surface, scale: apprt.ContentScale) apprt.IMEPos {
     self.renderer_state.mutex.lockUncancelable(global.io());
     const cursor = self.renderer_state.terminal.screens.active.cursor;
     const preedit_width: usize = if (self.renderer_state.preedit) |preedit| preedit.width() else 0;
+    // Smooth scrolling draws the grid, and the cursor with it, shifted, and
+    // a region scroll animation shifts the cursor's region further still.
+    const shift = self.viewportPixelShift() +
+        self.regionShifts().offsetAt(cursor.x, cursor.y);
     self.renderer_state.mutex.unlock(global.io());
 
     // TODO: need to handle when scrolling and the cursor is not
@@ -2231,6 +2263,9 @@ pub fn imePointScaled(self: *const Surface, scale: apprt.ContentScale) apprt.IME
 
         // We want the bottom
         y += @floatFromInt(self.size.cell.height);
+
+        // Of the row as it is drawn
+        y += shift;
 
         // And scale it
         y /= scale.y;
@@ -3623,14 +3658,18 @@ pub fn scrollCallback(
             break :y .{};
         }
 
-        // We scroll by the number of rows in the offset and save the remainder
+        // We scroll by the number of whole rows in the offset and save the
+        // remainder. The remainder must be computed from the truncated row
+        // count: `poff - (poff / cell_size) * cell_size` is identically
+        // zero, which threw the sub-row part away on every commit and made
+        // smooth scrolling snap back by that much each time a row landed.
         const amount = poff / cell_size;
         assert(@abs(amount) >= 1);
-        self.mouse.pending_scroll_y = poff - (amount * cell_size);
 
         // Round towards zero.
         const delta: isize = @intFromFloat(@trunc(amount));
         assert(@abs(delta) >= 1);
+        self.mouse.pending_scroll_y = poff - (@as(f64, @floatFromInt(delta)) * cell_size);
 
         break :y .{ .delta = delta };
     };
@@ -3731,15 +3770,85 @@ pub fn scrollCallback(
             return;
         }
 
-        if (y.delta != 0) {
-            // Modify our viewport, this requires a lock since it affects
-            // rendering. We have to switch signs here because our delta
-            // is negative down but our viewport is positive down.
-            self.io.terminal.scrollViewport(.{ .delta = y.delta * -1 });
+        const screen = self.io.terminal.screens.active;
+
+        // Smooth scrolling by rows (`smooth-scroll-rows`): the sub-row
+        // remainder stays an accumulator detail, as without smooth
+        // scrolling, and each row the viewport actually moves is drawn
+        // from where it was. The offset carries that distance and the
+        // renderer eases it home (`decayViewportScroll`); a move while
+        // one is easing adds to what is drawn, so a gesture reads as one
+        // continuous motion. Rows the viewport could not move (the top or
+        // bottom of scrollback) move nothing.
+        if (self.config.smooth_scroll and self.config.smooth_scroll_rows) {
+            if (y.delta != 0) {
+                const drawn = screen.viewport_pixel_offset;
+                const before = screen.pages.scrollbar().offset;
+                self.io.terminal.scrollViewport(.{ .delta = y.delta * -1 });
+                const after = screen.pages.scrollbar().offset;
+                screen.viewport_pixel_offset = rowScrollOffset(
+                    drawn,
+                    before,
+                    after,
+                    @floatFromInt(self.size.cell.height),
+                    screen.pages.rows,
+                );
+            }
+        } else {
+            if (y.delta != 0) {
+                // Modify our viewport, this requires a lock since it affects
+                // rendering. We have to switch signs here because our delta
+                // is negative down but our viewport is positive down.
+                self.io.terminal.scrollViewport(.{ .delta = y.delta * -1 });
+            }
+
+            // Smooth scrolling: publish the sub-row remainder of a precision
+            // gesture so the renderer can draw the viewport between rows.
+            // scrollViewport above reset the previous remainder; a discrete
+            // wheel never has one, and with the key off the remainder stays
+            // an accumulator detail. Sign matches yoff: positive is content
+            // moving down. The renderer validates it against the screen.
+            screen.viewport_pixel_offset =
+                if (self.config.smooth_scroll and scroll_mods.precision)
+                    self.mouse.pending_scroll_y
+                else
+                    0;
         }
     }
 
     try self.queueRender();
+}
+
+/// The viewport offset that keeps what is drawn in place across a row-level
+/// move under `smooth-scroll-rows`: the viewport went from scrollbar row
+/// `before` to `after`, so the content is drawn that many rows from where
+/// it now belongs, plus whatever was still easing in (`drawn`). Positive is
+/// content drawn below its place, as for `Screen.viewport_pixel_offset`.
+/// Capped at a screen's height either way: past that none of what was on
+/// screen is left to keep in place.
+fn rowScrollOffset(
+    drawn: f64,
+    before: usize,
+    after: usize,
+    cell_height: f64,
+    rows: usize,
+) f64 {
+    const moved: f64 = @as(f64, @floatFromInt(after)) - @as(f64, @floatFromInt(before));
+    const limit: f64 = @as(f64, @floatFromInt(rows)) * cell_height;
+    return std.math.clamp(drawn + moved * cell_height, -limit, limit);
+}
+
+test "rowScrollOffset keeps the drawn content in place" {
+    const testing = std.testing;
+    // Scrolling back two rows: the content is drawn two rows up, and slides
+    // down into place.
+    try testing.expectEqual(-20, rowScrollOffset(0, 50, 48, 10, 24));
+    // Forward one row while 4px of an earlier move is still easing in.
+    try testing.expectEqual(14, rowScrollOffset(4, 48, 49, 10, 24));
+    // Clamped at the bottom of scrollback: nothing moved, nothing to ease.
+    try testing.expectEqual(0, rowScrollOffset(0, 76, 76, 10, 24));
+    // A jump past a screen keeps no more than a screen to slide through.
+    try testing.expectEqual(-240, rowScrollOffset(-50, 500, 100, 10, 24));
 }
 
 /// This is called when the content scale of the surface changes. The surface
@@ -3835,7 +3944,7 @@ fn mouseReport(
         .mods = mods,
         .pos = .{
             .x = pos.x,
-            .y = pos.y,
+            .y = self.mouseReportY(pos.x, pos.y),
         },
     }, encoding_opts) catch |err| switch (err) {
         error.WriteFailed => {
@@ -3977,13 +4086,10 @@ pub fn mouseButtonCallback(
         // If we can't map the release position to a cell, pass null so the
         // gesture can conservatively treat the release as having moved away
         // from the pressed cell.
-        const release_pin: ?terminal.Pin = if (release_pos) |pos| pin: {
-            const release_vp = self.posToViewport(pos.x, pos.y);
-            break :pin self.io.terminal.screens.active.pages.pin(.{ .viewport = .{
-                .x = release_vp.x,
-                .y = release_vp.y,
-            } });
-        } else null;
+        const release_pin: ?terminal.Pin = if (release_pos) |pos|
+            self.posToPin(pos.x, pos.y)
+        else
+            null;
         self.mouse.selection_gesture.release(
             self.renderer_state.terminal,
             .{ .pin = release_pin },
@@ -4081,26 +4187,15 @@ pub fn mouseButtonCallback(
         self.renderer_state.mutex.lockUncancelable(global.io());
         defer self.renderer_state.mutex.unlock(global.io());
         const t: *terminal.Terminal = self.renderer_state.terminal;
-        const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
 
         const pos = try self.rt_surface.getCursorPos();
-        const pin = pin: {
-            const pt_viewport = self.posToViewport(pos.x, pos.y);
-            const pin = screen.pages.pin(.{
-                .viewport = .{
-                    .x = pt_viewport.x,
-                    .y = pt_viewport.y,
-                },
-            }) orelse {
-                // Weird... our viewport x/y that we just converted isn't
-                // found in our pages. This is probably a bug but we don't
-                // want to crash in releases because its harmless. So, we
-                // only assert in debug mode.
-                if (comptime std.debug.runtime_safety) unreachable;
-                break :click;
-            };
-
-            break :pin pin;
+        const pin = self.posToPin(pos.x, pos.y) orelse {
+            // Weird... our viewport x/y that we just converted isn't
+            // found in our pages. This is probably a bug but we don't
+            // want to crash in releases because its harmless. So, we
+            // only assert in debug mode.
+            if (comptime std.debug.runtime_safety) unreachable;
+            break :click;
         };
 
         var press_selection = try self.mouse.selection_gesture.press(t, .{
@@ -4184,19 +4279,9 @@ pub fn mouseButtonCallback(
         // Get our viewport pin
         const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
         const pos = try self.rt_surface.getCursorPos();
-        const pin = pin: {
-            const pt_viewport = self.posToViewport(pos.x, pos.y);
-            const pin = screen.pages.pin(.{
-                .viewport = .{
-                    .x = pt_viewport.x,
-                    .y = pt_viewport.y,
-                },
-            }) orelse {
-                if (comptime std.debug.runtime_safety) unreachable;
-                break :sel;
-            };
-
-            break :pin pin;
+        const pin = self.posToPin(pos.x, pos.y) orelse {
+            if (comptime std.debug.runtime_safety) unreachable;
+            break :sel;
         };
 
         switch (self.config.right_click_action) {
@@ -4705,9 +4790,6 @@ pub fn cursorPosCallback(
     // Update our modifiers if they changed
     if (mods) |v| self.modsChanged(v);
 
-    // The mouse position in the viewport
-    const pos_vp = self.posToViewport(pos.x, pos.y);
-
     // We always reset the over link status because it will be reprocessed
     // below. But we need the old value to know if we need to undo mouse
     // shape changes.
@@ -4717,6 +4799,9 @@ pub fn cursorPosCallback(
     // We are reading/writing state for the remainder
     self.renderer_state.mutex.lockUncancelable(global.io());
     defer self.renderer_state.mutex.unlock(global.io());
+
+    // The mouse position in the viewport
+    const pos_vp = self.posToViewport(pos.x, pos.y);
 
     // Update our mouse state. We set this to null initially because we only
     // want to set it when we're not selecting or doing any other mouse
@@ -4801,13 +4886,7 @@ pub fn cursorPosCallback(
         try self.queueRender();
 
         // Convert to points
-        const screen: *terminal.Screen = t.screens.active;
-        const pin = screen.pages.pin(.{
-            .viewport = .{
-                .x = pos_vp.x,
-                .y = pos_vp.y,
-            },
-        }) orelse {
+        const pin = self.posToPin(pos.x, pos.y) orelse {
             if (comptime std.debug.runtime_safety) unreachable;
             return;
         };
@@ -4871,11 +4950,137 @@ pub fn colorSchemeCallback(self: *Surface, scheme: apprt.ColorScheme) !void {
     self.queueIo(.{ .color_scheme_report = .{ .force = false } }, .unlocked);
 }
 
-pub fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Coordinate {
+/// The viewport cell under a surface position.
+///
+/// Precondition: the render_state mutex must be held.
+pub fn posToViewport(self: *Surface, xpos: f64, ypos: f64) terminal.point.Coordinate {
+    // Smooth scrolling draws the viewport shifted by a sub-row offset, and
+    // a region scroll animation draws its region's content further off
+    // still; undo both so the hit-tested cell is the one under the pointer.
+    const offset: f64 = self.viewportPixelShift();
+    const y = self.regionContentY(xpos, ypos - offset);
+
     // Get our grid cell
-    const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = xpos, .y = ypos } };
+    const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = xpos, .y = y } };
     const grid = coord.convert(.grid, self.size).grid;
     return .{ .x = grid.x, .y = grid.y };
+}
+
+/// How far below its row-aligned position the renderer draws the
+/// viewport's first row, in pixels: the remainder of a scroll gesture plus
+/// the height the viewport's rows don't account for, which under
+/// `smooth-scroll` the grid sits on rather than leaving as padding.
+///
+/// Resolved by the function the render state draws with
+/// (`terminal.RenderState.resolveShift`), against the geometry the
+/// renderer hands it (`viewportGeometry` in renderer/generic.zig) — never
+/// re-derived here. The render state drops a shift it has no row to
+/// reveal, and an earlier copy of the arithmetic here, which kept it, put
+/// the pointer a row off in exactly those places (macterm#433).
+///
+/// Precondition: the render_state mutex must be held.
+fn viewportPixelShift(self: *const Surface) f64 {
+    return self.viewportShift().pixel_offset;
+}
+
+/// The whole smooth-scroll shift the renderer draws, rows revealed and all;
+/// see `viewportPixelShift`.
+///
+/// Precondition: the render_state mutex must be held.
+fn viewportShift(self: *const Surface) terminal.RenderState.Shift {
+    const geometry: terminal.RenderState.Geometry = if (self.config.smooth_scroll) .{
+        .cell_height = self.size.cell.height,
+        // By rows the leftover stays padding; see `viewportGeometry`.
+        .terminal_height = if (self.config.smooth_scroll_rows)
+            0
+        else
+            self.size.terminal().height,
+    } else .none;
+    return terminal.RenderState.resolveShift(
+        self.io.terminal.screens.active,
+        geometry,
+    );
+}
+
+/// The pin of the cell drawn under a surface position. This is
+/// `posToViewport` resolved to a pin, except on the rows smooth scrolling
+/// reveals above the viewport: a grid shifted down draws the bottom of the
+/// scrollback row above the viewport — all of it, when the leftover height
+/// is nearly a cell — and a viewport coordinate, which cannot go above the
+/// viewport, clamps a point there to the first row. Selection resolves the
+/// pointer with this so that row selects like any other row drawn.
+///
+/// Precondition: the render_state mutex must be held.
+fn posToPin(self: *Surface, xpos: f64, ypos: f64) ?terminal.Pin {
+    const screen: *terminal.Screen = self.io.terminal.screens.active;
+    const pt = self.posToViewport(xpos, ypos);
+    const above = self.viewportShift().rowsAboveAt(
+        ypos - @as(f64, @floatFromInt(self.size.padding.top)),
+        @floatFromInt(self.size.cell.height),
+    );
+    if (above == 0) return screen.pages.pin(.{ .viewport = pt });
+    var pin = screen.pages.getTopLeft(.viewport).up(above) orelse return null;
+    pin.x = pt.x;
+    return pin;
+}
+
+/// The region scroll offsets of the frame on screen, as the shift between
+/// each region's content as drawn and where the terminal has it now
+/// (`terminal.RenderState.RegionShifts`). The renderer publishes them as
+/// it presents a frame, with the region scrolls it has taken in since
+/// folded in; the ones still pending on the screen are folded in here. So
+/// a program scrolling while the region eases home, as momentum scrolling
+/// does, never leaves a click resolving against rows that have moved.
+///
+/// Empty with smooth scrolling off, and when the frame on screen was drawn
+/// for another screen or grid size (its regions describe content that is
+/// gone, and the renderer drops them on its next update).
+///
+/// Precondition: the render_state mutex must be held.
+fn regionShifts(self: *Surface) terminal.RenderState.RegionShifts {
+    if (!self.config.smooth_scroll) return .{};
+    const t: *const terminal.Terminal = &self.io.terminal;
+    var shifts = self.renderer.regionShifts();
+    if (!shifts.describes(t)) return .{};
+    const cell_height: f64 = @floatFromInt(self.size.cell.height);
+    for (t.screens.active.region_scrolls.slice()) |scroll| {
+        shifts.addScroll(scroll, cell_height);
+    }
+    return shifts;
+}
+
+/// The surface y of where the terminal has the content drawn at (`xpos`,
+/// `ypos`), with the viewport's own shift already undone from `ypos`: moved
+/// by the region scroll animation drawn there (see `regionShifts`), if any.
+/// A point on a row the region has scrolled out resolves to its edge row.
+///
+/// Precondition: the render_state mutex must be held.
+fn regionContentY(self: *Surface, xpos: f64, ypos: f64) f64 {
+    const shifts = self.regionShifts();
+    if (shifts.len == 0) return ypos;
+    const left: f64 = @floatFromInt(self.size.padding.left);
+    const top: f64 = @floatFromInt(self.size.padding.top);
+    return shifts.contentY(
+        xpos - left,
+        ypos - top,
+        @floatFromInt(self.size.cell.width),
+        @floatFromInt(self.size.cell.height),
+    ) + top;
+}
+
+/// The pointer's y for a mouse report: where it falls on the grid as drawn
+/// (see `viewportPixelShift` and `regionContentY`), so a program is told
+/// the cell the user clicked. A pointer outside the surface is left alone
+/// and one inside is kept inside, so whether an event happened outside the
+/// viewport is still decided by where the pointer really is.
+///
+/// Precondition: the render_state mutex must be held.
+fn mouseReportY(self: *Surface, xpos: f32, ypos: f32) f32 {
+    const height: f32 = @floatFromInt(self.size.screen.height);
+    if (ypos < 0 or ypos > height) return ypos;
+    const shift = self.viewportPixelShift();
+    const y: f32 = @floatCast(self.regionContentY(xpos, @as(f64, ypos) - shift));
+    return std.math.clamp(y, 0, height);
 }
 
 /// Scroll to the bottom of the viewport.
@@ -5794,9 +5999,140 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             screen.dirty.selection = true;
             try self.queueRender();
         },
+
+        .start_selection => {
+            self.renderer_state.mutex.lockUncancelable(global.io());
+            defer self.renderer_state.mutex.unlock(global.io());
+
+            if (try self.selectCursorIfNone()) try self.queueRender();
+        },
+
+        .move_selection => |motion| try self.moveSelection(motion, false),
+        .extend_selection => |motion| try self.moveSelection(motion, true),
+
+        .collapse_selection => {
+            self.renderer_state.mutex.lockUncancelable(global.io());
+            defer self.renderer_state.mutex.unlock(global.io());
+
+            const screen: *terminal.Screen = self.io.terminal.screens.active;
+            const sel = if (screen.selection) |*sel| sel else return false;
+            sel.startPtr().* = sel.end();
+            screen.dirty.selection = true;
+            try self.queueRender();
+        },
+
+        .flip_selection => {
+            self.renderer_state.mutex.lockUncancelable(global.io());
+            defer self.renderer_state.mutex.unlock(global.io());
+
+            const screen: *terminal.Screen = self.io.terminal.screens.active;
+            const sel = if (screen.selection) |*sel| sel else return false;
+            const anchor = sel.start();
+            sel.startPtr().* = sel.end();
+            sel.endPtr().* = anchor;
+            screen.dirty.selection = true;
+            try self.queueRender();
+        },
+
+        .select_line => {
+            self.renderer_state.mutex.lockUncancelable(global.io());
+            defer self.renderer_state.mutex.unlock(global.io());
+
+            _ = try self.selectCursorIfNone();
+            const screen: *terminal.Screen = self.io.terminal.screens.active;
+            const sel = if (screen.selection) |*sel| sel else return false;
+            sel.expandToLines(screen);
+            scrollToSelectionHead(screen, sel);
+            screen.dirty.selection = true;
+            try self.queueRender();
+        },
+
+        .clear_selection => {
+            self.renderer_state.mutex.lockUncancelable(global.io());
+            defer self.renderer_state.mutex.unlock(global.io());
+
+            if (self.io.terminal.screens.active.selection == null) return false;
+            try self.setSelection(null);
+            try self.queueRender();
+        },
+
+        .selection_cursor => |v| {
+            self.renderer_state.mutex.lockUncancelable(global.io());
+            defer self.renderer_state.mutex.unlock(global.io());
+
+            const t = &self.io.terminal;
+            const on = v == .on;
+            if (t.flags.selection_cursor == on) return false;
+            t.flags.selection_cursor = on;
+            // The cursor moves between the program's cursor and the head
+            // of the selection. The render state rebuilds on the selection
+            // dirty bit, as it does for any change of the selection.
+            t.screens.active.dirty.selection = true;
+            try self.queueRender();
+        },
     }
 
     return true;
+}
+
+/// Give the active screen a one-cell selection at the terminal cursor if it
+/// has none. Returns true if it made one. The renderer mutex must be held.
+fn selectCursorIfNone(self: *Surface) !bool {
+    const screen: *terminal.Screen = self.io.terminal.screens.active;
+    if (screen.selection != null) return false;
+    const pin = screen.cursor.page_pin.*;
+    try self.setSelection(terminal.Selection.init(pin, pin, false));
+    return true;
+}
+
+/// `move_selection` and `extend_selection`: see `terminal.Selection.move`.
+fn moveSelection(
+    self: *Surface,
+    motion: input.Binding.Action.SelectionMotion,
+    extend: bool,
+) !void {
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+
+    _ = try self.selectCursorIfNone();
+    const screen: *terminal.Screen = self.io.terminal.screens.active;
+    const sel = if (screen.selection) |*sel| sel else return;
+    sel.move(screen, switch (motion) {
+        .left => .left,
+        .right => .right,
+        .up => .up,
+        .down => .down,
+        .word_next => .word_next,
+        .word_end => .word_end,
+        .word_prev => .word_prev,
+        .line_start => .line_start,
+        .line_end => .line_end,
+        .page_up => .page_up,
+        .page_down => .page_down,
+        .half_page_up => .half_page_up,
+        .half_page_down => .half_page_down,
+        .top => .top,
+        .bottom => .bottom,
+    }, extend, self.config.selection_word_chars);
+    scrollToSelectionHead(screen, sel);
+    screen.dirty.selection = true;
+    try self.queueRender();
+}
+
+/// Scroll the viewport so the selection head (`end`) is in it, the way
+/// `adjust_selection` follows its end. The renderer mutex must be held.
+fn scrollToSelectionHead(screen: *terminal.Screen, sel: *terminal.Selection) void {
+    const viewport_tl = screen.pages.getTopLeft(.viewport);
+    const viewport_br = screen.pages.getBottomRight(.viewport).?;
+    if (sel.end().isBetween(viewport_tl, viewport_br)) return;
+
+    // A head above the viewport goes to its top row, a head below it to
+    // its bottom row.
+    const target = if (sel.end().before(viewport_tl))
+        sel.end()
+    else
+        sel.end().up(screen.pages.rows - 1) orelse sel.end();
+    screen.scroll(.{ .pin = target });
 }
 
 /// Returns true if performing the given action result in closing

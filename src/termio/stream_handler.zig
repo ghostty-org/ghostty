@@ -142,12 +142,21 @@ pub const StreamHandler = struct {
         if (self.surface_mailbox.push(msg, .{ .instant = {} }) == 0) {
             self.renderer_state.mutex.unlock(global.io());
             defer self.renderer_state.mutex.lockUncancelable(global.io());
-            _ = self.surface_mailbox.push(msg, .{ .forever = {} });
+            // Not forever: the app thread drains this queue only between
+            // ticks, and once it is in Surface.deinit waiting for this
+            // thread's exit it never ticks again (renderer.State.closing).
+            _ = self.surface_mailbox.push(msg, .{
+                .abort = &self.renderer_state.closing,
+            });
         }
     }
 
     inline fn messageWriter(self: *StreamHandler, msg: termio.Message) void {
-        self.termio_mailbox.send(msg, self.renderer_state.mutex);
+        self.termio_mailbox.send(
+            msg,
+            self.renderer_state.mutex,
+            &self.renderer_state.closing,
+        );
         self.termio_messaged = true;
     }
 

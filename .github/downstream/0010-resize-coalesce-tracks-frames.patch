@@ -1,0 +1,100 @@
+diff --git a/src/termio/Thread.zig b/src/termio/Thread.zig
+index de268350b..90b782a5a 100644
+--- a/src/termio/Thread.zig
++++ b/src/termio/Thread.zig
+@@ -26,11 +26,25 @@ const log = std.log.scoped(.io_thread);
+ 
+ /// This stores the information that is coalesced.
+ const Coalesce = struct {
+-    /// The number of milliseconds to coalesce certain messages like resize for.
+-    /// Not all message types are coalesced.
+-    const min_ms = 25;
++    /// The floor between two applied resizes, in milliseconds: one frame
++    /// at 60 Hz. Upstream parks every resize behind a 25 ms timer, which
++    /// is fine for a window drag but makes an embedder's animated pane
++    /// resize (a split sliding open over 300 ms, the surface sized every
++    /// frame) reflow the text in four or five jumps of 15–20 columns while
++    /// its edge glides. A resize that arrives a floor or more after the
++    /// last one applied is applied at once; one that arrives sooner waits
++    /// out the remainder (latest size wins), so the grid tracks the frames
++    /// instead of trailing them. The floor rises to the cost of the last
++    /// reflow when that was longer, so a pane with a deep scrollback backs
++    /// off on its own rather than backing up this thread, which also
++    /// drains the pty.
++    const min_ms = 16;
+ 
+     resize: ?renderer.Size = null,
++
++    /// When the last resize finished applying, and how long it took.
++    last_applied: ?std.Io.Timestamp = null,
++    last_cost_ms: u64 = 0,
+ };
+ 
+ /// The number of milliseconds before we reset the synchronized output flag
+@@ -390,22 +404,46 @@ fn startSynchronizedOutput(self: *Thread, cb: *CallbackData) void {
+ fn handleResize(self: *Thread, cb: *CallbackData, resize: renderer.Size) void {
+     self.coalesce_data.resize = resize;
+ 
+-    // If the timer is already active we just return. In the future we want
+-    // to reset the timer up to a maximum wait time but for now this ensures
+-    // relatively smooth resizing.
++    // A wait is already running: it applies whatever size is latest when
++    // it fires.
+     if (self.coalesce_c.state() == .active) return;
+ 
++    // Apply now if the floor has passed since the last one, else wait out
++    // the remainder (see `Coalesce`).
++    const floor_ms: u64 = @max(Coalesce.min_ms, self.coalesce_data.last_cost_ms);
++    const elapsed_ms: u64 = if (self.coalesce_data.last_applied) |last| ms: {
++        const now: std.Io.Timestamp = .now(global.io(), .awake);
++        break :ms @intCast(@max(@divTrunc(last.durationTo(now).nanoseconds, std.time.ns_per_ms), 0));
++    } else floor_ms;
++    if (elapsed_ms >= floor_ms) {
++        self.applyResize(cb);
++        return;
++    }
++
+     self.coalesce.reset(
+         &self.loop,
+         &self.coalesce_c,
+         &self.coalesce_cancel_c,
+-        Coalesce.min_ms,
++        floor_ms - elapsed_ms,
+         CallbackData,
+         cb,
+         coalesceCallback,
+     );
+ }
+ 
++/// Apply the pending resize, if any, and record when and how long.
++fn applyResize(self: *Thread, cb: *CallbackData) void {
++    const v = self.coalesce_data.resize orelse return;
++    self.coalesce_data.resize = null;
++    const start: std.Io.Timestamp = .now(global.io(), .awake);
++    cb.io.resize(&cb.data, v) catch |err| {
++        log.warn("error during resize err={}", .{err});
++    };
++    const end: std.Io.Timestamp = .now(global.io(), .awake);
++    self.coalesce_data.last_applied = end;
++    self.coalesce_data.last_cost_ms = @intCast(@max(@divTrunc(start.durationTo(end).nanoseconds, std.time.ns_per_ms), 0));
++}
++
+ fn syncResetCallback(
+     cb_: ?*CallbackData,
+     _: *xev.Loop,
+@@ -440,14 +478,7 @@ fn coalesceCallback(
+     };
+ 
+     const cb = cb_ orelse return .disarm;
+-
+-    if (cb.self.coalesce_data.resize) |v| {
+-        cb.self.coalesce_data.resize = null;
+-        cb.io.resize(&cb.data, v) catch |err| {
+-            log.warn("error during resize err={}", .{err});
+-        };
+-    }
+-
++    cb.self.applyResize(cb);
+     return .disarm;
+ }
+ 

@@ -61,6 +61,25 @@ saved_cursor: ?SavedCursor = null,
 /// automatically setup tracking.
 selection: ?Selection = null,
 
+/// Sub-row offset of the viewport in pixels, for smooth (pixel-precise)
+/// scrolling. Positive means the viewport sits that many pixels *above*
+/// its row-aligned position (content is drawn shifted down, revealing the
+/// bottom of the row above); negative means below. Always within one cell
+/// height. Any row-level viewport move resets it: the offset only ever
+/// describes the remainder of the scroll gesture that produced the current
+/// viewport, never a stale one. Rendering validates it against the screen
+/// (an offset pointing at a row that doesn't exist is drawn as zero).
+viewport_pixel_offset: f64 = 0,
+
+/// Scrolls of a region of the alternate screen by whole rows that have
+/// happened since the renderer last looked (see `RegionScrolls`). With
+/// `smooth-scroll` on, the renderer animates them: the region's new
+/// content slides from where the old content was, and the rows that
+/// scrolled out slide away with it. A program that scrolls its own
+/// screen by rows, an editor say, gets the same continuous motion the
+/// scrollback viewport has, without knowing anything about pixels.
+region_scrolls: RegionScrolls = .{},
+
 /// The charset state
 charset: CharsetState = .{},
 
@@ -195,6 +214,56 @@ pub const Cursor = struct {
 };
 
 /// Saved cursor state.
+/// A scroll of a rectangle of the screen by whole rows: DECSTBM (and
+/// DECSLRM) margins scrolled by SU/SD or by IND/RI at the margin. `lines`
+/// is positive when the content moved up (SU), negative when it moved down,
+/// and is always smaller than the region's height: a scroll that keeps
+/// nothing is a clear and is not recorded.
+pub const RegionScroll = struct {
+    top: size.CellCountInt,
+    bottom: size.CellCountInt,
+    left: size.CellCountInt,
+    right: size.CellCountInt,
+    lines: i32,
+
+    pub fn sameRegion(a: RegionScroll, b: RegionScroll) bool {
+        return a.top == b.top and a.bottom == b.bottom and
+            a.left == b.left and a.right == b.right;
+    }
+};
+
+/// The region scrolls pending for the renderer. Scrolls of the same
+/// region merge, since between two frames only their sum can be seen,
+/// and a handful of distinct regions is plenty: a scroll of a region
+/// beyond that is simply not animated.
+pub const RegionScrolls = struct {
+    pub const capacity = 8;
+
+    items: [capacity]RegionScroll = undefined,
+    len: u8 = 0,
+
+    pub fn push(self: *RegionScrolls, region_scroll: RegionScroll) void {
+        if (region_scroll.lines == 0) return;
+        for (self.items[0..self.len]) |*existing| {
+            if (existing.sameRegion(region_scroll)) {
+                existing.lines += region_scroll.lines;
+                return;
+            }
+        }
+        if (self.len == capacity) return;
+        self.items[self.len] = region_scroll;
+        self.len += 1;
+    }
+
+    pub fn slice(self: *const RegionScrolls) []const RegionScroll {
+        return self.items[0..self.len];
+    }
+
+    pub fn clear(self: *RegionScrolls) void {
+        self.len = 0;
+    }
+};
+
 pub const SavedCursor = struct {
     x: size.CellCountInt,
     y: size.CellCountInt,
@@ -1679,6 +1748,10 @@ pub const Scroll = union(enum) {
 /// Scroll the viewport of the terminal grid.
 pub inline fn scroll(self: *Screen, behavior: Scroll) void {
     defer self.assertIntegrity();
+
+    // A row-level move invalidates any sub-row remainder; the scroll
+    // callback re-publishes its own remainder after the move.
+    self.viewport_pixel_offset = 0;
 
     if (comptime build_options.kitty_graphics) {
         // No matter what, scrolling marks our image state as dirty since

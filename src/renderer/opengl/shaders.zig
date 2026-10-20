@@ -178,6 +178,21 @@ pub const Uniforms = extern struct {
     /// top, right, bottom, left.
     grid_padding: [4]f32 align(16),
 
+    /// Smooth scrolling. `.x` is the sub-row viewport offset in pixels
+    /// (positive: content drawn shifted down); `.y` is how many grid
+    /// rows sit above the terminal viewport. Grid row `y` is drawn at
+    /// `(y - scroll_offset.y) * cell_size.y + scroll_offset.x`.
+    ///
+    /// `.z` is the height the viewport's rows don't account for —
+    /// `terminal_height - rows * cell_height` — which the shifted grid is
+    /// allowed to draw into, since it is real surface, not padding. It is
+    /// what lets the grid sit a few pixels lower so a resize moves the
+    /// content continuously instead of a row at a time. Zero at rest.
+    /// `.w` is how many grid rows sit below the terminal viewport, revealed
+    /// by a grid shifted up (`smooth-scroll-rows` scrolling back reveals
+    /// more than one); with `.y`, the rows that are not the viewport's.
+    scroll_offset: [4]f32 align(16),
+
     /// Bit mask defining which directions to
     /// extend cell colors in to the padding.
     /// Order, LSB first: left, right, up, down
@@ -196,6 +211,25 @@ pub const Uniforms = extern struct {
 
     /// Various booleans, in a packed struct for space efficiency.
     bools: Bools align(4),
+
+    /// Region scroll animation; see the Metal `Uniforms` for the layout.
+    /// std140 gives every array element 16 bytes, which is why the
+    /// shifts are vec4s and the ghost rows ivec4s.
+    region_rect: [max_region_anims][4]f32 align(16) = @splat(@splat(0)),
+    region_shift: [max_region_anims][4]f32 align(16) = @splat(@splat(0)),
+    ghost_rows: [max_ghost_rows][4]i32 align(16) = @splat(@splat(-1)),
+    anim_counts: [4]u32 align(16) = @splat(0),
+
+    /// Smooth cursor; see the Metal `Uniforms`.
+    cursor_rect: [4]f32 align(16) = @splat(0),
+    cursor_fill: [4]u8 align(4) = @splat(0),
+
+    /// Cursor trail; see the Metal `Uniforms`.
+    cursor_trail: [4]f32 align(16) = @splat(0),
+    cursor_trail_size: [4]f32 align(16) = @splat(0),
+
+    pub const max_region_anims = 4;
+    pub const max_ghost_rows = 64;
 
     const Bools = packed struct(u32) {
         /// Whether the cursor is 2 cells wide.
@@ -218,7 +252,12 @@ pub const Uniforms = extern struct {
         /// (thickness) to gamma-incorrect blending.
         use_linear_correction: bool = false,
 
-        _padding: u28 = 0,
+        /// Smooth cursor: color text as cursor text by how much of each
+        /// pixel `cursor_rect` covers, in place of the whole-cell recolor
+        /// under `cursor_pos`, which is then unset.
+        cursor_glide_text: bool = false,
+
+        _padding: u27 = 0,
     };
 
     const PaddingExtend = packed struct(u32) {

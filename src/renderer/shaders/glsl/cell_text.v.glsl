@@ -34,6 +34,9 @@ out CellTextVertexOut {
     flat vec4 color;
     flat vec4 bg_color;
     vec2 tex_coord;
+    // Grid-pixel rectangle the glyph is clipped to: the region it is
+    // scrolling in, or everything.
+    flat vec4 clip;
 } out_data;
 
 layout(binding = 1, std430) readonly buffer bg_cells {
@@ -48,6 +51,28 @@ void main() {
 
     // Convert the grid x, y into world space x, y by accounting for cell size
     vec2 cell_pos = cell_size * vec2(grid_pos);
+
+    // Region scroll animation: a ghost row (beyond the grid) is drawn at
+    // the row it scrolled to, and every cell of an animating region is
+    // shifted by the region's remaining distance and clipped to it.
+    vec4 clip = vec4(-1.0e9, -1.0e9, 1.0e9, 1.0e9);
+    int region = -1;
+    if (grid_pos.y >= grid_size.y) {
+        ivec4 ghost = ghost_rows[grid_pos.y - grid_size.y];
+        region = ghost.x;
+        cell_pos.y = cell_size.y * float(ghost.y);
+    } else {
+        region = region_of(cell_pos);
+    }
+    if (region >= 0) {
+        cell_pos.y += region_shift[region].x;
+        clip = region_rect[region];
+    }
+    out_data.clip = clip;
+
+    // Smooth scrolling: grid rows are shifted by the sub-row offset, with
+    // an extra row above the viewport drawn at negative y.
+    cell_pos.y += scroll_offset.x - scroll_offset.y * cell_size.y;
 
     int vid = gl_VertexID;
 

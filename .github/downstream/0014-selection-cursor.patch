@@ -1,0 +1,307 @@
+From 6992b9310f6298b840c7d016a6ae8f6d8ccfef17 Mon Sep 17 00:00:00 2001
+From: Ethan Lee <ethantlee21@gmail.com>
+Date: Mon, 19 Oct 2026 17:36:14 -0400
+Subject: [PATCH] render: draw the cursor on the selection head for a keyboard
+ copy mode
+
+A keyboard copy mode moves a selection through the scrollback. Its head
+is the cursor of the mode, but the only cursor the renderer draws is
+the program's, which stays at the prompt. A one-cell selection stood in
+as the cursor: a highlight, with the real cursor still blinking below.
+
+Terminal.flags.selection_cursor, set by the new binding action
+selection_cursor:on|off, makes the render state take the head of the
+selection as the cursor cell instead of the program's cursor. That
+cursor is a steady block, shown even while the program hides its own,
+and a one-cell selection draws as that cursor alone, as in Helix. The
+program's cursor does not move. Hit tests, the IME point and the
+program are untouched: this is the drawn cursor only.
+
+Tested in render.zig: the cursor cell, its visibility and style, and
+the row selection with the flag on and off.
+---
+ src/Surface.zig           |  15 ++++++
+ src/input/Binding.zig     |  24 +++++++++
+ src/input/command.zig     |   1 +
+ src/terminal/Terminal.zig |   7 +++
+ src/terminal/render.zig   | 107 ++++++++++++++++++++++++++++++++++----
+ 5 files changed, 144 insertions(+), 10 deletions(-)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index b59d5750e..de1466721 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -6055,6 +6055,21 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+             try self.setSelection(null);
+             try self.queueRender();
+         },
++
++        .selection_cursor => |v| {
++            self.renderer_state.mutex.lockUncancelable(global.io());
++            defer self.renderer_state.mutex.unlock(global.io());
++
++            const t = &self.io.terminal;
++            const on = v == .on;
++            if (t.flags.selection_cursor == on) return false;
++            t.flags.selection_cursor = on;
++            // The cursor moves between the program's cursor and the head
++            // of the selection. The render state rebuilds on the selection
++            // dirty bit, as it does for any change of the selection.
++            t.screens.active.dirty.selection = true;
++            try self.queueRender();
++        },
+     }
+ 
+     return true;
+diff --git a/src/input/Binding.zig b/src/input/Binding.zig
+index f9bf3a59c..c1395c713 100644
+--- a/src/input/Binding.zig
++++ b/src/input/Binding.zig
+@@ -560,6 +560,15 @@ pub const Action = union(enum) {
+     /// Clear the selection. Does nothing when there is no selection.
+     clear_selection,
+ 
++    /// Draw the cursor on the head of the selection (`on`), or on the
++    /// cursor of the program again (`off`). While it is on, the cursor is
++    /// a steady block on the head, shown even while the program hides its
++    /// own cursor, and a one-cell selection draws as that cursor alone, as
++    /// in Helix. The cursor of the program does not move. This is the
++    /// cursor of a keyboard copy mode. Does nothing when the state is
++    /// already the one asked for.
++    selection_cursor: SelectionCursor,
++
+     /// Jump the viewport forward or back by the given number of prompts.
+     ///
+     /// Requires shell integration.
+@@ -1102,6 +1111,11 @@ pub const Action = union(enum) {
+         end_of_line,
+     };
+ 
++    pub const SelectionCursor = enum {
++        on,
++        off,
++    };
++
+     pub const SelectionMotion = enum {
+         left,
+         right,
+@@ -1492,6 +1506,7 @@ pub const Action = union(enum) {
+             .flip_selection,
+             .select_line,
+             .clear_selection,
++            .selection_cursor,
+             .jump_to_prompt,
+             .write_scrollback_file,
+             .write_screen_file,
+@@ -4743,6 +4758,15 @@ test "parse: move_selection and extend_selection" {
+     ));
+ }
+ 
++test "parse: selection_cursor" {
++    const testing = std.testing;
++
++    const binding = try parseSingle("a=selection_cursor:on");
++    try testing.expect(binding.action == .selection_cursor);
++    try testing.expectEqual(Action.SelectionCursor.on, binding.action.selection_cursor);
++    try testing.expectError(Error.InvalidFormat, parseSingle("a=selection_cursor:maybe"));
++}
++
+ test "parse: selection actions without a parameter" {
+     const testing = std.testing;
+ 
+diff --git a/src/input/command.zig b/src/input/command.zig
+index ef40e9654..f41e82ba8 100644
+--- a/src/input/command.zig
++++ b/src/input/command.zig
+@@ -746,6 +746,7 @@ fn actionCommands(action: Action.Key) []const Command {
+         .flip_selection,
+         .select_line,
+         .clear_selection,
++        .selection_cursor,
+         => comptime &.{},
+ 
+         // No commands because I'm not sure they make sense in a command
+diff --git a/src/terminal/Terminal.zig b/src/terminal/Terminal.zig
+index b9a3bf0aa..552482deb 100644
+--- a/src/terminal/Terminal.zig
++++ b/src/terminal/Terminal.zig
+@@ -147,6 +147,13 @@ flags: packed struct {
+     /// to true based on termios state.
+     password_input: bool = false,
+ 
++    /// True while a keyboard copy mode owns the cursor. The render state
++    /// then draws the cursor on the head (`end`) of the selection, visible
++    /// and as a block, and not on this cursor, which stays where the
++    /// program left it. A one-cell selection draws as that cursor alone.
++    /// Set by the `selection_cursor` binding action.
++    selection_cursor: bool = false,
++
+     /// True if the terminal should perform selection scrolling.
+     selection_scroll: bool = false,
+ 
+diff --git a/src/terminal/render.zig b/src/terminal/render.zig
+index 3c54d906e..8adb26705 100644
+--- a/src/terminal/render.zig
++++ b/src/terminal/render.zig
+@@ -596,6 +596,15 @@ pub const RenderState = struct {
+         const s: *Screen = t.screens.active;
+         const viewport_pin = s.pages.getTopLeft(.viewport);
+ 
++        // The cell the cursor is drawn on. A keyboard copy mode draws it
++        // on the head of the selection (`Terminal.flags.selection_cursor`),
++        // not on the pty's cursor, which stays where the program left it.
++        const cursor_on_selection = t.flags.selection_cursor and s.selection != null;
++        const cursor_pin: PageList.Pin = if (cursor_on_selection)
++            s.selection.?.end()
++        else
++            s.cursor.page_pin.*;
++
+         // The overscan rows to capture beyond the viewport. The request
+         // decides the layout of row_data, and the actual counts are
+         // limited to the rows that exist. With no request, everything
+@@ -681,12 +690,21 @@ pub const RenderState = struct {
+         self.cols = s.pages.cols;
+         self.viewport_pin = viewport_pin;
+         self.cursor.active = .{ .x = s.cursor.x, .y = s.cursor.y };
+-        self.cursor.cell = s.cursor.page_cell.*;
++        self.cursor.cell = cursor_pin.rowAndCell().cell.*;
+         self.cursor.style = s.cursor.style;
+-        self.cursor.visual_style = s.cursor.cursor_style;
+         self.cursor.password_input = t.flags.password_input;
+-        self.cursor.visible = t.modes.get(.cursor_visible);
+-        self.cursor.blinking = t.modes.get(.cursor_blinking);
++        if (cursor_on_selection) {
++            // The copy-mode cursor is a steady block whatever the program
++            // asked for its own cursor, and it shows while the program
++            // hides its own (a pager at a prompt hides it).
++            self.cursor.visual_style = .block;
++            self.cursor.visible = true;
++            self.cursor.blinking = false;
++        } else {
++            self.cursor.visual_style = s.cursor.cursor_style;
++            self.cursor.visible = t.modes.get(.cursor_visible);
++            self.cursor.blinking = t.modes.get(.cursor_blinking);
++        }
+ 
+         // Always reset the cursor viewport position. In the future we can
+         // probably cache this by comparing the cursor pin and viewport pin
+@@ -821,19 +839,19 @@ pub const RenderState = struct {
+             // if rows are not dirty because the cursor is unrelated. We
+             // can check the chunk bounds once rather than every row.
+             if (self.cursor.captured == null and
+-                node == s.cursor.page_pin.node)
++                node == cursor_pin.node)
+             cursor: {
+-                const cy = s.cursor.page_pin.y;
++                const cy = cursor_pin.y;
+                 if (cy < chunk.start or cy >= chunk.start + take) break :cursor;
+ 
+                 const idx = y + (cy - chunk.start);
+-                const wide_tail = if (s.cursor.x > 0)
+-                    s.cursorCellLeft(1).wide == .wide
++                const wide_tail = if (cursor_pin.x > 0)
++                    cursor_pin.left(1).rowAndCell().cell.wide == .wide
+                 else
+                     false;
+                 self.cursor.captured = .{
+                     .y = @intCast(idx - first),
+-                    .x = s.cursor.x,
++                    .x = cursor_pin.x,
+                     .wide_tail = wide_tail,
+                 };
+ 
+@@ -843,7 +861,7 @@ pub const RenderState = struct {
+                 if (idx < vp_start or idx >= vp_start + self.rows) break :cursor;
+                 self.cursor.viewport = .{
+                     .y = @intCast(idx - vp_start),
+-                    .x = s.cursor.x,
++                    .x = cursor_pin.x,
+ 
+                     // Future: we should use our own state here to look this
+                     // up rather than calling this.
+@@ -949,6 +967,12 @@ pub const RenderState = struct {
+         if (s.selection) |*sel| selection: {
+             @branchHint(.unlikely);
+ 
++            // A one-cell selection under the copy-mode cursor is that
++            // cursor: the cell draws as a cursor and not as a highlight, as
++            // in Helix. The rows were rebuilt with no selection (a change of
++            // the selection dirties the screen), so nothing stays marked.
++            if (cursor_on_selection and sel.start().eql(sel.end())) break :selection;
++
+             // Populate our selection cache to avoid some expensive
+             // recalculation.
+             const cache: *const SelectionCache = cache: {
+@@ -2628,6 +2652,69 @@ test "cursor state out of viewport" {
+     try testing.expect(state.cursor.viewport == null);
+ }
+ 
++test "cursor on the selection head" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++    const io = testing.io;
++
++    var t = try Terminal.init(io, alloc, .{
++        .cols = 10,
++        .rows = 5,
++    });
++    defer t.deinit(alloc);
++
++    var s = t.vtStream();
++    defer s.deinit();
++    // Two rows, and the program hides its cursor, as a pager does.
++    s.nextSlice("ABCDE\r\nFGHIJ\x1b[?25l");
++
++    var state: RenderState = .empty;
++    defer state.deinit(alloc);
++
++    // Without the flag the pty cursor is the cursor, hidden.
++    try state.update(alloc, &t);
++    try testing.expect(!state.cursor.visible);
++    try testing.expectEqual(5, state.cursor.viewport.?.x);
++    try testing.expectEqual(1, state.cursor.viewport.?.y);
++
++    // A one-cell selection on B with the flag: the cursor is there, shown,
++    // a block, and the cell is not highlighted.
++    const screen = t.screens.active;
++    const b = screen.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?;
++    try screen.select(Selection.init(b, b, false));
++    t.flags.selection_cursor = true;
++    try state.update(alloc, &t);
++    try testing.expect(state.cursor.visible);
++    try testing.expect(!state.cursor.blinking);
++    try testing.expectEqual(cursor.Style.block, state.cursor.visual_style);
++    try testing.expectEqual(1, state.cursor.viewport.?.x);
++    try testing.expectEqual(0, state.cursor.viewport.?.y);
++    try testing.expectEqual('B', state.cursor.cell.codepoint());
++    {
++        const sels = state.row_data.slice().items(.selection);
++        try testing.expectEqual(null, sels[state.rowDataRange().start]);
++    }
++
++    // The selection grows to C: the head is the cursor, the row is marked.
++    const c = screen.pages.pin(.{ .screen = .{ .x = 2, .y = 0 } }).?;
++    try screen.select(Selection.init(b, c, false));
++    try state.update(alloc, &t);
++    try testing.expectEqual(2, state.cursor.viewport.?.x);
++    try testing.expectEqual('C', state.cursor.cell.codepoint());
++    {
++        const sels = state.row_data.slice().items(.selection);
++        try testing.expectEqualSlices(size.CellCountInt, &.{ 1, 2 }, &sels[state.rowDataRange().start].?);
++    }
++
++    // The flag off: the pty cursor again, still hidden.
++    t.flags.selection_cursor = false;
++    screen.dirty.selection = true;
++    try state.update(alloc, &t);
++    try testing.expect(!state.cursor.visible);
++    try testing.expectEqual(5, state.cursor.viewport.?.x);
++    try testing.expectEqual(1, state.cursor.viewport.?.y);
++}
++
+ test "dirty state" {
+     const testing = std.testing;
+     const alloc = testing.allocator;
+-- 
+2.54.0 (Apple Git-157)
+

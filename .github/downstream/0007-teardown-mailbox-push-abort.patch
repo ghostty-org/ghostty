@@ -1,0 +1,301 @@
+From c4e6e7f9728a1e537a14e53e0a06a961ba975d14 Mon Sep 17 00:00:00 2001
+From: Ethan Lee <ethantlee21@gmail.com>
+Date: Wed, 30 Sep 2026 10:18:24 -0400
+Subject: [PATCH] termio: give up a blocked mailbox push once the surface is
+ closing
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Closing a surface could hang the whole app. Surface.deinit joins the IO
+thread; the IO thread's threadExit joins the read thread; and the read
+thread was parked in surfaceMessageWriter's fallback, a `.forever` push
+into the app mailbox — a 64-slot queue that only the app thread drains,
+between ticks, which it never does again once it is inside the join. Three
+threads each waiting on the next. A macOS embedder hit it on every launch
+(thdxg/macterm#464, main-thread stackshot: ghostty_surface_free →
+Surface.deinit → __ulock_wait on "io", "io" in Backend.threadExit waiting
+on "io-reader", "io-reader" in StreamHandler.vt → __ulock_wait2): a
+reattached session replays scrollback dense in OSC 0/2 and OSC 7, so the
+queue was full at the instant a mirror of that session was freed.
+
+The same shape exists for every producer on a thread the surface joins:
+the read thread's renderer-mailbox fallback (the renderer thread is joined
+first), its termio-mailbox fallback (drained by the very IO thread that is
+joining it), and the IO thread's own pushes to the app mailbox (child
+exited, password input, and the resize it mails the renderer).
+
+renderer.State gets a `closing` flag the surface sets before it joins
+anything, and BlockingQueue.Timeout gets `.abort`: wait like `.forever`,
+but give up once the flag is set, polling it every 5ms so the setter need
+not know the queue. Every push above uses it. A message dropped this way
+was for a surface being torn down; the fast `.instant` path and the normal
+blocking behavior are unchanged.
+
+Reproduced with a debug build against a pane whose session emits a burst
+of ~150k title reports while a second pane mirrors it: closing the mirror
+with cmd+W mid-burst hangs the unpatched app indefinitely in that exact
+stack, and completes with this patch.
+---
+ src/Surface.zig                   |  5 +++
+ src/datastruct/blocking_queue.zig | 63 +++++++++++++++++++++++++++++++
+ src/renderer/State.zig            | 12 ++++++
+ src/termio/Exec.zig               | 13 +++++--
+ src/termio/Termio.zig             | 10 +++--
+ src/termio/mailbox.zig            |  8 +++-
+ src/termio/stream_handler.zig     | 13 ++++++-
+ 7 files changed, 114 insertions(+), 10 deletions(-)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 6227a6fed..049f6c6c3 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -802,6 +802,11 @@ pub fn init(
+ }
+ 
+ pub fn deinit(self: *Surface) void {
++    // Tell producers on the threads joined below that their consumers are
++    // going away, so a mailbox push blocked on a full queue gives up rather
++    // than holding the join forever (see renderer.State.closing).
++    self.renderer_state.closing.store(true, .release);
++
+     // Stop search thread
+     if (self.search) |*s| s.deinit();
+ 
+diff --git a/src/datastruct/blocking_queue.zig b/src/datastruct/blocking_queue.zig
+index 89ce57d8c..81bc996c1 100644
+--- a/src/datastruct/blocking_queue.zig
++++ b/src/datastruct/blocking_queue.zig
+@@ -51,8 +51,21 @@ pub fn BlockingQueue(
+ 
+             /// Nanoseconds
+             ns: u64,
++
++            /// Wait like `forever`, but give up (the push fails) once the
++            /// flag is true. For a producer on a thread that the consumer
++            /// joins during teardown: a `forever` push into a full queue
++            /// whose consumer has stopped draining — or is itself waiting
++            /// to join this producer — never returns, and neither does the
++            /// join. The flag is polled every `abort_poll_ns`, so whoever
++            /// sets it need not know about this queue.
++            abort: *const std.atomic.Value(bool),
+         };
+ 
++        /// How often an `abort` wait re-reads its flag. Only the slow path
++        /// (a full queue) pays it.
++        const abort_poll_ns: u64 = 5 * std.time.ns_per_ms;
++
+         /// Our data. The values are undefined until they are written.
+         data: [bounds]T = undefined,
+ 
+@@ -130,6 +143,23 @@ pub fn BlockingQueue(
+                             },
+                         ) catch return 0;
+                     },
++
++                    .abort => |flag| while (self.full()) {
++                        if (flag.load(.acquire)) return 0;
++                        self.not_full_waiters += 1;
++                        defer self.not_full_waiters -= 1;
++                        compat_thread.waitTimeout(
++                            &self.cond_not_full,
++                            io,
++                            &self.mutex,
++                            .{
++                                .duration = .{
++                                    .raw = .fromNanoseconds(abort_poll_ns),
++                                    .clock = .awake,
++                                },
++                            },
++                        ) catch {};
++                    },
+                 }
+ 
+                 // If we're still full, then we failed to write. This can
+@@ -259,3 +289,36 @@ test "timed push" {
+     // Timed push should fail
+     try testing.expectEqual(@as(Q.Size, 0), q.push(io, 2, .{ .ns = 1000 }));
+ }
++
++test "abort push" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++    const io = testing.io;
++
++    const Q = BlockingQueue(u64, 1);
++    const q = try Q.create(alloc);
++    defer q.destroy(alloc);
++    try testing.expectEqual(@as(Q.Size, 1), q.push(io, 1, .{ .instant = {} }));
++
++    // A flag already set fails without waiting.
++    var flag: std.atomic.Value(bool) = .init(true);
++    try testing.expectEqual(@as(Q.Size, 0), q.push(io, 2, .{ .abort = &flag }));
++
++    // A flag set while a producer waits ends its wait.
++    flag.store(false, .release);
++    const Producer = struct {
++        fn run(queue: *Q, f: *const std.atomic.Value(bool), out: *Q.Size) void {
++            out.* = queue.push(std.testing.io, 2, .{ .abort = f });
++        }
++    };
++    var result: Q.Size = 1;
++    const thr = try std.Thread.spawn(.{}, Producer.run, .{ q, &flag, &result });
++    flag.store(true, .release);
++    thr.join();
++    try testing.expectEqual(@as(Q.Size, 0), result);
++
++    // Room made by the consumer lets the push through as usual.
++    flag.store(false, .release);
++    try testing.expect(q.pop(io) != null);
++    try testing.expectEqual(@as(Q.Size, 1), q.push(io, 2, .{ .abort = &flag }));
++}
+diff --git a/src/renderer/State.zig b/src/renderer/State.zig
+index 1e38d64a9..87f5e0ad1 100644
+--- a/src/renderer/State.zig
++++ b/src/renderer/State.zig
+@@ -33,6 +33,18 @@ preedit: ?Preedit = null,
+ /// need about the mouse.
+ mouse: Mouse = .{},
+ 
++/// Set by the surface as the first step of its teardown, before it joins
++/// its threads. A producer on a thread the surface joins (the IO thread,
++/// its read thread) pushes to the surface, renderer and termio mailboxes
++/// with `.abort = &closing` rather than `.forever`: a forever push into a
++/// full queue never returns once the consumer has stopped draining — the
++/// renderer thread is joined before the IO thread, the IO thread drains
++/// the termio queue on the very thread that joins the read thread, and
++/// the app thread drains its mailbox only between ticks, not while it
++/// waits in `Surface.deinit` — so the join it holds up never completes
++/// either (thdxg/macterm#464). Read without the mutex.
++closing: std.atomic.Value(bool) = .init(false),
++
+ /// The number of threads currently waiting to acquire `mutex` via
+ /// `lockDemand`. This is not protected by the mutex; it is read by
+ /// hot lock/unlock loops (the IO parse thread) in `yieldToDemand` to
+diff --git a/src/termio/Exec.zig b/src/termio/Exec.zig
+index 107cb9794..2dd47c86a 100644
+--- a/src/termio/Exec.zig
++++ b/src/termio/Exec.zig
+@@ -284,13 +284,15 @@ fn processExitCommon(td: *termio.Termio.ThreadData, exit_code: u32) void {
+     log.debug("child process exited status={} runtime={}ms", .{ exit_code, runtime_ms });
+ 
+     // We always notify the surface immediately that the child has
+-    // exited and some metadata about the exit.
++    // exited and some metadata about the exit. Not forever: this runs on
++    // the IO thread, which the app thread joins on teardown without
++    // draining its mailbox (renderer.State.closing).
+     _ = td.surface_mailbox.push(.{
+         .child_exited = .{
+             .exit_code = exit_code,
+             .runtime_ms = runtime_ms,
+         },
+-    }, .{ .forever = {} });
++    }, .{ .abort = &td.renderer_state.closing });
+ }
+ 
+ fn processExit(
+@@ -379,10 +381,13 @@ fn termiosTimer(
+ 
+         // We have to notify the surface that we're in password input.
+         // We must block on this because the balanced true/false state
+-        // of this is critical to apprt behavior.
++        // of this is critical to apprt behavior. A surface being torn
++        // down is the exception: its apprt state goes with it, and the
++        // app thread that would drain this is waiting on our exit
++        // (renderer.State.closing).
+         _ = td.surface_mailbox.push(.{
+             .password_input = password_input,
+-        }, .{ .forever = {} });
++        }, .{ .abort = &td.renderer_state.closing });
+     }
+ 
+     // Repeat the timer
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index 8abe243e8..46c945dfa 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -428,7 +428,7 @@ pub fn queueMessage(
+     self.mailbox.send(msg, switch (mutex) {
+         .locked => self.renderer_state.mutex,
+         .unlocked => null,
+-    });
++    }, &self.renderer_state.closing);
+     self.mailbox.notify();
+ }
+ 
+@@ -534,8 +534,12 @@ pub fn resize(
+         }
+     }
+ 
+-    // Mail the renderer so that it can update the GPU and re-render
+-    _ = self.renderer_mailbox.push(global.io(), .{ .resize = size }, .{ .forever = {} });
++    // Mail the renderer so that it can update the GPU and re-render. Not
++    // forever: the renderer thread is joined before this one on teardown,
++    // so a full queue then would never drain (renderer.State.closing).
++    _ = self.renderer_mailbox.push(global.io(), .{ .resize = size }, .{
++        .abort = &self.renderer_state.closing,
++    });
+     self.renderer_wakeup.notify() catch {};
+ }
+ 
+diff --git a/src/termio/mailbox.zig b/src/termio/mailbox.zig
+index a053aaabe..d589996b1 100644
+--- a/src/termio/mailbox.zig
++++ b/src/termio/mailbox.zig
+@@ -60,10 +60,16 @@ pub const Mailbox = union(enum) {
+     /// send would block, we'll unlock this mutex, resend the message, and
+     /// lock it again. This handles an edge case where queues are full.
+     /// This may not apply to all writer types.
++    ///
++    /// `abort` ends that wait, dropping the message: the termio thread
++    /// that drains this queue is the thread that joins the read thread on
++    /// teardown, so a read thread waiting here forever would hold up the
++    /// join (see renderer.State.closing).
+     pub fn send(
+         self: *Mailbox,
+         msg: termio.Message,
+         mutex: ?*std.Io.Mutex,
++        abort: *const std.atomic.Value(bool),
+     ) void {
+         switch (self.*) {
+             .spsc => |*mb| send: {
+@@ -92,7 +98,7 @@ pub const Mailbox = union(enum) {
+                 // here.
+                 if (mutex) |m| m.unlock(global.io());
+                 defer if (mutex) |m| m.lockUncancelable(global.io());
+-                if (mb.queue.push(global.io(), msg, .{ .forever = {} }) == 0) msg.deinit();
++                if (mb.queue.push(global.io(), msg, .{ .abort = abort }) == 0) msg.deinit();
+             },
+         }
+     }
+diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
+index 22dec0c8b..8ea8f40cb 100644
+--- a/src/termio/stream_handler.zig
++++ b/src/termio/stream_handler.zig
+@@ -136,12 +136,21 @@ pub const StreamHandler = struct {
+         if (self.surface_mailbox.push(msg, .{ .instant = {} }) == 0) {
+             self.renderer_state.mutex.unlock(global.io());
+             defer self.renderer_state.mutex.lockUncancelable(global.io());
+-            _ = self.surface_mailbox.push(msg, .{ .forever = {} });
++            // Not forever: the app thread drains this queue only between
++            // ticks, and once it is in Surface.deinit waiting for this
++            // thread's exit it never ticks again (renderer.State.closing).
++            _ = self.surface_mailbox.push(msg, .{
++                .abort = &self.renderer_state.closing,
++            });
+         }
+     }
+ 
+     inline fn messageWriter(self: *StreamHandler, msg: termio.Message) void {
+-        self.termio_mailbox.send(msg, self.renderer_state.mutex);
++        self.termio_mailbox.send(
++            msg,
++            self.renderer_state.mutex,
++            &self.renderer_state.closing,
++        );
+         self.termio_messaged = true;
+     }
+ 
+-- 
+2.53.0
+

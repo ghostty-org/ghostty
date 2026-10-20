@@ -233,6 +233,20 @@ pub fn initTarget(self: *const Metal, width: usize, height: usize) !Target {
     });
 }
 
+/// Which render target the layer is showing, as `targetIdentity` names
+/// targets, or 0 before it shows one. The layer's contents only change on
+/// the main thread, so read from there this is the frame on screen for
+/// whatever else that thread does: the surface's hit tests.
+pub fn shownTarget(self: *const Metal) usize {
+    const contents = self.layer.layer.msgSend(?*anyopaque, objc.sel("contents"), .{}) orelse return 0;
+    return @intFromPtr(contents);
+}
+
+/// A number naming `target` among the ones the layer can show.
+pub fn targetIdentity(target: *const Target) usize {
+    return @intFromPtr(target.surface);
+}
+
 /// Present the provided target.
 pub inline fn present(self: *Metal, target: Target, sync: bool) !void {
     if (sync) {

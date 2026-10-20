@@ -1,0 +1,146 @@
+name: Build GhosttyKit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'pkg/**'
+      - 'vendor/**'
+      - 'build.zig'
+      - 'build.zig.zon'
+      - 'build.zig.zon.json'
+
+# One build at a time, in the order they were pushed: a build that finished
+# after a newer one would otherwise publish last and be marked latest. A queued
+# run of the same commit then finds its release already there and skips.
+concurrency:
+  group: build-ghosttykit
+  cancel-in-progress: false
+
+jobs:
+  # The release tag is a function of the commit alone —
+  # build-<commit date, UTC>-<short sha> — so two builds on one day can't share
+  # a name, and a tag, once published, always names the same bytes. The old
+  # build-<today> tag was deleted and re-cut by a second build the same day,
+  # silently changing what Macterm's pin pointed at.
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      date: ${{ steps.tag.outputs.date }}
+      exists: ${{ steps.tag.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          DATE=$(TZ=UTC git show -s --format=%cd --date=format-local:%Y-%m-%d HEAD)
+          TAG="build-${DATE}-$(git rev-parse --short=7 HEAD)"
+          # A published release is never replaced. Its tag existing means this
+          # exact commit was already built; check the tag rather than the
+          # release, which a run that died mid-upload can leave as a draft.
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            EXISTS=true
+            echo "::notice::$TAG is already released; skipping the build"
+          else
+            EXISTS=false
+          fi
+          {
+            echo "tag=$TAG"
+            echo "date=$DATE"
+            echo "exists=$EXISTS"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: tag
+    if: needs.tag.outputs.exists == 'false'
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      # -Dsentry=false: libghostty's Sentry crash reporter is built for the
+      # standalone Ghostty.app, and it is actively harmful to an embedder.
+      # Its init runs on a background thread ("sentry-init") that scans
+      # ghostty's cached `environ` slice for XDG_CACHE_HOME (src/crash/
+      # sentry.zig) CONCURRENTLY with host-app startup. Macterm mutates the
+      # environment during launch, and any realloc of `environ` leaves that
+      # slice dangling — the scan then dereferences a garbage pointer and
+      # SIGSEGVs. Reproduced deterministically on Sparkle update+relaunch
+      # (macterm 1.21.0, 1.22.0-beta.1, 1.22.0-beta.2), where AppKit drives
+      # window creation from an Apple Event and lands inside the scan window.
+      # Macterm's own EnvironmentSetup ordering fix can't close this: it makes
+      # all mutations precede ghostty_init, but this reader is concurrent, and
+      # libghostty exposes no C API to re-sync `environ` (ghostty's GTK runtime
+      # re-syncs internally via global.syncEnviron).
+      #
+      # Turning it off is also correct on the merits: Macterm ships no
+      # telemetry, never calls a Sentry API, and Sentry only writes reports to
+      # a local cache dir that nothing here collects. The option is a real
+      # upstream build flag (src/build/Config.zig), and src/crash/sentry.zig
+      # gates even the `@import("sentry")` on it, so the library is not linked
+      # at all rather than merely left dormant.
+      # The fork's Test workflow is off (upstream's matrix is not ours), so
+      # the unit tests of the downstream patches run here, before the build,
+      # filtered to their names. A failure publishes nothing. "Selection"
+      # covers patch 0013 (Selection.move, expandToLines); "selection head"
+      # covers patch 0014 (the render state's cursor on the selection head);
+      # "parse:" covers the keybind parser, which every new binding action
+      # goes through.
+      - name: Test downstream patches
+        run: zig build test -Dsentry=false -Dtest-filter=Selection -Dtest-filter="selection head" -Dtest-filter="parse:"
+
+      - name: Build xcframework
+        run: zig build -Doptimize=ReleaseFast -Dsentry=false -Demit-xcframework=true -Dxcframework-target=universal -Demit-macos-app=false -Demit-themes=true
+
+      - name: Compress xcframework
+        run: |
+          cd macos
+          tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework/
+
+      # Bundle the ghostty resources (themes + shell-integration under ghostty/,
+      # plus the compiled terminfo DB) so Macterm can ship them in its own app
+      # bundle and resolve TERM=xterm-ghostty, named themes, and shell
+      # integration without a separate Ghostty.app install. The build installs
+      # them to zig-out/share in the SAME layout a real Ghostty.app uses:
+      #   share/ghostty/{themes,shell-integration}   (-Demit-themes=true)
+      #   share/terminfo/78/xterm-ghostty            (compiled via tic, sibling)
+      # Tar zig-out/share verbatim so Macterm extracts it straight into
+      # Contents/Resources/, giving ghostty/ + a sibling terminfo/. libghostty
+      # derives TERMINFO as dirname(GHOSTTY_RESOURCES_DIR)/terminfo, so the
+      # terminfo dir MUST be a sibling of the ghostty/ resources dir — a flat
+      # layout breaks key input + TERM (macterm issues #39/#40). tar preserves
+      # the terminfo symlinks (xterm-ghostty aliases).
+      - name: Compress resources
+        run: |
+          tar czf ghostty-resources.tar.gz -C zig-out/share ghostty terminfo
+
+      # GH_PAT, not GITHUB_TOKEN: since GitHub paused and re-enabled the
+      # workflows of this fork (2026-10-19), the job token is read-only
+      # whatever `permissions:` says — `gh release create` got HTTP 403
+      # "Resource not accessible by integration" twice. The sync already
+      # pushes with the same PAT.
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          TAG: ${{ needs.tag.outputs.tag }}
+          DATE: ${{ needs.tag.outputs.date }}
+        run: |
+          COMMIT=$(git rev-parse --short=7 HEAD)
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "GhosttyKit $DATE ($COMMIT)" \
+            --latest \
+            --notes "Built from commit ${GITHUB_SHA} (committed $DATE)." \
+            macos/GhosttyKit.xcframework.tar.gz \
+            ghostty-resources.tar.gz

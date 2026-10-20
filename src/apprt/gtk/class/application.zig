@@ -775,6 +775,9 @@ pub const Application = extern struct {
             // GTK has no accessibility consumer for this yet.
             .selection_changed => {},
 
+            // Reserved for embedders that consume activity heartbeats.
+            .output_activity => {},
+
             .scrollbar => Action.scrollbar(target, value),
 
             .set_title => Action.setTitle(target, value),

@@ -134,6 +134,23 @@ pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
     return 0;
 }
 
+/// Re-capture the process environment after the embedder mutated it.
+///
+/// ghostty_init captures `environ` as a pointer+length slice and keeps it
+/// for the life of the process — surface spawns build the child's
+/// environment from that capture. A host-side setenv/unsetenv after init
+/// can realloc `environ`, leaving the captured slice dangling: spawned
+/// children then inherit a stale environment, or the spawn path crashes
+/// scanning freed memory. Apprts that own their process already re-sync
+/// via the internal global.syncEnviron() (e.g. the GTK apprt after its
+/// own setenv calls); this export gives embedders the same tool.
+///
+/// Must be called after a successful ghostty_init, on any thread that is
+/// not racing another environment mutation (the usual libc environ rules).
+pub export fn ghostty_sync_environ() void {
+    global.syncEnviron();
+}
+
 /// Runs an action if it is specified. If there is no action this returns
 /// false. If there is an action then this doesn't return.
 pub export fn ghostty_cli_try_action() void {

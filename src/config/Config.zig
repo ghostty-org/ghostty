@@ -999,6 +999,62 @@ palette: Palette = .{},
 /// The default value is "3" for discrete devices and "1" for precision devices.
 @"mouse-scroll-multiplier": MouseScrollMultiplier = .default,
 
+/// Draw the viewport between rows while scrolling with a precision device
+/// (trackpad, Magic Mouse), so scrollback moves by pixels rather than jumping
+/// a row at a time. Precision scrolling is already accumulated in pixels;
+/// this keeps the sub-row remainder and renders it, which is what makes
+/// the motion continuous, momentum included.
+///
+/// The scrollback viewport scrolls this way. A program on the alternate
+/// screen (an editor, a pager) that scrolls a region of its screen by rows
+/// with the terminal's scroll margins (DECSTBM/DECSLRM with SU/SD, or an
+/// index at the margin) is animated too: the region's new content slides in
+/// from where the old content was, and the rows that scrolled out slide
+/// away with it. A program that repaints every cell instead gets no motion,
+/// and mouse reporting still turns the wheel into button events. Discrete
+/// wheels always scroll the viewport by whole rows.
+///
+/// Downstream (thdxg/ghostty) key, read by Macterm's Experimental settings.
+/// This can be changed at runtime.
+@"smooth-scroll": bool = false,
+
+/// With `smooth-scroll` on, move the scrollback viewport by whole rows and
+/// animate each move, instead of following a precision gesture pixel for
+/// pixel. Scroll input accumulates exactly as it does without smooth
+/// scrolling and commits a row at a time; every row the viewport moves is
+/// drawn sliding in from where it was, easing home in about a quarter
+/// second as a region scroll on the alternate screen does. So the viewport
+/// never comes to rest between rows, and a discrete wheel animates too.
+///
+/// Downstream (thdxg/ghostty) key, read by Macterm's Animations settings.
+/// This can be changed at runtime.
+@"smooth-scroll-rows": bool = false,
+
+/// Move the cursor to where the terminal puts it instead of redrawing it
+/// there. The focused block, bar or underline cursor glides from its last
+/// place to the new one over about 140 ms, and a block cursor on its way
+/// colors the text it covers as cursor text exactly as far as it covers
+/// it: a glyph the cursor is halfway across is two-toned, and a cell's own
+/// background shows through the part the cursor has not reached. The
+/// unfocused hollow cursor and the password lock never move. `cursor-opacity`
+/// applies to the moving cursor as it does to a still one.
+///
+/// Downstream (thdxg/ghostty) key, read by Macterm's Animations settings.
+/// This can be changed at runtime.
+@"smooth-cursor": bool = false,
+
+/// Leave a streak behind the cursor across larger moves: a translucent
+/// swept shape in the cursor color from where the cursor was to where it
+/// is, whose tail catches up with its head and which fades out as the
+/// move completes, in the same time a `smooth-cursor` glide takes. Moves
+/// of a cell or two, such as typing, leave nothing. The streak is drawn
+/// under the text, in the cell background, and works with or without
+/// `smooth-cursor`; with it the streak's head is the gliding cursor.
+///
+/// Downstream (thdxg/ghostty) key, read by Macterm's Animations settings.
+/// This can be changed at runtime.
+@"cursor-trail": bool = false,
+
 /// The opacity level (opposite of transparency) of the background. A value of
 /// 1 is fully opaque and a value of 0 is fully transparent. A value less than 0
 /// or greater than 1 will be clamped to the nearest valid value.
@@ -1025,6 +1081,24 @@ palette: Palette = .{},
 ///
 /// Available since: 1.2.0
 @"background-opacity-cells": bool = false,
+
+/// If `true`, the renderer never paints the default background color —
+/// only cells with an explicit background color set are painted. The
+/// terminal background is then whatever the host composites behind the
+/// surface.
+///
+/// This is intended for embedders that draw the window background
+/// themselves (their own tint, blur, or glass) and would otherwise
+/// double-tint against the surface's background paint. It is the same
+/// mechanism the macOS glass `background-blur` styles use to skip the
+/// default background, but independent of blur mode and platform.
+///
+/// `background-opacity` continues to apply to explicit cell backgrounds
+/// via `background-opacity-cells`, which behaves exactly as documented
+/// above.
+///
+/// Downstream (thdxg/ghostty) extension; not part of upstream Ghostty.
+@"background-default-transparent": bool = false,
 
 /// Whether to blur the background when `background-opacity` is less than 1.
 ///
@@ -1193,6 +1267,22 @@ command: ?Command = null,
 ///     name your binary appropriately or source the shell integration script
 ///     manually.
 @"initial-command": ?Command = null,
+
+/// A wrapper command that is prepended to the final command Ghostty would
+/// otherwise execute, after shell resolution, shell integration, and (on
+/// macOS) the `login(1)` wrapping have all been applied. The wrapper's
+/// arguments are placed before the resolved argv, so the resolved command
+/// runs as a child of the wrapper.
+///
+/// This exists so an embedder can run the shell under a supervisor such as a
+/// session-persistence multiplexer while keeping Ghostty's normal shell
+/// resolution and shell integration fully intact. Without this, an embedder
+/// would have to replace `command` with the wrapper, which loses the user's
+/// configured `command`, shell detection, and integration.
+///
+/// Specified like `command`, e.g. `direct:zmx attach my-session`. Use the
+/// `direct:` prefix to avoid a `/bin/sh -c` roundtrip for the wrapper.
+@"command-wrapper": ?Command = null,
 
 /// Controls when command finished notifications are sent. There are
 /// three options:
@@ -3190,7 +3280,13 @@ keybind: Keybinds = .{},
 ///
 ///  * `vec4 iPreviousCursorStyle` - Style of the previous terminal cursor
 ///
-///  * `vec4 iCursorVisible` - Visibility of the terminal cursor.
+///  * `int iCursorVisible` - Visibility of the terminal cursor.
+///
+///    0 when the cursor is hidden by the running program, and also while it
+///    is scrolled out of the viewport or in the off phase of a blink — the
+///    frames in which no cursor is drawn. The position uniforms keep their
+///    last value in those frames, so a shader that draws the cursor itself
+///    must check this rather than trust `iCurrentCursor`.
 ///
 ///  * `float iTimeCursorChange` - Timestamp of terminal cursor change.
 ///

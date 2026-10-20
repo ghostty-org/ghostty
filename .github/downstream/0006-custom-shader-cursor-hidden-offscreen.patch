@@ -1,0 +1,60 @@
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index 071bb1fbe..6bdf69c92 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -3190,7 +3190,13 @@ keybind: Keybinds = .{},
+ ///
+ ///  * `vec4 iPreviousCursorStyle` - Style of the previous terminal cursor
+ ///
+-///  * `vec4 iCursorVisible` - Visibility of the terminal cursor.
++///  * `int iCursorVisible` - Visibility of the terminal cursor.
++///
++///    0 when the cursor is hidden by the running program, and also while it
++///    is scrolled out of the viewport or in the off phase of a blink — the
++///    frames in which no cursor is drawn. The position uniforms keep their
++///    last value in those frames, so a shader that draws the cursor itself
++///    must check this rather than trust `iCurrentCursor`.
+ ///
+ ///  * `float iTimeCursorChange` - Timestamp of terminal cursor change.
+ ///
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index 88bfcd18c..d3b4fe2af 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -2925,8 +2925,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 };
+             }
+ 
+-            // Cursor visibility
+-            uniforms.cursor_visible = @intFromBool(self.terminal_state.cursor.visible);
++            // Cursor visibility is set per frame (see
++            // updateCustomShaderUniformsForFrame), from whether a cursor
++            // glyph was actually drawn rather than from DECTCEM alone.
+ 
+             // Cursor style
+             const cursor_style: renderer.CursorStyle = .fromTerminal(self.terminal_state.cursor.visual_style);
+@@ -3047,6 +3048,24 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     uniforms.current_cursor_color = cursor_color;
+                     uniforms.cursor_change_time = uniforms.time;
+                 }
++
++                // Whether a cursor glyph was drawn is the whole answer for
++                // the shader, and a stricter one than DECTCEM: it already
++                // accounts for the viewport, preedit, focus and blink. This
++                // per-frame pass is the only owner of the uniform, and it
++                // runs immediately before the uniforms are synced, so both
++                // arms must assign it -- a one-sided clear would stick at 0
++                // until the next frame the terminal state changed.
++                uniforms.cursor_visible = 1;
++            } else {
++                // No cursor glyph this frame: the cursor is hidden by the
++                // program, scrolled out of the viewport, or in the off phase
++                // of a blink. The position uniforms above keep their last
++                // value, so a shader that draws the cursor itself
++                // (cursor-opacity = 0) would leave a phantom at the stale
++                // cell. Report it hidden, which is what the terminal is
++                // showing.
++                uniforms.cursor_visible = 0;
+             }
+ 
+             // Update focus uniforms

@@ -1,0 +1,261 @@
+From ffebb7338488094bb2cf24259a2ed3b8653564ef Mon Sep 17 00:00:00 2001
+From: Mateusz Urban <mateuszurban2@gmail.com>
+Date: Mon, 6 Jul 2026 08:26:32 +0200
+Subject: [PATCH] apprt: add output_activity action for throttled IO-path
+ activity heartbeat
+
+Add GHOSTTY_ACTION_OUTPUT_ACTIVITY, a throttled heartbeat emitted from the
+terminal IO path whenever the child/pty produces nonempty output. It carries
+the post-parse scrollbar geometry (ghostty_action_scrollbar_s) and is delivered
+via the surface mailbox -> app-tick -> performAction track, not the renderer
+thread. Unlike the renderer-track scrollbar action, this keeps firing while
+the surface is occluded (the renderer parks on occlusion), so embedders can
+drive an activity indicator for in-place TUI redraws and backgrounded tabs.
+
+Throttle emission to at most once per 500ms in Termio.processOutputLocked.
+Parse each current PTY chunk before sampling its geometry while the renderer
+mutex remains held, ignore empty manual-API buffers, and retry on the next PTY
+chunk when a full surface mailbox drops a coalescible heartbeat. Native macOS
+and GTK runtimes explicitly consume the embedder-only action as a silent no-op.
+Append the action last in both the Zig Action.Key enum and the C
+ghostty_action_tag_e so existing tag values remain unchanged.
+---
+ include/ghostty.h                       |  2 +
+ macos/Sources/Ghostty/Ghostty.App.swift |  4 ++
+ src/Surface.zig                         | 18 +++++++
+ src/apprt/action.zig                    | 11 ++++
+ src/apprt/gtk/class/application.zig     |  3 ++
+ src/apprt/surface.zig                   |  9 ++++
+ src/termio/Termio.zig                   | 68 +++++++++++++++++++++++++
+ 7 files changed, 115 insertions(+)
+
+diff --git a/include/ghostty.h b/include/ghostty.h
+index fe6224b59..5fc3920c0 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1019,6 +1019,7 @@ typedef enum {
+   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
+   GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
+   GHOSTTY_ACTION_RESIZE_WINDOW,
++  GHOSTTY_ACTION_OUTPUT_ACTIVITY,
+ } ghostty_action_tag_e;
+ 
+ typedef union {
+@@ -1034,6 +1035,7 @@ typedef union {
+   ghostty_action_resize_window_s resize_window;
+   ghostty_action_cell_size_s cell_size;
+   ghostty_action_scrollbar_s scrollbar;
++  ghostty_action_scrollbar_s output_activity;
+   ghostty_action_inspector_e inspector;
+   ghostty_action_export_terminal_io_s export_terminal_io;
+   ghostty_action_desktop_notification_s desktop_notification;
+diff --git a/macos/Sources/Ghostty/Ghostty.App.swift b/macos/Sources/Ghostty/Ghostty.App.swift
+index 838b2b8da..fee323d15 100644
+--- a/macos/Sources/Ghostty/Ghostty.App.swift
++++ b/macos/Sources/Ghostty/Ghostty.App.swift
+@@ -756,6 +756,10 @@ extension Ghostty {
+             case GHOSTTY_ACTION_SCROLLBAR:
+                 scrollbar(app, target: target, v: action.action.scrollbar)
+ 
++            // Reserved for embedders that consume activity heartbeats.
++            case GHOSTTY_ACTION_OUTPUT_ACTIVITY:
++                break
++
+             case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
+                 closeAllWindows(app, target: target)
+ 
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 44b79db37..977227c9e 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -1124,6 +1124,8 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
+ 
+         .scrollbar => |scrollbar| self.updateScrollbar(scrollbar),
+ 
++        .output_activity => |scrollbar| self.updateOutputActivity(scrollbar),
++
+         .present_surface => try self.presentSurface(),
+ 
+         .password_input => |v| try self.passwordInput(v),
+@@ -1753,6 +1755,22 @@ fn redraw(self: *Surface) void {
+     };
+ }
+ 
++/// Called on each throttled output-activity heartbeat from the IO path.
++/// Unlike `.scrollbar` (a renderer-track signal that stops while the
++/// surface is occluded), this fires whenever the child produces output
++/// regardless of visibility, so embedders can drive an activity indicator
++/// for in-place TUI redraws and backgrounded surfaces. The payload carries
++/// the current scrollbar geometry.
++fn updateOutputActivity(self: *Surface, scrollbar: terminal.Scrollbar) void {
++    _ = self.rt_app.performAction(
++        .{ .surface = self },
++        .output_activity,
++        scrollbar,
++    ) catch |err| {
++        log.warn("failed to notify app of output activity err={}", .{err});
++    };
++}
++
+ /// This should be called anytime `config_conditional_state` changes
+ /// so that the apprt can reload the configuration.
+ fn notifyConfigConditionalState(self: *Surface) void {
+diff --git a/src/apprt/action.zig b/src/apprt/action.zig
+index 54a8faf19..830c6be0a 100644
+--- a/src/apprt/action.zig
++++ b/src/apprt/action.zig
+@@ -364,6 +364,16 @@ pub const Action = union(Key) {
+     /// split or the window is fullscreen.
+     resize_window: ResizeWindow,
+ 
++    /// A throttled heartbeat emitted from the IO path whenever the
++    /// child/pty produces output. Unlike `scrollbar` (a renderer-track
++    /// action that stops while the surface is occluded), this is delivered
++    /// via the surface mailbox -> app-tick track, so it keeps firing for
++    /// occluded/backgrounded surfaces. Embedders use it to drive an
++    /// activity indicator for programs that redraw in place (TUI spinners)
++    /// or run in background tabs. The payload is the current scrollbar
++    /// geometry, matching `scrollbar`.
++    output_activity: terminal.Scrollbar,
++
+     /// Sync with: ghostty_action_tag_e
+     pub const Key = enum(c_int) {
+         quit,
+@@ -436,6 +446,7 @@ pub const Action = union(Key) {
+         copy_title_to_clipboard,
+         move_tab_to_new_window,
+         resize_window,
++        output_activity,
+ 
+         test "ghostty.h Action.Key" {
+             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
+diff --git a/src/apprt/gtk/class/application.zig b/src/apprt/gtk/class/application.zig
+index 80cc8bddc..631280080 100644
+--- a/src/apprt/gtk/class/application.zig
++++ b/src/apprt/gtk/class/application.zig
+@@ -775,6 +775,9 @@ pub const Application = extern struct {
+             // GTK has no accessibility consumer for this yet.
+             .selection_changed => {},
+ 
++            // Reserved for embedders that consume activity heartbeats.
++            .output_activity => {},
++
+             .scrollbar => Action.scrollbar(target, value),
+ 
+             .set_title => Action.setTitle(target, value),
+diff --git a/src/apprt/surface.zig b/src/apprt/surface.zig
+index 3b1a04d8a..16547e579 100644
+--- a/src/apprt/surface.zig
++++ b/src/apprt/surface.zig
+@@ -151,6 +151,15 @@ pub const Message = union(enum) {
+     /// The scrollbar state changed for the surface.
+     scrollbar: terminal.Scrollbar,
+ 
++    /// The child/pty produced output. This is a throttled heartbeat
++    /// emitted from the IO path (see Termio.processOutputLocked) so that
++    /// embedders can drive an activity indicator that keeps firing even
++    /// while the surface is occluded (the renderer, and therefore the
++    /// renderer-track .scrollbar signal, parks when occluded). The payload
++    /// carries the current scrollbar geometry so the consumer gets the
++    /// same information without a separate round trip.
++    output_activity: terminal.Scrollbar,
++
+     /// Search progress update
+     search_total: ?usize,
+ 
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index d08f2e5ff..8abe243e8 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -69,6 +69,12 @@ terminal_stream: StreamHandler.Stream,
+ /// flooding with cursor resets.
+ last_cursor_reset: ?std.Io.Timestamp = null,
+ 
++/// Last time we emitted an output-activity heartbeat. This throttles
++/// the `output_activity` surface message (see processOutputLocked) so
++/// that a program producing a continuous stream of output only pokes
++/// the app thread a few times a second instead of once per pty chunk.
++last_output_activity: ?std.Io.Timestamp = null,
++
+ /// State we have for thread enter. This may be null if we don't need
+ /// to keep track of any state or if its already been freed.
+ thread_enter_state: ?*ThreadEnterState = null,
+@@ -723,6 +729,37 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
+         self.terminal_stream.nextSlice(buf);
+     }
+ 
++    // Emit a throttled "output activity" heartbeat to the app thread.
++    //
++    // This is a signal that the child/pty produced output. We route it
++    // through the SURFACE mailbox (app-tick -> performAction) rather than
++    // the renderer thread on purpose: the renderer parks itself while the
++    // surface is occluded (ghostty_surface_set_occlusion), which stops
++    // renderer-track signals like the .scrollbar action. Embedders that
++    // want an occlusion-independent activity signal (e.g. a tab spinner
++    // for in-place TUI redraws or fully backgrounded tabs) need something
++    // that keeps firing regardless of visibility, so it lives here on the
++    // IO path where every pty read chunk passes through.
++    //
++    // We throttle to at most once per 500ms because a program under heavy
++    // output would otherwise flood the app thread with one message per
++    // chunk. The timestamp comparison runs per chunk (cheap); the scrollbar
++    // read (which walks the page list) only happens when we actually emit.
++    // The first chunk after a quiet period emits immediately. This runs after
++    // parsing so the payload includes geometry changes from this chunk. The
++    // caller still holds the renderer state mutex throughout this function.
++    // Empty manual-API reads are not child output and must not emit activity.
++    if (shouldEmitOutputActivity(buf.len, self.last_output_activity, now)) {
++        const scrollbar = self.renderer_state.terminal.screens.active.pages.scrollbar();
++        const queued = self.surface_mailbox.push(.{
++            .output_activity = scrollbar,
++        }, .{ .instant = {} });
++        // A full mailbox drops this coalescible heartbeat. Keep the old
++        // timestamp so the next nonempty PTY chunk retries immediately rather
++        // than suppressing all retries for another 500ms.
++        if (queued > 0) self.last_output_activity = now;
++    }
++
+     // If our stream handling caused messages to be sent to the mailbox
+     // thread, then we need to wake it up so that it processes them.
+     if (self.terminal_stream.handler.termio_messaged) {
+@@ -731,6 +768,37 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
+     }
+ }
+ 
++fn shouldEmitOutputActivity(
++    buf_len: usize,
++    last: ?std.Io.Timestamp,
++    now: std.Io.Timestamp,
++) bool {
++    if (buf_len == 0) return false;
++    const previous = last orelse return true;
++    return previous.durationTo(now).toMilliseconds() > 500;
++}
++
++test "output activity ignores empty buffers" {
++    const start: std.Io.Timestamp = .fromNanoseconds(0);
++    try std.testing.expect(!shouldEmitOutputActivity(0, null, start));
++}
++
++test "output activity throttle boundary" {
++    const start: std.Io.Timestamp = .fromNanoseconds(0);
++
++    try std.testing.expect(shouldEmitOutputActivity(1, null, start));
++    try std.testing.expect(!shouldEmitOutputActivity(
++        1,
++        start,
++        .fromNanoseconds(500 * std.time.ns_per_ms),
++    ));
++    try std.testing.expect(shouldEmitOutputActivity(
++        1,
++        start,
++        .fromNanoseconds(501 * std.time.ns_per_ms),
++    ));
++}
++
+ /// Sends a DSR response for the current color scheme to the pty.
+ /// Record a Kitty clipboard protocol session grant so future requests
+ /// carrying the password skip the permission prompt.
+-- 
+2.53.0
+

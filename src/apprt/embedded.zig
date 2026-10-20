@@ -499,6 +499,30 @@ pub const Surface = struct {
 
         /// Context for the new surface
         context: apprt.surface.NewSurfaceContext = .window,
+
+        /// A wrapper command (argv) prepended to the final resolved command.
+        /// See the `command-wrapper` config docs. Each element is a NUL
+        /// terminated argument; `command_wrapper_count` is the element count.
+        /// When null/empty, no wrapper is applied.
+        command_wrapper: ?[*]const [*:0]const u8 = null,
+        command_wrapper_count: usize = 0,
+
+        /// Force `shell-integration = none` for this surface only, regardless of
+        /// the global config. For surfaces that run a self-managing command
+        /// (e.g. a script runner that emits its own OSC sequences) and must not
+        /// have Ghostty's integration injected into the shell.
+        disable_shell_integration: bool = false,
+
+        /// The size of the view in pixels at creation, when the host already
+        /// knows it. Zero keeps the 800x600 placeholder that the host replaces
+        /// with its first `ghostty_surface_set_size`. The pty opens at the
+        /// size the surface has here, so a program that reads its window
+        /// size at startup (a session multiplexer's attach client, anything
+        /// that calls TIOCGWINSZ once) sees the placeholder grid when the host
+        /// reports the real size a moment later. That later resize is a race
+        /// with the child's startup, and under launch load the child wins.
+        initial_width_px: u32 = 0,
+        initial_height_px: u32 = 0,
     };
 
     pub fn init(self: *Surface, app: *App, opts: Options) !void {
@@ -511,7 +535,10 @@ pub const Surface = struct {
                 .x = @floatCast(opts.scale_factor),
                 .y = @floatCast(opts.scale_factor),
             },
-            .size = .{ .width = 800, .height = 600 },
+            .size = if (opts.initial_width_px > 0 and opts.initial_height_px > 0)
+                .{ .width = opts.initial_width_px, .height = opts.initial_height_px }
+            else
+                .{ .width = 800, .height = 600 },
             .cursor_pos = .{ .x = -1, .y = -1 },
         };
 
@@ -571,6 +598,25 @@ pub const Surface = struct {
                 config.command = .{ .shell = cmd };
                 config.@"wait-after-command" = true;
             }
+        }
+
+        // If we have a command wrapper from the options then we set it. This
+        // is always a direct (already-tokenized) command so paths with spaces
+        // survive without shell re-splitting.
+        if (opts.command_wrapper) |c_wrapper| {
+            if (opts.command_wrapper_count > 0) {
+                const alloc = config.arenaAlloc();
+                const argv = try alloc.alloc([:0]const u8, opts.command_wrapper_count);
+                for (c_wrapper[0..opts.command_wrapper_count], 0..) |arg, i| {
+                    argv[i] = try alloc.dupeZ(u8, std.mem.sliceTo(arg, 0));
+                }
+                config.@"command-wrapper" = .{ .direct = argv };
+            }
+        }
+
+        // Opt this surface out of shell integration regardless of global config.
+        if (opts.disable_shell_integration) {
+            config.@"shell-integration" = .none;
         }
 
         // Apply any environment variables that were requested.

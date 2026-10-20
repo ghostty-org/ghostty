@@ -1,0 +1,722 @@
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index adeee3787..a83cf83b1 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -1018,6 +1018,19 @@ palette: Palette = .{},
+ /// This can be changed at runtime.
+ @"smooth-scroll": bool = false,
+ 
++/// Move the cursor to where the terminal puts it instead of redrawing it
++/// there. The focused block, bar or underline cursor glides from its last
++/// place to the new one over about 140 ms, and a block cursor on its way
++/// colors the text it covers as cursor text exactly as far as it covers
++/// it: a glyph the cursor is halfway across is two-toned, and a cell's own
++/// background shows through the part the cursor has not reached. The
++/// unfocused hollow cursor and the password lock never move. `cursor-opacity`
++/// applies to the moving cursor as it does to a still one.
++///
++/// Downstream (thdxg/ghostty) key, read by Macterm's Animations settings.
++/// This can be changed at runtime.
++@"smooth-cursor": bool = false,
++
+ /// The opacity level (opposite of transparency) of the background. A value of
+ /// 1 is fully opaque and a value of 0 is fully transparent. A value less than 0
+ /// or greater than 1 will be clamped to the nearest valid value.
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index 0717ce11f..627d5aee7 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -65,6 +65,113 @@ const log = std.log.scoped(.generic_renderer);
+ /// one is taken last everywhere (inside `draw_mutex` by drawFrame, inside
+ /// the state mutex by updateFrame and the surface) and nothing is taken
+ /// while it is held, so it can't be part of a deadlock.
++/// The focused cursor under `smooth-cursor`: the rectangle the cursor
++/// sprite would fill, in grid pixels, moving to where the terminal's
++/// cursor is rather than appearing there. The cell background shader
++/// fills it (`Uniforms.cursor_rect` / `cursor_fill`) and, for a block
++/// cursor, the text shader colors every glyph as cursor text by how much
++/// of each pixel the rect covers (`cursor_glide_text`), which is what a
++/// cursor halfway across a glyph looks like. The sprite is still added at
++/// alpha 0 so the custom shader uniforms keep describing the cursor's cell.
++const CursorGlide = struct {
++    /// The grid cell aimed at, for the region scroll shift.
++    cell: [2]u16,
++    /// Where the rect is going: left, top, width, height.
++    to: [4]f32,
++    /// Where it set out from and when; null once it has arrived.
++    from: [4]f32,
++    start: ?std.Io.Timestamp,
++    /// The rect last drawn, which a retarget mid-glide sets out from.
++    current: [4]f32,
++    /// Frames drawn since the glide began, for the log line when it lands.
++    frames: u32 = 0,
++
++    /// How long a glide takes.
++    pub const duration_s: f64 = 0.14;
++
++    /// A cursor placed with nothing to glide from: drawn at `rect` at once.
++    fn resting(cell: [2]u16, rect: [4]f32) CursorGlide {
++        return .{ .cell = cell, .to = rect, .from = rect, .start = null, .current = rect };
++    }
++
++    /// Aim at `rect`. The rect already aimed at changes nothing; any
++    /// other starts a glide from wherever the rect is drawn now, so a
++    /// cursor retargeted mid-glide turns toward the new place instead of
++    /// jumping back to where the last glide began.
++    fn retarget(self: *CursorGlide, cell: [2]u16, rect: [4]f32, now: std.Io.Timestamp) void {
++        self.cell = cell;
++        if (std.meta.eql(rect, self.to)) return;
++        self.from = self.current;
++        self.to = rect;
++        self.start = now;
++        self.frames = 0;
++    }
++
++    fn inFlight(self: *const CursorGlide) bool {
++        return self.start != null;
++    }
++
++    /// Advance to `now` and return the rect to draw.
++    fn step(self: *CursorGlide, now: std.Io.Timestamp) [4]f32 {
++        const start = self.start orelse return self.to;
++        const elapsed_ns: f64 = @floatFromInt(@max(start.durationTo(now).nanoseconds, 0));
++        const elapsed_s = elapsed_ns / std.time.ns_per_s;
++        self.current = rectAt(self.from, self.to, elapsed_s);
++        self.frames += 1;
++        if (elapsed_s >= duration_s) {
++            self.start = null;
++            log.debug(
++                "smooth cursor landed after {} frames in {d:.0}ms",
++                .{ self.frames, elapsed_s * std.time.ms_per_s },
++            );
++        }
++        return self.current;
++    }
++
++    /// The rect `elapsed_s` into a glide from `from` to `to`: ease-out
++    /// cubic, so most of the distance goes early and the landing is soft.
++    /// Each edge is interpolated, so a bar growing into a block morphs.
++    fn rectAt(from: [4]f32, to: [4]f32, elapsed_s: f64) [4]f32 {
++        const t = std.math.clamp(elapsed_s / duration_s, 0.0, 1.0);
++        const e: f32 = @floatCast(1.0 - std.math.pow(f64, 1.0 - t, 3.0));
++        var rect: [4]f32 = undefined;
++        for (&rect, from, to) |*out, a, b| out.* = a + (b - a) * e;
++        return rect;
++    }
++};
++
++test "CursorGlide eases out from where it is and lands exactly" {
++    const testing = std.testing;
++    const from: [4]f32 = .{ 0, 0, 10, 20 };
++    const to: [4]f32 = .{ 100, 40, 10, 20 };
++
++    // Nothing moved yet; everything moved at the end; exact landing.
++    try testing.expectEqual(from, CursorGlide.rectAt(from, to, 0));
++    try testing.expectEqual(to, CursorGlide.rectAt(from, to, CursorGlide.duration_s));
++    try testing.expectEqual(to, CursorGlide.rectAt(from, to, 10));
++
++    // Ease-out: past half the time it is well past half the distance.
++    const mid = CursorGlide.rectAt(from, to, CursorGlide.duration_s / 2);
++    try testing.expect(mid[0] > 80 and mid[0] < 100);
++    try testing.expect(mid[1] > 32 and mid[1] < 40);
++
++    // A resting cursor retargeted to the same rect stays at rest.
++    var glide: CursorGlide = .resting(.{ 0, 0 }, from);
++    const t0: std.Io.Timestamp = .now(testing.io, .awake);
++    glide.retarget(.{ 0, 0 }, from, t0);
++    try testing.expect(!glide.inFlight());
++
++    // Retargeted elsewhere it sets out from the rect it was drawing, so a
++    // second retarget mid-glide starts from the eased position.
++    glide.retarget(.{ 10, 2 }, to, t0);
++    try testing.expect(glide.inFlight());
++    try testing.expectEqual(from, glide.from);
++    glide.current = mid;
++    glide.retarget(.{ 0, 0 }, from, t0);
++    try testing.expectEqual(mid, glide.from);
++    try testing.expectEqual(from, glide.to);
++}
++
+ fn PresentedRegions(comptime slots: usize) type {
+     return struct {
+         const Self = @This();
+@@ -282,6 +389,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+         /// `regionShifts`).
+         presented_regions: PresentedRegions(SwapChain.buf_count) = .{},
+ 
++        /// The focused cursor under `smooth-cursor` (see `CursorGlide`):
++        /// null until a cursor has been placed, and whether this frame's
++        /// cells put a cursor there for the shaders to draw. The rect is
++        /// written into the uniforms every drawn frame (`tickCursorGlide`).
++        cursor_glide: ?CursorGlide = null,
++        cursor_glide_shown: bool = false,
++
+         /// What is uploaded to the GPU while ghost rows exist: the live
+         /// background cells followed by one row per ghost, and the ghost
+         /// glyphs re-addressed to grid rows past the live grid. Rebuilt
+@@ -723,6 +837,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             background_blur: configpkg.Config.BackgroundBlur,
+             scroll_to_bottom_on_output: bool,
+             smooth_scroll: bool,
++            smooth_cursor: bool,
+             custom_shader_animation: configpkg.CustomShaderAnimation,
+ 
+             pub fn init(
+@@ -800,6 +915,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     .background_blur = config.@"background-blur",
+                     .scroll_to_bottom_on_output = config.@"scroll-to-bottom".output,
+                     .smooth_scroll = config.@"smooth-scroll",
++                    .smooth_cursor = config.@"smooth-cursor",
+                     .custom_shader_animation = config.@"custom-shader-animation",
+                     .arena = arena,
+                 };
+@@ -1319,9 +1435,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             };
+ 
+             // Region scroll animations decay every draw while any is
+-            // in flight; the shift is recomputed from the clock in
++            // in flight, and the smooth cursor moves every draw while it
++            // is on its way; both are recomputed from the clock in
+             // drawFrame, so a draw wake is all they need.
+-            const draw_delay: ?u64 = if (self.region_anims.items.len > 0)
++            const draw_delay: ?u64 = if (self.region_anims.items.len > 0 or
++                self.cursorGlideInFlight())
+                 draw_interval_ms
+             else
+                 shader_delay;
+@@ -1514,6 +1632,36 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             self.rebuildRegionUniforms();
+         }
+ 
++        /// Whether the smooth cursor is drawn and still on its way, which
++        /// is what keeps draw wakes coming until it lands.
++        fn cursorGlideInFlight(self: *const Self) bool {
++            const glide = self.cursor_glide orelse return false;
++            return self.cursor_glide_shown and glide.inFlight();
++        }
++
++        /// Advance the smooth cursor to now and place it in the uniforms:
++        /// no rect while this frame draws no cursor that way, else the
++        /// eased rect, moved with the region scroll its cell is riding so
++        /// it stays under its glyph (the text shader shifts those). Called
++        /// once per drawn frame, after `tickRegionAnims`.
++        fn tickCursorGlide(self: *Self) void {
++            self.uniforms.cursor_rect = rect: {
++                if (!self.cursor_glide_shown) break :rect @splat(0);
++                const glide: *CursorGlide = if (self.cursor_glide) |*g| g else break :rect @splat(0);
++                var rect = glide.step(.now(global.io(), .awake));
++                const col: u32 = glide.cell[0];
++                const row: u32 = glide.cell[1];
++                for (self.region_anims.items) |*anim| {
++                    const r = anim.region;
++                    if (col >= r.left and col <= r.right and row >= r.top and row <= r.bottom) {
++                        rect[1] += @floatCast(anim.shift);
++                        break;
++                    }
++                }
++                break :rect rect;
++            };
++        }
++
+         /// Write the animations into the uniforms and rebuild the ghost
+         /// upload buffers. Ghost `k` is grid row `rows + k`.
+         fn rebuildRegionUniforms(self: *Self) void {
+@@ -1791,6 +1939,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             const metrics = grid.metrics;
+             self.grid_metrics = metrics;
+ 
++            // The smooth cursor's rect is in pixels of the old cells; it
++            // starts over wherever the next frame puts it.
++            self.cursor_glide = null;
++
+             // Reset our shaper cache. If our font changed (not just the size) then
+             // the data in the shaper cache may be invalid and cannot be used, so we
+             // always clear the cache just in case.
+@@ -2355,8 +2507,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             // Update per-frame custom shader uniforms.
+             try self.updateCustomShaderUniformsForFrame();
+ 
+-            // Region scroll animations move every drawn frame.
++            // Region scroll animations and the smooth cursor move every
++            // drawn frame; the cursor goes second to ride a region's shift.
+             self.tickRegionAnims();
++            self.tickCursorGlide();
+ 
+             // Setup our frame data. Ghost rows ride along after the live
+             // cells: background rows appended to the buffer, glyphs as one
+@@ -2729,6 +2883,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             const old_blending = self.config.blending;
+             const custom_shaders_changed = !self.config.custom_shaders.equal(config.custom_shaders);
+ 
++            // Toggling smooth-cursor starts the cursor over from wherever
++            // the rebuild below puts it, drawn the way the new value says.
++            if (self.config.smooth_cursor != config.smooth_cursor) {
++                self.cursor_glide = null;
++                self.cursor_glide_shown = false;
++            }
++
+             self.config.deinit();
+             self.config = config.*;
+ 
+@@ -3216,6 +3377,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 // Update our uniforms accordingly, otherwise
+                 // our background cells will be out of place.
+                 self.uniforms.grid_size = .{ new_size.columns, new_size.rows };
++
++                // A reshaped grid moves every cell; the smooth cursor
++                // reappears at its cell rather than gliding to it.
++                self.cursor_glide = null;
+             }
+ 
+             // Region scroll animations take in this frame's scrolls now,
+@@ -3359,6 +3524,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     std.math.maxInt(u16),
+                     std.math.maxInt(u16),
+                 };
++                self.uniforms.bools.cursor_glide_text = false;
++                self.cursor_glide_shown = false;
+ 
+                 // If the cursor isn't in a row we draw, don't show a
+                 // cursor. That counts a row smooth scrolling reveals beyond
+@@ -3429,16 +3596,24 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 if (style == .block) {
+                     const wide = state.cursor.cell.wide;
+ 
+-                    self.uniforms.cursor_pos = .{
+-                        // If we are a spacer tail of a wide cell, our cursor needs
+-                        // to move back one cell. The saturate is to ensure we don't
+-                        // overflow but this shouldn't happen with well-formed input.
+-                        switch (wide) {
+-                            .narrow, .spacer_head, .wide => cursor_vp.x,
+-                            .spacer_tail => cursor_vp.x -| 1,
+-                        },
+-                        @intCast(cursor_vp.y),
+-                    };
++                    // Under smooth-cursor the text shader colors glyphs as
++                    // cursor text by how much of each pixel the drawn rect
++                    // covers, not by cell, so the cell is left unset and the
++                    // rect does the recoloring (see `CursorGlide`).
++                    if (self.cursor_glide_shown) {
++                        self.uniforms.bools.cursor_glide_text = true;
++                    } else {
++                        self.uniforms.cursor_pos = .{
++                            // If we are a spacer tail of a wide cell, our cursor needs
++                            // to move back one cell. The saturate is to ensure we don't
++                            // overflow but this shouldn't happen with well-formed input.
++                            switch (wide) {
++                                .narrow, .spacer_head, .wide => cursor_vp.x,
++                                .spacer_tail => cursor_vp.x -| 1,
++                            },
++                            @intCast(cursor_vp.y),
++                        };
++                    }
+ 
+                     self.uniforms.bools.cursor_wide = switch (wide) {
+                         .narrow, .spacer_head => false,
+@@ -4159,11 +4334,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 break :cell .{ true, cursor_vp.x - 1 };
+             };
+ 
+-            const alpha: u8 = if (!self.focused) 255 else alpha: {
++            const opacity_alpha: u8 = if (!self.focused) 255 else alpha: {
+                 const alpha = 255 * self.config.cursor_opacity;
+                 break :alpha @intFromFloat(@ceil(alpha));
+             };
+ 
++            // Under smooth-cursor a filled cursor is drawn by the cell
++            // background shader at the glide's rect instead of by this
++            // sprite, which is still added, invisible, so that the custom
++            // shader uniforms keep describing the cell the cursor is in.
++            const glides = self.config.smooth_cursor and switch (cursor_style) {
++                .block, .bar, .underline => true,
++                .block_hollow, .lock => false,
++            };
++            const alpha: u8 = if (glides) 0 else opacity_alpha;
++
+             const render = switch (cursor_style) {
+                 .block,
+                 .block_hollow,
+@@ -4212,6 +4397,35 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 },
+             };
+ 
++            if (glides) {
++                const cell_w: f32 = @floatFromInt(self.grid_metrics.cell_width);
++                const cell_h: f32 = @floatFromInt(self.grid_metrics.cell_height);
++                // The sprite's rect in grid pixels: the X bearing is the
++                // distance from the cell's left edge, the Y bearing from
++                // the cell's bottom edge to the sprite's top.
++                const rect: [4]f32 = .{
++                    @as(f32, @floatFromInt(x)) * cell_w +
++                        @as(f32, @floatFromInt(render.glyph.offset_x)),
++                    @as(f32, @floatFromInt(cursor_vp.y)) * cell_h + cell_h -
++                        @as(f32, @floatFromInt(render.glyph.offset_y)),
++                    @floatFromInt(render.glyph.width),
++                    @floatFromInt(render.glyph.height),
++                };
++                const cell: [2]u16 = .{ @intCast(x), @intCast(cursor_vp.y) };
++                if (self.cursor_glide) |*glide| {
++                    glide.retarget(cell, rect, .now(global.io(), .awake));
++                } else {
++                    self.cursor_glide = .resting(cell, rect);
++                }
++                self.cursor_glide_shown = true;
++                self.uniforms.cursor_fill = .{
++                    cursor_color.r,
++                    cursor_color.g,
++                    cursor_color.b,
++                    opacity_alpha,
++                };
++            }
++
+             self.cells.setCursor(.{
+                 .atlas = .grayscale,
+                 .bools = .{ .is_cursor_glyph = true },
+diff --git a/src/renderer/metal/shaders.zig b/src/renderer/metal/shaders.zig
+index 5cbf69dea..8890c03ba 100644
+--- a/src/renderer/metal/shaders.zig
++++ b/src/renderer/metal/shaders.zig
+@@ -265,6 +265,11 @@ pub const Uniforms = extern struct {
+         /// with linear alpha blending have a similar apparent weight
+         /// (thickness) to gamma-incorrect blending.
+         use_linear_correction: bool align(1) = false,
++
++        /// Smooth cursor: color text as cursor text by how much of each
++        /// pixel `cursor_rect` covers (a block cursor), in place of the
++        /// whole-cell recolor under `cursor_pos`, which is then unset.
++        cursor_glide_text: bool align(1) = false,
+     },
+ 
+     /// Region scroll animation (alternate-screen scroll regions that a
+@@ -281,6 +286,13 @@ pub const Uniforms = extern struct {
+     ghost_rows: [max_ghost_rows][4]i32 align(16) = @splat(@splat(-1)),
+     anim_counts: [4]u32 align(16) = @splat(0),
+ 
++    /// Smooth cursor (see `CursorGlide` in the renderer): the rect the
++    /// focused cursor fills, in grid pixels (left, top, width, height),
++    /// which the cell background shader fills with `cursor_fill`; all zero
++    /// while no cursor is drawn this way.
++    cursor_rect: [4]f32 align(16) = @splat(0),
++    cursor_fill: [4]u8 align(4) = @splat(0),
++
+     pub const max_region_anims = 4;
+     pub const max_ghost_rows = 64;
+ 
+diff --git a/src/renderer/opengl/shaders.zig b/src/renderer/opengl/shaders.zig
+index d24b69343..fd85a25c1 100644
+--- a/src/renderer/opengl/shaders.zig
++++ b/src/renderer/opengl/shaders.zig
+@@ -218,6 +218,10 @@ pub const Uniforms = extern struct {
+     ghost_rows: [max_ghost_rows][4]i32 align(16) = @splat(@splat(-1)),
+     anim_counts: [4]u32 align(16) = @splat(0),
+ 
++    /// Smooth cursor; see the Metal `Uniforms`.
++    cursor_rect: [4]f32 align(16) = @splat(0),
++    cursor_fill: [4]u8 align(4) = @splat(0),
++
+     pub const max_region_anims = 4;
+     pub const max_ghost_rows = 64;
+ 
+@@ -242,7 +246,12 @@ pub const Uniforms = extern struct {
+         /// (thickness) to gamma-incorrect blending.
+         use_linear_correction: bool = false,
+ 
+-        _padding: u28 = 0,
++        /// Smooth cursor: color text as cursor text by how much of each
++        /// pixel `cursor_rect` covers, in place of the whole-cell recolor
++        /// under `cursor_pos`, which is then unset.
++        cursor_glide_text: bool = false,
++
++        _padding: u27 = 0,
+     };
+ 
+     const PaddingExtend = packed struct(u32) {
+diff --git a/src/renderer/shaders/glsl/cell_bg.f.glsl b/src/renderer/shaders/glsl/cell_bg.f.glsl
+index 949367aa3..a54b1ca97 100644
+--- a/src/renderer/shaders/glsl/cell_bg.f.glsl
++++ b/src/renderer/shaders/glsl/cell_bg.f.glsl
+@@ -10,7 +10,11 @@ layout(binding = 1, std430) readonly buffer bg_cells {
+     uint cells[];
+ };
+ 
+-vec4 cell_bg() {
++// The cell background under a fragment: the cell's own color, a region
++// scroll's shifted or ghost row, or the padding's extension of an edge.
++// `rel` is the fragment relative to the grid and `visible` the grid's
++// extent, both from cell_bg.
++vec4 cell_bg_base(vec2 rel, vec2 visible) {
+     uvec2 grid_size = unpack2u16(grid_size_packed_2u16);
+     bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
+ 
+@@ -21,13 +25,6 @@ vec4 cell_bg() {
+     // decisions use this unshifted position; the cell lookup below then
+     // applies the shift, so a partially revealed row never leaks into
+     // the padding.
+-    vec2 rel = gl_FragCoord.xy - grid_padding.wx;
+-    float extra_rows = scroll_offset.x != 0.0 ? max(scroll_offset.y, 1.0) : 0.0;
+-    vec2 visible = cell_size * vec2(float(grid_size.x), float(grid_size.y) - extra_rows);
+-    // A shifted grid sits on the height its rows don't account for, so that
+-    // strip is grid, not padding.
+-    visible.y += scroll_offset.x != 0.0 ? scroll_offset.z : 0.0;
+-
+     vec4 bg = vec4(0.0);
+ 
+     // Clamp x position, extends edge bg colors in to padding on sides.
+@@ -102,6 +99,33 @@ vec4 cell_bg() {
+     return cell_color;
+ }
+ 
++vec4 cell_bg() {
++    uvec2 grid_size = unpack2u16(grid_size_packed_2u16);
++    bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
++
++    vec2 rel = gl_FragCoord.xy - grid_padding.wx;
++    float extra_rows = scroll_offset.x != 0.0 ? max(scroll_offset.y, 1.0) : 0.0;
++    vec2 visible = cell_size * vec2(float(grid_size.x), float(grid_size.y) - extra_rows);
++    // A shifted grid sits on the height its rows don't account for, so that
++    // strip is grid, not padding.
++    visible.y += scroll_offset.x != 0.0 ? scroll_offset.z : 0.0;
++
++    vec4 bg = cell_bg_base(rel, visible);
++
++    // Smooth cursor: the cursor fills its rect over the cell background,
++    // under the text, as far as it covers each pixel. Only inside the
++    // visible grid, so a cursor riding a scroll never paints the padding.
++    if (all(greaterThanEqual(rel, vec2(0.0))) && all(lessThan(rel, visible))) {
++        float cov = cursor_coverage(grid_pixel(gl_FragCoord.xy));
++        if (cov > 0.0) {
++            vec4 fill = load_color(unpack4u8(cursor_fill_packed_4u8), use_linear_blending);
++            bg = bg * (1.0 - fill.a * cov) + fill * cov;
++        }
++    }
++
++    return bg;
++}
++
+ void main() {
+     out_FragColor = cell_bg();
+ }
+diff --git a/src/renderer/shaders/glsl/cell_text.f.glsl b/src/renderer/shaders/glsl/cell_text.f.glsl
+index fa78b667e..79cb8c7b2 100644
+--- a/src/renderer/shaders/glsl/cell_text.f.glsl
++++ b/src/renderer/shaders/glsl/cell_text.f.glsl
+@@ -54,6 +54,18 @@ void main() {
+             // Our input color is always linear.
+             vec4 color = in_data.color;
+ 
++            // Smooth cursor: a block cursor colors the glyph as cursor text
++            // by how much of this pixel it covers, so a glyph it is halfway
++            // across is two-toned. The invisible cursor sprite (alpha 0)
++            // stays so.
++            if ((bools & CURSOR_GLIDE_TEXT) != 0 && color.a > 0.0) {
++                float cov = cursor_coverage(grid_pixel(gl_FragCoord.xy));
++                if (cov > 0.0) {
++                    vec4 cursor_text = load_color(unpack4u8(cursor_color_packed_4u8), true);
++                    color = mix(color, cursor_text, cov);
++                }
++            }
++
+             // If we're not doing linear blending, then we need to
+             // re-apply the gamma encoding to our color manually.
+             //
+diff --git a/src/renderer/shaders/glsl/common.glsl b/src/renderer/shaders/glsl/common.glsl
+index 65ca1311a..2c5801f50 100644
+--- a/src/renderer/shaders/glsl/common.glsl
++++ b/src/renderer/shaders/glsl/common.glsl
+@@ -39,8 +39,34 @@ layout(binding = 1, std140) uniform Globals {
+     uniform vec4 region_shift[4];
+     uniform ivec4 ghost_rows[64];
+     uniform uvec4 anim_counts;
++    // Smooth cursor: the rectangle the focused cursor fills, in grid
++    // pixels (left, top, width, height), filled with cursor_fill by the
++    // background shader; all zero while no cursor is drawn this way.
++    uniform vec4 cursor_rect;
++    uniform uint cursor_fill_packed_4u8;
+ };
+ 
++// Smooth cursor: how much of the 1x1 pixel centered on grid pixel p lies
++// inside cursor_rect. Exact box coverage, so a resting cursor on whole
++// pixels is as hard-edged as the sprite it replaces and only an edge in
++// motion blends.
++float cursor_coverage(vec2 p) {
++    vec4 r = cursor_rect;
++    if (r.z <= 0.0 || r.w <= 0.0) return 0.0;
++    vec2 lo = r.xy;
++    vec2 hi = r.xy + r.zw;
++    vec2 c = clamp(min(hi, p + 0.5) - max(lo, p - 0.5), 0.0, 1.0);
++    return c.x * c.y;
++}
++
++// A drawn position back on the grid's pixels: minus the padding and the
++// smooth-scroll shift. A region scroll's shift stays in, as it is in
++// cursor_rect.
++vec2 grid_pixel(vec2 position) {
++    float shift_y = scroll_offset.x - scroll_offset.y * cell_size.y;
++    return position - grid_padding.wx - vec2(0.0, shift_y);
++}
++
+ // The region scroll animation a grid cell takes part in, or -1. `pos` is
+ // the cell's top-left in grid pixels, before any shift.
+ int region_of(vec2 pos) {
+@@ -58,6 +84,9 @@ const uint CURSOR_WIDE = 1u;
+ const uint USE_DISPLAY_P3 = 2u;
+ const uint USE_LINEAR_BLENDING = 4u;
+ const uint USE_LINEAR_CORRECTION = 8u;
++// Smooth cursor: color text as cursor text by cursor_rect's coverage (a
++// block cursor), in place of the whole-cell recolor under cursor_pos.
++const uint CURSOR_GLIDE_TEXT = 16u;
+ 
+ // Padding extend enum
+ const uint EXTEND_LEFT = 1u;
+diff --git a/src/renderer/shaders/shaders.metal b/src/renderer/shaders/shaders.metal
+index 3f54f8daf..b8bfa6ab8 100644
+--- a/src/renderer/shaders/shaders.metal
++++ b/src/renderer/shaders/shaders.metal
+@@ -30,6 +30,10 @@ struct Uniforms {
+   bool use_display_p3;
+   bool use_linear_blending;
+   bool use_linear_correction;
++  // Smooth cursor: color text as cursor text by how much of each pixel
++  // cursor_rect covers (a block cursor), in place of the whole-cell
++  // recolor under cursor_pos, which is then unset.
++  bool cursor_glide_text;
+   // Region scroll animation. region_rect[i] is an animating rectangle in
+   // grid pixels (left, top, right, bottom); region_shift[i].x is how far
+   // its content is currently drawn from its final place (positive: down).
+@@ -40,8 +44,35 @@ struct Uniforms {
+   float4 region_shift[4];
+   int4 ghost_rows[64];
+   uint4 anim_counts;
++  // Smooth cursor: the rectangle the focused cursor fills, in grid pixels
++  // (left, top, width, height), filled with cursor_fill by the background
++  // shader; all zero while no cursor is drawn this way.
++  float4 cursor_rect;
++  uchar4 cursor_fill;
+ };
+ 
++// Smooth cursor: how much of the 1x1 pixel centered on grid pixel p lies
++// inside cursor_rect. Exact box coverage, so a resting cursor on whole
++// pixels is as hard-edged as the sprite it replaces and only an edge in
++// motion blends.
++float cursor_coverage(constant Uniforms& uniforms, float2 p) {
++  float4 r = uniforms.cursor_rect;
++  if (r.z <= 0.0 || r.w <= 0.0) return 0.0;
++  float2 lo = r.xy;
++  float2 hi = r.xy + r.zw;
++  float2 c = clamp(min(hi, p + 0.5) - max(lo, p - 0.5), 0.0, 1.0);
++  return c.x * c.y;
++}
++
++// A drawn position back on the grid's pixels: minus the padding and the
++// smooth-scroll shift. A region scroll's shift stays in, as it is in
++// cursor_rect.
++float2 grid_pixel(constant Uniforms& uniforms, float2 position) {
++  float shift_y = uniforms.scroll_offset.x -
++      uniforms.scroll_offset.y * uniforms.cell_size.y;
++  return position - uniforms.grid_padding.wx - float2(0.0, shift_y);
++}
++
+ // The region scroll animation a grid cell takes part in, or -1. `pos` is
+ // the cell's top-left in grid pixels, before any shift.
+ int region_of(constant Uniforms& uniforms, float2 pos) {
+@@ -476,10 +507,15 @@ fragment float4 bg_image_fragment(
+ //-------------------------------------------------------------------
+ #pragma mark - Cell BG Shader
+ 
+-fragment float4 cell_bg_fragment(
+-  FullScreenVertexOut in [[stage_in]],
+-  constant Uniforms& uniforms [[buffer(1)]],
+-  constant uchar4 *cells [[buffer(2)]]
++// The cell background under a fragment: the cell's own color, a region
++// scroll's shifted or ghost row, or the padding's extension of an edge.
++// `rel` is the fragment relative to the grid and `visible` the grid's
++// extent, both from cell_bg_fragment.
++float4 cell_bg_base(
++  constant Uniforms& uniforms,
++  constant uchar4 *cells,
++  float2 rel,
++  float2 visible
+ ) {
+   // Position relative to the visible grid. Its extent comes from the
+   // grid itself, not from grid_padding's bottom/right, which hold the
+@@ -488,16 +524,6 @@ fragment float4 cell_bg_fragment(
+   // decisions use this unshifted position; the cell lookup below then
+   // applies the shift, so a partially revealed row never leaks into
+   // the padding.
+-  float2 rel = in.position.xy - uniforms.grid_padding.wx;
+-  float extra_rows = uniforms.scroll_offset.x != 0.0
+-      ? max(uniforms.scroll_offset.y, 1.0)
+-      : 0.0;
+-  float2 visible = uniforms.cell_size *
+-      float2(uniforms.grid_size.x, float(uniforms.grid_size.y) - extra_rows);
+-  // A shifted grid sits on the height its rows don't account for, so that
+-  // strip is grid, not padding.
+-  visible.y += uniforms.scroll_offset.x != 0.0 ? uniforms.scroll_offset.z : 0.0;
+-
+   float4 bg = float4(0.0);
+ 
+   // Clamp x position, extends edge bg colors in to padding on sides.
+@@ -583,6 +609,41 @@ fragment float4 cell_bg_fragment(
+   );
+ }
+ 
++fragment float4 cell_bg_fragment(
++  FullScreenVertexOut in [[stage_in]],
++  constant Uniforms& uniforms [[buffer(1)]],
++  constant uchar4 *cells [[buffer(2)]]
++) {
++  float2 rel = in.position.xy - uniforms.grid_padding.wx;
++  float extra_rows = uniforms.scroll_offset.x != 0.0
++      ? max(uniforms.scroll_offset.y, 1.0)
++      : 0.0;
++  float2 visible = uniforms.cell_size *
++      float2(uniforms.grid_size.x, float(uniforms.grid_size.y) - extra_rows);
++  // A shifted grid sits on the height its rows don't account for, so that
++  // strip is grid, not padding.
++  visible.y += uniforms.scroll_offset.x != 0.0 ? uniforms.scroll_offset.z : 0.0;
++
++  float4 bg = cell_bg_base(uniforms, cells, rel, visible);
++
++  // Smooth cursor: the cursor fills its rect over the cell background,
++  // under the text, as far as it covers each pixel. Only inside the
++  // visible grid, so a cursor riding a scroll never paints the padding.
++  if (all(rel >= 0.0) && all(rel < visible)) {
++    float cov = cursor_coverage(uniforms, grid_pixel(uniforms, in.position.xy));
++    if (cov > 0.0) {
++      float4 fill = load_color(
++        uniforms.cursor_fill,
++        uniforms.use_display_p3,
++        uniforms.use_linear_blending
++      );
++      bg = bg * (1.0 - fill.a * cov) + fill * cov;
++    }
++  }
++
++  return bg;
++}
++
+ //-------------------------------------------------------------------
+ // Cell Text Shader
+ //-------------------------------------------------------------------
+@@ -820,6 +881,21 @@ fragment float4 cell_text_fragment(
+       // Our input color is always linear.
+       float4 color = in.color;
+ 
++      // Smooth cursor: a block cursor colors the glyph as cursor text by
++      // how much of this pixel it covers, so a glyph it is halfway across
++      // is two-toned. The invisible cursor sprite (alpha 0) stays so.
++      if (uniforms.cursor_glide_text && color.a > 0.0) {
++        float cov = cursor_coverage(uniforms, grid_pixel(uniforms, in.position.xy));
++        if (cov > 0.0) {
++          float4 cursor_text = load_color(
++            uniforms.cursor_color,
++            uniforms.use_display_p3,
++            true
++          );
++          color = mix(color, cursor_text, cov);
++        }
++      }
++
+       // If we're not doing linear blending, then we need to
+       // re-apply the gamma encoding to our color manually.
+       //

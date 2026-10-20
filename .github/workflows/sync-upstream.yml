@@ -1,0 +1,127 @@
+name: Sync Upstream
+
+# Keep this fork exactly ONE commit ahead of ghostty-org/ghostty: pristine
+# upstream, plus a single squashed commit that re-establishes the fork's
+# downstream delta. The delta is TWO explicit, auditable things:
+#
+#   1. Fork-owned FILES (DOWNSTREAM_FILES) — CI that upstream doesn't have.
+#      These are copied verbatim on top of upstream.
+#   2. Source PATCHES (.github/downstream/*.patch) — genuine libghostty
+#      changes that must be re-applied onto upstream every sync (currently
+#      `command-wrapper` for zmx session persistence and `output-activity` for
+#      embedder activity indicators). Applied with `git apply --3way`.
+#
+# Why not `git diff upstream..HEAD` like the old workflow: it captured the whole
+# tree difference (including any accidental drift) and re-applied it every run,
+# so once the tree drifted it stayed drifted forever. It had silently reverted
+# ~190 upstream files back to stale versions — resurfacing a resize/reflow
+# scrollback bug (macterm#112, fixed upstream). This design can only (a) lay our
+# own files down and (b) apply known patches; it can never revert upstream
+# source, and it FAILS LOUDLY if a patch no longer applies instead of shipping a
+# broken tree.
+#
+# To change the downstream delta:
+#   - New fork-owned CI file → add it to DOWNSTREAM_FILES.
+#   - New/changed source patch → regenerate the .patch under .github/downstream
+#     (e.g. `git format-patch`), commit it. Patches apply in filename order.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  # Fork-owned files overlaid verbatim on upstream. Keep minimal: every entry is
+  # a file that will NOT receive upstream updates.
+  DOWNSTREAM_FILES: >-
+    .github/workflows/build-ghosttykit.yml
+    .github/workflows/sync-upstream.yml
+    .github/workflows/assert-no-drift.yml
+    .github/downstream/0001-command-wrapper.patch
+    .github/downstream/0002-output-activity.patch
+    .github/downstream/0003-sync-environ.patch
+    .github/downstream/0004-background-default-transparent.patch
+    .github/downstream/0005-smooth-scroll.patch
+    .github/downstream/0006-custom-shader-cursor-hidden-offscreen.patch
+    .github/downstream/0007-teardown-mailbox-push-abort.patch
+    .github/downstream/0008-smooth-cursor.patch
+    .github/downstream/0009-cursor-trail.patch
+    .github/downstream/0010-resize-coalesce-tracks-frames.patch
+    .github/downstream/0011-smooth-scroll-rows.patch
+    .github/downstream/0012-embedded-initial-size.patch
+    .github/downstream/0013-selection-motions.patch
+    .github/downstream/0014-selection-cursor.patch
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Squash-sync onto upstream
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/ghostty-org/ghostty.git
+          git fetch upstream main
+
+          # Snapshot the fork-owned files from THIS commit (not from a diff, so
+          # the sync can never revert upstream source) into a temp dir.
+          tmp="$(mktemp -d)"
+          for f in $DOWNSTREAM_FILES; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Declared downstream file is missing: $f" >&2
+              exit 1
+            fi
+            mkdir -p "$tmp/$(dirname "$f")"
+            cp "$f" "$tmp/$f"
+          done
+
+          # Rebuild main as pristine upstream HEAD…
+          git reset --hard upstream/main
+
+          # …lay the fork-owned files back on top…
+          for f in $DOWNSTREAM_FILES; do
+            if [ -f "$tmp/$f" ]; then
+              mkdir -p "$(dirname "$f")"
+              cp "$tmp/$f" "$f"
+              git add "$f"
+            fi
+          done
+
+          # …and re-apply the source patches. Fail loudly (don't ship a broken
+          # or half-patched tree) if any patch no longer applies to upstream.
+          shopt -s nullglob
+          for p in .github/downstream/*.patch; do
+            echo "Applying downstream patch: $p"
+            if ! git apply --3way --index "$p"; then
+              echo "::error::Downstream patch failed to apply: $p" >&2
+              echo "::error::Upstream likely changed the patched region. Regenerate the patch against current upstream and re-run." >&2
+              exit 1
+            fi
+          done
+
+          if git diff --cached --quiet; then
+            echo "No downstream delta; main is pristine upstream."
+            git push --force-with-lease
+            exit 0
+          fi
+
+          git commit -m "ci: downstream delta on pristine upstream
+
+          Fork-owned CI workflows + re-applied source patches (see
+          .github/downstream and DOWNSTREAM_FILES in sync-upstream.yml) on top of
+          an untouched ghostty-org/ghostty main. Regenerated automatically by
+          sync-upstream.yml; it can only add owned files and apply known patches,
+          never revert upstream source, and fails loudly if a patch no longer
+          applies."
+
+          git push --force-with-lease

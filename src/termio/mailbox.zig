@@ -60,10 +60,16 @@ pub const Mailbox = union(enum) {
     /// send would block, we'll unlock this mutex, resend the message, and
     /// lock it again. This handles an edge case where queues are full.
     /// This may not apply to all writer types.
+    ///
+    /// `abort` ends that wait, dropping the message: the termio thread
+    /// that drains this queue is the thread that joins the read thread on
+    /// teardown, so a read thread waiting here forever would hold up the
+    /// join (see renderer.State.closing).
     pub fn send(
         self: *Mailbox,
         msg: termio.Message,
         mutex: ?*std.Io.Mutex,
+        abort: *const std.atomic.Value(bool),
     ) void {
         switch (self.*) {
             .spsc => |*mb| send: {
@@ -92,7 +98,7 @@ pub const Mailbox = union(enum) {
                 // here.
                 if (mutex) |m| m.unlock(global.io());
                 defer if (mutex) |m| m.lockUncancelable(global.io());
-                if (mb.queue.push(global.io(), msg, .{ .forever = {} }) == 0) msg.deinit();
+                if (mb.queue.push(global.io(), msg, .{ .abort = abort }) == 0) msg.deinit();
             },
         }
     }

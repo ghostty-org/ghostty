@@ -33,6 +33,18 @@ preedit: ?Preedit = null,
 /// need about the mouse.
 mouse: Mouse = .{},
 
+/// Set by the surface as the first step of its teardown, before it joins
+/// its threads. A producer on a thread the surface joins (the IO thread,
+/// its read thread) pushes to the surface, renderer and termio mailboxes
+/// with `.abort = &closing` rather than `.forever`: a forever push into a
+/// full queue never returns once the consumer has stopped draining — the
+/// renderer thread is joined before the IO thread, the IO thread drains
+/// the termio queue on the very thread that joins the read thread, and
+/// the app thread drains its mailbox only between ticks, not while it
+/// waits in `Surface.deinit` — so the join it holds up never completes
+/// either (thdxg/macterm#464). Read without the mutex.
+closing: std.atomic.Value(bool) = .init(false),
+
 /// The number of threads currently waiting to acquire `mutex` via
 /// `lockDemand`. This is not protected by the mutex; it is read by
 /// hot lock/unlock loops (the IO parse thread) in `yieldToDemand` to

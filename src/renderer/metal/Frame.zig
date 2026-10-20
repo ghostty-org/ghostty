@@ -78,13 +78,15 @@ fn bufferCompleted(
     };
 
     // If the frame is healthy, present it.
-    if (health == .healthy) {
+    if (health == .healthy) present: {
         block.renderer.api.present(
             block.target.*,
             block.sync,
         ) catch |err| {
             log.err("Failed to present render target: err={}", .{err});
+            break :present;
         };
+        block.renderer.framePresented(block.target);
     }
 
     block.renderer.frameCompleted(health);

@@ -1,0 +1,3141 @@
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 14b30699b..022116d59 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -325,6 +325,7 @@ const DerivedConfig = struct {
+     mouse_reporting: bool,
+     mouse_scroll_multiplier: configpkg.MouseScrollMultiplier,
+     mouse_shift_capture: configpkg.MouseShiftCapture,
++    smooth_scroll: bool,
+     fullscreen: configpkg.Fullscreen,
+     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
+     macos_option_as_alt: ?input.OptionAsAlt,
+@@ -406,6 +407,7 @@ const DerivedConfig = struct {
+             .mouse_reporting = config.@"mouse-reporting",
+             .mouse_scroll_multiplier = config.@"mouse-scroll-multiplier",
+             .mouse_shift_capture = config.@"mouse-shift-capture",
++            .smooth_scroll = config.@"smooth-scroll",
+             .fullscreen = config.fullscreen,
+             .macos_non_native_fullscreen = config.@"macos-non-native-fullscreen",
+             .macos_option_as_alt = config.@"macos-option-as-alt",
+@@ -1240,12 +1242,12 @@ fn selectionScrollTick(self: *Surface) !void {
+     }
+ 
+     const pos = try self.rt_surface.getCursorPos();
+-    const pos_vp = self.posToViewport(pos.x, pos.y);
+ 
+     // We need our locked state for the remainder
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     defer self.renderer_state.mutex.unlock(global.io());
+     const t: *terminal.Terminal = self.renderer_state.terminal;
++    const pos_vp = self.posToViewport(pos.x, pos.y);
+ 
+     const selection = self.mouse.selection_gesture.autoscrollTick(t, .{
+         .viewport = pos_vp,
+@@ -2213,17 +2215,21 @@ fn resolvePathForOpening(
+ 
+ /// Returns the x/y coordinate of where the IME (Input Method Editor)
+ /// keyboard should be rendered.
+-pub fn imePoint(self: *const Surface) apprt.IMEPos {
++pub fn imePoint(self: *Surface) apprt.IMEPos {
+     const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
+     return self.imePointScaled(content_scale);
+ }
+ 
+ /// Same as `imePoint`, but divides our sizes by the given scale instead
+ /// of the content scale.
+-pub fn imePointScaled(self: *const Surface, scale: apprt.ContentScale) apprt.IMEPos {
++pub fn imePointScaled(self: *Surface, scale: apprt.ContentScale) apprt.IMEPos {
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     const cursor = self.renderer_state.terminal.screens.active.cursor;
+     const preedit_width: usize = if (self.renderer_state.preedit) |preedit| preedit.width() else 0;
++    // Smooth scrolling draws the grid, and the cursor with it, shifted, and
++    // a region scroll animation shifts the cursor's region further still.
++    const shift = self.viewportPixelShift() +
++        self.regionShifts().offsetAt(cursor.x, cursor.y);
+     self.renderer_state.mutex.unlock(global.io());
+ 
+     // TODO: need to handle when scrolling and the cursor is not
+@@ -2251,6 +2257,9 @@ pub fn imePointScaled(self: *const Surface, scale: apprt.ContentScale) apprt.IME
+         // We want the bottom
+         y += @floatFromInt(self.size.cell.height);
+ 
++        // Of the row as it is drawn
++        y += shift;
++
+         // And scale it
+         y /= scale.y;
+ 
+@@ -3642,14 +3651,18 @@ pub fn scrollCallback(
+             break :y .{};
+         }
+ 
+-        // We scroll by the number of rows in the offset and save the remainder
++        // We scroll by the number of whole rows in the offset and save the
++        // remainder. The remainder must be computed from the truncated row
++        // count: `poff - (poff / cell_size) * cell_size` is identically
++        // zero, which threw the sub-row part away on every commit and made
++        // smooth scrolling snap back by that much each time a row landed.
+         const amount = poff / cell_size;
+         assert(@abs(amount) >= 1);
+-        self.mouse.pending_scroll_y = poff - (amount * cell_size);
+ 
+         // Round towards zero.
+         const delta: isize = @intFromFloat(@trunc(amount));
+         assert(@abs(delta) >= 1);
++        self.mouse.pending_scroll_y = poff - (@as(f64, @floatFromInt(delta)) * cell_size);
+ 
+         break :y .{ .delta = delta };
+     };
+@@ -3756,6 +3769,18 @@ pub fn scrollCallback(
+             // is negative down but our viewport is positive down.
+             self.io.terminal.scrollViewport(.{ .delta = y.delta * -1 });
+         }
++
++        // Smooth scrolling: publish the sub-row remainder of a precision
++        // gesture so the renderer can draw the viewport between rows.
++        // scrollViewport above reset the previous remainder; a discrete
++        // wheel never has one, and with the key off the remainder stays
++        // an accumulator detail. Sign matches yoff: positive is content
++        // moving down. The renderer validates it against the screen.
++        self.io.terminal.screens.active.viewport_pixel_offset =
++            if (self.config.smooth_scroll and scroll_mods.precision)
++                self.mouse.pending_scroll_y
++            else
++                0;
+     }
+ 
+     try self.queueRender();
+@@ -3854,7 +3879,7 @@ fn mouseReport(
+         .mods = mods,
+         .pos = .{
+             .x = pos.x,
+-            .y = pos.y,
++            .y = self.mouseReportY(pos.x, pos.y),
+         },
+     }, encoding_opts) catch |err| switch (err) {
+         error.WriteFailed => {
+@@ -3996,13 +4021,10 @@ pub fn mouseButtonCallback(
+         // If we can't map the release position to a cell, pass null so the
+         // gesture can conservatively treat the release as having moved away
+         // from the pressed cell.
+-        const release_pin: ?terminal.Pin = if (release_pos) |pos| pin: {
+-            const release_vp = self.posToViewport(pos.x, pos.y);
+-            break :pin self.io.terminal.screens.active.pages.pin(.{ .viewport = .{
+-                .x = release_vp.x,
+-                .y = release_vp.y,
+-            } });
+-        } else null;
++        const release_pin: ?terminal.Pin = if (release_pos) |pos|
++            self.posToPin(pos.x, pos.y)
++        else
++            null;
+         self.mouse.selection_gesture.release(
+             self.renderer_state.terminal,
+             .{ .pin = release_pin },
+@@ -4100,26 +4122,15 @@ pub fn mouseButtonCallback(
+         self.renderer_state.mutex.lockUncancelable(global.io());
+         defer self.renderer_state.mutex.unlock(global.io());
+         const t: *terminal.Terminal = self.renderer_state.terminal;
+-        const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
+ 
+         const pos = try self.rt_surface.getCursorPos();
+-        const pin = pin: {
+-            const pt_viewport = self.posToViewport(pos.x, pos.y);
+-            const pin = screen.pages.pin(.{
+-                .viewport = .{
+-                    .x = pt_viewport.x,
+-                    .y = pt_viewport.y,
+-                },
+-            }) orelse {
+-                // Weird... our viewport x/y that we just converted isn't
+-                // found in our pages. This is probably a bug but we don't
+-                // want to crash in releases because its harmless. So, we
+-                // only assert in debug mode.
+-                if (comptime std.debug.runtime_safety) unreachable;
+-                break :click;
+-            };
+-
+-            break :pin pin;
++        const pin = self.posToPin(pos.x, pos.y) orelse {
++            // Weird... our viewport x/y that we just converted isn't
++            // found in our pages. This is probably a bug but we don't
++            // want to crash in releases because its harmless. So, we
++            // only assert in debug mode.
++            if (comptime std.debug.runtime_safety) unreachable;
++            break :click;
+         };
+ 
+         var press_selection = try self.mouse.selection_gesture.press(t, .{
+@@ -4203,19 +4214,9 @@ pub fn mouseButtonCallback(
+         // Get our viewport pin
+         const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
+         const pos = try self.rt_surface.getCursorPos();
+-        const pin = pin: {
+-            const pt_viewport = self.posToViewport(pos.x, pos.y);
+-            const pin = screen.pages.pin(.{
+-                .viewport = .{
+-                    .x = pt_viewport.x,
+-                    .y = pt_viewport.y,
+-                },
+-            }) orelse {
+-                if (comptime std.debug.runtime_safety) unreachable;
+-                break :sel;
+-            };
+-
+-            break :pin pin;
++        const pin = self.posToPin(pos.x, pos.y) orelse {
++            if (comptime std.debug.runtime_safety) unreachable;
++            break :sel;
+         };
+ 
+         switch (self.config.right_click_action) {
+@@ -4724,9 +4725,6 @@ pub fn cursorPosCallback(
+     // Update our modifiers if they changed
+     if (mods) |v| self.modsChanged(v);
+ 
+-    // The mouse position in the viewport
+-    const pos_vp = self.posToViewport(pos.x, pos.y);
+-
+     // We always reset the over link status because it will be reprocessed
+     // below. But we need the old value to know if we need to undo mouse
+     // shape changes.
+@@ -4737,6 +4735,9 @@ pub fn cursorPosCallback(
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     defer self.renderer_state.mutex.unlock(global.io());
+ 
++    // The mouse position in the viewport
++    const pos_vp = self.posToViewport(pos.x, pos.y);
++
+     // Update our mouse state. We set this to null initially because we only
+     // want to set it when we're not selecting or doing any other mouse
+     // event.
+@@ -4820,13 +4821,7 @@ pub fn cursorPosCallback(
+         try self.queueRender();
+ 
+         // Convert to points
+-        const screen: *terminal.Screen = t.screens.active;
+-        const pin = screen.pages.pin(.{
+-            .viewport = .{
+-                .x = pos_vp.x,
+-                .y = pos_vp.y,
+-            },
+-        }) orelse {
++        const pin = self.posToPin(pos.x, pos.y) orelse {
+             if (comptime std.debug.runtime_safety) unreachable;
+             return;
+         };
+@@ -4890,13 +4885,135 @@ pub fn colorSchemeCallback(self: *Surface, scheme: apprt.ColorScheme) !void {
+     self.queueIo(.{ .color_scheme_report = .{ .force = false } }, .unlocked);
+ }
+ 
+-pub fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Coordinate {
++/// The viewport cell under a surface position.
++///
++/// Precondition: the render_state mutex must be held.
++pub fn posToViewport(self: *Surface, xpos: f64, ypos: f64) terminal.point.Coordinate {
++    // Smooth scrolling draws the viewport shifted by a sub-row offset, and
++    // a region scroll animation draws its region's content further off
++    // still; undo both so the hit-tested cell is the one under the pointer.
++    const offset: f64 = self.viewportPixelShift();
++    const y = self.regionContentY(xpos, ypos - offset);
++
+     // Get our grid cell
+-    const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = xpos, .y = ypos } };
++    const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = xpos, .y = y } };
+     const grid = coord.convert(.grid, self.size).grid;
+     return .{ .x = grid.x, .y = grid.y };
+ }
+ 
++/// How far below its row-aligned position the renderer draws the
++/// viewport's first row, in pixels: the remainder of a scroll gesture plus
++/// the height the viewport's rows don't account for, which under
++/// `smooth-scroll` the grid sits on rather than leaving as padding.
++///
++/// Resolved by the function the render state draws with
++/// (`terminal.RenderState.resolveShift`), against the geometry the
++/// renderer hands it (`viewportGeometry` in renderer/generic.zig) — never
++/// re-derived here. The render state drops a shift it has no row to
++/// reveal, and an earlier copy of the arithmetic here, which kept it, put
++/// the pointer a row off in exactly those places (macterm#433).
++///
++/// Precondition: the render_state mutex must be held.
++fn viewportPixelShift(self: *const Surface) f64 {
++    return self.viewportShift().pixel_offset;
++}
++
++/// The whole smooth-scroll shift the renderer draws, rows revealed and all;
++/// see `viewportPixelShift`.
++///
++/// Precondition: the render_state mutex must be held.
++fn viewportShift(self: *const Surface) terminal.RenderState.Shift {
++    const geometry: terminal.RenderState.Geometry = if (self.config.smooth_scroll) .{
++        .cell_height = self.size.cell.height,
++        .terminal_height = self.size.terminal().height,
++    } else .none;
++    return terminal.RenderState.resolveShift(
++        self.io.terminal.screens.active,
++        geometry,
++    );
++}
++
++/// The pin of the cell drawn under a surface position. This is
++/// `posToViewport` resolved to a pin, except on the rows smooth scrolling
++/// reveals above the viewport: a grid shifted down draws the bottom of the
++/// scrollback row above the viewport — all of it, when the leftover height
++/// is nearly a cell — and a viewport coordinate, which cannot go above the
++/// viewport, clamps a point there to the first row. Selection resolves the
++/// pointer with this so that row selects like any other row drawn.
++///
++/// Precondition: the render_state mutex must be held.
++fn posToPin(self: *Surface, xpos: f64, ypos: f64) ?terminal.Pin {
++    const screen: *terminal.Screen = self.io.terminal.screens.active;
++    const pt = self.posToViewport(xpos, ypos);
++    const above = self.viewportShift().rowsAboveAt(
++        ypos - @as(f64, @floatFromInt(self.size.padding.top)),
++        @floatFromInt(self.size.cell.height),
++    );
++    if (above == 0) return screen.pages.pin(.{ .viewport = pt });
++    var pin = screen.pages.getTopLeft(.viewport).up(above) orelse return null;
++    pin.x = pt.x;
++    return pin;
++}
++
++/// The region scroll offsets of the frame on screen, as the shift between
++/// each region's content as drawn and where the terminal has it now
++/// (`terminal.RenderState.RegionShifts`). The renderer publishes them as
++/// it presents a frame, with the region scrolls it has taken in since
++/// folded in; the ones still pending on the screen are folded in here. So
++/// a program scrolling while the region eases home, as momentum scrolling
++/// does, never leaves a click resolving against rows that have moved.
++///
++/// Empty with smooth scrolling off, and when the frame on screen was drawn
++/// for another screen or grid size (its regions describe content that is
++/// gone, and the renderer drops them on its next update).
++///
++/// Precondition: the render_state mutex must be held.
++fn regionShifts(self: *Surface) terminal.RenderState.RegionShifts {
++    if (!self.config.smooth_scroll) return .{};
++    const t: *const terminal.Terminal = &self.io.terminal;
++    var shifts = self.renderer.regionShifts();
++    if (!shifts.describes(t)) return .{};
++    const cell_height: f64 = @floatFromInt(self.size.cell.height);
++    for (t.screens.active.region_scrolls.slice()) |scroll| {
++        shifts.addScroll(scroll, cell_height);
++    }
++    return shifts;
++}
++
++/// The surface y of where the terminal has the content drawn at (`xpos`,
++/// `ypos`), with the viewport's own shift already undone from `ypos`: moved
++/// by the region scroll animation drawn there (see `regionShifts`), if any.
++/// A point on a row the region has scrolled out resolves to its edge row.
++///
++/// Precondition: the render_state mutex must be held.
++fn regionContentY(self: *Surface, xpos: f64, ypos: f64) f64 {
++    const shifts = self.regionShifts();
++    if (shifts.len == 0) return ypos;
++    const left: f64 = @floatFromInt(self.size.padding.left);
++    const top: f64 = @floatFromInt(self.size.padding.top);
++    return shifts.contentY(
++        xpos - left,
++        ypos - top,
++        @floatFromInt(self.size.cell.width),
++        @floatFromInt(self.size.cell.height),
++    ) + top;
++}
++
++/// The pointer's y for a mouse report: where it falls on the grid as drawn
++/// (see `viewportPixelShift` and `regionContentY`), so a program is told
++/// the cell the user clicked. A pointer outside the surface is left alone
++/// and one inside is kept inside, so whether an event happened outside the
++/// viewport is still decided by where the pointer really is.
++///
++/// Precondition: the render_state mutex must be held.
++fn mouseReportY(self: *Surface, xpos: f32, ypos: f32) f32 {
++    const height: f32 = @floatFromInt(self.size.screen.height);
++    if (ypos < 0 or ypos > height) return ypos;
++    const shift = self.viewportPixelShift();
++    const y: f32 = @floatCast(self.regionContentY(xpos, @as(f64, ypos) - shift));
++    return std.math.clamp(y, 0, height);
++}
++
+ /// Scroll to the bottom of the viewport.
+ ///
+ /// Precondition: the render_state mutex must be held.
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index 44bf8545c..8f6e00864 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -999,6 +999,25 @@ palette: Palette = .{},
+ /// The default value is "3" for discrete devices and "1" for precision devices.
+ @"mouse-scroll-multiplier": MouseScrollMultiplier = .default,
+ 
++/// Draw the viewport between rows while scrolling with a precision device
++/// (trackpad, Magic Mouse), so scrollback moves by pixels rather than jumping
++/// a row at a time. Precision scrolling is already accumulated in pixels;
++/// this keeps the sub-row remainder and renders it, which is what makes
++/// the motion continuous, momentum included.
++///
++/// The scrollback viewport scrolls this way. A program on the alternate
++/// screen (an editor, a pager) that scrolls a region of its screen by rows
++/// with the terminal's scroll margins (DECSTBM/DECSLRM with SU/SD, or an
++/// index at the margin) is animated too: the region's new content slides in
++/// from where the old content was, and the rows that scrolled out slide
++/// away with it. A program that repaints every cell instead gets no motion,
++/// and mouse reporting still turns the wheel into button events. Discrete
++/// wheels always scroll the viewport by whole rows.
++///
++/// Downstream (thdxg/ghostty) key, read by Macterm's Experimental settings.
++/// This can be changed at runtime.
++@"smooth-scroll": bool = false,
++
+ /// The opacity level (opposite of transparency) of the background. A value of
+ /// 1 is fully opaque and a value of 0 is fully transparent. A value less than 0
+ /// or greater than 1 will be clamped to the nearest valid value.
+diff --git a/src/renderer/Metal.zig b/src/renderer/Metal.zig
+index a98dce87a..21b3facc3 100644
+--- a/src/renderer/Metal.zig
++++ b/src/renderer/Metal.zig
+@@ -233,6 +233,20 @@ pub fn initTarget(self: *const Metal, width: usize, height: usize) !Target {
+     });
+ }
+ 
++/// Which render target the layer is showing, as `targetIdentity` names
++/// targets, or 0 before it shows one. The layer's contents only change on
++/// the main thread, so read from there this is the frame on screen for
++/// whatever else that thread does: the surface's hit tests.
++pub fn shownTarget(self: *const Metal) usize {
++    const contents = self.layer.layer.msgSend(?*anyopaque, objc.sel("contents"), .{}) orelse return 0;
++    return @intFromPtr(contents);
++}
++
++/// A number naming `target` among the ones the layer can show.
++pub fn targetIdentity(target: *const Target) usize {
++    return @intFromPtr(target.surface);
++}
++
+ /// Present the provided target.
+ pub inline fn present(self: *Metal, target: Target, sync: bool) !void {
+     if (sync) {
+diff --git a/src/renderer/cursor.zig b/src/renderer/cursor.zig
+index 3314db29f..dc03a9995 100644
+--- a/src/renderer/cursor.zig
++++ b/src/renderer/cursor.zig
+@@ -41,8 +41,10 @@ pub fn style(
+     // a priority system of how we determine what state overrides cursor
+     // visibility and style.
+ 
+-    // The cursor must be visible in the viewport to be rendered.
+-    if (state.cursor.viewport == null) return null;
++    // The cursor must be visible in the viewport to be rendered, or in a
++    // row smooth scrolling reveals beyond it, which is drawn partly on
++    // screen (see `RenderState.Cursor.captured`).
++    if (state.cursor.viewport == null and state.cursor.captured == null) return null;
+ 
+     // If we are in preedit, then we always show the block cursor. We do
+     // this even if the cursor is explicitly not visible because it shows
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index 073d772d5..83e1fae70 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -48,6 +48,98 @@ const DisplayLink = switch (builtin.os.tag) {
+ 
+ const log = std.log.scoped(.generic_renderer);
+ 
++/// Where the frame on screen draws each animating region, for the surface
++/// to undo when it turns a pointer into a row: the offsets each frame in
++/// the swap chain was drawn with, and those of the frame presented last,
++/// each with the region scrolls the terminal has done since the frame was
++/// drawn folded in — they moved the terminal's rows, not the frame's.
++///
++/// A frame's offsets apply once it is on screen, not when it is drawn:
++/// until the GPU has finished it the previous frame is what is shown, and
++/// at the start of an ease one frame moves a region most of a row. Where
++/// the graphics API can say which target it is showing (`shownTarget`),
++/// that decides; otherwise the frame it last reported presented
++/// (`framePresented`) does. An API that does neither (OpenGL, today)
++/// publishes nothing, and its hit tests don't undo region offsets.
++///
++/// Guarded by its own mutex rather than the renderer state mutex, which
++/// drawFrame can't take: it holds `draw_mutex` and runs on the main thread
++/// too, while updateFrame takes the state mutex and then `draw_mutex`. This
++/// one is taken last everywhere (inside `draw_mutex` by drawFrame, inside
++/// the state mutex by updateFrame and the surface) and nothing is taken
++/// while it is held, so it can't be part of a deadlock.
++fn PresentedRegions(comptime slots: usize) type {
++    return struct {
++        const Self = @This();
++        const RegionShifts = terminal.RenderState.RegionShifts;
++
++        mutex: std.Io.Mutex = .init,
++        presented: RegionShifts = .{},
++        frames: [slots]Frame = @splat(.{}),
++
++        const Frame = struct {
++            /// The target it was drawn to, as the graphics API names it
++            /// (`targetIdentity`), or 0 where the API can't say.
++            target: usize = 0,
++            shifts: RegionShifts = .{},
++        };
++
++        /// A frame was drawn to `target` in swap chain slot `slot` with
++        /// these offsets.
++        pub fn drew(self: *Self, io: std.Io, slot: usize, target: usize, shifts: RegionShifts) void {
++            self.mutex.lockUncancelable(io);
++            defer self.mutex.unlock(io);
++            // A rebuilt swap chain can reuse a released target's name; only
++            // the frame drawn last answers to it.
++            if (target != 0) for (&self.frames) |*frame| {
++                if (frame.target == target) frame.target = 0;
++            };
++            self.frames[slot] = .{ .target = target, .shifts = shifts };
++        }
++
++        /// The terminal scrolled these regions after every frame drawn so
++        /// far, the one on screen included.
++        pub fn scrolled(
++            self: *Self,
++            io: std.Io,
++            scrolls: []const terminal.Screen.RegionScroll,
++            cell_height: f64,
++        ) void {
++            self.mutex.lockUncancelable(io);
++            defer self.mutex.unlock(io);
++            for (scrolls) |scroll| {
++                self.presented.addScroll(scroll, cell_height);
++                for (&self.frames) |*frame| frame.shifts.addScroll(scroll, cell_height);
++            }
++        }
++
++        /// The frame last drawn into `slot` has been presented.
++        pub fn present(self: *Self, io: std.Io, slot: usize) void {
++            self.mutex.lockUncancelable(io);
++            defer self.mutex.unlock(io);
++            self.presented = self.frames[slot].shifts;
++        }
++
++        /// The offsets of the frame on screen: the one drawn to `shown`,
++        /// the target the graphics API says it is showing, when that is
++        /// known, and otherwise the frame presented last.
++        ///
++        /// On macOS the layer's contents change on the main thread while a
++        /// frame is presented from the GPU's completion thread, so the
++        /// frame presented last can be a frame ahead of the one a
++        /// main-thread hit test sees, or a frame behind; the layer itself
++        /// never is.
++        pub fn get(self: *Self, io: std.Io, shown: usize) RegionShifts {
++            self.mutex.lockUncancelable(io);
++            defer self.mutex.unlock(io);
++            if (shown != 0) for (self.frames) |frame| {
++                if (frame.target == shown) return frame.shifts;
++            };
++            return self.presented;
++        }
++    };
++}
++
+ /// Create a renderer type with the provided graphics API wrapper.
+ ///
+ /// The graphics API wrapper must provide the interface outlined below.
+@@ -179,6 +271,28 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+         /// cells for the draw call.
+         cells_rebuilt: bool = false,
+ 
++        /// Region scroll animations in flight (see `RegionAnim`), the
++        /// scrolls drained from the terminal that they have yet to take
++        /// in, and the clock the shifts decay against. `region_anim_screen`
++        /// is the screen they were recorded on; a switch drops them.
++        region_anims: std.ArrayListUnmanaged(RegionAnim) = .empty,
++        pending_region_scrolls: std.ArrayListUnmanaged(terminal.Screen.RegionScroll) = .empty,
++        region_anim_tick: ?std.Io.Timestamp = null,
++        region_anim_screen: ?terminal.ScreenSet.Key = null,
++
++        /// The region scroll animations of the frame on screen, for the
++        /// surface to undo when it turns a pointer into a row (see
++        /// `regionShifts`).
++        presented_regions: PresentedRegions(SwapChain.buf_count) = .{},
++
++        /// What is uploaded to the GPU while ghost rows exist: the live
++        /// background cells followed by one row per ghost, and the ghost
++        /// glyphs re-addressed to grid rows past the live grid. Rebuilt
++        /// whenever the animations change; empty otherwise.
++        ghost_bg_upload: std.ArrayListUnmanaged(shaderpkg.CellBg) = .empty,
++        ghost_fg_upload: std.ArrayListUnmanaged(shaderpkg.CellText) = .empty,
++        fg_upload_lists: std.ArrayListUnmanaged(std.ArrayListUnmanaged(shaderpkg.CellText)) = .empty,
++
+         /// The current GPU uniform values.
+         uniforms: shaderpkg.Uniforms,
+ 
+@@ -617,6 +731,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             blending: configpkg.Config.AlphaBlending,
+             background_blur: configpkg.Config.BackgroundBlur,
+             scroll_to_bottom_on_output: bool,
++            smooth_scroll: bool,
+             custom_shader_animation: configpkg.CustomShaderAnimation,
+ 
+             pub fn init(
+@@ -693,6 +808,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     .blending = config.@"alpha-blending",
+                     .background_blur = config.@"background-blur",
+                     .scroll_to_bottom_on_output = config.@"scroll-to-bottom".output,
++                    .smooth_scroll = config.@"smooth-scroll",
+                     .custom_shader_animation = config.@"custom-shader-animation",
+                     .arena = arena,
+                 };
+@@ -755,6 +871,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 // Render state
+                 .cells = .{},
+                 .uniforms = .{
++                    .scroll_offset = .{ 0, 0, 0, 0 },
+                     .projection_matrix = undefined,
+                     .cell_size = undefined,
+                     .grid_size = undefined,
+@@ -859,6 +976,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             }
+ 
+             self.cells.deinit(self.alloc);
++            self.clearRegionAnims();
++            self.region_anims.deinit(self.alloc);
++            self.pending_region_scrolls.deinit(self.alloc);
++            self.ghost_bg_upload.deinit(self.alloc);
++            self.ghost_fg_upload.deinit(self.alloc);
++            self.fg_upload_lists.deinit(self.alloc);
+ 
+             self.font_shaper.deinit();
+             self.font_shaper_cache.deinit(self.alloc);
+@@ -1100,6 +1223,66 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             self.syncDisplayLink(id, draw_now);
+         }
+ 
++        /// A scroll region of the alternate screen whose content a
++        /// program moved by whole rows (Helix scrolling a view, `less`
++        /// paging), being drawn as motion. The region's new content is
++        /// drawn `shift` pixels from where it belongs, which is where the
++        /// old content was, and slides home as the shift decays; the rows
++        /// that scrolled out stay on as ghosts, sliding out ahead of it
++        /// and clipped at the region's edge. Another scroll of the same
++        /// region while it is moving adds to the shift, so a program
++        /// stepping rows on a timer reads as one continuous motion.
++        ///
++        /// Ghost cells are the previous frame's GPU cells for the rows
++        /// that left: they need no terminal access, only the frame before.
++        const RegionAnim = struct {
++            region: terminal.Screen.RegionScroll,
++            /// Pixels the content is drawn below its final place (negative:
++            /// above).
++            shift: f64,
++            ghosts: std.ArrayListUnmanaged(Ghost) = .empty,
++            /// Frames drawn so far, for the log line when it ends.
++            frames: u32 = 0,
++
++            const Ghost = struct {
++                /// The grid row this row now belongs at, outside the region.
++                final_row: i32,
++                bg: []shaderpkg.CellBg,
++                fg: []shaderpkg.CellText,
++
++                fn deinit(self: *Ghost, alloc: Allocator) void {
++                    alloc.free(self.bg);
++                    alloc.free(self.fg);
++                }
++            };
++
++            fn deinit(self: *RegionAnim, alloc: Allocator) void {
++                for (self.ghosts.items) |*ghost| ghost.deinit(alloc);
++                self.ghosts.deinit(alloc);
++            }
++
++            /// Grid-pixel extent of the region: left, top, right, bottom.
++            fn rect(self: *const RegionAnim, cell_w: f32, cell_h: f32) [4]f32 {
++                const r = self.region;
++                return .{
++                    @as(f32, @floatFromInt(r.left)) * cell_w,
++                    @as(f32, @floatFromInt(r.top)) * cell_h,
++                    @as(f32, @floatFromInt(@as(u32, r.right) + 1)) * cell_w,
++                    @as(f32, @floatFromInt(@as(u32, r.bottom) + 1)) * cell_h,
++                };
++            }
++        };
++
++        comptime {
++            if (shaderpkg.Uniforms.max_region_anims > terminal.RenderState.RegionShifts.capacity)
++                @compileError("a frame's region animations must fit in what it publishes");
++        }
++
++        /// How long a region scroll takes to close 63% of its remaining
++        /// distance. A half-page jump lands in about a quarter second,
++        /// most of it in the first hundred milliseconds.
++        const region_anim_tau_s: f64 = 0.045;
++
+         /// The cadence of continuous (draw-only) animation wakes,
+         /// i.e. 120fps, and the floor for any animation wake delay.
+         pub const draw_interval_ms: u64 = 8;
+@@ -1158,18 +1341,318 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 break :kitty @max(next -| now_ms, draw_interval_ms);
+             };
+ 
++            // Region scroll animations decay every draw while any is
++            // in flight; the shift is recomputed from the clock in
++            // drawFrame, so a draw wake is all they need.
++            const draw_delay: ?u64 = if (self.region_anims.items.len > 0)
++                draw_interval_ms
++            else
++                shader_delay;
++
+             // An update wake includes a draw, so it wins ties.
+             if (kitty_delay) |k| {
+-                if (shader_delay == null or k <= shader_delay.?) {
++                if (draw_delay == null or k <= draw_delay.?) {
+                     return .{ .delay_ms = k, .kind = .update };
+                 }
+             }
+ 
+-            if (shader_delay) |s| return .{ .delay_ms = s, .kind = .draw };
++            if (draw_delay) |s| return .{ .delay_ms = s, .kind = .draw };
+ 
+             return null;
+         }
+ 
++        /// Drop every region scroll animation and its ghost rows.
++        fn clearRegionAnims(self: *Self) void {
++            for (self.region_anims.items) |*anim| anim.deinit(self.alloc);
++            self.region_anims.clearRetainingCapacity();
++            self.region_anim_tick = null;
++        }
++
++        /// Take the region scrolls recorded since the previous frame into
++        /// the animations, making ghost rows of the rows that scrolled out
++        /// from the previous frame's GPU cells. Must run in rebuildCells
++        /// before those cells are rebuilt, under the draw mutex.
++        fn applyRegionScrolls(
++            self: *Self,
++            state: *const terminal.RenderState,
++            grid_changed: bool,
++        ) void {
++            defer self.pending_region_scrolls.clearRetainingCapacity();
++
++            // A resize scrambles the cells the ghosts would come from, and
++            // a screen switch leaves nothing to animate.
++            if (grid_changed or
++                self.region_anim_screen == null or
++                self.region_anim_screen.? != state.screen)
++            {
++                self.clearRegionAnims();
++                self.region_anim_screen = state.screen;
++                if (grid_changed) {
++                    // The pending scrolls refer to the old grid; drop them
++                    // and leave the uniforms describing no animation.
++                    self.rebuildRegionUniforms();
++                    return;
++                }
++            }
++
++            const cell_h: f64 = @floatFromInt(self.grid_metrics.cell_height);
++            const cols: usize = self.cells.size.columns;
++            for (self.pending_region_scrolls.items) |scroll| {
++                const anim: *RegionAnim = anim: {
++                    for (self.region_anims.items) |*anim| {
++                        if (anim.region.sameRegion(scroll)) break :anim anim;
++                    }
++                    if (self.region_anims.items.len >= shaderpkg.Uniforms.max_region_anims) continue;
++                    self.region_anims.append(self.alloc, .{
++                        .region = scroll,
++                        .shift = 0,
++                    }) catch continue;
++                    break :anim &self.region_anims.items[self.region_anims.items.len - 1];
++                };
++
++                // The new content is drawn where the old was: `lines` rows
++                // away. Beyond the region's height nothing of the old
++                // content is left to slide, so the shift is capped there.
++                // The surface's hit test accumulates with the same rule.
++                anim.shift = terminal.RenderState.RegionShift.scrolledOffset(
++                    anim.shift,
++                    scroll,
++                    cell_h,
++                );
++                for (anim.ghosts.items) |*ghost| ghost.final_row -= scroll.lines;
++
++                // The rows that left the region, as the previous frame drew
++                // them. A scroll up loses rows at the top, a scroll down at
++                // the bottom; each ends up `lines` rows from where it was.
++                const count: usize = @intCast(@abs(scroll.lines));
++                const first: usize = if (scroll.lines > 0)
++                    scroll.top
++                else
++                    @as(usize, scroll.bottom) + 1 - count;
++                for (first..first + count) |row| {
++                    if (row >= self.cells.size.rows) break;
++                    const bg = self.alloc.dupe(
++                        shaderpkg.CellBg,
++                        self.cells.bg_cells[row * cols ..][0..cols],
++                    ) catch break;
++                    const fg = self.alloc.dupe(
++                        shaderpkg.CellText,
++                        self.cells.fg_rows[row + 1].items,
++                    ) catch {
++                        self.alloc.free(bg);
++                        break;
++                    };
++                    anim.ghosts.append(self.alloc, .{
++                        .final_row = @as(i32, @intCast(row)) - scroll.lines,
++                        .bg = bg,
++                        .fg = fg,
++                    }) catch {
++                        self.alloc.free(bg);
++                        self.alloc.free(fg);
++                        break;
++                    };
++                }
++            }
++
++            for (self.region_anims.items) |*anim| {
++                log.debug(
++                    "region scroll animation rows={}..{} cols={}..{} shift={d:.1}px ghosts={}",
++                    .{
++                        anim.region.top,
++                        anim.region.bottom,
++                        anim.region.left,
++                        anim.region.right,
++                        anim.shift,
++                        anim.ghosts.items.len,
++                    },
++                );
++            }
++
++            self.pruneGhosts();
++            self.rebuildRegionUniforms();
++        }
++
++        /// Drop ghost rows that have slid out of sight, and the oldest
++        /// ones beyond what the uniforms can carry.
++        fn pruneGhosts(self: *Self) void {
++            const cell_h: f64 = @floatFromInt(self.grid_metrics.cell_height);
++            var total: usize = 0;
++            for (self.region_anims.items) |*anim| {
++                const top: f64 = @as(f64, @floatFromInt(anim.region.top)) * cell_h;
++                const bottom: f64 = @as(f64, @floatFromInt(@as(u32, anim.region.bottom) + 1)) * cell_h;
++                var i: usize = 0;
++                while (i < anim.ghosts.items.len) {
++                    const ghost = &anim.ghosts.items[i];
++                    const y: f64 = @as(f64, @floatFromInt(ghost.final_row)) * cell_h + anim.shift;
++                    if (y + cell_h <= top or y >= bottom) {
++                        ghost.deinit(self.alloc);
++                        _ = anim.ghosts.orderedRemove(i);
++                        continue;
++                    }
++                    i += 1;
++                }
++                total += anim.ghosts.items.len;
++            }
++            // Oldest first: the earliest ghosts are the farthest out.
++            var over: usize = total -| shaderpkg.Uniforms.max_ghost_rows;
++            while (over > 0) : (over -= 1) {
++                for (self.region_anims.items) |*anim| {
++                    if (anim.ghosts.items.len == 0) continue;
++                    anim.ghosts.items[0].deinit(self.alloc);
++                    _ = anim.ghosts.orderedRemove(0);
++                    break;
++                }
++            }
++        }
++
++        /// Advance the region scroll animations to now. Called once per
++        /// drawn frame, before the uniforms are uploaded.
++        fn tickRegionAnims(self: *Self) void {
++            if (self.region_anims.items.len == 0) return;
++            const now: std.Io.Timestamp = .now(global.io(), .awake);
++            const last = self.region_anim_tick orelse now;
++            self.region_anim_tick = now;
++            const dt_ns: f64 = @floatFromInt(@max(last.durationTo(now).nanoseconds, 0));
++            const factor = @exp(-(dt_ns / std.time.ns_per_s) / region_anim_tau_s);
++
++            var i: usize = 0;
++            while (i < self.region_anims.items.len) {
++                const anim = &self.region_anims.items[i];
++                anim.shift *= factor;
++                anim.frames += 1;
++                if (@abs(anim.shift) < 0.5) {
++                    log.debug(
++                        "region scroll animation done rows={}..{} after {} frames",
++                        .{ anim.region.top, anim.region.bottom, anim.frames },
++                    );
++                    anim.deinit(self.alloc);
++                    _ = self.region_anims.orderedRemove(i);
++                    continue;
++                }
++                i += 1;
++            }
++            if (self.region_anims.items.len == 0) self.region_anim_tick = null;
++
++            self.pruneGhosts();
++            self.rebuildRegionUniforms();
++        }
++
++        /// Write the animations into the uniforms and rebuild the ghost
++        /// upload buffers. Ghost `k` is grid row `rows + k`.
++        fn rebuildRegionUniforms(self: *Self) void {
++            const cell_w: f32 = @floatFromInt(self.grid_metrics.cell_width);
++            const cell_h: f32 = @floatFromInt(self.grid_metrics.cell_height);
++            const rows: usize = self.cells.size.rows;
++            const cols: usize = self.cells.size.columns;
++
++            self.uniforms.region_rect = @splat(@splat(0));
++            self.uniforms.region_shift = @splat(@splat(0));
++            self.uniforms.ghost_rows = @splat(@splat(-1));
++            self.ghost_bg_upload.clearRetainingCapacity();
++            self.ghost_fg_upload.clearRetainingCapacity();
++
++            var ghost_count: usize = 0;
++            for (self.region_anims.items, 0..) |*anim, i| {
++                self.uniforms.region_rect[i] = anim.rect(cell_w, cell_h);
++                self.uniforms.region_shift[i] = .{ @floatCast(anim.shift), 0, 0, 0 };
++                for (anim.ghosts.items) |ghost| {
++                    if (ghost_count >= shaderpkg.Uniforms.max_ghost_rows) break;
++                    const grid_row: usize = rows + ghost_count;
++                    if (grid_row > std.math.maxInt(u16)) break;
++                    self.uniforms.ghost_rows[ghost_count] = .{ @intCast(i), ghost.final_row, 0, 0 };
++                    // Upload buffers only grow; a failure here leaves a
++                    // ghost undrawn, which is a gap in the motion, not an
++                    // error.
++                    if (ghost.bg.len == cols) {
++                        self.ghost_bg_upload.appendSlice(self.alloc, ghost.bg) catch break;
++                    } else {
++                        self.ghost_bg_upload.appendNTimes(self.alloc, .{ 0, 0, 0, 0 }, cols) catch break;
++                    }
++                    for (ghost.fg) |cell| {
++                        var moved = cell;
++                        moved.grid_pos[1] = @intCast(grid_row);
++                        self.ghost_fg_upload.append(self.alloc, moved) catch break;
++                    }
++                    ghost_count += 1;
++                }
++            }
++            self.uniforms.anim_counts = .{ @intCast(self.region_anims.items.len), @intCast(ghost_count), 0, 0 };
++            self.cells_rebuilt = true;
++        }
++
++        /// The region offsets the uniforms hand the shaders, as the surface
++        /// undoes them: read back from the uniforms, so what is published
++        /// is exactly what the frame is drawn with. Caller must hold the
++        /// draw mutex.
++        fn drawnRegionShifts(self: *const Self) terminal.RenderState.RegionShifts {
++            var shifts: terminal.RenderState.RegionShifts = .{
++                .screen = self.region_anim_screen orelse .primary,
++                .cols = self.cells.size.columns,
++                .rows = self.cells.size.rows,
++            };
++            for (self.region_anims.items, 0..) |*anim, i| shifts.append(.{
++                .top = anim.region.top,
++                .bottom = anim.region.bottom,
++                .left = anim.region.left,
++                .right = anim.region.right,
++                .offset = self.uniforms.region_shift[i][0],
++            });
++            return shifts;
++        }
++
++        /// The terminal scrolled these regions: every frame drawn so far,
++        /// the one on screen included, now shows their content that much
++        /// further from where the terminal has it. Folded into the
++        /// published offsets at once rather than when a frame showing the
++        /// scroll is presented, because until then a click resolves
++        /// against the terminal's rows, which have already moved.
++        ///
++        /// Called with the renderer state mutex held, so no scroll is ever
++        /// in neither place the surface looks: here, or still pending on
++        /// the screen.
++        fn regionsScrolled(
++            self: *Self,
++            scrolls: []const terminal.Screen.RegionScroll,
++        ) void {
++            if (scrolls.len == 0) return;
++            self.presented_regions.scrolled(
++                global.io(),
++                scrolls,
++                @floatFromInt(self.grid_metrics.cell_height),
++            );
++        }
++
++        /// Where the frame on screen draws each region it draws away from
++        /// where the terminal has it, and how far, with the region scrolls
++        /// this renderer has taken in since folded in. The surface adds the
++        /// ones still pending on the screen and undoes the result to turn a
++        /// pointer into the row drawn under it.
++        ///
++        /// Exact for the thread the layer's contents change on (the main
++        /// thread on macOS, where the hit tests run). Takes only the lock
++        /// guarding the offsets (see `PresentedRegions`), so it is safe
++        /// under any other.
++        pub fn regionShifts(self: *Self) terminal.RenderState.RegionShifts {
++            const shown: usize = if (@hasDecl(GraphicsAPI, "shownTarget"))
++                self.api.shownTarget()
++            else
++                0;
++            return self.presented_regions.get(global.io(), shown);
++        }
++
++        /// Called by the graphics API once it has presented the frame drawn
++        /// to `target`. Where it can't say which target it is showing, the
++        /// hit test undoes this frame's region offsets from here on.
++        pub fn framePresented(self: *Self, target: *const Target) void {
++            // The swap chain outlives every frame in flight: it is only
++            // torn down after they have all completed.
++            const swap_chain = if (self.swap_chain) |*sc| sc else return;
++            const slot = for (&swap_chain.frames, 0..) |*frame, i| {
++                if (&frame.target == target) break i;
++            } else return;
++            self.presented_regions.present(global.io(), slot);
++        }
++
+         /// Returns true if the display link is running, meaning frames
+         /// are paced by display refresh. In that case the render thread
+         /// must only draw when the display link wakes it through
+@@ -1445,11 +1928,31 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 // denormalization) is deferred to the endUpdate call
+                 // outside of this critical section, keeping our lock
+                 // hold time as short as possible.
+-                try self.terminal_state.beginUpdate(
++                //
++                // Smooth scrolling captures the rows a shifted grid reveals
++                // as overscan; with it off this is a plain beginUpdate.
++                try self.terminal_state.beginShiftedUpdate(
+                     self.alloc,
+                     state.terminal,
++                    self.viewportGeometry(),
+                 );
+ 
++                // Region scrolls since the last frame, to animate. They
++                // are applied in rebuildCells, which still has the previous
++                // frame's cells to make ghost rows from. The hit test has
++                // to know about them now: the terminal's rows have moved,
++                // and what is on screen hasn't.
++                {
++                    const scrolls = &state.terminal.screens.active.region_scrolls;
++                    if (self.config.smooth_scroll) {
++                        for (scrolls.slice()) |scroll| {
++                            self.pending_region_scrolls.append(self.alloc, scroll) catch break;
++                        }
++                        self.regionsScrolled(scrolls.slice());
++                    }
++                    scrolls.clear();
++                }
++
+                 // If our terminal state is dirty at all we need to redo
+                 // the viewport search.
+                 if (self.terminal_state.dirty != .false) {
+@@ -1873,10 +2376,31 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             // Update per-frame custom shader uniforms.
+             try self.updateCustomShaderUniformsForFrame();
+ 
+-            // Setup our frame data
++            // Region scroll animations move every drawn frame.
++            self.tickRegionAnims();
++
++            // Setup our frame data. Ghost rows ride along after the live
++            // cells: background rows appended to the buffer, glyphs as one
++            // more row list.
+             try frame.uniforms.sync(&.{self.uniforms});
+-            try frame.cells_bg.sync(self.cells.bg_cells);
+-            const fg_count = try frame.cells.syncFromArrayLists(self.cells.fg_rows);
++            const fg_count = if (self.ghost_bg_upload.items.len > 0) ghosts: {
++                self.fg_upload_lists.clearRetainingCapacity();
++                try self.fg_upload_lists.appendSlice(self.alloc, self.cells.fg_rows);
++                try self.fg_upload_lists.append(self.alloc, self.ghost_fg_upload);
++
++                var bg = try std.ArrayListUnmanaged(shaderpkg.CellBg).initCapacity(
++                    self.alloc,
++                    self.cells.bg_cells.len + self.ghost_bg_upload.items.len,
++                );
++                defer bg.deinit(self.alloc);
++                bg.appendSliceAssumeCapacity(self.cells.bg_cells);
++                bg.appendSliceAssumeCapacity(self.ghost_bg_upload.items);
++                try frame.cells_bg.sync(bg.items);
++                break :ghosts try frame.cells.syncFromArrayLists(self.fg_upload_lists.items);
++            } else plain: {
++                try frame.cells_bg.sync(self.cells.bg_cells);
++                break :plain try frame.cells.syncFromArrayLists(self.cells.fg_rows);
++            };
+ 
+             // If our background image buffer has changed, sync it.
+             if (frame.bg_image_buffer_modified != self.bg_image_buffer_modified) {
+@@ -1907,6 +2431,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             var frame_ctx = try self.api.beginFrame(self, &frame.target);
+             defer frame_ctx.complete(sync);
+ 
++            // What the hit test undoes once this frame is on screen.
++            self.presented_regions.drew(
++                global.io(),
++                swap_chain.frame_index,
++                if (@hasDecl(GraphicsAPI, "targetIdentity"))
++                    GraphicsAPI.targetIdentity(&frame.target)
++                else
++                    0,
++                self.drawnRegionShifts(),
++            );
++
+             {
+                 var pass = frame_ctx.renderPass(&.{.{
+                     .target = if (frame.custom_shader_state) |state|
+@@ -2478,10 +3013,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     cursor.grid_pos[0] * cell.width + padding.left,
+                 );
+                 // Top edge, relative to the top of the
+-                // screen, of the cell the cursor is in.
++                // screen, of the cell the cursor is in. Grid rows are
++                // drawn shifted while smooth scrolling (see the
++                // scroll_offset uniform), so shift the cursor with them.
+                 var pixel_y: f32 = @floatFromInt(
+                     cursor.grid_pos[1] * cell.height + padding.top,
+                 );
++                pixel_y += self.uniforms.scroll_offset[0] -
++                    self.uniforms.scroll_offset[1] * @as(f32, @floatFromInt(cell.height));
+ 
+                 // If +Y is up in our shaders, we need to flip the coordinate
+                 // so that it's instead the top edge of the cell relative to
+@@ -2619,6 +3158,30 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             cp_offset: usize,
+         };
+ 
++        /// The pixel geometry the render state needs to measure the height
++        /// the viewport's rows don't account for, so the grid can sit on it
++        /// instead of leaving it as a strip of padding (see
++        /// `terminal.RenderState.Geometry`).
++        ///
++        /// A grid only comes in whole rows, so that leftover grows as the
++        /// surface is resized until it is a full row and the viewport takes
++        /// one — and everything on screen jumps a cell at that instant.
++        /// Under `smooth-scroll` the grid is drawn that much lower instead,
++        /// with the row above partly revealed, so the same sequence of
++        /// sizes moves the content continuously.
++        ///
++        /// Only the pixels are handed over; the render state measures them
++        /// against the terminal's rows, not this renderer's grid — the two
++        /// are resized on different threads, and a frame caught between
++        /// them drew the grid a whole cell off.
++        fn viewportGeometry(self: *const Self) terminal.RenderState.Geometry {
++            if (!self.config.smooth_scroll) return .none;
++            return .{
++                .cell_height = self.size.cell.height,
++                .terminal_height = self.size.terminal().height,
++            };
++        }
++
+         /// Convert the terminal state to GPU cells stored in CPU memory. These
+         /// are then synced to the GPU in the next frame. This only updates CPU
+         /// memory and doesn't touch the GPU.
+@@ -2634,13 +3197,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+         ) Allocator.Error!void {
+             const state: *terminal.RenderState = &self.terminal_state;
+ 
++            // The rows the grid holds: the viewport's, plus the ones smooth
++            // scrolling reveals beyond it (overscan), so the grid is laid
++            // from the first row captured. Without overscan this is exactly
++            // the viewport.
++            const captured = state.rowDataRange();
++            const captured_rows: terminal.size.CellCountInt =
++                @intCast(captured.end - captured.start);
++
+             const grid_size_diff =
+-                self.cells.size.rows != state.rows or
++                self.cells.size.rows != captured_rows or
+                 self.cells.size.columns != state.cols;
+ 
+             if (grid_size_diff) {
+                 var new_size = self.cells.size;
+-                new_size.rows = state.rows;
++                new_size.rows = captured_rows;
+                 new_size.columns = state.cols;
+                 try self.cells.resize(self.alloc, new_size);
+ 
+@@ -2649,6 +3220,31 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 self.uniforms.grid_size = .{ new_size.columns, new_size.rows };
+             }
+ 
++            // Region scroll animations take in this frame's scrolls now,
++            // while the cells still show the previous frame.
++            self.applyRegionScrolls(state, grid_size_diff);
++
++            // Smooth scrolling: where the grid sits relative to the
++            // viewport this frame. A change here is a visible change even
++            // when no cell is dirty (the same rows, drawn a few pixels
++            // over), so it must count as a rebuild or drawFrame would
++            // present the previous frame.
++            const scroll_offset: [4]f32 = .{
++                @floatCast(state.viewport_pixel_offset),
++                @floatFromInt(state.overscan.above),
++                // The leftover height only counts while the grid is
++                // actually shifted onto it; at rest it stays padding.
++                if (state.viewport_pixel_offset != 0)
++                    @floatCast(state.viewport_pixel_pad)
++                else
++                    0,
++                0,
++            };
++            if (!std.meta.eql(scroll_offset, self.uniforms.scroll_offset)) {
++                self.uniforms.scroll_offset = scroll_offset;
++                self.cells_rebuilt = true;
++            }
++
+             const rebuild = state.dirty == .full or grid_size_diff;
+             if (rebuild) {
+                 // If we are doing a full rebuild, then we clear the entire cell buffer.
+@@ -2675,20 +3271,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             // working terminal state, even if incorrect.
+             errdefer comptime unreachable;
+ 
+-            // Get our row data from our state
++            // Get our row data from our state, the captured rows only:
++            // grid row y is row_data index captured.start + y.
+             const row_data = state.row_data.slice();
+-            const row_raws = row_data.items(.raw);
+-            const row_cells = row_data.items(.cells);
+-            const row_dirty = row_data.items(.dirty);
+-            const row_selection = row_data.items(.selection);
+-            const row_highlights = row_data.items(.highlights);
++            const row_raws = row_data.items(.raw)[captured.start..captured.end];
++            const row_cells = row_data.items(.cells)[captured.start..captured.end];
++            const row_dirty = row_data.items(.dirty)[captured.start..captured.end];
++            const row_selection = row_data.items(.selection)[captured.start..captured.end];
++            const row_highlights = row_data.items(.highlights)[captured.start..captured.end];
+ 
+             // If our cell contents buffer is shorter than the screen viewport,
+             // we render the rows that fit, starting from the bottom. If instead
+             // the viewport is shorter than the cell contents buffer, we align
+             // the top of the viewport with the top of the contents buffer.
+             const row_len: usize = @min(
+-                state.rows,
++                captured_rows,
+                 self.cells.size.rows,
+             );
+ 
+@@ -2696,9 +3293,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             // here because we will render the preedit separately.
+             const preedit_range: ?PreeditRange = if (preedit) |preedit_v| preedit: {
+                 // We base the preedit on the position of the cursor in the
+-                // viewport. If the cursor isn't visible in the viewport we
+-                // don't show it.
+-                const cursor_vp = state.cursor.viewport orelse
++                // grid. If the cursor isn't in a row we draw we don't show
++                // it.
++                const cursor_vp = state.cursor.captured orelse
+                     break :preedit null;
+ 
+                 // If our preedit row isn't dirty then we don't need the
+@@ -2765,13 +3362,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     std.math.maxInt(u16),
+                 };
+ 
+-                // If the cursor isn't visible on the viewport, don't show
+-                // a cursor. Otherwise, get our cursor cell, because we may
+-                // need it for styling.
+-                const cursor_vp = state.cursor.viewport orelse break :cursor;
++                // If the cursor isn't in a row we draw, don't show a
++                // cursor. That counts a row smooth scrolling reveals beyond
++                // the viewport, which is drawn partly on screen. Otherwise,
++                // get our cursor cell, because we may need it for styling.
++                const cursor_vp = state.cursor.captured orelse break :cursor;
+                 const cursor_style: terminal.Style = cursor_style: {
+-                    const cells = state.row_data.items(.cells);
+-                    const cell = cells[cursor_vp.y].get(cursor_vp.x);
++                    const cell = row_cells[cursor_vp.y].get(cursor_vp.x);
+                     break :cursor_style if (cell.raw.hasStyling())
+                         cell.style
+                     else
+@@ -2969,6 +3566,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 },
+             }
+ 
++            // Links are found in viewport rows, and smooth scrolling can
++            // draw the viewport from a grid row below the first. A row
++            // revealed above the viewport has none.
++            const link_y: ?terminal.size.CellCountInt =
++                if (y >= state.overscan.above) y - state.overscan.above else null;
++
+             // Iterator of runs for shaping.
+             var run_iter_opts: font.shape.RunOptions = .{
+                 .grid = self.font_grid,
+@@ -2978,7 +3581,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 // We want to do font shaping as long as the cursor is
+                 // visible on this viewport.
+                 .cursor_x = cursor_x: {
+-                    const vp = state.cursor.viewport orelse break :cursor_x null;
++                    const vp = state.cursor.captured orelse break :cursor_x null;
+                     if (vp.y != y) break :cursor_x null;
+                     break :cursor_x vp.x;
+                 },
+@@ -3245,9 +3848,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 // an underline, in which case use a double underline to
+                 // distinguish them.
+                 const underline: terminal.Attribute.Underline = underline: {
+-                    if (links.contains(.{
++                    if (link_y != null and links.contains(.{
+                         .x = @intCast(x),
+-                        .y = @intCast(y),
++                        .y = link_y.?,
+                     })) {
+                         break :underline if (style.flags.underline == .single)
+                             .double
+@@ -3541,7 +4144,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             cursor_style: renderer.CursorStyle,
+             cursor_color: terminal.color.RGB,
+         ) void {
+-            const cursor_vp = cursor_state.viewport orelse return;
++            // In grid rows, which include any smooth scrolling reveals.
++            const cursor_vp = cursor_state.captured orelse return;
+ 
+             // Add the cursor. We render the cursor over the wide character if
+             // we're on the wide character tail.
+@@ -3690,3 +4294,67 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+         }
+     };
+ }
++
++test "PresentedRegions answers with the offsets of the frame on screen" {
++    const testing = std.testing;
++    const io = testing.io;
++    const RegionShifts = terminal.RenderState.RegionShifts;
++
++    var regions: PresentedRegions(3) = .{};
++    const at = struct {
++        fn at(offset: f64) RegionShifts {
++            var shifts: RegionShifts = .{ .screen = .alternate, .cols = 10, .rows = 8 };
++            shifts.append(.{ .top = 1, .bottom = 6, .left = 0, .right = 9, .offset = offset });
++            return shifts;
++        }
++    }.at;
++    const offset = struct {
++        fn offset(r: *PresentedRegions(3), shown: usize) f64 {
++            const shifts = r.get(testing.io, shown);
++            return if (shifts.len == 0) 0 else shifts.items[0].offset;
++        }
++    }.offset;
++
++    // Drawn is not shown: until the frame is presented, the one before it
++    // is on screen.
++    regions.drew(io, 0, 100, at(30));
++    try testing.expectEqual(0, offset(&regions, 0));
++    regions.present(io, 0);
++    try testing.expectEqual(30, offset(&regions, 0));
++    try testing.expectEqual(30, offset(&regions, 100));
++
++    // The next frame, drawn 10px further into the ease, is presented, but
++    // the layer is still showing the first: the layer decides.
++    regions.drew(io, 1, 101, at(20));
++    regions.present(io, 1);
++    try testing.expectEqual(30, offset(&regions, 100));
++    try testing.expectEqual(20, offset(&regions, 101));
++    try testing.expectEqual(20, offset(&regions, 0));
++
++    // The program scrolls two more 20px rows: every frame drawn so far
++    // shows the content 40px further from the terminal's rows.
++    regions.scrolled(io, &.{.{ .top = 1, .bottom = 6, .left = 0, .right = 9, .lines = 2 }}, 20);
++    try testing.expectEqual(70, offset(&regions, 100));
++    try testing.expectEqual(60, offset(&regions, 101));
++    try testing.expectEqual(60, offset(&regions, 0));
++
++    // A frame drawn after the scroll drew it in already.
++    regions.drew(io, 2, 102, at(45));
++    regions.present(io, 2);
++    try testing.expectEqual(45, offset(&regions, 102));
++
++    // A rebuilt swap chain reuses a target's name: the frame drawn to it
++    // last is the one that answers.
++    regions.drew(io, 1, 100, at(12));
++    try testing.expectEqual(12, offset(&regions, 100));
++
++    // A target the layer shows that no frame here was drawn to (one from a
++    // released swap chain) falls back to the frame presented last.
++    try testing.expectEqual(45, offset(&regions, 999));
++
++    // Once the animation has settled there is nothing to undo.
++    regions.drew(io, 0, 103, .{ .screen = .alternate, .cols = 10, .rows = 8 });
++    regions.present(io, 0);
++    try testing.expectEqual(0, offset(&regions, 103));
++    try testing.expectEqual(0, offset(&regions, 0));
++}
+diff --git a/src/renderer/metal/Frame.zig b/src/renderer/metal/Frame.zig
+index 388b4f9ed..cebbf8a85 100644
+--- a/src/renderer/metal/Frame.zig
++++ b/src/renderer/metal/Frame.zig
+@@ -78,13 +78,15 @@ fn bufferCompleted(
+     };
+ 
+     // If the frame is healthy, present it.
+-    if (health == .healthy) {
++    if (health == .healthy) present: {
+         block.renderer.api.present(
+             block.target.*,
+             block.sync,
+         ) catch |err| {
+             log.err("Failed to present render target: err={}", .{err});
++            break :present;
+         };
++        block.renderer.framePresented(block.target);
+     }
+ 
+     block.renderer.frameCompleted(health);
+diff --git a/src/renderer/metal/shaders.zig b/src/renderer/metal/shaders.zig
+index 84d536c41..5cbf69dea 100644
+--- a/src/renderer/metal/shaders.zig
++++ b/src/renderer/metal/shaders.zig
+@@ -213,6 +213,19 @@ pub const Uniforms = extern struct {
+     /// top, right, bottom, left.
+     grid_padding: [4]f32 align(16),
+ 
++    /// Smooth scrolling. `.x` is the sub-row viewport offset in pixels
++    /// (positive: content drawn shifted down); `.y` is how many grid
++    /// rows sit above the terminal viewport. Grid row `y` is drawn at
++    /// `(y - scroll_offset.y) * cell_size.y + scroll_offset.x`.
++    ///
++    /// `.z` is the height the viewport's rows don't account for —
++    /// `terminal_height - rows * cell_height` — which the shifted grid is
++    /// allowed to draw into, since it is real surface, not padding. It is
++    /// what lets the grid sit a few pixels lower so a resize moves the
++    /// content continuously instead of a row at a time. Zero at rest.
++    /// `.w` is unused.
++    scroll_offset: [4]f32 align(16),
++
+     /// Bit mask defining which directions to
+     /// extend cell colors in to the padding.
+     /// Order, LSB first: left, right, up, down
+@@ -254,6 +267,23 @@ pub const Uniforms = extern struct {
+         use_linear_correction: bool align(1) = false,
+     },
+ 
++    /// Region scroll animation (alternate-screen scroll regions that a
++    /// program scrolled by rows; see `RegionAnim` in the renderer).
++    /// `region_rect[i]` is the animating rectangle in grid pixels (left,
++    /// top, right, bottom) and `region_shift[i].x` how far its content is
++    /// currently drawn from its final place, positive being down. Grid
++    /// row `grid_size.y + k` is a ghost row: a row that scrolled out of
++    /// region `ghost_rows[k].x`, drawn at row `ghost_rows[k].y` (outside
++    /// the region) and clipped to it. `anim_counts.x` regions and `.y`
++    /// ghost rows are live; the rest is ignored.
++    region_rect: [max_region_anims][4]f32 align(16) = @splat(@splat(0)),
++    region_shift: [max_region_anims][4]f32 align(16) = @splat(@splat(0)),
++    ghost_rows: [max_ghost_rows][4]i32 align(16) = @splat(@splat(-1)),
++    anim_counts: [4]u32 align(16) = @splat(0),
++
++    pub const max_region_anims = 4;
++    pub const max_ghost_rows = 64;
++
+     const PaddingExtend = packed struct(u8) {
+         left: bool = false,
+         right: bool = false,
+diff --git a/src/renderer/opengl/shaders.zig b/src/renderer/opengl/shaders.zig
+index 2155e289b..d24b69343 100644
+--- a/src/renderer/opengl/shaders.zig
++++ b/src/renderer/opengl/shaders.zig
+@@ -178,6 +178,19 @@ pub const Uniforms = extern struct {
+     /// top, right, bottom, left.
+     grid_padding: [4]f32 align(16),
+ 
++    /// Smooth scrolling. `.x` is the sub-row viewport offset in pixels
++    /// (positive: content drawn shifted down); `.y` is how many grid
++    /// rows sit above the terminal viewport. Grid row `y` is drawn at
++    /// `(y - scroll_offset.y) * cell_size.y + scroll_offset.x`.
++    ///
++    /// `.z` is the height the viewport's rows don't account for —
++    /// `terminal_height - rows * cell_height` — which the shifted grid is
++    /// allowed to draw into, since it is real surface, not padding. It is
++    /// what lets the grid sit a few pixels lower so a resize moves the
++    /// content continuously instead of a row at a time. Zero at rest.
++    /// `.w` is unused.
++    scroll_offset: [4]f32 align(16),
++
+     /// Bit mask defining which directions to
+     /// extend cell colors in to the padding.
+     /// Order, LSB first: left, right, up, down
+@@ -197,6 +210,17 @@ pub const Uniforms = extern struct {
+     /// Various booleans, in a packed struct for space efficiency.
+     bools: Bools align(4),
+ 
++    /// Region scroll animation; see the Metal `Uniforms` for the layout.
++    /// std140 gives every array element 16 bytes, which is why the
++    /// shifts are vec4s and the ghost rows ivec4s.
++    region_rect: [max_region_anims][4]f32 align(16) = @splat(@splat(0)),
++    region_shift: [max_region_anims][4]f32 align(16) = @splat(@splat(0)),
++    ghost_rows: [max_ghost_rows][4]i32 align(16) = @splat(@splat(-1)),
++    anim_counts: [4]u32 align(16) = @splat(0),
++
++    pub const max_region_anims = 4;
++    pub const max_ghost_rows = 64;
++
+     const Bools = packed struct(u32) {
+         /// Whether the cursor is 2 cells wide.
+         cursor_wide: bool,
+diff --git a/src/renderer/shaders/glsl/cell_bg.f.glsl b/src/renderer/shaders/glsl/cell_bg.f.glsl
+index fa48c6736..949367aa3 100644
+--- a/src/renderer/shaders/glsl/cell_bg.f.glsl
++++ b/src/renderer/shaders/glsl/cell_bg.f.glsl
+@@ -12,41 +12,87 @@ layout(binding = 1, std430) readonly buffer bg_cells {
+ 
+ vec4 cell_bg() {
+     uvec2 grid_size = unpack2u16(grid_size_packed_2u16);
+-    ivec2 grid_pos = ivec2(floor((gl_FragCoord.xy - grid_padding.wx) / cell_size));
+     bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
+ 
++    // Position relative to the visible grid. Its extent comes from the
++    // grid itself, not from grid_padding's bottom/right, which hold the
++    // leftover measured at the last resize and can be stale. While smooth
++    // scrolling the grid carries one row more than is visible. Padding
++    // decisions use this unshifted position; the cell lookup below then
++    // applies the shift, so a partially revealed row never leaks into
++    // the padding.
++    vec2 rel = gl_FragCoord.xy - grid_padding.wx;
++    float extra_rows = scroll_offset.x != 0.0 ? max(scroll_offset.y, 1.0) : 0.0;
++    vec2 visible = cell_size * vec2(float(grid_size.x), float(grid_size.y) - extra_rows);
++    // A shifted grid sits on the height its rows don't account for, so that
++    // strip is grid, not padding.
++    visible.y += scroll_offset.x != 0.0 ? scroll_offset.z : 0.0;
++
+     vec4 bg = vec4(0.0);
+ 
+     // Clamp x position, extends edge bg colors in to padding on sides.
+-    if (grid_pos.x < 0) {
++    if (rel.x < 0.0) {
+         if ((padding_extend & EXTEND_LEFT) != 0) {
+-            grid_pos.x = 0;
++            rel.x = 0.0;
+         } else {
+             return bg;
+         }
+-    } else if (grid_pos.x > grid_size.x - 1) {
++    } else if (rel.x >= visible.x) {
+         if ((padding_extend & EXTEND_RIGHT) != 0) {
+-            grid_pos.x = int(grid_size.x) - 1;
++            rel.x = visible.x - 0.5;
+         } else {
+             return bg;
+         }
+     }
+ 
+     // Clamp y position if we should extend, otherwise discard if out of bounds.
+-    if (grid_pos.y < 0) {
++    if (rel.y < 0.0) {
+         if ((padding_extend & EXTEND_UP) != 0) {
+-            grid_pos.y = 0;
++            rel.y = 0.0;
+         } else {
+             return bg;
+         }
+-    } else if (grid_pos.y > grid_size.y - 1) {
++    } else if (rel.y >= visible.y) {
+         if ((padding_extend & EXTEND_DOWN) != 0) {
+-            grid_pos.y = int(grid_size.y) - 1;
++            rel.y = visible.y - 0.5;
+         } else {
+             return bg;
+         }
+     }
+ 
++    float shift_y = scroll_offset.x - scroll_offset.y * cell_size.y;
++    vec2 grid_px = rel - vec2(0.0, shift_y);
++
++    // Region scroll animation: inside an animating rectangle the content
++    // is drawn shifted, so look the cell up where it is drawn from. Past
++    // the region's own rows that is a ghost row sliding out, if one is
++    // still there, and otherwise nothing: the surface background.
++    int region = region_of(grid_px);
++    if (region >= 0) {
++        vec4 r = region_rect[region];
++        float y = grid_px.y - region_shift[region].x;
++        int row = int(floor(y / cell_size.y));
++        int col = clamp(int(floor(grid_px.x / cell_size.x)), 0, int(grid_size.x) - 1);
++        int cols = int(grid_size.x);
++        if (y >= r.y && y < r.w) {
++            row = clamp(row, 0, int(grid_size.y) - 1);
++            return load_color(unpack4u8(cells[row * cols + col]), use_linear_blending);
++        }
++        for (uint k = 0u; k < anim_counts.y; k++) {
++            ivec4 ghost = ghost_rows[k];
++            if (ghost.x == region && ghost.y == row) {
++                return load_color(
++                        unpack4u8(cells[(int(grid_size.y) + int(k)) * cols + col]),
++                        use_linear_blending
++                    );
++            }
++        }
++        return bg;
++    }
++
++    ivec2 grid_pos = ivec2(floor(grid_px / cell_size));
++    grid_pos = clamp(grid_pos, ivec2(0), ivec2(grid_size) - 1);
++
+     // Load the color for the cell.
+     vec4 cell_color = load_color(
+             unpack4u8(cells[grid_pos.y * grid_size.x + grid_pos.x]),
+diff --git a/src/renderer/shaders/glsl/cell_text.f.glsl b/src/renderer/shaders/glsl/cell_text.f.glsl
+index 176efcbde..fa78b667e 100644
+--- a/src/renderer/shaders/glsl/cell_text.f.glsl
++++ b/src/renderer/shaders/glsl/cell_text.f.glsl
+@@ -8,6 +8,7 @@ in CellTextVertexOut {
+     flat vec4 color;
+     flat vec4 bg_color;
+     vec2 tex_coord;
++    flat vec4 clip;
+ } in_data;
+ 
+ // Values `atlas` can take.
+@@ -17,7 +18,32 @@ const uint ATLAS_COLOR = 1u;
+ // Must declare this output for some versions of OpenGL.
+ layout(location = 0) out vec4 out_FragColor;
+ 
++// Position the origin to the upper left
++layout(origin_upper_left) in vec4 gl_FragCoord;
++
+ void main() {
++    // Region scroll animation: a glyph sliding in or out of its region
++    // stops at the region's edge.
++    {
++        vec2 rel = gl_FragCoord.xy - grid_padding.wx;
++        if (rel.x < in_data.clip.x || rel.x >= in_data.clip.z ||
++            rel.y < in_data.clip.y || rel.y >= in_data.clip.w) {
++            discard;
++        }
++    }
++
++    // Smooth scrolling: a partially revealed row extends into the padding;
++    // clip it to the visible grid. Only while shifted, so glyphs that
++    // legitimately overhang a cell edge are untouched at rest.
++    if (scroll_offset.x != 0.0) {
++        float y = gl_FragCoord.y - grid_padding.x;
++        uvec2 grid_size = unpack2u16(grid_size_packed_2u16);
++        float extra_rows = max(scroll_offset.y, 1.0);
++        float visible_h =
++            (float(grid_size.y) - extra_rows) * cell_size.y + scroll_offset.z;
++        if (y < 0.0 || y >= visible_h) discard;
++    }
++
+     bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
+     bool use_linear_correction = (bools & USE_LINEAR_CORRECTION) != 0;
+ 
+diff --git a/src/renderer/shaders/glsl/cell_text.v.glsl b/src/renderer/shaders/glsl/cell_text.v.glsl
+index 7e38e2f0c..ea0189e49 100644
+--- a/src/renderer/shaders/glsl/cell_text.v.glsl
++++ b/src/renderer/shaders/glsl/cell_text.v.glsl
+@@ -34,6 +34,9 @@ out CellTextVertexOut {
+     flat vec4 color;
+     flat vec4 bg_color;
+     vec2 tex_coord;
++    // Grid-pixel rectangle the glyph is clipped to: the region it is
++    // scrolling in, or everything.
++    flat vec4 clip;
+ } out_data;
+ 
+ layout(binding = 1, std430) readonly buffer bg_cells {
+@@ -49,6 +52,28 @@ void main() {
+     // Convert the grid x, y into world space x, y by accounting for cell size
+     vec2 cell_pos = cell_size * vec2(grid_pos);
+ 
++    // Region scroll animation: a ghost row (beyond the grid) is drawn at
++    // the row it scrolled to, and every cell of an animating region is
++    // shifted by the region's remaining distance and clipped to it.
++    vec4 clip = vec4(-1.0e9, -1.0e9, 1.0e9, 1.0e9);
++    int region = -1;
++    if (grid_pos.y >= grid_size.y) {
++        ivec4 ghost = ghost_rows[grid_pos.y - grid_size.y];
++        region = ghost.x;
++        cell_pos.y = cell_size.y * float(ghost.y);
++    } else {
++        region = region_of(cell_pos);
++    }
++    if (region >= 0) {
++        cell_pos.y += region_shift[region].x;
++        clip = region_rect[region];
++    }
++    out_data.clip = clip;
++
++    // Smooth scrolling: grid rows are shifted by the sub-row offset, with
++    // an extra row above the viewport drawn at negative y.
++    cell_pos.y += scroll_offset.x - scroll_offset.y * cell_size.y;
++
+     int vid = gl_VertexID;
+ 
+     // We use a triangle strip with 4 vertices to render quads,
+diff --git a/src/renderer/shaders/glsl/common.glsl b/src/renderer/shaders/glsl/common.glsl
+index 1a7ea03a7..65ca1311a 100644
+--- a/src/renderer/shaders/glsl/common.glsl
++++ b/src/renderer/shaders/glsl/common.glsl
+@@ -17,14 +17,42 @@ layout(binding = 1, std140) uniform Globals {
+     uniform vec2 cell_size;
+     uniform uint grid_size_packed_2u16;
+     uniform vec4 grid_padding;
++    // Smooth scrolling: .x = sub-row viewport offset in pixels (positive:
++    // content shifted down), .y = grid rows above the viewport, .z = the
++    // height the viewport's rows don't account for, which the shifted grid
++    // may draw into (it is surface, not padding). Grid row y is drawn at
++    // (y - .y) * cell_size.y + .x.
++    uniform vec4 scroll_offset;
+     uniform uint padding_extend;
+     uniform float min_contrast;
+     uniform uint cursor_pos_packed_2u16;
+     uniform uint cursor_color_packed_4u8;
+     uniform uint bg_color_packed_4u8;
+     uniform uint bools;
++    // Region scroll animation; see the Metal Uniforms for the meaning.
++    // region_rect[i]: animating rectangle in grid pixels (left, top,
++    // right, bottom); region_shift[i].x: how far its content is drawn
++    // from its final place (positive: down). Grid row grid_size.y + k is
++    // a ghost row from region ghost_rows[k].x drawn at row ghost_rows[k].y.
++    // anim_counts.x regions and .y ghost rows are live.
++    uniform vec4 region_rect[4];
++    uniform vec4 region_shift[4];
++    uniform ivec4 ghost_rows[64];
++    uniform uvec4 anim_counts;
+ };
+ 
++// The region scroll animation a grid cell takes part in, or -1. `pos` is
++// the cell's top-left in grid pixels, before any shift.
++int region_of(vec2 pos) {
++    for (uint i = 0u; i < anim_counts.x; i++) {
++        vec4 r = region_rect[i];
++        if (pos.x >= r.x && pos.x < r.z && pos.y >= r.y && pos.y < r.w) {
++            return int(i);
++        }
++    }
++    return -1;
++}
++
+ // Bools
+ const uint CURSOR_WIDE = 1u;
+ const uint USE_DISPLAY_P3 = 2u;
+diff --git a/src/renderer/shaders/glsl/image.v.glsl b/src/renderer/shaders/glsl/image.v.glsl
+index 779fae32f..e2e83885b 100644
+--- a/src/renderer/shaders/glsl/image.v.glsl
++++ b/src/renderer/shaders/glsl/image.v.glsl
+@@ -43,5 +43,9 @@ void main() {
+     vec2 image_pos = (cell_size * grid_pos) + cell_offset;
+     image_pos += dest_size * corner;
+ 
++    // Smooth scrolling: image placements are in terminal viewport rows,
++    // so they move by the sub-row offset alone.
++    image_pos.y += scroll_offset.x;
++
+     gl_Position = projection_matrix * vec4(image_pos.xy, 1.0, 1.0);
+ }
+diff --git a/src/renderer/shaders/shaders.metal b/src/renderer/shaders/shaders.metal
+index 4e02b6336..3f54f8daf 100644
+--- a/src/renderer/shaders/shaders.metal
++++ b/src/renderer/shaders/shaders.metal
+@@ -15,6 +15,12 @@ struct Uniforms {
+   float2 cell_size;
+   ushort2 grid_size;
+   float4 grid_padding;
++  // Smooth scrolling: .x = sub-row viewport offset in pixels (positive:
++  // content shifted down), .y = grid rows above the viewport, .z = the
++  // height the viewport's rows don't account for, which the shifted grid
++  // may draw into (it is surface, not padding). Grid row y is drawn at
++  // (y - .y) * cell_size.y + .x.
++  float4 scroll_offset;
+   uint8_t padding_extend;
+   float min_contrast;
+   ushort2 cursor_pos;
+@@ -24,8 +30,30 @@ struct Uniforms {
+   bool use_display_p3;
+   bool use_linear_blending;
+   bool use_linear_correction;
++  // Region scroll animation. region_rect[i] is an animating rectangle in
++  // grid pixels (left, top, right, bottom); region_shift[i].x is how far
++  // its content is currently drawn from its final place (positive: down).
++  // Grid row grid_size.y + k is a ghost row that scrolled out of region
++  // ghost_rows[k].x and is drawn at row ghost_rows[k].y, outside the
++  // region, clipped to it. anim_counts.x regions and .y ghosts are live.
++  float4 region_rect[4];
++  float4 region_shift[4];
++  int4 ghost_rows[64];
++  uint4 anim_counts;
+ };
+ 
++// The region scroll animation a grid cell takes part in, or -1. `pos` is
++// the cell's top-left in grid pixels, before any shift.
++int region_of(constant Uniforms& uniforms, float2 pos) {
++  for (uint i = 0; i < uniforms.anim_counts.x; i++) {
++    float4 r = uniforms.region_rect[i];
++    if (pos.x >= r.x && pos.x < r.z && pos.y >= r.y && pos.y < r.w) {
++      return int(i);
++    }
++  }
++  return -1;
++}
++
+ //-------------------------------------------------------------------
+ // Color Functions
+ //-------------------------------------------------------------------
+@@ -453,40 +481,91 @@ fragment float4 cell_bg_fragment(
+   constant Uniforms& uniforms [[buffer(1)]],
+   constant uchar4 *cells [[buffer(2)]]
+ ) {
+-  int2 grid_pos = int2(floor((in.position.xy - uniforms.grid_padding.wx) / uniforms.cell_size));
++  // Position relative to the visible grid. Its extent comes from the
++  // grid itself, not from grid_padding's bottom/right, which hold the
++  // leftover measured at the last resize and can be stale. While smooth
++  // scrolling the grid carries one row more than is visible. Padding
++  // decisions use this unshifted position; the cell lookup below then
++  // applies the shift, so a partially revealed row never leaks into
++  // the padding.
++  float2 rel = in.position.xy - uniforms.grid_padding.wx;
++  float extra_rows = uniforms.scroll_offset.x != 0.0
++      ? max(uniforms.scroll_offset.y, 1.0)
++      : 0.0;
++  float2 visible = uniforms.cell_size *
++      float2(uniforms.grid_size.x, float(uniforms.grid_size.y) - extra_rows);
++  // A shifted grid sits on the height its rows don't account for, so that
++  // strip is grid, not padding.
++  visible.y += uniforms.scroll_offset.x != 0.0 ? uniforms.scroll_offset.z : 0.0;
+ 
+   float4 bg = float4(0.0);
+ 
+   // Clamp x position, extends edge bg colors in to padding on sides.
+-  if (grid_pos.x < 0) {
++  if (rel.x < 0.0) {
+     if (uniforms.padding_extend & EXTEND_LEFT) {
+-      grid_pos.x = 0;
++      rel.x = 0.0;
+     } else {
+       return bg;
+     }
+-  } else if (grid_pos.x > uniforms.grid_size.x - 1) {
++  } else if (rel.x >= visible.x) {
+     if (uniforms.padding_extend & EXTEND_RIGHT) {
+-      grid_pos.x = uniforms.grid_size.x - 1;
++      rel.x = visible.x - 0.5;
+     } else {
+       return bg;
+     }
+   }
+ 
+   // Clamp y position if we should extend, otherwise discard if out of bounds.
+-  if (grid_pos.y < 0) {
++  if (rel.y < 0.0) {
+     if (uniforms.padding_extend & EXTEND_UP) {
+-      grid_pos.y = 0;
++      rel.y = 0.0;
+     } else {
+       return bg;
+     }
+-  } else if (grid_pos.y > uniforms.grid_size.y - 1) {
++  } else if (rel.y >= visible.y) {
+     if (uniforms.padding_extend & EXTEND_DOWN) {
+-      grid_pos.y = uniforms.grid_size.y - 1;
++      rel.y = visible.y - 0.5;
+     } else {
+       return bg;
+     }
+   }
+ 
++  float shift_y = uniforms.scroll_offset.x -
++      uniforms.scroll_offset.y * uniforms.cell_size.y;
++  float2 grid_px = rel - float2(0.0, shift_y);
++
++  // Region scroll animation: inside an animating rectangle the content
++  // is drawn shifted, so look the cell up where it is drawn from. Past
++  // the region's own rows that is a ghost row sliding out, if one is
++  // still there, and otherwise nothing: the surface background.
++  int region = region_of(uniforms, grid_px);
++  if (region >= 0) {
++    float4 r = uniforms.region_rect[region];
++    float y = grid_px.y - uniforms.region_shift[region].x;
++    int row = int(floor(y / uniforms.cell_size.y));
++    int col = clamp(int(floor(grid_px.x / uniforms.cell_size.x)),
++                    0, int(uniforms.grid_size.x) - 1);
++    int cols = int(uniforms.grid_size.x);
++    if (y >= r.y && y < r.w) {
++      row = clamp(row, 0, int(uniforms.grid_size.y) - 1);
++      return load_color(cells[row * cols + col],
++                        uniforms.use_display_p3,
++                        uniforms.use_linear_blending);
++    }
++    for (uint k = 0; k < uniforms.anim_counts.y; k++) {
++      int4 ghost = uniforms.ghost_rows[k];
++      if (ghost.x == region && ghost.y == row) {
++        return load_color(cells[(int(uniforms.grid_size.y) + int(k)) * cols + col],
++                          uniforms.use_display_p3,
++                          uniforms.use_linear_blending);
++      }
++    }
++    return bg;
++  }
++
++  int2 grid_pos = int2(floor(grid_px / uniforms.cell_size));
++  grid_pos = clamp(grid_pos, int2(0), int2(uniforms.grid_size) - 1);
++
+   // Load the color for the cell.
+   uchar4 cell_color = cells[grid_pos.y * uniforms.grid_size.x + grid_pos.x];
+ 
+@@ -551,6 +630,9 @@ struct CellTextVertexOut {
+   float4 color [[flat]];
+   float4 bg_color [[flat]];
+   float2 tex_coord;
++  // Grid-pixel rectangle the glyph is clipped to: the region it is
++  // scrolling in, or everything.
++  float4 clip [[flat]];
+ };
+ 
+ vertex CellTextVertexOut cell_text_vertex(
+@@ -562,6 +644,28 @@ vertex CellTextVertexOut cell_text_vertex(
+   // Convert the grid x, y into world space x, y by accounting for cell size
+   float2 cell_pos = uniforms.cell_size * float2(in.grid_pos);
+ 
++  // Region scroll animation: a ghost row (beyond the grid) is drawn at
++  // the row it scrolled to, and every cell of an animating region is
++  // shifted by the region's remaining distance and clipped to it.
++  float4 clip = float4(-1.0e9, -1.0e9, 1.0e9, 1.0e9);
++  int region = -1;
++  if (in.grid_pos.y >= uniforms.grid_size.y) {
++    int4 ghost = uniforms.ghost_rows[in.grid_pos.y - uniforms.grid_size.y];
++    region = ghost.x;
++    cell_pos.y = uniforms.cell_size.y * float(ghost.y);
++  } else {
++    region = region_of(uniforms, cell_pos);
++  }
++  if (region >= 0) {
++    cell_pos.y += uniforms.region_shift[region].x;
++    clip = uniforms.region_rect[region];
++  }
++
++  // Smooth scrolling: grid rows are shifted by the sub-row offset, with
++  // an extra row above the viewport drawn at negative y.
++  cell_pos.y += uniforms.scroll_offset.x -
++      uniforms.scroll_offset.y * uniforms.cell_size.y;
++
+   // We use a triangle strip with 4 vertices to render quads,
+   // so we determine which corner of the cell this vertex is in
+   // based on the vertex ID.
+@@ -582,6 +686,7 @@ vertex CellTextVertexOut cell_text_vertex(
+ 
+   CellTextVertexOut out;
+   out.atlas = in.atlas;
++  out.clip = clip;
+ 
+   //              === Grid Cell ===
+   //      +X
+@@ -687,6 +792,28 @@ fragment float4 cell_text_fragment(
+     filter::nearest
+   );
+ 
++  // Region scroll animation: a glyph sliding in or out of its region
++  // stops at the region's edge.
++  {
++    float2 rel = in.position.xy - uniforms.grid_padding.wx;
++    if (rel.x < in.clip.x || rel.x >= in.clip.z ||
++        rel.y < in.clip.y || rel.y >= in.clip.w) {
++      discard_fragment();
++    }
++  }
++
++  // Smooth scrolling: a partially revealed row extends into the padding;
++  // clip it to the visible grid. Only while shifted, so glyphs that
++  // legitimately overhang a cell edge are untouched at rest.
++  if (uniforms.scroll_offset.x != 0.0) {
++    float y = in.position.y - uniforms.grid_padding.x;
++    float extra_rows = max(uniforms.scroll_offset.y, 1.0);
++    float visible_h =
++        (float(uniforms.grid_size.y) - extra_rows) * uniforms.cell_size.y +
++        uniforms.scroll_offset.z;
++    if (y < 0.0 || y >= visible_h) discard_fragment();
++  }
++
+   switch (in.atlas) {
+     default:
+     case ATLAS_GRAYSCALE: {
+@@ -823,6 +950,10 @@ vertex ImageVertexOut image_vertex(
+   float2 image_pos = (uniforms.cell_size * in.grid_pos) + in.cell_offset;
+   image_pos += in.dest_size * corner;
+ 
++  // Smooth scrolling: image placements are in terminal viewport rows,
++  // so they move by the sub-row offset alone.
++  image_pos.y += uniforms.scroll_offset.x;
++
+   out.position =
+       uniforms.projection_matrix * float4(image_pos.x, image_pos.y, 0.0f, 1.0f);
+   out.tex_coord = tex_coord;
+diff --git a/src/terminal/Screen.zig b/src/terminal/Screen.zig
+index 820455e64..971d31ce9 100644
+--- a/src/terminal/Screen.zig
++++ b/src/terminal/Screen.zig
+@@ -61,6 +61,25 @@ saved_cursor: ?SavedCursor = null,
+ /// automatically setup tracking.
+ selection: ?Selection = null,
+ 
++/// Sub-row offset of the viewport in pixels, for smooth (pixel-precise)
++/// scrolling. Positive means the viewport sits that many pixels *above*
++/// its row-aligned position (content is drawn shifted down, revealing the
++/// bottom of the row above); negative means below. Always within one cell
++/// height. Any row-level viewport move resets it: the offset only ever
++/// describes the remainder of the scroll gesture that produced the current
++/// viewport, never a stale one. Rendering validates it against the screen
++/// (an offset pointing at a row that doesn't exist is drawn as zero).
++viewport_pixel_offset: f64 = 0,
++
++/// Scrolls of a region of the alternate screen by whole rows that have
++/// happened since the renderer last looked (see `RegionScrolls`). With
++/// `smooth-scroll` on, the renderer animates them: the region's new
++/// content slides from where the old content was, and the rows that
++/// scrolled out slide away with it. A program that scrolls its own
++/// screen by rows, an editor say, gets the same continuous motion the
++/// scrollback viewport has, without knowing anything about pixels.
++region_scrolls: RegionScrolls = .{},
++
+ /// The charset state
+ charset: CharsetState = .{},
+ 
+@@ -195,6 +214,56 @@ pub const Cursor = struct {
+ };
+ 
+ /// Saved cursor state.
++/// A scroll of a rectangle of the screen by whole rows: DECSTBM (and
++/// DECSLRM) margins scrolled by SU/SD or by IND/RI at the margin. `lines`
++/// is positive when the content moved up (SU), negative when it moved down,
++/// and is always smaller than the region's height: a scroll that keeps
++/// nothing is a clear and is not recorded.
++pub const RegionScroll = struct {
++    top: size.CellCountInt,
++    bottom: size.CellCountInt,
++    left: size.CellCountInt,
++    right: size.CellCountInt,
++    lines: i32,
++
++    pub fn sameRegion(a: RegionScroll, b: RegionScroll) bool {
++        return a.top == b.top and a.bottom == b.bottom and
++            a.left == b.left and a.right == b.right;
++    }
++};
++
++/// The region scrolls pending for the renderer. Scrolls of the same
++/// region merge, since between two frames only their sum can be seen,
++/// and a handful of distinct regions is plenty: a scroll of a region
++/// beyond that is simply not animated.
++pub const RegionScrolls = struct {
++    pub const capacity = 8;
++
++    items: [capacity]RegionScroll = undefined,
++    len: u8 = 0,
++
++    pub fn push(self: *RegionScrolls, region_scroll: RegionScroll) void {
++        if (region_scroll.lines == 0) return;
++        for (self.items[0..self.len]) |*existing| {
++            if (existing.sameRegion(region_scroll)) {
++                existing.lines += region_scroll.lines;
++                return;
++            }
++        }
++        if (self.len == capacity) return;
++        self.items[self.len] = region_scroll;
++        self.len += 1;
++    }
++
++    pub fn slice(self: *const RegionScrolls) []const RegionScroll {
++        return self.items[0..self.len];
++    }
++
++    pub fn clear(self: *RegionScrolls) void {
++        self.len = 0;
++    }
++};
++
+ pub const SavedCursor = struct {
+     x: size.CellCountInt,
+     y: size.CellCountInt,
+@@ -1680,6 +1749,10 @@ pub const Scroll = union(enum) {
+ pub inline fn scroll(self: *Screen, behavior: Scroll) void {
+     defer self.assertIntegrity();
+ 
++    // A row-level move invalidates any sub-row remainder; the scroll
++    // callback re-publishes its own remainder after the move.
++    self.viewport_pixel_offset = 0;
++
+     if (comptime build_options.kitty_graphics) {
+         // No matter what, scrolling marks our image state as dirty since
+         // it could move placements. If there are no placements or no images
+diff --git a/src/terminal/Terminal.zig b/src/terminal/Terminal.zig
+index 53075a8e7..b9a3bf0aa 100644
+--- a/src/terminal/Terminal.zig
++++ b/src/terminal/Terminal.zig
+@@ -2438,6 +2438,10 @@ pub fn index(self: *Terminal) !void {
+             // present case is handled out of line so this hot path
+             // only pays a count check (a load from a cache line we
+             // already write, above).
++            // A row scrolled off the alternate screen is a motion to
++            // animate (scrollUp notes its own path below).
++            self.noteRegionScroll(1);
++
+             if (comptime build_options.kitty_graphics) {
+                 if (screen.kitty_images.placements.count() != 0) {
+                     @branchHint(.unlikely);
+@@ -2459,6 +2463,8 @@ pub fn index(self: *Terminal) !void {
+             return;
+         }
+ 
++        self.noteRegionScroll(1);
++
+         // Kitty image placements may need adjusting around the scroll;
+         // handled out of line like the scrollback path above.
+         if (comptime build_options.kitty_graphics) {
+@@ -2701,8 +2707,29 @@ pub fn setLeftAndRightMargin(self: *Terminal, left_req: usize, right_req: usize)
+     self.setCursorPos(1, 1);
+ }
+ 
++/// Record a scroll of the current scrolling region by `lines` rows for the
++/// renderer to animate (see `Screen.region_scrolls`). Only the alternate
++/// screen: on the primary screen a scroll creates scrollback, which the
++/// viewport's own smooth scrolling covers. A scroll of the region's whole
++/// height or more keeps nothing on screen and is not a motion.
++fn noteRegionScroll(self: *Terminal, lines: i32) void {
++    if (self.screens.active_key != .alternate) return;
++    const region = self.scrolling_region;
++    const height: i32 = @as(i32, region.bottom - region.top) + 1;
++    if (lines == 0 or @abs(lines) >= height) return;
++    self.screens.active.region_scrolls.push(.{
++        .top = region.top,
++        .bottom = region.bottom,
++        .left = region.left,
++        .right = region.right,
++        .lines = lines,
++    });
++}
++
+ /// Scroll the text down by one row.
+ pub fn scrollDown(self: *Terminal, count: usize) void {
++    self.noteRegionScroll(-@as(i32, @intCast(@min(count, std.math.maxInt(i32)))));
++
+     // Preserve our x/y to restore.
+     const old_x = self.screens.active.cursor.x;
+     const old_y = self.screens.active.cursor.y;
+@@ -2743,6 +2770,8 @@ pub fn scrollDown(self: *Terminal, count: usize) void {
+ ///
+ /// Does not change the (absolute) cursor position.
+ pub fn scrollUp(self: *Terminal, count: usize) !void {
++    self.noteRegionScroll(@intCast(@min(count, std.math.maxInt(i32))));
++
+     // Preserve our x/y to restore.
+     const old_x = self.screens.active.cursor.x;
+     const old_y = self.screens.active.cursor.y;
+@@ -9215,6 +9244,49 @@ test "Terminal: insertLines left/right scroll region" {
+     }
+ }
+ 
++test "Terminal: region scroll noted on the alternate screen only" {
++    const alloc = testing.allocator;
++    const io_impl = testing.io;
++    var t = try init(io_impl, alloc, .{ .rows = 6, .cols = 8 });
++    defer t.deinit(alloc);
++
++    // Primary screen: scrolls create scrollback and are not noted.
++    t.setTopAndBottomMargin(2, 5);
++    try t.scrollUp(1);
++    try testing.expectEqual(0, t.screens.active.region_scrolls.len);
++
++    try t.switchScreenMode(.@"1049", true);
++    t.setTopAndBottomMargin(2, 5);
++    t.modes.set(.enable_left_and_right_margin, true);
++    t.setLeftAndRightMargin(3, 8);
++
++    try t.scrollUp(2);
++    {
++        const pending = t.screens.active.region_scrolls.slice();
++        try testing.expectEqual(1, pending.len);
++        try testing.expectEqual(1, pending[0].top);
++        try testing.expectEqual(4, pending[0].bottom);
++        try testing.expectEqual(2, pending[0].left);
++        try testing.expectEqual(7, pending[0].right);
++        try testing.expectEqual(2, pending[0].lines);
++    }
++
++    // Same region again merges; a scroll down subtracts.
++    t.scrollDown(1);
++    try testing.expectEqual(1, t.screens.active.region_scrolls.len);
++    try testing.expectEqual(1, t.screens.active.region_scrolls.slice()[0].lines);
++
++    // IND at the bottom margin is a scroll too.
++    t.setCursorPos(5, 3);
++    try t.index();
++    try testing.expectEqual(2, t.screens.active.region_scrolls.slice()[0].lines);
++
++    // Scrolling the whole region away is a clear, not a motion.
++    t.screens.active.region_scrolls.clear();
++    try t.scrollUp(4);
++    try testing.expectEqual(0, t.screens.active.region_scrolls.len);
++}
++
+ test "Terminal: scrollUp simple" {
+     const alloc = testing.allocator;
+     const io_impl = testing.io;
+diff --git a/src/terminal/render.zig b/src/terminal/render.zig
+index b32ddd321..45a79f799 100644
+--- a/src/terminal/render.zig
++++ b/src/terminal/render.zig
+@@ -184,6 +184,25 @@ pub const RenderState = struct {
+     /// This is set by the update and should not be modified.
+     overscan: Overscan = .{},
+ 
++    /// Smooth scrolling: the validated sub-row offset in pixels the grid is
++    /// drawn at, set by `beginShiftedUpdate`. While it is non-zero the rows
++    /// being revealed are captured as overscan (`overscan.above` rows at the
++    /// top, or one below), and renderers draw `row_data` index `i` at
++    /// `viewportY(i) * cell_height + viewport_pixel_offset`. Zero when the
++    /// offset can't be honored (no such row).
++    ///
++    /// Two things add up here (see `Geometry`): the remainder of a scroll
++    /// gesture (`Screen.viewport_pixel_offset`) and the sub-row remainder
++    /// of the viewport's own height, which is what lets a resize move the
++    /// grid continuously instead of a row at a time. Their sum can exceed a
++    /// cell, which is why more than one row can be revealed above.
++    viewport_pixel_offset: f64 = 0,
++
++    /// The leftover height the grid was laid on this update (see
++    /// `Geometry`), for the renderer to draw as grid rather than padding
++    /// while the offset is non-zero. Zero without geometry.
++    viewport_pixel_pad: f64 = 0,
++
+     /// The cached selection so we can avoid expensive selection calculations
+     /// if possible.
+     selection_cache: ?SelectionCache = null,
+@@ -242,6 +261,14 @@ pub const RenderState = struct {
+         /// may be null if the cursor is not visible within the viewport.
+         viewport: ?Viewport,
+ 
++        /// Smooth scrolling: the cursor's position among the captured
++        /// rows, counting from the first (`rowDataRange().start`), and
++        /// null only when no captured row holds it. Unlike `viewport`
++        /// this counts an overscan row: `beginShiftedUpdate` captures the
++        /// rows a shifted grid reveals, which are drawn partly on screen,
++        /// and the cursor with them.
++        captured: ?Viewport = null,
++
+         /// The cell data for the cursor position. Managed memory is not
+         /// safe to access from this.
+         cell: page.Cell,
+@@ -487,6 +514,56 @@ pub const RenderState = struct {
+         self.endUpdate();
+     }
+ 
++    /// What the renderer knows about the viewport that the terminal does
++    /// not: pixels.
++    ///
++    /// The leftover is the height left over once the viewport's rows have
++    /// been laid out — `terminal_height - rows * cell_height`, under a cell
++    /// once the resize has settled. A grid only comes in whole rows, so as a surface is
++    /// resized that leftover grows until it is a full row and the viewport
++    /// takes one; everything on screen then jumps a cell at once. Drawing
++    /// the grid that leftover lower, with the row above partly revealed,
++    /// makes the same sequence continuous: the content slides down as the
++    /// leftover grows, and the row it gains arrives exactly where the
++    /// revealed sliver had got to. The renderer passes zero when smooth
++    /// scrolling is off, which is the behavior every renderer had before.
++    pub const Geometry = struct {
++        cell_height: u32 = 0,
++        /// The height of the terminal area (the screen less padding) in
++        /// pixels. The leftover is measured here, against the terminal's
++        /// own row count, and not by the renderer against its grid: the
++        /// two change on different threads, and a frame caught between
++        /// them drew the grid a whole cell off — the renderer already had
++        /// the new height while the terminal still had the old rows, or
++        /// the reverse — which every divider drag showed as a flash.
++        terminal_height: u32 = 0,
++
++        pub const none: Geometry = .{};
++    };
++
++    /// `beginUpdate` for a renderer that draws smooth scrolling. Resolves
++    /// the shift (`resolveShift`), captures the rows it reveals as
++    /// overscan, and records where the grid is drawn
++    /// (`viewport_pixel_offset`, `viewport_pixel_pad`).
++    ///
++    /// This owns `overscan_request`: it is set to exactly the rows the
++    /// shift reveals, all of which exist, so the captured `overscan`
++    /// always matches it. With smooth scrolling off (no geometry and no
++    /// gesture remainder) that is no overscan at all, and this is
++    /// `beginUpdate`.
++    pub fn beginShiftedUpdate(
++        self: *RenderState,
++        alloc: Allocator,
++        t: *Terminal,
++        geometry: Geometry,
++    ) Allocator.Error!void {
++        const shift = resolveShift(t.screens.active, geometry);
++        self.overscan_request = shift.overscan;
++        try self.beginUpdate(alloc, t);
++        self.viewport_pixel_offset = shift.pixel_offset;
++        self.viewport_pixel_pad = shift.pixel_pad;
++    }
++
+     /// Begin an update of the render state to the latest terminal
+     /// state. Every begin must be completed with an `endUpdate` call
+     /// before the render state is read.
+@@ -612,6 +689,7 @@ pub const RenderState = struct {
+         // probably cache this by comparing the cursor pin and viewport pin
+         // but may not be worth it.
+         self.cursor.viewport = null;
++        self.cursor.captured = null;
+ 
+         // Colors.
+         self.colors.cursor = t.colors.cursor.get();
+@@ -739,15 +817,25 @@ pub const RenderState = struct {
+             // Find our cursor if we haven't found it yet. We do this even
+             // if rows are not dirty because the cursor is unrelated. We
+             // can check the chunk bounds once rather than every row.
+-            if (self.cursor.viewport == null and
++            if (self.cursor.captured == null and
+                 node == s.cursor.page_pin.node)
+             cursor: {
+                 const cy = s.cursor.page_pin.y;
+                 if (cy < chunk.start or cy >= chunk.start + take) break :cursor;
+ 
++                const idx = y + (cy - chunk.start);
++                const wide_tail = if (s.cursor.x > 0)
++                    s.cursorCellLeft(1).wide == .wide
++                else
++                    false;
++                self.cursor.captured = .{
++                    .y = @intCast(idx - first),
++                    .x = s.cursor.x,
++                    .wide_tail = wide_tail,
++                };
++
+                 // The cursor may be in an overscan row, in which case it
+                 // is not visible in the viewport.
+-                const idx = y + (cy - chunk.start);
+                 const vp_start = self.viewportStart();
+                 if (idx < vp_start or idx >= vp_start + self.rows) break :cursor;
+                 self.cursor.viewport = .{
+@@ -756,10 +844,7 @@ pub const RenderState = struct {
+ 
+                     // Future: we should use our own state here to look this
+                     // up rather than calling this.
+-                    .wide_tail = if (s.cursor.x > 0)
+-                        s.cursorCellLeft(1).wide == .wide
+-                    else
+-                        false,
++                    .wide_tail = wide_tail,
+                 };
+             }
+ 
+@@ -1028,6 +1113,289 @@ pub const RenderState = struct {
+         self.pending_styles.clearRetainingCapacity();
+     }
+ 
++    /// Where smooth scrolling puts the viewport for one update: the rows
++    /// it reveals beyond it and how far the grid is drawn from where its
++    /// rows fall. See `resolveShift`.
++    pub const Shift = struct {
++        /// The rows revealed beyond the viewport, captured as overscan:
++        /// rows above while the grid is drawn shifted down, the one below
++        /// while it is drawn shifted up. Every row counted exists.
++        overscan: Overscan = .{},
++        /// How far below its row-aligned position the viewport's first row
++        /// is drawn, in pixels; negative is above. Zero when there is no
++        /// row to reveal on that side.
++        pixel_offset: f64 = 0,
++        /// The leftover height measured for this update (see `Geometry`).
++        pixel_pad: f64 = 0,
++
++        /// How many rows above the viewport are drawn at `y`, pixels below
++        /// the top of the terminal area; 0 on the viewport's own rows.
++        /// The rows this shift reveals are drawn above the viewport's
++        /// first row, from the top of the terminal area down to
++        /// `pixel_offset`, and a point there is on one of them — not on
++        /// the first row, which is where a viewport coordinate (which
++        /// cannot go above it) clamps it. A point above the terminal area,
++        /// in the padding, is on the topmost row drawn, as it would be on
++        /// the first row with no shift.
++        pub fn rowsAboveAt(self: Shift, y: f64, cell_height: f64) usize {
++            if (self.overscan.above == 0 or cell_height <= 0) return 0;
++            const above = self.pixel_offset - @max(y, 0);
++            if (above <= 0) return 0;
++            return @min(
++                @as(usize, @intFromFloat(@ceil(above / cell_height))),
++                self.overscan.above,
++            );
++        }
++    };
++
++    /// The smooth-scroll shift of `s`, decided exactly as an update draws
++    /// it. Anything that turns a pixel into a row or a row into a pixel
++    /// must use this rather than redo the arithmetic: the surface's hit
++    /// test did, without the checks below, and put the pointer a row off
++    /// wherever one of them drops the shift — at the bottom of scrollback
++    /// after a scroll gesture, before a pane has scrollback, and on the
++    /// alternate screen (macterm#433).
++    ///
++    /// Reads the screen's page list, so the caller must hold the lock that
++    /// guards it (the renderer state mutex).
++    pub fn resolveShift(s: *const Screen, geometry: Geometry) Shift {
++        // Smooth scrolling: honor a sub-row offset only as far as the rows
++        // it reveals exist, and capture them as overscan. The
++        // gesture's remainder and the viewport's own leftover height both
++        // shift the grid down, so they add (see Geometry); a sum over a
++        // cell simply reveals more than one row.
++        const base_pin = s.pages.getTopLeft(.viewport);
++        var top_pin = base_pin;
++        var rows_above: size.CellCountInt = 0;
++        var rows_below: size.CellCountInt = 0;
++
++        // The gesture's remainder is validated on its own, before the
++        // viewport's leftover height is added: a remainder pointing at a
++        // row that doesn't exist is dropped, and the leftover still shifts
++        // the grid. Validating the sum instead made a gesture pinned at the
++        // bottom of scrollback bob the content: its remainder cycles
++        // through (-cell, 0] as row after row fails to commit, so the sum
++        // crossed zero on every event and flipped the grid between sat on
++        // the leftover and not — a wiggle of up to the leftover's height.
++        const gesture: f64 = gesture: {
++            const raw = s.viewport_pixel_offset;
++            if (raw > 0 and base_pin.up(1) == null) break :gesture 0;
++            if (raw < 0) {
++                const below = if (s.pages.getBottomRight(.viewport)) |br|
++                    br.down(1)
++                else
++                    null;
++                if (below == null) break :gesture 0;
++            }
++            break :gesture raw;
++        };
++        // The viewport's leftover height, from the terminal's row count
++        // (see `Geometry`). Mid-resize it can reach a cell or more — the
++        // terminal still has the old rows while the renderer has the new
++        // height — and the sum then reveals a second row, which is what
++        // keeps the content where it was until the rows catch up. More
++        // rows than fit is no leftover at all.
++        const pixel_pad: f64 = pad: {
++            if (geometry.cell_height == 0) break :pad 0;
++            const laid_out = @as(u64, s.pages.rows) * geometry.cell_height;
++            if (geometry.terminal_height <= laid_out) break :pad 0;
++            break :pad @floatFromInt(geometry.terminal_height - laid_out);
++        };
++        var pixel_offset: f64 = gesture + pixel_pad;
++        if (pixel_offset > 0) {
++            // How many rows the offset spans. A gesture's own remainder is
++            // always under a cell, so with no cell height to measure
++            // against — every caller that passes no geometry — one row is
++            // the answer and nothing is capped.
++            const cell_height: f64 = @floatFromInt(geometry.cell_height);
++            const wanted: usize = if (geometry.cell_height > 0) @intFromFloat(@min(
++                @ceil(pixel_offset / cell_height),
++                @as(f64, @floatFromInt(s.pages.rows)),
++            )) else 1;
++            while (rows_above < wanted) {
++                top_pin = top_pin.up(1) orelse break;
++                rows_above += 1;
++            }
++            if (rows_above == 0) {
++                // Nothing above to reveal: the grid stays where it is.
++                pixel_offset = 0;
++            } else if (geometry.cell_height > 0) {
++                // Scrollback ran out before the offset did: shift only as
++                // far as the rows we actually have, or the grid would be
++                // drawn off a strip nothing fills.
++                pixel_offset = @min(
++                    pixel_offset,
++                    @as(f64, @floatFromInt(rows_above)) * cell_height,
++                );
++            }
++        } else if (pixel_offset < 0) {
++            const below = if (s.pages.getBottomRight(.viewport)) |br|
++                br.down(1)
++            else
++                null;
++            if (below != null) rows_below = 1 else pixel_offset = 0;
++        }
++
++        return .{
++            .overscan = .{ .above = rows_above, .below = rows_below },
++            .pixel_offset = pixel_offset,
++            .pixel_pad = pixel_pad,
++        };
++    }
++
++    /// A rectangle of the screen whose content is drawn `offset` pixels
++    /// below where the terminal has it (negative: above): a region scroll
++    /// animation (see `Screen.region_scrolls`) partway through its ease, or
++    /// a region the terminal has scrolled since the frame on screen was
++    /// drawn. Rows and columns are inclusive, as in `Screen.RegionScroll`.
++    pub const RegionShift = struct {
++        top: size.CellCountInt,
++        bottom: size.CellCountInt,
++        left: size.CellCountInt,
++        right: size.CellCountInt,
++        offset: f64,
++
++        /// What `offset` becomes once the region's content scrolls
++        /// `scroll.lines` more rows: that many rows further from its place,
++        /// since what was drawn hasn't moved. Capped at the region's
++        /// height, past which none of the drawn content is left in it. The
++        /// renderer's region scroll animation accumulates with this too, so
++        /// the shift it draws and the one the surface undoes can't drift.
++        pub fn scrolledOffset(
++            offset: f64,
++            scroll: Screen.RegionScroll,
++            cell_height: f64,
++        ) f64 {
++            const rows: u32 = @as(u32, scroll.bottom - scroll.top) + 1;
++            const height: f64 = @as(f64, @floatFromInt(rows)) * cell_height;
++            return std.math.clamp(
++                offset + @as(f64, @floatFromInt(scroll.lines)) * cell_height,
++                -height,
++                height,
++            );
++        }
++
++        fn sameRegion(self: RegionShift, scroll: Screen.RegionScroll) bool {
++            return self.top == scroll.top and self.bottom == scroll.bottom and
++                self.left == scroll.left and self.right == scroll.right;
++        }
++    };
++
++    /// The regions a frame draws away from where the terminal has them, and
++    /// the screen and grid the frame was drawn for: on any other the
++    /// offsets describe content that isn't there. The renderer publishes one
++    /// for the frame on screen, and the surface undoes it to turn a pointer
++    /// into the row drawn under it (`contentY`) and a row into where it is
++    /// drawn (`offsetAt`) — the region scroll counterpart of `resolveShift`,
++    /// and like it the only place that arithmetic lives.
++    pub const RegionShifts = struct {
++        /// Every region the renderer animates at once, plus as many
++        /// regions as the terminal records scrolls of between frames.
++        pub const capacity = Screen.RegionScrolls.capacity;
++
++        items: [capacity]RegionShift = undefined,
++        len: u8 = 0,
++
++        /// The screen and grid size the frame was drawn for. The default
++        /// matches no terminal, so nothing is undone before a frame is.
++        screen: ScreenSet.Key = .primary,
++        cols: size.CellCountInt = 0,
++        rows: size.CellCountInt = 0,
++
++        pub fn slice(self: *const RegionShifts) []const RegionShift {
++            return self.items[0..self.len];
++        }
++
++        /// Whether these offsets are about what `t` shows now. A screen
++        /// switch or a resize since the frame was drawn leaves its regions
++        /// describing content that is gone; the renderer drops their
++        /// animations on its next update.
++        pub fn describes(self: *const RegionShifts, t: *const Terminal) bool {
++            return self.screen == t.screens.active_key and
++                self.cols == t.cols and
++                self.rows == t.rows;
++        }
++
++        /// Add a region. Past capacity it is dropped: a region the hit
++        /// test doesn't know about is resolved as if drawn in place.
++        pub fn append(self: *RegionShifts, shift: RegionShift) void {
++            if (self.len == capacity) return;
++            self.items[self.len] = shift;
++            self.len += 1;
++        }
++
++        /// The terminal scrolled a region after these offsets were drawn.
++        /// What is on screen didn't move, so its content now sits that many
++        /// rows further from where the terminal has it — a region that was
++        /// drawn in place included.
++        pub fn addScroll(
++            self: *RegionShifts,
++            scroll: Screen.RegionScroll,
++            cell_height: f64,
++        ) void {
++            for (self.items[0..self.len]) |*shift| {
++                if (!shift.sameRegion(scroll)) continue;
++                shift.offset = RegionShift.scrolledOffset(shift.offset, scroll, cell_height);
++                return;
++            }
++            self.append(.{
++                .top = scroll.top,
++                .bottom = scroll.bottom,
++                .left = scroll.left,
++                .right = scroll.right,
++                .offset = RegionShift.scrolledOffset(0, scroll, cell_height),
++            });
++        }
++
++        /// Where the terminal has the content drawn at (`x`, `y`), a point
++        /// on the grid in pixels: the y it belongs at. Inside a region that
++        /// is drawn shifted that is `y` less the region's offset, the region
++        /// being decided by where the point is drawn, as the shaders do.
++        /// Content the region has scrolled out of (a ghost row sliding out,
++        /// or the gap one leaves) is no longer in the terminal, so it
++        /// resolves to the region's nearest edge row. Anywhere else, `y`.
++        pub fn contentY(
++            self: *const RegionShifts,
++            x: f64,
++            y: f64,
++            cell_width: f64,
++            cell_height: f64,
++        ) f64 {
++            for (self.slice()) |shift| {
++                const left: f64 = @as(f64, @floatFromInt(shift.left)) * cell_width;
++                const right: f64 = @as(f64, @floatFromInt(@as(u32, shift.right) + 1)) * cell_width;
++                const top: f64 = @as(f64, @floatFromInt(shift.top)) * cell_height;
++                const bottom: f64 = @as(f64, @floatFromInt(@as(u32, shift.bottom) + 1)) * cell_height;
++                if (x < left or x >= right or y < top or y >= bottom) continue;
++
++                const content = y - shift.offset;
++                if (content < top) return top;
++                if (content >= bottom) return bottom - 1;
++                return content;
++            }
++
++            return y;
++        }
++
++        /// How far below its place the cell at (`x`, `y`) is drawn, in
++        /// pixels: the offset of the region it belongs to, whose content
++        /// is shifted with it (the shaders decide by the cell's own
++        /// position), or zero.
++        pub fn offsetAt(
++            self: *const RegionShifts,
++            x: size.CellCountInt,
++            y: size.CellCountInt,
++        ) f64 {
++            for (self.slice()) |shift| {
++                if (x < shift.left or x > shift.right or
++                    y < shift.top or y > shift.bottom) continue;
++                return shift.offset;
++            }
++
++            return 0;
++        }
++    };
++
+     /// Mark all render-state data as consumed by the renderer.
+     ///
+     /// This clears both the global dirty state and every per-row dirty flag.
+@@ -3144,3 +3512,535 @@ test "overscan selection on overscan rows" {
+     );
+     try testing.expect(sels[vp + state.rows - 2] == null);
+ }
++
++fn testShiftedUpdate(
++    state: *RenderState,
++    t: *Terminal,
++    geometry: RenderState.Geometry,
++) !void {
++    try state.beginShiftedUpdate(std.testing.allocator, t, geometry);
++    state.endUpdate();
++}
++
++/// The rows an update captured, viewport and overscan together: what a
++/// smooth-scrolling renderer's grid holds.
++fn testCapturedRows(state: *const RenderState) usize {
++    const range = state.rowDataRange();
++    return range.end - range.start;
++}
++
++test "RenderState smooth scroll offset adds the revealed row" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++    const io = testing.io;
++
++    var t = try Terminal.init(io, alloc, .{
++        .cols = 10,
++        .rows = 3,
++    });
++    defer t.deinit(alloc);
++
++    // Five lines: "1" and "2" end up in scrollback, "3".."5" are active.
++    var s = t.vtStream();
++    defer s.deinit();
++    s.nextSlice("1\r\n2\r\n3\r\n4\r\n5");
++
++    var state: RenderState = .empty;
++    defer state.deinit(alloc);
++    try testShiftedUpdate(&state, &t, .none);
++    try testing.expectEqual(3, testCapturedRows(&state));
++    try testing.expect(state.overscan.eql(.{}));
++    try testing.expectEqual(0, state.viewport_pixel_offset);
++
++    // A fraction of a row up: the row above the viewport is included
++    // first and everything else shifts down one grid row.
++    t.screens.active.viewport_pixel_offset = 4;
++    try testShiftedUpdate(&state, &t, .none);
++    try testing.expectEqual(4, state.viewport_pixel_offset);
++    try testing.expect(state.overscan.eql(.{ .above = 1 }));
++    try testing.expectEqual(3, state.rows);
++    try testing.expectEqual(4, testCapturedRows(&state));
++    try testing.expectEqual(4, state.row_data.len);
++    {
++        const cells = state.row_data.slice().items(.cells);
++        try testing.expectEqual('2', cells[0].get(0).raw.codepoint());
++        try testing.expectEqual('3', cells[1].get(0).raw.codepoint());
++        try testing.expectEqual('5', cells[3].get(0).raw.codepoint());
++    }
++    try testing.expectEqual(2, state.cursor.viewport.?.y);
++    try testing.expectEqual(3, state.cursor.captured.?.y);
++
++    // At the bottom nothing lies below, so a fraction down is dropped.
++    t.screens.active.viewport_pixel_offset = -4;
++    try testShiftedUpdate(&state, &t, .none);
++    try testing.expectEqual(0, state.viewport_pixel_offset);
++    try testing.expect(state.overscan.eql(.{}));
++    try testing.expectEqual(3, testCapturedRows(&state));
++    try testing.expectEqual(2, state.cursor.viewport.?.y);
++    try testing.expectEqual(2, state.cursor.captured.?.y);
++
++    // A row-level viewport move clears any remainder.
++    t.screens.active.viewport_pixel_offset = 4;
++    t.scrollViewport(.{ .delta = -1 });
++    try testing.expectEqual(0, t.screens.active.viewport_pixel_offset);
++
++    // Scrolled up one row, a fraction down reveals the row below, last.
++    t.screens.active.viewport_pixel_offset = -4;
++    try testShiftedUpdate(&state, &t, .none);
++    try testing.expectEqual(-4, state.viewport_pixel_offset);
++    try testing.expect(state.overscan.eql(.{ .below = 1 }));
++    try testing.expectEqual(4, testCapturedRows(&state));
++    {
++        const cells = state.row_data.slice().items(.cells);
++        try testing.expectEqual('2', cells[0].get(0).raw.codepoint());
++        try testing.expectEqual('5', cells[3].get(0).raw.codepoint());
++    }
++
++    // The cursor is on that revealed row: outside the viewport, but drawn
++    // partly on screen, so the captured rows still hold it.
++    try testing.expect(state.cursor.viewport == null);
++    try testing.expectEqual(3, state.cursor.captured.?.y);
++
++    // At the top of scrollback nothing lies above.
++    t.scrollViewport(.top);
++    t.screens.active.viewport_pixel_offset = 4;
++    try testShiftedUpdate(&state, &t, .none);
++    try testing.expectEqual(0, state.viewport_pixel_offset);
++    try testing.expectEqual(3, testCapturedRows(&state));
++    {
++        const cells = state.row_data.slice().items(.cells);
++        try testing.expectEqual('1', cells[0].get(0).raw.codepoint());
++    }
++}
++
++test "RenderState geometry pad sits the grid on the leftover height" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++    const io = testing.io;
++
++    var t = try Terminal.init(io, alloc, .{
++        .cols = 10,
++        .rows = 3,
++    });
++    defer t.deinit(alloc);
++
++    var s = t.vtStream();
++    defer s.deinit();
++    s.nextSlice("1\r\n2\r\n3\r\n4\r\n5");
++
++    var state: RenderState = .empty;
++    defer state.deinit(alloc);
++
++    // A viewport 6px taller than its three rows: the grid is drawn that
++    // much lower and the row above is revealed by the same amount, so the
++    // next pixel of height moves the content rather than the row count.
++    try testShiftedUpdate(&state, &t, .{ .cell_height = 10, .terminal_height = 36 });
++    try testing.expectEqual(6, state.viewport_pixel_offset);
++    try testing.expectEqual(1, state.overscan.above);
++    try testing.expectEqual(4, testCapturedRows(&state));
++    {
++        const cells = state.row_data.slice().items(.cells);
++        try testing.expectEqual('2', cells[0].get(0).raw.codepoint());
++    }
++
++    // A gesture pinned at the bottom of scrollback has nothing below to
++    // reveal, so its remainder is dropped on its own and the grid stays
++    // sat on the leftover — for any remainder, since the remainder cycles
++    // through a cell as the gesture keeps failing to commit a row.
++    for ([_]f64{ -4, -8 }) |remainder| {
++        t.screens.active.viewport_pixel_offset = remainder;
++        try testShiftedUpdate(&state, &t, .{ .cell_height = 10, .terminal_height = 36 });
++        try testing.expectEqual(6, state.viewport_pixel_offset);
++        try testing.expectEqual(1, state.overscan.above);
++        try testing.expectEqual(4, testCapturedRows(&state));
++    }
++
++    // It adds to a gesture's own remainder, and a sum over a cell reveals
++    // a second row rather than tearing a strip nothing fills.
++    t.screens.active.viewport_pixel_offset = 6;
++    try testShiftedUpdate(&state, &t, .{ .cell_height = 10, .terminal_height = 36 });
++    try testing.expectEqual(12, state.viewport_pixel_offset);
++    try testing.expectEqual(2, state.overscan.above);
++    try testing.expectEqual(5, testCapturedRows(&state));
++    {
++        const cells = state.row_data.slice().items(.cells);
++        try testing.expectEqual('1', cells[0].get(0).raw.codepoint());
++    }
++
++    // Only as far as the scrollback goes: at the top the offset is capped
++    // to the rows actually revealed.
++    t.screens.active.viewport_pixel_offset = 0;
++    t.scrollViewport(.top);
++    try testShiftedUpdate(&state, &t, .{ .cell_height = 10, .terminal_height = 36 });
++    try testing.expectEqual(0, state.viewport_pixel_offset);
++    try testing.expectEqual(0, state.overscan.above);
++    try testing.expectEqual(3, testCapturedRows(&state));
++
++    // The leftover follows the terminal's rows, not the renderer's grid,
++    // so the grid stays put whichever side of a resize a frame lands on.
++    // Three rows in 45px leave 15 — over a cell — so two rows above are
++    // revealed and row "3" sits at 0 × 10 + 15 = 15px...
++    t.scrollViewport(.bottom);
++    try testShiftedUpdate(&state, &t, .{ .cell_height = 10, .terminal_height = 45 });
++    try testing.expectEqual(15, state.viewport_pixel_offset);
++    try testing.expectEqual(15, state.viewport_pixel_pad);
++    try testing.expectEqual(2, state.overscan.above);
++    try testing.expectEqual(5, testCapturedRows(&state));
++    {
++        const cells = state.row_data.slice().items(.cells);
++        try testing.expectEqual('1', cells[0].get(0).raw.codepoint());
++        try testing.expectEqual('3', cells[2].get(0).raw.codepoint());
++    }
++
++    // ...and once the terminal takes the fourth row, 5px are left, one
++    // row above is revealed, and row "3" is still at 1 × 10 + 5 = 15px.
++    try t.resize(alloc, .{ .cols = 10, .rows = 4 });
++    try testShiftedUpdate(&state, &t, .{ .cell_height = 10, .terminal_height = 45 });
++    try testing.expectEqual(5, state.viewport_pixel_offset);
++    try testing.expectEqual(5, state.viewport_pixel_pad);
++    try testing.expectEqual(1, state.overscan.above);
++    try testing.expectEqual(5, testCapturedRows(&state));
++    {
++        const cells = state.row_data.slice().items(.cells);
++        try testing.expectEqual('1', cells[0].get(0).raw.codepoint());
++        try testing.expectEqual('3', cells[2].get(0).raw.codepoint());
++    }
++
++    // The other order — the terminal has the rows before the renderer has
++    // the height: four rows don't fit in 36px, so there is no leftover.
++    try testShiftedUpdate(&state, &t, .{ .cell_height = 10, .terminal_height = 36 });
++    try testing.expectEqual(0, state.viewport_pixel_offset);
++    try testing.expectEqual(0, state.viewport_pixel_pad);
++    try testing.expectEqual(0, state.overscan.above);
++    try testing.expectEqual(4, testCapturedRows(&state));
++
++    // No geometry, no shift — what a renderer with smooth scrolling off
++    // gets, which is exactly the update everyone else runs.
++    t.scrollViewport(.bottom);
++    try testShiftedUpdate(&state, &t, .none);
++    try testing.expectEqual(0, state.viewport_pixel_offset);
++    try testing.expect(state.overscan_request.eql(.{}));
++    try testing.expect(state.overscan.eql(.{}));
++}
++
++test "RenderState resolveShift is the shift an update draws" {
++    // The surface hit-tests the pointer, reports mouse cells and places the
++    // IME with resolveShift (macterm#433). Wherever an update drops or caps
++    // the shift, so must it, or a click lands a row off what is drawn.
++    const testing = std.testing;
++    const alloc = testing.allocator;
++    const io = testing.io;
++
++    var t = try Terminal.init(io, alloc, .{
++        .cols = 10,
++        .rows = 3,
++    });
++    defer t.deinit(alloc);
++
++    var s = t.vtStream();
++    defer s.deinit();
++
++    var state: RenderState = .empty;
++    defer state.deinit(alloc);
++
++    // Three 10px rows in 36px: a 6px leftover.
++    const geometry: RenderState.Geometry = .{ .cell_height = 10, .terminal_height = 36 };
++    const expectShift = struct {
++        fn expectShift(
++            rs: *RenderState,
++            term: *Terminal,
++            g: RenderState.Geometry,
++            want: f64,
++        ) !void {
++            const shift = RenderState.resolveShift(term.screens.active, g);
++            try testShiftedUpdate(rs, term, g);
++            try std.testing.expectEqual(want, shift.pixel_offset);
++            try std.testing.expectEqual(rs.viewport_pixel_offset, shift.pixel_offset);
++            try std.testing.expectEqual(rs.viewport_pixel_pad, shift.pixel_pad);
++            // Every row the shift reveals exists, so the update captures
++            // exactly the overscan it asks for.
++            try std.testing.expect(rs.overscan.eql(shift.overscan));
++            try std.testing.expect(rs.overscan_request.eql(shift.overscan));
++        }
++    }.expectShift;
++
++    // No scrollback yet: nothing above to reveal, so the leftover stays
++    // padding and the grid is drawn where its rows fall.
++    s.nextSlice("1\r\n2");
++    try expectShift(&state, &t, geometry, 0);
++
++    // Once there is scrollback the grid sits on the leftover...
++    s.nextSlice("\r\n3\r\n4\r\n5");
++    try expectShift(&state, &t, geometry, 6);
++
++    // ...and stays there when a gesture pinned at the bottom leaves a
++    // remainder: nothing lies below to reveal, so the remainder is dropped.
++    t.screens.active.viewport_pixel_offset = -4;
++    try expectShift(&state, &t, geometry, 6);
++
++    // Scrolled into history there are rows on both sides; both count.
++    t.scrollViewport(.{ .delta = -1 });
++    t.screens.active.viewport_pixel_offset = -4;
++    try expectShift(&state, &t, geometry, 2);
++
++    // At the top of history nothing lies above: remainder and leftover
++    // both drop.
++    t.scrollViewport(.top);
++    t.screens.active.viewport_pixel_offset = 4;
++    try expectShift(&state, &t, geometry, 0);
++
++    // One row of scrollback above, asked for more than a row: capped at
++    // the row there is.
++    t.scrollViewport(.{ .delta = 1 });
++    t.screens.active.viewport_pixel_offset = 8;
++    try expectShift(&state, &t, geometry, 10);
++
++    // The alternate screen has no scrollback at all.
++    t.scrollViewport(.bottom);
++    s.nextSlice("\x1b[?1049h");
++    t.screens.active.viewport_pixel_offset = 4;
++    try expectShift(&state, &t, geometry, 0);
++}
++
++test "RenderState Shift rowsAboveAt resolves the revealed rows" {
++    // The surface selects the rows a shift reveals above the viewport with
++    // this, so they select like any other row drawn.
++    const testing = std.testing;
++
++    // No shift, or one with nothing revealed: always the viewport.
++    const none: RenderState.Shift = .{};
++    try testing.expectEqual(0, none.rowsAboveAt(0, 10));
++    try testing.expectEqual(0, none.rowsAboveAt(-5, 10));
++    const below: RenderState.Shift = .{
++        .overscan = .{ .below = 1 },
++        .pixel_offset = -4,
++    };
++    try testing.expectEqual(0, below.rowsAboveAt(0, 10));
++
++    // Most of a row revealed: it fills the strip down to the grid.
++    const one: RenderState.Shift = .{
++        .overscan = .{ .above = 1 },
++        .pixel_offset = 8,
++    };
++    try testing.expectEqual(1, one.rowsAboveAt(0, 10));
++    try testing.expectEqual(1, one.rowsAboveAt(7.9, 10));
++    try testing.expectEqual(0, one.rowsAboveAt(8, 10));
++    try testing.expectEqual(0, one.rowsAboveAt(25, 10));
++    // The padding above is on the topmost row drawn.
++    try testing.expectEqual(1, one.rowsAboveAt(-20, 10));
++
++    // More than a row revealed (a gesture's remainder on the leftover).
++    const two: RenderState.Shift = .{
++        .overscan = .{ .above = 2 },
++        .pixel_offset = 14,
++    };
++    try testing.expectEqual(2, two.rowsAboveAt(0, 10));
++    try testing.expectEqual(2, two.rowsAboveAt(3.9, 10));
++    try testing.expectEqual(1, two.rowsAboveAt(4, 10));
++    try testing.expectEqual(0, two.rowsAboveAt(14, 10));
++}
++
++test "RenderState RegionShifts resolves a point to the row drawn there" {
++    const testing = std.testing;
++    const contentY = struct {
++        fn contentY(shifts: *const RenderState.RegionShifts, x: f64, y: f64) f64 {
++            return shifts.contentY(x, y, 10, 20);
++        }
++    }.contentY;
++
++    // Rows 2..9 and columns 1..8 of a grid of 10x20px cells, drawn 25px
++    // below where the terminal has them: most of the way home from a scroll
++    // of two rows up.
++    var shifts: RenderState.RegionShifts = .{};
++    shifts.append(.{ .top = 2, .bottom = 9, .left = 1, .right = 8, .offset = 25 });
++
++    // Nothing outside the region moves: above it, below it, and in the
++    // margins either side of it.
++    try testing.expectEqual(30, contentY(&shifts, 15, 30));
++    try testing.expectEqual(205, contentY(&shifts, 15, 205));
++    try testing.expectEqual(100, contentY(&shifts, 5, 100));
++    try testing.expectEqual(100, contentY(&shifts, 95, 100));
++
++    // Inside it, the content drawn at a point is 25px higher in the
++    // terminal.
++    try testing.expectEqual(75, contentY(&shifts, 15, 100));
++    try testing.expectEqual(174, contentY(&shifts, 85, 199));
++
++    // Its top 25px show rows that have scrolled out of the terminal, which
++    // resolve to the region's top row.
++    try testing.expectEqual(40, contentY(&shifts, 15, 40));
++    try testing.expectEqual(40, contentY(&shifts, 15, 64));
++    try testing.expectEqual(40, contentY(&shifts, 15, 65));
++
++    // Scrolled down, the content is drawn above its place and the rows
++    // that left are at the bottom: they resolve to the bottom row.
++    shifts.items[0].offset = -30;
++    try testing.expectEqual(180, contentY(&shifts, 15, 150));
++    try testing.expectEqual(199, contentY(&shifts, 15, 170));
++    try testing.expectEqual(199, contentY(&shifts, 15, 199));
++
++    // The first region a point is drawn in decides, as in the shaders.
++    shifts.append(.{ .top = 0, .bottom = 9, .left = 0, .right = 9, .offset = 7 });
++    try testing.expectEqual(180, contentY(&shifts, 15, 150));
++    try testing.expectEqual(143, contentY(&shifts, 5, 150));
++}
++
++test "RenderState RegionShifts offsetAt is where a cell is drawn" {
++    const testing = std.testing;
++
++    var shifts: RenderState.RegionShifts = .{};
++    try testing.expectEqual(0, shifts.offsetAt(3, 3));
++
++    shifts.append(.{ .top = 2, .bottom = 9, .left = 1, .right = 8, .offset = 25 });
++    try testing.expectEqual(25, shifts.offsetAt(1, 2));
++    try testing.expectEqual(25, shifts.offsetAt(8, 9));
++    try testing.expectEqual(0, shifts.offsetAt(0, 5));
++    try testing.expectEqual(0, shifts.offsetAt(9, 5));
++    try testing.expectEqual(0, shifts.offsetAt(4, 1));
++    try testing.expectEqual(0, shifts.offsetAt(4, 10));
++}
++
++test "RenderState RegionShifts addScroll moves the terminal's rows off the frame's" {
++    const testing = std.testing;
++
++    // Rows 2..9: eight 20px rows, 160px.
++    const up: Screen.RegionScroll = .{ .top = 2, .bottom = 9, .left = 0, .right = 9, .lines = 3 };
++    var down = up;
++    down.lines = -1;
++
++    // The renderer's animation and the hit test accumulate alike.
++    try testing.expectEqual(60, RenderState.RegionShift.scrolledOffset(0, up, 20));
++    try testing.expectEqual(-150, RenderState.RegionShift.scrolledOffset(-130, down, 20));
++    try testing.expectEqual(-160, RenderState.RegionShift.scrolledOffset(-150, down, 20));
++
++    // A region the frame drew in place: its content is now three rows
++    // below where the terminal has it.
++    var shifts: RenderState.RegionShifts = .{};
++    shifts.addScroll(up, 20);
++    try testing.expectEqual(1, shifts.len);
++    try testing.expectEqual(60, shifts.items[0].offset);
++
++    // More scrolling adds to it, and a scroll the other way takes it back.
++    shifts.addScroll(up, 20);
++    try testing.expectEqual(120, shifts.items[0].offset);
++    shifts.addScroll(down, 20);
++    try testing.expectEqual(100, shifts.items[0].offset);
++
++    // Past the region's height none of the drawn content is left in it.
++    shifts.addScroll(up, 20);
++    shifts.addScroll(up, 20);
++    try testing.expectEqual(1, shifts.len);
++    try testing.expectEqual(160, shifts.items[0].offset);
++
++    // Another region is an entry of its own, while there is room.
++    var other = up;
++    for (1..RenderState.RegionShifts.capacity) |i| {
++        other.left = @intCast(i);
++        shifts.addScroll(other, 20);
++    }
++    try testing.expectEqual(RenderState.RegionShifts.capacity, shifts.len);
++    other.left = 0;
++    other.right = 4;
++    shifts.addScroll(other, 20);
++    try testing.expectEqual(RenderState.RegionShifts.capacity, shifts.len);
++}
++
++test "RenderState RegionShifts land a click on the row that shows what is drawn" {
++    // A region scroll animation draws a region's content away from where
++    // the terminal has it, and the program may scroll it further before
++    // the next frame is on screen. Whatever the pointer is over, the row a
++    // click resolves to must hold that, or be the region's edge row when
++    // what is drawn there has scrolled out of the terminal.
++    const testing = std.testing;
++    const alloc = testing.allocator;
++    const io = testing.io;
++    const cell_h = 20;
++
++    var t = try Terminal.init(io, alloc, .{ .cols = 10, .rows = 8 });
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++
++    // The label of a row of `state` ('0'..'7'), or 0 for a blank row.
++    const label = struct {
++        fn label(state: *const RenderState, row: usize) u21 {
++            const cells = state.row_data.slice().items(.cells);
++            return cells[row].get(1).raw.codepoint();
++        }
++    }.label;
++
++    // A click at every pixel row of a frame of `drawn` that shows region
++    // rows 1..6 `offset` low, against `now`, which has scrolled the region
++    // up `since` more rows: it lands on the row with the label drawn under
++    // it, or on an edge row where what is drawn is no longer in the region
++    // (a row the frame shows sliding out, or one scrolled out since).
++    const expectClicks = struct {
++        fn expectClicks(
++            drawn: *const RenderState,
++            offset: f64,
++            now: *const RenderState,
++            since: usize,
++            shifts: *const RenderState.RegionShifts,
++        ) !void {
++            const top = 1;
++            const bottom = 6;
++            for (0..8 * cell_h) |y| {
++                const at = shifts.contentY(5, @floatFromInt(y), 10, cell_h);
++                const row: usize = @intFromFloat(@floor(at / cell_h));
++
++                if (y < top * cell_h or y >= (bottom + 1) * cell_h) {
++                    try std.testing.expectEqual(label(drawn, y / cell_h), label(now, row));
++                    continue;
++                }
++
++                const content = @as(f64, @floatFromInt(y)) - offset;
++                const drawn_row: usize = if (content < 0) 0 else @intFromFloat(@floor(content / cell_h));
++                if (content < top * cell_h or drawn_row > bottom or drawn_row < top + since) {
++                    try std.testing.expect(row == top or row == bottom);
++                    continue;
++                }
++                try std.testing.expectEqual(drawn_row - since, row);
++                try std.testing.expectEqual(label(drawn, drawn_row), label(now, row));
++            }
++        }
++    }.expectClicks;
++
++    // The alternate screen, one labelled row per line.
++    s.nextSlice("\x1b[?1049h\x1b[H");
++    s.nextSlice("r0\r\nr1\r\nr2\r\nr3\r\nr4\r\nr5\r\nr6\r\nr7");
++    var before: RenderState = .empty;
++    defer before.deinit(alloc);
++    try before.update(alloc, &t);
++
++    // The frame on screen draws every row in place. The program scrolls
++    // rows 1..6 up by two, as helix scrolls a view, and the renderer hasn't
++    // taken the scroll in yet: the surface folds in what is pending.
++    s.nextSlice("\x1b[2;7r\x1b[2S");
++    try testing.expectEqual(1, t.screens.active.region_scrolls.len);
++    var shifts: RenderState.RegionShifts = .{ .screen = .alternate, .cols = 10, .rows = 8 };
++    try testing.expect(shifts.describes(&t));
++    for (t.screens.active.region_scrolls.slice()) |scroll| shifts.addScroll(scroll, cell_h);
++    var mid: RenderState = .empty;
++    defer mid.deinit(alloc);
++    try mid.update(alloc, &t);
++    try expectClicks(&before, 0, &mid, 2, &shifts);
++
++    // Taken in, the scroll is eased home: a frame drawn 13px from home
++    // shows the scrolled content 13px low, and that is what is published.
++    t.screens.active.region_scrolls.clear();
++    shifts = .{ .screen = .alternate, .cols = 10, .rows = 8 };
++    shifts.append(.{ .top = 1, .bottom = 6, .left = 0, .right = 9, .offset = 13 });
++    try expectClicks(&mid, 13, &mid, 0, &shifts);
++
++    // Momentum: another row scrolls while that frame is on screen.
++    s.nextSlice("\x1b[S");
++    for (t.screens.active.region_scrolls.slice()) |scroll| shifts.addScroll(scroll, cell_h);
++    var after: RenderState = .empty;
++    defer after.deinit(alloc);
++    try after.update(alloc, &t);
++    try expectClicks(&mid, 13, &after, 1, &shifts);
++
++    // Leaving the alternate screen leaves nothing they describe.
++    s.nextSlice("\x1b[?1049l");
++    try testing.expect(!shifts.describes(&t));
++}

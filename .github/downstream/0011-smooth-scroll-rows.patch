@@ -1,0 +1,523 @@
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 049f6c6c3..d5798858d 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -324,6 +324,7 @@ const DerivedConfig = struct {
+     mouse_scroll_multiplier: configpkg.MouseScrollMultiplier,
+     mouse_shift_capture: configpkg.MouseShiftCapture,
+     smooth_scroll: bool,
++    smooth_scroll_rows: bool,
+     fullscreen: configpkg.Fullscreen,
+     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
+     macos_option_as_alt: ?input.OptionAsAlt,
+@@ -406,6 +407,7 @@ const DerivedConfig = struct {
+             .mouse_scroll_multiplier = config.@"mouse-scroll-multiplier",
+             .mouse_shift_capture = config.@"mouse-shift-capture",
+             .smooth_scroll = config.@"smooth-scroll",
++            .smooth_scroll_rows = config.@"smooth-scroll-rows",
+             .fullscreen = config.fullscreen,
+             .macos_non_native_fullscreen = config.@"macos-non-native-fullscreen",
+             .macos_option_as_alt = config.@"macos-option-as-alt",
+@@ -3747,29 +3749,87 @@ pub fn scrollCallback(
+             return;
+         }
+ 
+-        if (y.delta != 0) {
+-            // Modify our viewport, this requires a lock since it affects
+-            // rendering. We have to switch signs here because our delta
+-            // is negative down but our viewport is positive down.
+-            self.io.terminal.scrollViewport(.{ .delta = y.delta * -1 });
+-        }
++        const screen = self.io.terminal.screens.active;
++
++        // Smooth scrolling by rows (`smooth-scroll-rows`): the sub-row
++        // remainder stays an accumulator detail, as without smooth
++        // scrolling, and each row the viewport actually moves is drawn
++        // from where it was. The offset carries that distance and the
++        // renderer eases it home (`decayViewportScroll`); a move while
++        // one is easing adds to what is drawn, so a gesture reads as one
++        // continuous motion. Rows the viewport could not move (the top or
++        // bottom of scrollback) move nothing.
++        if (self.config.smooth_scroll and self.config.smooth_scroll_rows) {
++            if (y.delta != 0) {
++                const drawn = screen.viewport_pixel_offset;
++                const before = screen.pages.scrollbar().offset;
++                self.io.terminal.scrollViewport(.{ .delta = y.delta * -1 });
++                const after = screen.pages.scrollbar().offset;
++                screen.viewport_pixel_offset = rowScrollOffset(
++                    drawn,
++                    before,
++                    after,
++                    @floatFromInt(self.size.cell.height),
++                    screen.pages.rows,
++                );
++            }
++        } else {
++            if (y.delta != 0) {
++                // Modify our viewport, this requires a lock since it affects
++                // rendering. We have to switch signs here because our delta
++                // is negative down but our viewport is positive down.
++                self.io.terminal.scrollViewport(.{ .delta = y.delta * -1 });
++            }
+ 
+-        // Smooth scrolling: publish the sub-row remainder of a precision
+-        // gesture so the renderer can draw the viewport between rows.
+-        // scrollViewport above reset the previous remainder; a discrete
+-        // wheel never has one, and with the key off the remainder stays
+-        // an accumulator detail. Sign matches yoff: positive is content
+-        // moving down. The renderer validates it against the screen.
+-        self.io.terminal.screens.active.viewport_pixel_offset =
+-            if (self.config.smooth_scroll and scroll_mods.precision)
+-                self.mouse.pending_scroll_y
+-            else
+-                0;
++            // Smooth scrolling: publish the sub-row remainder of a precision
++            // gesture so the renderer can draw the viewport between rows.
++            // scrollViewport above reset the previous remainder; a discrete
++            // wheel never has one, and with the key off the remainder stays
++            // an accumulator detail. Sign matches yoff: positive is content
++            // moving down. The renderer validates it against the screen.
++            screen.viewport_pixel_offset =
++                if (self.config.smooth_scroll and scroll_mods.precision)
++                    self.mouse.pending_scroll_y
++                else
++                    0;
++        }
+     }
+ 
+     try self.queueRender();
+ }
+ 
++/// The viewport offset that keeps what is drawn in place across a row-level
++/// move under `smooth-scroll-rows`: the viewport went from scrollbar row
++/// `before` to `after`, so the content is drawn that many rows from where
++/// it now belongs, plus whatever was still easing in (`drawn`). Positive is
++/// content drawn below its place, as for `Screen.viewport_pixel_offset`.
++/// Capped at a screen's height either way: past that none of what was on
++/// screen is left to keep in place.
++fn rowScrollOffset(
++    drawn: f64,
++    before: usize,
++    after: usize,
++    cell_height: f64,
++    rows: usize,
++) f64 {
++    const moved: f64 = @as(f64, @floatFromInt(after)) - @as(f64, @floatFromInt(before));
++    const limit: f64 = @as(f64, @floatFromInt(rows)) * cell_height;
++    return std.math.clamp(drawn + moved * cell_height, -limit, limit);
++}
++
++test "rowScrollOffset keeps the drawn content in place" {
++    const testing = std.testing;
++    // Scrolling back two rows: the content is drawn two rows up, and slides
++    // down into place.
++    try testing.expectEqual(-20, rowScrollOffset(0, 50, 48, 10, 24));
++    // Forward one row while 4px of an earlier move is still easing in.
++    try testing.expectEqual(14, rowScrollOffset(4, 48, 49, 10, 24));
++    // Clamped at the bottom of scrollback: nothing moved, nothing to ease.
++    try testing.expectEqual(0, rowScrollOffset(0, 76, 76, 10, 24));
++    // A jump past a screen keeps no more than a screen to slide through.
++    try testing.expectEqual(-240, rowScrollOffset(-50, 500, 100, 10, 24));
++}
++
+ /// This is called when the content scale of the surface changes. The surface
+ /// can then update any DPI-sensitive state.
+ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !void {
+@@ -4905,7 +4965,11 @@ fn viewportPixelShift(self: *const Surface) f64 {
+ fn viewportShift(self: *const Surface) terminal.RenderState.Shift {
+     const geometry: terminal.RenderState.Geometry = if (self.config.smooth_scroll) .{
+         .cell_height = self.size.cell.height,
+-        .terminal_height = self.size.terminal().height,
++        // By rows the leftover stays padding; see `viewportGeometry`.
++        .terminal_height = if (self.config.smooth_scroll_rows)
++            0
++        else
++            self.size.terminal().height,
+     } else .none;
+     return terminal.RenderState.resolveShift(
+         self.io.terminal.screens.active,
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index e113d8845..cd89d1013 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -1018,6 +1018,18 @@ palette: Palette = .{},
+ /// This can be changed at runtime.
+ @"smooth-scroll": bool = false,
+ 
++/// With `smooth-scroll` on, move the scrollback viewport by whole rows and
++/// animate each move, instead of following a precision gesture pixel for
++/// pixel. Scroll input accumulates exactly as it does without smooth
++/// scrolling and commits a row at a time; every row the viewport moves is
++/// drawn sliding in from where it was, easing home in about a quarter
++/// second as a region scroll on the alternate screen does. So the viewport
++/// never comes to rest between rows, and a discrete wheel animates too.
++///
++/// Downstream (thdxg/ghostty) key, read by Macterm's Animations settings.
++/// This can be changed at runtime.
++@"smooth-scroll-rows": bool = false,
++
+ /// Move the cursor to where the terminal puts it instead of redrawing it
+ /// there. The focused block, bar or underline cursor glides from its last
+ /// place to the new one over about 140 ms, and a block cursor on its way
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index 65eda62aa..e130bd776 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -474,6 +474,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+         region_anim_tick: ?std.Io.Timestamp = null,
+         region_anim_screen: ?terminal.ScreenSet.Key = null,
+ 
++        /// The clock a `smooth-scroll-rows` viewport move eases against
++        /// (`decayViewportScroll`); null while none is in flight.
++        viewport_anim_tick: ?std.Io.Timestamp = null,
++
+         /// The region scroll animations of the frame on screen, for the
+         /// surface to undo when it turns a pointer into a row (see
+         /// `regionShifts`).
+@@ -928,6 +932,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             background_blur: configpkg.Config.BackgroundBlur,
+             scroll_to_bottom_on_output: bool,
+             smooth_scroll: bool,
++            smooth_scroll_rows: bool,
+             smooth_cursor: bool,
+             cursor_trail: bool,
+             custom_shader_animation: configpkg.CustomShaderAnimation,
+@@ -1007,6 +1012,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     .background_blur = config.@"background-blur",
+                     .scroll_to_bottom_on_output = config.@"scroll-to-bottom".output,
+                     .smooth_scroll = config.@"smooth-scroll",
++                    .smooth_scroll_rows = config.@"smooth-scroll-rows",
+                     .smooth_cursor = config.@"smooth-cursor",
+                     .cursor_trail = config.@"cursor-trail",
+                     .custom_shader_animation = config.@"custom-shader-animation",
+@@ -1537,8 +1543,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             else
+                 shader_delay;
+ 
++            // A `smooth-scroll-rows` viewport move eases in the terminal's
++            // own offset, which only updateFrame can reach (it holds the
++            // lock), so it needs update wakes rather than draws.
++            const update_delay: ?u64 = if (self.viewport_anim_tick != null)
++                draw_interval_ms
++            else
++                kitty_delay;
++
+             // An update wake includes a draw, so it wins ties.
+-            if (kitty_delay) |k| {
++            if (update_delay) |k| {
+                 if (draw_delay == null or k <= draw_delay.?) {
+                     return .{ .delay_ms = k, .kind = .update };
+                 }
+@@ -1693,6 +1707,36 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             }
+         }
+ 
++        /// Ease a `smooth-scroll-rows` viewport move toward its place: the
++        /// offset the surface left (`Surface.rowScrollOffset`) decays on the
++        /// region scroll animation's curve, so scrollback and a program's
++        /// own scrolled region move alike. It lives in the terminal, not
++        /// here, so the hit test, the cursor and selection all see what is
++        /// drawn without a copy of it. Called under the terminal lock before
++        /// the render state reads the offset.
++        fn decayViewportScroll(self: *Self, screen: *terminal.Screen) void {
++            const offset = screen.viewport_pixel_offset;
++            if (offset == 0) {
++                self.viewport_anim_tick = null;
++                return;
++            }
++            const now: std.Io.Timestamp = .now(global.io(), .awake);
++            // The first frame of a move draws it where it starts.
++            const last = self.viewport_anim_tick orelse {
++                self.viewport_anim_tick = now;
++                return;
++            };
++            self.viewport_anim_tick = now;
++            const dt_ns: f64 = @floatFromInt(@max(last.durationTo(now).nanoseconds, 0));
++            const next = offset * @exp(-(dt_ns / std.time.ns_per_s) / region_anim_tau_s);
++            if (@abs(next) < 0.5) {
++                screen.viewport_pixel_offset = 0;
++                self.viewport_anim_tick = null;
++            } else {
++                screen.viewport_pixel_offset = next;
++            }
++        }
++
+         /// Advance the region scroll animations to now. Called once per
+         /// drawn frame, before the uniforms are uploaded.
+         fn tickRegionAnims(self: *Self) void {
+@@ -2174,6 +2218,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 // outside of this critical section, keeping our lock
+                 // hold time as short as possible.
+                 //
++                // Smooth scrolling by rows: advance the viewport's move
++                // before the shift is resolved, so this frame draws it.
++                if (self.config.smooth_scroll and self.config.smooth_scroll_rows) {
++                    self.decayViewportScroll(state.terminal.screens.active);
++                } else {
++                    self.viewport_anim_tick = null;
++                }
++
+                 // Smooth scrolling captures the rows a shifted grid reveals
+                 // as overscan; with it off this is a plain beginUpdate.
+                 try self.terminal_state.beginShiftedUpdate(
+@@ -3450,11 +3502,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+         /// against the terminal's rows, not this renderer's grid — the two
+         /// are resized on different threads, and a frame caught between
+         /// them drew the grid a whole cell off.
++        ///
++        /// Under `smooth-scroll-rows` the leftover stays padding, as it does
++        /// without smooth scrolling and on the alternate screen, so the
++        /// viewport only ever comes to rest on whole rows: no terminal
++        /// height is handed over, and only a row move's offset shifts the
++        /// grid. A resize then steps a row at a time, as it does in `less`.
+         fn viewportGeometry(self: *const Self) terminal.RenderState.Geometry {
+             if (!self.config.smooth_scroll) return .none;
+             return .{
+                 .cell_height = self.size.cell.height,
+-                .terminal_height = self.size.terminal().height,
++                .terminal_height = if (self.config.smooth_scroll_rows)
++                    0
++                else
++                    self.size.terminal().height,
+             };
+         }
+ 
+@@ -3518,7 +3579,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     @floatCast(state.viewport_pixel_pad)
+                 else
+                     0,
+-                0,
++                // The rows revealed below a grid shifted up, which the
++                // shaders' clip counts out of the visible grid.
++                @floatFromInt(state.overscan.below),
+             };
+             if (!std.meta.eql(scroll_offset, self.uniforms.scroll_offset)) {
+                 self.uniforms.scroll_offset = scroll_offset;
+diff --git a/src/renderer/metal/shaders.zig b/src/renderer/metal/shaders.zig
+index 9a7b8fb69..c2799cfc9 100644
+--- a/src/renderer/metal/shaders.zig
++++ b/src/renderer/metal/shaders.zig
+@@ -223,7 +223,9 @@ pub const Uniforms = extern struct {
+     /// allowed to draw into, since it is real surface, not padding. It is
+     /// what lets the grid sit a few pixels lower so a resize moves the
+     /// content continuously instead of a row at a time. Zero at rest.
+-    /// `.w` is unused.
++    /// `.w` is how many grid rows sit below the terminal viewport, revealed
++    /// by a grid shifted up (`smooth-scroll-rows` scrolling back reveals
++    /// more than one); with `.y`, the rows that are not the viewport's.
+     scroll_offset: [4]f32 align(16),
+ 
+     /// Bit mask defining which directions to
+diff --git a/src/renderer/opengl/shaders.zig b/src/renderer/opengl/shaders.zig
+index 923c41699..d8144ee5d 100644
+--- a/src/renderer/opengl/shaders.zig
++++ b/src/renderer/opengl/shaders.zig
+@@ -188,7 +188,9 @@ pub const Uniforms = extern struct {
+     /// allowed to draw into, since it is real surface, not padding. It is
+     /// what lets the grid sit a few pixels lower so a resize moves the
+     /// content continuously instead of a row at a time. Zero at rest.
+-    /// `.w` is unused.
++    /// `.w` is how many grid rows sit below the terminal viewport, revealed
++    /// by a grid shifted up (`smooth-scroll-rows` scrolling back reveals
++    /// more than one); with `.y`, the rows that are not the viewport's.
+     scroll_offset: [4]f32 align(16),
+ 
+     /// Bit mask defining which directions to
+diff --git a/src/renderer/shaders/glsl/cell_bg.f.glsl b/src/renderer/shaders/glsl/cell_bg.f.glsl
+index 74c4b9976..3f7b43d77 100644
+--- a/src/renderer/shaders/glsl/cell_bg.f.glsl
++++ b/src/renderer/shaders/glsl/cell_bg.f.glsl
+@@ -104,7 +104,7 @@ vec4 cell_bg() {
+     bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
+ 
+     vec2 rel = gl_FragCoord.xy - grid_padding.wx;
+-    float extra_rows = scroll_offset.x != 0.0 ? max(scroll_offset.y, 1.0) : 0.0;
++    float extra_rows = scroll_offset.x != 0.0 ? max(scroll_offset.y + scroll_offset.w, 1.0) : 0.0;
+     vec2 visible = cell_size * vec2(float(grid_size.x), float(grid_size.y) - extra_rows);
+     // A shifted grid sits on the height its rows don't account for, so that
+     // strip is grid, not padding.
+diff --git a/src/renderer/shaders/glsl/cell_text.f.glsl b/src/renderer/shaders/glsl/cell_text.f.glsl
+index 79cb8c7b2..b8b2fb2e9 100644
+--- a/src/renderer/shaders/glsl/cell_text.f.glsl
++++ b/src/renderer/shaders/glsl/cell_text.f.glsl
+@@ -38,7 +38,7 @@ void main() {
+     if (scroll_offset.x != 0.0) {
+         float y = gl_FragCoord.y - grid_padding.x;
+         uvec2 grid_size = unpack2u16(grid_size_packed_2u16);
+-        float extra_rows = max(scroll_offset.y, 1.0);
++        float extra_rows = max(scroll_offset.y + scroll_offset.w, 1.0);
+         float visible_h =
+             (float(grid_size.y) - extra_rows) * cell_size.y + scroll_offset.z;
+         if (y < 0.0 || y >= visible_h) discard;
+diff --git a/src/renderer/shaders/shaders.metal b/src/renderer/shaders/shaders.metal
+index 24f003d25..cdd1bac60 100644
+--- a/src/renderer/shaders/shaders.metal
++++ b/src/renderer/shaders/shaders.metal
+@@ -637,7 +637,7 @@ fragment float4 cell_bg_fragment(
+ ) {
+   float2 rel = in.position.xy - uniforms.grid_padding.wx;
+   float extra_rows = uniforms.scroll_offset.x != 0.0
+-      ? max(uniforms.scroll_offset.y, 1.0)
++      ? max(uniforms.scroll_offset.y + uniforms.scroll_offset.w, 1.0)
+       : 0.0;
+   float2 visible = uniforms.cell_size *
+       float2(uniforms.grid_size.x, float(uniforms.grid_size.y) - extra_rows);
+@@ -900,7 +900,7 @@ fragment float4 cell_text_fragment(
+   // legitimately overhang a cell edge are untouched at rest.
+   if (uniforms.scroll_offset.x != 0.0) {
+     float y = in.position.y - uniforms.grid_padding.x;
+-    float extra_rows = max(uniforms.scroll_offset.y, 1.0);
++    float extra_rows = max(uniforms.scroll_offset.y + uniforms.scroll_offset.w, 1.0);
+     float visible_h =
+         (float(uniforms.grid_size.y) - extra_rows) * uniforms.cell_size.y +
+         uniforms.scroll_offset.z;
+diff --git a/src/terminal/render.zig b/src/terminal/render.zig
+index a148d94fc..35bf7b98e 100644
+--- a/src/terminal/render.zig
++++ b/src/terminal/render.zig
+@@ -536,6 +536,9 @@ pub const RenderState = struct {
+         /// them drew the grid a whole cell off — the renderer already had
+         /// the new height while the terminal still had the old rows, or
+         /// the reverse — which every divider drag showed as a flash.
++        /// Zero measures no leftover, which keeps it padding while a
++        /// shift still has the cell height to count rows with
++        /// (`smooth-scroll-rows`).
+         terminal_height: u32 = 0,
+ 
+         pub const none: Geometry = .{};
+@@ -1096,7 +1099,7 @@ pub const RenderState = struct {
+     /// rows fall. See `resolveShift`.
+     pub const Shift = struct {
+         /// The rows revealed beyond the viewport, captured as overscan:
+-        /// rows above while the grid is drawn shifted down, the one below
++        /// rows above while the grid is drawn shifted down, rows below
+         /// while it is drawn shifted up. Every row counted exists.
+         overscan: Overscan = .{},
+         /// How far below its row-aligned position the viewport's first row
+@@ -1207,11 +1210,27 @@ pub const RenderState = struct {
+                 );
+             }
+         } else if (pixel_offset < 0) {
+-            const below = if (s.pages.getBottomRight(.viewport)) |br|
+-                br.down(1)
+-            else
+-                null;
+-            if (below != null) rows_below = 1 else pixel_offset = 0;
++            // A gesture's remainder reveals one row below; a
++            // `smooth-scroll-rows` move scrolling back can be drawn
++            // several rows up while it eases in, revealing as many.
++            const cell_height: f64 = @floatFromInt(geometry.cell_height);
++            const wanted: usize = if (geometry.cell_height > 0) @intFromFloat(@min(
++                @ceil(-pixel_offset / cell_height),
++                @as(f64, @floatFromInt(s.pages.rows)),
++            )) else 1;
++            var bottom_pin = s.pages.getBottomRight(.viewport);
++            while (rows_below < wanted) {
++                bottom_pin = (bottom_pin orelse break).down(1) orelse break;
++                rows_below += 1;
++            }
++            if (rows_below == 0) {
++                pixel_offset = 0;
++            } else if (geometry.cell_height > 0) {
++                pixel_offset = @max(
++                    pixel_offset,
++                    -@as(f64, @floatFromInt(rows_below)) * cell_height,
++                );
++            }
+         }
+ 
+         return .{
+@@ -3689,6 +3708,93 @@ test "RenderState resolveShift is the shift an update draws" {
+     try expectShift(&state, &t, geometry, 0);
+ }
+ 
++test "RenderState resolveShift reveals the rows below a row move scrolling back" {
++    // Under `smooth-scroll-rows` a move back through history is drawn
++    // where it was, rows above its place, while it eases in: the grid is
++    // shifted up by more than a row and every row it uncovers below the
++    // viewport has to be there.
++    const testing = std.testing;
++    const alloc = testing.allocator;
++    const io = testing.io;
++
++    var t = try Terminal.init(io, alloc, .{
++        .cols = 10,
++        .rows = 3,
++    });
++    defer t.deinit(alloc);
++
++    var s = t.vtStream();
++    defer s.deinit();
++    s.nextSlice("1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8");
++
++    var state: RenderState = .empty;
++    defer state.deinit(alloc);
++
++    // Three 10px rows in exactly 30px: no leftover to add.
++    const geometry: RenderState.Geometry = .{ .cell_height = 10, .terminal_height = 30 };
++
++    // At the top of history, 2.5 rows up reveals three rows below.
++    t.scrollViewport(.top);
++    t.screens.active.viewport_pixel_offset = -25;
++    const shift = RenderState.resolveShift(t.screens.active, geometry);
++    try testing.expectEqual(-25, shift.pixel_offset);
++    try testing.expect(shift.overscan.eql(.{ .below = 3 }));
++    try testShiftedUpdate(&state, &t, geometry);
++    try testing.expect(state.overscan.eql(.{ .below = 3 }));
++    try testing.expectEqual(6, testCapturedRows(&state));
++    {
++        const cells = state.row_data.slice().items(.cells);
++        try testing.expectEqual('1', cells[0].get(0).raw.codepoint());
++        try testing.expectEqual('4', cells[3].get(0).raw.codepoint());
++        try testing.expectEqual('6', cells[5].get(0).raw.codepoint());
++    }
++
++    // One row above the bottom only one row lies below: the shift is
++    // capped at it, as it is above when scrollback runs out.
++    t.scrollViewport(.bottom);
++    t.scrollViewport(.{ .delta = -1 });
++    t.screens.active.viewport_pixel_offset = -25;
++    const capped = RenderState.resolveShift(t.screens.active, geometry);
++    try testing.expectEqual(-10, capped.pixel_offset);
++    try testing.expect(capped.overscan.eql(.{ .below = 1 }));
++}
++
++test "RenderState resolveShift without a terminal height rests on whole rows" {
++    // `smooth-scroll-rows` hands over the cell height but no terminal
++    // height: the leftover stays padding, so a viewport with scrollback
++    // above is drawn where its rows fall, as without smooth scrolling,
++    // and only a row move's own offset shifts it.
++    const testing = std.testing;
++    const alloc = testing.allocator;
++    const io = testing.io;
++
++    var t = try Terminal.init(io, alloc, .{
++        .cols = 10,
++        .rows = 3,
++    });
++    defer t.deinit(alloc);
++
++    var s = t.vtStream();
++    defer s.deinit();
++    s.nextSlice("1\r\n2\r\n3\r\n4\r\n5\r\n6");
++
++    const rows_geometry: RenderState.Geometry = .{ .cell_height = 10 };
++    const at_rest = RenderState.resolveShift(t.screens.active, rows_geometry);
++    try testing.expectEqual(0, at_rest.pixel_offset);
++    try testing.expectEqual(0, at_rest.pixel_pad);
++    try testing.expect(at_rest.overscan.eql(.{}));
++
++    // The same screen with a 6px leftover measured sits on it.
++    const pixels: RenderState.Geometry = .{ .cell_height = 10, .terminal_height = 36 };
++    try testing.expectEqual(6, RenderState.resolveShift(t.screens.active, pixels).pixel_offset);
++
++    // A move forward easing in still reveals the rows above it.
++    t.screens.active.viewport_pixel_offset = 15;
++    const moving = RenderState.resolveShift(t.screens.active, rows_geometry);
++    try testing.expectEqual(15, moving.pixel_offset);
++    try testing.expect(moving.overscan.eql(.{ .above = 2 }));
++}
++
+ test "RenderState Shift rowsAboveAt resolves the revealed rows" {
+     // The surface selects the rows a shift reveals above the viewport with
+     // this, so they select like any other row drawn.

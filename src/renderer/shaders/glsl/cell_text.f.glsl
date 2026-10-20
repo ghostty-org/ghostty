@@ -8,6 +8,7 @@ in CellTextVertexOut {
     flat vec4 color;
     flat vec4 bg_color;
     vec2 tex_coord;
+    flat vec4 clip;
 } in_data;
 
 // Values `atlas` can take.
@@ -17,7 +18,32 @@ const uint ATLAS_COLOR = 1u;
 // Must declare this output for some versions of OpenGL.
 layout(location = 0) out vec4 out_FragColor;
 
+// Position the origin to the upper left
+layout(origin_upper_left) in vec4 gl_FragCoord;
+
 void main() {
+    // Region scroll animation: a glyph sliding in or out of its region
+    // stops at the region's edge.
+    {
+        vec2 rel = gl_FragCoord.xy - grid_padding.wx;
+        if (rel.x < in_data.clip.x || rel.x >= in_data.clip.z ||
+            rel.y < in_data.clip.y || rel.y >= in_data.clip.w) {
+            discard;
+        }
+    }
+
+    // Smooth scrolling: a partially revealed row extends into the padding;
+    // clip it to the visible grid. Only while shifted, so glyphs that
+    // legitimately overhang a cell edge are untouched at rest.
+    if (scroll_offset.x != 0.0) {
+        float y = gl_FragCoord.y - grid_padding.x;
+        uvec2 grid_size = unpack2u16(grid_size_packed_2u16);
+        float extra_rows = max(scroll_offset.y + scroll_offset.w, 1.0);
+        float visible_h =
+            (float(grid_size.y) - extra_rows) * cell_size.y + scroll_offset.z;
+        if (y < 0.0 || y >= visible_h) discard;
+    }
+
     bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
     bool use_linear_correction = (bools & USE_LINEAR_CORRECTION) != 0;
 
@@ -27,6 +53,18 @@ void main() {
         {
             // Our input color is always linear.
             vec4 color = in_data.color;
+
+            // Smooth cursor: a block cursor colors the glyph as cursor text
+            // by how much of this pixel it covers, so a glyph it is halfway
+            // across is two-toned. The invisible cursor sprite (alpha 0)
+            // stays so.
+            if ((bools & CURSOR_GLIDE_TEXT) != 0 && color.a > 0.0) {
+                float cov = cursor_coverage(grid_pixel(gl_FragCoord.xy));
+                if (cov > 0.0) {
+                    vec4 cursor_text = load_color(unpack4u8(cursor_color_packed_4u8), true);
+                    color = mix(color, cursor_text, cov);
+                }
+            }
 
             // If we're not doing linear blending, then we need to
             // re-apply the gamma encoding to our color manually.

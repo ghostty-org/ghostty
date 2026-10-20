@@ -213,6 +213,21 @@ pub const Uniforms = extern struct {
     /// top, right, bottom, left.
     grid_padding: [4]f32 align(16),
 
+    /// Smooth scrolling. `.x` is the sub-row viewport offset in pixels
+    /// (positive: content drawn shifted down); `.y` is how many grid
+    /// rows sit above the terminal viewport. Grid row `y` is drawn at
+    /// `(y - scroll_offset.y) * cell_size.y + scroll_offset.x`.
+    ///
+    /// `.z` is the height the viewport's rows don't account for —
+    /// `terminal_height - rows * cell_height` — which the shifted grid is
+    /// allowed to draw into, since it is real surface, not padding. It is
+    /// what lets the grid sit a few pixels lower so a resize moves the
+    /// content continuously instead of a row at a time. Zero at rest.
+    /// `.w` is how many grid rows sit below the terminal viewport, revealed
+    /// by a grid shifted up (`smooth-scroll-rows` scrolling back reveals
+    /// more than one); with `.y`, the rows that are not the viewport's.
+    scroll_offset: [4]f32 align(16),
+
     /// Bit mask defining which directions to
     /// extend cell colors in to the padding.
     /// Order, LSB first: left, right, up, down
@@ -252,7 +267,43 @@ pub const Uniforms = extern struct {
         /// with linear alpha blending have a similar apparent weight
         /// (thickness) to gamma-incorrect blending.
         use_linear_correction: bool align(1) = false,
+
+        /// Smooth cursor: color text as cursor text by how much of each
+        /// pixel `cursor_rect` covers (a block cursor), in place of the
+        /// whole-cell recolor under `cursor_pos`, which is then unset.
+        cursor_glide_text: bool align(1) = false,
     },
+
+    /// Region scroll animation (alternate-screen scroll regions that a
+    /// program scrolled by rows; see `RegionAnim` in the renderer).
+    /// `region_rect[i]` is the animating rectangle in grid pixels (left,
+    /// top, right, bottom) and `region_shift[i].x` how far its content is
+    /// currently drawn from its final place, positive being down. Grid
+    /// row `grid_size.y + k` is a ghost row: a row that scrolled out of
+    /// region `ghost_rows[k].x`, drawn at row `ghost_rows[k].y` (outside
+    /// the region) and clipped to it. `anim_counts.x` regions and `.y`
+    /// ghost rows are live; the rest is ignored.
+    region_rect: [max_region_anims][4]f32 align(16) = @splat(@splat(0)),
+    region_shift: [max_region_anims][4]f32 align(16) = @splat(@splat(0)),
+    ghost_rows: [max_ghost_rows][4]i32 align(16) = @splat(@splat(-1)),
+    anim_counts: [4]u32 align(16) = @splat(0),
+
+    /// Smooth cursor (see `CursorGlide` in the renderer): the rect the
+    /// focused cursor fills, in grid pixels (left, top, width, height),
+    /// which the cell background shader fills with `cursor_fill`; all zero
+    /// while no cursor is drawn this way.
+    cursor_rect: [4]f32 align(16) = @splat(0),
+    cursor_fill: [4]u8 align(4) = @splat(0),
+
+    /// Cursor trail (`CursorGlide.Trail`): the streak's segment, as the
+    /// centers it is swept between in grid pixels (from.xy, to.xy), and
+    /// its half size (.xy) and opacity (.z); opacity 0 while there is none.
+    /// Drawn by the cell background shader in `cursor_fill`'s color.
+    cursor_trail: [4]f32 align(16) = @splat(0),
+    cursor_trail_size: [4]f32 align(16) = @splat(0),
+
+    pub const max_region_anims = 4;
+    pub const max_ghost_rows = 64;
 
     const PaddingExtend = packed struct(u8) {
         left: bool = false,

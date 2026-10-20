@@ -41,8 +41,10 @@ pub fn style(
     // a priority system of how we determine what state overrides cursor
     // visibility and style.
 
-    // The cursor must be visible in the viewport to be rendered.
-    if (state.cursor.viewport == null) return null;
+    // The cursor must be visible in the viewport to be rendered, or in a
+    // row smooth scrolling reveals beyond it, which is drawn partly on
+    // screen (see `RenderState.Cursor.captured`).
+    if (state.cursor.viewport == null and state.cursor.captured == null) return null;
 
     // If we are in preedit, then we always show the block cursor. We do
     // this even if the cursor is explicitly not visible because it shows

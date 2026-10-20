@@ -510,6 +510,285 @@ pub fn adjust(
     }
 }
 
+/// A motion of the selection head, as a keyboard copy mode moves a cursor.
+/// Unlike `Adjustment`, each motion goes exactly where the cursor of a text
+/// editor would go: one cell, one row or one word. It does not skip blank
+/// cells and it does not wrap at the edge of the row.
+pub const Motion = enum {
+    left,
+    right,
+    up,
+    down,
+    word_next,
+    word_end,
+    word_prev,
+    line_start,
+    line_end,
+    page_up,
+    page_down,
+    half_page_up,
+    half_page_down,
+    top,
+    bottom,
+};
+
+/// Move the selection head (`end`) by a motion. With `extend` the anchor
+/// (`start`) stays, so the selection grows or shrinks. Without it the anchor
+/// follows the head, and the selection is one cell: a cursor.
+///
+/// `boundary_codepoints` are the word boundary codepoints of the config
+/// (`selection-word-chars`), as `Screen.selectWord` takes them. A word is a
+/// run of cells that are all boundary codepoints or all not. Space, tab, an
+/// empty cell and the end of a row that does not wrap are blank. A word
+/// motion steps over blanks.
+pub fn move(
+    self: *Selection,
+    s: *const Screen,
+    motion: Motion,
+    extend: bool,
+    boundary_codepoints: []const u21,
+) void {
+    const head = self.endPtr();
+    const target: Pin = switch (motion) {
+        .left => if (head.x > 0) head.left(1) else head.*,
+        .right => if (@as(usize, head.x) + 1 < head.node.cols()) head.right(1) else head.*,
+        .up => head.up(1) orelse head.*,
+        .down => head.down(1) orelse head.*,
+        .page_up => head.up(s.pages.rows) orelse edgeRow(s, head.*, .top),
+        .page_down => head.down(s.pages.rows) orelse edgeRow(s, head.*, .bottom),
+        .half_page_up => head.up(@max(1, s.pages.rows / 2)) orelse edgeRow(s, head.*, .top),
+        .half_page_down => head.down(@max(1, s.pages.rows / 2)) orelse edgeRow(s, head.*, .bottom),
+        .line_start => pin: {
+            var p = head.*;
+            p.x = 0;
+            break :pin p;
+        },
+        .line_end => lastTextCell(head.*) orelse pin: {
+            var p = head.*;
+            p.x = 0;
+            break :pin p;
+        },
+        .top => s.pages.getTopLeft(.screen),
+        .bottom => lastTextCellOfScreen(s) orelse head.*,
+        .word_next => wordNext(head.*, boundary_codepoints),
+        .word_end => wordEnd(head.*, boundary_codepoints),
+        .word_prev => wordPrev(head.*, boundary_codepoints),
+    };
+
+    head.* = target;
+    if (!extend) self.startPtr().* = target;
+}
+
+/// Grow the selection to whole rows, as `x` does in Helix. The anchor goes to
+/// the start of its row and the head to the end of its row, with the head
+/// below the anchor. Rows that soft-wrap are one line. A selection that
+/// already covers whole rows grows by one row at the bottom.
+pub fn expandToLines(self: *Selection, s: *const Screen) void {
+    const tl = self.topLeft(s);
+    const br = self.bottomRight(s);
+
+    var start_pin = tl;
+    while (start_pin.up(1)) |above| {
+        if (!above.rowAndCell().row.wrap) break;
+        start_pin = above;
+    }
+    start_pin.x = 0;
+
+    const whole = tl.x == 0 and
+        br.x == br.node.cols() - 1 and
+        !br.rowAndCell().row.wrap;
+    var end_pin = if (whole) br.down(1) orelse br else br;
+    while (end_pin.rowAndCell().row.wrap) {
+        end_pin = end_pin.down(1) orelse break;
+    }
+    end_pin.x = end_pin.node.cols() - 1;
+
+    self.startPtr().* = start_pin;
+    self.endPtr().* = end_pin;
+}
+
+/// The first or last row of the written screen, in the column of `pin`.
+fn edgeRow(s: *const Screen, pin: Pin, edge: enum { top, bottom }) Pin {
+    var p = switch (edge) {
+        .top => s.pages.getTopLeft(.screen),
+        .bottom => s.pages.getBottomRight(.screen) orelse return pin,
+    };
+    p.x = @min(pin.x, p.node.cols() - 1);
+    return p;
+}
+
+/// The last cell with text on the row of `pin`, or null for a blank row.
+fn lastTextCell(pin: Pin) ?Pin {
+    const cells = pin.cells(.all);
+    var x: usize = cells.len;
+    while (x > 0) {
+        x -= 1;
+        if (cells[x].hasText()) {
+            var p = pin;
+            p.x = @intCast(x);
+            return p;
+        }
+    }
+    return null;
+}
+
+/// The last cell with text on the screen, or null for a blank screen.
+fn lastTextCellOfScreen(s: *const Screen) ?Pin {
+    var it = s.pages.rowIterator(.left_up, .{ .screen = .{} }, null);
+    while (it.next()) |row| {
+        if (lastTextCell(row)) |p| return p;
+    }
+    return null;
+}
+
+/// What a cell is to a word motion.
+const CellClass = enum { blank, boundary, word };
+
+fn classAt(pin: Pin, boundary_codepoints: []const u21) CellClass {
+    const rac = pin.rowAndCell();
+    const cell = switch (rac.cell.wide) {
+        .narrow, .wide => rac.cell,
+        // The tail of a wide character belongs to the character.
+        .spacer_tail => pin.left(1).rowAndCell().cell,
+        .spacer_head => return .blank,
+    };
+    if (!cell.hasText()) return .blank;
+    const cp = cell.content.codepoint.data;
+    if (cp == ' ' or cp == '\t') return .blank;
+    return if (std.mem.indexOfScalar(u21, boundary_codepoints, cp) != null)
+        .boundary
+    else
+        .word;
+}
+
+/// Steps one cell at a time through the screen for the word motions. The end
+/// of a row that does not wrap is one blank step between the two rows, so a
+/// word never continues across it, and a word motion crosses it as it
+/// crosses a space.
+const WordWalker = struct {
+    pin: Pin,
+    boundary_codepoints: []const u21,
+    /// True while the walker stands on the blank between two rows. `pin` is
+    /// then already the cell on the far side.
+    at_break: bool = false,
+    /// The last real cell the walker stood on before `pin`.
+    last: Pin,
+
+    fn init(pin: Pin, boundary_codepoints: []const u21) WordWalker {
+        return .{ .pin = pin, .boundary_codepoints = boundary_codepoints, .last = pin };
+    }
+
+    fn class(self: WordWalker) CellClass {
+        if (self.at_break) return .blank;
+        return classAt(self.pin, self.boundary_codepoints);
+    }
+
+    /// Step right. Returns false at the end of the screen.
+    fn right(self: *WordWalker) bool {
+        if (self.at_break) {
+            self.at_break = false;
+            return true;
+        }
+        if (@as(usize, self.pin.x) + 1 < self.pin.node.cols()) {
+            self.last = self.pin;
+            self.pin = self.pin.right(1);
+            return true;
+        }
+        const wrap = self.pin.rowAndCell().row.wrap;
+        var next = self.pin.down(1) orelse return false;
+        next.x = 0;
+        self.last = self.pin;
+        self.pin = next;
+        self.at_break = !wrap;
+        return true;
+    }
+
+    /// Step left. Returns false at the start of the screen.
+    fn left(self: *WordWalker) bool {
+        if (self.at_break) {
+            self.at_break = false;
+            return true;
+        }
+        if (self.pin.x > 0) {
+            self.last = self.pin;
+            self.pin = self.pin.left(1);
+            return true;
+        }
+        var prev = self.pin.up(1) orelse return false;
+        prev.x = prev.node.cols() - 1;
+        const wrap = prev.rowAndCell().row.wrap;
+        self.last = self.pin;
+        self.pin = prev;
+        self.at_break = !wrap;
+        return true;
+    }
+};
+
+/// Helix `w`: the cell before the start of the next word. From inside a word
+/// this is the last blank after it, so the selection covers the word and the
+/// blanks that follow it. With no next word the head stays.
+///
+/// When the head is the last cell before a word (the cell that a `w` leaves
+/// it on, the end of a word with a boundary run after it, or the end of a row
+/// with a word at the start of the next row), the walk starts on that word,
+/// as in Helix. Without this a repeated `w` would not move.
+fn wordNext(pin: Pin, boundary_codepoints: []const u21) Pin {
+    var w = WordWalker.init(pin, boundary_codepoints);
+    const head_class = w.class();
+    var next = w;
+    if (!next.right()) return pin;
+    // The end of a row that does not wrap ends a word too.
+    const crossed_row = next.at_break;
+    if (crossed_row and !next.right()) return pin;
+    const next_class = next.class();
+    if (next_class != .blank and (crossed_row or next_class != head_class)) w = next;
+    const start_class = w.class();
+    if (start_class != .blank) {
+        while (true) {
+            if (!w.right()) return pin;
+            if (w.class() != start_class) break;
+        }
+    }
+    while (w.class() == .blank) {
+        if (!w.right()) return pin;
+    }
+    return w.last;
+}
+
+/// Helix `e`: the last cell of the word the head is in, or of the next word
+/// when the head is at the end of a word or on a blank. With no word ahead
+/// the head stays.
+fn wordEnd(pin: Pin, boundary_codepoints: []const u21) Pin {
+    var w = WordWalker.init(pin, boundary_codepoints);
+    if (!w.right()) return pin;
+    while (w.class() == .blank) {
+        if (!w.right()) return pin;
+    }
+    const cls = w.class();
+    while (true) {
+        const here = w.pin;
+        if (!w.right()) return here;
+        if (w.class() != cls) return here;
+    }
+}
+
+/// Helix `b`: the first cell of the word the head is in, or of the previous
+/// word when the head is at the start of a word or on a blank. With no word
+/// behind the head stays.
+fn wordPrev(pin: Pin, boundary_codepoints: []const u21) Pin {
+    var w = WordWalker.init(pin, boundary_codepoints);
+    if (!w.left()) return pin;
+    while (w.class() == .blank) {
+        if (!w.left()) return pin;
+    }
+    const cls = w.class();
+    while (true) {
+        const here = w.pin;
+        if (!w.left()) return here;
+        if (w.class() != cls) return here;
+    }
+}
+
 test "Selection: adjust right" {
     const testing = std.testing;
     var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
@@ -989,6 +1268,319 @@ test "Selection: adjust end of line" {
             .y = 0,
         } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
+}
+
+/// Test helper: the screen point of a pin.
+fn testPoint(s: *const Screen, p: Pin) point.Point {
+    return s.pages.pointFromPin(.screen, p).?;
+}
+
+/// Test helper: a screen point.
+fn testScreen(x: u16, y: u16) point.Point {
+    return .{ .screen = .{ .x = x, .y = y } };
+}
+
+const test_word_boundaries = [_]u21{ 0, ' ', '\t', '-' };
+
+test "Selection: move left and right stay on the row and collapse" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+    try s.testWriteString("A1234\nB5678\nC1234\nD5678");
+
+    var sel = Selection.init(
+        s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+        s.pages.pin(.{ .screen = .{ .x = 3, .y = 0 } }).?,
+        false,
+    );
+    defer sel.deinit(&s);
+
+    sel.move(&s, .right, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(4, 0), testPoint(&s, sel.start()));
+    try testing.expectEqual(testScreen(4, 0), testPoint(&s, sel.end()));
+
+    sel.move(&s, .left, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(3, 0), testPoint(&s, sel.end()));
+
+    // The row edges stop the head.
+    sel.move(&s, .line_start, false, &test_word_boundaries);
+    sel.move(&s, .left, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(0, 0), testPoint(&s, sel.end()));
+    sel.endPtr().x = 9;
+    sel.move(&s, .right, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(9, 0), testPoint(&s, sel.end()));
+}
+
+test "Selection: move with extend keeps the anchor" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+    try s.testWriteString("A1234\nB5678");
+
+    const origin = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+    var sel = Selection.init(origin, origin, false);
+    defer sel.deinit(&s);
+
+    sel.move(&s, .right, true, &test_word_boundaries);
+    sel.move(&s, .down, true, &test_word_boundaries);
+    try testing.expectEqual(testScreen(0, 0), testPoint(&s, sel.start()));
+    try testing.expectEqual(testScreen(1, 1), testPoint(&s, sel.end()));
+}
+
+test "Selection: move up and down stop at the screen edges" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 3, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+    try s.testWriteString("A1234\nB5678\nC1234");
+
+    const origin = s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?;
+    var sel = Selection.init(origin, origin, false);
+    defer sel.deinit(&s);
+
+    sel.move(&s, .up, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(3, 0), testPoint(&s, sel.end()));
+    sel.move(&s, .up, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(3, 0), testPoint(&s, sel.end()));
+
+    sel.move(&s, .down, false, &test_word_boundaries);
+    sel.move(&s, .down, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(3, 2), testPoint(&s, sel.end()));
+    sel.move(&s, .down, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(3, 2), testPoint(&s, sel.end()));
+}
+
+test "Selection: move word_next selects the word and the blanks after it" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+    try s.testWriteString("foo bar\nbaz");
+
+    const origin = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+    var sel = Selection.init(origin, origin, false);
+    defer sel.deinit(&s);
+
+    // From inside a word: the blank before the next word.
+    sel.move(&s, .word_next, true, &test_word_boundaries);
+    try testing.expectEqual(testScreen(0, 0), testPoint(&s, sel.start()));
+    try testing.expectEqual(testScreen(3, 0), testPoint(&s, sel.end()));
+
+    // From a blank right before a word: that word and the blanks after
+    // it, so a repeated `w` moves on.
+    sel.move(&s, .word_next, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(9, 0), testPoint(&s, sel.end()));
+
+    // The last word of a row: the end of the row, because the next word
+    // is on the next row.
+    sel.endPtr().x = 4;
+    sel.move(&s, .word_next, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(9, 0), testPoint(&s, sel.end()));
+
+    // No next word: stays.
+    sel.endPtr().* = s.pages.pin(.{ .screen = .{ .x = 0, .y = 1 } }).?;
+    sel.move(&s, .word_next, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(0, 1), testPoint(&s, sel.end()));
+}
+
+test "Selection: move word_next goes on from the end of a row" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+    try s.testWriteString("ab\ncd ef");
+
+    const origin = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+    var sel = Selection.init(origin, origin, false);
+    defer sel.deinit(&s);
+
+    // The last word of a row: the end of the row.
+    sel.move(&s, .word_next, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(9, 0), testPoint(&s, sel.end()));
+
+    // Again from the end of the row: the first word of the next row and
+    // the blank after it.
+    sel.move(&s, .word_next, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(2, 1), testPoint(&s, sel.end()));
+}
+
+test "Selection: move word_end goes to the end of the word" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+    try s.testWriteString("foo bar\nbaz");
+
+    const origin = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+    var sel = Selection.init(origin, origin, false);
+    defer sel.deinit(&s);
+
+    sel.move(&s, .word_end, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(2, 0), testPoint(&s, sel.end()));
+
+    // At the end of a word: the end of the next word.
+    sel.move(&s, .word_end, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(6, 0), testPoint(&s, sel.end()));
+
+    // Across the end of the row.
+    sel.move(&s, .word_end, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(2, 1), testPoint(&s, sel.end()));
+
+    // No word ahead: stays.
+    sel.move(&s, .word_end, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(2, 1), testPoint(&s, sel.end()));
+}
+
+test "Selection: move word_prev goes to the start of the word" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+    try s.testWriteString("foo bar\nbaz");
+
+    const origin = s.pages.pin(.{ .screen = .{ .x = 6, .y = 0 } }).?;
+    var sel = Selection.init(origin, origin, false);
+    defer sel.deinit(&s);
+
+    sel.move(&s, .word_prev, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(4, 0), testPoint(&s, sel.end()));
+
+    // At the start of a word: the start of the previous word.
+    sel.move(&s, .word_prev, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(0, 0), testPoint(&s, sel.end()));
+
+    // No word behind: stays.
+    sel.move(&s, .word_prev, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(0, 0), testPoint(&s, sel.end()));
+
+    // Across the start of the row.
+    sel.endPtr().* = s.pages.pin(.{ .screen = .{ .x = 0, .y = 1 } }).?;
+    sel.move(&s, .word_prev, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(4, 0), testPoint(&s, sel.end()));
+}
+
+test "Selection: move word motions treat a boundary run as a word" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+    try s.testWriteString("ab--cd ef");
+
+    const origin = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+    var sel = Selection.init(origin, origin, false);
+    defer sel.deinit(&s);
+
+    sel.move(&s, .word_end, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(1, 0), testPoint(&s, sel.end()));
+    sel.move(&s, .word_end, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(3, 0), testPoint(&s, sel.end()));
+    sel.move(&s, .word_end, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(5, 0), testPoint(&s, sel.end()));
+
+    // `w` with no blank between the runs: the last cell of the run.
+    sel.endPtr().x = 0;
+    sel.move(&s, .word_next, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(1, 0), testPoint(&s, sel.end()));
+
+    // A repeated `w` moves on: to the end of the next run, then to the
+    // blank before the next word.
+    sel.move(&s, .word_next, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(3, 0), testPoint(&s, sel.end()));
+    sel.move(&s, .word_next, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(6, 0), testPoint(&s, sel.end()));
+}
+
+test "Selection: move line_start, line_end, top and bottom" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+    try s.testWriteString("foo bar\nbaz");
+
+    const origin = s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?;
+    var sel = Selection.init(origin, origin, false);
+    defer sel.deinit(&s);
+
+    sel.move(&s, .line_end, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(2, 1), testPoint(&s, sel.end()));
+    sel.move(&s, .line_start, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(0, 1), testPoint(&s, sel.end()));
+    sel.move(&s, .top, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(0, 0), testPoint(&s, sel.end()));
+    sel.move(&s, .bottom, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(2, 1), testPoint(&s, sel.end()));
+
+    // A blank row has no end: the head goes to its start.
+    sel.endPtr().* = s.pages.pin(.{ .screen = .{ .x = 3, .y = 5 } }).?;
+    sel.move(&s, .line_end, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(0, 5), testPoint(&s, sel.end()));
+}
+
+test "Selection: move page motions clamp to the screen and keep the column" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+    try s.testWriteString("foo bar\nbaz");
+
+    const origin = s.pages.pin(.{ .screen = .{ .x = 4, .y = 1 } }).?;
+    var sel = Selection.init(origin, origin, false);
+    defer sel.deinit(&s);
+
+    sel.move(&s, .page_up, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(4, 0), testPoint(&s, sel.end()));
+    sel.move(&s, .half_page_down, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(4, 5), testPoint(&s, sel.end()));
+    sel.move(&s, .page_down, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(4, 9), testPoint(&s, sel.end()));
+    sel.move(&s, .half_page_up, false, &test_word_boundaries);
+    try testing.expectEqual(testScreen(4, 4), testPoint(&s, sel.end()));
+}
+
+test "Selection: expandToLines selects whole rows, then grows by a row" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+    try s.testWriteString("A1234\nB5678\nC1234\nD5678");
+
+    {
+        const origin = s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?;
+        var sel = Selection.init(origin, origin, false);
+        defer sel.deinit(&s);
+
+        sel.expandToLines(&s);
+        try testing.expectEqual(testScreen(0, 1), testPoint(&s, sel.start()));
+        try testing.expectEqual(testScreen(9, 1), testPoint(&s, sel.end()));
+
+        sel.expandToLines(&s);
+        try testing.expectEqual(testScreen(0, 1), testPoint(&s, sel.start()));
+        try testing.expectEqual(testScreen(9, 2), testPoint(&s, sel.end()));
+    }
+
+    // A reverse selection becomes forward, anchor on top.
+    {
+        var sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 2 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+
+        sel.expandToLines(&s);
+        try testing.expectEqual(testScreen(0, 0), testPoint(&s, sel.start()));
+        try testing.expectEqual(testScreen(9, 2), testPoint(&s, sel.end()));
+    }
+}
+
+test "Selection: expandToLines takes a soft-wrapped line as one line" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+    try s.testWriteString("0123456789abc\nnext");
+
+    const origin = s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?;
+    var sel = Selection.init(origin, origin, false);
+    defer sel.deinit(&s);
+
+    sel.expandToLines(&s);
+    try testing.expectEqual(testScreen(0, 0), testPoint(&s, sel.start()));
+    try testing.expectEqual(testScreen(9, 1), testPoint(&s, sel.end()));
+
+    sel.expandToLines(&s);
+    try testing.expectEqual(testScreen(0, 0), testPoint(&s, sel.start()));
+    try testing.expectEqual(testScreen(9, 2), testPoint(&s, sel.end()));
 }
 
 test "Selection: order, standard" {

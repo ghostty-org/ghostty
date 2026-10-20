@@ -1,0 +1,483 @@
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index a83cf83b1..e113d8845 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -1031,6 +1031,18 @@ palette: Palette = .{},
+ /// This can be changed at runtime.
+ @"smooth-cursor": bool = false,
+ 
++/// Leave a streak behind the cursor across larger moves: a translucent
++/// swept shape in the cursor color from where the cursor was to where it
++/// is, whose tail catches up with its head and which fades out as the
++/// move completes, in the same time a `smooth-cursor` glide takes. Moves
++/// of a cell or two, such as typing, leave nothing. The streak is drawn
++/// under the text, in the cell background, and works with or without
++/// `smooth-cursor`; with it the streak's head is the gliding cursor.
++///
++/// Downstream (thdxg/ghostty) key, read by Macterm's Animations settings.
++/// This can be changed at runtime.
++@"cursor-trail": bool = false,
++
+ /// The opacity level (opposite of transparency) of the background. A value of
+ /// 1 is fully opaque and a value of 0 is fully transparent. A value less than 0
+ /// or greater than 1 will be clamped to the nearest valid value.
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index 627d5aee7..65eda62aa 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -85,15 +85,71 @@ const CursorGlide = struct {
+     current: [4]f32,
+     /// Frames drawn since the glide began, for the log line when it lands.
+     frames: u32 = 0,
++    /// How far along the glide is, 0 to 1; 1 at rest.
++    progress: f64 = 1,
+ 
+     /// How long a glide takes.
+     pub const duration_s: f64 = 0.14;
+ 
++    /// The trail (`cursor-trail`): the fraction of the move the streak's
++    /// tail waits before following its head, the streak's peak opacity,
++    /// and the move, in cell heights, below which there is no streak
++    /// (typing moves one cell at a time; a streak there is noise).
++    pub const trail_tail_lag: f64 = 0.5;
++    pub const trail_opacity: f32 = 0.6;
++    pub const trail_min_move_cells: f32 = 1.5;
++
++    /// The streak behind a moving cursor: an axis-aligned box of
++    /// `half_size` swept along `from` → `to` (centers, grid pixels), at
++    /// `opacity`. The box slides rather than rotates, so a diagonal move
++    /// leaves a slanted streak with square ends, the shape a sliding
++    /// cursor would paint.
++    pub const Trail = struct {
++        from: [2]f32,
++        to: [2]f32,
++        half_size: [2]f32,
++        opacity: f32,
++    };
++
+     /// A cursor placed with nothing to glide from: drawn at `rect` at once.
+     fn resting(cell: [2]u16, rect: [4]f32) CursorGlide {
+         return .{ .cell = cell, .to = rect, .from = rect, .start = null, .current = rect };
+     }
+ 
++    /// The streak this moment of the glide leaves, or null at rest or for
++    /// a move too short to streak. The head is where the cursor is drawn
++    /// (`current`); the tail sets out `trail_tail_lag` of the way in and
++    /// the whole streak fades as the glide completes.
++    fn trail(self: *const CursorGlide, cell_height: f32) ?Trail {
++        if (self.start == null) return null;
++        const from = center(self.from);
++        const to = center(self.to);
++        const dx = to[0] - from[0];
++        const dy = to[1] - from[1];
++        if (@sqrt(dx * dx + dy * dy) < cell_height * trail_min_move_cells) return null;
++        const t = self.progress;
++        const tail: f32 = @floatCast(ease(std.math.clamp(
++            (t - trail_tail_lag) / (1.0 - trail_tail_lag),
++            0.0,
++            1.0,
++        )));
++        return .{
++            .from = .{ from[0] + dx * tail, from[1] + dy * tail },
++            .to = center(self.current),
++            .half_size = .{ self.current[2] * 0.5, self.current[3] * 0.5 },
++            .opacity = trail_opacity * @as(f32, @floatCast(1.0 - t)),
++        };
++    }
++
++    fn center(rect: [4]f32) [2]f32 {
++        return .{ rect[0] + rect[2] * 0.5, rect[1] + rect[3] * 0.5 };
++    }
++
++    /// Ease-out cubic: most of the distance goes early, the landing is soft.
++    fn ease(t: f64) f64 {
++        return 1.0 - std.math.pow(f64, 1.0 - t, 3.0);
++    }
++
+     /// Aim at `rect`. The rect already aimed at changes nothing; any
+     /// other starts a glide from wherever the rect is drawn now, so a
+     /// cursor retargeted mid-glide turns toward the new place instead of
+@@ -105,6 +161,7 @@ const CursorGlide = struct {
+         self.to = rect;
+         self.start = now;
+         self.frames = 0;
++        self.progress = 0;
+     }
+ 
+     fn inFlight(self: *const CursorGlide) bool {
+@@ -117,6 +174,7 @@ const CursorGlide = struct {
+         const elapsed_ns: f64 = @floatFromInt(@max(start.durationTo(now).nanoseconds, 0));
+         const elapsed_s = elapsed_ns / std.time.ns_per_s;
+         self.current = rectAt(self.from, self.to, elapsed_s);
++        self.progress = std.math.clamp(elapsed_s / duration_s, 0.0, 1.0);
+         self.frames += 1;
+         if (elapsed_s >= duration_s) {
+             self.start = null;
+@@ -128,12 +186,11 @@ const CursorGlide = struct {
+         return self.current;
+     }
+ 
+-    /// The rect `elapsed_s` into a glide from `from` to `to`: ease-out
+-    /// cubic, so most of the distance goes early and the landing is soft.
+-    /// Each edge is interpolated, so a bar growing into a block morphs.
++    /// The rect `elapsed_s` into a glide from `from` to `to`, eased. Each
++    /// edge is interpolated, so a bar growing into a block morphs.
+     fn rectAt(from: [4]f32, to: [4]f32, elapsed_s: f64) [4]f32 {
+         const t = std.math.clamp(elapsed_s / duration_s, 0.0, 1.0);
+-        const e: f32 = @floatCast(1.0 - std.math.pow(f64, 1.0 - t, 3.0));
++        const e: f32 = @floatCast(ease(t));
+         var rect: [4]f32 = undefined;
+         for (&rect, from, to) |*out, a, b| out.* = a + (b - a) * e;
+         return rect;
+@@ -172,6 +229,39 @@ test "CursorGlide eases out from where it is and lands exactly" {
+     try testing.expectEqual(from, glide.to);
+ }
+ 
++test "CursorGlide trails a long move from its tail to the drawn head" {
++    const testing = std.testing;
++    const cell_h: f32 = 20;
++    const from: [4]f32 = .{ 0, 0, 10, cell_h };
++    const t0: std.Io.Timestamp = .now(testing.io, .awake);
++
++    // At rest there is no streak; nor for a move of a cell or two.
++    var glide: CursorGlide = .resting(.{ 0, 0 }, from);
++    try testing.expect(glide.trail(cell_h) == null);
++    glide.retarget(.{ 2, 0 }, .{ 20, 0, 10, cell_h }, t0);
++    glide.progress = 0.25;
++    try testing.expect(glide.trail(cell_h) == null);
++
++    // A long move: early on the tail is still at the start and the head
++    // is wherever the cursor is drawn, at near-full opacity.
++    glide = .resting(.{ 0, 0 }, from);
++    glide.retarget(.{ 10, 2 }, .{ 100, 40, 10, cell_h }, t0);
++    glide.progress = 0.25;
++    glide.current = .{ 50, 20, 10, cell_h };
++    const early = glide.trail(cell_h).?;
++    try testing.expectEqual([2]f32{ 5, 10 }, early.from);
++    try testing.expectEqual([2]f32{ 55, 30 }, early.to);
++    try testing.expectEqual([2]f32{ 5, 10 }, early.half_size);
++    try testing.expect(early.opacity > 0.4 and early.opacity < 0.5);
++
++    // Past the lag the tail follows, and at the end everything has faded.
++    glide.progress = 0.75;
++    const late = glide.trail(cell_h).?;
++    try testing.expect(late.from[0] > 5 and late.from[0] < 105);
++    glide.progress = 1;
++    try testing.expect(glide.trail(cell_h).?.opacity == 0);
++}
++
+ fn PresentedRegions(comptime slots: usize) type {
+     return struct {
+         const Self = @This();
+@@ -389,10 +479,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+         /// `regionShifts`).
+         presented_regions: PresentedRegions(SwapChain.buf_count) = .{},
+ 
+-        /// The focused cursor under `smooth-cursor` (see `CursorGlide`):
+-        /// null until a cursor has been placed, and whether this frame's
+-        /// cells put a cursor there for the shaders to draw. The rect is
+-        /// written into the uniforms every drawn frame (`tickCursorGlide`).
++        /// The focused cursor's motion under `smooth-cursor` or
++        /// `cursor-trail` (see `CursorGlide`): null until a cursor has been
++        /// placed, and whether this frame's cells put a cursor there for
++        /// the shaders to draw from it. The rect and the trail are written
++        /// into the uniforms every drawn frame (`tickCursorGlide`).
+         cursor_glide: ?CursorGlide = null,
+         cursor_glide_shown: bool = false,
+ 
+@@ -838,6 +929,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             scroll_to_bottom_on_output: bool,
+             smooth_scroll: bool,
+             smooth_cursor: bool,
++            cursor_trail: bool,
+             custom_shader_animation: configpkg.CustomShaderAnimation,
+ 
+             pub fn init(
+@@ -916,6 +1008,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     .scroll_to_bottom_on_output = config.@"scroll-to-bottom".output,
+                     .smooth_scroll = config.@"smooth-scroll",
+                     .smooth_cursor = config.@"smooth-cursor",
++                    .cursor_trail = config.@"cursor-trail",
+                     .custom_shader_animation = config.@"custom-shader-animation",
+                     .arena = arena,
+                 };
+@@ -1639,27 +1732,48 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             return self.cursor_glide_shown and glide.inFlight();
+         }
+ 
+-        /// Advance the smooth cursor to now and place it in the uniforms:
+-        /// no rect while this frame draws no cursor that way, else the
+-        /// eased rect, moved with the region scroll its cell is riding so
+-        /// it stays under its glyph (the text shader shifts those). Called
+-        /// once per drawn frame, after `tickRegionAnims`.
++        /// Advance the cursor's motion to now and place it in the
++        /// uniforms: under `smooth-cursor` the eased rect, under
++        /// `cursor-trail` the streak behind it, nothing for either while
++        /// this frame draws no cursor that way. Both are moved with the
++        /// region scroll the cursor's cell is riding so they stay under
++        /// its glyph (the text shader shifts those). Called once per
++        /// drawn frame, after `tickRegionAnims`.
+         fn tickCursorGlide(self: *Self) void {
+-            self.uniforms.cursor_rect = rect: {
+-                if (!self.cursor_glide_shown) break :rect @splat(0);
+-                const glide: *CursorGlide = if (self.cursor_glide) |*g| g else break :rect @splat(0);
+-                var rect = glide.step(.now(global.io(), .awake));
++            self.uniforms.cursor_rect = @splat(0);
++            self.uniforms.cursor_trail = @splat(0);
++            self.uniforms.cursor_trail_size = @splat(0);
++            if (!self.cursor_glide_shown) return;
++            const glide: *CursorGlide = if (self.cursor_glide) |*g| g else return;
++
++            const rect = glide.step(.now(global.io(), .awake));
++            const shift: f32 = shift: {
+                 const col: u32 = glide.cell[0];
+                 const row: u32 = glide.cell[1];
+                 for (self.region_anims.items) |*anim| {
+                     const r = anim.region;
+                     if (col >= r.left and col <= r.right and row >= r.top and row <= r.bottom) {
+-                        rect[1] += @floatCast(anim.shift);
+-                        break;
++                        break :shift @floatCast(anim.shift);
+                     }
+                 }
+-                break :rect rect;
++                break :shift 0;
+             };
++
++            if (self.config.smooth_cursor) {
++                self.uniforms.cursor_rect = .{ rect[0], rect[1] + shift, rect[2], rect[3] };
++            }
++            if (self.config.cursor_trail) {
++                const cell_h: f32 = @floatFromInt(self.grid_metrics.cell_height);
++                if (glide.trail(cell_h)) |trail| {
++                    self.uniforms.cursor_trail = .{
++                        trail.from[0], trail.from[1] + shift,
++                        trail.to[0],   trail.to[1] + shift,
++                    };
++                    self.uniforms.cursor_trail_size = .{
++                        trail.half_size[0], trail.half_size[1], trail.opacity, 0,
++                    };
++                }
++            }
+         }
+ 
+         /// Write the animations into the uniforms and rebuild the ghost
+@@ -2883,9 +2997,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             const old_blending = self.config.blending;
+             const custom_shaders_changed = !self.config.custom_shaders.equal(config.custom_shaders);
+ 
+-            // Toggling smooth-cursor starts the cursor over from wherever
+-            // the rebuild below puts it, drawn the way the new value says.
+-            if (self.config.smooth_cursor != config.smooth_cursor) {
++            // Toggling smooth-cursor or cursor-trail starts the cursor over
++            // from wherever the rebuild below puts it, drawn the way the
++            // new values say.
++            if (self.config.smooth_cursor != config.smooth_cursor or
++                self.config.cursor_trail != config.cursor_trail)
++            {
+                 self.cursor_glide = null;
+                 self.cursor_glide_shown = false;
+             }
+@@ -3600,7 +3717,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     // cursor text by how much of each pixel the drawn rect
+                     // covers, not by cell, so the cell is left unset and the
+                     // rect does the recoloring (see `CursorGlide`).
+-                    if (self.cursor_glide_shown) {
++                    if (self.cursor_glide_shown and self.config.smooth_cursor) {
+                         self.uniforms.bools.cursor_glide_text = true;
+                     } else {
+                         self.uniforms.cursor_pos = .{
+@@ -4339,15 +4456,19 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 break :alpha @intFromFloat(@ceil(alpha));
+             };
+ 
+-            // Under smooth-cursor a filled cursor is drawn by the cell
+-            // background shader at the glide's rect instead of by this
+-            // sprite, which is still added, invisible, so that the custom
+-            // shader uniforms keep describing the cell the cursor is in.
+-            const glides = self.config.smooth_cursor and switch (cursor_style) {
+-                .block, .bar, .underline => true,
+-                .block_hollow, .lock => false,
+-            };
+-            const alpha: u8 = if (glides) 0 else opacity_alpha;
++            // A filled cursor's motion is tracked under smooth-cursor and
++            // cursor-trail (see `CursorGlide`). Under smooth-cursor the
++            // cursor itself is drawn by the cell background shader at the
++            // glide's rect instead of by this sprite, which is still added,
++            // invisible, so that the custom shader uniforms keep describing
++            // the cell the cursor is in; under the trail alone the sprite
++            // is the cursor and only the streak behind it is drawn.
++            const tracked = (self.config.smooth_cursor or self.config.cursor_trail) and
++                switch (cursor_style) {
++                    .block, .bar, .underline => true,
++                    .block_hollow, .lock => false,
++                };
++            const alpha: u8 = if (tracked and self.config.smooth_cursor) 0 else opacity_alpha;
+ 
+             const render = switch (cursor_style) {
+                 .block,
+@@ -4397,7 +4518,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 },
+             };
+ 
+-            if (glides) {
++            if (tracked) {
+                 const cell_w: f32 = @floatFromInt(self.grid_metrics.cell_width);
+                 const cell_h: f32 = @floatFromInt(self.grid_metrics.cell_height);
+                 // The sprite's rect in grid pixels: the X bearing is the
+diff --git a/src/renderer/metal/shaders.zig b/src/renderer/metal/shaders.zig
+index 8890c03ba..9a7b8fb69 100644
+--- a/src/renderer/metal/shaders.zig
++++ b/src/renderer/metal/shaders.zig
+@@ -293,6 +293,13 @@ pub const Uniforms = extern struct {
+     cursor_rect: [4]f32 align(16) = @splat(0),
+     cursor_fill: [4]u8 align(4) = @splat(0),
+ 
++    /// Cursor trail (`CursorGlide.Trail`): the streak's segment, as the
++    /// centers it is swept between in grid pixels (from.xy, to.xy), and
++    /// its half size (.xy) and opacity (.z); opacity 0 while there is none.
++    /// Drawn by the cell background shader in `cursor_fill`'s color.
++    cursor_trail: [4]f32 align(16) = @splat(0),
++    cursor_trail_size: [4]f32 align(16) = @splat(0),
++
+     pub const max_region_anims = 4;
+     pub const max_ghost_rows = 64;
+ 
+diff --git a/src/renderer/opengl/shaders.zig b/src/renderer/opengl/shaders.zig
+index fd85a25c1..923c41699 100644
+--- a/src/renderer/opengl/shaders.zig
++++ b/src/renderer/opengl/shaders.zig
+@@ -222,6 +222,10 @@ pub const Uniforms = extern struct {
+     cursor_rect: [4]f32 align(16) = @splat(0),
+     cursor_fill: [4]u8 align(4) = @splat(0),
+ 
++    /// Cursor trail; see the Metal `Uniforms`.
++    cursor_trail: [4]f32 align(16) = @splat(0),
++    cursor_trail_size: [4]f32 align(16) = @splat(0),
++
+     pub const max_region_anims = 4;
+     pub const max_ghost_rows = 64;
+ 
+diff --git a/src/renderer/shaders/glsl/cell_bg.f.glsl b/src/renderer/shaders/glsl/cell_bg.f.glsl
+index a54b1ca97..74c4b9976 100644
+--- a/src/renderer/shaders/glsl/cell_bg.f.glsl
++++ b/src/renderer/shaders/glsl/cell_bg.f.glsl
+@@ -112,11 +112,19 @@ vec4 cell_bg() {
+ 
+     vec4 bg = cell_bg_base(rel, visible);
+ 
+-    // Smooth cursor: the cursor fills its rect over the cell background,
+-    // under the text, as far as it covers each pixel. Only inside the
+-    // visible grid, so a cursor riding a scroll never paints the padding.
++    // Cursor trail and smooth cursor: the streak behind the cursor, then
++    // the cursor filling its rect over it, both over the cell background
++    // and under the text, each as far as it covers the pixel. Only inside
++    // the visible grid, so neither paints the padding while riding a scroll.
+     if (all(greaterThanEqual(rel, vec2(0.0))) && all(lessThan(rel, visible))) {
+-        float cov = cursor_coverage(grid_pixel(gl_FragCoord.xy));
++        vec2 p = grid_pixel(gl_FragCoord.xy);
++        float trail = trail_coverage(p);
++        if (trail > 0.0) {
++            uvec4 fill_u = unpack4u8(cursor_fill_packed_4u8);
++            vec4 streak = load_color(uvec4(fill_u.rgb, 255u), use_linear_blending);
++            bg = bg * (1.0 - trail) + streak * trail;
++        }
++        float cov = cursor_coverage(p);
+         if (cov > 0.0) {
+             vec4 fill = load_color(unpack4u8(cursor_fill_packed_4u8), use_linear_blending);
+             bg = bg * (1.0 - fill.a * cov) + fill * cov;
+diff --git a/src/renderer/shaders/glsl/common.glsl b/src/renderer/shaders/glsl/common.glsl
+index 2c5801f50..5f4439a7d 100644
+--- a/src/renderer/shaders/glsl/common.glsl
++++ b/src/renderer/shaders/glsl/common.glsl
+@@ -44,8 +44,29 @@ layout(binding = 1, std140) uniform Globals {
+     // background shader; all zero while no cursor is drawn this way.
+     uniform vec4 cursor_rect;
+     uniform uint cursor_fill_packed_4u8;
++    // Cursor trail: the streak's segment as the centers it is swept
++    // between in grid pixels (from.xy, to.xy), and its half size (.xy)
++    // and opacity (.z); opacity 0 while there is none.
++    uniform vec4 cursor_trail;
++    uniform vec4 cursor_trail_size;
+ };
+ 
++// Cursor trail: the streak's opacity at grid pixel p. An axis-aligned box
++// of the trail's half size swept along its segment (it slides rather than
++// rotates, so a diagonal move leaves a slanted streak with square ends),
++// with a one-pixel antialiased edge, times the streak's opacity.
++float trail_coverage(vec2 p) {
++    vec4 s = cursor_trail_size;
++    if (s.z <= 0.0) return 0.0;
++    vec2 a = cursor_trail.xy;
++    vec2 b = cursor_trail.zw;
++    vec2 ab = b - a;
++    float h = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
++    vec2 d = abs(p - (a + ab * h)) - s.xy;
++    float dist = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
++    return (1.0 - smoothstep(0.0, 1.0, dist)) * s.z;
++}
++
+ // Smooth cursor: how much of the 1x1 pixel centered on grid pixel p lies
+ // inside cursor_rect. Exact box coverage, so a resting cursor on whole
+ // pixels is as hard-edged as the sprite it replaces and only an edge in
+diff --git a/src/renderer/shaders/shaders.metal b/src/renderer/shaders/shaders.metal
+index b8bfa6ab8..24f003d25 100644
+--- a/src/renderer/shaders/shaders.metal
++++ b/src/renderer/shaders/shaders.metal
+@@ -49,8 +49,29 @@ struct Uniforms {
+   // shader; all zero while no cursor is drawn this way.
+   float4 cursor_rect;
+   uchar4 cursor_fill;
++  // Cursor trail: the streak's segment as the centers it is swept between
++  // in grid pixels (from.xy, to.xy), and its half size (.xy) and opacity
++  // (.z); opacity 0 while there is none. Drawn in cursor_fill's color.
++  float4 cursor_trail;
++  float4 cursor_trail_size;
+ };
+ 
++// Cursor trail: the streak's opacity at grid pixel p. An axis-aligned box
++// of the trail's half size swept along its segment (it slides rather than
++// rotates, so a diagonal move leaves a slanted streak with square ends),
++// with a one-pixel antialiased edge, times the streak's opacity.
++float trail_coverage(constant Uniforms& uniforms, float2 p) {
++  float4 s = uniforms.cursor_trail_size;
++  if (s.z <= 0.0) return 0.0;
++  float2 a = uniforms.cursor_trail.xy;
++  float2 b = uniforms.cursor_trail.zw;
++  float2 ab = b - a;
++  float h = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
++  float2 d = abs(p - (a + ab * h)) - s.xy;
++  float dist = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
++  return (1.0 - smoothstep(0.0, 1.0, dist)) * s.z;
++}
++
+ // Smooth cursor: how much of the 1x1 pixel centered on grid pixel p lies
+ // inside cursor_rect. Exact box coverage, so a resting cursor on whole
+ // pixels is as hard-edged as the sprite it replaces and only an edge in
+@@ -626,11 +647,22 @@ fragment float4 cell_bg_fragment(
+ 
+   float4 bg = cell_bg_base(uniforms, cells, rel, visible);
+ 
+-  // Smooth cursor: the cursor fills its rect over the cell background,
+-  // under the text, as far as it covers each pixel. Only inside the
+-  // visible grid, so a cursor riding a scroll never paints the padding.
++  // Cursor trail and smooth cursor: the streak behind the cursor, then
++  // the cursor filling its rect over it, both over the cell background
++  // and under the text, each as far as it covers the pixel. Only inside
++  // the visible grid, so neither paints the padding while riding a scroll.
+   if (all(rel >= 0.0) && all(rel < visible)) {
+-    float cov = cursor_coverage(uniforms, grid_pixel(uniforms, in.position.xy));
++    float2 p = grid_pixel(uniforms, in.position.xy);
++    float trail = trail_coverage(uniforms, p);
++    if (trail > 0.0) {
++      float4 streak = load_color(
++        uchar4(uniforms.cursor_fill.rgb, 255),
++        uniforms.use_display_p3,
++        uniforms.use_linear_blending
++      );
++      bg = bg * (1.0 - trail) + streak * trail;
++    }
++    float cov = cursor_coverage(uniforms, p);
+     if (cov > 0.0) {
+       float4 fill = load_color(
+         uniforms.cursor_fill,

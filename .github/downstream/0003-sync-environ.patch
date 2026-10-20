@@ -1,0 +1,68 @@
+From 8f22e57246bf12cdf5e16abbc5070bd1a6d1749c Mon Sep 17 00:00:00 2001
+From: Ethan Lee <ethantlee21@gmail.com>
+Date: Tue, 28 Jul 2026 14:54:29 +0900
+Subject: [PATCH] main_c: export ghostty_sync_environ for embedders that mutate
+ environ
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ghostty_init captures `environ` as a pointer+length slice and keeps it for
+the life of the process — surface spawns build the child's environment from
+that capture, and getEnv-style lookups read it. A host application that
+calls setenv/unsetenv after init can realloc `environ`, leaving the captured
+slice dangling: spawned children inherit a stale environment, or the spawn
+path crashes scanning freed memory (observed as a silent startup death in a
+macOS embedder, thdxg/macterm#192).
+
+Apprts that own their process already re-sync through the internal
+global.syncEnviron() — the GTK apprt calls it after its own setenv calls —
+but the C API offered embedders no equivalent. Export it.
+---
+ include/ghostty.h |  1 +
+ src/main_c.zig    | 17 +++++++++++++++++
+ 2 files changed, 18 insertions(+)
+
+diff --git a/include/ghostty.h b/include/ghostty.h
+index cbbec0026..93ff3d6e4 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1067,6 +1067,7 @@ typedef enum {
+ // Published API
+ 
+ GHOSTTY_API int ghostty_init(uintptr_t, char**);
++GHOSTTY_API void ghostty_sync_environ(void);
+ GHOSTTY_API void ghostty_cli_try_action(void);
+ GHOSTTY_API ghostty_info_s ghostty_info(void);
+ GHOSTTY_API const char* ghostty_translate(const char*);
+diff --git a/src/main_c.zig b/src/main_c.zig
+index 3e331e022..924f055a2 100644
+--- a/src/main_c.zig
++++ b/src/main_c.zig
+@@ -134,6 +134,23 @@ pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
+     return 0;
+ }
+ 
++/// Re-capture the process environment after the embedder mutated it.
++///
++/// ghostty_init captures `environ` as a pointer+length slice and keeps it
++/// for the life of the process — surface spawns build the child's
++/// environment from that capture. A host-side setenv/unsetenv after init
++/// can realloc `environ`, leaving the captured slice dangling: spawned
++/// children then inherit a stale environment, or the spawn path crashes
++/// scanning freed memory. Apprts that own their process already re-sync
++/// via the internal global.syncEnviron() (e.g. the GTK apprt after its
++/// own setenv calls); this export gives embedders the same tool.
++///
++/// Must be called after a successful ghostty_init, on any thread that is
++/// not racing another environment mutation (the usual libc environ rules).
++pub export fn ghostty_sync_environ() void {
++    global.syncEnviron();
++}
++
+ /// Runs an action if it is specified. If there is no action this returns
+ /// false. If there is an action then this doesn't return.
+ pub export fn ghostty_cli_try_action() void {
+-- 
+2.53.0
+
