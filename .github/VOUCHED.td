@@ -114,6 +114,7 @@ diego-moment
 diegoarmstrong
 dkinzler
 dmehala
+dmkenney
 dmunozv04
 dobbylee
 dolzenko
