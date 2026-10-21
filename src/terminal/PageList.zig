@@ -1679,13 +1679,14 @@ const ReflowCursor = struct {
         clear: bool,
     ) Allocator.Error!void {
         const src_page: *Page = row.node.page();
-        var cleared_row: Row = .{ .cells = row.rowAndCell().row.cells };
+        const row_and_cell = row.rowAndCell();
+        var cleared_row: Row = .{ .cells = row_and_cell.row.cells };
         const src_row = if (clear) row: {
-            cleared_row.semantic_prompt = row.rowAndCell().row.semantic_prompt;
+            cleared_row.semantic_prompt = row_and_cell.row.semantic_prompt;
             break :row &cleared_row;
-        } else row.rowAndCell().row;
+        } else row_and_cell.row;
         const src_y = row.y;
-        const cells = row.rowAndCell().row.cells.ptr(src_page.memory)[0..src_page.size.cols];
+        const cells = row_and_cell.row.cells.ptr(src_page.memory)[0..src_page.size.cols];
         const blank: pagepkg.Cell = .{};
 
         // Calculate the columns in this row. First up we trim non-semantic
