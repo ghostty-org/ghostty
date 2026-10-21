@@ -56,6 +56,7 @@ env:
     .github/downstream/0013-selection-motions.patch
     .github/downstream/0014-selection-cursor.patch
     .github/downstream/0015-selection-vim.patch
+    .github/downstream/0016-selection-click.patch
 
 jobs:
   sync:

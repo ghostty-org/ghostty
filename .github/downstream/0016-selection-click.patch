@@ -1,0 +1,58 @@
+From f8ca52b1f1c6754e56ff48fedf9e4875cc97a0d7 Mon Sep 17 00:00:00 2001
+From: Ethan Lee <ethantlee21@gmail.com>
+Date: Tue, 20 Oct 2026 21:59:55 -0400
+Subject: [PATCH] input: let a click move the cursor of a keyboard copy mode
+
+While flags.selection_cursor is on, the selection is the cursor of a
+keyboard copy mode. A plain left click cleared it, which sent the
+drawn cursor back to the program's cursor at the prompt, and the next
+motion started from there and not from the click.
+
+Now a plain click with the flag on puts a one-cell selection at the
+cell under the pointer, so the click moves the cursor as a motion
+would. A shift-click still extends, a double click still takes the
+word and a triple click the line. The rectangle flag of a block
+selection stays. On release, copy-on-select skips that one-cell cursor:
+it is not a copy.
+---
+ src/Surface.zig | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 994a9aca5..c4f5ad9d0 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -4109,7 +4109,11 @@ pub fn mouseButtonCallback(
+         // being updated on every mouse move which would be noisy.
+         if (self.config.copy_on_select != .none) {
+             const prev_ = self.io.terminal.screens.active.selection;
+-            if (prev_) |prev| {
++            if (prev_) |prev| copy: {
++                // The one-cell cursor of a keyboard copy mode, which a
++                // click puts down, is not a copy.
++                if (self.io.terminal.flags.selection_cursor and
++                    prev.start().eql(prev.end())) break :copy;
+                 try self.setSelectionAndCopy(terminal.Selection.init(
+                     prev.start(),
+                     prev.end(),
+@@ -4216,7 +4220,16 @@ pub fn mouseButtonCallback(
+         // The gesture owns the standard single/double/triple-click selection
+         // behavior. Surface keeps terminal-surface-specific overrides here.
+         switch (self.mouse.selection_gesture.left_click_count) {
+-            1 => {},
++            // A keyboard copy mode owns the cursor (`flags.selection_cursor`):
++            // a plain click moves it to the cell under the pointer, as a
++            // motion would, instead of clearing the selection, which would
++            // send the cursor back to the program's. A shift-click still
++            // extends (the gesture gave a selection). The rectangle flag of
++            // a block selection stays, so the mode's shape does not change.
++            1 => if (t.flags.selection_cursor and press_selection == null) {
++                const rectangle = if (t.screens.active.selection) |sel| sel.rectangle else false;
++                press_selection = terminal.Selection.init(pin, pin, rectangle);
++            },
+ 
+             // Double click on a URL selects the entire URL instead of the
+             // standard word selection returned by the gesture.
+-- 
+2.54.0 (Apple Git-157)
+

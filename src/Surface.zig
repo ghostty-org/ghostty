@@ -4109,7 +4109,11 @@ pub fn mouseButtonCallback(
         // being updated on every mouse move which would be noisy.
         if (self.config.copy_on_select != .none) {
             const prev_ = self.io.terminal.screens.active.selection;
-            if (prev_) |prev| {
+            if (prev_) |prev| copy: {
+                // The one-cell cursor of a keyboard copy mode, which a
+                // click puts down, is not a copy.
+                if (self.io.terminal.flags.selection_cursor and
+                    prev.start().eql(prev.end())) break :copy;
                 try self.setSelectionAndCopy(terminal.Selection.init(
                     prev.start(),
                     prev.end(),
@@ -4216,7 +4220,16 @@ pub fn mouseButtonCallback(
         // The gesture owns the standard single/double/triple-click selection
         // behavior. Surface keeps terminal-surface-specific overrides here.
         switch (self.mouse.selection_gesture.left_click_count) {
-            1 => {},
+            // A keyboard copy mode owns the cursor (`flags.selection_cursor`):
+            // a plain click moves it to the cell under the pointer, as a
+            // motion would, instead of clearing the selection, which would
+            // send the cursor back to the program's. A shift-click still
+            // extends (the gesture gave a selection). The rectangle flag of
+            // a block selection stays, so the mode's shape does not change.
+            1 => if (t.flags.selection_cursor and press_selection == null) {
+                const rectangle = if (t.screens.active.selection) |sel| sel.rectangle else false;
+                press_selection = terminal.Selection.init(pin, pin, rectangle);
+            },
 
             // Double click on a URL selects the entire URL instead of the
             // standard word selection returned by the gesture.
