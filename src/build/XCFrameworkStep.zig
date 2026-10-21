@@ -13,7 +13,14 @@ pub const Options = struct {
     name: []const u8,
 
     /// The path to write the framework
-    out_path: []const u8,
+    out_path: union(enum) {
+        /// Write into the install prefix
+        install_prefix: []const u8,
+
+        /// Write directly into the source tree. Used by e.g. GhosttyKit
+        /// which can then be integrated with the Swift code.
+        source_tree: []const u8,
+    },
 
     /// The libraries to bundle
     libraries: []const Library,
@@ -36,42 +43,50 @@ step: *Step,
 pub fn create(b: *std.Build, opts: Options) *XCFrameworkStep {
     const self = b.allocator.create(XCFrameworkStep) catch @panic("OOM");
 
-    // We have to delete the old xcframework first since we're writing
-    // to a static path.
-    const run_delete = run: {
-        const run = RunStep.create(b, b.fmt("xcframework delete {s}", .{opts.name}));
-        run.has_side_effects = true;
-        run.addArgs(&.{ "rm", "-rf", opts.out_path });
-        break :run run;
-    };
+    // xcodebuild refuses to overwrite an existing xcframework, so we
+    // always remove the previous one first.
+    const delete = RunStep.create(b, b.fmt("xcframework delete {s}", .{opts.name}));
+    delete.has_side_effects = true;
+    delete.addArgs(&.{ "rm", "-rf" });
+    // Writes directly to the final location rather than into the cache.
+    addOutPathArg(b, delete, opts.out_path);
 
-    // Then we run xcodebuild to create the framework.
-    const run_create = run: {
-        const run = RunStep.create(b, b.fmt("xcframework {s}", .{opts.name}));
-        run.has_side_effects = true;
-        run.addArgs(&.{ "xcodebuild", "-create-xcframework" });
-        for (opts.libraries) |lib| {
-            run.addArg("-library");
-            run.addFileArg(lib.library);
-            run.addArg("-headers");
-            run.addFileArg(lib.headers);
-            if (lib.dsym) |dsym| {
-                run.addArg("-debug-symbols");
-                run.addFileArg(dsym);
-            }
+    const run = RunStep.create(b, b.fmt("xcframework {s}", .{opts.name}));
+    run.has_side_effects = true;
+    run.addArgs(&.{ "xcodebuild", "-create-xcframework" });
+    for (opts.libraries) |lib| {
+        run.addArg("-library");
+        run.addFileArg(lib.library);
+        run.addArg("-headers");
+        run.addDirectoryArg(lib.headers);
+        if (lib.dsym) |dsym| {
+            run.addArg("-debug-symbols");
+            run.addDirectoryArg(dsym);
         }
-        run.addArg("-output");
-        run.addArg(opts.out_path);
-        run.expectExitCode(0);
-        _ = run.captureStdOut(.{});
-        _ = run.captureStdErr(.{});
-        break :run run;
-    };
-    run_create.step.dependOn(&run_delete.step);
+    }
+    run.addArg("-output");
+    addOutPathArg(b, run, opts.out_path);
+    run.expectExitCode(0);
+    _ = run.captureStdOut(.{});
+    _ = run.captureStdErr(.{});
+    run.step.dependOn(&delete.step);
 
     self.* = .{
-        .step = &run_create.step,
+        .step = &run.step,
     };
 
     return self;
+}
+
+/// Adds the output path as an argument. The install prefix is only
+/// known when the step runs, so it is passed as a lazy path.
+fn addOutPathArg(
+    b: *std.Build,
+    run: *RunStep,
+    out_path: @FieldType(Options, "out_path"),
+) void {
+    switch (out_path) {
+        .install_prefix => |v| run.addDirectoryArg(b.graph.path(.install_prefix, v)),
+        .source_tree => |v| run.addArg(v),
+    }
 }

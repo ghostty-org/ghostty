@@ -52,6 +52,7 @@ anhthang
 anmitalidev
 anthonyzhoon
 aprilnea
+aredmondd
 arneshbanerjee
 arvin7liu
 athaapa
@@ -68,6 +69,7 @@ bennettp123
 benodiwal
 bernsno
 beryesa
+binaryfire
 bitigchi
 bkircher
 bleikurr
@@ -85,6 +87,7 @@ chernetskyi
 chronologos
 clemg
 cmwetherell
+complexsplit
 crayxt
 craziestowl
 -creativision meatproxying
@@ -99,6 +102,8 @@ danneu
 danulqua
 dariogriffo
 dave92082
+davey-hughes
+davidhodge
 -davidpmclaughlin Refusing to follow AI policy and exhibit good faith behavior
 davidsanchez222
 deblasis
@@ -110,6 +115,7 @@ diego-moment
 diegoarmstrong
 dkinzler
 dmehala
+dmkenney
 dmunozv04
 dobbylee
 dolzenko
@@ -143,11 +149,13 @@ fornwall
 francescarpi
 francislata
 fru1tworld
+gaborbernat
 gadgetman6
 gagbo
 ghokun
 gmile
 gordonbondon
+-gotar No HITL
 gotenksin
 gpanders
 guilhermetk
@@ -158,6 +166,7 @@ hakonhagland
 halosatrio
 heaths
 heddxh heddxh
+heitoraugustoln
 helium777
 -highimpact-dev Disrespectful AI user
 hlcfan
@@ -205,6 +214,7 @@ kloneets
 knu
 -kody-w
 konstantinhudyakov
+-kooshapari No HITL
 koranir
 korikhin
 kostich
@@ -216,6 +226,7 @@ lebdron
 lepips
 liby
 linustalacko
+locriani
 lonsagisawa
 lotheac
 louisunlimited
@@ -230,6 +241,7 @@ markdorison
 markhuot
 marler8997
 marrocco-simone
+-martzcode Repeated meatproxying in spite of prior warning
 masterflitzer
 matkotiric
 mattn
@@ -261,6 +273,7 @@ myleshen
 nagato-yuzuru
 natesmyth
 neo773
+neobrain
 neoto
 neurosnap
 nicholas-ochoa
@@ -274,6 +287,7 @@ nolinmcfarland
 nouritsu
 nwehg
 ocean6954
+ollieatkinson
 ollioddi
 oshdubh
 otomn
@@ -298,7 +312,9 @@ pressatojump
 prihlop
 priyans-hu
 pssalman
+pugma
 puzza007
+pyre909
 qappell
 quinnypig
 qwerasd205
@@ -306,6 +322,7 @@ radicaltray
 ragnoroct
 raphamorim
 rayzerrek
+-rebecca-bell-2001 automated vomit
 reo101
 rewdy
 rgehan
@@ -348,6 +365,7 @@ tasselx
 tbrundige
 tdgroot
 tdslot
+thapakrish
 thirstycrow
 -thomas-trijindev No human in the loop
 thomasfedb
@@ -388,3 +406,4 @@ zeshi09
 zlitus
 -zorzysty Meatproxying
 zubb
+zzznu

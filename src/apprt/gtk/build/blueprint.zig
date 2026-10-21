@@ -1,7 +1,7 @@
 //! Checks that `libadwaita` is at least the given version and that
 //! `blueprint-compiler` is on the PATH and new enough. The blueprints
 //! themselves are compiled by `blueprint-compiler` directly from the build
-//! system; see `gtkNgDistResources` in `src/build/SharedDeps.zig`.
+//! system; see `gtkDistResources` in `src/build/SharedDeps.zig`.
 //!
 //! Usage: blueprint.zig <major> <minor> <stamp>
 //!
@@ -35,12 +35,12 @@ const adwaita_version = std.SemanticVersion{
 
 const required_blueprint_version = std.SemanticVersion{
     .major = 0,
-    .minor = 16,
+    .minor = 20,
     .patch = 0,
 };
 
 pub fn main(init: std.process.Init) !void {
-    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    var debug_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     defer _ = debug_allocator.deinit();
     const alloc = debug_allocator.allocator();
 

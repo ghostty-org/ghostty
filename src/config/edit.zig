@@ -60,7 +60,7 @@ pub fn openPath(alloc_gpa: Allocator) ![:0]const u8 {
         };
     }
 
-    return try alloc_gpa.dupeZ(u8, config_path.name);
+    return try alloc_gpa.dupeSentinel(u8, config_path.name, 0);
 }
 
 const ConfigPathResult = struct {
@@ -124,7 +124,7 @@ fn configPathCandidates(alloc_arena: Allocator) ![]const []const u8 {
     var paths: std.ArrayList([]const u8) = try .initCapacity(alloc_arena, 4);
     errdefer paths.deinit(alloc_arena);
 
-    if (comptime builtin.os.tag == .macos) {
+    if (comptime builtin.target.os.tag == .macos) {
         paths.appendAssumeCapacity(try file_load.defaultAppSupportPath(alloc_arena));
         paths.appendAssumeCapacity(try file_load.legacyDefaultAppSupportPath(alloc_arena));
     }

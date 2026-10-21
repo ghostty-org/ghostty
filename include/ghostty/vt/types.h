@@ -189,6 +189,14 @@ typedef struct GhosttyRenderStateRowIteratorImpl* GhosttyRenderStateRowIterator;
 typedef struct GhosttyRenderStateRowCellsImpl* GhosttyRenderStateRowCells;
 
 /**
+ * Opaque handle to an iterator over the image placements of a render
+ * state.
+ *
+ * @ingroup render
+ */
+typedef struct GhosttyRenderStateImageIteratorImpl* GhosttyRenderStateImageIterator;
+
+/**
  * Opaque handle to a terminal search.
  *
  * A search is bound to the terminal it was created with. It borrows the

@@ -60,8 +60,9 @@ pub fn terminal_paste(
 
     // A paste carries a handful of representations, so keep the common
     // case allocation-free.
-    var sfa = std.heap.stackFallback(256, wrapper.terminal.gpa());
-    const alloc = sfa.get();
+    var sfa_buf: [256]u8 = undefined;
+    var sfa: std.heap.BufferFirstAllocator = .init(&sfa_buf, wrapper.terminal.gpa());
+    const alloc = sfa.allocator();
     const mimes = alloc.alloc([]const u8, c_mimes.len) catch return .out_of_memory;
     defer alloc.free(mimes);
     for (mimes, c_mimes) |*mime, c_mime| mime.* = c_mime.ptr[0..c_mime.len];
@@ -232,6 +233,12 @@ test "is_safe with safe data" {
 test "is_safe with newline" {
     const testing = std.testing;
     const unsafe = "hello\nworld";
+    try testing.expect(!is_safe(unsafe.ptr, unsafe.len));
+}
+
+test "is_safe with carriage return" {
+    const testing = std.testing;
+    const unsafe = "hello\rworld";
     try testing.expect(!is_safe(unsafe.ptr, unsafe.len));
 }
 
@@ -435,6 +442,21 @@ test "terminal_paste text and unsafe" {
     try testing.expectEqualStrings("rm -rf /\r", S.writtenSlice());
     try testing.expectEqual(@as(usize, 2), unsafe_contents.reads[0]);
 
+    // A carriage return is the Enter key on the input stream, so it is
+    // refused exactly like a newline when unbracketed.
+    S.reset();
+    written = false;
+    var cr_contents: S.Contents = .init(&.{.{ "text/plain", "rm -rf /\r" }});
+    var cr = cr_contents.request();
+    try testing.expectEqual(Result.rejected, terminal_paste(t, &cr, &written));
+    try testing.expectEqual(@as(usize, 0), S.write_count);
+    try testing.expect(!written);
+
+    cr.allow_unsafe = true;
+    try testing.expectEqual(Result.success, terminal_paste(t, &cr, &written));
+    try testing.expect(written);
+    try testing.expectEqualStrings("rm -rf /\r", S.writtenSlice());
+
     // Bracketed paste mode frames the text through the real mode path.
     S.reset();
     const decset = "\x1b[?2004h";
@@ -528,7 +550,7 @@ test "terminal_paste event" {
     const ok_prefix = "\x1b]5522;type=read:status=OK:loc=primary:pw=";
     const pw_end = std.mem.indexOfPos(u8, S.writtenSlice(), ok_prefix.len, "\x1b\\").?;
     var read_buf: [256]u8 = undefined;
-    const read = try std.fmt.bufPrint(
+    const read = try std.mem.print(
         &read_buf,
         "\x1b]5522;type=read:pw={s}:name=UGFzdGUgZXZlbnQ=;dGV4dC9wbGFpbg==\x1b\\",
         .{S.writtenSlice()[ok_prefix.len..pw_end]},

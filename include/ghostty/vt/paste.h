@@ -42,8 +42,8 @@
  * may be invoked several times for a single paste; the pieces must be
  * written to the pty in order.
  *
- * Text that could inject commands (a newline when unbracketed, or the
- * bracketed paste terminator when bracketed) is refused with
+ * Text that could inject commands (a newline or carriage return when
+ * unbracketed, or the bracketed paste terminator when bracketed) is refused with
  * GHOSTTY_REJECTED and nothing written unless GhosttyPaste::allow_unsafe
  * is set. The usual flow is to call once, confirm with the user on
  * GHOSTTY_REJECTED, and call again with `allow_unsafe` set. Each call
@@ -193,13 +193,15 @@ GHOSTTY_API GhosttyResult ghostty_terminal_paste(
  * Check if paste data is safe to paste into the terminal.
  *
  * Data is considered unsafe if it contains:
- * - Newlines (`\n`) which can inject commands
+ * - Line terminators (`\n` or `\r`) which can inject commands. A
+ *   carriage return is what the Enter key sends, so it is as dangerous
+ *   as a newline on an unbracketed paste.
  * - The bracketed paste end sequence (`\x1b[201~`) which can be used
  *   to exit bracketed paste mode and inject commands
  *
  * This check is conservative and considers data unsafe regardless of
  * current terminal state. ghostty_terminal_paste() applies the
- * terminal-state-aware rule itself (newlines are safe inside a
+ * terminal-state-aware rule itself (line terminators are safe inside a
  * bracketed paste); use this to apply the stricter rule on top.
  *
  * @param data The paste data to check (must not be NULL)

@@ -28,7 +28,7 @@ pub const InitError = error{
 pub fn init(resources_dir: []const u8) InitError!void {
     if (comptime !build_config.i18n) return;
 
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         // i18n is unsupported on Windows
         .windows => return,
 
@@ -39,8 +39,8 @@ pub fn init(resources_dir: []const u8) InitError!void {
                 return error.InvalidResourcesDir;
 
             // Build our locale path
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
-            const path = std.fmt.bufPrintZ(&buf, "{s}/locale", .{share_dir}) catch
+            var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+            const path = std.mem.printSentinel(&buf, "{s}/locale", .{share_dir}, 0) catch
                 return error.OutOfMemory;
 
             // Bind our bundle ID to the given locale path

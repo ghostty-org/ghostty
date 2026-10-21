@@ -27,15 +27,15 @@ pub fn genConfig(writer: *std.Io.Writer, cli: bool) !void {
     );
 
     @setEvalBranchQuota(5000);
-    inline for (@typeInfo(Config).@"struct".fields) |field| {
-        if (field.name[0] == '_') continue;
+    inline for (@typeInfo(Config).@"struct".field_names) |field| {
+        if (field[0] == '_') continue;
 
         try writer.writeAll("**`");
         if (cli) try writer.writeAll("--");
-        try writer.writeAll(field.name);
+        try writer.writeAll(field);
         try writer.writeAll("`**\n\n");
-        if (@hasDecl(help_strings.Config, field.name)) {
-            var iter = std.mem.splitScalar(u8, @field(help_strings.Config, field.name), '\n');
+        if (@hasDecl(help_strings.Config, field)) {
+            var iter = std.mem.splitScalar(u8, @field(help_strings.Config, field), '\n');
             var first = true;
             while (iter.next()) |s| {
                 try writer.writeAll(if (first) ":   " else "    ");
@@ -56,21 +56,21 @@ pub fn genActions(writer: *std.Io.Writer) !void {
         \\
     );
 
-    inline for (@typeInfo(Action).@"enum".fields) |field| {
-        const action = std.meta.stringToEnum(Action, field.name).?;
+    inline for (@typeInfo(Action).@"enum".field_names) |field| {
+        const action = std.meta.stringToEnum(Action, field).?;
 
         switch (action) {
             .help => try writer.writeAll("**`--help`**\n\n"),
             .version => try writer.writeAll("**`--version`**\n\n"),
             else => {
                 try writer.writeAll("**`+");
-                try writer.writeAll(field.name);
+                try writer.writeAll(field);
                 try writer.writeAll("`**\n\n");
             },
         }
 
-        if (@hasDecl(help_strings.Action, field.name)) {
-            var iter = std.mem.splitScalar(u8, @field(help_strings.Action, field.name), '\n');
+        if (@hasDecl(help_strings.Action, field)) {
+            var iter = std.mem.splitScalar(u8, @field(help_strings.Action, field), '\n');
             var first = true;
             while (iter.next()) |s| {
                 try writer.writeAll(if (first) ":   " else "    ");
@@ -95,15 +95,15 @@ pub fn genKeybindActions(writer: *std.Io.Writer) !void {
     std.debug.assert(info == .@"union");
 
     @setEvalBranchQuota(5000);
-    inline for (info.@"union".fields) |field| {
-        if (field.name[0] == '_') continue;
+    inline for (info.@"union".field_names) |field| {
+        if (field[0] == '_') continue;
 
         try writer.writeAll("**`");
-        try writer.writeAll(field.name);
+        try writer.writeAll(field);
         try writer.writeAll("`**\n\n");
 
-        if (@hasDecl(help_strings.KeybindAction, field.name)) {
-            var iter = std.mem.splitScalar(u8, @field(help_strings.KeybindAction, field.name), '\n');
+        if (@hasDecl(help_strings.KeybindAction, field)) {
+            var iter = std.mem.splitScalar(u8, @field(help_strings.KeybindAction, field), '\n');
             var first = true;
             while (iter.next()) |s| {
                 try writer.writeAll(if (first) ":   " else "    ");

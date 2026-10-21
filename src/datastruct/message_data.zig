@@ -106,8 +106,10 @@ test "MessageData init alloc" {
     const alloc = testing.allocator;
 
     const Data = MessageData(u8, 10);
-    const input = "hello! " ** 100;
-    const io = try Data.init(alloc, @as([]const u8, input));
+    var input: [7 * 100]u8 = undefined;
+    for (0..100) |i| @memcpy(input[i * 7 ..][0..7], "hello! ");
+
+    const io = try Data.init(alloc, @as([]const u8, &input));
     try testing.expect(io == .alloc);
     io.alloc.alloc.free(io.alloc.data);
 }
@@ -118,7 +120,7 @@ test "MessageData small fits non-u8 sized data" {
 
     const len = 500;
     const Data = MessageData(u8, len);
-    const input: []const u8 = "X" ** len;
-    const io = try Data.init(alloc, input);
+    const input: [len]u8 = @splat('X');
+    const io = try Data.init(alloc, @as([]const u8, &input));
     try testing.expect(io == .small);
 }

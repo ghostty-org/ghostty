@@ -2,7 +2,7 @@
     .name = .zig_vt_stream,
     .version = "0.0.0",
     .fingerprint = 0x34c1f71303690b3f,
-    .minimum_zig_version = "0.15.1",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .ghostty = .{ .path = "../../" },
     },

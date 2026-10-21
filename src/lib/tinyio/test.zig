@@ -12,7 +12,7 @@ const Threaded = std.Io.Threaded;
 const TinyIo = @import("../TinyIo.zig");
 const supported = TinyIo.supported;
 
-const is_windows = builtin.os.tag == .windows;
+const is_windows = builtin.target.os.tag == .windows;
 const windows = std.os.windows;
 const os_windows = @import("../../os/windows.zig");
 const ntdll = os_windows.exp.ntdll;
@@ -53,10 +53,13 @@ test "read a file through File.Reader" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const contents = "hello minimal test_io\n" ** 100;
+    const txt = "hello minimal test_io\n";
+    var contents: [txt.len * 100]u8 = undefined;
+    for (0..100) |i| @memcpy(contents[i * txt.len ..][0..txt.len], txt);
+
     try tmp_dir.dir.writeFile(testing.io, .{
         .sub_path = "test.txt",
-        .data = contents,
+        .data = &contents,
     });
 
     // Open through our Io. The Dir handle is a plain fd, so it is usable
@@ -80,7 +83,7 @@ test "read a file through File.Reader" {
     var list: std.ArrayList(u8) = .empty;
     defer list.deinit(testing.allocator);
     try reader.interface.appendRemaining(testing.allocator, &list, .unlimited);
-    try testing.expectEqualStrings(contents, list.items);
+    try testing.expectEqualStrings(&contents, list.items);
 }
 
 test "seek" {
@@ -130,7 +133,7 @@ test "realPath and deleteFile" {
     const testing = std.testing;
 
     // Only platforms with a real implementation.
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .macos, .ios, .linux, .freebsd, .windows => {},
         else => return error.SkipZigTest,
     }
@@ -145,13 +148,13 @@ test "realPath and deleteFile" {
 
     const dir: Dir = .{ .handle = tmp_dir.dir.handle };
     var file = try dir.openFile(test_io, "real.txt", .{});
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = path_buf[0..try file.realPath(test_io, &path_buf)];
     try testing.expect(std.mem.endsWith(u8, path, "real.txt"));
     file.close(test_io);
 
     // dirRealPathFile via absolute path from cwd.
-    var path_buf2: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf2: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path2 = path_buf2[0..try Dir.cwd().realPathFile(test_io, path, &path_buf2)];
     try testing.expectEqualStrings(path, path2);
 
@@ -260,10 +263,10 @@ test "openFile edge cases" {
     ));
 
     // Paths that can't fit in PATH_MAX must not be silently truncated.
-    const long_name = "a" ** (std.fs.max_path_bytes + 1);
+    const long_name: [std.Io.Dir.max_path_bytes + 1]u8 = @splat('a');
     try testing.expectError(error.NameTooLong, dir.openFile(
         test_io,
-        long_name,
+        &long_name,
         .{},
     ));
 
@@ -298,7 +301,7 @@ test "openFile symlink handling" {
 
     // Platforms where we know both symlink creation (via the testing Io)
     // and O_NOFOLLOW behave as expected.
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .macos, .ios, .linux, .freebsd => {},
         else => return error.SkipZigTest,
     }
@@ -318,7 +321,7 @@ test "openFile symlink handling" {
 
     // ...and realPath resolves through the link to the target. This is
     // the property the Kitty graphics path validation relies on.
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = path_buf[0..try file.realPath(test_io, &path_buf)];
     try testing.expect(std.mem.endsWith(u8, path, "target.txt"));
     file.close(test_io);
@@ -598,7 +601,7 @@ test "dirRealPathFile edge cases" {
     const test_io = tio.io();
     const testing = std.testing;
 
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .macos, .ios, .linux, .freebsd, .windows => {},
         else => return error.SkipZigTest,
     }
@@ -613,13 +616,13 @@ test "dirRealPathFile edge cases" {
 
     // Resolve the canonical path through an open file for reference.
     var file = try dir.openFile(test_io, "real.txt", .{});
-    var want_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var want_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const want = want_buf[0..try file.realPath(test_io, &want_buf)];
     file.close(test_io);
 
     // A non-cwd directory handle exercises the open-then-resolve
     // fallback branch rather than libc realpath.
-    var got_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var got_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const got = got_buf[0..try test_io.vtable.dirRealPathFile(
         test_io.userdata,
         dir,
@@ -630,10 +633,10 @@ test "dirRealPathFile edge cases" {
 
     // Missing paths report FileNotFound (libc realpath branch, via an
     // absolute path anchored at cwd).
-    var missing_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const missing = std.fmt.bufPrint(&missing_buf, "{s}.missing", .{want}) catch
+    var missing_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const missing = std.mem.print(&missing_buf, "{s}.missing", .{want}) catch
         return error.SkipZigTest;
-    var out_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var out_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     try testing.expectError(error.FileNotFound, Dir.cwd().realPathFile(
         test_io,
         missing,

@@ -176,8 +176,8 @@ comptime {
     if (@import("root") == lib) {
         // MSVC requires this marker whenever floating-point code is present.
         // Zig's compiler_rt only provides it when libc is not linked.
-        if (builtin.os.tag == .windows and
-            builtin.abi == .msvc and
+        if (builtin.target.os.tag == .windows and
+            builtin.target.abi == .msvc and
             builtin.link_mode == .static)
         {
             @export(
@@ -316,6 +316,11 @@ comptime {
             @export(&c.render_state_row_cells_get, .{ .name = "ghostty_render_state_row_cells_get" });
             @export(&c.render_state_row_cells_get_multi, .{ .name = "ghostty_render_state_row_cells_get_multi" });
             @export(&c.render_state_row_cells_free, .{ .name = "ghostty_render_state_row_cells_free" });
+            @export(&c.render_state_image_iterator_new, .{ .name = "ghostty_render_state_image_iterator_new" });
+            @export(&c.render_state_image_iterator_next, .{ .name = "ghostty_render_state_image_iterator_next" });
+            @export(&c.render_state_image_iterator_free, .{ .name = "ghostty_render_state_image_iterator_free" });
+            @export(&c.render_state_image_get, .{ .name = "ghostty_render_state_image_get" });
+            @export(&c.render_state_image_get_multi, .{ .name = "ghostty_render_state_image_get_multi" });
             @export(&c.render_state_free, .{ .name = "ghostty_render_state_free" });
         }
         @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
@@ -389,6 +394,7 @@ comptime {
         }
         if (features.kitty_graphics) {
             @export(&c.kitty_graphics_get, .{ .name = "ghostty_kitty_graphics_get" });
+            @export(&c.kitty_graphics_animation_tick, .{ .name = "ghostty_kitty_graphics_animation_tick" });
             @export(&c.kitty_graphics_image, .{ .name = "ghostty_kitty_graphics_image" });
             @export(&c.kitty_graphics_image_get, .{ .name = "ghostty_kitty_graphics_image_get" });
             @export(&c.kitty_graphics_image_get_multi, .{ .name = "ghostty_kitty_graphics_image_get_multi" });
@@ -451,7 +457,7 @@ pub const std_options: std.Options = opts: {
     if (builtin.target.cpu.arch.isWasm()) {
         // In non-debug modes, we want to ship effectively no logging
         // warn and lower add ~200KB at the time of this comment.
-        if (builtin.mode == .Debug) {
+        if (builtin.mode == .debug) {
             options.log_level = .debug;
             options.logFn = @import("os/wasm/log.zig").log;
         } else {
@@ -493,8 +499,8 @@ const native_freestanding = builtin.target.os.tag == .freestanding and
 
 const debug_machinery: bool = !native_freestanding and
     (builtin.is_test or switch (builtin.mode) {
-        .Debug, .ReleaseSafe => true,
-        .ReleaseFast, .ReleaseSmall => false,
+        .debug, .safe => true,
+        .fast, .small => false,
     });
 
 /// The panic handler for when this file is the root module.
@@ -510,7 +516,7 @@ else
 /// Runs global constructors when libghostty-vt is built as a Windows
 /// DLL. See `lib/windows_dll.zig`; without it simdutf dispatches through
 /// a null kernel pointer on the first multi-byte UTF-8 sequence.
-pub const DllMain = if (builtin.os.tag == .windows and
+pub const DllMain = if (builtin.target.os.tag == .windows and
     builtin.output_mode == .Lib and
     builtin.link_mode == .dynamic)
     @import("lib/windows_dll.zig").DllMain
@@ -553,7 +559,7 @@ fn tinyPanicImpl(msg: []const u8, ra: ?usize) noreturn {
     // 256 bytes is enough for most messages, so try that first
     // so that we can try to write in a single syscall.
     var buf: [256]u8 = undefined;
-    if (std.fmt.bufPrint(
+    if (std.mem.print(
         &buf,
         "panic: {s}\n",
         .{msg},

@@ -14,7 +14,7 @@ pub const String = opaque {
             null,
             bs.ptr,
             @intCast(bs.len),
-            @intFromEnum(encoding),
+            @backingInt(encoding),
             @intFromBool(external),
         )))) orelse Allocator.Error.OutOfMemory;
     }
@@ -50,7 +50,7 @@ pub const String = opaque {
         other: *String,
         options: StringComparison,
     ) foundation.ComparisonResult {
-        return @enumFromInt(c.CFStringCompare(
+        return @fromBackingInt(c.CFStringCompare(
             @ptrCast(self),
             @ptrCast(other),
             @intCast(@as(c_int, @bitCast(options))),
@@ -62,7 +62,7 @@ pub const String = opaque {
             @ptrCast(self),
             buf.ptr,
             @intCast(buf.len),
-            @intFromEnum(encoding),
+            @backingInt(encoding),
         ) == 0) return null;
         return std.mem.sliceTo(buf, 0);
     }
@@ -70,7 +70,7 @@ pub const String = opaque {
     pub fn cstringPtr(self: *String, encoding: StringEncoding) ?[:0]const u8 {
         const ptr = c.CFStringGetCStringPtr(
             @ptrCast(self),
-            @intFromEnum(encoding),
+            @backingInt(encoding),
         );
         if (ptr == null) return null;
         return std.mem.sliceTo(ptr, 0);

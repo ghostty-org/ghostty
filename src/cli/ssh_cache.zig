@@ -426,7 +426,7 @@ fn formatTimestamp(buf: []u8, timestamp: i64) []const u8 {
     const year_day = day.calculateYearDay();
     const month_day = year_day.calculateMonthDay();
     const ds = epoch_secs.getDaySeconds();
-    return std.fmt.bufPrint(buf, "{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z", .{
+    return std.mem.print(buf, "{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z", .{
         year_day.year,
         month_day.month.numeric(),
         month_day.day_index + 1,
@@ -493,7 +493,7 @@ fn relativeAge(buf: []u8, now: i64, timestamp: i64) []const u8 {
     const max_age = std.math.maxInt(u64) / std.time.ns_per_s;
     const rounded = @min(age, max_age) / unit * unit;
     const d: Duration = .{ .duration = rounded * std.time.ns_per_s };
-    return std.fmt.bufPrint(buf, "{f} ago", .{d}) catch unreachable;
+    return std.mem.print(buf, "{f} ago", .{d}) catch unreachable;
 }
 
 test relativeAge {

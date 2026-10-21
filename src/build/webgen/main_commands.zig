@@ -26,16 +26,16 @@ pub fn genActions(writer: *std.Io.Writer) !void {
         \\
     );
 
-    inline for (@typeInfo(Action).@"enum".fields) |field| {
-        const action = std.meta.stringToEnum(Action, field.name).?;
+    inline for (@typeInfo(Action).@"enum".field_names) |field| {
+        const action = std.meta.stringToEnum(Action, field).?;
 
         switch (action) {
-            .help, .version => try writer.writeAll("## " ++ field.name ++ "\n"),
-            else => try writer.writeAll("## " ++ field.name ++ "\n"),
+            .help, .version => try writer.writeAll("## " ++ field ++ "\n"),
+            else => try writer.writeAll("## " ++ field ++ "\n"),
         }
 
-        if (@hasDecl(help_strings.Action, field.name)) {
-            var iter = std.mem.splitScalar(u8, @field(help_strings.Action, field.name), '\n');
+        if (@hasDecl(help_strings.Action, field)) {
+            var iter = std.mem.splitScalar(u8, @field(help_strings.Action, field), '\n');
             var first = true;
             while (iter.next()) |s| {
                 try writer.writeAll(s);
@@ -44,8 +44,8 @@ pub fn genActions(writer: *std.Io.Writer) !void {
             }
             try writer.writeAll("\n```\n");
             switch (action) {
-                .help, .version => try writer.writeAll("ghostty --" ++ field.name ++ "\n"),
-                else => try writer.writeAll("ghostty +" ++ field.name ++ "\n"),
+                .help, .version => try writer.writeAll("ghostty --" ++ field ++ "\n"),
+                else => try writer.writeAll("ghostty +" ++ field ++ "\n"),
             }
             try writer.writeAll("```\n\n");
         }

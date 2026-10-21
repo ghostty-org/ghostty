@@ -48,7 +48,7 @@ pub fn pathsForTarget(b: *std.Build, target: std.Target) !Cache.Value {
     });
 
     if (!gop.found_existing) init: {
-        if (comptime builtin.os.tag.isDarwin()) darwin: {
+        if (comptime builtin.target.os.tag.isDarwin()) darwin: {
             // Detect our SDK using the "findNative" Zig stdlib function.
             // This is really important because it forces using `xcrun` to
             // find the SDK path.
@@ -61,20 +61,6 @@ pub fn pathsForTarget(b: *std.Build, target: std.Target) !Cache.Value {
                     .verbose = false,
                 },
             ) catch break :darwin;
-
-            // Xcode 27's math.h requests infinity and NaN definitions from
-            // Clang's float.h using the __need_infinity_nan protocol. Zig
-            // 0.16's bundled Clang resource headers predate that protocol, so
-            // compiling Zig's bundled libc++ against the new SDK fails.
-            //
-            // Put our compatibility include directory between Zig's resource
-            // headers and the selected SDK headers. Its math.h forwards to the
-            // SDK with #include_next, then supplies the definitions missing
-            // from Zig's float.h. This can be removed once Zig's bundled Clang
-            // headers implement __need_infinity_nan.
-            libc.include_dir = b.dependency("apple_sdk", .{})
-                .path("include")
-                .getPath(b);
 
             // Render the file compatible with the `--libc` Zig flag.
             var stream: std.Io.Writer.Allocating = .init(b.allocator);
@@ -127,21 +113,20 @@ pub fn pathsForTarget(b: *std.Build, target: std.Target) !Cache.Value {
         }
 
         // Fall back to Zig's bundled Darwin headers for libc resolution.
-        const zig_lib_path = b.graph.zig_lib_directory.path.?;
-        const include_dir = b.pathJoin(&.{
-            zig_lib_path, "libc", "include", "any-darwin-any",
+        // The Zig library directory is only known to the build script as
+        // a lazy path, so a build tool renders the libc txt file at run
+        // time instead of us templating it at configuration time.
+        const sdk_dep = b.dependency("apple_sdk", .{});
+        const tool = sdk_dep.builder.addExecutable(.{
+            .name = "gen_libc",
+            .root_module = sdk_dep.builder.createModule(.{
+                .root_source_file = sdk_dep.path("gen_libc.zig"),
+                .target = b.graph.host,
+            }),
         });
-
-        const wf = b.addWriteFiles();
-        const path = wf.add("libc.txt", b.fmt(
-            \\include_dir={s}
-            \\sys_include_dir={s}
-            \\crt_dir=
-            \\msvc_lib_dir=
-            \\kernel32_lib_dir=
-            \\gcc_dir=
-            \\
-        , .{ include_dir, include_dir }));
+        const run = sdk_dep.builder.addRunArtifact(tool);
+        run.addDirectoryArg2(.zig_lib, .{});
+        const path = run.captureStdOut(.{ .basename = "libc.txt" });
 
         gop.value_ptr.* = .{ .cross = .{ .libc = path } };
     }

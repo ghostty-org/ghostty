@@ -273,7 +273,7 @@ pub const Stream = struct {
                         var md_it = ev.metadata.iterator();
                         while (md_it.next()) |entry| {
                             var buf: [256]u8 = undefined;
-                            const key = std.fmt.bufPrintZ(&buf, "{s}", .{entry.key_ptr.*}) catch
+                            const key = std.mem.printSentinel(&buf, "{s}", .{entry.key_ptr.*}, 0) catch
                                 "<internal error>";
                             cimgui.c.ImGui_TableNextRow();
                             _ = cimgui.c.ImGui_TableNextColumn();
@@ -311,8 +311,8 @@ pub const Stream = struct {
                 );
                 defer cimgui.c.ImGui_EndTable();
 
-                inline for (@typeInfo(terminal.Parser.Action.Tag).@"enum".fields) |field| {
-                    const tag = @field(terminal.Parser.Action.Tag, field.name);
+                inline for (@typeInfo(terminal.Parser.Action.Tag).@"enum".field_names) |field| {
+                    const tag = @field(terminal.Parser.Action.Tag, field);
                     if (tag == .apc_put or tag == .dcs_put) continue;
 
                     _ = cimgui.c.ImGui_TableNextColumn();
@@ -561,7 +561,7 @@ const VTEvent = struct {
         var it = self.metadata.iterator();
         while (it.next()) |entry| {
             var buf: [256]u8 = undefined;
-            const key = std.fmt.bufPrintZ(&buf, "{s}", .{entry.key_ptr.*}) catch continue;
+            const key = std.mem.printSentinel(&buf, "{s}", .{entry.key_ptr.*}, 0) catch continue;
             if (cimgui.c.ImGuiTextFilter_PassFilter(
                 filter,
                 key.ptr,
@@ -664,26 +664,26 @@ const VTEvent = struct {
             void => {},
             []const u8,
             [:0]const u8,
-            => try md.put("data", try alloc.dupeZ(u8, v)),
+            => try md.put("data", try alloc.dupeSentinel(u8, v, 0)),
             else => |T| switch (@typeInfo(T)) {
-                .@"struct" => |info| inline for (info.fields) |field| {
+                .@"struct" => |info| inline for (info.field_names) |field| {
                     try encodeMetadataSingle(
                         alloc,
                         md,
-                        field.name,
-                        @field(v, field.name),
+                        field,
+                        @field(v, field),
                     );
                 },
 
                 .@"union" => |info| {
                     const Tag = info.tag_type orelse @compileError("Unions must have a tag");
                     const tag_name = @tagName(@as(Tag, v));
-                    inline for (info.fields) |field| {
-                        if (std.mem.eql(u8, field.name, tag_name)) {
-                            if (field.type == void) {
+                    inline for (info.field_names, info.field_types) |field_name, field_type| {
+                        if (std.mem.eql(u8, field_name, tag_name)) {
+                            if (field_type == void) {
                                 break try md.put("data", tag_name);
                             } else {
-                                break try encodeMetadataSingle(alloc, md, tag_name, @field(v, field.name));
+                                break try encodeMetadataSingle(alloc, md, tag_name, @field(v, field_name));
                             }
                         }
                     }
@@ -709,35 +709,35 @@ const VTEvent = struct {
             .optional => if (value) |unwrapped| {
                 try encodeMetadataSingle(alloc, md, key, unwrapped);
             } else {
-                try md.put(key, try alloc.dupeZ(u8, "(unset)"));
+                try md.put(key, try alloc.dupeSentinel(u8, "(unset)", 0));
             },
 
             .bool => try md.put(
                 key,
-                try alloc.dupeZ(u8, if (value) "true" else "false"),
+                try alloc.dupeSentinel(u8, if (value) "true" else "false", 0),
             ),
 
             .@"enum" => try md.put(
                 key,
-                try alloc.dupeZ(u8, @tagName(value)),
+                try alloc.dupeSentinel(u8, @tagName(value), 0),
             ),
 
             .@"union" => |u| {
                 const Tag = u.tag_type orelse @compileError("Unions must have a tag");
                 const tag_name = @tagName(@as(Tag, value));
-                inline for (u.fields) |field| {
-                    if (std.mem.eql(u8, field.name, tag_name)) {
-                        const s = if (field.type == void)
-                            try alloc.dupeZ(u8, tag_name)
-                        else if (field.type == [:0]const u8 or field.type == []const u8)
-                            try std.fmt.allocPrintSentinel(alloc, "{s}={s}", .{
+                inline for (u.field_names, u.field_types) |field_name, field_type| {
+                    if (std.mem.eql(u8, field_name, tag_name)) {
+                        const s = if (field_type == void)
+                            try alloc.dupeSentinel(u8, tag_name, 0)
+                        else if (field_type == [:0]const u8 or field_type == []const u8)
+                            try alloc.printSentinel("{s}={s}", .{
                                 tag_name,
-                                @field(value, field.name),
+                                @field(value, field_name),
                             }, 0)
                         else
-                            try std.fmt.allocPrintSentinel(alloc, "{s}={}", .{
+                            try alloc.printSentinel("{s}={}", .{
                                 tag_name,
-                                @field(value, field.name),
+                                @field(value, field_name),
                             }, 0);
 
                         try md.put(key, s);
@@ -747,18 +747,18 @@ const VTEvent = struct {
 
             .@"struct" => try md.put(
                 key,
-                try alloc.dupeZ(u8, @typeName(Value)),
+                try alloc.dupeSentinel(u8, @typeName(Value), 0),
             ),
 
             else => switch (Value) {
                 []const u8,
                 [:0]const u8,
-                => try md.put(key, try alloc.dupeZ(u8, value)),
+                => try md.put(key, try alloc.dupeSentinel(u8, value, 0)),
 
                 else => |T| switch (@typeInfo(T)) {
                     .int => try md.put(
                         key,
-                        try std.fmt.allocPrintSentinel(alloc, "{}", .{value}, 0),
+                        try alloc.printSentinel("{}", .{value}, 0),
                     ),
                     else => {
                         @compileLog(T);

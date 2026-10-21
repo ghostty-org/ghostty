@@ -269,7 +269,7 @@ pub const Row = packed struct(u8) {
 /// values (for example semantic content 3) without instantiating an invalid
 /// native enum.
 pub const Cell = packed struct(u64) {
-    kind: u2 = @intFromEnum(Kind.codepoint),
+    kind: u2 = @backingInt(Kind.codepoint),
     content: u24 = 0,
     style_id: u16 = 0,
     width: u2 = 0,
@@ -302,7 +302,7 @@ pub const Cell = packed struct(u64) {
 
         /// The number of bytes transporting one cell word.
         pub fn size(self: EncodedWidth) usize {
-            return @as(usize, 1) << @intFromEnum(self);
+            return @as(usize, 1) << @backingInt(self);
         }
 
         /// The integer type transporting one cell word.
@@ -444,7 +444,7 @@ const native_matches_wire = native: {
 /// Whether rows of cells can be copied between native and wire storage
 /// without per-cell transformation.
 const bulk_codec = native_matches_wire and
-    builtin.cpu.arch.endian() == .little;
+    builtin.target.cpu.arch.endian() == .little;
 
 pub const EncodeError = std.Io.Writer.Error || error{
     /// Wide and spacer cells do not form a valid row.
@@ -506,7 +506,7 @@ pub fn encode(
         const row_header: Row = .{
             .wrap = row.wrap,
             .wrap_continuation = row.wrap_continuation,
-            .semantic_prompt = @intFromEnum(row.semantic_prompt),
+            .semantic_prompt = @backingInt(row.semantic_prompt),
             .cell_width = cell_width,
         };
 
@@ -715,19 +715,17 @@ fn encodeNarrowInto(
         shift,
         mask,
     );
-    if (j < count) {
-        if (count >= 4) {
-            encodeNarrowStep(width, words, count - 4, out, shift, mask);
-        } else {
-            while (j < count) : (j += 1) {
-                std.mem.writeInt(
-                    width.Int(),
-                    out[j * size ..][0..size],
-                    width.truncate(words[j]),
-                    .little,
-                );
-            }
-        }
+    // The remainder is written scalar-by-scalar. Re-running a vector step
+    // at `count - 4` would overlap stores with the previous step, which
+    // the backend may legally merge into one wider store that runs past
+    // the end of `out` (observed corrupting adjacent allocator metadata).
+    while (j < count) : (j += 1) {
+        std.mem.writeInt(
+            width.Int(),
+            out[j * size ..][0..size],
+            width.truncate(words[j]),
+            .little,
+        );
     }
 }
 
@@ -744,10 +742,13 @@ inline fn encodeNarrowStep(
     const VPtr = *align(@alignOf(u64)) const @Vector(2, u64);
     const lo: @Vector(16, u8) = @bitCast(@as(VPtr, @ptrCast(words + j)).* >> shift);
     const hi: @Vector(16, u8) = @bitCast(@as(VPtr, @ptrCast(words + j + 2)).* >> shift);
-    @as(
-        *align(1) @Vector(size * 4, u8),
-        @ptrCast(out[j * size ..].ptr),
-    ).* = @shuffle(u8, lo, hi, mask);
+
+    // Copy with an explicit length. Storing the shuffle result directly
+    // through a vector pointer lets the backend widen the store past the
+    // end of `out` (observed corrupting adjacent allocator metadata when
+    // the last vector step lands at the destination's buffer end).
+    const encoded: [size * 4]u8 = @bitCast(@shuffle(u8, lo, hi, mask));
+    @memcpy(out[j * size ..][0 .. size * 4], &encoded);
 }
 
 /// Encode the grapheme suffix section for every kind 1 cell in the grid.
@@ -1224,11 +1225,11 @@ fn applyCell(
     wire.hyperlink_id = 0;
     wire.hyperlink = false;
 
-    switch (@as(Cell.Kind, @enumFromInt(wire.kind))) {
+    switch (@as(Cell.Kind, @fromBackingInt(wire.kind))) {
         // Kind 1 differs from 0 only by declaring a grapheme suffix section
         // entry, which reattaches through the native grapheme APIs later.
         .codepoint, .codepoint_grapheme => {
-            wire.kind = @intFromEnum(Cell.Kind.codepoint);
+            wire.kind = @backingInt(Cell.Kind.codepoint);
             if (!validScalar(wire.content)) wire.content = 0xFFFD;
 
             // Kitty image and placement state is not part of this snapshot
@@ -1248,7 +1249,7 @@ fn applyCell(
     }
 
     // Reserved semantic content degrades to plain output.
-    wire.semantic_content = @intFromEnum(std.enums.fromInt(
+    wire.semantic_content = @backingInt(std.enums.fromInt(
         TerminalCell.SemanticContent,
         wire.semantic_content,
     ) orelse .output);
@@ -1428,7 +1429,7 @@ fn cellBits(cell: TerminalCell, link_id: TerminalHyperlinkId) u64 {
     }
 
     const wire: Cell = .{
-        .kind = @intFromEnum(cell.content_tag),
+        .kind = @backingInt(cell.content_tag),
         .content = switch (cell.content_tag) {
             .codepoint,
             .codepoint_grapheme,
@@ -1467,7 +1468,7 @@ fn storeCell(cell: *TerminalCell, bits: u64) void {
 
     const wire: Cell = @bitCast(bits);
     var native: TerminalCell = .init(0);
-    switch (@as(Cell.Kind, @enumFromInt(wire.kind))) {
+    switch (@as(Cell.Kind, @fromBackingInt(wire.kind))) {
         .codepoint, .codepoint_grapheme => native.content = .{
             .codepoint = .{ .data = @intCast(wire.content) },
         },
@@ -1487,9 +1488,9 @@ fn storeCell(cell: *TerminalCell, bits: u64) void {
         },
     }
     native.style_id = wire.style_id;
-    native.wide = @enumFromInt(wire.width);
+    native.wide = @fromBackingInt(wire.width);
     native.protected = wire.protected;
-    native.semantic_content = @enumFromInt(wire.semantic_content);
+    native.semantic_content = @fromBackingInt(wire.semantic_content);
     cell.* = native;
 }
 
@@ -1513,7 +1514,7 @@ fn Remap(comptime Id: type) type {
         /// Tracks IDs that received an entry, including ones mapped to the
         /// default, so callers can give duplicate table entries first-wins
         /// semantics.
-        seen: std.DynamicBitSetUnmanaged,
+        seen: std.bit_set.Dynamic,
 
         /// A remap with no entries at all: every lookup is unmapped. Use
         /// this instead of `init` when the encoded table is empty so pages
@@ -1524,7 +1525,7 @@ fn Remap(comptime Id: type) type {
             const entries = try alloc.alloc(Id, capacity);
             errdefer alloc.free(entries);
             @memset(entries, 0);
-            const seen = try std.DynamicBitSetUnmanaged.initEmpty(
+            const seen = try std.bit_set.Dynamic.initEmpty(
                 alloc,
                 capacity,
             );

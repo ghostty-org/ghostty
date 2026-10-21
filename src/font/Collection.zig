@@ -911,7 +911,7 @@ pub const Index = packed struct(Index.Backing) {
 
     /// Initialize a special font index.
     pub fn initSpecial(v: Special) Index {
-        return .{ .style = .regular, .idx = @intFromEnum(v) };
+        return .{ .style = .regular, .idx = @backingInt(v) };
     }
 
     /// Convert to int
@@ -924,7 +924,7 @@ pub const Index = packed struct(Index.Backing) {
     /// this font.
     pub fn special(self: Index) ?Special {
         if (self.idx < Special.start) return null;
-        return @enumFromInt(self.idx);
+        return @fromBackingInt(self.idx);
     }
 
     test {

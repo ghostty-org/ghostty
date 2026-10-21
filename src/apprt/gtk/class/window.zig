@@ -16,7 +16,6 @@ const input = @import("../../../input.zig");
 const CoreSurface = @import("../../../Surface.zig");
 const ext = @import("../ext.zig");
 const gtk_version = @import("../gtk_version.zig");
-const adw_version = @import("../adw_version.zig");
 const gresource = @import("../build/gresource.zig");
 const winprotopkg = @import("../winproto.zig");
 const Common = @import("../class.zig").Common;
@@ -165,6 +164,20 @@ pub const Window = extern struct {
                     }),
                 },
             );
+        };
+
+        pub const @"tabs-inverted" = struct {
+            pub const name = "tabs-inverted";
+            const impl = gobject.ext.defineProperty(name, Self, bool, .{
+                .default = false,
+                .accessor = gobject.ext.typedAccessor(
+                    Self,
+                    bool,
+                    .{
+                        .getter = Self.getTabsInverted,
+                    },
+                ),
+            });
         };
 
         pub const @"tabs-wide" = struct {
@@ -498,25 +511,6 @@ pub const Window = extern struct {
             .{ .sync_create = true },
         );
 
-        // Bind signals
-        const split_tree = tab.getSplitTree();
-        _ = SplitTree.signals.changed.connect(
-            split_tree,
-            *Self,
-            tabSplitTreeChanged,
-            self,
-            .{},
-        );
-
-        // Run an initial notification for the surface tree so we can setup
-        // initial state.
-        tabSplitTreeChanged(
-            split_tree,
-            null,
-            split_tree.getTree(),
-            self,
-        );
-
         return page;
     }
 
@@ -705,6 +699,7 @@ pub const Window = extern struct {
         inline for (&.{
             "headerbar-visible",
             "tabs-autohide",
+            "tabs-inverted",
             "tabs-visible",
             "tabs-wide",
             "toolbar-style",
@@ -722,15 +717,6 @@ pub const Window = extern struct {
         self.toggleCssClass(
             "background",
             config.@"background-opacity" >= 1,
-        );
-
-        // Apply class to color headerbar if window-theme is set to `ghostty` and
-        // GTK version is before 4.16. The conditional is because above 4.16
-        // we use GTK CSS color variables.
-        self.toggleCssClass(
-            "window-theme-ghostty",
-            !gtk_version.atLeast(4, 16, 0) and
-                config.@"window-theme" == .ghostty,
         );
 
         // Move the tab bar to the proper location.
@@ -1158,6 +1144,12 @@ pub const Window = extern struct {
         }
     }
 
+    fn getTabsInverted(self: *Self) bool {
+        const priv = self.private();
+        const config = if (priv.config) |v| v.get() else return false;
+        return config.@"gtk-tabs-inverted";
+    }
+
     fn getTabsWide(self: *Self) bool {
         const priv = self.private();
         const config = if (priv.config) |v| v.get() else return true;
@@ -1306,9 +1298,6 @@ pub const Window = extern struct {
         _: *gobject.ParamSpec,
         self: *Self,
     ) callconv(.c) void {
-        // Debian 12 is stuck on GTK 4.8
-        if (!gtk_version.atLeast(4, 10, 0)) return;
-
         // We only care if we're activating. If we're activating then
         // we need to check the validity of our menu items.
         const active = button.getActive() != 0;
@@ -1773,6 +1762,17 @@ pub const Window = extern struct {
         if (tab.getSurfaceTree()) |tree| {
             self.connectSurfaceHandlers(tree);
         }
+
+        // Keep our surface handlers in sync as the tree changes. This is
+        // connected here rather than when the tab is created so that tabs
+        // moved between windows notify the window that they are in.
+        _ = SplitTree.signals.changed.connect(
+            tab.getSplitTree(),
+            *Self,
+            tabSplitTreeChanged,
+            self,
+            .{},
+        );
     }
 
     fn tabViewPageDetached(
@@ -1786,6 +1786,16 @@ pub const Window = extern struct {
         const tab = gobject.ext.cast(Tab, child) orelse return;
         _ = gobject.signalHandlersDisconnectMatched(
             tab.as(gobject.Object),
+            .{ .data = true },
+            0,
+            0,
+            null,
+            null,
+            self,
+        );
+
+        _ = gobject.signalHandlersDisconnectMatched(
+            tab.getSplitTree().as(gobject.Object),
             .{ .data = true },
             0,
             0,
@@ -2009,39 +2019,22 @@ pub const Window = extern struct {
         const icon = "com.mitchellh.ghostty";
         const website = "https://ghostty.org";
 
-        if (adw_version.supportsDialogs()) {
-            adw.showAboutDialog(
-                self.as(gtk.Widget),
-                "application-name",
-                name,
-                "developer-name",
-                i18n._("Ghostty Developers"),
-                "application-icon",
-                icon,
-                "version",
-                build_config.version_string.ptr,
-                "issue-url",
-                "https://github.com/ghostty-org/ghostty/issues",
-                "website",
-                website,
-                @as(?*anyopaque, null),
-            );
-        } else {
-            gtk.showAboutDialog(
-                self.as(gtk.Window),
-                "program-name",
-                name,
-                "logo-icon-name",
-                icon,
-                "title",
-                i18n._("About Ghostty"),
-                "version",
-                build_config.version_string.ptr,
-                "website",
-                website,
-                @as(?*anyopaque, null),
-            );
-        }
+        adw.showAboutDialog(
+            self.as(gtk.Widget),
+            "application-name",
+            name,
+            "developer-name",
+            i18n._("Ghostty Developers"),
+            "application-icon",
+            icon,
+            "version",
+            build_config.version_string.ptr,
+            "issue-url",
+            "https://github.com/ghostty-org/ghostty/issues",
+            "website",
+            website,
+            @as(?*anyopaque, null),
+        );
     }
 
     fn actionClose(
@@ -2323,7 +2316,7 @@ pub const Window = extern struct {
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
                     .major = 1,
-                    .minor = 5,
+                    .minor = 4,
                     .name = "window",
                 }),
             );
@@ -2336,6 +2329,7 @@ pub const Window = extern struct {
                 properties.@"headerbar-visible".impl,
                 properties.@"quick-terminal".impl,
                 properties.@"tabs-autohide".impl,
+                properties.@"tabs-inverted".impl,
                 properties.@"tabs-visible".impl,
                 properties.@"tabs-wide".impl,
                 properties.@"toolbar-style".impl,

@@ -7,6 +7,7 @@ const CoreSurface = @import("../../Surface.zig");
 const ApprtApp = @import("App.zig");
 const Application = @import("class/application.zig").Application;
 const Surface = @import("class/surface.zig").Surface;
+const renderer = @import("../../renderer.zig");
 
 /// The GObject Surface
 surface: *Surface,
@@ -101,4 +102,8 @@ pub fn defaultTermioEnv(self: *Self) !std.process.Environ.Map {
 /// Redraw the inspector for our surface.
 pub fn redrawInspector(self: *Self) void {
     self.surface.redrawInspector();
+}
+
+pub fn renderDeviceOptions(self: *Self) !renderer.Device.Options {
+    return self.surface.renderDeviceOptions();
 }

@@ -6,6 +6,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
+const gdk = @import("gdk");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
@@ -50,10 +51,10 @@ const RequestData = struct {
         uri: []const u8,
         request_path: []const u8,
     ) Allocator.Error!*RequestData {
-        const uri_copy = try alloc.dupeZ(u8, uri);
+        const uri_copy = try alloc.dupeSentinel(u8, uri, 0);
         errdefer alloc.free(uri_copy);
 
-        const request_path_copy = try alloc.dupeZ(u8, request_path);
+        const request_path_copy = try alloc.dupeSentinel(u8, request_path, 0);
         errdefer alloc.free(request_path_copy);
 
         const data = try alloc.create(RequestData);
@@ -92,12 +93,16 @@ pub const Entry = struct {
     /// method calls are asynchronous and the original may have been freed by
     /// the time we need it.
     uri: [:0]const u8,
+    /// An xdg-activation token for the input that opened the URI, passed to
+    /// the portal so the app it launches can raise its window.
+    activation_token: ?[:0]const u8,
     /// Used to manage a subscription to a D-Bus signal, which is how the XDG
     /// Portal reports results of the method call.
     subscription: ?c_uint = null,
 
     pub fn deinit(self: *const Entry, alloc: Allocator) void {
         alloc.free(self.uri);
+        if (self.activation_token) |token| alloc.free(token);
     }
 };
 
@@ -158,6 +163,10 @@ pub fn start(self: *OpenURI, value: apprt.action.OpenUrl) (Allocator.Error || Er
         alloc.destroy(request);
     }
 
+    // Requested before taking the lock: it waits on a Wayland roundtrip.
+    var activation_token = try activationToken(alloc);
+    errdefer if (activation_token) |t| alloc.free(t);
+
     self.mutex.lockUncancelable(global.io());
     defer self.mutex.unlock(global.io());
 
@@ -170,8 +179,11 @@ pub fn start(self: *OpenURI, value: apprt.action.OpenUrl) (Allocator.Error || Er
             .start = std.Io.Timestamp.now(global.io(), .awake),
             .token = token,
             .kind = value.kind,
-            .uri = try alloc.dupeZ(u8, value.url),
+            .uri = try alloc.dupeSentinel(u8, value.url, 0),
+            .activation_token = activation_token,
         };
+        // The entry owns the token now.
+        activation_token = null;
         errdefer entry.deinit(alloc);
         try self.entries.putNoClobber(alloc, token, entry);
         break :entry entry;
@@ -185,6 +197,19 @@ pub fn start(self: *OpenURI, value: apprt.action.OpenUrl) (Allocator.Error || Er
     self.startCleanupTimer();
     self.subscribeToResponse(entry, dbus, request_path.ptr);
     self.sendRequest(entry, dbus, request);
+}
+
+/// Ask GDK for an xdg-activation token tied to the most recent input, which is
+/// what opened the URI. Returns null if the platform can't provide one.
+fn activationToken(alloc: Allocator) Allocator.Error!?[:0]const u8 {
+    const display = gdk.Display.getDefault() orelse return null;
+    const context = display.getAppLaunchContext();
+    defer context.unref();
+
+    const token = context.as(gio.AppLaunchContext).getStartupNotifyId(null, null) orelse return null;
+    defer glib.free(token);
+
+    return try alloc.dupeSentinel(u8, std.mem.span(token), 0);
 }
 
 /// Subscribe to the D-Bus signal that will contain the results of our method
@@ -324,6 +349,18 @@ fn sendRequest(
 
                 const ask = glib.Variant.newBoolean(@intFromBool(false));
                 builder.add("v", ask);
+            }
+            if (entry.activation_token) |token| {
+                const option = glib.VariantType.new("{sv}");
+                defer option.free();
+
+                builder.open(option);
+                defer builder.close();
+
+                builder.add("s", "activation_token");
+
+                const activation_token = glib.Variant.newString(token.ptr);
+                builder.add("v", activation_token);
             }
         }
 

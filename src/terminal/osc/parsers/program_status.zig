@@ -16,9 +16,11 @@
 //! In libghostty-vt, that is the `program_status` effect of
 //! `stream_terminal.Handler`.
 //!
-//! A program checks whether the terminal supports the protocol by sending
-//! `?` as the body. A terminal that supports it replies with the same
-//! sequence. See `Command.query`.
+//! A program can check whether the terminal supports the protocol by
+//! sending `?` as the body. A terminal that supports it replies with `?`
+//! and may list the states and kinds it accepts. See `Command.query` and
+//! `query_reply`. Checking is optional, so a program may also send
+//! reports without asking first.
 //!
 //! Example:
 //!
@@ -81,6 +83,43 @@ pub const max_id_bytes = 128;
 pub const max_id_segment_bytes = 32;
 pub const max_id_depth = 8;
 
+/// The body of the reply to a support query.
+///
+/// A program asks whether the terminal supports the protocol by sending
+/// `?` as the body. A terminal that does answers with another OSC 7501
+/// whose body is this value, ended with the same terminator the query
+/// used:
+///
+/// ```
+/// program:  ESC ] 7501 ; ? ESC \
+/// terminal: ESC ] 7501 ; ?:states=idle,working,done,blocked,error:kinds=permission,question,auth ESC \
+/// ```
+///
+/// The specification only requires the `?`. The rest lists the states
+/// and kinds this parser accepts. `clear` is left out because it isn't a
+/// state. A program that wants a state or kind from a later revision of
+/// the specification checks these lists and falls back to one that is
+/// present. The lists come from `State` and `Kind`, so adding a value to
+/// either updates the reply.
+pub const query_reply = "?:states=" ++
+    names(State, &.{.clear}) ++
+    ":kinds=" ++
+    names(Kind, &.{});
+
+/// The names of the values of `E`, comma separated, leaving out `skip`.
+fn names(comptime E: type, comptime skip: []const E) []const u8 {
+    comptime {
+        var result: []const u8 = "";
+        for (@typeInfo(E).@"enum".field_names) |field| {
+            const value = @field(E, field);
+            if (std.mem.indexOfScalar(E, skip, value) != null) continue;
+            if (result.len > 0) result = result ++ ",";
+            result = result ++ field;
+        }
+        return result;
+    }
+}
+
 /// A parsed OSC 7501 sequence: either a support query or a report.
 pub const Command = union(enum) {
     pub const C = void;
@@ -90,10 +129,11 @@ pub const Command = union(enum) {
     pub const Option = program_status.Option;
 
     /// The program asked whether the terminal supports the protocol by
-    /// sending `OSC 7501 ; ? ST`. A terminal that supports it sends the
-    /// same sequence back, ended with this terminator so the program
-    /// recognizes it. A program that gets no reply assumes the protocol
-    /// is unsupported.
+    /// sending `OSC 7501 ; ? ST`. A terminal that supports it answers
+    /// with `query_reply`, ended with this terminator so the program
+    /// recognizes it. A program that gets no reply treats the protocol as
+    /// unsupported. Asking is optional, so reports may arrive without a
+    /// query first.
     query: Terminator,
 
     /// A valid status report for one record.
@@ -212,10 +252,14 @@ pub const Report = struct {
 /// - `kind`: what a blocked program needs from the user. Only read when
 ///   the state is `blocked`. An unknown kind reads as null.
 /// - `progress`: how far along the work is, from 0 to 100. Only read when
-///   the state is `working` or `blocked`. A value outside that range
-///   reads as null.
+///   the state is `working` or `blocked`. Null means indeterminate: the
+///   program is busy but has no percentage to report. A value outside
+///   that range reads as null too.
 /// - `app`: a stable name for the program that a machine can match on,
-///   such as `cargo` or `terraform`.
+///   such as `cargo`, `terraform`, or `claude-code`. It is a key for
+///   grouping, filtering, choosing an icon, and so on, not a label. The
+///   label is `title`. A record without `app` takes it from its nearest
+///   ancestor that has one.
 /// - `title`: a short label for the record, meant for people. Programs
 ///   that report several records use this to tell them apart.
 /// - `msg`: one line of text for people, saying what the record is
@@ -312,14 +356,17 @@ fn validate(data: []const u8) error{
 
     // Every value is checked against its limit, even one a later pair
     // replaces, because any limit violation discards the whole report.
-    var ids: kitty_metadata.ValueIterator("id", value_bytes) = .init(data);
+    // These iterate the raw values without filtering by the value
+    // alphabet. Filtering would skip an id with a disallowed byte, so the
+    // report would look like it had no id and fall back to the root record.
+    var ids: kitty_metadata.ValueIterator("id", null) = .init(data);
     while (ids.next()) |v| try validateId(v);
     inline for (.{
         .{ "app", max_app_bytes },
         .{ "title", max_title_encoded_bytes },
         .{ "msg", max_msg_encoded_bytes },
     }) |limit| {
-        var it: kitty_metadata.ValueIterator(limit[0], value_bytes) = .init(data);
+        var it: kitty_metadata.ValueIterator(limit[0], null) = .init(data);
         while (it.next()) |v| if (v.len > limit[1]) return error.TooLong;
     }
 
@@ -415,6 +462,18 @@ test "OSC 7501: query" {
     p.reset();
     p.nextSlice("7501;?");
     try testing.expectEqual(Terminator.bel, p.end(0x07).?.program_status.query);
+}
+
+test "OSC 7501: query reply lists every state and kind" {
+    const testing = std.testing;
+
+    // The specification fixes these lists for the states and kinds it
+    // defines. A new state or kind must be added to the specification
+    // before it can appear here.
+    try testing.expectEqualStrings(
+        "?:states=idle,working,done,blocked,error:kinds=permission,question,auth",
+        query_reply,
+    );
 }
 
 test "OSC 7501: minimal report" {
@@ -583,12 +642,12 @@ test "OSC 7501: ids" {
     var p: Parser = .init(testing.allocator);
     defer p.deinit();
 
-    const max_segment = "a" ** max_id_segment_bytes;
+    const max_segment: [max_id_segment_bytes]u8 = @splat('a');
     const valid = [_][]const u8{
         "a",
         "build/test",
         "A-Z_0.9+",
-        max_segment,
+        &max_segment,
         "a/b/c/d/e/f/g/h",
     };
     for (valid) |id| {
@@ -598,6 +657,9 @@ test "OSC 7501: ids" {
         const report = p.end('\x1b').?.program_status.report;
         try testing.expectEqualStrings(id, report.readOption(.id).?);
     }
+
+    const long: [31]u8 = @splat('a');
+    const longs: [128]u8 = std.simd.repeat(128, long ++ "/".*);
 
     // An invalid id discards the report so that it can never fall back
     // to the root record.
@@ -609,16 +671,40 @@ test "OSC 7501: ids" {
         "a//b",
         "a,b",
         "a=b",
+        "a@b",
+        "a b",
+        "a%20b",
         max_segment ++ "a",
         "a/b/c/d/e/f/g/h/i",
-        ("a" ** 31 ++ "/") ** 4 ++ "a",
+        longs ++ "a",
     };
     for (invalid) |id| {
+        for ([_]u8{ '\x1b', 0x07 }) |terminator| {
+            p.reset();
+            p.nextSlice("7501;state=clear:id=");
+            p.nextSlice(id);
+            try testing.expect(p.end(terminator) == null);
+        }
+
+        // An invalid id is never replaced by a later valid one.
         p.reset();
         p.nextSlice("7501;state=clear:id=");
         p.nextSlice(id);
+        p.nextSlice(":id=a");
         try testing.expect(p.end('\x1b') == null);
     }
+}
+
+test "OSC 7501: limits apply to values with disallowed bytes" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    const long_app: [max_app_bytes]u8 = @splat('a');
+    p.nextSlice("7501;state=idle:app=@");
+    p.nextSlice(&long_app);
+    try testing.expect(p.end('\x1b') == null);
 }
 
 test "OSC 7501: text must decode to safe UTF-8" {
@@ -675,8 +761,10 @@ test "OSC 7501: discarded reports" {
 
     // 192 bytes of title and 2048 bytes of message are the most allowed.
     // "QUFB" decodes to "AAA" and "QUE" to "AA".
-    const title = "QUFB" ** (max_title_encoded_bytes / 4);
-    const msg = "QUFB" ** (max_msg_bytes / 3) ++ "QUE";
+    @setEvalBranchQuota(4096);
+    const title: [max_title_encoded_bytes]u8 = std.simd.repeat(max_title_encoded_bytes, "QUFB".*);
+    const main: [max_msg_bytes / 3 * 4]u8 = std.simd.repeat(max_msg_bytes / 3 * 4, "QUFB".*);
+    const msg = main ++ "QUE";
     const fill = max_sequence_bytes - "\x1b]7501;state=idle:".len - "\x1b\\".len;
 
     const cases = [_]struct { []const u8, bool }{
@@ -688,22 +776,22 @@ test "OSC 7501: discarded reports" {
         .{ "7501;state=IDLE", false },
 
         // A key that is too long, even one we don't know.
-        .{ "7501;state=idle:" ++ "a" ** max_key_bytes ++ "=1", true },
-        .{ "7501;state=idle:" ++ "a" ** (max_key_bytes + 1) ++ "=1", false },
+        .{ "7501;state=idle:" ++ @as([max_key_bytes]u8, @splat('a')) ++ "=1", true },
+        .{ "7501;state=idle:" ++ @as([max_key_bytes + 1]u8, @splat('a')) ++ "=1", false },
 
         // An app that is too long, even if a later pair replaces it.
-        .{ "7501;state=idle:app=" ++ "a" ** (max_app_bytes + 1), false },
-        .{ "7501;state=idle:app=" ++ "a" ** (max_app_bytes + 1) ++ ":app=ok", false },
+        .{ "7501;state=idle:app=" ++ @as([max_app_bytes + 1]u8, @splat('a')), false },
+        .{ "7501;state=idle:app=" ++ @as([max_app_bytes + 1]u8, @splat('a')) ++ ":app=ok", false },
 
         // Text at its limits and one step over.
         .{ "7501;state=idle:title=" ++ title, true },
         .{ "7501;state=idle:title=" ++ title ++ "QUFB", false },
         .{ "7501;state=idle:msg=" ++ msg, true },
-        .{ "7501;state=idle:msg=" ++ "QUFB" ** (max_msg_bytes / 3 + 1), false },
+        .{ "7501;state=idle:msg=" ++ main ++ "QUFB", false },
 
         // The whole sequence, including the terminator.
-        .{ "7501;state=idle:" ++ "x" ** fill, true },
-        .{ "7501;state=idle:" ++ "x" ** (fill + 1), false },
+        .{ "7501;state=idle:" ++ @as([fill]u8, @splat('x')), true },
+        .{ "7501;state=idle:" ++ @as([fill + 1]u8, @splat('x')), false },
 
         // Numbers that only start like 7501.
         .{ "75;state=idle", false },

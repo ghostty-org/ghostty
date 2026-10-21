@@ -36,7 +36,7 @@ pub const Transition = struct {
 fn genTableType(comptime optional: bool) type {
     const max_u8 = std.math.maxInt(u8);
     const stateInfo = @typeInfo(State);
-    const max_state = stateInfo.@"enum".fields.len;
+    const max_state = stateInfo.@"enum".field_names.len;
     const Elem = if (optional) ?Transition else Transition;
     return [max_u8 + 1][max_state]Elem;
 }
@@ -55,8 +55,8 @@ fn genTable() Table {
 
     // anywhere transitions
     const stateInfo = @typeInfo(State);
-    inline for (stateInfo.@"enum".fields) |field| {
-        const source: State = @enumFromInt(field.value);
+    inline for (stateInfo.@"enum".field_values) |field_value| {
+        const source: State = @fromBackingInt(field_value);
 
         // anywhere => ground
         single(&result, 0x18, source, .ground, .execute);
@@ -367,7 +367,7 @@ fn genTable() Table {
     var final: Table = undefined;
     for (0..final.len) |i| {
         for (0..final[0].len) |j| {
-            final[i][j] = result[i][j] orelse transition(@enumFromInt(j), .none);
+            final[i][j] = result[i][j] orelse transition(@fromBackingInt(j), .none);
         }
     }
 
@@ -375,7 +375,7 @@ fn genTable() Table {
 }
 
 fn single(t: *OptionalTable, c: u8, s0: State, s1: State, a: Action) void {
-    const s0_int = @intFromEnum(s0);
+    const s0_int = @backingInt(s0);
 
     // TODO: enable this but it thinks we're in runtime right now
     // if (t[c][s0_int]) |existing| {
@@ -416,7 +416,7 @@ test "dcs_passthrough: high bytes are payload data" {
     // 0xC3 0x9C) and Ghostty doesn't support 8-bit C1 controls
     // anywhere else.
     for (0x80..0x100) |c| {
-        const entry = table[c][@intFromEnum(State.dcs_passthrough)];
+        const entry = table[c][@backingInt(State.dcs_passthrough)];
         try std.testing.expectEqual(State.dcs_passthrough, entry.state);
         try std.testing.expectEqual(Action.put, entry.action);
     }
@@ -427,7 +427,7 @@ test "dcs_ignore: high bytes are ignored payload data" {
     // must not trigger "anywhere" C1 transitions (e.g. 0x9B beginning
     // a CSI mid-string).
     for (0x80..0x100) |c| {
-        const entry = table[c][@intFromEnum(State.dcs_ignore)];
+        const entry = table[c][@backingInt(State.dcs_ignore)];
         try std.testing.expectEqual(State.dcs_ignore, entry.state);
         try std.testing.expectEqual(Action.ignore, entry.action);
     }
@@ -437,12 +437,12 @@ test "dcs_passthrough: ESC, CAN, and SUB still exit" {
     // 7-bit ST (ESC \) is the DCS terminator and CAN/SUB abort, so
     // these must continue to leave dcs_passthrough. dcs_unhook is
     // emitted by the parser on any transition out of dcs_passthrough.
-    const esc = table[0x1B][@intFromEnum(State.dcs_passthrough)];
+    const esc = table[0x1B][@backingInt(State.dcs_passthrough)];
     try std.testing.expectEqual(State.escape, esc.state);
 
-    const can = table[0x18][@intFromEnum(State.dcs_passthrough)];
+    const can = table[0x18][@backingInt(State.dcs_passthrough)];
     try std.testing.expectEqual(State.ground, can.state);
 
-    const sub = table[0x1A][@intFromEnum(State.dcs_passthrough)];
+    const sub = table[0x1A][@backingInt(State.dcs_passthrough)];
     try std.testing.expectEqual(State.ground, sub.state);
 }

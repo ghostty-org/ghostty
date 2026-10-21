@@ -89,10 +89,11 @@ pub const Info = struct {
             };
 
             var title_buf: [128]u8 = undefined;
-            const title = std.fmt.bufPrintZ(
+            const title = std.mem.printSentinel(
                 &title_buf,
                 "Screen: {t}",
                 .{entry.key},
+                0,
             ) catch "Screen";
 
             // Setup our next window so it has some size to it.
@@ -217,7 +218,7 @@ fn screensTable(
         }
         {
             _ = cimgui.c.ImGui_TableSetColumnIndex(2);
-            cimgui.c.ImGui_PushIDInt(@intFromEnum(key));
+            cimgui.c.ImGui_PushIDInt(@backingInt(key));
             defer cimgui.c.ImGui_PopID();
             cimgui.c.ImGui_BeginDisabled(!is_initialized);
             defer cimgui.c.ImGui_EndDisabled();
@@ -588,16 +589,16 @@ fn modesTable(t: *Terminal) void {
         cimgui.c.ImGui_TableHeadersRow();
     }
 
-    inline for (@typeInfo(terminal.Mode).@"enum".fields) |field| {
+    inline for (@typeInfo(terminal.Mode).@"enum".field_names, @typeInfo(terminal.Mode).@"enum".field_values) |field, field_value| {
         @setEvalBranchQuota(6000);
-        const tag: modes.ModeTag = @bitCast(@as(modes.ModeTag.Backing, field.value));
+        const tag: modes.ModeTag = @bitCast(@as(modes.ModeTag.Backing, field_value));
 
         cimgui.c.ImGui_TableNextRow();
-        cimgui.c.ImGui_PushIDInt(@intCast(field.value));
+        cimgui.c.ImGui_PushIDInt(@intCast(field_value));
         defer cimgui.c.ImGui_PopID();
         {
             _ = cimgui.c.ImGui_TableSetColumnIndex(0);
-            var value: bool = t.modes.get(@field(terminal.Mode, field.name));
+            var value: bool = t.modes.get(@field(terminal.Mode, field));
             _ = cimgui.c.ImGui_Checkbox("##checkbox", &value);
         }
         {
@@ -610,7 +611,7 @@ fn modesTable(t: *Terminal) void {
         }
         {
             _ = cimgui.c.ImGui_TableSetColumnIndex(2);
-            const name = std.fmt.comptimePrint("{s}", .{field.name});
+            const name = std.fmt.comptimePrint("{s}", .{field});
             cimgui.c.ImGui_Text("%s", name.ptr);
         }
     }

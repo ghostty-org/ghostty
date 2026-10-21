@@ -444,21 +444,21 @@ pub const Action = union(Key) {
 
     /// Sync with: ghostty_action_u
     pub const CValue = cvalue: {
-        const key_fields = @typeInfo(Key).@"enum".fields;
+        const key_fields = @typeInfo(Key).@"enum".field_names;
         var names: [key_fields.len][]const u8 = undefined;
         var types: [key_fields.len]type = undefined;
-        var attrs: [key_fields.len]std.builtin.Type.UnionField.Attributes = undefined;
+        var attrs: [key_fields.len]std.lang.Type.Union.FieldAttributes = undefined;
 
         for (key_fields, &names, &types, &attrs) |field, *name, *ty, *attr| {
-            const action = @unionInit(Action, field.name, undefined);
+            const action = @unionInit(Action, field, undefined);
             const Type = t: {
-                const Type = @TypeOf(@field(action, field.name));
+                const Type = @TypeOf(@field(action, field));
                 // Types can provide custom types for their CValue.
                 if (Type != void and @hasDecl(Type, "C")) break :t Type.C;
                 break :t Type;
             };
 
-            name.* = field.name;
+            name.* = field;
             ty.* = Type;
             attr.* = .{ .@"align" = @alignOf(Type) };
         }
@@ -485,9 +485,9 @@ pub const Action = union(Key) {
 
     /// Returns the value type for the given key.
     pub fn Value(comptime key: Key) type {
-        inline for (@typeInfo(Action).@"union".fields) |field| {
-            const field_key = @field(Key, field.name);
-            if (field_key == key) return field.type;
+        inline for (@typeInfo(Action).@"union".field_names, @typeInfo(Action).@"union".field_types) |field_name, field_type| {
+            const field_key = @field(Key, field_name);
+            if (field_key == key) return field_type;
         }
 
         unreachable;
@@ -936,36 +936,41 @@ pub const ConfigChange = struct {
     }
 };
 
-/// Open a URL
+/// Open a URL or file path.
 pub const OpenUrl = struct {
-    /// The type of data that the URL refers to.
+    /// Where the URL came from and what it likely points to.
     kind: Kind,
 
-    /// The URL.
+    /// The URL to open. Depending on `kind`, this may be a plain file
+    /// path or arbitrary text rather than a well-formed URL.
     url: []const u8,
 
-    /// The type of the data at the URL to open. This is used as a hint to
-    /// potentially open the URL in a different way.
+    /// Where the URL came from, used to decide how to open it.
+    ///
+    /// `text` and `html` come from Ghostty itself and can be opened
+    /// directly. `unknown` and `osc8` may come from terminal output, which
+    /// any program can control, so apprts must check them before opening.
     ///
     /// Sync with: ghostty_action_open_url_kind_e
     pub const Kind = enum(c_int) {
-        /// The type is unknown. This is the default and apprts should
-        /// open the URL in the most generic way possible. For example,
-        /// on macOS this would be the equivalent of `open` or on Linux
-        /// this would be `xdg-open`.
+        /// Untrusted. The source is unknown, such as text that a `link`
+        /// config entry matched in terminal output. It may be a plain path
+        /// instead of a URL, for example:
+        ///
+        ///     https://example.com
+        ///     ~/notes.txt
+        ///     src/main.zig
         unknown,
 
-        /// The URL is known to be a text file. In this case, the apprt
-        /// should try to open the URL in a text editor or viewer or
-        /// some equivalent, if possible.
+        /// The URL is known to be a text file. Open it in a text editor
+        /// or viewer if possible.
         text,
 
         /// The URL is known to contain HTML content.
         html,
 
-        /// The URL came from an OSC 8 hyperlink. Application runtimes should
-        /// treat this as untrusted terminal output and apply a platform-specific
-        /// safe-opening policy.
+        /// Untrusted. The target of an OSC 8 hyperlink, exactly as the
+        /// program sent it. The visible link text may not match it.
         osc8,
 
         test "ghostty.h OpenUrl.Kind" {

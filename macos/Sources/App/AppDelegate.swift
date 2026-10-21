@@ -507,6 +507,29 @@ class AppDelegate: NSObject,
             // somehow is tricked into `open`-ing a non-sandboxed application.
             requiresConfirm = true
 
+            // Refuse to execute a file whose path contains control characters.
+            //
+            // We run the file by typing its quoted path into the shell (see
+            // `initialInput` below). Quoting can't protect against control
+            // characters, because they act as keys while being typed. For
+            // example, a file named "Foo<Ctrl-U>ls<Return>" erases the quoted
+            // path and runs `ls` instead. These characters are also invisible
+            // in the confirmation dialog, so the user would be approving a
+            // command they can't see. No legitimate file needs them, so we
+            // reject the file outright. See
+            // `Ghostty.Shell.containsControlCharacters` for more detail.
+            guard !Ghostty.Shell.containsControlCharacters(filename) else {
+                // `debugDescription` makes the hidden characters visible in the log.
+                Self.logger.warning("refusing to execute file with control characters path=\(filename.debugDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Cannot Execute File"
+                alert.informativeText = "This file's path contains hidden control characters, which could make Ghostty run a different command than the one shown."
+                alert.addButton(withTitle: "OK")
+                alert.alertStyle = .warning
+                alert.runModal()
+                return false
+            }
+
             // When opening a file, we want to execute the file. To do this, we
             // don't override the command directly, because it won't load the
             // profile/rc files for the shell, which is super important on macOS

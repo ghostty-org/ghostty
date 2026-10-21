@@ -355,7 +355,8 @@ test "metadata: id truncated to max" {
     const testing = std.testing;
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
-    const raw = "type=read:id=" ++ "a" ** (max_id_len + 100);
+    const long_id: [max_id_len + 100]u8 = @splat('a');
+    const raw = "type=read:id=" ++ long_id;
     const meta = (try Metadata.parse(arena.allocator(), raw)).?;
     try testing.expectEqual(@as(usize, max_id_len), meta.id.len);
 }
@@ -430,11 +431,11 @@ test "metadata: over-long name reported" {
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const Encoder = std.base64.standard.Encoder;
-    const long = "n" ** (max_name_len + 1);
+    const long: [max_name_len + 1]u8 = @splat('n');
     var buf: [Encoder.calcSize(long.len)]u8 = undefined;
     const raw = try std.mem.concat(arena.allocator(), u8, &.{
         "type=read:name=",
-        Encoder.encode(&buf, long),
+        Encoder.encode(&buf, &long),
     });
     try testing.expectError(
         error.InvalidValue,

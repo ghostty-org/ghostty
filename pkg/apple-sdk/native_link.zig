@@ -11,7 +11,7 @@ const RunStep = std.Build.Step.Run;
 /// This is limited to targets covered by the SDK and target-triple mappings
 /// below. Add other Darwin platforms alongside support for those mappings.
 pub fn available(target: std.Build.ResolvedTarget) bool {
-    if (!builtin.os.tag.isDarwin()) return false;
+    if (!builtin.target.os.tag.isDarwin()) return false;
 
     return switch (target.result.os.tag) {
         .macos, .ios => true,

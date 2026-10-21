@@ -105,6 +105,21 @@ pub const RowIterator = ?*RowIteratorWrapper;
 /// C: GhosttyRenderStateRowCells
 pub const RowCells = ?*RowCellsWrapper;
 
+/// C: GhosttyRenderStateImageIterator
+pub const ImageIterator = ?*ImageIteratorWrapper;
+
+const ImageIteratorWrapper = struct {
+    alloc: std.mem.Allocator,
+
+    /// The iterator over the render state's image placements. It reads
+    /// the render state's memory, so it is only valid until the next
+    /// update.
+    inner: renderpkg.RenderState.ImagePlacementIterator,
+
+    /// The placement returned by the last `next`, if any.
+    current: ?renderpkg.RenderState.ImagePlacement,
+};
+
 /// C: GhosttyRenderStateDirty
 pub const Dirty = renderpkg.RenderState.Dirty;
 
@@ -200,6 +215,8 @@ pub const Data = enum(c_int) {
     colors = 19,
     overscan = 20,
     overscan_request = 21,
+    image_iterator = 22,
+    image_placements_generation = 23,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: Data) type {
@@ -218,6 +235,8 @@ pub const Data = enum(c_int) {
             .cursor => Cursor,
             .colors => Colors,
             .overscan, .overscan_request => Overscan,
+            .image_iterator => ImageIterator,
+            .image_placements_generation => u64,
         };
     }
 };
@@ -359,8 +378,8 @@ inline fn getDispatch(
     out: ?*anyopaque,
 ) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Data, @intFromEnum(data)) orelse {
-            log.warn("render_state_get invalid data value={d}", .{@intFromEnum(data)});
+        _ = std.enums.fromInt(Data, @backingInt(data)) orelse {
+            log.warn("render_state_get invalid data value={d}", .{@backingInt(data)});
             return .invalid_value;
         };
     }
@@ -436,6 +455,15 @@ fn getTyped(
         .colors => return writeColors(state, out),
         .overscan => out.* = .init(state.state.overscan),
         .overscan_request => out.* = .init(state.overscan_request),
+        .image_iterator => {
+            const it = out.* orelse return .invalid_value;
+            it.* = .{
+                .alloc = it.alloc,
+                .inner = state.state.imagePlacementIterator(),
+                .current = null,
+            };
+        },
+        .image_placements_generation => out.* = state.state.imagePlacementsGeneration(),
     }
 
     return .success;
@@ -447,8 +475,8 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(SetOption, @intFromEnum(option)) orelse {
-            log.warn("render_state_set invalid option value={d}", .{@intFromEnum(option)});
+        _ = std.enums.fromInt(SetOption, @backingInt(option)) orelse {
+            log.warn("render_state_set invalid option value={d}", .{@backingInt(option)});
             return .invalid_value;
         };
     }
@@ -810,8 +838,8 @@ inline fn rowCellsGetDispatch(
     out: ?*anyopaque,
 ) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowCellsData, @intFromEnum(data)) orelse {
-            log.warn("render_state_row_cells_get invalid data value={d}", .{@intFromEnum(data)});
+        _ = std.enums.fromInt(RowCellsData, @backingInt(data)) orelse {
+            log.warn("render_state_row_cells_get invalid data value={d}", .{@backingInt(data)});
             return .invalid_value;
         };
     }
@@ -1047,8 +1075,8 @@ inline fn rowGetDispatch(
     out: ?*anyopaque,
 ) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowData, @intFromEnum(data)) orelse {
-            log.warn("render_state_row_get invalid data value={d}", .{@intFromEnum(data)});
+        _ = std.enums.fromInt(RowData, @backingInt(data)) orelse {
+            log.warn("render_state_row_get invalid data value={d}", .{@backingInt(data)});
             return .invalid_value;
         };
     }
@@ -1115,8 +1143,8 @@ pub fn row_set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowOption, @intFromEnum(option)) orelse {
-            log.warn("render_state_row_set invalid option value={d}", .{@intFromEnum(option)});
+        _ = std.enums.fromInt(RowOption, @backingInt(option)) orelse {
+            log.warn("render_state_row_set invalid option value={d}", .{@backingInt(option)});
             return .invalid_value;
         };
     }
@@ -1140,6 +1168,182 @@ fn rowSetTyped(
     if (y >= it.raws.len) return .invalid_value;
     switch (option) {
         .dirty => it.dirty[y] = value.*,
+    }
+
+    return .success;
+}
+
+/// C: GhosttyImageProtocol
+pub const ImageProtocol = renderpkg.RenderState.ImageProtocol;
+
+/// C: GhosttyRenderStateImageLayer
+pub const ImageLayer = renderpkg.RenderState.ImageLayer;
+
+/// C: GhosttyRenderStateKittyPlacementKind
+pub const KittyPlacementKind = renderpkg.RenderState.KittyPlacement.Kind;
+
+/// C: GhosttyRenderStateImageData
+pub const ImageData = enum(c_int) {
+    invalid = 0,
+    protocol = 1,
+    image_id = 2,
+    image_generation = 3,
+    layer = 4,
+    z = 5,
+    viewport_col = 6,
+    viewport_row = 7,
+    grid_cols = 8,
+    grid_rows = 9,
+    cell_offset_x = 10,
+    cell_offset_y = 11,
+    pixel_width = 12,
+    pixel_height = 13,
+    source_x = 14,
+    source_y = 15,
+    source_width = 16,
+    source_height = 17,
+    kitty_placement_id = 18,
+    kitty_kind = 19,
+
+    /// Output type expected for querying the data of the given kind.
+    pub fn OutType(comptime self: ImageData) type {
+        return switch (self) {
+            .invalid => void,
+            .protocol => ImageProtocol,
+            .layer => ImageLayer,
+            .kitty_kind => KittyPlacementKind,
+            .image_generation => u64,
+            .image_id,
+            .grid_cols,
+            .grid_rows,
+            .cell_offset_x,
+            .cell_offset_y,
+            .pixel_width,
+            .pixel_height,
+            .source_x,
+            .source_y,
+            .source_width,
+            .source_height,
+            .kitty_placement_id,
+            => u32,
+            .viewport_col, .viewport_row, .z => i32,
+        };
+    }
+};
+
+pub fn image_iterator_new(
+    alloc_: ?*const CAllocator,
+    result: *ImageIterator,
+) callconv(lib.calling_conv) Result {
+    const alloc = lib.alloc.default(alloc_);
+    const ptr = alloc.create(ImageIteratorWrapper) catch {
+        result.* = null;
+        return .out_of_memory;
+    };
+    ptr.* = .{
+        .alloc = alloc,
+        .inner = .{ .rows = &.{}, .viewport_y_base = 0, .placed = &.{} },
+        .current = null,
+    };
+    result.* = ptr;
+    return .success;
+}
+
+pub fn image_iterator_free(
+    iterator_: ImageIterator,
+) callconv(lib.calling_conv) void {
+    const iterator = iterator_ orelse return;
+    const alloc = iterator.alloc;
+    alloc.destroy(iterator);
+}
+
+pub fn image_iterator_next(
+    iterator_: ImageIterator,
+) callconv(lib.calling_conv) bool {
+    const it = iterator_ orelse return false;
+    it.current = it.inner.next();
+    return it.current != null;
+}
+
+pub fn image_get(
+    iterator_: ImageIterator,
+    data: ImageData,
+    out: ?*anyopaque,
+) callconv(lib.calling_conv) Result {
+    if (comptime std.debug.runtime_safety) {
+        _ = std.enums.fromInt(ImageData, @backingInt(data)) orelse {
+            log.warn("render_state_image_get invalid data value={d}", .{@backingInt(data)});
+            return .invalid_value;
+        };
+    }
+
+    return switch (data) {
+        .invalid => .invalid_value,
+        inline else => |comptime_data| imageGetTyped(
+            iterator_,
+            comptime_data,
+            @ptrCast(@alignCast(out orelse return .invalid_value)),
+        ),
+    };
+}
+
+pub fn image_get_multi(
+    iterator_: ImageIterator,
+    count: usize,
+    keys: ?[*]const ImageData,
+    values: ?[*]?*anyopaque,
+    out_written: ?*usize,
+) callconv(lib.calling_conv) Result {
+    const k = keys orelse return .invalid_value;
+    const v = values orelse return .invalid_value;
+
+    for (0..count) |i| {
+        const result = image_get(iterator_, k[i], v[i]);
+        if (result != .success) {
+            if (out_written) |w| w.* = i;
+            return result;
+        }
+    }
+    if (out_written) |w| w.* = count;
+    return .success;
+}
+
+fn imageGetTyped(
+    iterator_: ImageIterator,
+    comptime data: ImageData,
+    out: *data.OutType(),
+) Result {
+    const it = iterator_ orelse return .invalid_value;
+    const p = it.current orelse return .invalid_value;
+    switch (data) {
+        .invalid => return .invalid_value,
+        .protocol => out.* = p.protocol,
+        .image_id => out.* = p.image_id,
+        .image_generation => out.* = p.image_generation,
+        .layer => out.* = p.layer,
+        .z => out.* = p.z,
+        .viewport_col => out.* = p.x,
+        .viewport_row => out.* = p.y,
+        .grid_cols => out.* = p.cols,
+        .grid_rows => out.* = p.rows,
+        .cell_offset_x => out.* = p.offset_x,
+        .cell_offset_y => out.* = p.offset_y,
+        .pixel_width => out.* = p.width,
+        .pixel_height => out.* = p.height,
+        .source_x => out.* = p.source_x,
+        .source_y => out.* = p.source_y,
+        .source_width => out.* = p.source_width,
+        .source_height => out.* = p.source_height,
+
+        // Protocol-specific values. Other protocols have no value. The
+        // switches are exhaustive so that adding a protocol makes this
+        // fail to compile until it is handled here.
+        .kitty_placement_id => switch (p.protocol) {
+            .kitty => |kitty| out.* = kitty.placement_id,
+        },
+        .kitty_kind => switch (p.protocol) {
+            .kitty => |kitty| out.* = kitty.kind,
+        },
     }
 
     return .success;
@@ -1883,12 +2087,12 @@ test "render: row cells get graphemes utf8" {
         try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
         try testing.expectEqual(case.expected.len, text.len);
 
-        var small = [_]u8{'x'} ** 32;
+        var small: [32]u8 = @splat('x');
         const small_cap = case.expected.len - 1;
         text = .{ .ptr = small[0..small_cap].ptr, .cap = small_cap };
         try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
         try testing.expectEqual(case.expected.len, text.len);
-        try testing.expectEqualSlices(u8, &([_]u8{'x'} ** 32), &small);
+        try testing.expectEqualSlices(u8, &@as([32]u8, @splat('x')), &small);
 
         var buf: [32]u8 = undefined;
         text = .{ .ptr = &buf, .cap = case.expected.len };
@@ -2677,7 +2881,7 @@ fn testTerminalWithLines(
 
     var buf: [32]u8 = undefined;
     for (0..lines) |i| {
-        const line = try std.fmt.bufPrint(
+        const line = try std.mem.print(
             &buf,
             "{s}line {d}",
             .{ if (i == 0) "" else "\r\n", i },
@@ -3075,4 +3279,415 @@ test "render: overscan get_multi and row_get_multi" {
     try testing.expectEqual(row_keys.len, written);
     try testing.expectEqual(@as(i32, -1), vy);
     try testing.expect(!std.meta.eql(id, RowId{}));
+}
+
+test "render: image iterator new/free" {
+    var it: ImageIterator = null;
+    try testing.expectEqual(Result.success, image_iterator_new(
+        &lib.alloc.test_allocator,
+        &it,
+    ));
+    try testing.expect(it != null);
+
+    // A new iterator is empty until it is filled from a render state.
+    try testing.expect(!image_iterator_next(it));
+    var image_id: u32 = 0;
+    try testing.expectEqual(Result.invalid_value, image_get(it, .image_id, @ptrCast(&image_id)));
+    image_iterator_free(it);
+
+    image_iterator_free(null);
+    try testing.expect(!image_iterator_next(null));
+}
+
+test "render: image iterator kitty virtual placement" {
+    if (comptime !@import("terminal_options").kitty_graphics) return error.SkipZigTest;
+
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        10,
+        5,
+    ));
+    defer terminal_c.free(terminal);
+    try testing.expectEqual(Result.success, terminal_c.resize(terminal, 10, 5, 10, 10));
+
+    // Transmit a 1x2 RGB image with a 2x1 virtual placement (U=1), then
+    // write two placeholder cells (U+10EEEE) for it at row 1, column 3.
+    const transmit = "\x1b_Ga=T,t=d,f=24,i=1,p=1,s=1,v=2,U=1,c=2,r=1,q=2;////////\x1b\\";
+    terminal_c.vt_write(terminal, transmit.ptr, transmit.len);
+    const cells = "\x1b[2;4H\x1b[38;5;1;58;5;1m\u{10EEEE}\u{10EEEE}";
+    terminal_c.vt_write(terminal, cells.ptr, cells.len);
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var it: ImageIterator = null;
+    try testing.expectEqual(Result.success, image_iterator_new(
+        &lib.alloc.test_allocator,
+        &it,
+    ));
+    defer image_iterator_free(it);
+    try testing.expectEqual(Result.success, get(state, .image_iterator, @ptrCast(&it)));
+    try testing.expect(image_iterator_next(it));
+
+    var protocol: ImageProtocol = undefined;
+    var layer: ImageLayer = undefined;
+    var kind: KittyPlacementKind = .relative;
+    var image_id: u32 = 0;
+    var image_generation: u64 = 0;
+    var placement_id: u32 = 0;
+    var col: i32 = 0;
+    var row_: i32 = 0;
+    var cols: u32 = 0;
+    var rows: u32 = 0;
+    var source_height: u32 = 0;
+    var z: i32 = 0;
+    var written: usize = 0;
+    const keys = [_]ImageData{
+        .protocol,
+        .layer,
+        .kitty_kind,
+        .image_id,
+        .image_generation,
+        .kitty_placement_id,
+        .viewport_col,
+        .viewport_row,
+        .grid_cols,
+        .grid_rows,
+        .source_height,
+        .z,
+    };
+    var values = [_]?*anyopaque{
+        @ptrCast(&protocol),
+        @ptrCast(&layer),
+        @ptrCast(&kind),
+        @ptrCast(&image_id),
+        @ptrCast(&image_generation),
+        @ptrCast(&placement_id),
+        @ptrCast(&col),
+        @ptrCast(&row_),
+        @ptrCast(&cols),
+        @ptrCast(&rows),
+        @ptrCast(&source_height),
+        @ptrCast(&z),
+    };
+    try testing.expectEqual(Result.success, image_get_multi(
+        it,
+        keys.len,
+        &keys,
+        &values,
+        &written,
+    ));
+    try testing.expectEqual(keys.len, written);
+    try testing.expectEqual(ImageProtocol.kitty, protocol);
+    try testing.expectEqual(ImageLayer.below_text, layer);
+    try testing.expectEqual(KittyPlacementKind.virtual, kind);
+    try testing.expectEqual(1, image_id);
+    try testing.expectEqual(1, placement_id);
+    try testing.expectEqual(3, col);
+    try testing.expectEqual(1, row_);
+    try testing.expectEqual(2, cols);
+    try testing.expectEqual(1, rows);
+    try testing.expectEqual(2, source_height);
+    try testing.expectEqual(-1, z);
+
+    // The generation matches the image in the terminal's storage.
+    try testing.expectEqual(
+        terminal.?.terminal.screens.active.kitty_images.imageById(1).?.generation,
+        image_generation,
+    );
+
+    // The 1x2 pixel image is scaled to fit 2x1 cells of 10x10 pixels.
+    // That makes it 5 pixels wide, centered in the 20 pixel width.
+    var width: u32 = 0;
+    var offset_x: u32 = 0;
+    try testing.expectEqual(Result.success, image_get(it, .pixel_width, @ptrCast(&width)));
+    try testing.expectEqual(Result.success, image_get(it, .cell_offset_x, @ptrCast(&offset_x)));
+    try testing.expectEqual(5, width);
+    try testing.expectEqual(8, offset_x);
+
+    try testing.expect(!image_iterator_next(it));
+    try testing.expectEqual(Result.invalid_value, image_get(it, .image_id, @ptrCast(&image_id)));
+}
+
+/// Test helper: a terminal with 10x10 pixel cells that holds a 1x1 RGB
+/// Kitty image with ID 1 and no placements.
+fn testKittyImageTerminal(
+    cols: size.CellCountInt,
+    rows: size.CellCountInt,
+) !terminal_c.Terminal {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        cols,
+        rows,
+    ));
+    errdefer terminal_c.free(terminal);
+    try testing.expectEqual(Result.success, terminal_c.resize(terminal, cols, rows, 10, 10));
+    testVtWrite(terminal, "\x1b_Ga=t,t=d,f=24,i=1,s=1,v=1,q=2;AAAA\x1b\\");
+    return terminal;
+}
+
+/// Test helper: write VT data to a terminal.
+fn testVtWrite(terminal: terminal_c.Terminal, data: []const u8) void {
+    terminal_c.vt_write(terminal, data.ptr, data.len);
+}
+
+test "render: image iterator kitty fixed placement" {
+    if (comptime !@import("terminal_options").kitty_graphics) return error.SkipZigTest;
+
+    const terminal = try testKittyImageTerminal(10, 10);
+    defer terminal_c.free(terminal);
+
+    // Place image 1 at column 2, row 1 with the same values as the Zig
+    // test "fixed: pin placement in viewport".
+    testVtWrite(terminal, "\x1b[2;3H\x1b_Ga=p,i=1,p=7,c=3,r=2,X=4,Y=3,z=-5,C=1,q=2\x1b\\");
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var it: ImageIterator = null;
+    try testing.expectEqual(Result.success, image_iterator_new(
+        &lib.alloc.test_allocator,
+        &it,
+    ));
+    defer image_iterator_free(it);
+    try testing.expectEqual(Result.success, get(state, .image_iterator, @ptrCast(&it)));
+    try testing.expect(image_iterator_next(it));
+
+    var protocol: ImageProtocol = undefined;
+    var layer: ImageLayer = undefined;
+    var kind: KittyPlacementKind = .relative;
+    var image_id: u32 = 0;
+    var image_generation: u64 = 0;
+    var placement_id: u32 = 0;
+    var col: i32 = 0;
+    var row_: i32 = 0;
+    var cols: u32 = 0;
+    var rows: u32 = 0;
+    var offset_x: u32 = 0;
+    var offset_y: u32 = 0;
+    var width: u32 = 0;
+    var height: u32 = 0;
+    var source_x: u32 = 0;
+    var source_y: u32 = 0;
+    var source_width: u32 = 0;
+    var source_height: u32 = 0;
+    var z: i32 = 0;
+    var written: usize = 0;
+    const keys = [_]ImageData{
+        .protocol,
+        .layer,
+        .kitty_kind,
+        .image_id,
+        .image_generation,
+        .kitty_placement_id,
+        .viewport_col,
+        .viewport_row,
+        .grid_cols,
+        .grid_rows,
+        .cell_offset_x,
+        .cell_offset_y,
+        .pixel_width,
+        .pixel_height,
+        .source_x,
+        .source_y,
+        .source_width,
+        .source_height,
+        .z,
+    };
+    var values = [_]?*anyopaque{
+        @ptrCast(&protocol),
+        @ptrCast(&layer),
+        @ptrCast(&kind),
+        @ptrCast(&image_id),
+        @ptrCast(&image_generation),
+        @ptrCast(&placement_id),
+        @ptrCast(&col),
+        @ptrCast(&row_),
+        @ptrCast(&cols),
+        @ptrCast(&rows),
+        @ptrCast(&offset_x),
+        @ptrCast(&offset_y),
+        @ptrCast(&width),
+        @ptrCast(&height),
+        @ptrCast(&source_x),
+        @ptrCast(&source_y),
+        @ptrCast(&source_width),
+        @ptrCast(&source_height),
+        @ptrCast(&z),
+    };
+    try testing.expectEqual(Result.success, image_get_multi(
+        it,
+        keys.len,
+        &keys,
+        &values,
+        &written,
+    ));
+    try testing.expectEqual(keys.len, written);
+
+    const t = terminal.?.terminal;
+    const storage = &t.screens.active.kitty_images;
+    const image = storage.imageById(1).?;
+    const sp = storage.placements.get(.{
+        .image_id = 1,
+        .placement_id = .{ .tag = .external, .id = 7 },
+    }).?;
+    const dest = sp.pixelSize(image, t);
+    const source = sp.sourceRect(image);
+    try testing.expectEqual(ImageProtocol.kitty, protocol);
+    try testing.expectEqual(ImageLayer.below_text, layer);
+    try testing.expectEqual(KittyPlacementKind.fixed, kind);
+    try testing.expectEqual(1, image_id);
+    try testing.expectEqual(image.generation, image_generation);
+    try testing.expectEqual(7, placement_id);
+    try testing.expectEqual(2, col);
+    try testing.expectEqual(1, row_);
+    try testing.expectEqual(3, cols);
+    try testing.expectEqual(2, rows);
+    try testing.expectEqual(4, offset_x);
+    try testing.expectEqual(3, offset_y);
+    try testing.expectEqual(dest.width, width);
+    try testing.expectEqual(dest.height, height);
+    try testing.expectEqual(source.x, source_x);
+    try testing.expectEqual(source.y, source_y);
+    try testing.expectEqual(source.width, source_width);
+    try testing.expectEqual(source.height, source_height);
+    try testing.expectEqual(-5, z);
+    try testing.expect(!image_iterator_next(it));
+
+    // A placement the program gave no ID gets an internal one, which is
+    // reported as 0.
+    testVtWrite(terminal, "\x1b[6;1H\x1b_Ga=p,i=1,C=1,q=2\x1b\\");
+    try testing.expectEqual(Result.success, update(state, terminal));
+    try testing.expectEqual(Result.success, get(state, .image_iterator, @ptrCast(&it)));
+    var found_internal = false;
+    var count: usize = 0;
+    while (image_iterator_next(it)) : (count += 1) {
+        try testing.expectEqual(Result.success, image_get(it, .kitty_placement_id, @ptrCast(&placement_id)));
+        try testing.expectEqual(Result.success, image_get(it, .viewport_row, @ptrCast(&row_)));
+        if (row_ == 5) {
+            try testing.expectEqual(0, placement_id);
+            found_internal = true;
+        } else {
+            try testing.expectEqual(7, placement_id);
+        }
+    }
+    try testing.expectEqual(2, count);
+    try testing.expect(found_internal);
+}
+
+test "render: image iterator fixed placement above the viewport" {
+    if (comptime !@import("terminal_options").kitty_graphics) return error.SkipZigTest;
+
+    const terminal = try testKittyImageTerminal(10, 5);
+    defer terminal_c.free(terminal);
+
+    // A placement 2 columns by 3 rows on the top row, then two lines of
+    // output so that it starts 2 rows above the viewport.
+    testVtWrite(terminal, "\x1b[1;2H\x1b_Ga=p,i=1,p=1,c=2,r=3,C=1,q=2\x1b\\");
+    testVtWrite(terminal, "\x1b[5;1H\n\n");
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+    const req: Overscan = .{ .above = 1 };
+    try testing.expectEqual(Result.success, set(state, .overscan, @ptrCast(&req)));
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var out: Overscan = .{};
+    try testing.expectEqual(Result.success, get(state, .overscan, @ptrCast(&out)));
+    try testing.expectEqual(1, out.above);
+
+    var it: ImageIterator = null;
+    try testing.expectEqual(Result.success, image_iterator_new(
+        &lib.alloc.test_allocator,
+        &it,
+    ));
+    defer image_iterator_free(it);
+    try testing.expectEqual(Result.success, get(state, .image_iterator, @ptrCast(&it)));
+    try testing.expect(image_iterator_next(it));
+
+    // Its top row is above the one overscan row, and it is still reported
+    // at its full size.
+    var col: i32 = 0;
+    var row_: i32 = 0;
+    var cols: u32 = 0;
+    var rows: u32 = 0;
+    var width: u32 = 0;
+    var height: u32 = 0;
+    try testing.expectEqual(Result.success, image_get(it, .viewport_col, @ptrCast(&col)));
+    try testing.expectEqual(Result.success, image_get(it, .viewport_row, @ptrCast(&row_)));
+    try testing.expectEqual(Result.success, image_get(it, .grid_cols, @ptrCast(&cols)));
+    try testing.expectEqual(Result.success, image_get(it, .grid_rows, @ptrCast(&rows)));
+    try testing.expectEqual(Result.success, image_get(it, .pixel_width, @ptrCast(&width)));
+    try testing.expectEqual(Result.success, image_get(it, .pixel_height, @ptrCast(&height)));
+    try testing.expectEqual(1, col);
+    try testing.expectEqual(-2, row_);
+    try testing.expectEqual(2, cols);
+    try testing.expectEqual(3, rows);
+    try testing.expectEqual(20, width);
+    try testing.expectEqual(30, height);
+    try testing.expect(!image_iterator_next(it));
+}
+
+test "render: image placements generation" {
+    const terminal = try testKittyImageTerminal(10, 5);
+    defer terminal_c.free(terminal);
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var generation: u64 = 0;
+    try testing.expectEqual(Result.success, get(state, .image_placements_generation, @ptrCast(&generation)));
+    if (comptime !@import("terminal_options").kitty_graphics) {
+        try testing.expectEqual(0, generation);
+        return;
+    }
+
+    var current: u64 = 0;
+
+    // A quiet update leaves it alone.
+    try testing.expectEqual(Result.success, update(state, terminal));
+    try testing.expectEqual(Result.success, get(state, .image_placements_generation, @ptrCast(&current)));
+    try testing.expectEqual(generation, current);
+
+    // Adding a placement changes it.
+    testVtWrite(terminal, "\x1b[1;1H\x1b_Ga=p,i=1,p=1,c=2,r=2,C=1,q=2\x1b\\");
+    try testing.expectEqual(Result.success, update(state, terminal));
+    try testing.expectEqual(Result.success, get(state, .image_placements_generation, @ptrCast(&current)));
+    try testing.expect(generation != current);
+    generation = current;
+
+    // Dirtying a row without images leaves it alone.
+    testVtWrite(terminal, "\x1b[4;1Hhello");
+    try testing.expectEqual(Result.success, update(state, terminal));
+    try testing.expectEqual(Result.success, get(state, .image_placements_generation, @ptrCast(&current)));
+    try testing.expectEqual(generation, current);
+
+    // Scrolling the screen moves the fixed placement, which changes it.
+    testVtWrite(terminal, "\x1b[5;1H\n");
+    try testing.expectEqual(Result.success, update(state, terminal));
+    try testing.expectEqual(Result.success, get(state, .image_placements_generation, @ptrCast(&current)));
+    try testing.expect(generation != current);
 }

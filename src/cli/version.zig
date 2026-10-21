@@ -47,7 +47,7 @@ pub fn run(alloc: Allocator) !u8 {
     try stdout.print("  - renderer      : {}\n", .{renderer.Renderer});
     try stdout.print("  - libxev        : {t}\n", .{xev.backend});
     if (comptime build_config.app_runtime == .gtk) {
-        if (comptime builtin.os.tag == .linux) {
+        if (comptime builtin.target.os.tag == .linux) {
             const kernel_info = internal_os.getKernelInfo(alloc);
             defer if (kernel_info) |k| alloc.free(k);
             try stdout.print("  - kernel version: {s}\n", .{kernel_info orelse "Kernel information unavailable"});

@@ -41,7 +41,7 @@ fn parseWithSign(
     };
 
     const info = @typeInfo(T).int;
-    const Accumulate = std.meta.Int(info.signedness, @max(8, info.bits));
+    const Accumulate = @Int(info.signedness, @max(8, info.bits));
     var accumulate: Accumulate = 0;
     for (value) |c| {
         const digit = try std.fmt.charToDigit(c, base);

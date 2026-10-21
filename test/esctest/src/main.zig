@@ -103,17 +103,20 @@ pub fn main(init: std.process.Init) !u8 {
     }
 
     const exe_dir = try std.process.executableDirPathAlloc(init.io, alloc);
-    const esctest_dir = try alloc.dupeZ(u8, try std.fs.path.resolve(alloc, &.{
-        exe_dir,
-        "..",
-        "share",
-        "esctest",
-    }));
+    const esctest_dir = try alloc.dupeSentinel(
+        u8,
+        try std.fs.path.resolve(alloc, &.{
+            exe_dir,
+            "..",
+            "share",
+            "esctest",
+        }),
+        0,
+    );
 
     // esctest writes its log to a file rather than the terminal, so we
     // give it one to copy from afterwards.
-    const log_path = try std.fmt.allocPrintSentinel(
-        alloc,
+    const log_path = try alloc.printSentinel(
         "/tmp/esctest-libghostty-{d}.log",
         .{std.c.getpid()},
         0,
@@ -124,8 +127,7 @@ pub fn main(init: std.process.Init) !u8 {
     try argv.append(alloc, "python3");
     try argv.append(alloc, "esctest.py");
     for (esctest_args) |arg| try argv.append(alloc, arg);
-    try argv.append(alloc, try std.fmt.allocPrintSentinel(
-        alloc,
+    try argv.append(alloc, try alloc.printSentinel(
         "--logfile={s}",
         .{log_path},
         0,
@@ -192,6 +194,7 @@ fn run(init: std.process.Init) !void {
     stream.handler.effects.write_pty = &writePty;
     stream.handler.effects.size = &size;
     stream.handler.effects.device_attributes = &deviceAttributes;
+    stream.handler.effects.resize_window = &resizeWindow;
 
     var buf: [4096]u8 = undefined;
     while (true) {
@@ -233,6 +236,24 @@ fn size(h: *Handler) ?ghostty_vt.size_report.Size {
         .cell_width = 10,
         .cell_height = 20,
     };
+}
+
+/// Resize as xterm does when esctest asks with CSI 8 t, keeping a
+/// dimension it gives as zero, and tell esctest's side of the pty.
+fn resizeWindow(h: *Handler, req: Handler.ResizeWindow) void {
+    const grid = switch (req) {
+        .grid => |grid| grid,
+    };
+    const t = h.terminal;
+    const new_rows = if (grid.rows == 0) t.rows else grid.rows;
+    const new_cols = if (grid.columns == 0) t.cols else grid.columns;
+    t.resize(t.gpa(), .{ .cols = new_cols, .rows = new_rows }) catch |err| {
+        std.log.err("resizing to {d}x{d} failed: {t}", .{ new_cols, new_rows, err });
+        return;
+    };
+
+    const ws: std.c.winsize = .{ .row = new_rows, .col = new_cols, .xpixel = 0, .ypixel = 0 };
+    _ = std.c.ioctl(pty, std.c.T.IOCSWINSZ, &ws);
 }
 
 /// Answer as a VT520, the terminal esctest's highest VT level tests.

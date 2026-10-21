@@ -32,7 +32,7 @@ pub fn ensureLocale() !void {
         return;
     }
 
-    if (builtin.os.tag == .windows) {
+    if (builtin.target.os.tag == .windows) {
         // Exit early for Windows.
         //
         // NOTE: There currently is no official Windows version of Ghostty,
@@ -110,7 +110,7 @@ fn setLangFromCocoa() void {
     // Format our locale as "<lang>_<country>.UTF-8" and set it as LANG.
     {
         var buf: [128]u8 = undefined;
-        const env_value = std.fmt.bufPrintZ(&buf, "{s}_{s}.UTF-8", .{ z_lang, z_country }) catch |err| {
+        const env_value = std.mem.printSentinel(&buf, "{s}_{s}.UTF-8", .{ z_lang, z_country }, 0) catch |err| {
             log.warn("error setting locale from system. err={}", .{err});
             return;
         };

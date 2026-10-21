@@ -23,7 +23,7 @@ const builtin = @import("builtin");
 /// Whether backslash acts as an escape character outside quoted strings.
 /// On Windows, backslash is the path separator so it is always literal
 /// outside quotes.
-const escape_outside_quotes = builtin.os.tag != .windows;
+const escape_outside_quotes = builtin.target.os.tag != .windows;
 
 pub const Error = error{
     UnclosedQuote,

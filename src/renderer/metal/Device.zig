@@ -14,6 +14,10 @@ const shaders = @import("shaders.zig");
 
 const log = std.log.scoped(.metal);
 
+/// Options used when creating the Metal device.
+/// There are currently no options.
+pub const Options = struct {};
+
 /// MTLDevice
 device: objc.Object,
 
@@ -27,15 +31,17 @@ default_storage_mode: mtl.MTLResourceOptions.StorageMode,
 /// The maximum 2D texture width and height supported by the device.
 max_texture_size: u32,
 
-pub fn init(self: *Device, alloc: std.mem.Allocator) !void {
-    _ = alloc;
+pub fn init(alloc: std.mem.Allocator, options: Options) !*Device {
+    _ = options;
+    const self = try alloc.create(Device);
+    errdefer alloc.destroy(self);
 
     // Choose our MTLDevice.
     const device = try chooseDevice();
     errdefer device.release();
 
     // Grab metadata about the device.
-    const default_storage_mode: mtl.MTLResourceOptions.StorageMode = switch (comptime builtin.os.tag) {
+    const default_storage_mode: mtl.MTLResourceOptions.StorageMode = switch (comptime builtin.target.os.tag) {
         // manage mode is not supported by iOS
         .ios => .shared,
         else => if (device.getProperty(bool, "hasUnifiedMemory")) .shared else .managed,
@@ -51,11 +57,12 @@ pub fn init(self: *Device, alloc: std.mem.Allocator) !void {
         .default_storage_mode = default_storage_mode,
         .max_texture_size = max_texture_size,
     };
+    return self;
 }
 
-pub fn deinit(self: *Device) void {
+pub fn deinit(self: *Device, alloc: std.mem.Allocator) void {
     self.device.release();
-    self.* = undefined;
+    alloc.destroy(self);
 }
 
 /// Warm up the Metal device machinery. The first Metal device query in
@@ -99,7 +106,7 @@ pub fn warmup() void {
 fn chooseDevice() error{NoMetalDevice}!objc.Object {
     var chosen_device: ?objc.Object = null;
 
-    switch (comptime builtin.os.tag) {
+    switch (comptime builtin.target.os.tag) {
         .macos => {
             const devices = objc.Object.fromId(mtl.MTLCopyAllDevices());
             defer devices.release();

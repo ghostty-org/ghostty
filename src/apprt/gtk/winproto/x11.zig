@@ -41,7 +41,7 @@ pub const App = struct {
 
         const x11_program_name: [:0]const u8 = if (config.@"x11-instance-name") |pn|
             pn
-        else if (builtin.mode == .Debug)
+        else if (builtin.mode == .debug)
             "ghostty-debug"
         else
             "ghostty";
@@ -326,7 +326,7 @@ pub const Window = struct {
 
     pub fn addSubprocessEnv(self: *Window, env: *std.process.Environ.Map) !void {
         var buf: [64]u8 = undefined;
-        const window_id = try std.fmt.bufPrint(
+        const window_id = try std.mem.print(
             &buf,
             "{}",
             .{self.x11_surface.getXid()},
@@ -378,7 +378,7 @@ pub const Window = struct {
 
         if (actual_type_return == c.None) return error.PropertyNotFound;
         if (typ != actual_type_return) return error.PropertyTypeMismatch;
-        if (@intFromEnum(format) != actual_format_return) return error.PropertyFormatMismatch;
+        if (@backingInt(format) != actual_format_return) return error.PropertyFormatMismatch;
 
         const data_ptr: *T = @ptrCast(prop_return);
         result.* = data_ptr.*;
@@ -405,8 +405,8 @@ pub const Window = struct {
             self.x11_surface.getXid(),
             name,
             typ,
-            @intFromEnum(format),
-            @intFromEnum(options.mode),
+            @backingInt(format),
+            @backingInt(options.mode),
             data,
             @intCast(words_per_elem * values.len),
         );
@@ -491,14 +491,14 @@ const MotifWMHints = extern struct {
         decorations: bool = false,
 
         // We don't really care about the other flags
-        _rest: std.meta.Int(.unsigned, @bitSizeOf(c_ulong) - 2) = 0,
+        _rest: @Int(.unsigned, @bitSizeOf(c_ulong) - 2) = 0,
     } = .{},
     functions: c_ulong = 0,
     decorations: packed struct(c_ulong) {
         all: bool = false,
 
         // We don't really care about the other flags
-        _rest: std.meta.Int(.unsigned, @bitSizeOf(c_ulong) - 1) = 0,
+        _rest: @Int(.unsigned, @bitSizeOf(c_ulong) - 1) = 0,
     } = .{},
     input_mode: c_long = 0,
     status: c_ulong = 0,

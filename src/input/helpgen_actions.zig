@@ -73,28 +73,28 @@ pub fn generate(
     var stream: std.Io.Writer.Allocating = .init(page_allocator);
     defer stream.deinit();
 
-    const fields = @typeInfo(KeybindAction).@"union".fields;
+    const fields = @typeInfo(KeybindAction).@"union".field_names;
     inline for (fields) |field| {
-        if (field.name[0] == '_') continue;
+        if (field[0] == '_') continue;
 
         // Write previously stored doc comment below all related actions
-        if (show_docs and @hasDecl(help_strings.KeybindAction, field.name)) {
+        if (show_docs and @hasDecl(help_strings.KeybindAction, field)) {
             try writer.writeAll(stream.written());
             try writer.writeAll("\n");
             stream.clearRetainingCapacity();
         }
 
         if (show_docs) {
-            try format.formatFieldName(writer, field.name);
+            try format.formatFieldName(writer, field);
         } else {
-            try writer.writeAll(field.name);
+            try writer.writeAll(field);
             try writer.writeAll("\n");
         }
 
-        if (show_docs and @hasDecl(help_strings.KeybindAction, field.name)) {
+        if (show_docs and @hasDecl(help_strings.KeybindAction, field)) {
             var iter = std.mem.splitScalar(
                 u8,
-                @field(help_strings.KeybindAction, field.name),
+                @field(help_strings.KeybindAction, field),
                 '\n',
             );
             while (iter.next()) |s| {

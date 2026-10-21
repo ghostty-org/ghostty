@@ -18,7 +18,7 @@ pub fn generateToken() usize {
 
 /// Format a request token consistently for use in portal object paths and payloads.
 pub fn formatToken(buf: *TokenBuffer, token: usize) [:0]const u8 {
-    return std.fmt.bufPrintZ(buf, token_format, .{token}) catch unreachable;
+    return std.mem.printSentinel(buf, token_format, .{token}, 0) catch unreachable;
 }
 
 /// Get the XDG portal request path for the current Ghostty instance.

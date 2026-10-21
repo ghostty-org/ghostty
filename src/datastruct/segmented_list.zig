@@ -101,7 +101,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         pub const prealloc_count = prealloc_item_count;
 
         fn AtType(comptime SelfType: type) type {
-            if (@typeInfo(SelfType).pointer.is_const) {
+            if (@typeInfo(SelfType).pointer.attrs.@"const") {
                 return *const T;
             } else {
                 return *T;

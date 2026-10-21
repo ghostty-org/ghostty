@@ -17,7 +17,7 @@ pub const StringList = struct {
         errdefer arena.deinit();
         const arena_alloc = arena.allocator();
         var stored = try arena_alloc.alloc([:0]const u8, strings.len);
-        for (strings, 0..) |s, i| stored[i] = try arena_alloc.dupeZ(u8, s);
+        for (strings, 0..) |s, i| stored[i] = try arena_alloc.dupeSentinel(u8, s, 0);
 
         const ptr = try alloc.create(StringList);
         errdefer alloc.destroy(ptr);

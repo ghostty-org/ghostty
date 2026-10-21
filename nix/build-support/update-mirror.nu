@@ -12,8 +12,16 @@
 # to blob storage, and the build.zig.zon files will already be updated with
 # the new URLs.
 def download-git-package [url: string, expected_hash: string, destination: string] {
+  # Zig 0.17 removed --global-cache-dir; the global cache (where the package
+  # archive is written) can only be overridden via the environment. The
+  # local cache and package directories are also redirected so the fetch
+  # doesn't touch the project's .zig-cache or zig-pkg.
   let cache_dir = (mktemp --directory)
-  let result = (do { ^zig fetch --global-cache-dir $cache_dir $url } | complete)
+  let result = (with-env {ZIG_GLOBAL_CACHE_DIR: ($cache_dir | path join "global")} {
+    do {
+      ^zig fetch --cache-dir ($cache_dir | path join "local") --pkg-dir ($cache_dir | path join "pkg") $url
+    } | complete
+  })
 
   if $result.exit_code != 0 {
     rm --recursive $cache_dir
@@ -30,7 +38,7 @@ def download-git-package [url: string, expected_hash: string, destination: strin
     }
   }
 
-  let archive = ($cache_dir | path join "p" $"($actual_hash).tar.gz")
+  let archive = ($cache_dir | path join "global" "p" $"($actual_hash).tar.gz")
   if not ($archive | path exists) {
     rm --recursive $cache_dir
     error make {

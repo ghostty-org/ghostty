@@ -23,6 +23,11 @@ const fuzzers: []const Fuzzer = &.{
 };
 
 pub fn build(b: *std.Build) void {
+    // Ensure the AFL++ output directory exists.
+    b.root.createDirPath(b.graph.io, "afl-out") catch |err| {
+        std.log.warn("failed to create afl-out directory: {any}", .{err});
+    };
+
     // Resolve a "generic" host target so the emitted LLVM bitcode does not
     // contain native CPU features (e.g. +zcm, +zcz) that the LLVM version
     // bundled with afl-cc may not recognise, which would produce warnings.

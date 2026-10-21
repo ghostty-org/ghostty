@@ -22,6 +22,14 @@ pub const css_path = "src/apprt/gtk/css";
 /// able to error when they don't exist that way.
 pub const icon_sizes: []const comptime_int = &.{ 16, 32, 128, 256, 512, 1024 };
 
+/// The oldest libadwaita Ghostty supports. Individual blueprints can
+/// require newer than this, never older, so the build checks the headers
+/// against whichever of the two is higher.
+pub const minimum_adwaita: struct { major: u16, minor: u16 } = .{
+    .major = 1,
+    .minor = 7,
+};
+
 /// The blueprint files that we will embed into the gresource file.
 /// We can't look these up at runtime [easily] because we require the
 /// compiled UI files as input. We can refactor this lator to maybe do
@@ -30,35 +38,30 @@ pub const icon_sizes: []const comptime_int = &.{ 16, 32, 128, 256, 512, 1024 };
 ///
 /// These will be asserted to exist at runtime.
 pub const blueprints: []const Blueprint = &.{
-    .{ .major = 1, .minor = 0, .name = "clipboard-confirmation-dialog" },
-    .{ .major = 1, .minor = 4, .name = "clipboard-confirmation-dialog" },
-    .{ .major = 1, .minor = 2, .name = "close-confirmation-dialog" },
-    .{ .major = 1, .minor = 2, .name = "config-errors-dialog" },
-    .{ .major = 1, .minor = 2, .name = "debug-warning" },
+    .{ .major = 1, .minor = 0, .name = "imgui-widget" },
+    .{ .major = 1, .minor = 0, .name = "inspector-widget" },
+    .{ .major = 1, .minor = 0, .name = "key-state-overlay" },
+    .{ .major = 1, .minor = 0, .name = "resize-overlay" },
+    .{ .major = 1, .minor = 0, .name = "search-overlay" },
+    .{ .major = 1, .minor = 0, .name = "split-tree" },
+    .{ .major = 1, .minor = 0, .name = "split-tree-split" },
+    .{ .major = 1, .minor = 0, .name = "surface" },
+    .{ .major = 1, .minor = 0, .name = "surface-scrolled-window" },
+    .{ .major = 1, .minor = 0, .name = "tab" },
     .{ .major = 1, .minor = 3, .name = "debug-warning" },
-    .{ .major = 1, .minor = 5, .name = "imgui-widget" },
-    .{ .major = 1, .minor = 5, .name = "inspector-widget" },
-    .{ .major = 1, .minor = 5, .name = "inspector-window" },
-    .{ .major = 1, .minor = 2, .name = "resize-overlay" },
-    .{ .major = 1, .minor = 2, .name = "search-overlay" },
-    .{ .major = 1, .minor = 2, .name = "key-state-overlay" },
-    .{ .major = 1, .minor = 5, .name = "split-tree" },
-    .{ .major = 1, .minor = 5, .name = "split-tree-split" },
-    .{ .major = 1, .minor = 2, .name = "surface" },
-    .{ .major = 1, .minor = 5, .name = "surface-scrolled-window" },
     .{ .major = 1, .minor = 3, .name = "surface-child-exited" },
-    .{ .major = 1, .minor = 5, .name = "tab" },
-    .{ .major = 1, .minor = 5, .name = "title-dialog" },
-    .{ .major = 1, .minor = 5, .name = "window" },
+    .{ .major = 1, .minor = 4, .name = "inspector-window" },
+    .{ .major = 1, .minor = 4, .name = "window" },
+    .{ .major = 1, .minor = 5, .name = "clipboard-confirmation-dialog" },
+    .{ .major = 1, .minor = 5, .name = "close-confirmation-dialog" },
     .{ .major = 1, .minor = 5, .name = "command-palette" },
+    .{ .major = 1, .minor = 5, .name = "config-errors-dialog" },
+    .{ .major = 1, .minor = 5, .name = "title-dialog" },
 };
 
 /// CSS files in css_path
 pub const css = [_][]const u8{
     "style.css",
-    "style-dark.css",
-    "style-hc.css",
-    "style-hc-dark.css",
 };
 
 pub const Blueprint = struct {

@@ -37,50 +37,50 @@ pub fn Packed(
         // I know this is an insane amount of validation but getting
         // this correct is critical to C APIs working so we go overboard.
         comptime {
-            for (info.fields, 0..) |field, i| {
-                const field_options = @field(options.fields, field.name);
+            for (info.field_names, info.field_types, 0..) |field_name, field_type, i| {
+                const field_options = @field(options.fields, field_name);
                 if (field_options.omit) {
                     if (field_options.name != null or
                         field_options.type_name != null or
                         field_options.encoding != .scalar)
                     {
-                        @compileError("omitted packed field has other options: " ++ field.name);
+                        @compileError("omitted packed field has other options: " ++ field_name);
                     }
                     continue;
                 }
 
                 if (field_options.name) |name| {
                     if (name.len == 0)
-                        @compileError("packed field name cannot be empty: " ++ field.name);
+                        @compileError("packed field name cannot be empty: " ++ field_name);
                 }
 
                 switch (field_options.encoding) {
-                    .scalar => switch (@typeInfo(field.type)) {
+                    .scalar => switch (@typeInfo(field_type)) {
                         .bool, .int, .@"enum" => {},
-                        else => @compileError("packed field requires an explicit encoding: " ++ field.name),
+                        else => @compileError("packed field requires an explicit encoding: " ++ field_name),
                     },
                     .@"packed" => |Layout| {
-                        if (Layout.Zig != field.type)
-                            @compileError("nested packed layout has the wrong Zig type: " ++ field.name);
+                        if (Layout.Zig != field_type)
+                            @compileError("nested packed layout has the wrong Zig type: " ++ field_name);
                         if (field_options.type_name != null)
-                            @compileError("nested packed field cannot have a scalar type name: " ++ field.name);
+                            @compileError("nested packed field cannot have a scalar type name: " ++ field_name);
                     },
                     .tagged_union => |Layout| {
-                        if (Layout.Owner != T or Layout.Union != field.type or
-                            Layout.union_field != @field(FieldT, field.name))
+                        if (Layout.Owner != T or Layout.Union != field_type or
+                            Layout.union_field != @field(FieldT, field_name))
                         {
-                            @compileError("tagged union layout does not match packed field: " ++ field.name);
+                            @compileError("tagged union layout does not match packed field: " ++ field_name);
                         }
                         if (field_options.type_name != null)
-                            @compileError("tagged union field cannot have a scalar type name: " ++ field.name);
+                            @compileError("tagged union field cannot have a scalar type name: " ++ field_name);
                     },
                 }
 
-                const public_name = field_options.name orelse field.name;
-                for (info.fields[0..i]) |previous| {
-                    const previous_options = @field(options.fields, previous.name);
+                const public_name = field_options.name orelse field_name;
+                for (info.field_names[0..i]) |previous| {
+                    const previous_options = @field(options.fields, previous);
                     if (previous_options.omit) continue;
-                    const previous_name = previous_options.name orelse previous.name;
+                    const previous_name = previous_options.name orelse previous;
                     if (std.mem.eql(u8, public_name, previous_name))
                         @compileError("duplicate public packed field name: " ++ public_name);
                 }
@@ -113,15 +113,15 @@ pub fn Packed(
 /// Options for a packed struct. A field is generated for every field in `T`
 /// so unknown field names are rejected by normal Zig type checking.
 pub fn PackedOptions(comptime T: type) type {
-    const fields = packedStructInfo(T).fields;
+    const fields = packedStructInfo(T).field_names;
     const default_options: FieldOptions = .{};
 
     var names: [fields.len][]const u8 = undefined;
     var types: [fields.len]type = undefined;
-    var attrs: [fields.len]std.builtin.Type.StructField.Attributes = undefined;
+    var attrs: [fields.len]std.lang.Type.Struct.FieldAttributes = undefined;
 
-    for (fields, 0..) |field, i| {
-        names[i] = field.name;
+    inline for (fields, 0..) |field, i| {
+        names[i] = field;
         types[i] = FieldOptions;
         attrs[i] = .{ .default_value_ptr = &default_options };
     }
@@ -163,15 +163,15 @@ pub fn PackedTaggedUnion(
         pub const tag_field = tag_field_value;
 
         comptime {
-            for (tag_info.fields) |tag| {
-                const arm_value = @field(options.arms, tag.name) orelse continue;
+            for (tag_info.field_names) |tag| {
+                const arm_value = @field(options.arms, tag) orelse continue;
                 switch (arm_value) {
                     inline else => |Layout, source| {
                         const source_name = @tagName(source);
                         if (Layout.Zig != @FieldType(UnionT, source_name))
-                            @compileError("packed union arm layout has the wrong Zig type for tag: " ++ tag.name);
+                            @compileError("packed union arm layout has the wrong Zig type for tag: " ++ tag);
                         if (@bitSizeOf(Layout.Zig) > @bitSizeOf(UnionT))
-                            @compileError("packed union arm is wider than its union: " ++ tag.name);
+                            @compileError("packed union arm is wider than its union: " ++ tag);
                     },
                 }
             }
@@ -188,16 +188,16 @@ pub fn PackedTaggedUnionOptions(comptime Union: type, comptime Tag: type) type {
     const union_info = @typeInfo(Union).@"union";
     if (union_info.layout != .@"packed")
         @compileError("packed tagged union value must be a packed union");
-    const tag_fields = @typeInfo(Tag).@"enum".fields;
+    const tag_fields = @typeInfo(Tag).@"enum".field_names;
     const Arm = PackedTaggedUnionArm(Union);
     const default_arm: ?Arm = null;
 
     var names: [tag_fields.len][]const u8 = undefined;
     var types: [tag_fields.len]type = undefined;
-    var attrs: [tag_fields.len]std.builtin.Type.StructField.Attributes = undefined;
+    var attrs: [tag_fields.len]std.lang.Type.Struct.FieldAttributes = undefined;
 
-    for (tag_fields, 0..) |field, i| {
-        names[i] = field.name;
+    inline for (tag_fields, 0..) |field, i| {
+        names[i] = field;
         types[i] = ?Arm;
         attrs[i] = .{ .default_value_ptr = &default_arm };
     }
@@ -209,15 +209,15 @@ pub fn PackedTaggedUnionOptions(comptime Union: type, comptime Tag: type) type {
 }
 
 fn PackedTaggedUnionArm(comptime Union: type) type {
-    const fields = @typeInfo(Union).@"union".fields;
+    const fields = @typeInfo(Union).@"union".field_names;
     const Tag = std.meta.FieldEnum(Union);
 
     var names: [fields.len][]const u8 = undefined;
     var types: [fields.len]type = undefined;
-    var attrs: [fields.len]std.builtin.Type.UnionField.Attributes = undefined;
+    var attrs: [fields.len]std.lang.Type.Union.FieldAttributes = undefined;
 
-    for (fields, 0..) |field, i| {
-        names[i] = field.name;
+    inline for (fields, 0..) |field, i| {
+        names[i] = field;
         types[i] = type;
         attrs[i] = .{ .@"align" = 1 };
     }
@@ -225,7 +225,7 @@ fn PackedTaggedUnionArm(comptime Union: type) type {
     return @Union(.auto, Tag, &names, &types, &attrs);
 }
 
-fn packedStructInfo(comptime T: type) std.builtin.Type.Struct {
+fn packedStructInfo(comptime T: type) std.lang.Type.Struct {
     const info = @typeInfo(T).@"struct";
     if (info.layout != .@"packed")
         @compileError("Packed requires a packed struct");

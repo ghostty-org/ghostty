@@ -33,13 +33,16 @@ const getConstraint = @import("../font/nerd_font_attributes.zig").getConstraint;
 
 const FileType = @import("../file_type.zig").FileType;
 
-const macos = switch (builtin.os.tag) {
+const macos = switch (builtin.target.os.tag) {
     .macos => @import("macos"),
     else => void,
 };
 
-const DisplayLink = switch (builtin.os.tag) {
-    .macos => *macos.video.DisplayLink,
+/// The display link used to pace drawing to the display's refresh
+/// rate. Only macOS has one. Everywhere else this is void and the
+/// display link code paths compile away.
+const DisplayLink = switch (builtin.target.os.tag) {
+    .macos => @import("DisplayLink.zig"),
     else => void,
 };
 
@@ -176,6 +179,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// cells for the draw call.
         cells_rebuilt: bool = false,
 
+        /// Set to true after the Kitty image placements are rebuilt. Like
+        /// `cells_rebuilt`, this means the next frame must be drawn. This
+        /// matters when the images change but no cell does, for example
+        /// when a program places an image.
+        images_rebuilt: bool = false,
+
         /// The current GPU uniform values.
         uniforms: shaderpkg.Uniforms,
 
@@ -218,10 +227,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Graphics API state.
         api: GraphicsAPI,
 
-        /// The CVDisplayLink used to drive the rendering loop in
-        /// sync with the display. This is void on platforms that
-        /// don't support a display link.
-        display_link: ?DisplayLink = null,
+        /// The display link that paces drawing to the display's refresh
+        /// rate. It is created lazily on the render thread the first
+        /// time `syncDisplayLink` runs, and stays null if vsync is
+        /// disabled or creation failed. This is void on platforms
+        /// without a display link.
+        ///
+        /// The link is only ever started and stopped on the main thread.
+        /// See `renderer/DisplayLink.zig` for why that matters.
+        display_link: if (DisplayLink != void) ?*DisplayLink else void =
+            if (DisplayLink != void) null else {},
 
         /// Health of the most recently completed frame.
         health: std.atomic.Value(Health) = .{ .raw = .healthy },
@@ -835,10 +850,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             self.latest_frame.deinit(global.io());
 
+            // Stop and release the display link. Surfaces are destroyed
+            // on the main thread, where `close` stops the link before
+            // returning. After this the display link callback is never
+            // invoked again, so `renderer.Thread` can free the `draw_now`
+            // handle the callback points at.
             if (DisplayLink != void) {
                 if (self.display_link) |display_link| {
-                    display_link.stop() catch {};
-                    display_link.release();
+                    display_link.close();
+                    self.display_link = null;
                 }
             }
 
@@ -945,11 +965,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // If we don't support a display link we have no work to do.
             if (comptime DisplayLink == void) return;
 
-            // Stop our display link. If this fails its okay it just means
-            // that we either never started it or the view its attached to
-            // is gone which is fine.
+            // Ask the display link to stop. The stop itself happens on
+            // the main thread shortly after. `deinit` later stops the
+            // link for certain before anything the display link callback
+            // references is freed.
             const display_link = self.display_link orelse return;
-            display_link.stop() catch {};
+            display_link.setRunning(false);
         }
 
         /// This is called by the GTK apprt after the surface is
@@ -1050,6 +1071,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             return self.latest_frame.take(global.io());
         }
 
+        /// The display link output callback. CoreVideo invokes this on
+        /// its own thread once per display refresh while the link is
+        /// running. All it does is wake the render thread, which then
+        /// draws a frame.
         fn displayLinkCallback(
             _: *macos.video.DisplayLink,
             ud: ?*xev.Async,
@@ -1065,7 +1090,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.terminal_state.dirty = .full;
         }
 
-        /// Called when we get an updated display ID for our display link.
+        /// Called when the window moves to a different display, with
+        /// the CGDirectDisplayID of the new one. The display link is
+        /// bound to that display so that it follows its refresh rate.
+        ///
+        /// Must be called on the render thread.
         pub fn setMacOSDisplayID(
             self: *Self,
             id: u32,
@@ -1145,9 +1174,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             return null;
         }
 
-        /// True if our renderer is using vsync. If true, the renderer or apprt
-        /// is responsible for triggering draw_now calls to the render thread.
-        /// That is the only way to trigger a drawFrame.
+        /// Returns true if the display link is running, meaning frames
+        /// are paced by display refresh. In that case the render thread
+        /// must only draw when the display link wakes it through
+        /// `draw_now`, and not on its own.
+        ///
+        /// This reflects the link's actual state. Right after
+        /// `syncDisplayLink` asks the link to start, this is still false
+        /// until the main thread starts it, and the render thread draws
+        /// immediately in the meantime.
         pub fn hasVsync(self: *const Self) bool {
             if (comptime DisplayLink == void) return false;
             const display_link = self.display_link orelse return false;
@@ -1220,14 +1255,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
         }
 
-        /// Create or update the display link and match it to the current
-        /// surface state.
+        /// Create the display link if needed, then ask it to match the
+        /// current surface state: bound to `display_id` if one is given,
+        /// and running only while the surface is visible and has
+        /// something to draw (rebuilt cells or a running animation).
         ///
-        /// Must be called on the render thread and must NOT be called
-        /// while holding `draw_mutex`. Stopping a CVDisplayLink is a
-        /// blocking join on CoreVideo's IO thread, and the apprt calls
-        /// `drawFrame` (which takes `draw_mutex`) from the CoreAnimation
-        /// layer display path on the main thread.
+        /// `draw_now` is required the first time this is called, since
+        /// creating the link needs the handle its callback will notify.
+        /// Later calls can pass null.
+        ///
+        /// Must be called on the render thread. This never blocks. The
+        /// display link applies the requested state on the main thread
+        /// shortly after, because starting and stopping a CVDisplayLink
+        /// anywhere else can deadlock against CoreVideo's own display
+        /// reconfiguration handling. See `renderer/DisplayLink.zig`
+        /// for the full explanation.
         fn syncDisplayLink(
             self: *Self,
             display_id: ?u32,
@@ -1238,20 +1280,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const display_link = self.display_link orelse display_link: {
                 if (!self.config.vsync) return;
                 const callback = draw_now orelse return;
-                const result = macos.video.DisplayLink.createWithActiveCGDisplays() catch |err| {
-                    // A locked macOS session can temporarily have no active
-                    // displays. Rendering can continue without vsync and a
-                    // later display update will retry this method.
-                    log.warn("error creating display link; using fallback rendering err={}", .{err});
-                    return;
-                };
-                result.setOutputCallback(
+                const result = DisplayLink.create(
+                    self.alloc,
                     xev.Async,
                     &displayLinkCallback,
                     callback,
                 ) catch |err| {
-                    log.warn("error configuring display link err={}", .{err});
-                    result.release();
+                    // A locked macOS session can temporarily have no active
+                    // displays. Rendering continues without vsync and the
+                    // next call to this function tries again.
+                    log.warn("error creating display link; using fallback rendering err={}", .{err});
                     return;
                 };
 
@@ -1260,26 +1298,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 break :display_link result;
             };
 
-            if (display_id) |id| {
-                log.info("updating display link display id={}", .{id});
-                display_link.setCurrentCGDisplay(id) catch |err| {
-                    log.warn("error setting display link display id err={}", .{err});
-                };
-            }
+            if (display_id) |id| display_link.setDisplay(id);
 
             const should_run =
                 // Non-visible windows never vsync
                 self.visible and
-                // Only vsync if we have cell changes or animation
-                (self.cells_rebuilt or self.animationWake() != null);
+                // Only vsync if we have cell or image changes or animation
+                (self.cells_rebuilt or
+                    self.images_rebuilt or
+                    self.animationWake() != null);
 
-            if (should_run) {
-                if (!display_link.isRunning()) {
-                    display_link.start() catch {};
-                }
-            } else {
-                display_link.stop() catch {};
-            }
+            display_link.setRunning(should_run);
         }
 
         /// Set the new font grid.
@@ -1417,6 +1446,36 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     state.terminal.scrollViewport(.bottom);
                 }
 
+                // Advance any running Kitty graphics animations to the
+                // frame due now, and remember when the next frame is
+                // due (as an absolute deadline, see animationWake) so
+                // the renderer thread can schedule a wakeup for it.
+                //
+                // This runs before the render state update. Advancing
+                // a frame gives the image a new generation, so the
+                // update then reports placements with the new frame,
+                // and the frame is uploaded and drawn right away.
+                self.kitty_animation_next_ms = next: {
+                    // Likely case: we have no kitty images, so do nothing.
+                    const storage = &state.terminal.screens.active.kitty_images;
+                    if (storage.images.count() == 0) break :next null;
+
+                    const now: std.Io.Timestamp = .now(global.io(), .awake);
+                    const base = self.kitty_animation_clock orelse base: {
+                        self.kitty_animation_clock = now;
+                        break :base now;
+                    };
+                    const now_ms: u64 = @intCast(@divTrunc(
+                        base.durationTo(now).nanoseconds,
+                        std.time.ns_per_ms,
+                    ));
+                    const delay = storage.animationTick(
+                        global.io(),
+                        now_ms,
+                    ) orelse break :next null;
+                    break :next now_ms + delay;
+                };
+
                 // Begin the update of our terminal state. Work that
                 // doesn't require terminal access (e.g. style
                 // denormalization) is deferred to the endUpdate call
@@ -1446,41 +1505,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     break :preedit try p.clone(arena_alloc);
                 };
 
-                // Advance any running Kitty graphics animations to the
-                // frame due now, and remember when the next frame is
-                // due (as an absolute deadline, see animationWake) so
-                // the renderer thread can schedule a wakeup for it.
-                // This must happen before the dirty check below:
-                // advancing a frame marks the image state dirty.
-                self.kitty_animation_next_ms = next: {
-                    // Likely case: we have no kitty images, so do nothing.
-                    const storage = &state.terminal.screens.active.kitty_images;
-                    if (storage.images.count() == 0) break :next null;
-
-                    const now: std.Io.Timestamp = .now(global.io(), .awake);
-                    const base = self.kitty_animation_clock orelse base: {
-                        self.kitty_animation_clock = now;
-                        break :base now;
-                    };
-                    const now_ms: u64 = @intCast(@divTrunc(
-                        base.durationTo(now).nanoseconds,
-                        std.time.ns_per_ms,
-                    ));
-                    const delay = storage.animationTick(
-                        global.io(),
-                        now_ms,
-                    ) orelse break :next null;
-                    break :next now_ms + delay;
-                };
-
-                // If we have Kitty graphics data, we enter a SLOW SLOW SLOW path.
-                // We only do this if the Kitty image state is dirty meaning only if
-                // it changes.
-                //
-                // If we have any virtual references, we must also rebuild our
-                // kitty state on every frame because any cell change can move
-                // an image.
-                if (self.images.kittyRequiresUpdate(state.terminal)) {
+                // Rebuild our Kitty image placements when the placements
+                // or the images changed. The render state update above
+                // has already positioned every placement, so this is
+                // cheap. Most frames that only change text skip it.
+                if (self.images.kittyRequiresUpdate(
+                    state.terminal,
+                    &self.terminal_state,
+                )) {
                     // We need to grab the draw mutex since this updates
                     // our image state that drawFrame uses.
                     self.draw_mutex.lockUncancelable(global.io());
@@ -1488,11 +1520,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.images.kittyUpdate(
                         self.alloc,
                         state.terminal,
-                        .{
-                            .width = self.grid_metrics.cell_width,
-                            .height = self.grid_metrics.cell_height,
-                        },
+                        &self.terminal_state,
                     );
+                    self.images_rebuilt = true;
                 }
 
                 // Get our OSC8 links we're hovering if we have a mouse.
@@ -1575,7 +1605,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 if (self.search_selected_match) |m| {
                     self.terminal_state.updateHighlightsFlattened(
                         self.alloc,
-                        @intFromEnum(HighlightTag.search_match_selected),
+                        @backingInt(HighlightTag.search_match_selected),
                         &.{m.match},
                     ) catch |err| {
                         // Not a critical error, we just won't show highlights.
@@ -1586,7 +1616,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 if (self.search_matches) |m| {
                     self.terminal_state.updateHighlightsFlattened(
                         self.alloc,
-                        @intFromEnum(HighlightTag.search_match),
+                        @backingInt(HighlightTag.search_match),
                         m.matches,
                     ) catch |err| {
                         // Not a critical error, we just won't show highlights.
@@ -1653,7 +1683,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // If we're on macOS and have glass styles, we remove
                 // the background opacity because the glass effect handles
                 // it.
-                if (comptime builtin.os.tag == .macos) switch (self.config.background_blur) {
+                if (comptime builtin.target.os.tag == .macos) switch (self.config.background_blur) {
                     .@"macos-glass-regular",
                     .@"macos-glass-clear",
                     => self.uniforms.bg_color[3] = 0,
@@ -1688,9 +1718,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             sync: bool,
         ) !void {
             // Everything that touches draw state happens under the draw
-            // mutex. The display link is synced only after the mutex is
-            // released; see `syncDisplayLink` for why it must never be
-            // called with the draw mutex held.
+            // mutex. The display link is synced after the mutex is
+            // released. It doesn't need the lock, and this keeps the
+            // critical section to just drawing.
             const sync_display_link = locked: {
                 self.draw_mutex.lockUncancelable(global.io());
                 defer self.draw_mutex.unlock(global.io());
@@ -1704,9 +1734,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         ///
         /// Returns true if the display link should be resynced once the
         /// draw mutex is released. This is only ever true on the no-redraw
-        /// path, which a sync draw never takes, so the main thread's sync
-        /// draws never touch the display link and `syncDisplayLink` stays
-        /// on the render thread.
+        /// path, which a sync draw never takes. Sync draws come from the
+        /// main thread, so this keeps `syncDisplayLink` on the render
+        /// thread as its contract requires.
         fn drawFrameLocked(
             self: *Self,
             sync: bool,
@@ -1765,6 +1795,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 size_changed or
                 swap_chain_rebuilt or
                 self.cells_rebuilt or
+                self.images_rebuilt or
                 self.animationWake() != null or
                 sync;
 
@@ -1775,6 +1806,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 return true;
             }
             self.cells_rebuilt = false;
+            self.images_rebuilt = false;
 
             // Wait for a frame to be available.
             const frame = swap_chain.nextFrame();
@@ -2253,12 +2285,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             ).add(self.size.padding);
 
             // Setup our uniforms
-            self.uniforms.projection_matrix = math.ortho2d(
+            self.uniforms.projection_matrix = @bitCast(math.ortho2d(
                 -1 * @as(f32, @floatFromInt(self.size.padding.left)),
                 @floatFromInt(terminal_size.width + self.size.padding.right),
                 @floatFromInt(terminal_size.height + self.size.padding.bottom),
                 -1 * @as(f32, @floatFromInt(self.size.padding.top)),
-            );
+            ));
             self.uniforms.grid_padding = .{
                 @floatFromInt(blank.top),
                 @floatFromInt(blank.right),
@@ -2394,7 +2426,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Cursor style
             const cursor_style: renderer.CursorStyle = .fromTerminal(self.terminal_state.cursor.visual_style);
             uniforms.previous_cursor_style = uniforms.current_cursor_style;
-            uniforms.current_cursor_style = @as(i32, @intFromEnum(cursor_style));
+            uniforms.current_cursor_style = @as(i32, @backingInt(cursor_style));
         }
 
         /// Update per-frame custom shader uniforms.
@@ -3057,7 +3089,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         if (x_compare >= hl.range[0] and
                             x_compare <= hl.range[1])
                         {
-                            const tag: HighlightTag = @enumFromInt(hl.tag);
+                            const tag: HighlightTag = @fromBackingInt(hl.tag);
                             break :selected switch (tag) {
                                 .search_match => .search,
                                 .search_match_selected => .search_selected,
@@ -3359,7 +3391,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const render = try self.font_grid.renderGlyph(
                 self.alloc,
                 font.sprite_index,
-                @intFromEnum(sprite),
+                @backingInt(sprite),
                 .{
                     .cell_width = 1,
                     .grid_metrics = self.grid_metrics,
@@ -3390,7 +3422,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const render = try self.font_grid.renderGlyph(
                 self.alloc,
                 font.sprite_index,
-                @intFromEnum(font.Sprite.overline),
+                @backingInt(font.Sprite.overline),
                 .{
                     .cell_width = 1,
                     .grid_metrics = self.grid_metrics,
@@ -3421,7 +3453,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const render = try self.font_grid.renderGlyph(
                 self.alloc,
                 font.sprite_index,
-                @intFromEnum(font.Sprite.strikethrough),
+                @backingInt(font.Sprite.strikethrough),
                 .{
                     .cell_width = 1,
                     .grid_metrics = self.grid_metrics,
@@ -3548,7 +3580,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     break :render self.font_grid.renderGlyph(
                         self.alloc,
                         font.sprite_index,
-                        @intFromEnum(sprite),
+                        @backingInt(sprite),
                         .{
                             .cell_width = if (wide) 2 else 1,
                             .grid_metrics = self.grid_metrics,

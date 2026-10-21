@@ -107,7 +107,11 @@ typedef struct {
   /** Whether to unwrap soft-wrapped lines. */
   bool unwrap;
 
-  /** Whether to trim trailing whitespace on non-blank lines. */
+  /**
+   * Whether to trim trailing whitespace on non-blank lines. Trailing blank
+   * lines are always trimmed, except in VT output without trimming, where
+   * they are kept as part of the layout.
+   */
   bool trim;
 
   /** Extra terminal state to include in styled output. */

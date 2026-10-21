@@ -15,7 +15,7 @@ pub fn addInstrumentedExe(
     );
 
     const afl_cc = b.addSystemCommand(&.{
-        b.findProgram(&.{"afl-cc"}, &.{}) catch
+        b.findProgram(.{ .names = &.{"afl-cc"} }) orelse
             @panic("Could not find 'afl-cc', which is required to build"),
         "-O3",
     });
@@ -62,7 +62,7 @@ pub fn addFuzzerRun(
     output_dir: std.Build.LazyPath,
 ) *std.Build.Step.Run {
     const run = b.addSystemCommand(&.{
-        b.findProgram(&.{"afl-fuzz"}, &.{}) catch
+        b.findProgram(.{ .names = &.{"afl-fuzz"} }) orelse
             @panic("Could not find 'afl-fuzz', which is required to run"),
         "-i",
     });

@@ -111,7 +111,7 @@ pub fn get(
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(CellData, @intFromEnum(data)) orelse {
+        _ = std.enums.fromInt(CellData, @backingInt(data)) orelse {
             return .invalid_value;
         };
     }
@@ -156,14 +156,14 @@ fn getTyped(
     switch (data) {
         .invalid => return .invalid_value,
         .codepoint => out.* = @intCast(cell.codepoint()),
-        .content_tag => out.* = @enumFromInt(@intFromEnum(cell.content_tag)),
-        .wide => out.* = @enumFromInt(@intFromEnum(cell.wide)),
+        .content_tag => out.* = @fromBackingInt(@backingInt(cell.content_tag)),
+        .wide => out.* = @fromBackingInt(@backingInt(cell.wide)),
         .has_text => out.* = cell.hasText(),
         .has_styling => out.* = cell.hasStyling(),
         .style_id => out.* = cell.style_id,
         .has_hyperlink => out.* = cell.hyperlink,
         .protected => out.* = cell.protected,
-        .semantic_content => out.* = @enumFromInt(@intFromEnum(cell.semantic_content)),
+        .semantic_content => out.* = @fromBackingInt(@backingInt(cell.semantic_content)),
         .color_palette => out.* = cell.content.color_palette.data,
         .color_rgb => {
             const rgb = cell.content.color_rgb;

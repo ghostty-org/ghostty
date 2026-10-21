@@ -134,7 +134,7 @@ pub const Inspector = struct {
 
         // In debug we show the ImGui demo window so we can easily view
         // available widgets and such.
-        if (comptime builtin.mode == .Debug) {
+        if (comptime builtin.mode == .debug) {
             if (self.show_demo_window) {
                 cimgui.c.ImGui_ShowDemoWindow(&self.show_demo_window);
             }
@@ -441,7 +441,7 @@ fn mouseTable(
 
             for (surface_mouse.click_state, 0..) |state, i| {
                 if (state != .press) continue;
-                const button: input.MouseButton = @enumFromInt(i);
+                const button: input.MouseButton = @fromBackingInt(@intCast(i));
                 cimgui.c.ImGui_SameLine();
                 cimgui.c.ImGui_Text("%s", @as([*]const u8, @ptrCast(switch (button) {
                     .unknown => "?",

@@ -161,17 +161,17 @@ test "fill background" {
     try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4, 1, 2, 3, 4 }, &buf);
 
     fillBackground(&buf, .{});
-    try std.testing.expectEqualSlices(u8, &(.{0} ** 8), &buf);
+    try std.testing.expectEqualSlices(u8, &@as([8]u8, @splat(0)), &buf);
 }
 
 test "compose rect overwrite with clipping" {
     // 2x2 canvas, compose a 2x1 rect at (1, 1): only the first pixel
     // of the rect fits, the rest clips off the right edge.
-    var dst = [_]u8{0} ** 16;
+    var dst: [16]u8 = @splat(0);
     const src = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     composeRect(&dst, 2, 2, &src, 2, 1, 1, 1, .overwrite);
 
-    var expect = [_]u8{0} ** 16;
+    var expect: [16]u8 = @splat(0);
     expect[12] = 1;
     expect[13] = 2;
     expect[14] = 3;
@@ -180,11 +180,11 @@ test "compose rect overwrite with clipping" {
 }
 
 test "compose rect entirely out of bounds" {
-    var dst = [_]u8{9} ** 16;
-    const src = [_]u8{1} ** 4;
+    var dst: [16]u8 = @splat(9);
+    const src: [4]u8 = @splat(1);
     composeRect(&dst, 2, 2, &src, 1, 1, 2, 0, .overwrite);
     composeRect(&dst, 2, 2, &src, 1, 1, 0, 2, .overwrite);
-    try std.testing.expectEqualSlices(u8, &(.{9} ** 16), &dst);
+    try std.testing.expectEqualSlices(u8, &@as([16]u8, @splat(9)), &dst);
 }
 
 test "alpha blend source-over semantics" {

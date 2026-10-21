@@ -228,8 +228,10 @@ const Search = struct {
 
 /// Mouse state for the surface.
 const Mouse = struct {
-    /// The last tracked mouse button state by button.
-    click_state: [input.MouseButton.max]input.MouseButtonState = @splat(.release),
+    /// The last tracked mouse button state by button, indexed by the
+    /// button's enum value. `max` is the largest value, not a count, so
+    /// the array needs one more slot than that to hold every button.
+    click_state: [input.MouseButton.max + 1]input.MouseButtonState = @splat(.release),
 
     /// The last mods state when the last mouse button (whatever it was) was
     /// pressed or release.
@@ -529,6 +531,7 @@ pub fn init(
         &derived_config.font,
         font_size,
     );
+    errdefer app.font_grid_set.deref(font_grid_key);
 
     // Build our size struct which has all the sizes we need.
     const size: rendererpkg.Size = size: {
@@ -558,17 +561,32 @@ pub fn init(
         break :size size;
     };
 
+    // Initialize the render device if it hasn't been initialized already
+    const render_device = app.device orelse device: {
+        const device_options = try rt_surface.renderDeviceOptions();
+        const device: *rendererpkg.Device = try .init(alloc, device_options);
+        app.device = device;
+        break :device device;
+    };
+
     // Create our terminal grid with the initial size
     const app_mailbox: App.Mailbox = .{ .rt_app = rt_app, .mailbox = &app.mailbox };
-    var renderer_impl = try Renderer.init(alloc, .{
-        .device = &app.device,
-        .config = try .init(alloc, config),
-        .font_grid = font_grid,
-        .size = size,
-        .surface_mailbox = .{ .surface = self, .app = app_mailbox },
-        .rt_surface = rt_surface,
-        .thread = &self.renderer_thread,
-    });
+    var renderer_impl = renderer: {
+        // Renderer.init takes ownership of the config only on success, after
+        // which the errdefer below frees it, so this errdefer must end here.
+        var renderer_config = try Renderer.DerivedConfig.init(alloc, config);
+        errdefer renderer_config.deinit();
+
+        break :renderer try Renderer.init(alloc, .{
+            .device = render_device,
+            .config = renderer_config,
+            .font_grid = font_grid,
+            .size = size,
+            .surface_mailbox = .{ .surface = self, .app = app_mailbox },
+            .rt_surface = rt_surface,
+            .thread = &self.renderer_thread,
+        });
+    };
     errdefer renderer_impl.deinit();
 
     // The mutex used to protect our renderer state.
@@ -644,21 +662,27 @@ pub fn init(
     // This separate block ({}) is important because our errdefers must
     // be scoped here to be valid.
     {
-        var env = rt_surface.defaultTermioEnv() catch |err| env: {
-            // If an error occurs, we don't want to block surface startup.
-            log.warn("error getting env map for surface err={}", .{err});
-            break :env global.environMap() catch std.process.Environ.Map.init(alloc);
+        // Exec.init takes ownership of the env even if it fails, so the
+        // errdefer for it must not reach past the call.
+        const env = termio_env: {
+            var env = rt_surface.defaultTermioEnv() catch |err| env: {
+                // If an error occurs, we don't want to block surface startup.
+                log.warn("error getting env map for surface err={}", .{err});
+                break :env global.environMap() catch std.process.Environ.Map.init(alloc);
+            };
+            errdefer env.deinit();
+
+            // don't leak GHOSTTY_LOG to any subprocesses
+            _ = env.orderedRemove("GHOSTTY_LOG");
+
+            var buf: [18]u8 = undefined;
+            try env.put(
+                "GHOSTTY_SURFACE_ID",
+                std.mem.print(&buf, "0x{x:0>16}", .{self.id}) catch unreachable,
+            );
+
+            break :termio_env env;
         };
-        errdefer env.deinit();
-
-        // don't leak GHOSTTY_LOG to any subprocesses
-        _ = env.orderedRemove("GHOSTTY_LOG");
-
-        var buf: [18]u8 = undefined;
-        try env.put(
-            "GHOSTTY_SURFACE_ID",
-            std.fmt.bufPrint(&buf, "0x{x:0>16}", .{self.id}) catch unreachable,
-        );
 
         // Initialize our IO backend
         var io_exec = try termio.Exec.init(alloc, .{
@@ -680,10 +704,14 @@ pub fn init(
         var io_mailbox = try termio.Mailbox.initSPSC(alloc);
         errdefer io_mailbox.deinit(alloc);
 
+        // Termio.init takes ownership of the config only on success.
+        var io_config = try termio.Termio.DerivedConfig.init(alloc, config);
+        errdefer io_config.deinit();
+
         try termio.Termio.init(&self.io, alloc, .{
             .size = size,
             .full_config = config,
-            .config = try termio.Termio.DerivedConfig.init(alloc, config),
+            .config = io_config,
             .backend = .{ .exec = io_exec },
             .mailbox = io_mailbox,
             .renderer_state = &self.renderer_state,
@@ -757,7 +785,7 @@ pub fn init(
             .set_title,
             .{ .title = title },
         );
-    } else if ((comptime builtin.os.tag == .linux) and
+    } else if ((comptime builtin.target.os.tag == .linux) and
         config.@"_xdg-terminal-exec")
     xdg: {
         // For xdg-terminal-exec execution we special-case and set the window
@@ -818,8 +846,13 @@ pub fn deinit(self: *Surface) void {
 
     // We need to deinit AFTER everything is stopped, since there are
     // shared values between the two threads.
-    self.renderer_thread.deinit();
+    //
+    // The renderer must be deinitialized before the renderer thread:
+    // on macOS the renderer's display link callback points at the
+    // thread's `draw_now` handle, and the renderer's deinit is what
+    // stops the display link for good.
     self.renderer.deinit();
+    self.renderer_thread.deinit();
     self.io_thread.deinit();
     self.mouse.selection_gesture.deinit(&self.io.terminal);
     self.io.deinit();
@@ -1011,8 +1044,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
             const title: ?[:0]const u8 = self.rt_surface.getTitle();
             const data = switch (style) {
-                .csi_21_t => try std.fmt.allocPrint(
-                    self.alloc,
+                .csi_21_t => try self.alloc.print(
                     "\x1b]l{s}\x1b\\",
                     .{title orelse ""},
                 ),
@@ -1039,7 +1071,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 .color_change,
                 .{
                     .kind = switch (change.target) {
-                        .palette => |v| @enumFromInt(v),
+                        .palette => |v| @fromBackingInt(v),
                         .dynamic => |dyn| switch (dyn) {
                             .foreground => .foreground,
                             .background => .background,
@@ -1091,9 +1123,10 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .pwd_change => |w| {
             defer w.deinit();
 
-            var stack = std.heap.stackFallback(256, self.alloc);
-            const alloc = stack.get();
-            const str = try alloc.dupeZ(u8, w.slice());
+            var stack_buf: [256]u8 = undefined;
+            var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.alloc);
+            const alloc = stack.allocator();
+            const str = try alloc.dupeSentinel(u8, w.slice(), 0);
             defer alloc.free(str);
 
             _ = try self.rt_app.performAction(
@@ -1354,7 +1387,7 @@ fn childExitedAbnormally(
     const command = try std.mem.join(alloc, " ", switch (self.io.backend) {
         .exec => |*exec| exec.subprocess.args,
     });
-    const runtime_str = try std.fmt.allocPrint(alloc, "{d} ms", .{info.runtime_ms});
+    const runtime_str = try alloc.print("{d} ms", .{info.runtime_ms});
 
     self.renderer_state.mutex.lockUncancelable(global.io());
     defer self.renderer_state.mutex.unlock(global.io());
@@ -1402,7 +1435,7 @@ fn childExitedAbnormally(
     // We don't print this on macOS because the exit code is always 0
     // due to the way we launch the process.
     if (comptime !builtin.target.os.tag.isDarwin()) {
-        const exit_code_str = try std.fmt.allocPrint(alloc, "{d}", .{info.exit_code});
+        const exit_code_str = try alloc.print("{d}", .{info.exit_code});
         t.carriageReturn();
         try t.linefeed();
         try t.printString("Exit Code: ");
@@ -1634,7 +1667,7 @@ fn mouseRefreshLinks(
         // highlight links until the mouse is unclicked. This follows
         // standard macOS and Linux behavior where a click and drag cancels
         // mouse actions.
-        const left_idx = @intFromEnum(input.MouseButton.left);
+        const left_idx = @backingInt(input.MouseButton.left);
         if (self.mouse.click_state[left_idx] == .press) click: {
             const pin = self.mouse.activeLeftClickPin(&self.io.terminal.screens) orelse break :click;
             const click_pt = self.io.terminal.screens.active.pages.pointFromPin(
@@ -1669,7 +1702,7 @@ fn mouseRefreshLinks(
                     break :link .{ null, false };
                 };
                 break :link .{
-                    .{ .url = try alloc.dupeZ(u8, uri) },
+                    .{ .url = try alloc.dupeSentinel(u8, uri, 0) },
                     self.config.link_previews != .false,
                 };
             },
@@ -2180,6 +2213,13 @@ fn resolvePathForOpening(
 /// Returns the x/y coordinate of where the IME (Input Method Editor)
 /// keyboard should be rendered.
 pub fn imePoint(self: *const Surface) apprt.IMEPos {
+    const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
+    return self.imePointScaled(content_scale);
+}
+
+/// Same as `imePoint`, but divides our sizes by the given scale instead
+/// of the content scale.
+pub fn imePointScaled(self: *const Surface, scale: apprt.ContentScale) apprt.IMEPos {
     self.renderer_state.mutex.lockUncancelable(global.io());
     const cursor = self.renderer_state.terminal.screens.active.cursor;
     const preedit_width: usize = if (self.renderer_state.preedit) |preedit| preedit.width() else 0;
@@ -2189,7 +2229,6 @@ pub fn imePoint(self: *const Surface) apprt.IMEPos {
     // in the visible portion of the screen.
 
     // Our sizes are all scaled so we need to send the unscaled values back.
-    const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
 
     const x: f64 = x: {
         // Simple x * cell width gives the top-left corner, then add padding offset
@@ -2199,7 +2238,7 @@ pub fn imePoint(self: *const Surface) apprt.IMEPos {
         x += @as(f64, @floatFromInt(self.size.cell.width)) / 2;
 
         // And scale it
-        x /= content_scale.x;
+        x /= scale.x;
 
         break :x x;
     };
@@ -2212,7 +2251,7 @@ pub fn imePoint(self: *const Surface) apprt.IMEPos {
         y += @floatFromInt(self.size.cell.height);
 
         // And scale it
-        y /= content_scale.y;
+        y /= scale.y;
 
         break :y y;
     };
@@ -2221,7 +2260,7 @@ pub fn imePoint(self: *const Surface) apprt.IMEPos {
     // rendering only renders in a single line.
     const height: f64 = height: {
         var height: f64 = @floatFromInt(self.size.cell.height);
-        height /= content_scale.y;
+        height /= scale.y;
         break :height height;
     };
     const width: f64 = width: {
@@ -3363,7 +3402,7 @@ fn encodeKeyOpts(self: *const Surface) input.key_encode.Options {
     const t = &self.io.terminal;
 
     var opts: input.key_encode.Options = .fromTerminal(t);
-    if (comptime builtin.os.tag != .macos) return opts;
+    if (comptime builtin.target.os.tag != .macos) return opts;
 
     opts.macos_option_as_alt = self.config.macos_option_as_alt orelse detect: {
         // If we don't have alt pressed, it doesn't matter what this
@@ -3894,7 +3933,7 @@ pub fn mouseButtonCallback(
     }
 
     // Always record our latest mouse state
-    self.mouse.click_state[@intCast(@intFromEnum(button))] = action;
+    self.mouse.click_state[@intCast(@backingInt(button))] = action;
 
     // Always show the mouse again if it is hidden
     if (self.mouse.hidden) self.showMouse();
@@ -4273,6 +4312,10 @@ fn maybePromptClick(self: *Surface) !bool {
     // prompt clicks because we can't move if we're not in a prompt!
     if (!t.cursorIsAtPrompt()) return false;
 
+    // A press reported under mouse tracking resets the gesture, and its
+    // release must be reported too rather than moving the cursor.
+    if (self.mouse.selection_gesture.left_click_count == 0) return false;
+
     // If the left click moved away from its pressed cell then releasing the
     // mouse completes the drag gesture and we don't do prompt moving.
     if (self.mouse.selection_gesture.left_click_dragged) return false;
@@ -4339,7 +4382,7 @@ fn maybePromptClick(self: *Surface) !bool {
                 },
             };
             var data: termio.Message.WriteReq.Small.Array = undefined;
-            const resp = try std.fmt.bufPrint(
+            const resp = try std.mem.print(
                 &data,
                 "\x1B[<0;{d};{d}M",
                 .{ pos_vp.x + 1, y },
@@ -4593,7 +4636,7 @@ pub fn mousePressureCallback(
     // button is already down. Treat it as the platform text-selection
     // affordance: select the pressed word, then consume the active gesture so
     // further cursor motion doesn't drag the selection.
-    const left_idx = @intFromEnum(input.MouseButton.left);
+    const left_idx = @backingInt(input.MouseButton.left);
     if (self.mouse.click_state[left_idx] == .press and
         stage == .deep)
     select: {
@@ -4747,7 +4790,7 @@ pub fn cursorPosCallback(
         // since the spec (afaict) does not say...
         const button: ?input.MouseButton = button: for (self.mouse.click_state, 0..) |state, i| {
             if (state == .press)
-                break :button @enumFromInt(i);
+                break :button @fromBackingInt(@intCast(i));
         } else null;
 
         self.mouseReport(button, .motion, self.mouse.mods, pos);
@@ -4758,7 +4801,7 @@ pub fn cursorPosCallback(
     }
 
     // Handle cursor position for text selection
-    if (self.mouse.click_state[@intFromEnum(input.MouseButton.left)] == .press) select: {
+    if (self.mouse.click_state[@backingInt(input.MouseButton.left)] == .press) select: {
         // Left click pressed but count zero can happen if mouse reporting is on.
         // In this scenario, we mark the click state because we need that to
         // properly make some mouse reports, but we don't keep track of the
@@ -4936,8 +4979,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             // as two literals.
             var buf: [128]u8 = undefined;
             const full_data = switch (action) {
-                .csi => try std.fmt.bufPrint(&buf, "\x1b[{s}", .{data}),
-                .esc => try std.fmt.bufPrint(&buf, "\x1b{s}", .{data}),
+                .csi => try std.mem.print(&buf, "\x1b[{s}", .{data}),
+                .esc => try std.mem.print(&buf, "\x1b{s}", .{data}),
                 else => unreachable,
             };
             self.queueIo(try termio.Message.writeReq(
@@ -4956,8 +4999,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .text => |data| {
-            var stack = std.heap.stackFallback(256, self.alloc);
-            const alloc = stack.get();
+            var stack_buf: [256]u8 = undefined;
+            var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.alloc);
+            const alloc = stack.allocator();
             const buf = try alloc.alloc(u8, data.len);
             defer alloc.free(buf);
             const text = configpkg.string.parse(buf, data) catch |err| {
@@ -5168,7 +5212,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                             log.warn("failed to get URI for OSC8 hyperlink", .{});
                             return false;
                         };
-                        break :url_text try self.alloc.dupeZ(u8, uri);
+                        break :url_text try self.alloc.dupeSentinel(u8, uri, 0);
                     },
                 };
                 defer self.alloc.free(url_text);
@@ -5273,7 +5317,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         ),
 
         .set_surface_title => |v| {
-            const title = try self.alloc.dupeZ(u8, v);
+            const title = try self.alloc.dupeSentinel(u8, v, 0);
             defer self.alloc.free(title);
             return try self.rt_app.performAction(
                 .{ .surface = self },
@@ -5283,7 +5327,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .set_tab_title => |v| {
-            const title = try self.alloc.dupeZ(u8, v);
+            const title = try self.alloc.dupeSentinel(u8, v, 0);
             defer self.alloc.free(title);
             return try self.rt_app.performAction(
                 .{ .surface = self },
@@ -5293,7 +5337,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .set_window_title => |v| {
-            const title = try self.alloc.dupeZ(u8, v);
+            const title = try self.alloc.dupeSentinel(u8, v, 0);
             defer self.alloc.free(title);
             return try self.rt_app.performAction(
                 .{ .surface = self },
@@ -5430,7 +5474,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .previous_tab => .previous,
                 .next_tab => .next,
                 .last_tab => .last,
-                .goto_tab => @enumFromInt(v),
+                .goto_tab => @fromBackingInt(@intCast(v)),
                 else => comptime unreachable,
             },
         ),
@@ -5805,8 +5849,8 @@ fn writeScreenFile(
     var retain_tmp_dir = false;
     defer if (retain_tmp_dir) tmp_dir.close(.retain) else tmp_dir.deinit();
 
-    var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const filename = try std.fmt.bufPrint(
+    var filename_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const filename = try std.mem.print(
         &filename_buf,
         "{s}.{s}",
         .{
@@ -5822,7 +5866,7 @@ fn writeScreenFile(
     var file = try tmp_dir.dir.createFile(
         global.io(),
         filename,
-        switch (builtin.os.tag) {
+        switch (builtin.target.os.tag) {
             .windows => .{},
             else => .{ .permissions = .fromMode(0o600) },
         },
@@ -5898,7 +5942,7 @@ fn writeScreenFile(
     try buf_writer.flush();
 
     // Get the final path
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = path_buf[0..try tmp_dir.dir.realPathFile(
         global.io(),
         filename,
@@ -5907,7 +5951,7 @@ fn writeScreenFile(
 
     switch (write_screen.action) {
         .copy => {
-            const pathZ = try self.alloc.dupeZ(u8, path);
+            const pathZ = try self.alloc.dupeSentinel(u8, path, 0);
             defer self.alloc.free(pathZ);
             try self.rt_surface.setClipboard(.standard, &.{.{
                 .mime = "text/plain",
@@ -5950,8 +5994,8 @@ pub const CompleteClipboard = struct {
     ///
     ///   - For "regular" pasting this means that unsafe pastes are
     ///     allowed. Unsafe data is defined as data that contains
-    ///     newlines, though this definition may change later to detect
-    ///     other scenarios.
+    ///     line terminators (newlines or carriage returns), though
+    ///     this definition may change later to detect other scenarios.
     ///
     ///   - For OSC 52 and Kitty clipboard protocol reads and writes no
     ///     prompt is shown to the user when this is true.
@@ -5998,9 +6042,10 @@ pub fn completeClipboardRequest(
             // The write API wants sentinel-terminated data; the write
             // text round-tripped through the apprt confirmation flow as
             // a plain representation.
-            const data = try self.alloc.dupeZ(
+            const data = try self.alloc.dupeSentinel(
                 u8,
                 clipboardTextContent(complete.contents) orelse "",
+                0,
             );
             defer self.alloc.free(data);
             try self.rt_surface.setClipboard(clipboard, &.{.{
@@ -6382,7 +6427,7 @@ fn completeClipboardReadOSC52(
     };
 
     // Wrap our data with the OSC code
-    const prefix = try std.fmt.bufPrint(buf, "\x1b]52;{c};", .{kind});
+    const prefix = try std.mem.print(buf, "\x1b]52;{c};", .{kind});
     assert(prefix.len == 7);
     buf[buf.len - 2] = '\x1b';
     buf[buf.len - 1] = '\\';
@@ -6647,6 +6692,16 @@ test "queueIo frees allocated writes in readonly mode" {
         .alloc = testing.allocator,
         .data = data,
     } }, .unlocked);
+}
+
+test "Mouse.click_state holds every button" {
+    var mouse: Mouse = .{};
+    inline for (@typeInfo(input.MouseButton).@"enum".field_values) |value| {
+        mouse.click_state[@intCast(value)] = .press;
+    }
+    for (mouse.click_state) |state| {
+        try std.testing.expectEqual(.press, state);
+    }
 }
 
 test "promptClickRelativeRow" {
