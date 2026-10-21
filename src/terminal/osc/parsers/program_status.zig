@@ -206,7 +206,7 @@ pub const Report = struct {
         self: Report,
         comptime option: Option,
     ) ?option.Type() {
-        const v = lastValue(@tagName(option), self.data) orelse return null;
+        const v = lastValue(@tagName(option), value_bytes, self.data) orelse return null;
 
         return switch (option) {
             // The parser already discarded reports with an invalid id.
@@ -354,37 +354,48 @@ fn validate(data: []const u8) error{
         if (key.len > max_key_bytes) return error.TooLong;
     }
 
+    // Everything here reads values without filtering them by the value
+    // alphabet. A filtered read skips a value with a disallowed byte, so
+    // an invalid id would look absent and the report would fall back to
+    // the root record. These checks reject such values themselves, and
+    // what passes them is all in the alphabet, so `readOption` finds the
+    // same values.
+
     // Every value is checked against its limit, even one a later pair
     // replaces, because any limit violation discards the whole report.
-    var ids: kitty_metadata.ValueIterator("id", value_bytes) = .init(data);
+    var ids: kitty_metadata.ValueIterator("id", null) = .init(data);
     while (ids.next()) |v| try validateId(v);
     inline for (.{
         .{ "app", max_app_bytes },
         .{ "title", max_title_encoded_bytes },
         .{ "msg", max_msg_encoded_bytes },
     }) |limit| {
-        var it: kitty_metadata.ValueIterator(limit[0], value_bytes) = .init(data);
+        var it: kitty_metadata.ValueIterator(limit[0], null) = .init(data);
         while (it.next()) |v| if (v.len > limit[1]) return error.TooLong;
     }
 
     var buf: [max_msg_bytes]u8 = undefined;
-    if (lastValue("title", data)) |v| {
+    if (lastValue("title", null, data)) |v| {
         if ((try decodeText(v, &buf)).len > max_title_bytes) return error.TooLong;
     }
-    if (lastValue("msg", data)) |v| _ = try decodeText(v, &buf);
+    if (lastValue("msg", null, data)) |v| _ = try decodeText(v, &buf);
 
     // An unknown state discards the report rather than guessing, so a
     // state added in a later revision never turns into something else.
     return std.meta.stringToEnum(
         State,
-        lastValue("state", data) orelse return error.InvalidState,
+        lastValue("state", null, data) orelse return error.InvalidState,
     ) orelse error.InvalidState;
 }
 
-/// The last value of `key` in a report body. Pairs without an `=` and
-/// values with bytes outside the value alphabet are skipped.
-fn lastValue(comptime key: []const u8, data: []const u8) ?[]const u8 {
-    var it: kitty_metadata.ValueIterator(key, value_bytes) = .init(data);
+/// The last value of `key` in a report body. Pairs without an `=` are
+/// skipped, and so are values with bytes outside `valid`, if given.
+fn lastValue(
+    comptime key: []const u8,
+    comptime valid: ?[]const u8,
+    data: []const u8,
+) ?[]const u8 {
+    var it: kitty_metadata.ValueIterator(key, valid) = .init(data);
     var last: ?[]const u8 = null;
     while (it.next()) |v| last = v;
     return last;
@@ -668,6 +679,11 @@ test "OSC 7501: ids" {
         "a//b",
         "a,b",
         "a=b",
+        // Bytes outside the value alphabet must not make the id look
+        // absent.
+        "a@b",
+        "a b",
+        "a%20b",
         max_segment ++ "a",
         "a/b/c/d/e/f/g/h/i",
         longs ++ "a",
@@ -677,7 +693,24 @@ test "OSC 7501: ids" {
         p.nextSlice("7501;state=clear:id=");
         p.nextSlice(id);
         try testing.expect(p.end('\x1b') == null);
+
+        // Nor with BEL, or after a valid id.
+        p.reset();
+        p.nextSlice("7501;state=clear:id=");
+        p.nextSlice(id);
+        try testing.expect(p.end(0x07) == null);
+
+        p.reset();
+        p.nextSlice("7501;state=clear:id=good:id=");
+        p.nextSlice(id);
+        try testing.expect(p.end('\x1b') == null);
     }
+
+    // The same goes for any state, which would otherwise replace the
+    // root record.
+    p.reset();
+    p.nextSlice("7501;state=error:id=a@b");
+    try testing.expect(p.end('\x1b') == null);
 }
 
 test "OSC 7501: text must decode to safe UTF-8" {
@@ -691,6 +724,9 @@ test "OSC 7501: text must decode to safe UTF-8" {
         "7501;state=done:msg=a",
         "7501;state=done:msg=QQ=",
         "7501;state=done:title=a",
+        // Not base64, and outside the value alphabet.
+        "7501;state=done:msg=YQ!",
+        "7501;state=done:title=YQ!",
         // "a\nb", a control character.
         "7501;state=done:msg=YQpi",
         // "\x9b", a C1 control character as UTF-8.
@@ -747,6 +783,7 @@ test "OSC 7501: discarded reports" {
         .{ "7501;state=sleeping", false },
         .{ "7501;state=", false },
         .{ "7501;state=IDLE", false },
+        .{ "7501;state=idle:state=d@ne", false },
 
         // A key that is too long, even one we don't know.
         .{ "7501;state=idle:" ++ @as([max_key_bytes]u8, @splat('a')) ++ "=1", true },
@@ -755,6 +792,7 @@ test "OSC 7501: discarded reports" {
         // An app that is too long, even if a later pair replaces it.
         .{ "7501;state=idle:app=" ++ @as([max_app_bytes + 1]u8, @splat('a')), false },
         .{ "7501;state=idle:app=" ++ @as([max_app_bytes + 1]u8, @splat('a')) ++ ":app=ok", false },
+        .{ "7501;state=idle:app=" ++ @as([max_app_bytes + 1]u8, @splat('@')) ++ ":app=ok", false },
 
         // Text at its limits and one step over.
         .{ "7501;state=idle:title=" ++ title, true },
