@@ -521,7 +521,9 @@ pub const Action = union(enum) {
     ///
     ///   - `left`, `right`: one cell, within the row.
     ///   - `up`, `down`: one row, in the same column.
-    ///   - `word_next`: to the cell before the next word (`w` in Helix).
+    ///   - `word_next`: to the cell before the next word (`w` in Helix),
+    ///     or to the last cell of the word when the next word is on another
+    ///     row.
     ///   - `word_end`: to the end of the current or next word (`e`).
     ///   - `word_prev`: to the start of the current or previous word (`b`).
     ///   - `next_word_start`: to the first cell of the next word (`w` in
@@ -543,6 +545,21 @@ pub const Action = union(enum) {
     /// a selection at the terminal cursor when there is none. See
     /// `move_selection` for the motions.
     extend_selection: SelectionMotion,
+
+    /// Select what a word motion of Helix moves over, as `w`, `e` and `b`
+    /// do in the normal mode of Helix: the head goes where `move_selection`
+    /// takes it, and the anchor goes to the cursor cell, or to the cell
+    /// after it (before it, for `prev`) when the cursor is already on a
+    /// word boundary, so a repeated motion moves on. Line ends between the
+    /// cursor and the word are left out. Starts a selection at the terminal
+    /// cursor when there is none. Does nothing when the motion cannot move.
+    ///
+    /// Valid motions are:
+    ///
+    ///   - `next`: the word after the cursor and the blanks after it (`w`).
+    ///   - `end`: to the end of the word (`e`).
+    ///   - `prev`: back to the start of the word (`b`).
+    select_word: SelectionWordMotion,
 
     /// Put the anchor of the selection on its head, so the selection is one
     /// cell. Does nothing when there is no selection.
@@ -1156,6 +1173,12 @@ pub const Action = union(enum) {
         off,
     };
 
+    pub const SelectionWordMotion = enum {
+        next,
+        end,
+        prev,
+    };
+
     pub const SplitDirection = enum {
         right,
         down,
@@ -1524,6 +1547,7 @@ pub const Action = union(enum) {
             .start_selection,
             .move_selection,
             .extend_selection,
+            .select_word,
             .collapse_selection,
             .flip_selection,
             .select_line,
@@ -4795,6 +4819,20 @@ test "parse: next_word_start, select_line_bounds and selection_rectangle" {
         try testing.expectEqual(Action.SelectionRectangle.on, binding.action.selection_rectangle);
     }
     try testing.expectError(Error.InvalidFormat, parseSingle("a=selection_rectangle:sideways"));
+}
+
+test "parse: select_word" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=select_word:next");
+        try testing.expectEqual(Action.SelectionWordMotion.next, binding.action.select_word);
+    }
+    {
+        const binding = try parseSingle("a=select_word:prev");
+        try testing.expectEqual(Action.SelectionWordMotion.prev, binding.action.select_word);
+    }
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=select_word:word_next"));
 }
 
 test "parse: selection_cursor" {

@@ -6022,6 +6022,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
         .move_selection => |motion| try self.moveSelection(motion, false),
         .extend_selection => |motion| try self.moveSelection(motion, true),
+        .select_word => |motion| try self.selectWord(motion),
 
         .collapse_selection => {
             self.renderer_state.mutex.lockUncancelable(global.io());
@@ -6155,6 +6156,27 @@ fn moveSelection(
         .top => .top,
         .bottom => .bottom,
     }, extend, self.config.selection_word_chars);
+    scrollToSelectionHead(screen, sel);
+    screen.dirty.selection = true;
+    try self.queueRender();
+}
+
+/// `select_word`: see `terminal.Selection.selectWord`.
+fn selectWord(
+    self: *Surface,
+    motion: input.Binding.Action.SelectionWordMotion,
+) !void {
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+
+    _ = try self.selectCursorIfNone();
+    const screen: *terminal.Screen = self.io.terminal.screens.active;
+    const sel = if (screen.selection) |*sel| sel else return;
+    sel.selectWord(switch (motion) {
+        .next => .next,
+        .end => .end,
+        .prev => .prev,
+    }, self.config.selection_word_chars);
     scrollToSelectionHead(screen, sel);
     screen.dirty.selection = true;
     try self.queueRender();
