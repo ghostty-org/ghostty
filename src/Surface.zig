@@ -6047,6 +6047,33 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             try self.queueRender();
         },
 
+        .select_line_bounds => {
+            self.renderer_state.mutex.lockUncancelable(global.io());
+            defer self.renderer_state.mutex.unlock(global.io());
+
+            _ = try self.selectCursorIfNone();
+            const screen: *terminal.Screen = self.io.terminal.screens.active;
+            const sel = if (screen.selection) |*sel| sel else return false;
+            sel.expandToLineBounds(screen);
+            scrollToSelectionHead(screen, sel);
+            screen.dirty.selection = true;
+            try self.queueRender();
+        },
+
+        .selection_rectangle => |v| {
+            self.renderer_state.mutex.lockUncancelable(global.io());
+            defer self.renderer_state.mutex.unlock(global.io());
+
+            _ = try self.selectCursorIfNone();
+            const screen: *terminal.Screen = self.io.terminal.screens.active;
+            const sel = if (screen.selection) |*sel| sel else return false;
+            const on = v == .on;
+            if (sel.rectangle == on) return false;
+            sel.rectangle = on;
+            screen.dirty.selection = true;
+            try self.queueRender();
+        },
+
         .clear_selection => {
             self.renderer_state.mutex.lockUncancelable(global.io());
             defer self.renderer_state.mutex.unlock(global.io());
@@ -6105,6 +6132,7 @@ fn moveSelection(
         .word_next => .word_next,
         .word_end => .word_end,
         .word_prev => .word_prev,
+        .next_word_start => .next_word_start,
         .line_start => .line_start,
         .line_end => .line_end,
         .page_up => .page_up,

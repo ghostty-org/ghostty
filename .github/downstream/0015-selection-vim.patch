@@ -1,0 +1,377 @@
+From 0e5ddb05a625b03934eaa7deb3bfd5dc4608a67c Mon Sep 17 00:00:00 2001
+From: Ethan Lee <ethantlee21@gmail.com>
+Date: Tue, 20 Oct 2026 21:32:52 -0400
+Subject: [PATCH] input: add the selection primitives that a Vim keymap needs
+
+A Vim keymap for the copy mode of an embedder needs three things that
+the Helix primitives of patch 0013 do not give:
+
+  move_selection:next_word_start   Vim `w`: the first cell of the next
+                                   word, not the cell before it
+  select_line_bounds               Vim `V`, Helix `X`: whole rows, with
+                                   the direction kept, no growth
+  selection_rectangle:on|off       Vim `Ctrl-v`: the block selection
+
+select_line_bounds keeps each end the anchor or the head that it was,
+so a motion of the head after it still moves the same end. select_line
+(Helix `x`) normalizes the direction and grows by a row, which is right
+for Helix and wrong for a Vim `Vk`.
+
+Selection.expandToLineBounds and nextWordStart are tested in
+Selection.zig.
+---
+ src/Surface.zig            |  28 +++++++
+ src/input/Binding.zig      |  39 +++++++++
+ src/input/command.zig      |   2 +
+ src/terminal/Selection.zig | 163 +++++++++++++++++++++++++++++++++++++
+ 4 files changed, 232 insertions(+)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index de1466721..994a9aca5 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -6047,6 +6047,33 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+             try self.queueRender();
+         },
+ 
++        .select_line_bounds => {
++            self.renderer_state.mutex.lockUncancelable(global.io());
++            defer self.renderer_state.mutex.unlock(global.io());
++
++            _ = try self.selectCursorIfNone();
++            const screen: *terminal.Screen = self.io.terminal.screens.active;
++            const sel = if (screen.selection) |*sel| sel else return false;
++            sel.expandToLineBounds(screen);
++            scrollToSelectionHead(screen, sel);
++            screen.dirty.selection = true;
++            try self.queueRender();
++        },
++
++        .selection_rectangle => |v| {
++            self.renderer_state.mutex.lockUncancelable(global.io());
++            defer self.renderer_state.mutex.unlock(global.io());
++
++            _ = try self.selectCursorIfNone();
++            const screen: *terminal.Screen = self.io.terminal.screens.active;
++            const sel = if (screen.selection) |*sel| sel else return false;
++            const on = v == .on;
++            if (sel.rectangle == on) return false;
++            sel.rectangle = on;
++            screen.dirty.selection = true;
++            try self.queueRender();
++        },
++
+         .clear_selection => {
+             self.renderer_state.mutex.lockUncancelable(global.io());
+             defer self.renderer_state.mutex.unlock(global.io());
+@@ -6105,6 +6132,7 @@ fn moveSelection(
+         .word_next => .word_next,
+         .word_end => .word_end,
+         .word_prev => .word_prev,
++        .next_word_start => .next_word_start,
+         .line_start => .line_start,
+         .line_end => .line_end,
+         .page_up => .page_up,
+diff --git a/src/input/Binding.zig b/src/input/Binding.zig
+index c1395c713..5f81fb3fe 100644
+--- a/src/input/Binding.zig
++++ b/src/input/Binding.zig
+@@ -524,6 +524,8 @@ pub const Action = union(enum) {
+     ///   - `word_next`: to the cell before the next word (`w` in Helix).
+     ///   - `word_end`: to the end of the current or next word (`e`).
+     ///   - `word_prev`: to the start of the current or previous word (`b`).
++    ///   - `next_word_start`: to the first cell of the next word (`w` in
++    ///     Vim).
+     ///   - `line_start`, `line_end`: the first cell of the row, or its last
+     ///     cell with text.
+     ///   - `page_up`, `page_down`, `half_page_up`, `half_page_down`: a
+@@ -557,6 +559,20 @@ pub const Action = union(enum) {
+     /// bottom. Starts a selection at the terminal cursor when there is none.
+     select_line,
+ 
++    /// Grow the selection to whole rows and keep its direction, as `V` does
++    /// in Vim and `X` in Helix. The end that is above goes to the start of
++    /// its row and the end that is below to the end of its row, and each
++    /// stays the anchor or the head that it was. Rows that soft-wrap are one
++    /// line. A selection that already covers whole rows does not change.
++    /// Starts a selection at the terminal cursor when there is none.
++    select_line_bounds,
++
++    /// Make the selection a rectangle (`on`), the block selection of Vim
++    /// (`Ctrl-v`), or lines again (`off`). The anchor and the head are two
++    /// corners. Starts a selection at the terminal cursor when there is
++    /// none. Does nothing when the state is already the one asked for.
++    selection_rectangle: SelectionRectangle,
++
+     /// Clear the selection. Does nothing when there is no selection.
+     clear_selection,
+ 
+@@ -1124,6 +1140,7 @@ pub const Action = union(enum) {
+         word_next,
+         word_end,
+         word_prev,
++        next_word_start,
+         line_start,
+         line_end,
+         page_up,
+@@ -1134,6 +1151,11 @@ pub const Action = union(enum) {
+         bottom,
+     };
+ 
++    pub const SelectionRectangle = enum {
++        on,
++        off,
++    };
++
+     pub const SplitDirection = enum {
+         right,
+         down,
+@@ -1505,6 +1527,8 @@ pub const Action = union(enum) {
+             .collapse_selection,
+             .flip_selection,
+             .select_line,
++            .select_line_bounds,
++            .selection_rectangle,
+             .clear_selection,
+             .selection_cursor,
+             .jump_to_prompt,
+@@ -4758,6 +4782,21 @@ test "parse: move_selection and extend_selection" {
+     ));
+ }
+ 
++test "parse: next_word_start, select_line_bounds and selection_rectangle" {
++    const testing = std.testing;
++
++    {
++        const binding = try parseSingle("a=move_selection:next_word_start");
++        try testing.expectEqual(Action.SelectionMotion.next_word_start, binding.action.move_selection);
++    }
++    try testing.expect((try parseSingle("a=select_line_bounds")).action == .select_line_bounds);
++    {
++        const binding = try parseSingle("a=selection_rectangle:on");
++        try testing.expectEqual(Action.SelectionRectangle.on, binding.action.selection_rectangle);
++    }
++    try testing.expectError(Error.InvalidFormat, parseSingle("a=selection_rectangle:sideways"));
++}
++
+ test "parse: selection_cursor" {
+     const testing = std.testing;
+ 
+diff --git a/src/input/command.zig b/src/input/command.zig
+index f41e82ba8..594578682 100644
+--- a/src/input/command.zig
++++ b/src/input/command.zig
+@@ -745,6 +745,8 @@ fn actionCommands(action: Action.Key) []const Command {
+         .collapse_selection,
+         .flip_selection,
+         .select_line,
++        .select_line_bounds,
++        .selection_rectangle,
+         .clear_selection,
+         .selection_cursor,
+         => comptime &.{},
+diff --git a/src/terminal/Selection.zig b/src/terminal/Selection.zig
+index c9788d2ac..21944dea0 100644
+--- a/src/terminal/Selection.zig
++++ b/src/terminal/Selection.zig
+@@ -522,6 +522,7 @@ pub const Motion = enum {
+     word_next,
+     word_end,
+     word_prev,
++    next_word_start,
+     line_start,
+     line_end,
+     page_up,
+@@ -573,6 +574,7 @@ pub fn move(
+         .word_next => wordNext(head.*, boundary_codepoints),
+         .word_end => wordEnd(head.*, boundary_codepoints),
+         .word_prev => wordPrev(head.*, boundary_codepoints),
++        .next_word_start => nextWordStart(head.*, boundary_codepoints),
+     };
+ 
+     head.* = target;
+@@ -607,6 +609,35 @@ pub fn expandToLines(self: *Selection, s: *const Screen) void {
+     self.endPtr().* = end_pin;
+ }
+ 
++/// Grow the selection to whole rows and keep its direction, as `V` does in
++/// Vim and `X` in Helix. The end that is above goes to the start of its row,
++/// the end that is below goes to the end of its row, and each stays the
++/// anchor or the head that it was, so a motion of the head after this still
++/// moves the same end. Rows that soft-wrap are one line. A selection that
++/// already covers whole rows does not change.
++pub fn expandToLineBounds(self: *Selection, s: *const Screen) void {
++    var top = self.topLeft(s);
++    while (top.up(1)) |above| {
++        if (!above.rowAndCell().row.wrap) break;
++        top = above;
++    }
++    top.x = 0;
++
++    var bottom = self.bottomRight(s);
++    while (bottom.rowAndCell().row.wrap) {
++        bottom = bottom.down(1) orelse break;
++    }
++    bottom.x = bottom.node.cols() - 1;
++
++    if (self.order(s) == .reverse) {
++        self.startPtr().* = bottom;
++        self.endPtr().* = top;
++    } else {
++        self.startPtr().* = top;
++        self.endPtr().* = bottom;
++    }
++}
++
+ /// The first or last row of the written screen, in the column of `pin`.
+ fn edgeRow(s: *const Screen, pin: Pin, edge: enum { top, bottom }) Pin {
+     var p = switch (edge) {
+@@ -789,6 +820,25 @@ fn wordPrev(pin: Pin, boundary_codepoints: []const u21) Pin {
+     }
+ }
+ 
++/// Vim `w`: the first cell of the next word. From inside a word this is the
++/// start of the word after it; a run of boundary codepoints after a word is
++/// the next word (`foo.bar`: `w` lands on the dot). With no next word the
++/// head stays.
++fn nextWordStart(pin: Pin, boundary_codepoints: []const u21) Pin {
++    var w = WordWalker.init(pin, boundary_codepoints);
++    const start_class = w.class();
++    if (start_class != .blank) {
++        while (true) {
++            if (!w.right()) return pin;
++            if (w.class() != start_class) break;
++        }
++    }
++    while (w.class() == .blank) {
++        if (!w.right()) return pin;
++    }
++    return w.pin;
++}
++
+ test "Selection: adjust right" {
+     const testing = std.testing;
+     var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
+@@ -1583,6 +1633,119 @@ test "Selection: expandToLines takes a soft-wrapped line as one line" {
+     try testing.expectEqual(testScreen(9, 2), testPoint(&s, sel.end()));
+ }
+ 
++test "Selection: move next_word_start lands on the next word" {
++    const testing = std.testing;
++    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
++    defer s.deinit();
++    try s.testWriteString("foo bar\nbaz");
++
++    const origin = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
++    var sel = Selection.init(origin, origin, false);
++    defer sel.deinit(&s);
++
++    // From inside a word: the first cell of the next word.
++    sel.move(&s, .next_word_start, false, &test_word_boundaries);
++    try testing.expectEqual(testScreen(4, 0), testPoint(&s, sel.end()));
++    try testing.expectEqual(testScreen(4, 0), testPoint(&s, sel.start()));
++
++    // From the last word of a row: the first word of the next row.
++    sel.move(&s, .next_word_start, false, &test_word_boundaries);
++    try testing.expectEqual(testScreen(0, 1), testPoint(&s, sel.end()));
++
++    // No next word: stays.
++    sel.move(&s, .next_word_start, false, &test_word_boundaries);
++    try testing.expectEqual(testScreen(0, 1), testPoint(&s, sel.end()));
++
++    // From a blank: the word after it.
++    sel.endPtr().* = s.pages.pin(.{ .screen = .{ .x = 3, .y = 0 } }).?;
++    sel.move(&s, .next_word_start, false, &test_word_boundaries);
++    try testing.expectEqual(testScreen(4, 0), testPoint(&s, sel.end()));
++}
++
++test "Selection: move next_word_start takes a boundary run as a word" {
++    const testing = std.testing;
++    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
++    defer s.deinit();
++    try s.testWriteString("ab--cd");
++
++    const origin = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
++    var sel = Selection.init(origin, origin, false);
++    defer sel.deinit(&s);
++
++    sel.move(&s, .next_word_start, false, &test_word_boundaries);
++    try testing.expectEqual(testScreen(2, 0), testPoint(&s, sel.end()));
++    sel.move(&s, .next_word_start, false, &test_word_boundaries);
++    try testing.expectEqual(testScreen(4, 0), testPoint(&s, sel.end()));
++}
++
++test "Selection: expandToLineBounds keeps the direction and does not grow" {
++    const testing = std.testing;
++    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
++    defer s.deinit();
++    try s.testWriteString("A1234\nB5678\nC1234\nD5678");
++
++    // One cell: its row, head at the end.
++    {
++        const origin = s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?;
++        var sel = Selection.init(origin, origin, false);
++        defer sel.deinit(&s);
++
++        sel.expandToLineBounds(&s);
++        try testing.expectEqual(testScreen(0, 1), testPoint(&s, sel.start()));
++        try testing.expectEqual(testScreen(9, 1), testPoint(&s, sel.end()));
++
++        // Whole rows already: no change.
++        sel.expandToLineBounds(&s);
++        try testing.expectEqual(testScreen(0, 1), testPoint(&s, sel.start()));
++        try testing.expectEqual(testScreen(9, 1), testPoint(&s, sel.end()));
++    }
++
++    // Head below the anchor: the anchor takes the top start, the head the
++    // bottom end.
++    {
++        var sel = Selection.init(
++            s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?,
++            s.pages.pin(.{ .screen = .{ .x = 5, .y = 2 } }).?,
++            false,
++        );
++        defer sel.deinit(&s);
++
++        sel.expandToLineBounds(&s);
++        try testing.expectEqual(testScreen(0, 0), testPoint(&s, sel.start()));
++        try testing.expectEqual(testScreen(9, 2), testPoint(&s, sel.end()));
++    }
++
++    // Head above the anchor: the anchor takes the bottom end, the head the
++    // top start, so a motion of the head still moves the top.
++    {
++        var sel = Selection.init(
++            s.pages.pin(.{ .screen = .{ .x = 5, .y = 2 } }).?,
++            s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?,
++            false,
++        );
++        defer sel.deinit(&s);
++
++        sel.expandToLineBounds(&s);
++        try testing.expectEqual(testScreen(9, 2), testPoint(&s, sel.start()));
++        try testing.expectEqual(testScreen(0, 0), testPoint(&s, sel.end()));
++    }
++}
++
++test "Selection: expandToLineBounds takes a soft-wrapped line as one line" {
++    const testing = std.testing;
++    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback_bytes = 0 });
++    defer s.deinit();
++    try s.testWriteString("0123456789abc\nnext");
++
++    const origin = s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?;
++    var sel = Selection.init(origin, origin, false);
++    defer sel.deinit(&s);
++
++    sel.expandToLineBounds(&s);
++    try testing.expectEqual(testScreen(0, 0), testPoint(&s, sel.start()));
++    try testing.expectEqual(testScreen(9, 1), testPoint(&s, sel.end()));
++}
++
+ test "Selection: order, standard" {
+     const testing = std.testing;
+     const alloc = testing.allocator;
+-- 
+2.54.0 (Apple Git-157)
+

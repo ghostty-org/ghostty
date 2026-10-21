@@ -66,6 +66,7 @@ env:
     .github/downstream/0012-embedded-initial-size.patch
     .github/downstream/0013-selection-motions.patch
     .github/downstream/0014-selection-cursor.patch
+    .github/downstream/0015-selection-vim.patch
   # How far behind upstream HEAD the fork's base may fall before the sync is
   # presumed broken. A daily sync should keep this at 0–1 days.
   MAX_AGE_DAYS: "4"

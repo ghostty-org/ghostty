@@ -524,6 +524,8 @@ pub const Action = union(enum) {
     ///   - `word_next`: to the cell before the next word (`w` in Helix).
     ///   - `word_end`: to the end of the current or next word (`e`).
     ///   - `word_prev`: to the start of the current or previous word (`b`).
+    ///   - `next_word_start`: to the first cell of the next word (`w` in
+    ///     Vim).
     ///   - `line_start`, `line_end`: the first cell of the row, or its last
     ///     cell with text.
     ///   - `page_up`, `page_down`, `half_page_up`, `half_page_down`: a
@@ -556,6 +558,20 @@ pub const Action = union(enum) {
     /// selection that already covers whole rows grows by one row at the
     /// bottom. Starts a selection at the terminal cursor when there is none.
     select_line,
+
+    /// Grow the selection to whole rows and keep its direction, as `V` does
+    /// in Vim and `X` in Helix. The end that is above goes to the start of
+    /// its row and the end that is below to the end of its row, and each
+    /// stays the anchor or the head that it was. Rows that soft-wrap are one
+    /// line. A selection that already covers whole rows does not change.
+    /// Starts a selection at the terminal cursor when there is none.
+    select_line_bounds,
+
+    /// Make the selection a rectangle (`on`), the block selection of Vim
+    /// (`Ctrl-v`), or lines again (`off`). The anchor and the head are two
+    /// corners. Starts a selection at the terminal cursor when there is
+    /// none. Does nothing when the state is already the one asked for.
+    selection_rectangle: SelectionRectangle,
 
     /// Clear the selection. Does nothing when there is no selection.
     clear_selection,
@@ -1124,6 +1140,7 @@ pub const Action = union(enum) {
         word_next,
         word_end,
         word_prev,
+        next_word_start,
         line_start,
         line_end,
         page_up,
@@ -1132,6 +1149,11 @@ pub const Action = union(enum) {
         half_page_down,
         top,
         bottom,
+    };
+
+    pub const SelectionRectangle = enum {
+        on,
+        off,
     };
 
     pub const SplitDirection = enum {
@@ -1505,6 +1527,8 @@ pub const Action = union(enum) {
             .collapse_selection,
             .flip_selection,
             .select_line,
+            .select_line_bounds,
+            .selection_rectangle,
             .clear_selection,
             .selection_cursor,
             .jump_to_prompt,
@@ -4756,6 +4780,21 @@ test "parse: move_selection and extend_selection" {
     try testing.expectError(Error.InvalidFormat, parseSingle(
         "a=move_selection:sideways",
     ));
+}
+
+test "parse: next_word_start, select_line_bounds and selection_rectangle" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=move_selection:next_word_start");
+        try testing.expectEqual(Action.SelectionMotion.next_word_start, binding.action.move_selection);
+    }
+    try testing.expect((try parseSingle("a=select_line_bounds")).action == .select_line_bounds);
+    {
+        const binding = try parseSingle("a=selection_rectangle:on");
+        try testing.expectEqual(Action.SelectionRectangle.on, binding.action.selection_rectangle);
+    }
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=selection_rectangle:sideways"));
 }
 
 test "parse: selection_cursor" {
