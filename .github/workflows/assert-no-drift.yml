@@ -68,6 +68,7 @@ env:
     .github/downstream/0014-selection-cursor.patch
     .github/downstream/0015-selection-vim.patch
     .github/downstream/0016-selection-click.patch
+    .github/downstream/0017-selection-helix-words.patch
   # How far behind upstream HEAD the fork's base may fall before the sync is
   # presumed broken. A daily sync should keep this at 0–1 days.
   MAX_AGE_DAYS: "4"

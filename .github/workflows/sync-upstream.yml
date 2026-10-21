@@ -57,6 +57,7 @@ env:
     .github/downstream/0014-selection-cursor.patch
     .github/downstream/0015-selection-vim.patch
     .github/downstream/0016-selection-click.patch
+    .github/downstream/0017-selection-helix-words.patch
 
 jobs:
   sync:
