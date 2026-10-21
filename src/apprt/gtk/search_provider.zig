@@ -7,7 +7,12 @@
 //! working directory are joined into a single haystack and fuzzy matched
 //! against the search terms with `zf`, the same library the theme picker
 //! uses, so results are ranked by match quality and a term can name
-//! either field. Activating a result presents that surface directly with
+//! either field. Both sides are case folded first, so matching ignores
+//! case across all of Unicode, but they aren't normalized: a title with a
+//! precomposed "é" doesn't match a term typed as "e" plus a combining
+//! accent, or the other way around. See `appendFolded`.
+//!
+//! Activating a result presents that surface directly with
 //! `Surface.present` rather than through the `present-surface` action, so
 //! that it can carry the timestamp GNOME Shell gives us; see
 //! `presentSurface`.
@@ -148,6 +153,7 @@ const Allocator = std.mem.Allocator;
 
 const gio = @import("gio");
 const glib = @import("glib");
+const uucode = @import("uucode");
 const zf = @import("zf");
 
 const Application = @import("class/application.zig").Application;
@@ -502,14 +508,11 @@ fn search(terms: *glib.Variant, results: *[max_results]u64) usize {
             continue;
         };
 
-        const rank = zf.rank(haystack.items, parsed.values, .{
-            .case_sensitive = false,
-
-            // Our haystack is a title glued to a path, not a path, so the
-            // filepath heuristics (basename boosting in particular) would
-            // just make the ranking harder to predict.
-            .plain = true,
-        }) orelse continue;
+        const rank = zf.rank(
+            haystack.items,
+            parsed.values,
+            rank_options,
+        ) orelse continue;
 
         matches.insert(.{ .id = core_surface.id, .rank = rank });
     }
@@ -521,8 +524,23 @@ fn search(terms: *glib.Variant, results: *[max_results]u64) usize {
     return matches.len;
 }
 
+/// How we ask zf to rank a haystack against the terms.
+const rank_options: zf.RankOptions = .{
+    // The haystack and the terms are both already case folded (see
+    // `appendFolded`), which covers case across all of Unicode, though
+    // not normalization. zf's own case insensitivity only lowercases
+    // ASCII, so it would add nothing.
+    .case_sensitive = true,
+
+    // Our haystack is a title glued to a path, not a path, so the
+    // filepath heuristics (basename boosting in particular) would just
+    // make the ranking harder to predict.
+    .plain = true,
+};
+
 /// The string we fuzzy match against for a single surface: its title and
-/// its working directory, so that a search can name either one (or both).
+/// its working directory, so that a search can name either one (or both),
+/// case folded so that it can be compared with the folded terms.
 fn buildHaystack(
     alloc: Allocator,
     buf: *std.ArrayList(u8),
@@ -530,11 +548,56 @@ fn buildHaystack(
     pwd: ?[]const u8,
 ) Allocator.Error!void {
     buf.clearRetainingCapacity();
-    try buf.appendSlice(alloc, title);
+    try appendFolded(alloc, buf, title);
     if (pwd) |v| {
         if (title.len > 0) try buf.append(alloc, ' ');
-        try buf.appendSlice(alloc, v);
+        try appendFolded(alloc, buf, v);
     }
+}
+
+/// Append `text` to `buf` with Unicode full case folding applied, so that
+/// "Übersicht" and "übersicht" compare equal, as do "Straße" and
+/// "STRASSE". Text that isn't valid UTF-8 is appended unchanged.
+///
+/// This doesn't normalize: a precomposed "é" and an "e" followed by a
+/// combining accent still differ. In practice titles, paths and typed
+/// terms almost always arrive precomposed (NFC), so this rarely matters.
+///
+/// If it ever does, matching only needs both sides in the same form, so
+/// canonical decomposition (NFD) is enough and NFC isn't needed. Unicode's
+/// definition of a caseless match (D145) is NFD(casefold(NFD(x))). NFD
+/// needs uucode's `canonical_combining_class`, `decomposition_type` and
+/// `decomposition_mapping` fields, which our build doesn't enable today,
+/// plus the algorithmic decomposition of Hangul syllables. uucode has no
+/// normalization of its own, so the algorithm would have to be written on
+/// top of that data.
+fn appendFolded(
+    alloc: Allocator,
+    buf: *std.ArrayList(u8),
+    text: []const u8,
+) Allocator.Error!void {
+    const view = std.unicode.Utf8View.init(text) catch
+        return buf.appendSlice(alloc, text);
+
+    var it = view.iterator();
+    while (it.nextCodepoint()) |cp| {
+        var single: [1]u21 = undefined;
+        for (uucode.get(.case_folding_full, cp).with(&single, cp)) |folded| {
+            var encoded: [4]u8 = undefined;
+            // Folding a valid codepoint never yields a surrogate half or
+            // anything out of range.
+            const len = std.unicode.utf8Encode(folded, &encoded) catch unreachable;
+            try buf.appendSlice(alloc, encoded[0..len]);
+        }
+    }
+}
+
+/// `appendFolded` into a newly allocated slice owned by the caller.
+fn foldAlloc(alloc: Allocator, text: []const u8) Allocator.Error![]u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    errdefer buf.deinit(alloc);
+    try appendFolded(alloc, &buf, text);
+    return buf.toOwnedSlice(alloc);
 }
 
 /// Handle `GetInitialResultSet`/`GetSubsearchResultSet`.
@@ -680,29 +743,45 @@ fn presentSurface(id: u64, timestamp: c_uint) void {
 //---------------------------------------------------------------
 // Matching
 
-/// The search terms for a single request.
+/// The search terms for a single request, case folded to match the
+/// haystack built by `buildHaystack`.
 const Terms = struct {
-    /// The individual terms, borrowed from `raw`.
+    /// The individual terms, each owned by us.
     values: [][]const u8,
 
-    /// The array returned by `getStrv`, which must be freed. The strings
-    /// it points to are owned by the variant, not by us.
-    raw: [*:null]?[*:0]const u8,
-
     fn init(alloc: Allocator, variant: *glib.Variant) Allocator.Error!Terms {
+        // The array has to be freed but the strings in it belong to the
+        // variant. We copy what we need, so it can go as soon as we're done.
         var len: usize = 0;
         const raw = variant.getStrv(&len);
-        errdefer glib.free(@ptrCast(raw));
+        defer glib.free(@ptrCast(raw));
 
-        const values = try alloc.alloc([]const u8, len);
-        for (values, 0..) |*value, i| value.* = std.mem.span(raw[i].?);
+        // zf rejects every haystack for an empty needle, so a single empty
+        // term would hide all of the results. Skip them.
+        var nonempty: usize = 0;
+        for (raw[0..len]) |term| {
+            if (term.?[0] != 0) nonempty += 1;
+        }
 
-        return .{ .values = values, .raw = raw };
+        const values = try alloc.alloc([]const u8, nonempty);
+        var count: usize = 0;
+        errdefer {
+            for (values[0..count]) |v| alloc.free(v);
+            alloc.free(values);
+        }
+
+        for (raw[0..len]) |term| {
+            if (term.?[0] == 0) continue;
+            values[count] = try foldAlloc(alloc, std.mem.span(term.?));
+            count += 1;
+        }
+
+        return .{ .values = values };
     }
 
     fn deinit(self: *Terms, alloc: Allocator) void {
+        for (self.values) |v| alloc.free(v);
         alloc.free(self.values);
-        glib.free(@ptrCast(self.raw));
         self.* = undefined;
     }
 };
@@ -809,11 +888,11 @@ test "ranking matches title and pwd" {
     defer buf.deinit(alloc);
     try buildHaystack(alloc, &buf, "vim src/Surface.zig", "/home/user/dev/ghostty");
 
-    const opts: zf.RankOptions = .{ .case_sensitive = false, .plain = true };
+    const opts = rank_options;
 
     // Terms can match either field, including one of each.
     try testing.expect(zf.rank(buf.items, &.{"vim"}, opts) != null);
-    try testing.expect(zf.rank(buf.items, &.{"GHOSTTY"}, opts) != null);
+    try testing.expect(zf.rank(buf.items, &.{"ghostty"}, opts) != null);
     try testing.expect(zf.rank(buf.items, &.{ "vim", "ghostty" }, opts) != null);
 
     // Every term has to match something.
@@ -826,4 +905,61 @@ test "ranking matches title and pwd" {
     const tight = zf.rank(buf.items, &.{"surface"}, opts).?;
     const loose = zf.rank(buf.items, &.{"vmsrf"}, opts).?;
     try testing.expect(tight < loose);
+}
+
+test "appendFolded" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const cases = [_]struct { []const u8, []const u8 }{
+        .{ "Ghostty", "ghostty" },
+        // Beyond ASCII, which zf alone wouldn't fold.
+        .{ "Übersicht", "übersicht" },
+        .{ "ΣΊΣΥΦΟΣ", "σίσυφοσ" },
+        // Full folding can produce more than one codepoint.
+        .{ "Straße", "strasse" },
+        // Not valid UTF-8: passed through untouched.
+        .{ "A\xffB", "A\xffB" },
+        .{ "", "" },
+    };
+
+    for (cases) |case| {
+        const folded = try foldAlloc(alloc, case[0]);
+        defer alloc.free(folded);
+        try testing.expectEqualStrings(case[1], folded);
+    }
+}
+
+test "ranking ignores case beyond ASCII" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(alloc);
+    try buildHaystack(alloc, &buf, "Übersicht", "/home/user/STRASSE");
+
+    for ([_][]const u8{ "übersicht", "ÜBERSICHT", "straße", "Strasse" }) |term| {
+        const folded = try foldAlloc(alloc, term);
+        defer alloc.free(folded);
+        try testing.expect(zf.rank(buf.items, &.{folded}, rank_options) != null);
+    }
+}
+
+test "ranking does not normalize" {
+    // Pins a known limitation (see `appendFolded`) so that it can't change
+    // unnoticed: if normalization is ever added, this should flip to
+    // expect a match and say so.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(alloc);
+
+    // "été" with each "é" a precomposed U+00E9, then as "e" and U+0301.
+    const precomposed = "\u{e9}t\u{e9}";
+    const decomposed = "e\u{301}te\u{301}";
+
+    try buildHaystack(alloc, &buf, precomposed, null);
+    try testing.expect(zf.rank(buf.items, &.{decomposed}, rank_options) == null);
+    try testing.expect(zf.rank(buf.items, &.{precomposed}, rank_options) != null);
 }
