@@ -123,10 +123,41 @@ typedef struct {
 } GhosttyFormatterTerminalOptions;
 
 /**
+ * Options for creating a screen formatter.
+ *
+ * @ingroup formatter
+ */
+typedef struct {
+  /** Size of this struct in bytes. Must be set to sizeof(GhosttyFormatterScreenOptions). */
+  size_t size;
+
+  /** Output format to emit. */
+  GhosttyFormatterFormat emit;
+
+  /** Whether to unwrap soft-wrapped lines. */
+  bool unwrap;
+
+  /** Whether to trim trailing whitespace on non-blank lines. */
+  bool trim;
+
+  /** Extra screen state to include in styled output. */
+  GhosttyFormatterScreenExtra extra;
+
+  /** Optional selection to restrict output to a range. Its grid
+   *  references must be in the formatted screen, see
+   *  ghostty_terminal_screen_grid_ref(). If NULL, the entire screen is
+   *  formatted. */
+  const GhosttySelection *selection;
+} GhosttyFormatterScreenOptions;
+
+/**
  * Create a formatter for a terminal's active screen.
  *
  * The terminal must outlive the formatter. The formatter stores a borrowed
  * reference to the terminal and reads its current state on each format call.
+ *
+ * To format a screen whether or not it is active, see
+ * ghostty_formatter_screen_new().
  *
  * @param allocator Pointer to allocator, or NULL to use the default allocator
  * @param formatter Pointer to store the created formatter handle
@@ -143,6 +174,44 @@ GHOSTTY_API GhosttyResult ghostty_formatter_terminal_new(
     GhosttyFormatterTerminalOptions options);
 
 /**
+ * Create a formatter for one of a terminal's screens.
+ *
+ * Where ghostty_formatter_terminal_new() formats whichever screen is
+ * active, this formats the given screen whether or not it is active, so
+ * the primary screen and its scrollback can be formatted while a program
+ * has the alternate screen up. The screen is looked up on each format
+ * call: formatting returns GHOSTTY_NO_VALUE while the screen is not
+ * initialized (the alternate screen exists once a program has switched
+ * to it, and is discarded by a full reset).
+ *
+ * The output holds the screen's contents and the screen extras (cursor,
+ * style, hyperlink, protection, Kitty keyboard, charsets). Terminal state
+ * such as the palette, modes, tabstops and the scrolling region belongs to
+ * the terminal formatter; combine the two to reconstruct a terminal with
+ * both screens. The cursor position counts from the top-left of the
+ * screen, as CUP does outside origin mode (DECOM), so it should be
+ * replayed before the terminal formatter's modes and scrolling region.
+ *
+ * The terminal must outlive the formatter. The formatter stores a borrowed
+ * reference to the terminal and reads its current state on each format call.
+ *
+ * @param allocator Pointer to allocator, or NULL to use the default allocator
+ * @param formatter Pointer to store the created formatter handle
+ * @param terminal The terminal whose screen to format (must not be NULL)
+ * @param screen The screen to format
+ * @param options Formatting options
+ * @return GHOSTTY_SUCCESS on success, or an error code on failure
+ *
+ * @ingroup formatter
+ */
+GHOSTTY_API GhosttyResult ghostty_formatter_screen_new(
+    const GhosttyAllocator* allocator,
+    GhosttyFormatter* formatter,
+    GhosttyTerminal terminal,
+    GhosttyTerminalScreen screen,
+    GhosttyFormatterScreenOptions options);
+
+/**
  * Run the formatter and stream output to a writer.
  *
  * Each call formats the current terminal state and invokes the writer
@@ -157,8 +226,9 @@ GHOSTTY_API GhosttyResult ghostty_formatter_terminal_new(
  * @param formatter The formatter handle (must not be NULL)
  * @param writer Destination writer whose write callback must not be NULL
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_IO_ERROR if the writer rejects
- *         output, GHOSTTY_LIMIT_EXCEEDED if output accounting overflows, or
- *         GHOSTTY_INVALID_VALUE if an argument is invalid
+ *         output, GHOSTTY_LIMIT_EXCEEDED if output accounting overflows,
+ *         GHOSTTY_INVALID_VALUE if an argument is invalid, or
+ *         GHOSTTY_NO_VALUE if a screen formatter's screen is not initialized
  *
  * @ingroup formatter
  */
@@ -183,7 +253,8 @@ GHOSTTY_API GhosttyResult ghostty_formatter_format(
  * @param buf_len Length of the output buffer in bytes
  * @param out_written Pointer to receive the number of bytes written,
  *                    or the required size on failure
- * @return GHOSTTY_SUCCESS on success, or an error code on failure
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if a screen
+ *         formatter's screen is not initialized, or an error code on failure
  *
  * @ingroup formatter
  */
@@ -208,7 +279,8 @@ GHOSTTY_API GhosttyResult ghostty_formatter_format_buf(GhosttyFormatter formatte
  * @param out_ptr Pointer to receive the allocated buffer
  * @param out_len Pointer to receive the length of the output in bytes
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
- *         failure
+ *         failure, GHOSTTY_NO_VALUE if a screen formatter's screen is not
+ *         initialized
  *
  * @ingroup formatter
  */

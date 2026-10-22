@@ -3716,6 +3716,31 @@ GHOSTTY_API GhosttyResult ghostty_terminal_grid_ref(GhosttyTerminal terminal,
                                         GhosttyGridRef *out_ref);
 
 /**
+ * Resolve a point in one of the terminal's screens to a grid reference.
+ *
+ * This is ghostty_terminal_grid_ref() for the given screen rather than the
+ * active one, so a selection can be made in the primary screen while the
+ * alternate screen is active, for example to format part of its scrollback
+ * with ghostty_formatter_screen_new(). The point's coordinates are those of
+ * the given screen.
+ *
+ * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param screen The screen to look up in
+ * @param point The point specifying which cell to look up
+ * @param[out] out_ref On success, set to the grid reference at the given point (may be NULL)
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if the screen is not
+ *         initialized (the alternate screen exists once a program has
+ *         switched to it), GHOSTTY_INVALID_VALUE if the terminal is NULL
+ *         or the point is out of bounds
+ *
+ * @ingroup terminal
+ */
+GHOSTTY_API GhosttyResult ghostty_terminal_screen_grid_ref(GhosttyTerminal terminal,
+                                               GhosttyTerminalScreen screen,
+                                               GhosttyPoint point,
+                                               GhosttyGridRef *out_ref);
+
+/**
  * Create an owned tracked grid reference for a terminal point.
  *
  * This is the tracked variant of ghostty_terminal_grid_ref(). The returned

@@ -189,6 +189,7 @@ const type_decls = [_]TypeDecl{
     .initStruct("GhosttyDeviceAttributesSecondary", terminal.DeviceAttributes.Secondary),
     .initStruct("GhosttyDeviceAttributesTertiary", terminal.DeviceAttributes.Tertiary),
     .initStruct("GhosttyFormatterScreenExtra", formatter.ScreenOptions.Extra),
+    .initStruct("GhosttyFormatterScreenOptions", formatter.ScreenOptions),
     .initStruct("GhosttyFormatterTerminalExtra", formatter.TerminalOptions.Extra),
     .initStruct("GhosttyFormatterTerminalOptions", formatter.TerminalOptions),
     .initStruct("GhosttyGridRef", grid_ref.CGridRef),
