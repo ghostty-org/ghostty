@@ -119,7 +119,7 @@ msgstr "केवल पढ़ने के लिए"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:316 src/apprt/gtk/ui/1.5/window.blp:203
 msgid "Copy"
-msgstr "नक़ल"
+msgstr "प्रति बनाएँ"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:321 src/apprt/gtk/ui/1.5/window.blp:208
 msgid "Paste"
@@ -281,7 +281,7 @@ msgstr "निर्यात"
 
 #: src/apprt/gtk/class/application.zig:2783
 msgid "Editing configuration file"
-msgstr ""
+msgstr "विन्यास फ़ाइल का संपादन"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
 msgid ""
@@ -335,7 +335,7 @@ msgstr "इस विंडो के सभी टर्मिनल सत्�
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:196
 msgid "The currently running process in this split will be terminated."
-msgstr ""
+msgstr "इस विभाजन में अभी चल रही प्रक्रिया समाप्त कर दी जाएगी।"
 
 #: src/apprt/gtk/class/surface.zig:1181
 msgid "Command Finished"
@@ -398,11 +398,11 @@ msgstr ""
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
-msgstr ""
+msgstr "चुने हुए पाठ की सादे पाठ के रूप में क्लिपबोर्ड पर प्रति बनाएँ"
 
 #: src/input/command.zig:160
 msgid "Copy the selected text as plain text to the clipboard."
-msgstr ""
+msgstr "चुने हुए पाठ की सादे पाठ के रूप में क्लिपबोर्ड पर प्रति बनाएँ।"
 
 #: src/input/command.zig:163
 msgid "Copy Selection as ANSI Sequences to Clipboard"
@@ -414,19 +414,19 @@ msgstr ""
 
 #: src/input/command.zig:167
 msgid "Copy Selection as HTML to Clipboard"
-msgstr ""
+msgstr "चुने हुए पाठ की HTML के रूप में क्लिपबोर्ड पर प्रति बनाएँ"
 
 #: src/input/command.zig:168
 msgid "Copy the selected text as HTML to the clipboard."
-msgstr ""
+msgstr "चुने हुए पाठ की HTML के रूप में क्लिपबोर्ड पर प्रति बनाएँ।"
 
 #: src/input/command.zig:173
 msgid "Copy URL to Clipboard"
-msgstr ""
+msgstr "URL की क्लिपबोर्ड पर प्रति बनाएँ"
 
 #: src/input/command.zig:174
 msgid "Copy the URL under the cursor to the clipboard."
-msgstr ""
+msgstr "संकेतक के नीचे के URL की क्लिपबोर्ड पर प्रति बनाएँ।"
 
 #: src/input/command.zig:179
 msgid "Copy Terminal Title to Clipboard"
@@ -468,7 +468,7 @@ msgstr "खोज चयन"
 
 #: src/input/command.zig:204
 msgid "Start a search for the current text selection."
-msgstr ""
+msgstr "वर्तमान में चुने हुए पाठ की खोज प्रारंभ करें।"
 
 #: src/input/command.zig:209
 msgid "End Search"
@@ -484,7 +484,7 @@ msgstr "अगला खोज परिणाम"
 
 #: src/input/command.zig:216
 msgid "Navigate to the next search result, if any."
-msgstr ""
+msgstr "यदि अगला खोज परिणाम है, तो उस पर जाएँ।"
 
 #: src/input/command.zig:219
 msgid "Previous Search Result"
@@ -492,7 +492,7 @@ msgstr "पिछला खोज परिणाम"
 
 #: src/input/command.zig:220
 msgid "Navigate to the previous search result, if any."
-msgstr ""
+msgstr "यदि पिछला खोज परिणाम है, तो उस पर जाएँ।"
 
 #: src/input/command.zig:225
 msgid "Increase Font Size"
@@ -556,7 +556,7 @@ msgstr "चयन तक जाएँ"
 
 #: src/input/command.zig:268
 msgid "Scroll to the selected text."
-msgstr "चयनित पाठ तक जाएँ ।"
+msgstr "चुने हुए पाठ तक जाएँ ।"
 
 #: src/input/command.zig:273
 msgid "Scroll Page Up"
@@ -975,7 +975,7 @@ msgstr "अन्य टैब बंद करें"
 
 #: src/input/command.zig:619
 msgid "Close all tabs in this window except the current one."
-msgstr ""
+msgstr "इस विंडो में वर्तमान टैब के अलावा सभी टैब बंद करें।"
 
 #: src/input/command.zig:623
 msgid "Close Tabs to the Right"
@@ -983,7 +983,7 @@ msgstr "दाईं ओर के टैब बंद करें"
 
 #: src/input/command.zig:624
 msgid "Close all tabs to the right of the current one."
-msgstr ""
+msgstr "वर्तमान टैब की दाईं ओर के सभी टैब बंद करें।"
 
 #: src/input/command.zig:631
 msgid "Close the current window."
@@ -1055,11 +1055,11 @@ msgstr ""
 
 #: src/input/command.zig:684
 msgid "Check for Updates"
-msgstr ""
+msgstr "अद्यतन की जाँच करें"
 
 #: src/input/command.zig:685
 msgid "Check for updates to the application."
-msgstr ""
+msgstr "अनुप्रयोग के अद्यतन की जाँच करें।"
 
 #: src/input/command.zig:690
 msgid "Undo"
@@ -1067,7 +1067,7 @@ msgstr "पूर्ववत् करें"
 
 #: src/input/command.zig:691
 msgid "Undo the last action."
-msgstr ""
+msgstr "पिछली कार्रवाई पूर्ववत् करें।"
 
 #: src/input/command.zig:696
 msgid "Redo"
