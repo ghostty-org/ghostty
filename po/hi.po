@@ -43,7 +43,7 @@ msgstr "इस विभाजन चयनको याद रखें"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
 msgid "Reload configuration to show this prompt again"
-msgstr ""
+msgstr "यह संदेश फिर से दिखाने के लिए विन्यास दोबारा लोड करें"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
@@ -213,7 +213,7 @@ msgstr "विन्यास"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
-msgstr ""
+msgstr "विन्यास प्रचालन तन्त्र के संपादक में खोलें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
@@ -221,7 +221,7 @@ msgstr "विन्यास नई विंडो में खोलें"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
-msgstr ""
+msgstr "डिफ़ॉल्ट शीर्षक वापस लाने के लिए खाली छोड़ें।"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:9
 msgid "OK"
@@ -288,12 +288,16 @@ msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
+"एक अनुप्रयोग क्लिपबोर्ड पर लिखने का प्रयास कर रहा है। क्लिपबोर्ड की "
+"वर्तमान सामग्री नीचे दिखाई गई है।"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:202
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
+"एक अनुप्रयोग क्लिपबोर्ड से पढ़ने का प्रयास कर रहा है। क्लिपबोर्ड की "
+"वर्तमान सामग्री नीचे दिखाई गई है।"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
 msgid "Warning: Potentially Unsafe Paste"
@@ -304,6 +308,8 @@ msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
+"इस पाठ को टर्मिनल में चिपकाना खतरनाक हो सकता है, क्योंकि इससे कुछ निर्देश "
+"क्रियान्वित हो सकते हैं।"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
 msgid "Quit Ghostty?"
@@ -437,6 +443,8 @@ msgid ""
 "Copy the terminal title to the clipboard. If the terminal title is not set "
 "this has no effect."
 msgstr ""
+"टर्मिनल के शीर्षक की क्लिपबोर्ड पर प्रति बनाएँ। यदि टर्मिनल का शीर्षक "
+"निर्धारित नहीं है, तो इसका कोई प्रभाव नहीं होगा।"
 
 #: src/input/command.zig:185
 msgid "Paste from Clipboard"
@@ -512,11 +520,11 @@ msgstr "१ बिन्दु से फ़ॉन्ट आकार कम क
 
 #: src/input/command.zig:237
 msgid "Reset Font Size"
-msgstr ""
+msgstr "फ़ॉन्ट का आकार रीसेट करें"
 
 #: src/input/command.zig:238
 msgid "Reset the font size to the default."
-msgstr ""
+msgstr "फ़ॉन्ट का आकार डिफ़ॉल्ट पर वापस लाएँ।"
 
 #: src/input/command.zig:243
 msgid "Clear Screen"
@@ -887,11 +895,11 @@ msgstr ""
 
 #: src/input/command.zig:551
 msgid "Toggle Read-Only Mode"
-msgstr ""
+msgstr "केवल पढ़ने का मोड चालू या बंद करें"
 
 #: src/input/command.zig:552
 msgid "Toggle read-only mode for the current surface."
-msgstr ""
+msgstr "वर्तमान टर्मिनल के लिए केवल पढ़ने का मोड चालू या बंद करें।"
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
@@ -907,7 +915,7 @@ msgstr "विंडो का आकार रीसेट करें"
 
 #: src/input/command.zig:564
 msgid "Reset the window size to the default."
-msgstr ""
+msgstr "विंडो का आकार डिफ़ॉल्ट पर वापस लाएँ।"
 
 #: src/input/command.zig:569
 msgid "Toggle Inspector"
@@ -935,11 +943,11 @@ msgstr "यदि उपलब्ध हो, तो पर्दे पर क�
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
-msgstr ""
+msgstr "विन्यास प्रचालन तन्त्र के संपादक में खोलें"
 
 #: src/input/command.zig:589
 msgid "Open the config file with the OS's default editor."
-msgstr ""
+msgstr "विन्यास फ़ाइल प्रचालन तन्त्र के डिफ़ॉल्ट संपादक में खोलें।"
 
 #: src/input/command.zig:593
 msgid "Open Config in New Terminal Window"
@@ -947,7 +955,7 @@ msgstr "विन्यास नई टर्मिनल विंडो म�
 
 #: src/input/command.zig:594
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
-msgstr ""
+msgstr "$EDITOR या $VISUAL का उपयोग करके विन्यास फ़ाइल नई विंडो में खोलें।"
 
 #: src/input/command.zig:600
 msgid "Reload Config"
