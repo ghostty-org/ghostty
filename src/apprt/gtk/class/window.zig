@@ -1897,6 +1897,7 @@ pub const Window = extern struct {
 
     fn surfacePresentRequest(
         surface: *Surface,
+        timestamp: c_uint,
         self: *Self,
     ) callconv(.c) void {
         // Verify that this surface is actually in this window.
@@ -1938,8 +1939,23 @@ pub const Window = extern struct {
         // Grab focus
         surface.grabFocus();
 
-        // Bring the window to the front.
-        self.as(gtk.Window).present();
+        // Bring the window to the front. A request that comes with a
+        // timestamp was asked for by a user interaction in another
+        // process, such as picking a result in the GNOME Shell search. On
+        // X11 GTK hands that timestamp to the window manager and that is
+        // all the evidence it wants, but on Wayland GTK can't use it, so
+        // the window protocol gets the first chance to make the request
+        // its own way. A zero timestamp is `GDK_CURRENT_TIME`, which is
+        // what `gtk_window_present` uses, so requests from inside the app
+        // are exactly what they were before.
+        //
+        // A hidden window (`toggle_visibility`) has no window on the
+        // compositor's side for the protocol to activate, and only GTK
+        // knows how to show it again, so it always goes through GTK.
+        const visible = self.as(gtk.Widget).isVisible() != 0;
+        if (timestamp == 0 or !visible or !priv.winproto.present()) {
+            self.as(gtk.Window).presentWithTime(@intCast(timestamp));
+        }
     }
 
     fn surfaceToggleFullscreen(
