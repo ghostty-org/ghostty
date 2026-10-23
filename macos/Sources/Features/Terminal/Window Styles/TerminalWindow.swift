@@ -51,6 +51,10 @@ class TerminalWindow: NSWindow {
         true
     }
 
+    /// Whether the vertical tab sidebar replaces the native tab bar in this window
+    /// (`macos-titlebar-style = vertical-tabs`). Fixed when the window is created.
+    private(set) var showsTabSidebar = false
+
     /// Glass effect view for liquid glass background when transparency is enabled
     private var glassEffectView: NSView?
 
@@ -66,6 +70,7 @@ class TerminalWindow: NSWindow {
             guard tabColor != oldValue else { return }
             tabColorIndicator.rootView = TabColorIndicatorView(tabColor: tabColor)
             invalidateRestorableState()
+            NotificationCenter.default.post(name: .terminalTabsDidChange, object: nil)
         }
     }
 
@@ -109,6 +114,7 @@ class TerminalWindow: NSWindow {
 
         // Setup our initial config
         derivedConfig = .init(config)
+        showsTabSidebar = config.macosTitlebarStyle == .verticalTabs
 
         // If there is a hardcoded title in the configuration, we set that
         // immediately. Future `set_title` apprt actions will override this
@@ -260,6 +266,14 @@ class TerminalWindow: NSWindow {
         // it. This has been verified to work on macOS 12 to 26
         if isTabBar(childViewController) {
             childViewController.identifier = Self.tabBarIdentifier
+
+            // The vertical tab sidebar replaces the native tab bar. Hiding the controller
+            // gives the bar no room in the titlebar and hiding its view stops it drawing.
+            if showsTabSidebar {
+                childViewController.isHidden = true
+                childViewController.view.isHidden = true
+            }
+
             tabBarDidAppear()
         }
     }
@@ -394,6 +408,7 @@ class TerminalWindow: NSWindow {
             guard title != oldValue else { return }
 
             syncWindowTitleAppearance()
+            NotificationCenter.default.post(name: .terminalTabsDidChange, object: nil)
         }
     }
 
@@ -663,7 +678,7 @@ class TerminalWindow: NSWindow {
             self.macosTitlebarStyle = config.macosTitlebarStyle
 
             // Set corner radius based on macos-titlebar-style
-            // Native, transparent, and hidden styles use 16pt radius
+            // Native, transparent, vertical-tabs, and hidden styles use 16pt radius
             // Tabs style uses 20pt radius
             switch config.macosTitlebarStyle {
             case .tabs:
