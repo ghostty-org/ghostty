@@ -416,11 +416,13 @@ typedef struct {
   ghostty_input_mods_e mods;
 } ghostty_input_trigger_s;
 
+// input.Command
 typedef struct {
   const char* action_key;
   const char* action;
   const char* title;
   const char* description;
+  bool supported;
 } ghostty_command_s;
 
 typedef enum {
