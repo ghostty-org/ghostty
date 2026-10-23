@@ -26,10 +26,14 @@ Overlay terminal_page {
       map => $render_surface_map();
       unmap => $render_surface_unmap();
       resize => $render_surface_resize();
+      present => $render_surface_present();
       hexpand: true;
       vexpand: true;
-      focusable: true;
-      focus-on-click: true;
+      focusable: false;
+      focus-on-click: false;
+      // The terminal's text is exposed by GhosttySurface itself; the
+      // pixels have nothing to add for assistive technologies.
+      accessible-role: presentation;
     }
 
     PopoverMenu context_menu {
@@ -38,16 +42,6 @@ Overlay terminal_page {
       flags: nested;
       halign: start;
       has-arrow: false;
-    }
-
-    EventControllerFocus {
-      enter => $focus_enter();
-      leave => $focus_leave();
-    }
-
-    EventControllerKey {
-      key-pressed => $key_pressed();
-      key-released => $key_released();
     }
 
     EventControllerScroll {
@@ -134,6 +128,8 @@ Overlay terminal_page {
     can-focus: false;
     can-target: false;
     focusable: false;
+    // Purely visual; keep it out of the accessibility tree.
+    accessible-role: presentation;
 
     Box bell_overlay {
       styles [
@@ -215,6 +211,8 @@ Overlay terminal_page {
     can-focus: false;
     can-target: false;
     focusable: false;
+    // Purely visual; keep it out of the accessibility tree.
+    accessible-role: presentation;
 
     DrawingArea {
       styles [
@@ -228,6 +226,8 @@ Overlay terminal_page {
     halign: fill;
     valign: start;
     visible: bind $should_drag_handle_be_shown(template.config, template.is-split) as <bool>;
+    // Mouse-only; there is nothing here a screen reader can act on.
+    accessible-role: presentation;
 
     styles [
       "drag-handle",
@@ -252,6 +252,8 @@ Overlay terminal_page {
     can-focus: false;
     can-target: false;
     focusable: false;
+    // Purely visual; keep it out of the accessibility tree.
+    accessible-role: presentation;
 
     styles [
       "drop-overlay",
@@ -287,6 +289,27 @@ template $GhosttySurface: Adw.Bin {
   notify::mouse-hidden => $notify_mouse_hidden();
   notify::mouse-shape => $notify_mouse_shape();
   notify::vadjustment => $notify_vadjustment();
+  // Focus lands on GhosttySurface (not the inner render surface) so the
+  // focused object carries our role=terminal and GtkAccessibleText
+  // interface. Orca's restricted flat review only looks at the focused
+  // object, so focusing the bare render surface gave it nothing to read.
+  focusable: true;
+  focus-on-click: true;
+  // `is-focus` rather than enter/leave: those fire when focus enters or
+  // leaves this widget *or a descendant*, so moving focus into the search
+  // overlay would leave the terminal believing it is still focused.
+  EventControllerFocus {
+    notify::is-focus => $notify_is_focus();
+  }
+
+  EventControllerKey {
+    // Only keys aimed at the surface itself. In the default bubble phase,
+    // keys the search overlay doesn't consume would reach the terminal.
+    propagation-phase: target;
+    key-pressed => $key_pressed();
+    key-released => $key_released();
+  }
+
   // Some history: we used to use a Stack here and swap between the
   // terminal and error pages as needed. But a Stack doesn't play nice
   // with our SplitTree and Gtk.Paned usage[^1]. Replacing this with

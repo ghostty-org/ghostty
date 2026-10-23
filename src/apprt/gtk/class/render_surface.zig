@@ -88,6 +88,20 @@ pub const RenderSurface = extern struct {
                 void,
             );
         };
+
+        /// Emitted when a newly rendered frame has been taken from the
+        /// renderer's queue, i.e. once per frame that actually reaches the
+        /// screen. A plain redraw that finds no new frame does not emit.
+        /// Emitted from `snapshot`, so always on the main thread.
+        pub const present = struct {
+            pub const name = "present";
+            const impl = gobject.ext.defineSignal(
+                name,
+                Self,
+                &.{},
+                void,
+            );
+        };
     };
 
     //---------------------------------------------------------------
@@ -170,6 +184,8 @@ pub const RenderSurface = extern struct {
 
                     else => log.warn("error building texture from frame err={}", .{err}),
                 };
+
+                signals.present.impl.emit(self, null, .{}, null);
             }
         }
 
@@ -452,6 +468,7 @@ pub const RenderSurface = extern struct {
 
             // Signals
             signals.resize.impl.register(.{});
+            signals.present.impl.register(.{});
         }
 
         pub const as = C.Class.as;
