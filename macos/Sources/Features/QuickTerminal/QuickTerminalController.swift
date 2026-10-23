@@ -52,7 +52,12 @@ class QuickTerminalController: BaseTerminalController {
         // restoration.
         restorable = (base?.command ?? "") == ""
         self.restorationState = restorationState
-        self.screenStateCache = QuickTerminalScreenStateCache(stateByDisplay: restorationState?.screenStateEntries ?? [:])
+        if derivedConfig.quickTerminalSize.isConfigured {
+            // Ignore restored frames if the user configured a size.
+            self.screenStateCache = QuickTerminalScreenStateCache(stateByDisplay: [:])
+        } else {
+            self.screenStateCache = QuickTerminalScreenStateCache(stateByDisplay: restorationState?.screenStateEntries ?? [:])
+        }
         // Important detail here: we initialize with an empty surface tree so
         // that we don't start a terminal process. This gets started when the
         // first terminal is shown in `animateIn`.
@@ -723,11 +728,19 @@ class QuickTerminalController: BaseTerminalController {
         ] as? Ghostty.Config else { return }
 
         // Update our derived config
+        let previousSize = derivedConfig.quickTerminalSize
         self.derivedConfig = DerivedConfig(config)
 
         syncAppearance()
 
         terminalViewContainer?.ghosttyConfigDidChange(config, preferredBackgroundColor: nil)
+
+        // If the user changed the configured size, drop any remembered frames so the
+        // new size takes effect the next time the quick terminal is shown.
+        let newSize = derivedConfig.quickTerminalSize
+        if newSize.isConfigured, newSize != previousSize {
+            screenStateCache.clearAll()
+        }
     }
 
     @objc private func onNewTab(notification: SwiftUI.Notification) {
