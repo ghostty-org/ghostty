@@ -75,10 +75,17 @@ pub const Handler = struct {
     /// programs.
     xt_checksum_report: bool = false,
 
-    /// The APC command handler maintains the APC state. APC is like
-    /// CSI or OSC, but it is a private escape sequence that is used
-    /// to send commands to the terminal emulator. This is used by
-    /// the kitty graphics protocol.
+    /// Collects APC strings (`ESC _ ... ESC \`) as they arrive. Programs
+    /// use APC to send commands to the terminal, such as Kitty graphics.
+    ///
+    /// A command runs only when its APC ends with the string terminator.
+    /// If the program cancels the APC with CAN or SUB, or another 8-bit
+    /// control byte aborts it, the command is discarded. For example, this
+    /// input stores no image because CAN (0x18) cancels it:
+    ///
+    /// ```
+    /// ESC _ G a=t,f=24,s=1,v=1,i=7;AAAA 0x18
+    /// ```
     apc_handler: apc.Handler = .{},
 
     /// The DCS command handler maintains state for DCS queries.
@@ -135,6 +142,10 @@ pub const Handler = struct {
     ///     .osc_unknown_max_bytes = 4096,
     /// });
     /// ```
+    ///
+    /// Only complete sequences are reported. A sequence the program
+    /// cancels with CAN or SUB, or that another 8-bit control byte
+    /// aborts, is discarded without calling this.
     ///
     /// The callback runs while the stream processes input. It may write a
     /// reply to the pty, and the reply stays in order with the terminal's
@@ -2261,14 +2272,22 @@ pub const Handler = struct {
         }
     }
 
+    /// Finish the current APC and run its command. `terminated` is false
+    /// when the APC was cancelled or aborted, and then nothing runs.
     fn apcEnd(self: *Handler, terminated: bool) void {
         const io = self.terminal.io();
         const alloc = self.terminal.gpa();
         var result = self.apc_handler.end() orelse return;
         defer result.deinit(alloc);
+
+        // ECMA-48 says a cancelled or aborted string is thrown away, so
+        // its command must not run. We still call end() above so the APC
+        // handler resets and frees what it collected.
+        if (!terminated) return;
+
         switch (result) {
             .unknown => |*unknown| {
-                if (terminated) self.unknownSequence(.{ .apc = .{
+                self.unknownSequence(.{ .apc = .{
                     .content = unknown.content,
                     .truncated = unknown.truncated,
                 } });
@@ -6757,6 +6776,28 @@ test "kitty graphics via APC" {
     const storage = &t.screens.active.kitty_images;
     const img = storage.imageById(1).?;
     try testing.expectEqual(.rgb, img.format);
+}
+
+test "kitty graphics APC cancelled or aborted is discarded" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    // CAN (0x18) and SUB (0x1A) cancel the APC, and CSI (0x9B), like
+    // any 8-bit control other than ST, aborts it. Either way the
+    // transmit command must not run, so image 7 is never stored.
+    for ([_][]const u8{ "\x18", "\x1a", "\x9b" }) |ending| {
+        var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
+        defer t.deinit(testing.allocator);
+
+        const handler: Handler = .init(&t);
+        var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+        defer s.deinit();
+
+        s.nextSlice("\x1b_Ga=t,f=24,s=1,v=1,i=7;AAAA");
+        s.nextSlice(ending);
+
+        const storage = &t.screens.active.kitty_images;
+        try testing.expect(storage.imageById(7) == null);
+    }
 }
 
 test "continuation reconstructs standard stream without duplicate effects" {

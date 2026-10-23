@@ -72,11 +72,24 @@ pub fn execute(
         .delete => delete(io, alloc, terminal, cmd),
 
         .transmit, .transmit_and_display, .transmit_animation_frame => resp: {
+            const storage = &terminal.screens.active.kitty_images;
+
+            // Only direct (t=d) data can be sent in chunks, so only a
+            // direct command can continue a chunked load. A file, temporary
+            // file, or shared memory command abandons the load and is
+            // handled as a brand new transmission. Kitty does the same for
+            // both image and animation frame loads.
+            if (storage.loading) |loading| {
+                if (cmd.transmission().?.medium != .direct) {
+                    loading.destroy(alloc);
+                    storage.loading = null;
+                }
+            }
+
             // If we're transmitting, then our `q` setting value is complicated.
             // The `q` setting inherits the value from the starting command
             // unless `q` is set >= 1 on this command. If it is, then we save
             // that as the new `q` setting.
-            const storage = &terminal.screens.active.kitty_images;
             if (storage.loading) |loading| switch (cmd.quiet) {
                 // q=0 we use whatever the start command value is
                 .no => quiet = loading.quiet,
@@ -195,11 +208,12 @@ fn transmit(
     const storage = &terminal.screens.active.kitty_images;
 
     var result: Response = if (storage.loading) |loading| loading: {
-        // Any transmit-like command received while a load is in progress
-        // is a continuation chunk of that load, and the load completes
-        // according to how it started. If an animation frame load (a=f)
-        // is in progress, this chunk belongs to it even when the client
-        // didn't repeat a=f on the chunk.
+        // A load is in progress, so this command is a continuation chunk.
+        // execute has already abandoned the load if this command used a
+        // medium other than direct, so we know this chunk belongs here.
+        // The load completes according to how it started. If an animation
+        // frame load (a=f) is in progress, this chunk belongs to it even
+        // when the client didn't repeat a=f on the chunk.
         if (loading.frame != null) return transmitAnimationFrame(
             io,
             alloc,
@@ -1485,6 +1499,75 @@ test "kittygfx delete aborts chunked image load" {
         try testing.expect(execute(io, alloc, &t, &cmd).?.ok());
     }
     try testing.expectEqual(@as(usize, 6), storage.imageById(1).?.data.len());
+}
+
+test "kittygfx non-direct transmission abandons chunked image load" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+    const storage = &t.screens.active.kitty_images;
+
+    // Allow file (t=f) transmissions and write a 1x1 RGB image file.
+    storage.image_limits.file = true;
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    const payload = try testFilePayload(alloc, io, tmp_dir.dir, &.{ 1, 2, 3 });
+    defer alloc.free(payload);
+
+    // Begin a two-chunk RGB image.
+    {
+        const cmd = try command.Parser.parseString(
+            alloc,
+            "a=t,f=24,s=1,v=2,i=1,m=1;AAAA",
+        );
+        defer cmd.deinit(alloc);
+        try testing.expect(execute(io, alloc, &t, &cmd) == null);
+    }
+    try testing.expect(storage.loading != null);
+
+    // A file transmission can't be a continuation chunk, so it abandons
+    // the load and transmits a new image from the file.
+    {
+        const str = try std.fmt.allocPrint(
+            alloc,
+            "a=t,t=f,f=24,s=1,v=1,i=2;{s}",
+            .{payload},
+        );
+        defer alloc.free(str);
+        const cmd = try command.Parser.parseString(alloc, str);
+        defer cmd.deinit(alloc);
+        const resp = execute(io, alloc, &t, &cmd).?;
+        try testing.expect(resp.ok());
+        try testing.expectEqual(@as(u32, 2), resp.id);
+    }
+    try testing.expect(storage.loading == null);
+    try testing.expect(storage.imageById(1) == null);
+    try testing.expectEqualSlices(
+        u8,
+        &.{ 1, 2, 3 },
+        storage.imageById(2).?.data.bytes().?,
+    );
+}
+
+/// Writes `data` to a file in `dir` and returns the file's absolute path,
+/// base64 encoded. The result is ready to use as the payload of a file
+/// (t=f) transmission. The caller owns the returned memory.
+fn testFilePayload(
+    alloc: Allocator,
+    io: std.Io,
+    dir: std.Io.Dir,
+    data: []const u8,
+) ![]u8 {
+    try dir.writeFile(io, .{ .sub_path = "image.data", .data = data });
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const len = try dir.realPathFile(io, "image.data", &path_buf);
+    const encoder = std.base64.standard.Encoder;
+    const result = try alloc.alloc(u8, encoder.calcSize(len));
+    _ = encoder.encode(result, path_buf[0..len]);
+    return result;
 }
 
 test "kittygfx uppercase id delete preserves image when placement does not match" {
@@ -3166,6 +3249,72 @@ test "kittygfx animation: chunked frame continuation without a=f" {
 
     const anim = storage.imagePtrByIdOrNumber(1, 0).?.animation.?;
     try testing.expectEqual(@as(usize, 1), anim.frames.items.len);
+}
+
+test "kittygfx animation: non-direct transmission abandons chunked frame load" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+    const storage = &t.screens.active.kitty_images;
+
+    // Allow file (t=f) transmissions and write a 2x1 green RGB frame.
+    storage.image_limits.file = true;
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    const payload = try testFilePayload(alloc, io, tmp_dir.dir, &.{
+        0, 255, 0,
+        0, 255, 0,
+    });
+    defer alloc.free(payload);
+
+    // 2x1 RGB white image.
+    {
+        const cmd = try command.Parser.parseString(
+            alloc,
+            "a=t,f=24,s=2,v=1,i=1;////////",
+        );
+        defer cmd.deinit(alloc);
+        try testing.expect(execute(io, alloc, &t, &cmd).?.ok());
+    }
+
+    // Begin a chunked frame load.
+    {
+        const cmd = try command.Parser.parseString(
+            alloc,
+            "a=f,i=1,f=24,s=2,v=1,m=1;/wAA",
+        );
+        defer cmd.deinit(alloc);
+        try testing.expect(execute(io, alloc, &t, &cmd) == null);
+    }
+    try testing.expect(storage.loading != null);
+
+    // A file transmission can't be a continuation chunk, so it abandons
+    // the chunked frame and loads a new frame from the file instead.
+    {
+        const str = try std.fmt.allocPrint(
+            alloc,
+            "a=f,t=f,i=1,f=24,s=2,v=1;{s}",
+            .{payload},
+        );
+        defer alloc.free(str);
+        const cmd = try command.Parser.parseString(alloc, str);
+        defer cmd.deinit(alloc);
+        const resp = execute(io, alloc, &t, &cmd).?;
+        try testing.expect(resp.ok());
+        try testing.expectEqual(@as(u32, 2), resp.frame);
+    }
+    try testing.expect(storage.loading == null);
+
+    const anim = storage.imagePtrByIdOrNumber(1, 0).?.animation.?;
+    try testing.expectEqual(@as(usize, 1), anim.frames.items.len);
+    try testing.expectEqualSlices(
+        u8,
+        &.{ 0, 255, 0, 255, 0, 255, 0, 255 },
+        anim.frames.items[0].data,
+    );
 }
 
 test "kittygfx animation: control command sets gap current state and loops" {

@@ -123,6 +123,14 @@ relevant to package maintainers:
   version, glibc, etc. Run `zig targets` to a get a full list of available
   targets.
 
+- `-Dinstalled-exe-path=$prefix/bin/ghostty`: The absolute path the
+  `ghostty` executable will be installed at, written into the desktop file,
+  D-Bus service and systemd user service on Linux. The build can't work this
+  out from `--prefix` itself. Without it, those files name the executable
+  alone (`ghostty`), and systemd only looks for that in standard directories
+  such as `/usr/bin` and `/usr/local/bin`. Set it for any other prefix, and
+  leave `DESTDIR` out of it.
+
 ## WebAssembly (libghostty-vt)
 
 libghostty-vt can be built for WebAssembly for use in browsers and other

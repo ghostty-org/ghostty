@@ -545,6 +545,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * CAN (0x18) or SUB (0x1A) cancelled the string. The stream is now at
    * ground.
+   *
+   * The terminal discards a cancelled APC or OSC. Its command does not
+   * run and it is not passed to the unknown sequence callback. For
+   * example, `ESC _ G a=t,i=7;AAAA` followed by CAN stores no image.
    */
   GHOSTTY_TERMINAL_STRING_END_CANCELLED = 2,
 
@@ -558,6 +562,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Inside an OSC, and inside a DCS once its header is complete, 8-bit
    * bytes are content. So this is only reported for an APC or for a DCS
    * still in its header.
+   *
+   * The terminal discards an aborted APC, just like a cancelled one.
    */
   GHOSTTY_TERMINAL_STRING_END_ABORTED = 3,
 
@@ -892,7 +898,8 @@ typedef struct {
  *
  * These are not reported:
  *
- * - Sequences the program cancelled partway through with CAN or SUB.
+ * - Sequences cut short before their terminator, either cancelled by CAN
+ *   or SUB or aborted by another 8-bit control byte.
  * - Sequences libghostty-vt implements, even when their contents are
  *   malformed.
  * - Supported protocols that the embedder turned off.

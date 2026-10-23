@@ -15,14 +15,23 @@ pub const ValidateError = error{
     /// completes an SGR command and must not be stored as a continuation.
     NoPendingState,
 
-    /// The input does not begin at its effective replay start.
+    /// The input contains bytes that aren't needed to rebuild the
+    /// unfinished state.
     ///
-    /// A later ESC supersedes earlier VT parser state, and a pending UTF-8
-    /// codepoint begins at its lead byte. Any prefix before that effective
-    /// start is unnecessary and would disappear when the restored Stream
-    /// exports its continuation again. Rejecting the prefix preserves the
-    /// byte-identical re-export invariant and prevents unrelated prior input
-    /// from being replayed.
+    /// A continuation must start exactly where the unfinished state starts.
+    /// For a VT sequence, that is the byte that began the sequence. For a
+    /// UTF-8 codepoint, that is its first (lead) byte. Anything earlier is
+    /// extra input that a restored Stream would drop when it exports its
+    /// continuation again, so the round trip would not give back the same
+    /// bytes. Extra input could also replay unrelated earlier work.
+    ///
+    /// For example, `ESC [ 1 ESC [ 2` is rejected because the second
+    /// `ESC` starts a new sequence. The valid continuation is `ESC [ 2`.
+    ///
+    /// The same applies to 8-bit C1 introducers such as 0x9B, the
+    /// single-byte form of `ESC [`. Input such as `ESC _ data 0x9B` is
+    /// rejected, and its valid continuation is `ESC [`. See `Tracker.write`
+    /// for why C1 introducers are always written in their `ESC` form.
     NonCanonicalContinuation,
 
     /// Replaying the input would perform handler-visible work.
@@ -35,13 +44,25 @@ pub const ValidateError = error{
     ReplayWouldCommit,
 };
 
-/// Validate continuation bytes.
+/// Check that `bytes` is a valid continuation, the exact form that
+/// `Tracker.write` produces. Empty input is valid and means the stream is
+/// at ground with nothing to replay.
 ///
-/// Ensure that:
+/// Valid continuation bytes:
 ///
-///   - replay ends with either VT or UTF-8 state unfinished
-///   - byte zero is the effective start needed to reconstruct that state
-///   - replay commits no Terminal mutation or external handler effect
+///   - leave a VT sequence or UTF-8 codepoint unfinished
+///   - start exactly where that unfinished state starts
+///   - write any 8-bit C1 introducer in its 7-bit `ESC` form
+///   - do nothing visible when replayed, such as printing text or
+///     ringing the bell
+///
+/// For example:
+///
+///     ESC [ 3 1          valid, an unfinished CSI
+///     ESC [ 3 1 m        NoPendingState, the CSI is complete
+///     A ESC [ 3 1        NonCanonicalContinuation, `A` is extra
+///     ESC _ G 0x9B 1     NonCanonicalContinuation, use `ESC [ 1`
+///     ESC [ 3 BEL 1      ReplayWouldCommit, BEL rings on replay
 pub fn validate(bytes: []const u8) ValidateError!void {
     // Empty explicitly requests ground state and needs no replay.
     if (bytes.len == 0) return;
@@ -50,8 +71,10 @@ pub fn validate(bytes: []const u8) ValidateError!void {
     // committed byte cannot return early. Remember it while scanning the rest.
     var scanner: BoundaryScanner = .init();
     var committed_work = false;
+    var c1_restart = false;
     for (bytes) |byte| {
         if (scanner.next(byte) != .uncommitted) committed_work = true;
+        if (scanner.c1_restart != null) c1_restart = true;
     }
 
     // Nonempty continuation bytes must leave state that future input needs.
@@ -59,6 +82,12 @@ pub fn validate(bytes: []const u8) ValidateError!void {
 
     // The tracker exports the minimal suffix beginning at the effective replay
     // start. A different prefix would not survive byte-identical re-export.
+    //
+    // The tracker writes C1 introducers in their ESC form, so a raw one that
+    // started a new sequence means the bytes did not come from the tracker.
+    // It also can't be byte zero, because a Stream at ground reads C1 bytes
+    // as UTF-8 text, so there is always extra input before it.
+    if (c1_restart) return error.NonCanonicalContinuation;
     const replay_start = if (scanner.parser.state != .ground)
         findVTReplayStart(bytes)
     else
@@ -86,11 +115,21 @@ pub fn validate(bytes: []const u8) ValidateError!void {
 ///     feed, and otherwise extends the suffix with this whole feed because
 ///     the unfinished state began in an earlier one.
 ///
-/// This keeps the retained bytes minimal: they always begin at the replay
-/// start, so the feed path never needs to parse or trim old input. The suffix
-/// may still contain a byte whose visible terminal effect already happened,
-/// such as BEL inside an unfinished CSI sequence. `write` leaves out those
-/// bytes so replay does not perform the same effect twice.
+/// The saved bytes always begin at the last ESC or UTF-8 lead byte. Finding
+/// those only takes a quick search of each feed, so the tracker adds almost
+/// no cost to normal input processing.
+///
+/// The saved bytes can hold more than replay needs. `write` trims and
+/// rewrites them on export, so the exported bytes are always minimal. There
+/// are two cases:
+///
+///   - An 8-bit C1 introducer, such as 0x9B for `ESC [`, can start a new
+///     sequence without an ESC. Whether a C1 byte does this depends on the
+///     parser state, so finding it would mean parsing every feed a second
+///     time. `write` finds it on export instead.
+///   - A byte may have already had a visible effect, such as BEL inside an
+///     unfinished CSI sequence. `write` leaves these out so replay does not
+///     repeat the effect.
 ///
 /// If the suffix exceeds `max_bytes`, or retaining it fails, `broken`
 /// is set until a later feed ends at ground (`reset`) or contains a new
@@ -186,17 +225,65 @@ pub const Tracker = struct {
         self.bytes.appendSlice(self.alloc, fragment) catch self.markBroken();
     }
 
-    /// Write the replay-safe continuation suffix to `writer`. The retained
-    /// bytes already begin at the replay start; this omits only bytes that
-    /// would repeat committed terminal effects without contributing to the
-    /// unfinished parser state (e.g. a BEL inside an unfinished CSI). The
-    /// tracker must not be broken.
+    /// Write the continuation to `writer`. Feeding the written bytes to a
+    /// new Stream puts it in the same unfinished state as this one, without
+    /// repeating any work this Stream already did. The tracker must not be
+    /// broken.
+    ///
+    /// The output can differ from the saved bytes in two ways.
+    ///
+    /// First, bytes that already had a visible effect are left out. A BEL
+    /// inside an unfinished CSI rings the bell but doesn't change the CSI,
+    /// so writing it would only ring the bell again on replay:
+    ///
+    ///     saved:   ESC [ 1 BEL ; 2
+    ///     written: ESC [ 1 ; 2
+    ///
+    /// Second, output starts at the last 8-bit C1 introducer that began a
+    /// new sequence, written in its `ESC` form. In this example, 0x9B ends
+    /// the APC and starts a CSI. Writing the APC would make replay end it a
+    /// second time:
+    ///
+    ///     saved:   ESC _ data 0x9B 1
+    ///     written: ESC [ 1
+    ///
+    /// The `ESC` form is required because a Stream at ground reads a raw C1
+    /// byte as UTF-8 text, not as a control. Both forms leave the parser in
+    /// the same state.
     pub fn write(
         self: *const Tracker,
         writer: *std.Io.Writer,
     ) std.Io.Writer.Error!void {
+        // Find the last C1 introducer that started a new sequence. This
+        // scans the saved bytes a second time, but only on export.
+        const Restart = struct { idx: usize, final: u8 };
+        const restart: ?Restart = restart: {
+            var result: ?Restart = null;
+            var scanner: BoundaryScanner = .init();
+            for (self.bytes.items, 0..) |c, i| {
+                _ = scanner.next(c);
+                if (scanner.c1_restart) |final| result = .{
+                    .idx = i,
+                    .final = final,
+                };
+            }
+            break :restart result;
+        };
+
+        // Write the introducer in its ESC form and skip everything before
+        // it. The scanner sees the same ESC form so it classifies the rest
+        // of the bytes from the same parser state that replay will have.
         var scanner: BoundaryScanner = .init();
-        for (self.bytes.items) |c| {
+        const rest = rest: {
+            const r = restart orelse break :rest self.bytes.items;
+            for ([_]u8{ 0x1B, r.final }) |c| {
+                assert(scanner.next(c) == .uncommitted);
+                try writer.writeByte(c);
+            }
+            break :rest self.bytes.items[r.idx + 1 ..];
+        };
+
+        for (rest) |c| {
             if (scanner.next(c) == .omittable) continue;
             try writer.writeByte(c);
         }
@@ -309,6 +396,13 @@ const BoundaryScanner = struct {
     parser: Parser,
     utf8decoder: UTF8Decoder,
 
+    /// Set by each call to `next`. It is non-null when that byte was an
+    /// 8-bit C1 introducer that started a new sequence and discarded the
+    /// previous parser state. The value is the byte that follows `ESC` in
+    /// the introducer's 7-bit form. For example, 0x9B sets this to `[`
+    /// because 0x9B and `ESC [` both start a CSI.
+    c1_restart: ?u8 = null,
+
     /// Initialize both state machines at runtime. Parser initialization may
     /// inspect the runtime environment, so it cannot be a struct field default
     /// that Zig requires to be comptime-known.
@@ -348,6 +442,7 @@ const BoundaryScanner = struct {
         // do not contribute to the unfinished sequence.
         const parser_state = self.parser.state;
         const utf8_state = self.utf8decoder.state;
+        self.c1_restart = null;
 
         // A byte is committed when replaying it would repeat handler-visible
         // work already captured outside the continuation suffix. Actions that
@@ -370,6 +465,34 @@ const BoundaryScanner = struct {
             }
 
             const actions = self.parser.next(c);
+
+            // Check whether this byte is a C1 introducer that started a new
+            // sequence. `final` is the byte that follows `ESC` in the
+            // equivalent 7-bit form, and `state` is the parser state both
+            // forms lead to. Other C1 bytes, such as 0x9C (string
+            // terminator), end a sequence instead of starting one.
+            const intro: ?struct { final: u8, state: Parser.State } = switch (c) {
+                0x90 => .{ .final = 'P', .state = .dcs_entry },
+                0x98 => .{ .final = 'X', .state = .sos_pm_apc_string },
+                0x9B => .{ .final = '[', .state = .csi_entry },
+                0x9D => .{ .final = ']', .state = .osc_string },
+                0x9E => .{ .final = '^', .state = .sos_pm_apc_string },
+                0x9F => .{ .final = '_', .state = .sos_pm_apc_string },
+                else => null,
+            };
+
+            // An introducer only starts a new sequence when it moves the
+            // parser into the state it introduces. Two cases don't count.
+            // OSC and DCS strings treat high bytes as ordinary data, so the
+            // parser stays where it was. And a byte that introduces the
+            // state the parser is already in, such as 0x9F inside an APC,
+            // changes nothing.
+            if (intro) |i| {
+                if (self.parser.state == i.state and parser_state != i.state) {
+                    self.c1_restart = i.final;
+                }
+            }
+
             for (actions) |action_opt| {
                 const action = action_opt orelse continue;
                 switch (action) {
@@ -543,6 +666,87 @@ test "tracker retains and normalizes replay-safe bytes" {
     var utf8_writer: std.Io.Writer = .fixed(&utf8_buf);
     try tracker.write(&utf8_writer);
     try testing.expectEqualSlices(u8, "\xF0\x9F", utf8_writer.buffered());
+}
+
+test "tracker restarts at a C1 introducer that aborts a string" {
+    const testing = std.testing;
+    var tracker = Tracker.init(testing.allocator, 64);
+    defer tracker.deinit();
+
+    // Each C1 introducer ends the APC and exports as its 7-bit form.
+    const cases = [_]struct { input: []const u8, expected: []const u8 }{
+        .{ .input = "\x1b_hello\x9b", .expected = "\x1b[" },
+        .{ .input = "\x1b_hello\x9b1;2", .expected = "\x1b[1;2" },
+        .{ .input = "\x1b_hello\x90q", .expected = "\x1bPq" },
+        .{ .input = "\x1b_hello\x9d2;t", .expected = "\x1b]2;t" },
+        .{ .input = "\x1b[1\x9fx", .expected = "\x1b_x" },
+        .{ .input = "\x1b[1\x9b2", .expected = "\x1b[2" },
+        .{ .input = "\x1b\x98", .expected = "\x1bX" },
+        .{ .input = "\x1b[1\x9e", .expected = "\x1b^" },
+
+        // String payload states take high bytes as data, and re-entering
+        // the same state does not restart it.
+        .{ .input = "\x1b]2;\x9b", .expected = "\x1b]2;\x9b" },
+        .{ .input = "\x1bPq\x9b", .expected = "\x1bPq\x9b" },
+        .{ .input = "\x1b_a\x9fb", .expected = "\x1b_a\x9fb" },
+    };
+    for (cases) |case| {
+        tracker.reset();
+        tracker.append(.vt, case.input);
+
+        var buf: [64]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        try tracker.write(&writer);
+        try testing.expectEqualStrings(case.expected, writer.buffered());
+        try validate(writer.buffered());
+    }
+
+    // The introducer can arrive in a later feed than the aborted string.
+    tracker.reset();
+    tracker.append(.vt, "\x1b_hello");
+    tracker.append(.vt, "\x9b");
+    tracker.append(.vt, "3");
+    var buf: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try tracker.write(&writer);
+    try testing.expectEqualStrings("\x1b[3", writer.buffered());
+}
+
+test "validate matches its documented examples" {
+    const testing = std.testing;
+    try validate("");
+    try validate("\x1b[31");
+    try testing.expectError(error.NoPendingState, validate("\x1b[31m"));
+    try testing.expectError(
+        error.NonCanonicalContinuation,
+        validate("A\x1b[31"),
+    );
+    try testing.expectError(
+        error.NonCanonicalContinuation,
+        validate("\x1b_G\x9b1"),
+    );
+    try testing.expectError(error.ReplayWouldCommit, validate("\x1b[3\x071"));
+}
+
+test "validate rejects C1 introducers as non-canonical" {
+    const testing = std.testing;
+
+    // A grounded stream decodes C1 bytes as UTF-8, so a bare C1 introducer
+    // can't recreate the sequence it starts.
+    try testing.expectError(error.NoPendingState, validate("\x9b"));
+
+    try testing.expectError(
+        error.NonCanonicalContinuation,
+        validate("\x1b_hello\x9b"),
+    );
+    try testing.expectError(
+        error.NonCanonicalContinuation,
+        validate("\x1b[1\x9b2"),
+    );
+
+    // High bytes in string payloads are data, not introducers.
+    try validate("\x1b]2;\x9b");
+    try validate("\x1bPq\x9b");
 }
 
 test "tracker cap, reset, and broken recovery" {

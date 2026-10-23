@@ -40,6 +40,11 @@ exe_entrypoint: ExeEntrypoint = .ghostty,
 version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 },
 lib_version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 },
 
+/// The absolute path the Ghostty executable is installed at, for the Linux
+/// desktop, D-Bus and systemd files that launch it. Null means they name
+/// the executable alone.
+installed_exe_path: ?[]const u8 = null,
+
 /// Binary properties
 pie: bool = false,
 strip: bool = false,
@@ -351,6 +356,27 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         try std.SemanticVersion.parse(v)
     else
         try std.SemanticVersion.parse(libVersion);
+
+    // The install prefix is only known once the build runs, too late to
+    // write it into the files that launch Ghostty, so a build installing
+    // anywhere systemd doesn't search has to say where the executable goes.
+    config.installed_exe_path = b.option(
+        []const u8,
+        "installed-exe-path",
+        "Absolute path the ghostty executable will be installed at, written " ++
+            "into the Linux desktop, D-Bus and systemd files. If not specified, " ++
+            "they name the executable alone, which systemd only finds in " ++
+            "/usr/bin or /usr/local/bin.",
+    );
+    if (config.installed_exe_path) |exe_path| {
+        if (!std.fs.path.isAbsolute(exe_path)) {
+            std.log.err(
+                "-Dinstalled-exe-path must be an absolute path, got '{s}'",
+                .{exe_path},
+            );
+            return error.InvalidInstalledExePath;
+        }
+    }
 
     //---------------------------------------------------------------
     // Binary Properties

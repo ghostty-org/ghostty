@@ -1432,6 +1432,9 @@ test "complete snapshot preserves every supported continuation cut" {
         "\x1b_25a1;s\x1b\\text",
         "\x1b]2;first\x1b\\\x1b_Gsecond",
         "\x1b[12\x9D2;title\x1b\\text",
+        "\x1b_hello\x9b31mtext",
+        "\x1b_Ga=q\x90$qm\x1b\\text",
+        "\x1b_hello\x9d2;title\x07text",
         "\x1b[12\x18text\x1b[1\x1Atext",
     };
 

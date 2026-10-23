@@ -310,8 +310,27 @@ pub const Action = union(Key) {
         }
     };
 
+    /// Sent when an APC string ends, for any reason.
+    ///
+    /// An APC is only complete when it ends with the string terminator,
+    /// either `ESC \` or the 8-bit 0x9C. A program can also stop an APC
+    /// partway through. CAN (0x18) or SUB (0x1A) cancels it, and any other
+    /// 8-bit control byte, such as CSI (0x9B), aborts it. ECMA-48 says a
+    /// string stopped this way must be thrown away, so a handler should
+    /// only act on the APC when `terminated` is true.
+    ///
+    /// ```zig
+    /// .apc_end => |value| {
+    ///     var cmd = apc_handler.end() orelse return;
+    ///     defer cmd.deinit(alloc);
+    ///     if (!value.terminated) return;
+    ///     run(cmd);
+    /// },
+    /// ```
     pub const ApcEnd = extern struct {
-        /// False when CAN, SUB, or another aborting transition ended the APC.
+        /// True when the string terminator ended the APC. False when the
+        /// APC was cancelled or aborted, in which case its contents
+        /// should be discarded.
         terminated: bool,
     };
 
@@ -6892,8 +6911,9 @@ test "stream: continuation suffixes are replay safe" {
         .{ .input = "text\x1b[12\x1b", .expected = "\x1b" },
         .{
             .input = "text\x1b[12\x9D2;title",
-            .expected = "\x1b[12\x9D2;title",
+            .expected = "\x1b]2;title",
         },
+        .{ .input = "text\x1b_Gabc\x9B1", .expected = "\x1b[1" },
     };
 
     const S = Stream(ContinuationTestHandler);
