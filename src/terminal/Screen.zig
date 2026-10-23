@@ -2084,6 +2084,7 @@ pub const Resize = struct {
 
 const resize_tw = tripwire.module(enum {
     saved_cursor_pin,
+    prompt_pin,
     pages,
 }, resize);
 
@@ -2109,6 +2110,18 @@ pub inline fn resize(
         break :saved_cursor try self.pages.trackPin(pin);
     };
     defer if (saved_cursor_pin) |p| self.pages.untrackPin(p);
+
+    // Locate redrawable text before reflow can split its prompt markers.
+    // Reflow will copy this range as blank rows rather than wrapping text
+    // that the shell is about to replace. Tracking it must not clear any
+    // source cells: a failed resize must preserve the original prompt.
+    const prompt_pin: ?*Pin = prompt: {
+        if (!opts.reflow or opts.cols == self.pages.cols) break :prompt null;
+        const start = self.promptClearStart(opts.prompt_redraw) orelse break :prompt null;
+        try tw.check(.prompt_pin);
+        break :prompt try self.pages.trackPin(start);
+    };
+    defer if (prompt_pin) |p| self.pages.untrackPin(p);
 
     // A cursor style and hyperlink are partly stored in the page containing
     // the cursor. Their IDs only have meaning within that page, and the page
@@ -2177,6 +2190,10 @@ pub inline fn resize(
             .pin = self.cursor.page_pin,
         },
         .pull_scrollback = opts.pull_scrollback,
+        .clear = if (prompt_pin) |p| .{
+            .start = p,
+            .only_one = opts.prompt_redraw == .last,
+        } else null,
     });
 
     // No more failures are possible after this. Enforced by compiler
@@ -2202,10 +2219,10 @@ pub inline fn resize(
         self.cursorRight(1);
     }
 
-    // Clear any redrawable prompt after the fallible resize but before
-    // restoring the cursor style and hyperlink, so cleared cells retain the
-    // same default styling they had with the previous ordering.
-    self.clearPromptForRedraw(opts.prompt_redraw);
+    // Column reflow already emitted blank rows for the redrawable prompt.
+    // For other resizes, clear it now, after the fallible work and before
+    // restoring the cursor style and hyperlink.
+    if (prompt_pin == null) self.clearPromptForRedraw(opts.prompt_redraw);
 
     // Restore the cursor style.
     self.cursor.style = cursor_style;
@@ -2296,6 +2313,16 @@ pub inline fn resize(
             page.hyperlink_set.release(page.memory, cursor_hyperlink_id);
         }
     }
+}
+
+fn promptClearStart(
+    self: *Screen,
+    redraw: osc.semantic_prompt.Redraw,
+) ?Pin {
+    if (redraw == .false or self.cursor.semantic_content == .output) return null;
+    if (redraw == .last) return self.cursor.page_pin.*;
+    var it = self.cursor.page_pin.promptIterator(.left_up, null);
+    return it.next();
 }
 
 fn clearPromptForRedraw(
@@ -9258,6 +9285,36 @@ test "Screen: resize more cols with cursor at prompt" {
     }
 }
 
+test "Screen: resize redrawable full-width prompt before reflow" {
+    const alloc = std.testing.allocator;
+    for ([_]usize{ 0, 4 }) |output_rows| {
+        var s = try init(std.testing.io, alloc, .{ .cols = 10, .rows = 6, .max_scrollback_bytes = null });
+        defer s.deinit();
+
+        for (0..output_rows) |_| try s.testWriteString("out\n");
+        for ([_]size.CellCountInt{ 6, 20, 8, 10, 5, 15 }) |cols| {
+            s.cursorSetSemanticContent(.{ .prompt = .initial });
+            for (0..s.pages.cols) |_| try s.testWriteString("-");
+            try s.testWriteString("\n> ");
+            s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+            const cursor_y = s.cursor.y;
+
+            try s.resize(.{ .cols = cols, .rows = 6, .prompt_redraw = .true });
+
+            // The shell moves up one row to redraw its two-line prompt.
+            // Reflowing the old ruler first must not add a row or leave
+            // stale prompt text in either the viewport or scrollback.
+            try std.testing.expectEqual(cursor_y, s.cursor.y);
+            const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+            defer alloc.free(contents);
+            try std.testing.expect(std.mem.indexOfScalar(u8, contents, '-') == null);
+            try std.testing.expectEqual(output_rows, std.mem.count(u8, contents, "out"));
+            s.cursorUp(1);
+            s.cursorHorizontalAbsolute(0);
+        }
+    }
+}
+
 test "Screen: resize more cols with cursor not at prompt" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -9379,6 +9436,23 @@ test "Screen: resize with prompt_redraw last multiline prompt clears only last l
         const expected = "line1\nline2";
         try testing.expectEqualStrings(expected, contents);
     }
+}
+
+test "Screen: resize with prompt_redraw last does not reflow the cleared line" {
+    const alloc = std.testing.allocator;
+    var s = try init(std.testing.io, alloc, .{ .cols = 10, .rows = 4 });
+    defer s.deinit();
+
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("first\n");
+    s.cursorSetSemanticContent(.{ .prompt = .continuation });
+    try s.testWriteString("abcdefghij");
+    try s.resize(.{ .cols = 6, .rows = 4, .prompt_redraw = .last });
+
+    const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+    defer alloc.free(contents);
+    try std.testing.expectEqualStrings("first", contents);
+    try std.testing.expectEqual(1, s.cursor.y);
 }
 
 test "Screen: select untracked" {
