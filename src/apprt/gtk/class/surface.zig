@@ -740,7 +740,7 @@ pub const Surface = extern struct {
 
         overrides: struct {
             command: ?configpkg.Command = null,
-            shell_integration: ?configpkg.Config.ShellIntegration = null,
+            shell_integration: ?configpkg.ShellIntegration = null,
             working_directory: ?[:0]const u8 = null,
 
             pub const none: @This() = .{};
@@ -4421,7 +4421,7 @@ test "computeFraction" {
 fn applyCommandOverrides(
     config: *configpkg.Config,
     command: ?configpkg.Command,
-    shell_integration: ?configpkg.Config.ShellIntegration,
+    shell_integration: ?configpkg.ShellIntegration,
 ) Allocator.Error!void {
     if (command) |value| {
         config.command = try value.clone(config.arenaAlloc());
