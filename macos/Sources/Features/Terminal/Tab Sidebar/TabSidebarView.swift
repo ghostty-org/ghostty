@@ -73,8 +73,26 @@ final class TabSidebarView: NSView {
     /// switching click so we can still detect the double click there.
     private static var lastSwitchClick: (tab: ObjectIdentifier, time: TimeInterval)?
 
-    /// Prevents re-entrancy when syncing the scroll position across sidebars.
-    private static var isSyncingScroll = false
+    /// The scroll position shared by the sidebars of a tab group. Pushing it to every
+    /// other sidebar on each scroll tick costs O(tabs), so the sidebars catch up with
+    /// it when they are shown instead (see `applySharedScroll`).
+    private final class SharedScroll {
+        var origin = NSPoint.zero
+        var generation = 0
+    }
+
+    private static let sharedScrolls = NSMapTable<NSWindowTabGroup, SharedScroll>.weakToStrongObjects()
+
+    /// The generation of the shared scroll position that this sidebar shows.
+    private var appliedScrollGeneration = 0
+
+    /// Prevents us from mistaking our own catching up for the user scrolling.
+    private var isApplyingSharedScroll = false
+
+    /// True when tabs changed while the tab list couldn't be seen, e.g. in the sidebar of
+    /// a background tab. Keeping those current on every change costs O(tabs) per change,
+    /// so they reload once they can be seen again (see `refreshIfNeeded`).
+    private var needsRefresh = false
 
     /// Periodically refreshes rows because Ghostty isn't notified when the foreground
     /// process (shown as the tab icon) changes.
@@ -226,11 +244,28 @@ final class TabSidebarView: NSView {
             selector: #selector(onWindowDidResignKey(_:)),
             name: NSWindow.didResignKeyNotification,
             object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(onWindowDidBecomeKey(_:)),
+            name: NSWindow.didBecomeKeyNotification,
+            object: nil)
     }
 
     override func layout() {
         super.layout()
         syncColumnWidth()
+    }
+
+    override func viewWillDraw() {
+        // This runs before our subviews are drawn, so a sidebar that was just shown
+        // never flashes a stale scroll position.
+        applySharedScroll()
+        super.viewWillDraw()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        refreshIfNeeded()
     }
 
     // MARK: Mode
@@ -246,6 +281,7 @@ final class TabSidebarView: NSView {
         searchField.isHidden = showsFiles
         scrollView.isHidden = showsFiles
         fileExplorer.isHidden = !showsFiles
+        refreshIfNeeded()
     }
 
     @objc private func modeControlChanged(_ sender: NSSegmentedControl) {
@@ -332,6 +368,9 @@ final class TabSidebarView: NSView {
     /// Reconfigures the visible rows whose content changed, e.g. because an agent
     /// started or exited. Hidden sidebars and windows are skipped.
     private func refreshChangedRows() {
+        // Also catches sidebars that became visible without becoming the key window.
+        refreshIfNeeded()
+
         guard !isHiddenOrHasHiddenAncestor, !scrollView.isHidden, let window, window.isVisible,
               window.occlusionState.contains(.visible) else { return }
 
@@ -352,6 +391,7 @@ final class TabSidebarView: NSView {
     /// that background tabs are ordered out, so we must remember this.
     func reloadStructure(includingTabGroup: Bool = false) {
         guard let hostWindow = window else { return }
+        needsRefresh = false
 
         if includingTabGroup || hostWindow.isVisible { canAccessTabGroup = true }
         let useTabGroup = canAccessTabGroup
@@ -378,11 +418,15 @@ final class TabSidebarView: NSView {
             self.windowsObservation?.invalidate()
             self.windowsObservation = nil
             self.observedTabGroup = tabGroup
+
+            // A sidebar joining a group keeps its own scroll position (e.g. showing the
+            // new tab) until the sidebars of the group are scrolled again.
+            self.appliedScrollGeneration = self.sharedScroll(create: false)?.generation ?? 0
             guard let tabGroup else { return }
 
             self.windowsObservation = tabGroup.observe(\.windows, options: [.new]) { [weak self] _, _ in
                 DispatchQueue.main.async {
-                    self?.reloadStructure()
+                    self?.reloadStructureWhenVisible()
                 }
             }
         }
@@ -432,12 +476,45 @@ final class TabSidebarView: NSView {
         return terms.allSatisfy { haystack.contains($0) }
     }
 
+    /// Whether the tab list can be seen. The sidebars of background tabs live in
+    /// ordered-out windows, and a sidebar can be hidden or show the files instead.
+    private var isTabListVisible: Bool {
+        guard let window, window.isVisible else { return false }
+        return !isHiddenOrHasHiddenAncestor && !scrollView.isHidden
+    }
+
+    /// Reloads the tabs now if the tab list can be seen, otherwise once it can.
+    private func reloadStructureWhenVisible() {
+        guard isTabListVisible else {
+            needsRefresh = true
+            return
+        }
+
+        reloadStructure()
+    }
+
+    /// Reloads the tabs if they changed while the tab list couldn't be seen.
+    private func refreshIfNeeded() {
+        guard needsRefresh, isTabListVisible else { return }
+        reloadStructure()
+    }
+
     private func scheduleContentReload() {
+        guard isTabListVisible else {
+            needsRefresh = true
+            return
+        }
+
         guard !pendingContentReload else { return }
         pendingContentReload = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.pendingContentReload = false
+            guard self.isTabListVisible else {
+                self.needsRefresh = true
+                return
+            }
+
             if self.isSearching {
                 self.applySearch()
             } else {
@@ -496,7 +573,7 @@ final class TabSidebarView: NSView {
 
     @objc private func onNeedsReload(_ notification: Notification) {
         guard window != nil else { return }
-        reloadStructure()
+        reloadStructureWhenVisible()
     }
 
     @objc private func onItemDidChange(_ notification: Notification) {
@@ -506,20 +583,49 @@ final class TabSidebarView: NSView {
         scheduleContentReload()
     }
 
-    /// Keep the scroll position of all sidebars in the tab group identical so switching
-    /// tabs doesn't make the list jump.
+    /// Remember the scroll position of the sidebar the user scrolls. The sidebars of the
+    /// other tabs show the same position once they are shown (see `applySharedScroll`),
+    /// so switching tabs doesn't make the list jump. This is O(1) per scroll tick.
     @objc private func onScrollBoundsDidChange(_ notification: Notification) {
-        guard !Self.isSyncingScroll, !isSearching, window?.isKeyWindow ?? false else { return }
-        Self.isSyncingScroll = true
-        defer { Self.isSyncingScroll = false }
+        guard !isApplyingSharedScroll, !isSearching, window?.isKeyWindow ?? false,
+              let shared = sharedScroll(create: true) else { return }
+        shared.origin = scrollView.contentView.bounds.origin
+        shared.generation += 1
+        appliedScrollGeneration = shared.generation
+    }
 
-        let origin = scrollView.contentView.bounds.origin
-        for tab in allTabs {
-            guard let other = tab.value, other !== controller,
-                  let sidebar = other.terminalViewContainer?.tabSidebar else { continue }
-            sidebar.scrollView.contentView.scroll(to: origin)
-            sidebar.scrollView.reflectScrolledClipView(sidebar.scrollView.contentView)
-        }
+    @objc private func onWindowDidBecomeKey(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        refreshIfNeeded()
+        applySharedScroll()
+    }
+
+    /// The scroll position shared by the sidebars of our tab group.
+    private func sharedScroll(create: Bool) -> SharedScroll? {
+        guard let tabGroup = observedTabGroup else { return nil }
+        if let shared = Self.sharedScrolls.object(forKey: tabGroup) { return shared }
+        guard create else { return nil }
+
+        let shared = SharedScroll()
+        Self.sharedScrolls.setObject(shared, forKey: tabGroup)
+        return shared
+    }
+
+    /// Scrolls to the position of the sidebar that was scrolled last, if it isn't shown yet.
+    private func applySharedScroll() {
+        guard let shared = sharedScroll(create: false),
+              shared.generation != appliedScrollGeneration else { return }
+        appliedScrollGeneration = shared.generation
+
+        let clipView = scrollView.contentView
+        let proposed = NSRect(origin: shared.origin, size: clipView.bounds.size)
+        let origin = clipView.constrainBoundsRect(proposed).origin
+        guard origin != clipView.bounds.origin else { return }
+
+        isApplyingSharedScroll = true
+        defer { isApplyingSharedScroll = false }
+        clipView.scroll(to: origin)
+        scrollView.reflectScrolledClipView(clipView)
     }
 
     // MARK: Actions

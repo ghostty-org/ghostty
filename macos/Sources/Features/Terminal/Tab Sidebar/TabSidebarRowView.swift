@@ -37,6 +37,24 @@ struct TabSidebarRowContent: Equatable {
         self.isCurrent = isCurrent
         self.isZoomed = window?.surfaceIsZoomed ?? false
     }
+
+    init(
+        title: String,
+        subtitle: String? = nil,
+        shortcut: String? = nil,
+        color: TerminalTabColor = .none,
+        isCurrent: Bool = false,
+        isZoomed: Bool = false,
+        agent: TabSidebarAgent? = nil
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.shortcut = shortcut
+        self.color = color
+        self.isCurrent = isCurrent
+        self.isZoomed = isZoomed
+        self.agent = agent
+    }
 }
 
 /// The row view draws the (optionally tinted) rounded background of a row and tracks hover.
@@ -247,7 +265,11 @@ final class TabSidebarCellView: NSTableCellView {
         let slotWidth = trailingSlot.widthAnchor.constraint(equalToConstant: 24)
         slotWidth.priority = .defaultLow
 
-        let accessoryStack = NSStackView(views: [zoomButton, trailingSlot])
+        // The stack is stretched to the text, so the accessories must be pushed to its
+        // trailing end. Otherwise the slot sits at its leading end, the close button
+        // lies outside of the slot and clicks on it never reach the button.
+        let accessoryStack = NSStackView(views: [])
+        accessoryStack.setViews([zoomButton, trailingSlot], in: .trailing)
         accessoryStack.orientation = .horizontal
         accessoryStack.alignment = .centerY
         accessoryStack.spacing = 8
@@ -273,7 +295,7 @@ final class TabSidebarCellView: NSTableCellView {
             shortcutLabel.leadingAnchor.constraint(greaterThanOrEqualTo: trailingSlot.leadingAnchor),
             shortcutLabel.trailingAnchor.constraint(equalTo: trailingSlot.trailingAnchor),
             shortcutLabel.centerYAnchor.constraint(equalTo: trailingSlot.centerYAnchor),
-            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            closeButton.trailingAnchor.constraint(equalTo: trailingSlot.trailingAnchor),
             closeButton.centerYAnchor.constraint(equalTo: trailingSlot.centerYAnchor),
         ])
 
