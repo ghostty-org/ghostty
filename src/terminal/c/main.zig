@@ -81,6 +81,7 @@ pub const focus_encode = focus.encode;
 pub const mode_report_encode = modes.report_encode;
 
 pub const formatter_terminal_new = formatter.terminal_new;
+pub const formatter_screen_new = formatter.screen_new;
 pub const formatter_format = formatter.format;
 pub const formatter_format_buf = formatter.format_buf;
 pub const formatter_format_alloc = formatter.format_alloc;
@@ -232,6 +233,7 @@ pub const search_set = search.set;
 pub const search_get = search.get;
 pub const search_get_multi = search.get_multi;
 pub const terminal_grid_ref = terminal.grid_ref;
+pub const terminal_screen_grid_ref = terminal.screen_grid_ref;
 pub const terminal_grid_ref_track = terminal.grid_ref_track;
 pub const terminal_point_from_grid_ref = terminal.point_from_grid_ref;
 

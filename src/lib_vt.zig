@@ -286,6 +286,7 @@ comptime {
         @export(&c.sgr_attribute_value, .{ .name = "ghostty_sgr_attribute_value" });
         if (features.formatter) {
             @export(&c.formatter_terminal_new, .{ .name = "ghostty_formatter_terminal_new" });
+            @export(&c.formatter_screen_new, .{ .name = "ghostty_formatter_screen_new" });
             @export(&c.formatter_format, .{ .name = "ghostty_formatter_format" });
             @export(&c.formatter_format_buf, .{ .name = "ghostty_formatter_format_buf" });
             @export(&c.formatter_format_alloc, .{ .name = "ghostty_formatter_format_alloc" });
@@ -374,6 +375,7 @@ comptime {
         // reference constructors are required by both features.
         if (features.grid_introspection or features.selection) {
             @export(&c.terminal_grid_ref, .{ .name = "ghostty_terminal_grid_ref" });
+            @export(&c.terminal_screen_grid_ref, .{ .name = "ghostty_terminal_screen_grid_ref" });
             @export(&c.terminal_point_from_grid_ref, .{ .name = "ghostty_terminal_point_from_grid_ref" });
         }
         if (features.grid_introspection) {
