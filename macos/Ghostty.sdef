@@ -69,6 +69,9 @@
       </property>
       <property name="index" code="pidx" type="integer" access="r" description="1-based index of this tab in its window."/>
       <property name="selected" code="GTsl" type="boolean" access="r" description="Whether this tab is selected in its window."/>
+      <property name="color" code="colr" type="tab color" access="rw" description="The color of the tab.">
+        <cocoa key="color"/>
+      </property>
       <property name="focused terminal" code="GTfT" type="terminal" access="r" description="The currently focused terminal surface in this tab.">
         <cocoa key="focusedTerminal"/>
       </property>
@@ -124,6 +127,26 @@
         <cocoa key="environmentVariables"/>
       </property>
     </record-type>
+
+    <enumeration name="tab color" code="GTbC" description="The color of a Ghostty tab.">
+      <!-- Color enumerators use a 4-bit-per-channel ASCII hex RGBA as their code
+           (one hex digit per channel: R, G, B, A). Values are the nearest 4-bit
+           rounding of Apple's published Human Interface Guidelines light-mode
+           system color hex (https://developer.apple.com/design/human-interface-guidelines/color).
+           They serve as stable identifiers; the actual rendered color comes from
+           the corresponding system color and may shift between OS releases.
+           The "none" enumerator uses a literal code. -->
+      <enumerator name="none" code="none" description="No color."/>
+      <enumerator name="blue" code="08FF" description="Blue."/>
+      <enumerator name="purple" code="C3DF" description="Purple."/>
+      <enumerator name="pink" code="F35F" description="Pink."/>
+      <enumerator name="red" code="F34F" description="Red."/>
+      <enumerator name="orange" code="F82F" description="Orange."/>
+      <enumerator name="yellow" code="FC0F" description="Yellow."/>
+      <enumerator name="green" code="3C5F" description="Green."/>
+      <enumerator name="teal" code="0CBF" description="Teal."/>
+      <enumerator name="graphite" code="889F" description="Graphite."/>
+    </enumeration>
 
     <enumeration name="split direction" code="GSpD" description="Direction for a new split.">
       <enumerator name="right" code="GSrt" description="Split to the right."/>
