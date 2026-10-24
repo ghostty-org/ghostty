@@ -1942,7 +1942,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     pass.step(.{
                         .pipeline = self.shaders.pipelines.bg_color,
                         .uniforms = frame.uniforms.buffer,
-                        .buffers = &.{ null, frame.cells_bg.buffer },
                         .draw = .{ .type = .triangle, .vertex_count = 3 },
                     });
                 }

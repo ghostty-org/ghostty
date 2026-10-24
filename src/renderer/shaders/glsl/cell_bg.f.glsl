@@ -6,9 +6,7 @@ layout(origin_upper_left) in vec4 gl_FragCoord;
 // Must declare this output for some versions of OpenGL.
 layout(location = 0) out vec4 out_FragColor;
 
-layout(binding = 1, std430) readonly buffer bg_cells {
-    uint cells[];
-};
+layout(binding = 2) uniform usamplerBuffer cells;
 
 vec4 cell_bg() {
     uvec2 grid_size = unpack2u16(grid_size_packed_2u16);
@@ -48,10 +46,11 @@ vec4 cell_bg() {
     }
 
     // Load the color for the cell.
-    vec4 cell_color = load_color(
-            unpack4u8(cells[grid_pos.y * grid_size.x + grid_pos.x]),
-            use_linear_blending
-        );
+    uint cell = texelFetch(
+            cells,
+            grid_pos.y * int(grid_size.x) + grid_pos.x
+        ).r;
+    vec4 cell_color = load_color(unpack4u8(cell), use_linear_blending);
 
     return cell_color;
 }
