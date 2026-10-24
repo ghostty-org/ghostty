@@ -1630,18 +1630,49 @@ pub const Window = extern struct {
         self.as(gtk.Window).destroy();
     }
 
+    /// Finish closing a tab page, honoring the `window-close-tab-focus`
+    /// config. AdwTabView selects the following page when the selected
+    /// page closes, which is the right neighbor in left-to-right layouts
+    /// and the left neighbor in right-to-left layouts where the tab bar
+    /// is mirrored. When the configured direction points the other way,
+    /// select the preceding page first.
+    fn finishCloseTab(self: *Self, page: *adw.TabPage) void {
+        const priv = self.private();
+        const tab_view = priv.tab_view;
+
+        select_preceding: {
+            const config = if (priv.config) |v| v.get() else break :select_preceding;
+            const rtl = self.as(gtk.Widget).getDirection() == .rtl;
+            const preceding_is_left = !rtl;
+            const want_left = config.@"window-close-tab-focus" == .left;
+            if (want_left != preceding_is_left) break :select_preceding;
+
+            // Only reroute focus when we're closing the selected page.
+            const selected = tab_view.getSelectedPage() orelse break :select_preceding;
+            if (selected != page) break :select_preceding;
+
+            // The first page has no preceding page; fall back to default.
+            const pos = tab_view.getPagePosition(page);
+            if (pos <= 0) break :select_preceding;
+
+            tab_view.setSelectedPage(tab_view.getNthPage(pos - 1));
+        }
+
+        tab_view.closePageFinish(page, @intFromBool(true));
+    }
+
     fn closeConfirmationCloseTab(
         _: *CloseConfirmationDialog,
         page: *adw.TabPage,
     ) callconv(.c) void {
-        const tab_view = ext.getAncestor(
-            adw.TabView,
+        const window = ext.getAncestor(
+            Self,
             page.getChild().as(gtk.Widget),
         ) orelse {
             log.warn("close confirmation called for non-existent page", .{});
             return;
         };
-        tab_view.closePageFinish(page, @intFromBool(true));
+        window.finishCloseTab(page);
     }
 
     fn closeConfirmationCancelTab(
@@ -1663,7 +1694,6 @@ pub const Window = extern struct {
         page: *adw.TabPage,
         self: *Self,
     ) callconv(.c) c_int {
-        const priv = self.private();
         const child = page.getChild();
         const tab = gobject.ext.cast(Tab, child) orelse
             return @intFromBool(false);
@@ -1671,7 +1701,7 @@ pub const Window = extern struct {
         // If the tab says it doesn't need confirmation then we go ahead
         // and close immediately.
         if (!tab.getNeedsConfirmQuit()) {
-            priv.tab_view.closePageFinish(page, @intFromBool(true));
+            self.finishCloseTab(page);
             return @intFromBool(true);
         }
 
