@@ -873,7 +873,9 @@ extension TerminalWindow: TabTitleEditorDelegate {
         _ editor: TabTitleEditor,
         canRenameTabFor targetWindow: NSWindow
     ) -> Bool {
-        targetWindow.windowController is BaseTerminalController
+        // The vertical tab sidebar hides the native tab bar, so an inline editor would
+        // be invisible. Returning false makes callers fall back to the rename prompt.
+        !showsTabSidebar && targetWindow.windowController is BaseTerminalController
     }
 
     func tabTitleEditor(

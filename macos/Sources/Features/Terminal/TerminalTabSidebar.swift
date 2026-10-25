@@ -201,7 +201,7 @@ final class TerminalTabSidebarModel: ObservableObject {
         handler: @escaping () -> Void
     ) -> NSMenuItem {
         let action = MenuAction(handler)
-        let item = NSMenuItem(title: title, action: #selector(MenuAction.perform(_:)), keyEquivalent: "")
+        let item = NSMenuItem(title: title, action: #selector(MenuAction.run(_:)), keyEquivalent: "")
         item.target = action
         // The item's target is weak, so the item itself keeps the action alive.
         item.representedObject = action
@@ -220,7 +220,9 @@ final class TerminalTabSidebarModel: ObservableObject {
             self.handler = handler
         }
 
-        @objc func perform(_ sender: Any?) {
+        // Not named `perform(_:)`: `#selector` would resolve that to NSObject's
+        // `performSelector:`, which treats the menu item as a selector and aborts.
+        @objc func run(_ sender: Any?) {
             handler()
         }
     }
@@ -512,6 +514,9 @@ private struct TerminalTabSidebarRow: View {
             )
             .contentShape(Capsule())
             .onTapGesture { model.select(tab) }
+            // Simultaneous so a single click still selects the tab at once, rather than
+            // waiting to see whether a second click follows.
+            .simultaneousGesture(TapGesture(count: 2).onEnded { model.promptTitle(tab) })
             .onHover { isHovering = $0 }
             .help(isCompact ? tab.title : "")
             .overlay(TerminalTabSidebarMenuArea { model.contextMenu(for: tab) })
