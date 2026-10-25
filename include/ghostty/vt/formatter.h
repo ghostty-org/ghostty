@@ -117,8 +117,11 @@ typedef struct {
   /** Extra terminal state to include in styled output. */
   GhosttyFormatterTerminalExtra extra;
 
-  /** Optional selection to restrict output to a range.
-   *  If NULL, the entire screen is formatted. */
+  /** Optional selection to restrict output to a range. Its grid
+   *  references must be in the active screen when formatting: each format
+   *  call checks that they are in a page of that screen and returns
+   *  GHOSTTY_INVALID_VALUE if not (for example after a switch to the
+   *  other screen). If NULL, the entire screen is formatted. */
   const GhosttySelection *selection;
 } GhosttyFormatterTerminalOptions;
 
@@ -145,8 +148,9 @@ typedef struct {
 
   /** Optional selection to restrict output to a range. Its grid
    *  references must be in the formatted screen, see
-   *  ghostty_terminal_screen_grid_ref(). If NULL, the entire screen is
-   *  formatted. */
+   *  ghostty_terminal_screen_grid_ref(): each format call checks that they
+   *  are in a page of that screen and returns GHOSTTY_INVALID_VALUE if
+   *  not. If NULL, the entire screen is formatted. */
   const GhosttySelection *selection;
 } GhosttyFormatterScreenOptions;
 
@@ -227,7 +231,8 @@ GHOSTTY_API GhosttyResult ghostty_formatter_screen_new(
  * @param writer Destination writer whose write callback must not be NULL
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_IO_ERROR if the writer rejects
  *         output, GHOSTTY_LIMIT_EXCEEDED if output accounting overflows,
- *         GHOSTTY_INVALID_VALUE if an argument is invalid, or
+ *         GHOSTTY_INVALID_VALUE if an argument is invalid or the
+ *         selection's grid references are not in the formatted screen, or
  *         GHOSTTY_NO_VALUE if a screen formatter's screen is not initialized
  *
  * @ingroup formatter
@@ -254,7 +259,9 @@ GHOSTTY_API GhosttyResult ghostty_formatter_format(
  * @param out_written Pointer to receive the number of bytes written,
  *                    or the required size on failure
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if a screen
- *         formatter's screen is not initialized, or an error code on failure
+ *         formatter's screen is not initialized, GHOSTTY_INVALID_VALUE if
+ *         the selection's grid references are not in the formatted screen
+ *         (out_written is then zero), or an error code on failure
  *
  * @ingroup formatter
  */
@@ -280,7 +287,8 @@ GHOSTTY_API GhosttyResult ghostty_formatter_format_buf(GhosttyFormatter formatte
  * @param out_len Pointer to receive the length of the output in bytes
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
  *         failure, GHOSTTY_NO_VALUE if a screen formatter's screen is not
- *         initialized
+ *         initialized, GHOSTTY_INVALID_VALUE if the selection's grid
+ *         references are not in the formatted screen
  *
  * @ingroup formatter
  */

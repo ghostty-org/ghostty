@@ -7,6 +7,7 @@ const terminal_c = @import("terminal.zig");
 const grid_ref = @import("grid_ref.zig");
 const selection_c = @import("selection.zig");
 const ZigTerminal = @import("../Terminal.zig");
+const Screen = @import("../Screen.zig");
 const formatterpkg = @import("../formatter.zig");
 const Result = @import("result.zig").Result;
 
@@ -31,10 +32,11 @@ const FormatterWrapper = struct {
         content: formatterpkg.ScreenFormatter.Content,
         extra: formatterpkg.ScreenFormatter.Extra,
 
-        /// The screen formatter, or null while the screen is not
-        /// initialized.
-        fn screenFormatter(self: ScreenKind) ?formatterpkg.ScreenFormatter {
-            const screen = self.terminal.screens.get(self.key) orelse return null;
+        /// The screen formatter. NoValue while the screen is not
+        /// initialized, InvalidValue if the selection is not in it.
+        fn screenFormatter(self: ScreenKind) error{ NoValue, InvalidValue }!formatterpkg.ScreenFormatter {
+            const screen = self.terminal.screens.get(self.key) orelse return error.NoValue;
+            if (!selectionInScreen(self.content, screen)) return error.InvalidValue;
             var result: formatterpkg.ScreenFormatter = .init(screen, self.opts);
             result.content = self.content;
             result.extra = self.extra;
@@ -42,6 +44,32 @@ const FormatterWrapper = struct {
         }
     };
 };
+
+/// Returns whether content's selection, if it has one, is in screen. A
+/// selection's grid refs are pins into one screen's page list, and the
+/// formatter assumes they are pins into the screen it formats: a ref from
+/// another screen is a null unwrap there (a panic in safe builds, undefined
+/// behavior in others). The refs come from the caller and the active screen
+/// can change between calls, so they are checked on every format.
+fn selectionInScreen(
+    content: formatterpkg.ScreenFormatter.Content,
+    screen: *const Screen,
+) bool {
+    const sel = switch (content) {
+        .none => return true,
+        .selection => |sel| sel orelse return true,
+    };
+    return screen.pages.containsPin(sel.start()) and
+        screen.pages.containsPin(sel.end());
+}
+
+/// The result for an error from ScreenKind.screenFormatter.
+fn screenResult(err: error{ NoValue, InvalidValue }) Result {
+    return switch (err) {
+        error.NoValue => .no_value,
+        error.InvalidValue => .invalid_value,
+    };
+}
 
 /// C: GhosttyFormatter
 pub const Formatter = ?*FormatterWrapper;
@@ -277,9 +305,13 @@ pub fn format(
     var adapter: io_c.WriterAdapter = .initBuffered(writer, &buffer);
     format_: {
         switch (wrapper.kind) {
-            .terminal => |*t| t.format(adapter.writer()) catch break :format_,
+            .terminal => |*t| {
+                if (!selectionInScreen(t.content, t.terminal.screens.active))
+                    return .invalid_value;
+                t.format(adapter.writer()) catch break :format_;
+            },
             .screen => |*s| {
-                const f = s.screenFormatter() orelse return .no_value;
+                const f = s.screenFormatter() catch |err| return screenResult(err);
                 f.format(adapter.writer()) catch break :format_;
             },
         }
@@ -305,15 +337,22 @@ pub fn format_buf(
     else
         &.{});
 
-    return switch (wrapper.kind) {
-        .terminal => |*t| formatIntoBuf(t, &writer, out_written),
-        .screen => |*s| if (s.screenFormatter()) |f|
-            formatIntoBuf(&f, &writer, out_written)
-        else no_value: {
-            out_written.* = 0;
-            break :no_value .no_value;
+    switch (wrapper.kind) {
+        .terminal => |*t| {
+            if (!selectionInScreen(t.content, t.terminal.screens.active)) {
+                out_written.* = 0;
+                return .invalid_value;
+            }
+            return formatIntoBuf(t, &writer, out_written);
         },
-    };
+        .screen => |*s| {
+            const f = s.screenFormatter() catch |err| {
+                out_written.* = 0;
+                return screenResult(err);
+            };
+            return formatIntoBuf(&f, &writer, out_written);
+        },
+    }
 }
 
 /// Formats f into a fixed writer, reporting the bytes written. A writer
@@ -352,12 +391,19 @@ pub fn format_alloc(
     defer aw.deinit();
 
     switch (wrapper.kind) {
-        .terminal => |*t| t.format(&aw.writer) catch return .out_of_memory,
-        .screen => |*s| {
-            const f = s.screenFormatter() orelse {
+        .terminal => |*t| {
+            if (!selectionInScreen(t.content, t.terminal.screens.active)) {
                 out_ptr.* = null;
                 out_len.* = 0;
-                return .no_value;
+                return .invalid_value;
+            }
+            t.format(&aw.writer) catch return .out_of_memory;
+        },
+        .screen => |*s| {
+            const f = s.screenFormatter() catch |err| {
+                out_ptr.* = null;
+                out_len.* = 0;
+                return screenResult(err);
             };
             f.format(&aw.writer) catch return .out_of_memory;
         },
@@ -961,6 +1007,186 @@ test "format screen with a selection in the primary screen's scrollback" {
     var written: usize = 0;
     try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
     try testing.expectEqualStrings("l1\nl2", buf[0..written]);
+}
+
+test "format invalid_value for a selection in another screen" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    terminal_c.vt_write(t, "Hello World", 11);
+
+    // A selection of "Hello" in the primary screen.
+    var start_ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &start_ref));
+    var end_ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 4, .y = 0 } },
+    }, &end_ref));
+    const sel: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+    };
+
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+        .{ .emit = .plain, .unwrap = false, .trim = true, .selection = &sel, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
+    ));
+    defer free(f);
+
+    var buf: [1024]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    try testing.expectEqualStrings("Hello", buf[0..written]);
+
+    // The terminal formatter formats the active screen, and the
+    // selection's refs are not in the alternate one.
+    terminal_c.vt_write(t, "\x1b[?1049halt", 11);
+    written = 1;
+    try testing.expectEqual(Result.invalid_value, format_buf(f, &buf, buf.len, &written));
+    try testing.expectEqual(@as(usize, 0), written);
+
+    var out_ptr: ?[*]u8 = undefined;
+    var out_len: usize = 1;
+    try testing.expectEqual(Result.invalid_value, format_alloc(
+        f,
+        &lib.alloc.test_allocator,
+        &out_ptr,
+        &out_len,
+    ));
+    try testing.expect(out_ptr == null);
+    try testing.expectEqual(@as(usize, 0), out_len);
+
+    const Context = struct {
+        fn write(
+            _: ?*anyopaque,
+            _: [*]const u8,
+            _: usize,
+        ) callconv(lib.calling_conv) bool {
+            unreachable;
+        }
+    };
+    try testing.expectEqual(Result.invalid_value, format(f, .{
+        .write = &Context.write,
+    }));
+
+    // Back on the primary screen the selection is valid again.
+    terminal_c.vt_write(t, "\x1b[?1049l", 8);
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    try testing.expectEqualStrings("Hello", buf[0..written]);
+}
+
+test "format screen invalid_value for a selection in another screen" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    terminal_c.vt_write(t, "primary", 7);
+    terminal_c.vt_write(t, "\x1b[?1049h\x1b[Halt", 14);
+
+    const opts: ScreenOptions = .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } };
+    const screens = [_]terminal_c.TerminalScreen{ .primary, .alternate };
+    for (screens, 0..) |from, i| {
+        const other = screens[1 - i];
+
+        var start_ref: grid_ref.CGridRef = .{};
+        try testing.expectEqual(Result.success, terminal_c.screen_grid_ref(t, from, .{
+            .tag = .active,
+            .value = .{ .active = .{ .x = 0, .y = 0 } },
+        }, &start_ref));
+        var end_ref: grid_ref.CGridRef = .{};
+        try testing.expectEqual(Result.success, terminal_c.screen_grid_ref(t, from, .{
+            .tag = .active,
+            .value = .{ .active = .{ .x = 2, .y = 0 } },
+        }, &end_ref));
+        const sel: selection_c.CSelection = .{
+            .start = start_ref,
+            .end = end_ref,
+        };
+        var screen_opts = opts;
+        screen_opts.selection = &sel;
+
+        var buf: [1024]u8 = undefined;
+        var written: usize = 0;
+
+        var f: Formatter = null;
+        try testing.expectEqual(Result.success, screen_new(
+            &lib.alloc.test_allocator,
+            &f,
+            t,
+            from,
+            screen_opts,
+        ));
+        try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+        try testing.expect(written == 3);
+        free(f);
+
+        try testing.expectEqual(Result.success, screen_new(
+            &lib.alloc.test_allocator,
+            &f,
+            t,
+            other,
+            screen_opts,
+        ));
+        defer free(f);
+        try testing.expectEqual(Result.invalid_value, format_buf(f, &buf, buf.len, &written));
+        try testing.expectEqual(@as(usize, 0), written);
+    }
+}
+
+test "format invalid_value for a selection outside its page" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    terminal_c.vt_write(t, "Hello", 5);
+
+    var start_ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &start_ref));
+    var end_ref = start_ref;
+    end_ref.x = 200;
+    const sel: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+    };
+
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+        .{ .emit = .plain, .unwrap = false, .trim = true, .selection = &sel, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
+    ));
+    defer free(f);
+
+    var buf: [1024]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(Result.invalid_value, format_buf(f, &buf, buf.len, &written));
 }
 
 test "format screen vt emits the screen's own cursor" {
