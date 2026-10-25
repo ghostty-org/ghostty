@@ -121,7 +121,12 @@ typedef struct {
    *  references must be in the active screen when formatting: each format
    *  call checks that they are in a page of that screen and returns
    *  GHOSTTY_INVALID_VALUE if not (for example after a switch to the
-   *  other screen). If NULL, the entire screen is formatted. */
+   *  other screen). The references must also be current: no mutating
+   *  terminal call may have occurred between producing them and the
+   *  format call, so take them (and create the formatter) after the
+   *  terminal's last update. A stale reference is not reliably detected:
+   *  the format may select other cells than intended. If NULL, the entire
+   *  screen is formatted. */
   const GhosttySelection *selection;
 } GhosttyFormatterTerminalOptions;
 
@@ -150,7 +155,11 @@ typedef struct {
    *  references must be in the formatted screen, see
    *  ghostty_terminal_screen_grid_ref(): each format call checks that they
    *  are in a page of that screen and returns GHOSTTY_INVALID_VALUE if
-   *  not. If NULL, the entire screen is formatted. */
+   *  not. The references must also be current: no mutating terminal call
+   *  may have occurred between producing them and the format call, so take
+   *  them (and create the formatter) after the terminal's last update. A
+   *  stale reference is not reliably detected: the format may select other
+   *  cells than intended. If NULL, the entire screen is formatted. */
   const GhosttySelection *selection;
 } GhosttyFormatterScreenOptions;
 

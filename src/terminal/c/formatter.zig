@@ -50,7 +50,9 @@ const FormatterWrapper = struct {
 /// formatter assumes they are pins into the screen it formats: a ref from
 /// another screen is a null unwrap there (a panic in safe builds, undefined
 /// behavior in others). The refs come from the caller and the active screen
-/// can change between calls, so they are checked on every format.
+/// can change between calls, so they are checked on every format. A stale
+/// ref into a page that still exists is not detected (the C API documents
+/// that refs must be taken after the terminal's last update).
 fn selectionInScreen(
     content: formatterpkg.ScreenFormatter.Content,
     screen: *const Screen,
