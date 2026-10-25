@@ -84,7 +84,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
 msgid "Ghostty: Terminal Inspector"
-msgstr ""
+msgstr "घोस्टी: टर्मिनल निरीक्षक"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
@@ -245,7 +245,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/window.blp:298
 msgid "Terminal Inspector"
-msgstr ""
+msgstr "टर्मिनल निरीक्षक"
 
 #: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1991
 msgid "About Ghostty"
@@ -585,57 +585,73 @@ msgstr "एक पृष्ठ नीचे जाएँ।"
 #: src/input/command.zig:286
 msgid "Copy Screen to Temporary File and Copy Path"
 msgstr ""
+"पर्दे की सामग्री की अस्थायी फ़ाइल में प्रति बनाएँ और पथ की क्लिपबोर्ड पर "
+"प्रति बनाएँ"
 
 #: src/input/command.zig:287
 msgid ""
 "Copy the screen contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
+"पर्दे की सामग्री की अस्थायी फ़ाइल में प्रति बनाएँ और पथ की क्लिपबोर्ड पर "
+"प्रति बनाएँ।"
 
 #: src/input/command.zig:291
 msgid "Copy Screen to Temporary File and Paste Path"
-msgstr ""
+msgstr "पर्दे की सामग्री की अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल का पथ चिपकाएँ"
 
 #: src/input/command.zig:292
 msgid ""
 "Copy the screen contents to a temporary file and paste the path to the file."
-msgstr ""
+msgstr "पर्दे की सामग्री की अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल का पथ चिपकाएँ।"
 
 #: src/input/command.zig:296
 msgid "Copy Screen to Temporary File and Open"
-msgstr ""
+msgstr "पर्दे की सामग्री की अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल खोलें"
 
 #: src/input/command.zig:297
 msgid "Copy the screen contents to a temporary file and open it."
-msgstr ""
+msgstr "पर्दे की सामग्री की अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल खोलें।"
 
 #: src/input/command.zig:305
 msgid "Copy Screen as HTML to Temporary File and Copy Path"
 msgstr ""
+"पर्दे की सामग्री की HTML के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और पथ की "
+"क्लिपबोर्ड पर प्रति बनाएँ"
 
 #: src/input/command.zig:306
 msgid ""
 "Copy the screen contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
+"पर्दे की सामग्री की HTML के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और पथ की "
+"क्लिपबोर्ड पर प्रति बनाएँ।"
 
 #: src/input/command.zig:313
 msgid "Copy Screen as HTML to Temporary File and Paste Path"
 msgstr ""
+"पर्दे की सामग्री की HTML के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल "
+"का पथ चिपकाएँ"
 
 #: src/input/command.zig:314
 msgid ""
 "Copy the screen contents as HTML to a temporary file and paste the path to "
 "the file."
 msgstr ""
+"पर्दे की सामग्री की HTML के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल "
+"का पथ चिपकाएँ।"
 
 #: src/input/command.zig:321
 msgid "Copy Screen as HTML to Temporary File and Open"
 msgstr ""
+"पर्दे की सामग्री की HTML के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल "
+"खोलें"
 
 #: src/input/command.zig:322
 msgid "Copy the screen contents as HTML to a temporary file and open it."
 msgstr ""
+"पर्दे की सामग्री की HTML के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल "
+"खोलें।"
 
 #: src/input/command.zig:330
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
@@ -670,6 +686,8 @@ msgstr ""
 #: src/input/command.zig:354
 msgid "Copy Selection to Temporary File and Copy Path"
 msgstr ""
+"चुने हुए पाठ की अस्थायी फ़ाइल में प्रति बनाएँ और पथ की क्लिपबोर्ड पर प्रति "
+"बनाएँ"
 
 #: src/input/command.zig:355
 msgid ""
@@ -787,11 +805,11 @@ msgstr "वर्तमान टैब को नई विंडो में 
 
 #: src/input/command.zig:452
 msgid "Toggle Tab Overview"
-msgstr ""
+msgstr "टैब का अवलोकन दिखाएँ या छिपाएँ"
 
 #: src/input/command.zig:453
 msgid "Toggle the tab overview."
-msgstr ""
+msgstr "टैब का अवलोकन दिखाएँ या छिपाएँ।"
 
 #: src/input/command.zig:458
 msgid "Change Terminal Title…"
@@ -887,11 +905,11 @@ msgstr "यदि अगली विंडो है, तो उस पर क�
 
 #: src/input/command.zig:545
 msgid "Toggle Split Zoom"
-msgstr ""
+msgstr "विभाजन का ज़ूम चालू या बंद करें"
 
 #: src/input/command.zig:546
 msgid "Toggle the zoom state of the current split."
-msgstr ""
+msgstr "वर्तमान विभाजन को पूरे टैब में फैलाएँ या उसके पिछले आकार में वापस लाएँ।"
 
 #: src/input/command.zig:551
 msgid "Toggle Read-Only Mode"
@@ -919,19 +937,19 @@ msgstr "विंडो का आकार डिफ़ॉल्ट पर व�
 
 #: src/input/command.zig:569
 msgid "Toggle Inspector"
-msgstr ""
+msgstr "निरीक्षक दिखाएँ या छिपाएँ"
 
 #: src/input/command.zig:570
 msgid "Toggle the inspector."
-msgstr ""
+msgstr "निरीक्षक दिखाएँ या छिपाएँ।"
 
 #: src/input/command.zig:575
 msgid "Show the GTK Inspector"
-msgstr ""
+msgstr "GTK निरीक्षक दिखाएँ"
 
 #: src/input/command.zig:576
 msgid "Show the GTK inspector."
-msgstr ""
+msgstr "GTK निरीक्षक दिखाएँ।"
 
 #: src/input/command.zig:581
 msgid "Show On-Screen Keyboard"
@@ -1007,59 +1025,59 @@ msgstr "सभी विंडो बंद करें।"
 
 #: src/input/command.zig:642
 msgid "Toggle Maximize"
-msgstr ""
+msgstr "विंडो का आकार अधिकतम करें या वापस लाएँ"
 
 #: src/input/command.zig:643
 msgid "Toggle the maximized state of the current window."
-msgstr ""
+msgstr "वर्तमान विंडो का आकार अधिकतम करें या उसके पिछले आकार में वापस लाएँ।"
 
 #: src/input/command.zig:648
 msgid "Toggle Fullscreen"
-msgstr ""
+msgstr "पूरे पर्दे का मोड चालू या बंद करें"
 
 #: src/input/command.zig:649
 msgid "Toggle the fullscreen state of the current window."
-msgstr ""
+msgstr "वर्तमान विंडो के लिए पूरे पर्दे का मोड चालू या बंद करें।"
 
 #: src/input/command.zig:654
 msgid "Toggle Window Decorations"
-msgstr ""
+msgstr "विंडो की सजावट दिखाएँ या छिपाएँ"
 
 #: src/input/command.zig:655
 msgid "Toggle the window decorations."
-msgstr ""
+msgstr "विंडो की सजावट दिखाएँ या छिपाएँ।"
 
 #: src/input/command.zig:660
 msgid "Toggle Float on Top"
-msgstr ""
+msgstr "हमेशा ऊपर रखना चालू या बंद करें"
 
 #: src/input/command.zig:661
 msgid "Toggle the float on top state of the current window."
-msgstr ""
+msgstr "वर्तमान विंडो को अन्य विंडो के ऊपर हमेशा रखना चालू या बंद करें।"
 
 #: src/input/command.zig:666
 msgid "Toggle Secure Input"
-msgstr ""
+msgstr "सुरक्षित निवेश चालू या बंद करें"
 
 #: src/input/command.zig:667
 msgid "Toggle secure input mode."
-msgstr ""
+msgstr "सुरक्षित निवेश मोड चालू या बंद करें।"
 
 #: src/input/command.zig:672
 msgid "Toggle Mouse Reporting"
-msgstr ""
+msgstr "माउस की घटनाओं की सूचना देना चालू या बंद करें"
 
 #: src/input/command.zig:673
 msgid "Toggle whether mouse events are reported to terminal applications."
-msgstr ""
+msgstr "टर्मिनल अनुप्रयोगों को माउस की घटनाओं की सूचना देना चालू या बंद करें।"
 
 #: src/input/command.zig:678
 msgid "Toggle Background Opacity"
-msgstr ""
+msgstr "पृष्ठभूमि की अपारदर्शिता बदलें"
 
 #: src/input/command.zig:679
 msgid "Toggle the background opacity of a window that started transparent."
-msgstr ""
+msgstr "पारदर्शी रूप में खुली विंडो की पृष्ठभूमि को अपारदर्शी या फिर पारदर्शी बनाएँ।"
 
 #: src/input/command.zig:684
 msgid "Check for Updates"
@@ -1095,4 +1113,4 @@ msgstr "घोस्टी"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."
-msgstr ""
+msgstr "अपने टर्मिनल में थोड़ा घोस्टी ले आएँ।"
