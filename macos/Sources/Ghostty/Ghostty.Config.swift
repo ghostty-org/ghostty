@@ -352,7 +352,7 @@ extension Ghostty {
         }
 
         var macosTitlebarStyle: MacOSTitlebarStyle {
-            let defaultValue = MacOSTitlebarStyle.transparent
+            let defaultValue = MacOSTitlebarStyle.verticalTabs
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>?
             let key = "macos-titlebar-style"

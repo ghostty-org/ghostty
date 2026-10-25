@@ -3454,12 +3454,11 @@ keybind: Keybinds = .{},
 /// areas of the frame to drag the window. This is a standard macOS behavior
 /// and not something Ghostty enables.
 ///
-/// The default value is "transparent". This is an opinionated choice
-/// but its one I think is the most aesthetically pleasing and works in
-/// most cases.
+/// The default value is "vertical-tabs" in this fork, which exists to ship
+/// the tab sidebar. Upstream Ghostty defaults to "transparent".
 ///
 /// Changing this option at runtime only applies to new windows.
-@"macos-titlebar-style": MacTitlebarStyle = .transparent,
+@"macos-titlebar-style": MacTitlebarStyle = .@"vertical-tabs",
 
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
 /// is the icon that represents the folder of the current working directory.

@@ -90,15 +90,16 @@ struct ConfigTests {
 
     // MARK: - Enum Properties
 
-    @Test func macosTitlebarStyleDefaultsToTransparent() throws {
+    @Test func macosTitlebarStyleDefaultsToVerticalTabs() throws {
         let config = try TemporaryConfig("")
-        #expect(config.macosTitlebarStyle == .transparent)
+        #expect(config.macosTitlebarStyle == .verticalTabs)
     }
 
     @Test(arguments: [
         ("native", Ghostty.Config.MacOSTitlebarStyle.native),
         ("transparent", Ghostty.Config.MacOSTitlebarStyle.transparent),
         ("tabs", Ghostty.Config.MacOSTitlebarStyle.tabs),
+        ("vertical-tabs", Ghostty.Config.MacOSTitlebarStyle.verticalTabs),
         ("hidden", Ghostty.Config.MacOSTitlebarStyle.hidden),
     ])
     func macosTitlebarStyleValues(raw: String, expected: Ghostty.Config.MacOSTitlebarStyle) throws {
