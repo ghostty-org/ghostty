@@ -254,4 +254,48 @@ struct NSPasteboardTests {
             #expect(pasteboard.getOpinionatedStringContents() == nil)
         }
     }
+
+    struct NSPasteboardGhosttyDataTests {
+        let pasteboard = makePasteboard()
+
+        // MARK: - Plain Texts
+
+        @Test func testTextPlainMimeTypeNoStringReturnsNil() {
+            #expect(pasteboard.ghosttyData(forMime: "text/plain") == nil)
+        }
+
+        @Test func testTextPlainMimeTypeReturnsData() {
+            let text = "hello world"
+            pasteboard.writeObjects([stringItem(text)])
+
+            #expect(pasteboard.ghosttyData(forMime: "text/plain") == text.data(using: .utf8))
+        }
+
+        // MARK: - Text URI List
+
+        @Test func testTextURIListNoFileURLsReturnsNil() {
+            #expect(pasteboard.ghosttyData(forMime: "text/uri-list") == nil)
+        }
+
+        @Test func testTextURIListReturnsData() {
+            let fileURLs = "file:///Users/test/a.txt\r\nfile:///Users/test/b.txt\r\n"
+            pasteboard.writeObjects([
+                fileURLItem("file:///Users/test/a.txt"),
+                fileURLItem("file:///Users/test/b.txt"),
+            ])
+
+            #expect(pasteboard.ghosttyData(forMime: "text/uri-list") == fileURLs.data(using: .utf8))
+        }
+
+        // MARK: - Other MIME types
+
+        @Test func testImagePNGMIMETypeReturnsData() {
+            let imageData = Data([0x89, 0x50, 0x4e, 0x47])
+            let item = NSPasteboardItem()
+            item.setData(imageData, forType: .png)
+            pasteboard.writeObjects([item])
+
+            #expect(pasteboard.ghosttyData(forMime: "image/png") == imageData)
+        }
+    }
 }
