@@ -361,6 +361,13 @@ class AppDelegate: NSObject,
         self.hiddenState = .init()
     }
 
+    func applicationDidUpdate(_ notification: Notification) {
+        // AppKit has finished updating its windows, including any that just closed.
+        if derivedConfig.macosHidden == .quickTerminal {
+            syncActivationPolicy()
+        }
+    }
+
     func applicationDidBecomeActive(_ notification: Notification) {
         // If we're back manually then clear the hidden state because macOS handles it.
         self.hiddenState = nil
@@ -858,14 +865,7 @@ class AppDelegate: NSObject,
         // AppKit mutex on the appearance.
         DispatchQueue.main.async { self.syncAppearance(config: config) }
 
-        // Decide whether to hide/unhide app from dock and app switcher
-        switch config.macosHidden {
-        case .never:
-            NSApp.setActivationPolicy(.regular)
-
-        case .always:
-            NSApp.setActivationPolicy(.accessory)
-        }
+        syncActivationPolicy()
 
         // If we have configuration errors, we need to show them.
         let c = ConfigurationErrorsController.sharedInstance
@@ -1081,21 +1081,52 @@ class AppDelegate: NSObject,
         undoManager.redo()
     }
 
+    private func syncActivationPolicy() {
+        let policy: NSApplication.ActivationPolicy
+        switch derivedConfig.macosHidden {
+        case .never:
+            policy = .regular
+
+        case .always:
+            policy = .accessory
+
+        case .quickTerminal:
+            // Allow the initial activation to create a window according to initial-window.
+            guard applicationHasBecomeActive else { return }
+            let hasWindow = NSApp.windows.contains { window in
+                guard !(window is QuickTerminalWindow) else { return false }
+                if window is TerminalWindow { return true }
+
+                // Keep dialogs and other app windows, but ignore auxiliary windows such as tooltips.
+                return (window.isVisible || window.isMiniaturized) &&
+                    (window.canBecomeKey || window.canBecomeMain)
+            }
+            policy = hasWindow ? .regular : .accessory
+        }
+
+        if NSApp.activationPolicy() != policy {
+            NSApp.setActivationPolicy(policy)
+        }
+    }
+
     private struct DerivedConfig {
         let initialWindow: Bool
         let shouldQuitAfterLastWindowClosed: Bool
         let quickTerminalPosition: QuickTerminalPosition
+        let macosHidden: Ghostty.Config.MacHidden
 
         init() {
             self.initialWindow = true
             self.shouldQuitAfterLastWindowClosed = false
             self.quickTerminalPosition = .top
+            self.macosHidden = .never
         }
 
         init(_ config: Ghostty.Config) {
             self.initialWindow = config.initialWindow
             self.shouldQuitAfterLastWindowClosed = config.shouldQuitAfterLastWindowClosed
             self.quickTerminalPosition = config.quickTerminalPosition
+            self.macosHidden = config.macosHidden
         }
     }
 

@@ -828,6 +828,7 @@ extension Ghostty.Config {
     enum MacHidden: String {
         case never
         case always
+        case quickTerminal = "quick-terminal"
     }
 
     enum MacShortcuts: String {
