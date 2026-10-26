@@ -399,7 +399,7 @@ msgstr "Athshocraigh an teirminéal go staid ghlan."
 
 #: src/input/command.zig:155
 msgid "Copy to Clipboard"
-msgstr "Cóipeáil chuig an nGearrthaisce"
+msgstr "Cóipeáil chuig an ngearrthaisce"
 
 #: src/input/command.zig:156
 msgid ""
