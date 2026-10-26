@@ -1092,7 +1092,7 @@ msgstr "Scoránaigh na maisiúcháin fuinneoige."
 
 #: src/input/command.zig:660
 msgid "Toggle Float on Top"
-msgstr "Scoránaigh Snámh ar a Bharr"
+msgstr "Scoránaigh snámh ar barr"
 
 #: src/input/command.zig:661
 msgid "Toggle the float on top state of the current window."
