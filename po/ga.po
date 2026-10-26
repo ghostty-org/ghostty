@@ -272,7 +272,7 @@ msgstr "Dhiúltaigh an córas an ceangal eochrach."
 
 #: src/apprt/gtk/class/application.zig:1748
 msgid "Global keybind unavailable"
-msgstr "Níl ceangal eochrach comhchoiteann ar fáil"
+msgstr "Níl ceangal eochrach uilíoch inúsáidte"
 
 #: src/apprt/gtk/class/application.zig:2146
 msgid "Export Terminal IO Events"
