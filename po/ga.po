@@ -371,7 +371,7 @@ msgstr "Athraigh teideal an táb"
 
 #: src/apprt/gtk/class/title_dialog.zig:228
 msgid "Change Window Title"
-msgstr "Athraigh Teideal na Fuinneoige"
+msgstr "Athraigh teideal na fuinneoige"
 
 #: src/apprt/gtk/class/window.zig:1184
 msgid "Reloaded the configuration"
