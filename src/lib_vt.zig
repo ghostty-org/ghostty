@@ -287,6 +287,7 @@ comptime {
         if (features.formatter) {
             @export(&c.formatter_terminal_new, .{ .name = "ghostty_formatter_terminal_new" });
             @export(&c.formatter_screen_new, .{ .name = "ghostty_formatter_screen_new" });
+            @export(&c.formatter_set, .{ .name = "ghostty_formatter_set" });
             @export(&c.formatter_format, .{ .name = "ghostty_formatter_format" });
             @export(&c.formatter_format_buf, .{ .name = "ghostty_formatter_format_buf" });
             @export(&c.formatter_format_alloc, .{ .name = "ghostty_formatter_format_alloc" });
