@@ -857,7 +857,7 @@ msgstr "Athraigh teideal an teirminéal…"
 
 #: src/input/command.zig:459
 msgid "Prompt for a new title for the current terminal."
-msgstr "Iarr ar an úsáideoir teideal nua a thabhairt don teirminéal reatha."
+msgstr "Iarr teideal nua don teirminéal reatha."
 
 #: src/input/command.zig:465
 msgid "Prompt for a new title for the current tab."
