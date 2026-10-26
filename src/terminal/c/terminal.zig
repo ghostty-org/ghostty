@@ -1730,7 +1730,7 @@ fn setTyped(
         },
         .selection => {
             if (value) |ptr| {
-                const sel = ptr.toZig() orelse return .invalid_value;
+                const sel = ptr.toZigIn(wrapper.terminal.screens.active) orelse return .invalid_value;
                 wrapper.terminal.screens.active.select(sel) catch return .out_of_memory;
             } else {
                 wrapper.terminal.screens.active.clearSelection();

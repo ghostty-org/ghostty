@@ -2398,6 +2398,11 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * terminal-owned tracked state, so the GhosttySelection struct and its
    * untracked grid references do not need to outlive this call.
    *
+   * A selection whose refs are not in a page of the active screen, such as
+   * refs from the other screen after a screen switch, returns
+   * GHOSTTY_INVALID_VALUE and leaves the current selection unchanged. A stale
+   * ref into a page that still exists is not reliably detected.
+   *
    * Passing NULL clears the active screen selection.
    *
    * Input type: GhosttySelection*
