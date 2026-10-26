@@ -1096,7 +1096,7 @@ msgstr "Scoránaigh Snámh ar a Bharr"
 
 #: src/input/command.zig:661
 msgid "Toggle the float on top state of the current window."
-msgstr "Scoránaigh socrú na fuinneoige reatha os cionn fuinneoga eile."
+msgstr "Scoránaigh an staid snáimh ar barr don fhuinneog reatha."
 
 #: src/input/command.zig:666
 msgid "Toggle Secure Input"
