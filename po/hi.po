@@ -55,7 +55,7 @@ msgstr "रद्द करें"
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:90
 #: src/apprt/gtk/ui/1.3/surface-child-exited.blp:17
 msgid "Close"
-msgstr "बंद करें"
+msgstr "बन्द करें"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
 msgid "Configuration Errors"
@@ -119,7 +119,7 @@ msgstr "केवल पढ़ने के लिए"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:316 src/apprt/gtk/ui/1.5/window.blp:203
 msgid "Copy"
-msgstr "प्रति बनाएँ"
+msgstr "प्रतिलिपि"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:321 src/apprt/gtk/ui/1.5/window.blp:208
 msgid "Paste"
@@ -131,7 +131,7 @@ msgstr "अगला निर्देश पूरा होने पर स�
 
 #: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
-msgstr "साफ करें"
+msgstr "मिटाएँ"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:338 src/apprt/gtk/ui/1.5/window.blp:286
 msgid "Reset"
@@ -148,26 +148,26 @@ msgstr "शीर्षक बदलें…"
 #: src/apprt/gtk/ui/1.2/surface.blp:353 src/apprt/gtk/ui/1.5/window.blp:180
 #: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:487
 msgid "Split Up"
-msgstr "विभाजन ऊपर करें"
+msgstr "ऊपर विभाजन करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:359 src/apprt/gtk/ui/1.5/window.blp:185
 #: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:492
 msgid "Split Down"
-msgstr "विभाजन नीचे करें"
+msgstr "नीचे विभाजन करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:365 src/apprt/gtk/ui/1.5/window.blp:190
 #: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
 msgid "Split Left"
-msgstr "विभाजन बायाँ करें"
+msgstr "बायाँ विभाजन करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:195
 #: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
 msgid "Split Right"
-msgstr "विभाजन दायाँ करें"
+msgstr "दायाँ विभाजन करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:377
 msgid "Close Split"
-msgstr "विभाजन बंद करें"
+msgstr "विभाजन बन्द करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:383
 msgid "Tab"
@@ -187,7 +187,7 @@ msgstr "नया टैब"
 #: src/apprt/gtk/ui/1.2/surface.blp:396 src/apprt/gtk/ui/1.5/window.blp:242
 #: src/input/command.zig:613
 msgid "Close Tab"
-msgstr "टैब बंद करें"
+msgstr "टैब बन्द करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:403
 msgid "Window"
@@ -205,7 +205,7 @@ msgstr "नया विंडो"
 #: src/apprt/gtk/ui/1.2/surface.blp:416 src/apprt/gtk/ui/1.5/window.blp:225
 #: src/input/command.zig:630
 msgid "Close Window"
-msgstr "विंडो बंद करें"
+msgstr "विंडो बन्द करें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:424 src/apprt/gtk/ui/1.5/window.blp:303
 msgid "Config"
@@ -237,11 +237,11 @@ msgstr "खुले टैब देखें"
 
 #: src/apprt/gtk/ui/1.5/window.blp:81 src/apprt/gtk/ui/1.5/window.blp:143
 msgid "Main Menu"
-msgstr "मुख्य मेन्यू"
+msgstr "मुख्य सूची"
 
 #: src/apprt/gtk/ui/1.5/window.blp:293
 msgid "Command Palette"
-msgstr ""
+msgstr "निर्देश सूची"
 
 #: src/apprt/gtk/ui/1.5/window.blp:298
 msgid "Terminal Inspector"
@@ -253,7 +253,7 @@ msgstr "घोस्टी के बारे में"
 
 #: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:702
 msgid "Quit"
-msgstr "बाहर जाएँ"
+msgstr "निकलें"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:17
 msgid "Execute a command…"
@@ -313,19 +313,19 @@ msgstr ""
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
 msgid "Quit Ghostty?"
-msgstr "घोस्टी से बाहर जाएँ?"
+msgstr "घोस्टी से निकलें?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
-msgstr "टैब बंद करें?"
+msgstr "टैब बन्द करें?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:186
 msgid "Close Window?"
-msgstr "विंडो बंद करें?"
+msgstr "विंडो बन्द करें?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:187
 msgid "Close Split?"
-msgstr "विभाजन बंद करें?"
+msgstr "विभाजन बन्द करें?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions will be terminated."
@@ -456,7 +456,7 @@ msgstr "मुख्य क्लिपबोर्ड की सामग्र
 
 #: src/input/command.zig:191
 msgid "Paste from Selection"
-msgstr "चयन में से चिपकाएँ"
+msgstr "चयन को चिपकाएँ"
 
 #: src/input/command.zig:192
 msgid "Paste the contents of the selection clipboard."
@@ -504,11 +504,11 @@ msgstr "यदि पिछला खोज परिणाम है, तो �
 
 #: src/input/command.zig:225
 msgid "Increase Font Size"
-msgstr "फ़ॉन्ट आकार बढ़ाएं"
+msgstr "फ़ॉन्ट आकार बढ़ाएँ"
 
 #: src/input/command.zig:226
 msgid "Increase the font size by 1 point."
-msgstr "१ बिन्दु से फ़ॉन्ट आकार वृद्धि करें"
+msgstr "फ़ॉन्ट आकार १ बिन्दु से बढ़ाएँ।"
 
 #: src/input/command.zig:231
 msgid "Decrease Font Size"
@@ -516,7 +516,7 @@ msgstr "फ़ॉन्ट आकार घटाएँ"
 
 #: src/input/command.zig:232
 msgid "Decrease the font size by 1 point."
-msgstr "१ बिन्दु से फ़ॉन्ट आकार कम करें"
+msgstr "फ़ॉन्ट आकार १ बिन्दु से घटाएँ।"
 
 #: src/input/command.zig:237
 msgid "Reset Font Size"
@@ -568,7 +568,7 @@ msgstr "चुने हुए पाठ तक जाएँ ।"
 
 #: src/input/command.zig:273
 msgid "Scroll Page Up"
-msgstr "ऊपर पृष्ठ"
+msgstr "एक पृष्ठ ऊपर जाएँ"
 
 #: src/input/command.zig:274
 msgid "Scroll the screen up by a page."
@@ -905,7 +905,7 @@ msgstr "यदि अगली विंडो है, तो उस पर क�
 
 #: src/input/command.zig:545
 msgid "Toggle Split Zoom"
-msgstr "विभाजन का ज़ूम चालू या बंद करें"
+msgstr "विभाजन का ज़ूम चालू या बन्द करें"
 
 #: src/input/command.zig:546
 msgid "Toggle the zoom state of the current split."
@@ -913,11 +913,11 @@ msgstr "वर्तमान विभाजन को पूरे टैब �
 
 #: src/input/command.zig:551
 msgid "Toggle Read-Only Mode"
-msgstr "केवल पढ़ने का मोड चालू या बंद करें"
+msgstr "केवल पढ़ने का मोड चालू या बन्द करें"
 
 #: src/input/command.zig:552
 msgid "Toggle read-only mode for the current surface."
-msgstr "वर्तमान टर्मिनल के लिए केवल पढ़ने का मोड चालू या बंद करें।"
+msgstr "वर्तमान टर्मिनल के लिए केवल पढ़ने का मोड चालू या बन्द करें।"
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
@@ -985,43 +985,43 @@ msgstr "विन्यास फ़ाइल दोबारा लोड क�
 
 #: src/input/command.zig:606
 msgid "Close Terminal"
-msgstr "टर्मिनल बंद करें"
+msgstr "टर्मिनल बन्द करें"
 
 #: src/input/command.zig:607
 msgid "Close the current terminal."
-msgstr "वर्तमान टर्मिनल बंद करें।"
+msgstr "वर्तमान टर्मिनल बन्द करें।"
 
 #: src/input/command.zig:614
 msgid "Close the current tab."
-msgstr "वर्तमान टैब बंद करें।"
+msgstr "वर्तमान टैब बन्द करें।"
 
 #: src/input/command.zig:618
 msgid "Close Other Tabs"
-msgstr "अन्य टैब बंद करें"
+msgstr "अन्य टैब बन्द करें"
 
 #: src/input/command.zig:619
 msgid "Close all tabs in this window except the current one."
-msgstr "इस विंडो में वर्तमान टैब के अलावा सभी टैब बंद करें।"
+msgstr "इस विंडो में वर्तमान टैब के अलावा सभी टैब बन्द करें।"
 
 #: src/input/command.zig:623
 msgid "Close Tabs to the Right"
-msgstr "दाईं ओर के टैब बंद करें"
+msgstr "दाईं ओर के टैब बन्द करें"
 
 #: src/input/command.zig:624
 msgid "Close all tabs to the right of the current one."
-msgstr "वर्तमान टैब की दाईं ओर के सभी टैब बंद करें।"
+msgstr "वर्तमान टैब की दाईं ओर के सभी टैब बन्द करें।"
 
 #: src/input/command.zig:631
 msgid "Close the current window."
-msgstr "वर्तमान विंडो बंद करें।"
+msgstr "वर्तमान विंडो बन्द करें।"
 
 #: src/input/command.zig:636
 msgid "Close All Windows"
-msgstr "सभी विंडो बंद करें"
+msgstr "सभी विंडो बन्द करें"
 
 #: src/input/command.zig:637
 msgid "Close all windows."
-msgstr "सभी विंडो बंद करें।"
+msgstr "सभी विंडो बन्द करें।"
 
 #: src/input/command.zig:642
 msgid "Toggle Maximize"
@@ -1033,11 +1033,11 @@ msgstr "वर्तमान विंडो का आकार अधिक�
 
 #: src/input/command.zig:648
 msgid "Toggle Fullscreen"
-msgstr "पूरे पर्दे का मोड चालू या बंद करें"
+msgstr "पूरे पर्दे का मोड चालू या बन्द करें"
 
 #: src/input/command.zig:649
 msgid "Toggle the fullscreen state of the current window."
-msgstr "वर्तमान विंडो के लिए पूरे पर्दे का मोड चालू या बंद करें।"
+msgstr "वर्तमान विंडो के लिए पूरे पर्दे का मोड चालू या बन्द करें।"
 
 #: src/input/command.zig:654
 msgid "Toggle Window Decorations"
@@ -1049,27 +1049,27 @@ msgstr "विंडो की सजावट दिखाएँ या छि�
 
 #: src/input/command.zig:660
 msgid "Toggle Float on Top"
-msgstr "हमेशा ऊपर रखना चालू या बंद करें"
+msgstr "हमेशा ऊपर रखना चालू या बन्द करें"
 
 #: src/input/command.zig:661
 msgid "Toggle the float on top state of the current window."
-msgstr "वर्तमान विंडो को अन्य विंडो के ऊपर हमेशा रखना चालू या बंद करें।"
+msgstr "वर्तमान विंडो को अन्य विंडो के ऊपर हमेशा रखना चालू या बन्द करें।"
 
 #: src/input/command.zig:666
 msgid "Toggle Secure Input"
-msgstr "सुरक्षित निवेश चालू या बंद करें"
+msgstr "सुरक्षित निवेश चालू या बन्द करें"
 
 #: src/input/command.zig:667
 msgid "Toggle secure input mode."
-msgstr "सुरक्षित निवेश मोड चालू या बंद करें।"
+msgstr "सुरक्षित निवेश मोड चालू या बन्द करें।"
 
 #: src/input/command.zig:672
 msgid "Toggle Mouse Reporting"
-msgstr "माउस की घटनाओं की सूचना देना चालू या बंद करें"
+msgstr "माउस की घटनाओं की सूचना देना चालू या बन्द करें"
 
 #: src/input/command.zig:673
 msgid "Toggle whether mouse events are reported to terminal applications."
-msgstr "टर्मिनल अनुप्रयोगों को माउस की घटनाओं की सूचना देना चालू या बंद करें।"
+msgstr "टर्मिनल अनुप्रयोगों को माउस की घटनाओं की सूचना देना चालू या बन्द करें।"
 
 #: src/input/command.zig:678
 msgid "Toggle Background Opacity"
