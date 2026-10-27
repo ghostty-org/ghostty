@@ -9,6 +9,7 @@
 import Testing
 import AppKit
 @testable import Ghostty
+import GhosttyKit
 
 struct NSPasteboardTests {
     // MARK: - Test Helpers
@@ -298,6 +299,25 @@ struct NSPasteboardTests {
             ])
 
             #expect(pasteboard.ghosttyAvailableMimes() == ["text/plain", "text/uri-list", "image/png", "image/tiff"])
+        }
+    }
+
+    struct NSPasteboardGhosttyTests {
+        @Test func testStandardClipboardReturnsGeneralPasteboard() {
+            #expect(NSPasteboard.ghostty(GHOSTTY_CLIPBOARD_STANDARD) === NSPasteboard.general)
+        }
+
+        @Test func testSelectionClipboardReturnsGhosttySelectionPasteboard() {
+            #expect(NSPasteboard.ghostty(GHOSTTY_CLIPBOARD_SELECTION) === NSPasteboard.ghosttySelection)
+        }
+
+        @Test func testPrimaryClipboardReturnsNil() {
+            #expect(NSPasteboard.ghostty(GHOSTTY_CLIPBOARD_PRIMARY) == nil)
+        }
+
+        @Test func testUnknownClipboardReturnsNil() {
+            let unknown = ghostty_clipboard_e(rawValue: 999)
+            #expect(NSPasteboard.ghostty(unknown) == nil)
         }
     }
 }
