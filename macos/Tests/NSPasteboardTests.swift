@@ -282,4 +282,22 @@ struct NSPasteboardTests {
             #expect(pasteboard.ghosttyData(forMime: "image/png") == imageData)
         }
     }
+
+    struct NSPasteboardGhosttyAvailableMimesTests {
+        let pasteboard = makePasteboard()
+
+        @Test func testWithMultipleTypesReturnsAvailableTypes() {
+            let imageData = Data([0x89, 0x50, 0x4e, 0x47])
+            let item = NSPasteboardItem()
+            item.setData(imageData, forType: .png)
+
+            pasteboard.writeObjects([
+                fileURLItem("file:///Users/test/a.txt"),
+                fileURLItem("file:///Users/test/b.txt"),
+                item
+            ])
+
+            #expect(pasteboard.ghosttyAvailableMimes() == ["text/plain", "text/uri-list", "image/png", "image/tiff"])
+        }
+    }
 }
