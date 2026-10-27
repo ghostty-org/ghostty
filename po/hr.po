@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-14 14:34-0500\n"
+"POT-Creation-Date: 2026-10-25 00:30+0000\n"
 "PO-Revision-Date: 2026-08-25 21:00+0200\n"
 "Last-Translator: Filip7 <filipm7@protonmail.com>\n"
 "Language-Team: Croatian <lokalizacija@linux.hr>\n"
@@ -67,105 +67,109 @@ msgstr "Samo za čitanje"
 msgid "Copy"
 msgstr "Kopiraj"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:316 src/apprt/gtk/ui/1.4/window.blp:210
+#: src/apprt/gtk/ui/1.0/surface.blp:316
+msgid "Copy Link"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.0/surface.blp:322 src/apprt/gtk/ui/1.4/window.blp:210
 msgid "Paste"
 msgstr "Zalijepi"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:321
+#: src/apprt/gtk/ui/1.0/surface.blp:327
 msgid "Notify on Next Command Finish"
 msgstr "Obavijesti kada iduća naredba završi"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:328 src/apprt/gtk/ui/1.4/window.blp:283
+#: src/apprt/gtk/ui/1.0/surface.blp:334 src/apprt/gtk/ui/1.4/window.blp:283
 msgid "Clear"
 msgstr "Očisti"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:333 src/apprt/gtk/ui/1.4/window.blp:288
+#: src/apprt/gtk/ui/1.0/surface.blp:339 src/apprt/gtk/ui/1.4/window.blp:288
 msgid "Reset"
 msgstr "Resetiraj"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:340 src/apprt/gtk/ui/1.4/window.blp:252
+#: src/apprt/gtk/ui/1.0/surface.blp:346 src/apprt/gtk/ui/1.4/window.blp:252
 msgid "Split"
 msgstr "Podijeli"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:343 src/apprt/gtk/ui/1.4/window.blp:255
+#: src/apprt/gtk/ui/1.0/surface.blp:349 src/apprt/gtk/ui/1.4/window.blp:255
 msgid "Change Title…"
 msgstr "Promijeni naslov…"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:348 src/apprt/gtk/ui/1.4/window.blp:182
+#: src/apprt/gtk/ui/1.0/surface.blp:354 src/apprt/gtk/ui/1.4/window.blp:182
 #: src/apprt/gtk/ui/1.4/window.blp:260 src/input/command.zig:487
 msgid "Split Up"
 msgstr "Podijeli gore"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:354 src/apprt/gtk/ui/1.4/window.blp:187
+#: src/apprt/gtk/ui/1.0/surface.blp:360 src/apprt/gtk/ui/1.4/window.blp:187
 #: src/apprt/gtk/ui/1.4/window.blp:265 src/input/command.zig:492
 msgid "Split Down"
 msgstr "Podijeli dolje"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:360 src/apprt/gtk/ui/1.4/window.blp:192
+#: src/apprt/gtk/ui/1.0/surface.blp:366 src/apprt/gtk/ui/1.4/window.blp:192
 #: src/apprt/gtk/ui/1.4/window.blp:270 src/input/command.zig:477
 msgid "Split Left"
 msgstr "Podijeli lijevo"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:366 src/apprt/gtk/ui/1.4/window.blp:197
+#: src/apprt/gtk/ui/1.0/surface.blp:372 src/apprt/gtk/ui/1.4/window.blp:197
 #: src/apprt/gtk/ui/1.4/window.blp:275 src/input/command.zig:482
 msgid "Split Right"
 msgstr "Podijeli desno"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:372
+#: src/apprt/gtk/ui/1.0/surface.blp:378
 msgid "Close Split"
 msgstr "Zatvori podjelu"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:378
+#: src/apprt/gtk/ui/1.0/surface.blp:384
 msgid "Tab"
 msgstr "Kartica"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:381 src/apprt/gtk/ui/1.4/window.blp:234
+#: src/apprt/gtk/ui/1.0/surface.blp:387 src/apprt/gtk/ui/1.4/window.blp:234
 #: src/apprt/gtk/ui/1.4/window.blp:341 src/input/command.zig:464
 msgid "Change Tab Title…"
 msgstr "Promijeni naslov kartice…"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:386 src/apprt/gtk/ui/1.4/window.blp:61
+#: src/apprt/gtk/ui/1.0/surface.blp:392 src/apprt/gtk/ui/1.4/window.blp:61
 #: src/apprt/gtk/ui/1.4/window.blp:112 src/apprt/gtk/ui/1.4/window.blp:239
 #: src/input/command.zig:427
 msgid "New Tab"
 msgstr "Nova kartica"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:391 src/apprt/gtk/ui/1.4/window.blp:244
+#: src/apprt/gtk/ui/1.0/surface.blp:397 src/apprt/gtk/ui/1.4/window.blp:244
 #: src/input/command.zig:613
 msgid "Close Tab"
 msgstr "Zatvori karticu"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:398
+#: src/apprt/gtk/ui/1.0/surface.blp:404
 msgid "Window"
 msgstr "Prozor"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:401 src/apprt/gtk/ui/1.4/window.blp:217
+#: src/apprt/gtk/ui/1.0/surface.blp:407 src/apprt/gtk/ui/1.4/window.blp:217
 msgid "Change Window Title…"
 msgstr "Promijeni naslov prozora…"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:406 src/apprt/gtk/ui/1.4/window.blp:222
+#: src/apprt/gtk/ui/1.0/surface.blp:412 src/apprt/gtk/ui/1.4/window.blp:222
 #: src/input/command.zig:421
 msgid "New Window"
 msgstr "Novi prozor"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:411 src/apprt/gtk/ui/1.4/window.blp:227
+#: src/apprt/gtk/ui/1.0/surface.blp:417 src/apprt/gtk/ui/1.4/window.blp:227
 #: src/input/command.zig:630
 msgid "Close Window"
 msgstr "Zatvori prozor"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:419 src/apprt/gtk/ui/1.4/window.blp:305
+#: src/apprt/gtk/ui/1.0/surface.blp:425 src/apprt/gtk/ui/1.4/window.blp:305
 msgid "Config"
 msgstr "Postavke"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:422 src/apprt/gtk/ui/1.4/window.blp:308
+#: src/apprt/gtk/ui/1.0/surface.blp:428 src/apprt/gtk/ui/1.4/window.blp:308
 msgid "Open Configuration in OS Editor"
 msgstr "Otvori postavke u uređivaču teksta OS-a"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:428 src/apprt/gtk/ui/1.4/window.blp:314
+#: src/apprt/gtk/ui/1.0/surface.blp:434 src/apprt/gtk/ui/1.4/window.blp:314
 msgid "Open Configuration in New Window"
 msgstr "Otvori postavke u novom prozoru"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:434 src/apprt/gtk/ui/1.4/window.blp:320
+#: src/apprt/gtk/ui/1.0/surface.blp:440 src/apprt/gtk/ui/1.4/window.blp:320
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:12
 msgid "Reload Configuration"
 msgstr "Ponovno učitaj postavke"
@@ -231,7 +235,7 @@ msgstr "Ponovno učitaj postavke za prikaz ovog upita"
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2150
+#: src/apprt/gtk/class/application.zig:2151
 msgid "Cancel"
 msgstr "Otkaži"
 
@@ -271,15 +275,15 @@ msgstr "Sustav je opozvao tipkovni prečac."
 msgid "The keybind was denied by the system."
 msgstr "Sustav je odbio tipkovni prečac."
 
-#: src/apprt/gtk/class/application.zig:1748
+#: src/apprt/gtk/class/application.zig:1749
 msgid "Global keybind unavailable"
 msgstr "Globalni tipkovni prečac nije dostupan"
 
-#: src/apprt/gtk/class/application.zig:2146
+#: src/apprt/gtk/class/application.zig:2147
 msgid "Export Terminal IO Events"
 msgstr "Izvezi ulazno-izlazne događaje terminala"
 
-#: src/apprt/gtk/class/application.zig:2149
+#: src/apprt/gtk/class/application.zig:2150
 msgid "Export"
 msgstr "Izvezi"
 
@@ -347,16 +351,16 @@ msgstr "Sve sesije terminala u ovom prozoru će biti prekinute."
 msgid "The currently running process in this split will be terminated."
 msgstr "Pokrenuti procesi u ovoj podjeli će biti prekinuti."
 
-#: src/apprt/gtk/class/surface.zig:1191
+#: src/apprt/gtk/class/surface.zig:1197
 msgid "Command Finished"
 msgstr "Naredba je završena"
 
-#: src/apprt/gtk/class/surface.zig:1192
+#: src/apprt/gtk/class/surface.zig:1198
 #: src/apprt/gtk/class/surface_child_exited.zig:102
 msgid "Command Succeeded"
 msgstr "Naredba je uspjela"
 
-#: src/apprt/gtk/class/surface.zig:1193
+#: src/apprt/gtk/class/surface.zig:1199
 #: src/apprt/gtk/class/surface_child_exited.zig:106
 msgid "Command Failed"
 msgstr "Naredba nije uspjela"
