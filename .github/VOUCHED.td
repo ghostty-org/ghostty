@@ -87,6 +87,7 @@ charliie-dev
 chernetskyi
 chronologos
 clemg
+clinta
 cmwetherell
 complexsplit
 crayxt
