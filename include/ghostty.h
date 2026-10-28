@@ -1026,8 +1026,8 @@ typedef enum {
   GHOSTTY_ACTION_READONLY,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
   GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
-  GHOSTTY_ACTION_SYNC_BROADCAST_GROUP,
   GHOSTTY_ACTION_RESIZE_WINDOW,
+  GHOSTTY_ACTION_SYNC_BROADCAST_GROUP,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -1035,13 +1035,13 @@ typedef union {
   ghostty_action_fullscreen_e toggle_fullscreen;
   ghostty_action_move_tab_s move_tab;
   ghostty_action_goto_tab_e goto_tab;
-  ghostty_action_broadcast_group_s sync_broadcast_group;
   ghostty_action_goto_split_e goto_split;
   ghostty_action_goto_window_e goto_window;
   ghostty_action_resize_split_s resize_split;
   ghostty_action_size_limit_s size_limit;
   ghostty_action_initial_size_s initial_size;
   ghostty_action_resize_window_s resize_window;
+  ghostty_action_broadcast_group_s sync_broadcast_group;
   ghostty_action_cell_size_s cell_size;
   ghostty_action_scrollbar_s scrollbar;
   ghostty_action_inspector_e inspector;

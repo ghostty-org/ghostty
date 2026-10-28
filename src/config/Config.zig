@@ -2597,7 +2597,7 @@ keybind: Keybinds = .{},
 ///
 /// The default is `super,shift` on macOS and `ctrl,shift` on Linux.
 ///
-/// Available since: 1.4.0
+/// Available since: 1.5.0
 @"broadcast-group-click-mods": BroadcastGroupClickMods = if (builtin.target.os.tag.isDarwin())
     .{ .super = true, .shift = true }
 else
@@ -2622,7 +2622,7 @@ else
 /// so that consecutive group numbers are visually distinct from each
 /// other.
 ///
-/// Available since: 1.4.0
+/// Available since: 1.5.0
 @"broadcast-group-colors": BroadcastGroupColors = .{},
 
 /// Additional configuration files to read. This configuration can be repeated

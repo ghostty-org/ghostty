@@ -357,18 +357,18 @@ pub const Action = union(Key) {
     /// Move a tab to a new window.
     move_tab_to_new_window,
 
-    /// The target surface's broadcast input group membership changed.
-    /// The apprt should sync its visual indicator (e.g. a border in
-    /// the group's color). Group membership itself is managed entirely
-    /// by the core.
-    sync_broadcast_group: BroadcastGroup,
-
     /// Resize the window containing the target surface so that the
     /// surface is the given size in points. A zero dimension should be
     /// kept as is. This is requested by the running program (CSI 8 t)
     /// and apprts may ignore it, for example if the surface is in a
     /// split or the window is fullscreen.
     resize_window: ResizeWindow,
+
+    /// The target surface's broadcast input group membership changed.
+    /// The apprt should sync its visual indicator (e.g. a border in
+    /// the group's color). Group membership itself is managed entirely
+    /// by the core.
+    sync_broadcast_group: BroadcastGroup,
 
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
@@ -441,8 +441,8 @@ pub const Action = union(Key) {
         readonly,
         copy_title_to_clipboard,
         move_tab_to_new_window,
-        sync_broadcast_group,
         resize_window,
+        sync_broadcast_group,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");

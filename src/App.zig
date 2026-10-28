@@ -583,7 +583,7 @@ pub fn toggleBroadcastGroup(
 /// The lowest group number without any member surface, or null if all
 /// group numbers are taken.
 fn lowestUnusedBroadcastGroup(self: *const App) ?u4 {
-    var used: std.StaticBitSet(max_broadcast_groups) = .initEmpty();
+    var used: std.StaticBitSet(max_broadcast_groups) = .empty;
     for (self.surfaces.items) |rt_surface| {
         if (rt_surface.core().broadcast_group) |group| used.set(group);
     }
@@ -645,9 +645,10 @@ fn syncBroadcastGroup(rt_app: *apprt.App, surface: *Surface) void {
 ///
 /// Iterating the surface list directly is safe in the broadcast
 /// functions below: replication only ever delivers terminal input
-/// (never surface-closing binding actions) and terminal writes are
-/// queued asynchronously, so the callbacks cannot mutate the surface
-/// list mid-iteration.
+/// (never surface-closing binding actions), members whose child has
+/// exited are skipped (a key press would close them) and terminal
+/// writes are queued asynchronously, so the callbacks cannot mutate
+/// the surface list mid-iteration.
 pub fn broadcastKeyEvent(
     self: *App,
     origin: *Surface,
@@ -658,6 +659,7 @@ pub fn broadcastKeyEvent(
         const peer = rt_surface.core();
         if (peer == origin) continue;
         if (peer.broadcast_group != group) continue;
+        if (peer.child_exited) continue;
         if (!peer.keyEventBroadcastable(event)) continue;
         _ = peer.keyCallbackLocal(event) catch |err| {
             log.warn("error in broadcast key callback err={}", .{err});
@@ -677,6 +679,7 @@ pub fn broadcastTextEvent(
         const peer = rt_surface.core();
         if (peer == origin) continue;
         if (peer.broadcast_group != group) continue;
+        if (peer.child_exited) continue;
         peer.textCallbackLocal(text) catch |err| {
             log.warn("error in broadcast text callback err={}", .{err});
         };
@@ -697,6 +700,7 @@ pub fn broadcastPasteEvent(
         const peer = rt_surface.core();
         if (peer == origin) continue;
         if (peer.broadcast_group != group) continue;
+        if (peer.child_exited) continue;
 
         // The origin surface's safety check or user confirmation covers
         // the whole group: the caller only replicates a paste that was

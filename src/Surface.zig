@@ -306,6 +306,14 @@ pub const Keyboard = struct {
     /// a combination to be handled by different bindings before the release
     /// of the prior (namely since you can't bind modifier-only).
     last_trigger: ?u64 = null,
+
+    /// The last key press that was held back from broadcast input
+    /// replication because it matched a binding on this surface. This
+    /// is used to also hold back its release so a receiving terminal
+    /// never sees a release without the matching press. Like
+    /// last_trigger, one is enough since bound keys are combinations
+    /// that aren't rolled over with each other.
+    last_held: ?u64 = null,
 };
 
 /// The configuration that a surface has, this is copied from the main
@@ -2805,30 +2813,57 @@ fn keyEventBindingEntry(
     return self.config.keybind.set.getEvent(event);
 }
 
-/// Returns true if the given key event may be replicated to this
-/// surface as broadcast input. An event may not be replicated if it
-/// would trigger a keybinding on this surface, with one exception:
-/// bindings whose every action only sends terminal input (e.g. the
-/// default macOS cmd+left, which sends `text:\x01`) are replicated,
-/// since sending the same input to every member is exactly what
-/// broadcast is for. Bindings with any other effect (splits, tabs,
-/// paste, ...) must only run on the surface that actually received
-/// the key event.
+/// Returns true if the given key event may be replicated as broadcast
+/// input from the perspective of this surface. The origin surface calls
+/// this before processing an event to decide whether to send it to its
+/// group, and every receiving member calls it again to decide whether
+/// to accept it, since each surface has its own binding state (active
+/// key sequences and key tables).
+///
+/// An event may not be replicated if it would trigger a keybinding on
+/// this surface, with one exception: bindings whose every action only
+/// sends terminal input (e.g. the default macOS cmd+left, which sends
+/// `text:\x01`) are replicated, since sending the same input to every
+/// member is exactly what broadcast is for. Bindings with any other
+/// effect (splits, tabs, paste, ...) must only run on the surface that
+/// actually received the key event. Leader keys, keys that continue a
+/// sequence and keys bound in an active key table are never replicated.
+///
+/// A release is only replicated if its press was, so a held back press
+/// never leaks a stray release to the receiving terminals.
 pub fn keyEventBroadcastable(
     self: *Surface,
     event_orig: input.KeyEvent,
 ) bool {
-    // Apply key remappings for consistency with keyCallback
+    // Apply key remappings for consistency with keyCallbackLocal
     var event = event_orig;
     if (self.config.key_remaps.isRemapped(event_orig.mods)) {
         event.mods = self.config.key_remaps.apply(event_orig.mods);
     }
 
     switch (event.action) {
-        .release => return true,
-        .press, .repeat => {},
-    }
+        // We don't reset the last held press on release because an
+        // apprt may send multiple release events for a single press.
+        .release => {
+            const last = self.keyboard.last_held orelse return true;
+            return last != event.bindingHash();
+        },
 
+        .press, .repeat => {
+            const ok = self.keyEventTerminalInputOnly(event);
+            self.keyboard.last_held = if (ok) null else event.bindingHash();
+            return ok;
+        },
+    }
+}
+
+/// Returns true if the given press either triggers no binding on this
+/// surface or only a binding that sends terminal input. The event must
+/// already have key remaps applied. See keyEventBroadcastable.
+fn keyEventTerminalInputOnly(
+    self: *Surface,
+    event: input.KeyEvent,
+) bool {
     const entry = self.keyEventBindingEntry(event) orelse return true;
     const leaf = switch (entry.value_ptr.*) {
         // Leader keys start a sequence whose state is local to each
@@ -2853,18 +2888,26 @@ pub fn keyCallback(
     self: *Surface,
     event: input.KeyEvent,
 ) !InputEffect {
+    // Decide whether to replicate the event before processing it
+    // locally: processing may change our binding state (a leader key
+    // starts a sequence, a binding activates a key table) and the
+    // event must be judged against the state it was typed in. Keys
+    // that trigger a binding here are held back so a key sequence or
+    // key table member isn't typed into the other members. Composing
+    // events stay local so IME preedit state doesn't leak to other
+    // surfaces; the committed text is replicated when it arrives.
+    // Modifier-only events are skipped because some apprts already fan
+    // those out to every surface in a window (e.g. macOS flagsChanged),
+    // which would produce duplicates.
+    const broadcast = self.broadcast_group != null and
+        !event.composing and
+        !event.key.modifier() and
+        self.keyEventBroadcastable(event);
+
     const effect = try self.keyCallbackLocal(event);
 
-    // Replicate the event to the other members of our broadcast group,
-    // if any. Composing events stay local so IME preedit state doesn't
-    // leak to other surfaces; the committed text is replicated when it
-    // arrives. Modifier-only events are skipped because some apprts
-    // already fan those out to every surface in a window (e.g. macOS
-    // flagsChanged), which would produce duplicates.
-    if (effect != .closed and
-        !event.composing and
-        !event.key.modifier())
-    {
+    // If the event closed us then self is no longer valid.
+    if (broadcast and effect != .closed) {
         self.app.broadcastKeyEvent(self, event);
     }
 
