@@ -509,6 +509,8 @@ pub const Action = union(enum) {
     ///
     ///     Adjust the selection one word to the left or right respectively,
     ///     using the configured `selection-word-chars` for word boundaries.
+    ///     Word adjustment never crosses a shell-integration prompt
+    ///     boundary.
     ///
     adjust_selection: AdjustSelection,
 

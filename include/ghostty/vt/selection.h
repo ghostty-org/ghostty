@@ -968,7 +968,7 @@ GHOSTTY_API GhosttyResult ghostty_terminal_selection_format_alloc(
  * @param selection Selection snapshot to adjust in place
  * @param adjustment The adjustment operation to apply. Word adjustments
  *        (WORD_LEFT, WORD_RIGHT) use Ghostty's default word-boundary
- *        codepoints.
+ *        codepoints and never cross a shell-integration prompt boundary.
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal,
  *         selection, or adjustment are invalid. Selection reference validity
  *         is a precondition and is not checked.
