@@ -139,6 +139,16 @@ pub fn init(
     };
 }
 
+/// Detach from tmux before the application quits, while every surface
+/// is still alive. Closing a follower otherwise tells tmux to kill its
+/// pane, and quitting closes them all. The session survives with all of
+/// its windows and panes.
+pub fn tmuxDetachForQuit(self: *App) void {
+    const session = if (self.tmux) |*s| s else return;
+    session.detach();
+    session.leader.tmuxTeardown();
+}
+
 pub fn deinit(self: *App) void {
     if (self.tmux) |*session| {
         session.deinit();
@@ -235,8 +245,11 @@ pub fn deleteSurface(self: *App, rt_surface: *apprt.Surface) void {
     // There was a bug where we relied on hasSurface to return false and
     // just let focused surface be but the allocator was reusing addresses
     // after free and giving false positives, so we must clear it.
+    //
+    // This compares apprt surfaces because a surface whose initialization
+    // failed is deleted too, and has no core surface.
     if (self.focused_surface) |focused| {
-        if (focused == rt_surface.core()) {
+        if (focused.rt_surface == rt_surface) {
             self.focused_surface = null;
         }
     }

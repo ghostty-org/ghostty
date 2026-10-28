@@ -56,9 +56,35 @@ pub fn unescape(data: []u8) []u8 {
 }
 
 /// Copy and unescape, for callers that only have a const view of the
-/// data. See unescape.
+/// data. See unescape. The result can be shorter than the allocation
+/// behind it, so this is meant for arenas; anything else has to keep the
+/// copy and free that instead.
 pub fn unescapeAlloc(alloc: Allocator, data: []const u8) Allocator.Error![]u8 {
     return unescape(try alloc.dupe(u8, data));
+}
+
+/// The most input bytes a single `send-keys` command carries. Longer
+/// input, such as a paste, is split across several commands rather than
+/// one unbounded command line.
+pub const send_keys_max = 1024;
+
+/// Write one newline-terminated `send-keys` command that types `data`
+/// into `pane`, or into tmux's active pane when `pane` is null.
+///
+/// The bytes go out as `-H` hex values rather than a `-l` literal
+/// because tmux's command parser treats `;`, `$`, `#` and quotes as
+/// syntax. tmux sends each `-H` value as one byte and drops values above
+/// 0xff, so a multi-byte UTF-8 sequence is sent byte by byte.
+pub fn writeSendKeys(
+    writer: *std.Io.Writer,
+    pane: ?usize,
+    data: []const u8,
+) std.Io.Writer.Error!void {
+    try writer.writeAll("send-keys");
+    if (pane) |id| try writer.print(" -t %{d}", .{id});
+    try writer.writeAll(" -H");
+    for (data) |byte| try writer.print(" 0x{x:0>2}", .{byte});
+    try writer.writeByte('\n');
 }
 
 /// A tmux control mode parser. This takes in output from tmux control
@@ -75,10 +101,26 @@ pub const Parser = struct {
     buffer: std.Io.Writer.Allocating,
 
     /// The maximum size in bytes of the buffer. This is used to limit
-    /// memory usage. If the buffer exceeds this size, the client will
-    /// enter a broken state (the control mode session will be forcibly
-    /// exited and future data dropped).
+    /// memory usage. A begin/end block that outgrows it has its output
+    /// dropped (see `Block.truncated`) but the stream stays usable,
+    /// because the guard line still tells us where the block ends. Any
+    /// other line that outgrows it puts the parser in a broken state
+    /// (the control mode session will be forcibly exited and future
+    /// data dropped).
     max_bytes: usize = 1024 * 1024,
+
+    /// Whether the block we're in was started by a command this client
+    /// sent. See `Block.client`.
+    block_client: bool = true,
+
+    /// While in `block_overflow`, the start of the current line. A guard
+    /// line is short, so this is all we need to recognize the one that
+    /// ends the block.
+    overflow_line: [96]u8 = undefined,
+
+    /// The length of the current line in `block_overflow`. Larger than
+    /// `overflow_line.len` once the line is too long to be a guard line.
+    overflow_len: usize = 0,
 
     const State = enum {
         /// Outside of any active notifications. This should drop any output
@@ -97,6 +139,17 @@ pub const Parser = struct {
 
         /// Inside a begin/end block.
         block,
+
+        /// Inside a begin/end block whose output outgrew `max_bytes`. The
+        /// output is dropped while we look for the guard line that ends
+        /// the block.
+        block_overflow,
+
+        /// Inside a line that doesn't start with '%'. tmux writes the
+        /// output of a `run-shell` that this client ran as plain lines
+        /// outside of any block, so these are dropped up to the newline
+        /// rather than treated as a broken stream.
+        skip,
     };
 
     pub fn deinit(self: *Parser) void {
@@ -109,9 +162,10 @@ pub const Parser = struct {
 
     // Handle a byte of input.
     //
-    // If we reach our byte limit this will return OutOfMemory. It only
-    // does this on the first time we exceed the limit; subsequent calls
-    // will return null as we drop all input in a broken state.
+    // If a line outside of a begin/end block reaches our byte limit this
+    // will return OutOfMemory. It only does this on the first time we
+    // exceed the limit; subsequent calls will return null as we drop all
+    // input in a broken state.
     pub fn put(self: *Parser, byte: u8) Allocator.Error!?Notification {
         // If we're in a broken state, just do nothing.
         //
@@ -123,17 +177,24 @@ pub const Parser = struct {
             // Drop because we're in a broken state.
             .broken => return null,
 
-            // Waiting for a notification so if the byte is not '%' then
-            // we're in a broken state. Control mode output should always
-            // be wrapped in '%begin/%end' orelse we expect a notification.
-            // Return an exit notification.
+            // Control mode output is wrapped in '%begin/%end' or is a
+            // notification, both of which start with '%'. The only
+            // exception is the output of a `run-shell` this client ran,
+            // which tmux writes as-is; drop that line.
             .idle => if (byte != '%') {
-                self.broken();
-                return .{ .exit = {} };
+                if (byte != '\n') self.state = .skip;
+                return null;
             } else {
                 self.buffer.clearRetainingCapacity();
                 self.state = .notification;
             },
+
+            .skip => {
+                if (byte == '\n') self.state = .idle;
+                return null;
+            },
+
+            .block_overflow => return self.putOverflow(byte),
 
             // If we're in a notification and its not a newline then
             // we accumulate. If it is a newline then we have a
@@ -172,11 +233,15 @@ pub const Parser = struct {
                     // Important: do not clear buffer since the notification
                     // contains it.
                     self.state = .idle;
+                    const block: Block = .{
+                        .data = output,
+                        .client = self.block_client,
+                    };
                     switch (terminator) {
-                        .end => return .{ .block_end = output },
+                        .end => return .{ .block_end = block },
                         .err => {
                             log.warn("tmux control mode error={s}", .{output});
-                            return .{ .block_err = output };
+                            return .{ .block_err = block };
                         },
                     }
                 }
@@ -188,6 +253,16 @@ pub const Parser = struct {
         // Only enforce the limit on bytes we actually store, so a line
         // filling the buffer exactly can still be terminated.
         if (self.buffer.written().len >= self.max_bytes) {
+            // A block is delimited by its guard lines, so we can drop
+            // its output and still find where it ends. The output that
+            // tmux sends in blocks (a whole pane history, for example)
+            // is also the only thing that can realistically get this
+            // large.
+            if (self.state == .block) {
+                self.startOverflow();
+                return self.putOverflow(byte);
+            }
+
             self.broken();
             return error.OutOfMemory;
         }
@@ -197,6 +272,79 @@ pub const Parser = struct {
         };
 
         return null;
+    }
+
+    /// Drop the output of the block we're in because it outgrew
+    /// `max_bytes`. The part of the current line we have so far is kept
+    /// so a guard line that straddles the limit is still recognized.
+    fn startOverflow(self: *Parser) void {
+        assert(self.state == .block);
+
+        const written = self.buffer.written();
+        const idx = if (std.mem.lastIndexOfScalar(u8, written, '\n')) |v|
+            v + 1
+        else
+            0;
+        const line = written[idx..];
+        if (line.len <= self.overflow_line.len) {
+            @memcpy(self.overflow_line[0..line.len], line);
+            self.overflow_len = line.len;
+        } else {
+            self.overflow_len = self.overflow_line.len + 1;
+        }
+
+        self.buffer.clearRetainingCapacity();
+        self.state = .block_overflow;
+    }
+
+    /// Handle a byte of a block whose output we're dropping. Returns the
+    /// (empty, truncated) block once its guard line arrives.
+    fn putOverflow(self: *Parser, byte: u8) ?Notification {
+        assert(self.state == .block_overflow);
+
+        if (byte != '\n') {
+            if (self.overflow_len < self.overflow_line.len) {
+                self.overflow_line[self.overflow_len] = byte;
+            }
+            self.overflow_len +|= 1;
+            return null;
+        }
+
+        defer self.overflow_len = 0;
+        if (self.overflow_len > self.overflow_line.len) return null;
+        const terminator = parseBlockTerminator(
+            self.overflow_line[0..self.overflow_len],
+        ) orelse return null;
+
+        log.warn(
+            "tmux control mode block exceeded {d} bytes, output dropped",
+            .{self.max_bytes},
+        );
+        self.state = .idle;
+        const block: Block = .{
+            .client = self.block_client,
+            .truncated = true,
+        };
+        return switch (terminator) {
+            .end => .{ .block_end = block },
+            .err => .{ .block_err = block },
+        };
+    }
+
+    /// Whether a `%begin <time> <number> <flags>` line is for a command
+    /// this client sent. tmux sets bit 0 of the flags for commands it
+    /// read from a control client; output from hooks and from the
+    /// command the client was started with has it clear. A line we can't
+    /// read is assumed to be ours, which is how every block was treated
+    /// before tmux started reporting this.
+    fn beginFromClient(line: []const u8) bool {
+        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        _ = fields.next(); // %begin
+        _ = fields.next() orelse return true; // time
+        _ = fields.next() orelse return true; // command number
+        const flags = fields.next() orelse return true;
+        const value = std.fmt.parseInt(usize, flags, 10) catch return true;
+        return value & 1 != 0;
     }
 
     const ParseError = error{RegexError};
@@ -252,11 +400,10 @@ pub const Parser = struct {
         // The notification MUST exist because we guard entering the notification
         // state on seeing at least a '%'.
         if (std.mem.eql(u8, cmd, "%begin")) {
-            // We don't use the rest of the tokens for now because tmux
-            // claims to guarantee that begin/end are always in order and
-            // never intermixed. In the future, we should probably validate
-            // this.
-            // TODO(tmuxcc): do this before merge?
+            // tmux guarantees that begin/end are always in order and never
+            // intermixed, so the time and command number aren't needed to
+            // pair them up. The flags tell us who the command came from.
+            self.block_client = beginFromClient(line);
 
             // Move to block state because we expect a corresponding end/error
             // and want to accumulate the data.
@@ -403,15 +550,27 @@ pub const Parser = struct {
             self.state = .idle;
             return .{ .window_add = .{ .id = id } };
         } else if (std.mem.eql(u8, cmd, "%window-close") or
-            std.mem.eql(u8, cmd, "%unlinked-window-close"))
+            std.mem.eql(u8, cmd, "%unlinked-window-close") or
+            std.mem.eql(u8, cmd, "%unlinked-window-add"))
         cmd: {
-            // tmux sends %window-close when the window is still linked to
-            // this session, and %unlinked-window-close once it is not
-            // (typical for shell-exit destroying the last pane).
-            const pattern = if (std.mem.eql(u8, cmd, "%window-close"))
-                "^%window-close @([0-9]+)$"
+            // tmux picks the plain or the "unlinked" name depending on
+            // whether the window is linked to this client's session at
+            // the moment it notifies. A window closed in our own session
+            // is already unlinked by then, so `%unlinked-window-close`
+            // can be about one of our windows too; the receiver has to
+            // check the id.
+            const Kind = enum { close, unlinked_close, unlinked_add };
+            const kind: Kind = if (std.mem.eql(u8, cmd, "%window-close"))
+                .close
+            else if (std.mem.eql(u8, cmd, "%unlinked-window-close"))
+                .unlinked_close
             else
-                "^%unlinked-window-close @([0-9]+)$";
+                .unlinked_add;
+            const pattern = switch (kind) {
+                .close => "^%window-close @([0-9]+)$",
+                .unlinked_close => "^%unlinked-window-close @([0-9]+)$",
+                .unlinked_add => "^%unlinked-window-add @([0-9]+)$",
+            };
             var re = oni.Regex.init(
                 pattern,
                 .{ .capture_group = true },
@@ -440,10 +599,26 @@ pub const Parser = struct {
 
             self.buffer.clearRetainingCapacity();
             self.state = .idle;
-            return .{ .window_close = .{ .id = id } };
-        } else if (std.mem.eql(u8, cmd, "%window-renamed")) cmd: {
+            return switch (kind) {
+                .close => .{ .window_close = .{ .id = id } },
+                .unlinked_close => .{ .unlinked_window_close = .{ .id = id } },
+                .unlinked_add => .{ .unlinked_window_add = .{ .id = id } },
+            };
+        } else if (std.mem.eql(u8, cmd, "%window-renamed") or
+            std.mem.eql(u8, cmd, "%unlinked-window-renamed"))
+        cmd: {
+            // As with %unlinked-window-close, the name only says whether
+            // the window was linked to our session when tmux notified.
+            //
+            // A window can be renamed to nothing, which leaves the line
+            // ending in the separator, or without it if something trimmed
+            // the line.
+            const unlinked = !std.mem.eql(u8, cmd, "%window-renamed");
             var re = oni.Regex.init(
-                "^%window-renamed @([0-9]+) (.+)$",
+                if (unlinked)
+                    "^%unlinked-window-renamed @([0-9]+) ?(.*)$"
+                else
+                    "^%window-renamed @([0-9]+) ?(.*)$",
                 .{ .capture_group = true },
                 oni.Encoding.utf8,
                 oni.Syntax.default,
@@ -471,7 +646,10 @@ pub const Parser = struct {
 
             // Important: do not clear buffer here since name points to it
             self.state = .idle;
-            return .{ .window_renamed = .{ .id = id, .name = name } };
+            return if (unlinked)
+                .{ .unlinked_window_renamed = .{ .id = id, .name = name } }
+            else
+                .{ .window_renamed = .{ .id = id, .name = name } };
         } else if (std.mem.eql(u8, cmd, "%window-pane-changed")) cmd: {
             var re = oni.Regex.init(
                 "^%window-pane-changed @([0-9]+) %([0-9]+)$",
@@ -574,9 +752,9 @@ pub const Parser = struct {
             self.state = .idle;
             return .{ .client_detached = .{ .client = client } };
         } else if (std.mem.eql(u8, cmd, "%exit")) {
-            // tmux and htm both emit %exit when the control client should
-            // leave control mode. Act on it immediately rather than
-            // waiting for the trailing ST.
+            // tmux emits %exit when the control client leaves control
+            // mode. Act on it immediately rather than waiting for the
+            // trailing ST.
             self.buffer.clearRetainingCapacity();
             self.state = .idle;
             return .{ .exit = {} };
@@ -612,6 +790,96 @@ pub const Parser = struct {
             // Important: do not clear buffer here since client/name point to it
             self.state = .idle;
             return .{ .client_session_changed = .{ .client = client, .session_id = session_id, .name = name } };
+        } else if (std.mem.eql(u8, cmd, "%session-renamed")) cmd: {
+            var re = oni.Regex.init(
+                "^%session-renamed \\$([0-9]+) (.+)$",
+                .{ .capture_group = true },
+                oni.Encoding.utf8,
+                oni.Syntax.default,
+                null,
+            ) catch |err| {
+                log.warn("regex init failed error={}", .{err});
+                return error.RegexError;
+            };
+            defer re.deinit();
+
+            var region = re.search(line, .{}) catch |err| {
+                log.warn("failed to match notification cmd={s} line=\"{s}\" err={}", .{ cmd, line, err });
+                break :cmd;
+            };
+            defer region.deinit();
+            const starts = region.starts();
+            const ends = region.ends();
+
+            const id = std.fmt.parseInt(
+                usize,
+                line[@intCast(starts[1])..@intCast(ends[1])],
+                10,
+            ) catch unreachable;
+            const name = line[@intCast(starts[2])..@intCast(ends[2])];
+
+            // Important: do not clear buffer here since name points to it
+            self.state = .idle;
+            return .{ .session_renamed = .{ .id = id, .name = name } };
+        } else if (std.mem.eql(u8, cmd, "%pane-mode-changed")) cmd: {
+            var re = oni.Regex.init(
+                "^%pane-mode-changed %([0-9]+)$",
+                .{ .capture_group = true },
+                oni.Encoding.utf8,
+                oni.Syntax.default,
+                null,
+            ) catch |err| {
+                log.warn("regex init failed error={}", .{err});
+                return error.RegexError;
+            };
+            defer re.deinit();
+
+            var region = re.search(line, .{}) catch |err| {
+                log.warn("failed to match notification cmd={s} line=\"{s}\" err={}", .{ cmd, line, err });
+                break :cmd;
+            };
+            defer region.deinit();
+            const starts = region.starts();
+            const ends = region.ends();
+
+            const pane_id = std.fmt.parseInt(
+                usize,
+                line[@intCast(starts[1])..@intCast(ends[1])],
+                10,
+            ) catch unreachable;
+
+            self.buffer.clearRetainingCapacity();
+            self.state = .idle;
+            return .{ .pane_mode_changed = .{ .pane_id = pane_id } };
+        } else if (std.mem.eql(u8, cmd, "%subscription-changed")) cmd: {
+            // `%subscription-changed name $session @window index %pane ... : value`.
+            // Only the name matters to us; what a subscription watches is
+            // ours to know.
+            const rest = line[cmd.len..];
+            if (rest.len < 2) {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            }
+            const name = std.mem.sliceTo(rest[1..], ' ');
+
+            // Important: do not clear buffer here since name points to it
+            self.state = .idle;
+            return .{ .subscription_changed = .{ .name = name } };
+        } else if (std.mem.eql(u8, cmd, "%config-error")) {
+            // Errors in the server's configuration file. Nothing to act
+            // on, but worth having in the log.
+            log.info("tmux configuration error: {s}", .{line});
+        } else if (std.mem.eql(u8, cmd, "%message") or
+            std.mem.eql(u8, cmd, "%paste-buffer-changed") or
+            std.mem.eql(u8, cmd, "%paste-buffer-deleted") or
+            std.mem.eql(u8, cmd, "%continue") or
+            std.mem.eql(u8, cmd, "%pause") or
+            std.mem.eql(u8, cmd, "%extended-output"))
+        {
+            // Known notifications we have no use for. `%pause`,
+            // `%continue` and `%extended-output` only happen with the
+            // pause-after client flag, which we don't use.
+            log.debug("ignoring tmux control mode notification={s}", .{cmd});
         } else {
             // Unknown notification, log it and return to idle state.
             log.warn("unknown tmux control mode notification={s}", .{cmd});
@@ -652,8 +920,8 @@ pub const Notification = union(enum) {
     /// Dispatched at the end of a begin/end block with the raw data.
     /// The control mode parser can't parse the data because it is unaware
     /// of the command that was sent to trigger this output.
-    block_end: []const u8,
-    block_err: []const u8,
+    block_end: Block,
+    block_err: Block,
 
     /// Raw output from a pane.
     output: struct {
@@ -688,14 +956,54 @@ pub const Notification = union(enum) {
         id: usize,
     },
 
-    /// The window with ID window-id was closed (or unlinked from this session).
+    /// The window with ID window-id was closed while still linked to
+    /// this session.
     window_close: struct {
+        id: usize,
+    },
+
+    /// The window with ID window-id was linked to a session other than
+    /// ours.
+    unlinked_window_add: struct {
+        id: usize,
+    },
+
+    /// The window with ID window-id was closed or unlinked and isn't
+    /// linked to this session (any more). This is also what tmux sends
+    /// when one of our own windows is killed or its last pane exits,
+    /// because the window is gone from our session by the time tmux
+    /// notifies.
+    unlinked_window_close: struct {
         id: usize,
     },
 
     /// The window with ID window-id was renamed to name.
     window_renamed: struct {
         id: usize,
+        name: []const u8,
+    },
+
+    /// A window that isn't linked to this session was renamed.
+    unlinked_window_renamed: struct {
+        id: usize,
+        name: []const u8,
+    },
+
+    /// The session with ID session-id was renamed to name.
+    session_renamed: struct {
+        id: usize,
+        name: []const u8,
+    },
+
+    /// The pane with ID pane-id entered or left a mode (copy mode, ...).
+    pane_mode_changed: struct {
+        pane_id: usize,
+    },
+
+    /// The value of a format the client subscribed to with
+    /// `refresh-client -B name:...` changed. tmux checks subscriptions
+    /// about once a second.
+    subscription_changed: struct {
         name: []const u8,
     },
 
@@ -706,7 +1014,7 @@ pub const Notification = union(enum) {
         pane_id: usize,
     },
 
-    /// The session's current window changed (e.g. ``select-window``).
+    /// The session's current window changed (e.g. `select-window`).
     session_window_changed: struct {
         session_id: usize,
         window_id: usize,
@@ -740,6 +1048,14 @@ pub const Notification = union(enum) {
                     const value = @field(self, field_name);
                     switch (field_type) {
                         []const u8 => try writer.print("\"{s}\"", .{std.mem.trim(u8, value, " \t\r\n")}),
+                        Block => try writer.print(
+                            "\"{s}\" client={} truncated={}",
+                            .{
+                                std.mem.trim(u8, value.data, " \t\r\n"),
+                                value.client,
+                                value.truncated,
+                            },
+                        ),
                         else => try writer.print("{any}", .{value}),
                     }
                 }
@@ -748,6 +1064,23 @@ pub const Notification = union(enum) {
             try writer.writeAll(" }");
         }
     }
+};
+
+/// The output of a command: everything between a `%begin` line and the
+/// `%end` or `%error` line that closes it.
+pub const Block = struct {
+    /// The raw output, without the trailing newline.
+    data: []const u8 = "",
+
+    /// True if the command was sent by this client. Blocks from hooks
+    /// (and the one answering the command the client was started with)
+    /// are written to us too, but they aren't the reply to anything we
+    /// sent and must not be matched against our commands.
+    client: bool = true,
+
+    /// The output was larger than the parser allows and was dropped, so
+    /// `data` is empty. The stream is still in sync.
+    truncated: bool = false,
 };
 
 test "tmux begin/end empty" {
@@ -760,7 +1093,7 @@ test "tmux begin/end empty" {
     for ("%end 1578922740 269 1") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
     try testing.expect(n == .block_end);
-    try testing.expectEqualStrings("", n.block_end);
+    try testing.expectEqualStrings("", n.block_end.data);
 }
 
 test "tmux begin/error empty" {
@@ -773,7 +1106,7 @@ test "tmux begin/error empty" {
     for ("%error 1578922740 269 1") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
     try testing.expect(n == .block_err);
-    try testing.expectEqualStrings("", n.block_err);
+    try testing.expectEqualStrings("", n.block_err.data);
 }
 
 test "tmux notification exactly max_bytes" {
@@ -804,7 +1137,7 @@ test "tmux block terminator exactly max_bytes" {
     for (block) |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
     try testing.expect(n == .block_end);
-    try testing.expectEqualStrings("hello", n.block_end);
+    try testing.expectEqualStrings("hello", n.block_end.data);
 }
 
 test "tmux exceeding max_bytes" {
@@ -830,7 +1163,7 @@ test "tmux begin/end data" {
     for ("%end 1578922740 269 1") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
     try testing.expect(n == .block_end);
-    try testing.expectEqualStrings("hello\nworld", n.block_end);
+    try testing.expectEqualStrings("hello\nworld", n.block_end.data);
 }
 
 test "tmux block payload may start with %end" {
@@ -845,7 +1178,7 @@ test "tmux block payload may start with %end" {
     for ("%end 1 1 1") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
     try testing.expect(n == .block_end);
-    try testing.expectEqualStrings("%end not really\nhello", n.block_end);
+    try testing.expectEqualStrings("%end not really\nhello", n.block_end.data);
 }
 
 test "tmux block payload may start with %error" {
@@ -860,7 +1193,7 @@ test "tmux block payload may start with %error" {
     for ("%end 1 1 1") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
     try testing.expect(n == .block_end);
-    try testing.expectEqualStrings("%error not really\nhello", n.block_end);
+    try testing.expectEqualStrings("%error not really\nhello", n.block_end.data);
 }
 
 test "tmux block may terminate with real %error after misleading payload" {
@@ -875,7 +1208,7 @@ test "tmux block may terminate with real %error after misleading payload" {
     for ("%error 1 1 1") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
     try testing.expect(n == .block_err);
-    try testing.expectEqualStrings("%error not really\nhello", n.block_err);
+    try testing.expectEqualStrings("%error not really\nhello", n.block_err.data);
 }
 
 test "tmux block terminator requires exact token count" {
@@ -890,7 +1223,7 @@ test "tmux block terminator requires exact token count" {
     for ("%end 1 1 1") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
     try testing.expect(n == .block_end);
-    try testing.expectEqualStrings("%end 1 1 1 trailing\nhello", n.block_end);
+    try testing.expectEqualStrings("%end 1 1 1 trailing\nhello", n.block_end.data);
 }
 
 test "tmux block terminator requires numeric metadata" {
@@ -905,7 +1238,7 @@ test "tmux block terminator requires numeric metadata" {
     for ("%end 1 1 1") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
     try testing.expect(n == .block_end);
-    try testing.expectEqualStrings("%end foo bar baz\nhello", n.block_end);
+    try testing.expectEqualStrings("%end foo bar baz\nhello", n.block_end.data);
 }
 
 test "tmux output" {
@@ -941,6 +1274,27 @@ test "tmux output octal escapes" {
     const copy = try alloc.dupe(u8, n.output.data);
     defer alloc.free(copy);
     try testing.expectEqualStrings("\x1b[1mbold\x1b[0m\r\\n \\9 \\77", unescape(copy));
+}
+
+test "tmux send-keys sends UTF-8 byte by byte" {
+    const testing = std.testing;
+
+    var buf: [256]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try writeSendKeys(&writer, 3, "a\u{e9}\u{4e2d}\u{1f600};");
+    try testing.expectEqualStrings(
+        "send-keys -t %3 -H 0x61 0xc3 0xa9 0xe4 0xb8 0xad 0xf0 0x9f 0x98 0x80 0x3b\n",
+        writer.buffered(),
+    );
+}
+
+test "tmux send-keys without a pane types into the active pane" {
+    const testing = std.testing;
+
+    var buf: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try writeSendKeys(&writer, null, "\x1b\r");
+    try testing.expectEqualStrings("send-keys -H 0x1b 0x0d\n", writer.buffered());
 }
 
 test "tmux unescape" {
@@ -1042,8 +1396,189 @@ test "tmux unlinked-window-close" {
     defer c.deinit();
     for ("%unlinked-window-close @2") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
-    try testing.expect(n == .window_close);
-    try testing.expectEqual(2, n.window_close.id);
+    try testing.expect(n == .unlinked_window_close);
+    try testing.expectEqual(2, n.unlinked_window_close.id);
+}
+
+test "tmux unlinked-window-add" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%unlinked-window-add @9") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .unlinked_window_add);
+    try testing.expectEqual(9, n.unlinked_window_add.id);
+}
+
+test "tmux unlinked-window-renamed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%unlinked-window-renamed @2 zzz top") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .unlinked_window_renamed);
+    try testing.expectEqual(2, n.unlinked_window_renamed.id);
+    try testing.expectEqualStrings("zzz top", n.unlinked_window_renamed.name);
+}
+
+test "tmux session-renamed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%session-renamed $0 proto2\r") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .session_renamed);
+    try testing.expectEqual(0, n.session_renamed.id);
+    try testing.expectEqualStrings("proto2", n.session_renamed.name);
+}
+
+test "tmux pane-mode-changed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%pane-mode-changed %1\r") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .pane_mode_changed);
+    try testing.expectEqual(1, n.pane_mode_changed.pane_id);
+}
+
+test "tmux known notifications we don't use are dropped quietly" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // Lines as tmux writes them, each followed by a notification we do
+    // use to show the parser is still in sync.
+    const lines = [_][]const u8{
+        "%message hi-there",
+        "%config-error /tmp/tmux.conf:2: invalid option: bogus-option",
+        "%paste-buffer-changed buffer0",
+        "%paste-buffer-deleted buffer0",
+        "%continue %1",
+        "%pause %1",
+        "%extended-output %1 12 : hello",
+    };
+    for (lines) |line| {
+        for (line) |byte| try testing.expect(try c.put(byte) == null);
+        try testing.expect(try c.put('\r') == null);
+        try testing.expect(try c.put('\n') == null);
+        for ("%sessions-changed\r") |byte| try testing.expect(try c.put(byte) == null);
+        const n = (try c.put('\n')).?;
+        try testing.expect(n == .sessions_changed);
+    }
+}
+
+test "tmux subscription-changed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // Real tmux output for a session subscription, whose window, index
+    // and pane are dashes.
+    for ("%subscription-changed ghostty-windows $0 - - - : @0 @3 @2 @1 \r") |byte| {
+        try testing.expect(try c.put(byte) == null);
+    }
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .subscription_changed);
+    try testing.expectEqualStrings("ghostty-windows", n.subscription_changed.name);
+
+    // Still in sync afterwards.
+    for ("%sessions-changed\r") |byte| try testing.expect(try c.put(byte) == null);
+    try testing.expect((try c.put('\n')).? == .sessions_changed);
+}
+
+test "tmux begin flags tell our replies from hook output" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // Real tmux output for `split-window` with an `after-split-window`
+    // hook that runs `display-message -p HOOKED`.
+    for ("%begin 1793135566 296 1\r\n%end 1793135566 296 1\r") |byte| {
+        try testing.expect(try c.put(byte) == null);
+    }
+    const ours = (try c.put('\n')).?;
+    try testing.expect(ours == .block_end);
+    try testing.expect(ours.block_end.client);
+
+    for ("%begin 1793135566 297 0\r\nHOOKED\r\n%end 1793135566 297 0\r") |byte| {
+        try testing.expect(try c.put(byte) == null);
+    }
+    const hook = (try c.put('\n')).?;
+    try testing.expect(hook == .block_end);
+    try testing.expect(!hook.block_end.client);
+    try testing.expectEqualStrings("HOOKED", hook.block_end.data);
+
+    // Parse errors are reported as our own block too.
+    for ("%begin 1 298 1\r\nparse error: syntax error\r\n%error 1 298 1\r") |byte| {
+        try testing.expect(try c.put(byte) == null);
+    }
+    const err = (try c.put('\n')).?;
+    try testing.expect(err == .block_err);
+    try testing.expect(err.block_err.client);
+}
+
+test "tmux run-shell output outside a block is skipped" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // tmux writes `run-shell 'echo hi'` output as a bare line after the
+    // command's (empty) block.
+    for ("%begin 1 294 1\r\n%end 1 294 1\r") |byte| try testing.expect(try c.put(byte) == null);
+    try testing.expect((try c.put('\n')).? == .block_end);
+    for ("hi\r\n\n%sessions-changed\r") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .sessions_changed);
+}
+
+test "tmux oversized block is dropped but the stream stays in sync" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc), .max_bytes = 16 };
+    defer c.deinit();
+
+    // The limit is reached in the middle of the guard line.
+    for ("%begin 1 2 1\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("0123456789\n%end ") |byte| try testing.expect(try c.put(byte) == null);
+    for ("1 2 1") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .block_end);
+    try testing.expect(n.block_end.truncated);
+    try testing.expect(n.block_end.client);
+    try testing.expectEqualStrings("", n.block_end.data);
+
+    // A guard line hidden at the end of a long line isn't one.
+    for ("%begin 1 3 1\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("xxxxxxxxxxxxxxxxxxxxxxxx%end 1 3 1\n") |byte| {
+        try testing.expect(try c.put(byte) == null);
+    }
+    for ("%error 1 3 1") |byte| try testing.expect(try c.put(byte) == null);
+    const e = (try c.put('\n')).?;
+    try testing.expect(e == .block_err);
+    try testing.expect(e.block_err.truncated);
+
+    // And the next notification parses normally.
+    for ("%window-add @1") |byte| try testing.expect(try c.put(byte) == null);
+    const w = (try c.put('\n')).?;
+    try testing.expect(w == .window_add);
 }
 
 test "tmux window-renamed" {
@@ -1057,6 +1592,29 @@ test "tmux window-renamed" {
     try testing.expect(n == .window_renamed);
     try testing.expectEqual(42, n.window_renamed.id);
     try testing.expectEqualStrings("bar", n.window_renamed.name);
+}
+
+test "tmux window-renamed to an empty name" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    inline for (.{ "%window-renamed @7 ", "%window-renamed @7" }) |line| {
+        var c: Parser = .{ .buffer = .init(alloc) };
+        defer c.deinit();
+        for (line) |byte| try testing.expect(try c.put(byte) == null);
+        const n = (try c.put('\n')).?;
+        try testing.expect(n == .window_renamed);
+        try testing.expectEqual(7, n.window_renamed.id);
+        try testing.expectEqualStrings("", n.window_renamed.name);
+    }
+
+    // Leading spaces after the separator are part of the name.
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%unlinked-window-renamed @3  x") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .unlinked_window_renamed);
+    try testing.expectEqualStrings(" x", n.unlinked_window_renamed.name);
 }
 
 test "tmux window-pane-changed" {

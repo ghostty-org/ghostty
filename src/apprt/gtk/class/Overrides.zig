@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const glib = @import("glib");
 
+const apprt = @import("../../../apprt.zig");
 const cli = @import("../../../cli.zig");
 const configpkg = @import("../../../config.zig");
 
@@ -16,11 +17,16 @@ shell_integration: ?configpkg.Config.ShellIntegration,
 working_directory: ?[:0]const u8,
 title: ?[:0]const u8,
 
+/// The tmux pane a surface is created for. Such a surface mirrors the
+/// pane and never starts a command of its own.
+tmux_pane: ?apprt.action.TmuxWindow.Pane = null,
+
 pub const none: Overrides = .{
     .command = null,
     .shell_integration = null,
     .working_directory = null,
     .title = null,
+    .tmux_pane = null,
 };
 
 pub fn parse(arena_alloc: Allocator, arguments_it: *glib.VariantIter) ParseError!Overrides {

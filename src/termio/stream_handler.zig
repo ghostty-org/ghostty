@@ -25,6 +25,11 @@ pub const StreamHandler = struct {
     size: *renderer.Size,
     terminal: *terminal.Terminal,
 
+    /// The grid that replaces the one that fits `size`, if any. See
+    /// `termio.Options.grid_override`. Only changed with the renderer
+    /// state mutex held.
+    grid_override: *const ?renderer.GridSize,
+
     /// Mailbox for data to the termio thread.
     termio_mailbox: *termio.Mailbox,
 
@@ -92,6 +97,12 @@ pub const StreamHandler = struct {
     /// True once the control plate force-quit the session. tmux keeps
     /// talking to us but we no longer listen.
     tmux_abandoned: bool = false,
+
+    /// True for a tmux control mode follower. tmux is the terminal of
+    /// record for the pane and already answered every query in its
+    /// output, so we don't: a second answer would reach the program in
+    /// the pane as typed input.
+    tmux_follower: bool = false,
 
     /// Session password grants for the Kitty clipboard protocol.
     /// Requests carrying a granted password skip the permission prompt.
@@ -169,6 +180,14 @@ pub const StreamHandler = struct {
     }
 
     inline fn messageWriter(self: *StreamHandler, msg: termio.Message) void {
+        if (self.tmux_follower) switch (msg) {
+            .write_small, .write_stable, .write_alloc => {
+                msg.deinit();
+                return;
+            },
+            else => {},
+        };
+
         self.termio_mailbox.send(msg, self.renderer_state.mutex);
         self.termio_messaged = true;
     }
@@ -495,15 +514,34 @@ pub const StreamHandler = struct {
                     break :tmux;
                 };
 
-                for (viewer.next(.{ .tmux = tmux })) |action| {
+                // The actions live in viewer memory. Handing an action on
+                // can let go of the renderer state mutex for a moment
+                // (when a mailbox is full), and the IO thread can destroy
+                // the viewer in that moment (force-quit). So nothing of
+                // the viewer is used once it is gone: the session id is
+                // read up front, and the loop ends when the viewer did.
+                const actions = viewer.next(.{ .tmux = tmux });
+                const session_id = viewer.session_id;
+                for (actions) |action| {
                     log.info("tmux viewer action={f}", .{action});
-                    // %exit tears the viewer down; do that outside the
-                    // action loop so we don't free what we're iterating.
+                    // The viewer never sees %exit (that is handled above),
+                    // so this means it gave up on its own. Tearing it down
+                    // frees what we're iterating, so leave the loop.
                     if (action == .exit) {
-                        self.tmuxExit();
+                        self.tmuxAbort();
                         break :tmux;
                     }
-                    try self.tmuxAction(action);
+
+                    // An action we couldn't carry out leaves the viewer
+                    // waiting for something that won't happen, so the
+                    // session can't continue either.
+                    self.tmuxAction(action, session_id) catch |err| {
+                        log.warn("failed to handle tmux action err={}", .{err});
+                        self.tmuxAbort();
+                        break :tmux;
+                    };
+
+                    if (self.tmux_viewer != viewer) break :tmux;
                 }
             },
 
@@ -547,9 +585,12 @@ pub const StreamHandler = struct {
         "  L    Toggle logging.\r\n" ++
         "  C    Run tmux command.\r\n";
 
+    /// Carry out a viewer action. `session_id` is the viewer's: the viewer
+    /// may be gone by the time this sends the action on.
     fn tmuxAction(
         self: *StreamHandler,
         action: terminal.tmux.Viewer.Action,
+        session_id: usize,
     ) !void {
         switch (action) {
             .exit => {
@@ -561,10 +602,10 @@ pub const StreamHandler = struct {
                 assert(command.len > 0);
                 assert(command[command.len - 1] == '\n');
                 if (self.tmux_logging.load(.acquire)) self.tmuxLogOut(command);
-                self.messageWriter(try termio.Message.writeReq(
-                    self.alloc,
-                    command,
-                ));
+                self.messageWriter(.{ .tmux_write = .{
+                    .alloc = self.alloc,
+                    .data = try self.alloc.dupe(u8, command),
+                } });
             },
 
             .pane_content => |v| self.tmuxForwardContent(v.pane_id, v.data),
@@ -584,6 +625,7 @@ pub const StreamHandler = struct {
                 // update, so the app thread gets its own copy.
                 const snapshot = terminal.tmux.Snapshot.create(
                     self.alloc,
+                    session_id,
                     windows,
                 ) catch |err| {
                     log.warn("failed to copy tmux windows err={}", .{err});
@@ -595,6 +637,34 @@ pub const StreamHandler = struct {
 
             .active_window => |window_id| {
                 self.surfaceMessageWriter(.{ .tmux_active_window = window_id });
+            },
+
+            .active_pane => |v| self.surfaceMessageWriter(.{ .tmux_active_pane = .{
+                .window_id = v.window_id,
+                .pane_id = v.pane_id,
+            } }),
+
+            .window_renamed => |v| {
+                // Same framing as pane output: the id, then the bytes.
+                var stack_buf: [256]u8 = undefined;
+                var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.alloc);
+                const alloc = stack.allocator();
+                const payload = alloc.alloc(u8, @sizeOf(u64) + v.name.len) catch {
+                    log.warn("failed to allocate tmux window name", .{});
+                    return;
+                };
+                defer alloc.free(payload);
+                std.mem.writeInt(u64, payload[0..@sizeOf(u64)], v.window_id, .little);
+                @memcpy(payload[@sizeOf(u64)..], v.name);
+
+                const req = apprt.surface.Message.WriteReq.init(
+                    self.alloc,
+                    payload,
+                ) catch |err| {
+                    log.warn("failed to queue tmux window name err={}", .{err});
+                    return;
+                };
+                self.surfaceMessageWriter(.{ .tmux_window_renamed = req });
             },
         }
     }
@@ -609,8 +679,9 @@ pub const StreamHandler = struct {
     ) void {
         if (data.len == 0) return;
 
-        var stack = std.heap.stackFallback(1024, self.alloc);
-        const alloc = stack.get();
+        var stack_buf: [1024]u8 = undefined;
+        var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.alloc);
+        const alloc = stack.allocator();
         const payload = alloc.alloc(u8, @sizeOf(u64) + data.len) catch {
             log.warn("failed to allocate tmux pane output", .{});
             return;
@@ -651,8 +722,9 @@ pub const StreamHandler = struct {
     ) void {
         const trimmed = std.mem.trimEnd(u8, data, "\r\n");
 
-        var stack = std.heap.stackFallback(4096, self.alloc);
-        const alloc = stack.get();
+        var stack_buf: [4096]u8 = undefined;
+        var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.alloc);
+        const alloc = stack.allocator();
         var buf: std.Io.Writer.Allocating = .init(alloc);
         defer buf.deinit();
 
@@ -685,12 +757,54 @@ pub const StreamHandler = struct {
                 result = sent;
             },
 
-            else => self.tmuxAction(action) catch |err| {
-                log.warn("failed to handle tmux action err={}", .{err});
+            else => {
+                self.tmuxAction(action, viewer.session_id) catch |err| {
+                    log.warn("failed to handle tmux action err={}", .{err});
+                };
+
+                // Like the read thread, stop once the viewer is gone.
+                if (self.tmux_viewer != viewer) return null;
             },
         };
 
         return result;
+    }
+
+    /// Ask tmux for the window list again, for a change it sends no
+    /// notification for. Returns the bytes to write to the pty, if any;
+    /// see tmuxSubmitCommand for the ownership rules.
+    ///
+    /// The renderer state mutex must be held.
+    pub fn tmuxRefreshWindows(self: *StreamHandler) ?[]const u8 {
+        if (comptime !tmux_enabled) return null;
+
+        const viewer = self.tmux_viewer orelse return null;
+        for (viewer.refreshWindows()) |action| switch (action) {
+            .command => |sent| {
+                if (self.tmux_logging.load(.acquire)) self.tmuxLogOut(sent);
+                return sent;
+            },
+            else => {},
+        };
+
+        return null;
+    }
+
+    /// The viewer gave up while tmux is still attached: a layout it
+    /// couldn't apply, a command we failed to send, running out of memory.
+    /// Ask tmux to detach, or the gateway would stay in control mode with
+    /// nobody listening, then tear down like a normal exit. What tmux
+    /// sends until it leaves control mode is drained quietly.
+    fn tmuxAbort(self: *StreamHandler) void {
+        log.warn("tmux control mode failed, detaching", .{});
+        if (self.alloc.dupe(u8, "detach-client\n")) |data| {
+            self.messageWriter(.{ .tmux_raw = .{
+                .alloc = self.alloc,
+                .data = data,
+            } });
+        } else |err| log.warn("failed to queue tmux detach err={}", .{err});
+        self.tmux_abandoned = true;
+        self.tmuxExit();
     }
 
     /// Tear down our control mode state and let the GUI know.
@@ -763,8 +877,10 @@ pub const StreamHandler = struct {
     }
 
     /// Send a command to tmux on behalf of the GUI. Returns the bytes to
-    /// write to the pty, if any. The memory is owned by the viewer's
-    /// command queue and stays valid until we next process input.
+    /// write to the pty, if any. The memory is owned by the viewer and is
+    /// only valid until we next process input, which the read thread can
+    /// do as soon as the renderer state mutex is released: copy or write
+    /// it before that.
     ///
     /// The renderer state mutex must be held.
     pub fn tmuxSubmitCommand(
@@ -786,8 +902,13 @@ pub const StreamHandler = struct {
                 result = sent;
             },
 
-            else => self.tmuxAction(action) catch |err| {
-                log.warn("failed to handle tmux action err={}", .{err});
+            else => {
+                self.tmuxAction(action, viewer.session_id) catch |err| {
+                    log.warn("failed to handle tmux action err={}", .{err});
+                };
+
+                // Like the read thread, stop once the viewer is gone.
+                if (self.tmux_viewer != viewer) return null;
             },
         };
 
@@ -806,6 +927,27 @@ pub const StreamHandler = struct {
             "\r\ntmux logging enabled\r\n"
         else
             "\r\ntmux logging disabled\r\n");
+    }
+
+    /// Whether commands may still be sent to tmux: there is a viewer and
+    /// it isn't waiting for tmux to leave (see `tmuxDetaching`).
+    ///
+    /// The renderer state mutex must be held.
+    pub fn tmuxSending(self: *const StreamHandler) bool {
+        if (comptime !tmux_enabled) return false;
+        const viewer = self.tmux_viewer orelse return false;
+        return viewer.state != .defunct;
+    }
+
+    /// We're about to detach by writing to tmux directly. The viewer stays
+    /// until tmux confirms with `%exit`, but nothing tmux sends until then
+    /// is a reply to its queue.
+    ///
+    /// The renderer state mutex must be held.
+    pub fn tmuxDetaching(self: *StreamHandler) void {
+        if (comptime !tmux_enabled) return;
+        const viewer = self.tmux_viewer orelse return;
+        viewer.detach();
     }
 
     /// Abandon control mode without detaching. The tmux client keeps
@@ -1036,7 +1178,7 @@ pub const StreamHandler = struct {
 
             // Force resize back to the window size
             .enable_mode_3 => {
-                const grid_size = self.size.grid();
+                const grid_size = self.grid_override.* orelse self.size.grid();
                 self.terminal.resize(
                     self.alloc,
                     .{

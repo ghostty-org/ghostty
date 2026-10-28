@@ -364,6 +364,13 @@ pub const Action = union(Key) {
     /// split or the window is fullscreen.
     resize_window: ResizeWindow,
 
+    /// Mirror one tmux control mode window as one native tab: create,
+    /// update or close the tab so that its whole split tree matches the
+    /// window. The payload is Zig-only and embedders only get an opaque
+    /// pointer, so they must return false, which makes the core fall back
+    /// to creating panes one split at a time.
+    tmux_window: TmuxWindow,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -436,6 +443,7 @@ pub const Action = union(Key) {
         copy_title_to_clipboard,
         move_tab_to_new_window,
         resize_window,
+        tmux_window,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -743,6 +751,103 @@ pub const InitialSize = extern struct {
 pub const ResizeWindow = extern struct {
     width: u32,
     height: u32,
+};
+
+/// One tmux window to show as one native tab. See `Action.tmux_window`.
+pub const TmuxWindow = struct {
+    /// Borrowed: only valid for the duration of the action call.
+    spec: *const Spec,
+
+    pub const Spec = struct {
+        /// Identifies one attach to a tmux session. It changes on every
+        /// attach, so tabs left over from an earlier attach never match.
+        session: u64,
+
+        /// The tmux window id (`@<id>`).
+        window: usize,
+
+        /// Increases with every spec sent for this window. Reports about
+        /// the tab, such as divider drags, carry it back so that the core
+        /// can drop reports about a layout it has replaced since.
+        serial: u64,
+
+        /// The window's panes as a binary split tree. `nodes[0]` is the
+        /// root and handles index this slice. Empty means the window is
+        /// gone and its tab must close.
+        nodes: []const Node,
+
+        /// Handle of the zoomed pane, if tmux has one zoomed.
+        zoomed: ?u16,
+
+        /// Handle of tmux's active pane in this window.
+        focused: ?u16,
+
+        /// The tmux window name, shown as the tab title.
+        title: [:0]const u8,
+
+        /// Only used when the tab doesn't exist yet: the tmux window whose
+        /// native window should get the tab. Null opens a new native
+        /// window.
+        beside: ?usize,
+
+        /// The tab goes right after the tab of this tmux window. Null puts
+        /// it before every other tmux tab of its native window.
+        after: ?usize,
+
+        /// Whether this is tmux's current window, whose tab is selected.
+        select: bool,
+
+        /// The surface that new panes inherit settings such as the font
+        /// size from.
+        parent: ?*CoreSurface,
+    };
+
+    pub const Node = union(enum) {
+        leaf: Leaf,
+        split: Split,
+    };
+
+    pub const Leaf = struct {
+        /// The tmux pane id (`%<id>`).
+        pane: usize,
+
+        /// The surface that already shows this pane, or null to create
+        /// one.
+        surface: ?*CoreSurface,
+    };
+
+    /// What a surface created for a leaf carries until its core surface
+    /// claims the pane. The attach and window are part of it so that a
+    /// surface whose tab no longer shows the pane (the pane moved, or the
+    /// tab is from an earlier attach) can't claim it from under the tab
+    /// that does.
+    pub const Pane = struct {
+        session: u64,
+        window: usize,
+        pane: usize,
+    };
+
+    pub const Split = struct {
+        layout: Layout,
+
+        /// The share of the split's extent that goes to `left`.
+        ratio: f16,
+
+        left: u16,
+        right: u16,
+
+        /// Same meaning as the native split tree: horizontal puts `left`
+        /// and `right` side by side, vertical puts `left` on top.
+        pub const Layout = enum { horizontal, vertical };
+    };
+
+    pub const C = extern struct {
+        spec: *const anyopaque,
+    };
+
+    pub fn cval(self: TmuxWindow) C {
+        return .{ .spec = self.spec };
+    }
 };
 
 pub const CellSize = extern struct {
