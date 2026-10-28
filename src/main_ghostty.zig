@@ -241,6 +241,8 @@ test {
     _ = @import("input.zig");
     _ = @import("cli.zig");
     _ = @import("surface_mouse.zig");
+    _ = @import("tmux_action.zig");
+    _ = @import("tmux_mirror.zig");
 
     // Libraries
     _ = @import("tripwire.zig");

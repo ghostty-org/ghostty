@@ -50,6 +50,12 @@ pub fn getContentScale(self: *const Self) !apprt.ContentScale {
     return self.surface.getContentScale();
 }
 
+/// Device pixels per logical pixel, without the font DPI scaling in
+/// `getContentScale`.
+pub fn getPixelScale(self: *const Self) f32 {
+    return self.surface.getPixelScale();
+}
+
 pub fn getSize(self: *const Self) !apprt.SurfaceSize {
     return self.surface.getSize();
 }
@@ -106,4 +112,12 @@ pub fn redrawInspector(self: *Self) void {
 
 pub fn renderDeviceOptions(self: *Self) !renderer.Device.Options {
     return self.surface.renderDeviceOptions();
+}
+
+/// The tmux pane this surface was created to mirror, if any. The core
+/// surface claims the pane instead of starting a command. Having this
+/// also tells the core that tmux windows are mirrored as whole native
+/// tabs (see `TmuxSession.native_layout`).
+pub fn tmuxPane(self: *const Self) ?apprt.action.TmuxWindow.Pane {
+    return self.surface.getTmuxPane();
 }
