@@ -164,6 +164,87 @@ pub fn SplitTree(comptime V: type) type {
             };
         }
 
+        /// Create a tree from a node array built elsewhere, for example
+        /// from a layout described by another program. Like `clone`, the
+        /// nodes are copied into a new arena and every view is referenced,
+        /// so the caller keeps ownership of `nodes` and its views.
+        ///
+        /// Handle 0 is the root; the order of the other nodes is arbitrary.
+        /// The nodes must form exactly one tree: every split child handle
+        /// is in range, the root is never a child, and every other node is
+        /// the child of exactly one split and reachable from the root (no
+        /// cycles). `zoomed` must be in range. Anything else returns
+        /// `error.InvalidTree`, because every other operation on the tree
+        /// assumes this shape and would loop forever or index out of
+        /// bounds on anything else.
+        pub fn fromNodes(
+            gpa: Allocator,
+            nodes: []const Node,
+            zoomed: ?Node.Handle,
+        ) (Allocator.Error || error{InvalidTree})!Self {
+            if (nodes.len == 0) {
+                if (zoomed != null) return error.InvalidTree;
+                return .empty;
+            }
+
+            // Handles are 16 bits wide, so larger arrays can't be addressed.
+            if (nodes.len > std.math.maxInt(Node.Handle.Backing)) return error.InvalidTree;
+            if (zoomed) |v| if (v.idx() >= nodes.len) return error.InvalidTree;
+
+            // Every non-root node must be the child of exactly one split,
+            // and the root of none.
+            const referenced = try gpa.alloc(bool, nodes.len);
+            defer gpa.free(referenced);
+            @memset(referenced, false);
+            for (nodes) |node| switch (node) {
+                .leaf => {},
+                .split => |s| for ([_]Node.Handle{ s.left, s.right }) |child| {
+                    const i = child.idx();
+                    if (i == 0 or i >= nodes.len or referenced[i]) return error.InvalidTree;
+                    referenced[i] = true;
+                },
+            };
+            for (referenced[1..]) |v| if (!v) return error.InvalidTree;
+
+            // With exactly one parent per node, a walk from the root never
+            // visits a node twice, so it reaches every node unless some of
+            // them form a cycle detached from the root. Each node is pushed
+            // at most once, so the stack never holds more than nodes.len.
+            const stack = try gpa.alloc(Node.Handle, nodes.len);
+            defer gpa.free(stack);
+            stack[0] = .root;
+            var len: usize = 1;
+            var visited: usize = 0;
+            while (len > 0) {
+                len -= 1;
+                visited += 1;
+                switch (nodes[stack[len].idx()]) {
+                    .leaf => {},
+                    .split => |s| {
+                        stack[len] = s.left;
+                        stack[len + 1] = s.right;
+                        len += 2;
+                    },
+                }
+            }
+            if (visited != nodes.len) return error.InvalidTree;
+
+            var arena = ArenaAllocator.init(gpa);
+            errdefer arena.deinit();
+            const alloc = arena.allocator();
+
+            const owned = try alloc.dupe(Node, nodes);
+
+            // Increase the reference count of all the views in the nodes.
+            try refNodes(gpa, owned);
+
+            return .{
+                .arena = arena,
+                .nodes = owned,
+                .zoomed = zoomed,
+            };
+        }
+
         /// Returns true if this is an empty tree.
         pub fn isEmpty(self: *const Self) bool {
             // An empty tree has no nodes.
@@ -2526,4 +2607,161 @@ test "SplitTree: remove and zoom" {
             \\
         );
     }
+}
+
+test "SplitTree: fromNodes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var a: TestTree.View = .{ .label = "A" };
+    var b: TestTree.View = .{ .label = "B" };
+    var c: TestTree.View = .{ .label = "C" };
+
+    // Children deliberately not in depth-first order.
+    const nodes = [_]TestTree.Node{
+        .{ .split = .{ .layout = .horizontal, .ratio = 0.5, .left = @fromBackingInt(3), .right = @fromBackingInt(1) } },
+        .{ .split = .{ .layout = .vertical, .ratio = 0.25, .left = @fromBackingInt(2), .right = @fromBackingInt(4) } },
+        .{ .leaf = &b },
+        .{ .leaf = &a },
+        .{ .leaf = &c },
+    };
+
+    var t: TestTree = try .fromNodes(alloc, &nodes, null);
+    defer t.deinit();
+    try testing.expect(t.nodes.ptr != nodes[0..].ptr);
+    try testing.expect(t.zoomed == null);
+
+    const str = try alloc.print("{f}", .{std.fmt.alt(t, .formatText)});
+    defer alloc.free(str);
+    try testing.expectEqualStrings(str,
+        \\split (layout: horizontal, ratio: 0.50)
+        \\  leaf: A
+        \\  split (layout: vertical, ratio: 0.25)
+        \\    leaf: B
+        \\    leaf: C
+        \\
+    );
+}
+
+test "SplitTree: fromNodes single leaf and empty" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var a: TestTree.View = .{ .label = "A" };
+    var single: TestTree = try .fromNodes(alloc, &.{.{ .leaf = &a }}, null);
+    defer single.deinit();
+    try testing.expect(!single.isSplit());
+
+    var empty: TestTree = try .fromNodes(alloc, &.{}, null);
+    defer empty.deinit();
+    try testing.expect(empty.isEmpty());
+
+    try testing.expectError(
+        error.InvalidTree,
+        TestTree.fromNodes(alloc, &.{}, .root),
+    );
+}
+
+test "SplitTree: fromNodes zoomed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var a: TestTree.View = .{ .label = "A" };
+    var b: TestTree.View = .{ .label = "B" };
+    const nodes = [_]TestTree.Node{
+        .{ .split = .{ .layout = .horizontal, .ratio = 0.5, .left = @fromBackingInt(1), .right = @fromBackingInt(2) } },
+        .{ .leaf = &a },
+        .{ .leaf = &b },
+    };
+
+    var t: TestTree = try .fromNodes(alloc, &nodes, @fromBackingInt(2));
+    defer t.deinit();
+
+    const str = try alloc.print("{f}", .{std.fmt.alt(t, .formatText)});
+    defer alloc.free(str);
+    try testing.expectEqualStrings(str,
+        \\split (layout: horizontal, ratio: 0.50)
+        \\  leaf: A
+        \\  (zoomed) leaf: B
+        \\
+    );
+
+    // A zoomed handle past the end is rejected.
+    try testing.expectError(
+        error.InvalidTree,
+        TestTree.fromNodes(alloc, &nodes, @fromBackingInt(3)),
+    );
+}
+
+test "SplitTree: fromNodes rejects malformed trees" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Static views keep every case comptime-known.
+    const views = struct {
+        var a: TestTree.View = .{ .label = "A" };
+        var b: TestTree.View = .{ .label = "B" };
+        var c: TestTree.View = .{ .label = "C" };
+    };
+    const a = &views.a;
+    const b = &views.b;
+    const c = &views.c;
+
+    const Case = []const TestTree.Node;
+    const cases = [_]Case{
+        // Child handle out of range.
+        &.{
+            .{ .split = .{ .layout = .horizontal, .ratio = 0.5, .left = @fromBackingInt(1), .right = @fromBackingInt(5) } },
+            .{ .leaf = a },
+        },
+        // Root used as a child: a cycle through the root.
+        &.{
+            .{ .split = .{ .layout = .horizontal, .ratio = 0.5, .left = @fromBackingInt(1), .right = @fromBackingInt(2) } },
+            .{ .leaf = a },
+            .{ .split = .{ .layout = .vertical, .ratio = 0.5, .left = .root, .right = @fromBackingInt(3) } },
+            .{ .leaf = b },
+        },
+        // Nodes 1 and 2 are each other's child, detached from the root.
+        // Every non-root node still has exactly one parent.
+        &.{
+            .{ .leaf = a },
+            .{ .split = .{ .layout = .horizontal, .ratio = 0.5, .left = @fromBackingInt(2), .right = @fromBackingInt(3) } },
+            .{ .split = .{ .layout = .vertical, .ratio = 0.5, .left = @fromBackingInt(1), .right = @fromBackingInt(4) } },
+            .{ .leaf = b },
+            .{ .leaf = c },
+        },
+        // A split that is its own child.
+        &.{
+            .{ .split = .{ .layout = .horizontal, .ratio = 0.5, .left = @fromBackingInt(1), .right = @fromBackingInt(2) } },
+            .{ .leaf = a },
+            .{ .split = .{ .layout = .vertical, .ratio = 0.5, .left = @fromBackingInt(2), .right = @fromBackingInt(3) } },
+            .{ .leaf = b },
+        },
+        // Node 3 is not referenced by any split.
+        &.{
+            .{ .split = .{ .layout = .horizontal, .ratio = 0.5, .left = @fromBackingInt(1), .right = @fromBackingInt(2) } },
+            .{ .leaf = a },
+            .{ .leaf = b },
+            .{ .leaf = c },
+        },
+        // Node 1 is referenced twice by the same split.
+        &.{
+            .{ .split = .{ .layout = .horizontal, .ratio = 0.5, .left = @fromBackingInt(1), .right = @fromBackingInt(1) } },
+            .{ .leaf = a },
+        },
+        // Node 3 is referenced by two different splits.
+        &.{
+            .{ .split = .{ .layout = .horizontal, .ratio = 0.5, .left = @fromBackingInt(1), .right = @fromBackingInt(2) } },
+            .{ .split = .{ .layout = .vertical, .ratio = 0.5, .left = @fromBackingInt(3), .right = @fromBackingInt(4) } },
+            .{ .split = .{ .layout = .vertical, .ratio = 0.5, .left = @fromBackingInt(3), .right = @fromBackingInt(5) } },
+            .{ .leaf = a },
+            .{ .leaf = b },
+            .{ .leaf = c },
+        },
+    };
+
+    for (cases) |nodes| try testing.expectError(
+        error.InvalidTree,
+        TestTree.fromNodes(alloc, nodes, null),
+    );
 }

@@ -168,8 +168,18 @@ pub const Message = union(enum) {
     /// of the snapshot.
     tmux_windows: *terminal.tmux.Snapshot,
 
-    /// Tmux's active window id changed (``%window-pane-changed``).
+    /// The tmux session's current window changed
+    /// (`%session-window-changed`).
     tmux_active_window: usize,
+
+    /// The active pane of a tmux window changed (`%window-pane-changed`).
+    /// This alone doesn't make the window the current one.
+    tmux_active_pane: TmuxActivePane,
+
+    /// A tmux window was renamed. The payload is the window id as a
+    /// little-endian u64 followed by the new name. The receiver owns the
+    /// WriteReq memory.
+    tmux_window_renamed: WriteReq,
 
     /// Output for a tmux pane. The payload is the pane id as a
     /// little-endian u64 followed by the raw bytes. The receiver owns the
@@ -186,6 +196,11 @@ pub const Message = union(enum) {
     /// A follower surface's grid size changed, so its tmux pane should
     /// follow.
     tmux_resize: renderer.GridSize,
+
+    pub const TmuxActivePane = struct {
+        window_id: usize,
+        pane_id: usize,
+    };
 
     pub const ReportTitleStyle = enum {
         csi_21_t,

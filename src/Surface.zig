@@ -35,6 +35,7 @@ const Duration = configpkg.Config.Duration;
 const input = @import("input.zig");
 const App = @import("App.zig");
 const TmuxSession = @import("TmuxSession.zig");
+const tmux_action = @import("tmux_action.zig");
 const internal_os = @import("os/main.zig");
 const inspectorpkg = @import("inspector/main.zig");
 const SurfaceMouse = @import("surface_mouse.zig");
@@ -196,6 +197,11 @@ tmux_pane_id: ?usize = null,
 /// See tmuxFilterTitle.
 tmux_title: TmuxTitleState = .ground,
 
+/// The terminal grid tmux gives this follower's pane, when it decides
+/// the grid rather than the surface size. The surface can be bigger than
+/// the grid, so positions on it are clamped to the grid.
+tmux_grid: ?rendererpkg.GridSize = null,
+
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
 /// input can be forwarded to the OS for further processing if it
@@ -347,6 +353,7 @@ const DerivedConfig = struct {
     window_padding_left: u32,
     window_padding_right: u32,
     window_padding_balance: configpkg.Config.WindowPaddingBalance,
+    window_new_tab_position: configpkg.Config.WindowNewTabPosition,
     window_height: u32,
     window_width: u32,
     title: ?[:0]const u8,
@@ -428,6 +435,7 @@ const DerivedConfig = struct {
             .window_padding_left = config.@"window-padding-x".top_left,
             .window_padding_right = config.@"window-padding-x".bottom_right,
             .window_padding_balance = config.@"window-padding-balance",
+            .window_new_tab_position = config.@"window-new-tab-position",
             .window_height = config.@"window-height",
             .window_width = config.@"window-width",
             .title = config.title,
@@ -491,6 +499,16 @@ pub fn init(
     rt_app: *apprt.runtime.App,
     rt_surface: *apprt.runtime.Surface,
 ) !void {
+    // A surface created for a tmux pane that it can't have (the pane went
+    // to another window, or another surface has it) is going away with
+    // the tab it was created for. Don't build a terminal for it.
+    if (comptime terminal.options.tmux_control_mode and TmuxSession.native_layout) {
+        if (rt_surface.tmuxPane()) |pane| {
+            const session = if (app.tmux) |*s| s else return error.TmuxPaneUnavailable;
+            if (!session.canClaim(pane)) return error.TmuxPaneUnavailable;
+        }
+    }
+
     // Apply our conditional state. If we fail to apply the conditional state
     // then we log and attempt to move forward with the old config.
     var config_: ?configpkg.Config = config_original.changeConditionalState(
@@ -671,15 +689,30 @@ pub fn init(
     // one of its panes, this surface becomes that pane's follower rather
     // than spawning a shell.
     if (comptime terminal.options.tmux_control_mode) tmux: {
-        const session = if (app.tmux) |*s| s else break :tmux;
-        if (!session.shouldCreateFollower()) break :tmux;
-        const pane_id = session.takePane() orelse break :tmux;
-        self.tmux_pane_id = pane_id;
-        session.registerPane(pane_id, self);
+        if (comptime TmuxSession.native_layout) {
+            // The apprt created this surface for a pane. It must never
+            // fall back to a shell: the tab it is in shows a tmux window.
+            const pane = rt_surface.tmuxPane() orelse break :tmux;
+            const session = if (app.tmux) |*s| s else return error.TmuxPaneUnavailable;
+            if (!session.canClaim(pane)) return error.TmuxPaneUnavailable;
+            self.tmux_pane_id = pane.pane;
+            self.tmux_grid = session.paneGrid(pane.pane);
+            session.registerPane(pane.pane, self);
+        } else {
+            const session = if (app.tmux) |*s| s else break :tmux;
+            if (!session.shouldCreateFollower()) break :tmux;
+            const pane_id = session.takePane() orelse break :tmux;
+            self.tmux_pane_id = pane_id;
+            session.registerPane(pane_id, self);
+        }
     }
     errdefer if (comptime terminal.options.tmux_control_mode) {
         if (self.tmux_pane_id != null) {
-            if (app.tmux) |*session| session.unregisterSurface(self);
+            // The pane stays in the layout, so only the mapping goes.
+            if (app.tmux) |*session| if (comptime TmuxSession.native_layout)
+                session.releaseSurface(self)
+            else
+                session.unregisterSurface(self);
         }
     };
 
@@ -688,7 +721,7 @@ pub fn init(
     // be scoped here to be valid.
     {
         var backend: termio.Backend = if (self.tmux_pane_id) |pane_id| .{
-            .tmux = .init(pane_id),
+            .tmux = .init(alloc, pane_id),
         } else backend: {
             // Exec.init takes ownership of the env even if it fails, so the
             // errdefer for it must not reach past the call.
@@ -742,6 +775,7 @@ pub fn init(
 
         try termio.Termio.init(&self.io, alloc, .{
             .size = size,
+            .grid_override = self.tmux_grid,
             .full_config = config,
             .config = io_config,
             .backend = backend,
@@ -857,17 +891,23 @@ pub fn init(
     // We are no longer the first surface
     app.first = false;
 
-    // Now that we can be split from, let the session create the next
-    // pane. This is a no-op when the apprt creates surfaces synchronously
-    // because we're already inside that loop.
     if (comptime terminal.options.tmux_control_mode) {
-        if (self.tmux_pane_id != null) {
-            _ = app.mailbox.push(
-                global.io(),
-                .{ .tmux_advance = {} },
-                .{ .forever = {} },
-            );
-            self.rt_app.wakeup();
+        if (self.tmux_pane_id) |pane_id| {
+            if (comptime TmuxSession.native_layout) {
+                // We're at the pane's size now, so its contents fit.
+                if (app.tmux) |*session| session.paneRegistered(pane_id, self.tmux_grid);
+            } else {
+                // Now that we can be split from, let the session create
+                // the next pane. This is a no-op when the apprt creates
+                // surfaces synchronously because we're already inside
+                // that loop.
+                _ = app.mailbox.push(
+                    global.io(),
+                    .{ .tmux_advance = {} },
+                    .{ .forever = {} },
+                );
+                self.rt_app.wakeup();
+            }
         }
     }
 }
@@ -1295,6 +1335,8 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .tmux_enter => self.tmuxEnter(),
         .tmux_windows => |v| self.tmuxWindows(v),
         .tmux_active_window => |wid| self.tmuxActiveWindow(wid),
+        .tmux_active_pane => |v| self.tmuxActivePane(v),
+        .tmux_window_renamed => |v| self.tmuxWindowRenamed(v),
         .tmux_output => |v| self.tmuxOutput(v),
         .tmux_exit => self.tmuxTeardown(),
         .tmux_send_keys => |v| self.tmuxSendKeys(v),
@@ -3017,7 +3059,11 @@ pub fn keyCallback(
             return .closed;
         }
 
-        self.queueKeyWrite(write_req);
+        self.queueIo(switch (write_req) {
+            .small => |v| .{ .write_small = v },
+            .stable => |v| .{ .write_stable = v },
+            .alloc => |v| .{ .write_alloc = v },
+        }, .unlocked);
     } else {
         // No valid request means that we didn't encode anything.
         return .ignored;
@@ -3367,7 +3413,11 @@ fn endKeySequence(
     // Run the proper action first
     switch (action) {
         .flush => for (self.keyboard.sequence_queued.items) |write_req| {
-            self.queueKeyWrite(write_req);
+            self.queueIo(switch (write_req) {
+                .small => |v| .{ .write_small = v },
+                .stable => |v| .{ .write_stable = v },
+                .alloc => |v| .{ .write_alloc = v },
+            }, .unlocked);
         },
 
         .drop => for (self.keyboard.sequence_queued.items) |req| req.deinit(),
@@ -3532,18 +3582,17 @@ pub fn focusCallback(self: *Surface, focused: bool) !void {
     if (focused) self.app.focusSurface(self);
 
     // Keep tmux's idea of the active pane in sync when focus *changes*.
-    // Do not overwrite ``session.active_window`` here: that tracks tmux's
-    // current window (via ``%window-pane-changed``) for Cmd+T affinity, and
-    // a focus pulse on an already-key OS window (e.g. AppleScript
-    // ``set frontmost`` before a keystroke) must not clobber a recent
-    // external ``select-window``.
+    // Do not overwrite `session.active_window` here: that tracks tmux's
+    // current window (via `%window-pane-changed`) for `new_tab` affinity,
+    // and a focus event on a window that is already focused must not
+    // clobber a recent external `select-window`.
     if (comptime terminal.options.tmux_control_mode) tmux: {
         if (!focused) break :tmux;
         if (self.focused == focused) break :tmux;
         const pane = self.tmux_pane_id orelse break :tmux;
         const session = if (self.app.tmux) |*s| s else break :tmux;
         if (!session.isFollower(self)) break :tmux;
-        session.sendCommandFmt("select-pane -t %{d}\n", .{pane});
+        session.paneFocused(pane);
     }
 
     // If our focus state is unchanged we do nothing else.
@@ -4967,6 +5016,14 @@ pub fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Coordin
     // Get our grid cell
     const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = xpos, .y = ypos } };
     const grid = coord.convert(.grid, self.size).grid;
+
+    // A tmux follower's terminal can be smaller than the surface, and
+    // the space past it is padding.
+    if (self.tmux_grid) |v| return .{
+        .x = @min(grid.x, v.columns -| 1),
+        .y = @min(grid.y, v.rows -| 1),
+    };
+
     return .{ .x = grid.x, .y = grid.y };
 }
 
@@ -5017,6 +5074,20 @@ fn tmuxSession(self: *Surface) ?*TmuxSession.Session {
     return session;
 }
 
+/// The session this surface is the gateway of, if any.
+///
+/// Everything the gateway's stream handler sends us comes from the
+/// control mode stream, which any program can write to on its own
+/// terminal. So it is only acted on for the gateway that owns the
+/// session; otherwise one terminal could drive another session's
+/// panes and tabs by printing control mode notifications.
+fn tmuxGatewaySession(self: *Surface) ?*TmuxSession.Session {
+    if (comptime !terminal.options.tmux_control_mode) return null;
+    const session = if (self.app.tmux) |*s| s else return null;
+    if (!session.isLeader(self)) return null;
+    return session;
+}
+
 /// True if this surface is the gateway for an active control mode
 /// session.
 fn tmuxIsGateway(self: *Surface) bool {
@@ -5027,63 +5098,147 @@ fn tmuxIsGateway(self: *Surface) bool {
 }
 
 /// Handle a binding action that tmux owns while we're attached to a
-/// control mode session. Returns true if the action was forwarded to tmux
-/// and should not be handled natively.
+/// control mode session. Returns true if the action was handled and
+/// should not also be performed natively.
 ///
 /// The panes and windows of a tmux session live in the tmux server, so
 /// creating a native split or tab for them directly would leave the two
-/// views out of sync. Instead we send tmux the equivalent command and let
-/// the layout notifications that come back build the GUI.
-fn tmuxBindingAction(self: *Surface, action: input.Binding.Action) !bool {
+/// views out of sync. Instead the action is translated (see
+/// tmux_action.zig) into tmux commands, and the notifications that come
+/// back build the GUI. Followers act on their own pane and window; the
+/// gateway has no pane, so pane commands from it target whatever tmux
+/// considers active.
+///
+/// Besides `performBindingAction`, the apprt calls this for native UI
+/// that acts on a tmux tab or surface without going through a binding
+/// (menus, dialogs). A surface that isn't part of a session returns
+/// false, and so does an action that is (also) performed natively.
+pub fn tmuxBindingAction(self: *Surface, action: input.Binding.Action) !bool {
     const session = self.tmuxSession() orelse return false;
 
-    // Followers target their own pane. The gateway has no pane so it
-    // targets whatever tmux considers active.
-    var buf: [32]u8 = undefined;
-    const target: []const u8 = if (session.paneForSurface(self)) |pane|
-        std.fmt.bufPrint(&buf, " -t %{d}", .{pane}) catch ""
+    // Leaving the session can free this surface, so cleaning up doesn't
+    // go through `self`.
+    const alloc = self.alloc;
+
+    const pane = session.paneForSurface(self);
+    const window = if (pane) |id| session.windowForPane(id) else null;
+    const tabs: []const usize = if (window) |id|
+        try session.tabOrder(alloc, id)
     else
-        "";
+        &.{};
+    defer if (window != null) alloc.free(tabs);
 
-    switch (action) {
-        .new_split => |direction| {
-            const flag: []const u8 = switch (direction) {
-                .right, .left => "-h",
-                .down, .up => "-v",
-                .auto => if (self.size.screen.width > self.size.screen.height)
-                    "-h"
-                else
-                    "-v",
-            };
-            session.sendCommandFmt("split-window {s}{s}\n", .{ flag, target });
+    // Resize amounts are in the apprt's pixels and our cell size is in
+    // device pixels. Where the apprt tells them apart, that is its pixel
+    // scale: the content scale can also hold font DPI scaling, which
+    // makes cells bigger without making pixels any bigger.
+    const pixel_scale: apprt.ContentScale = if (comptime @hasDecl(
+        apprt.runtime.Surface,
+        "getPixelScale",
+    )) scale: {
+        const v = self.rt_surface.getPixelScale();
+        break :scale .{ .x = v, .y = v };
+    } else self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
+
+    const result = try tmux_action.translate(alloc, action, .{
+        .pane = pane,
+        .window = window,
+        .tabs = tabs,
+        .wider_than_tall = self.size.screen.width > self.size.screen.height,
+        .cell_width = @as(f32, @floatFromInt(self.size.cell.width)) / pixel_scale.x,
+        .cell_height = @as(f32, @floatFromInt(self.size.cell.height)) / pixel_scale.y,
+        .new_tab_position = switch (self.config.window_new_tab_position) {
+            .current => .current,
+            .end => .end,
+        },
+    });
+    defer result.deinit(alloc);
+
+    switch (result) {
+        .native => return false,
+        .consumed => return true,
+
+        .commands => |commands| {
+            switch (commands.affinity) {
+                .none => {},
+
+                // `new_tab`: the new tmux window joins this native window.
+                .tab => session.noteTabAffinity(self),
+
+                // `new_window`: the new tmux window gets a native window
+                // of its own instead of a local shell.
+                .window => session.noteWindowAffinity(),
+            }
+
+            // One command per send: the viewer matches tmux's replies
+            // against its queue one block at a time.
+            var lines = commands.lines();
+            while (lines.next()) |line| session.sendCommand(line);
+
+            // tmux doesn't report that windows were reordered.
+            if (action == .move_tab) session.refreshWindows();
+            return !commands.then_native;
         },
 
-        .new_tab => {
-            session.noteTabAffinity(self);
-            session.sendCommand("new-window\n");
+        .detach => |detach| {
+            // An apprt that leaves the session itself when it quits does so
+            // after the quit is confirmed. Leaving here would leave even if
+            // the quit is cancelled.
+            if (detach.then_native and
+                comptime @hasDecl(apprt.runtime.App, "tmux_detach_on_quit"))
+                return false;
+
+            session.detach();
+
+            // Closing a follower tells tmux to kill its pane, so the panes
+            // have to be unregistered before any surface closes. With
+            // nothing closing natively, that happens from the app loop:
+            // tearing down closes the followers, and this surface may be
+            // one of them, still in the middle of its binding.
+            //
+            // This runs on the app thread, which is what drains the
+            // mailbox, so waiting for room in it would never end. If it is
+            // full, the `%exit` tmux answers the detach with tears down
+            // all the same.
+            if (!detach.then_native) {
+                if (session.leader.surfaceMailbox().push(
+                    .{ .tmux_exit = {} },
+                    .instant,
+                ) == 0) log.info("mailbox full, tmux teardown waits for %exit", .{});
+                return true;
+            }
+
+            // The native action closes every surface right after, so tear
+            // down now. This surface may be gone afterwards.
+            const app = self.app;
+            const rt_app = self.rt_app;
+            session.leader.tmuxTeardown();
+            if (action.scoped(.app)) |app_action| try app.performAction(rt_app, app_action);
+            return true;
         },
 
-        // iTerm2: Shell → tmux → New Tmux Window (affinity nil → new OS
-        // window). Cmd+N must not open a local shell under -CC.
-        .new_window => {
-            session.pending_affinity = null;
-            session.sendCommand("new-window\n");
-        },
+        // The native prompt is shown, and the apprt hands the title it
+        // gets back as `set_tab_title` / `set_surface_title` through
+        // `tmuxBindingAction`, which translates it like a binding.
+        .prompt_tab_title,
+        .prompt_surface_title,
+        => return false,
 
-        .close_surface,
-        .close_tab,
-        .close_window,
-        => {
-            // Closing the gateway means leaving control mode entirely,
-            // which is the detach path rather than a kill-pane.
-            if (target.len == 0) return false;
-            session.sendCommandFmt("kill-pane{s}\n", .{target});
+        // The native move into a new window still has to happen.
+        .regroup_tab => |window_id| {
+            session.regroupWindow(window_id);
+            return false;
         },
-
-        else => return false,
     }
+}
 
-    return true;
+/// Tell the tmux session about something the user did to a mirrored tab
+/// natively. Returns false if no session mirrors the tab, in which case
+/// the apprt handles it as it would any other tab.
+pub fn tmuxNativeEvent(self: *Surface, event: TmuxSession.Session.NativeEvent) bool {
+    if (comptime !terminal.options.tmux_control_mode) return false;
+    const session = if (self.app.tmux) |*s| s else return false;
+    return session.nativeEvent(self, event);
 }
 
 /// Handle a key press on the gateway while control mode is active.
@@ -5144,11 +5299,12 @@ fn tmuxGatewayKey(self: *Surface, event: input.KeyEvent) bool {
 
     switch (event.key) {
         .escape => {
-            // Detach out-of-band so the viewer queue can't drop it, then
-            // drop the GUI session so reattach paste isn't swallowed by
-            // hasFollowers(). Avoid force-quit: resetting DCS while htm
-            // still has socket data makes the client hang instead of
-            // exiting into the wrapper shell.
+            // Detach through the pty rather than the viewer queue, which
+            // the teardown frees, and tear the session down now instead
+            // of waiting for `%exit`. Force-quit isn't used here: it
+            // leaves the DCS state while the tmux client is still
+            // writing, and the client can then hang instead of exiting
+            // to the shell.
             session.detach();
             self.tmuxTeardown();
         },
@@ -5162,11 +5318,10 @@ fn tmuxGatewayKey(self: *Surface, event: input.KeyEvent) bool {
             session.echo("\r\ntmux command: ");
         },
 
-        // Menu keys are handled above. Everything else falls through to
-        // queueKeyWrite, which forwards to the active pane — including
-        // when followers exist. Cmd+D from the plate creates the native
-        // split in another tab but leaves focus here; dropping those
-        // keys made the window look dead until the user switched tabs.
+        // Everything else is typed into tmux's active pane (see
+        // Termio.queueInput), also when followers exist: a split made
+        // from the plate leaves focus here, and dropping the keys would
+        // make the window look unresponsive until focus moves.
         else => return false,
     }
 
@@ -5184,35 +5339,15 @@ fn tmuxForceQuit(self: *Surface) void {
     if (!session.isLeader(self)) return;
 
     // Best-effort: drop the control client so the mux server is idle.
-    // Must bypass the viewer queue — force-quit destroys it next.
-    session.sendRaw("detach-client\n");
+    // Must bypass the viewer queue — force-quit destroys it next. Not
+    // again after a detach, though: by now it could reach the shell.
+    if (!session.detached) {
+        session.detached = true;
+        session.sendRaw("detach-client\n");
+    }
 
     self.io.queueMessage(.{ .tmux_force_quit = {} }, .unlocked);
     self.tmuxTeardown();
-}
-
-/// Queue an encoded key write request, taking ownership of `write_req`.
-///
-/// On the gateway the pty speaks the control protocol, so the encoded
-/// bytes have to be wrapped in `send-keys` rather than written directly.
-/// Followers have no pty at all; their backend does the same wrapping.
-fn queueKeyWrite(self: *Surface, write_req: termio.Message.WriteReq) void {
-    if (self.tmuxIsGateway()) {
-        defer write_req.deinit();
-        const session = if (self.app.tmux) |*s| s else return;
-
-        // Always send-keys to the active pane. Followers still own their
-        // own key events when focused; this only covers the case where
-        // focus is still on the control plate after a layout change.
-        session.sendKeys(null, write_req.slice());
-        return;
-    }
-
-    self.queueIo(switch (write_req) {
-        .small => |v| .{ .write_small = v },
-        .stable => |v| .{ .write_stable = v },
-        .alloc => |v| .{ .write_alloc = v },
-    }, .unlocked);
 }
 
 /// Become the gateway for a new control mode session.
@@ -5220,15 +5355,27 @@ fn tmuxEnter(self: *Surface) void {
     if (comptime !terminal.options.tmux_control_mode) return;
 
     if (self.app.tmux != null) {
-        log.warn("tmux session already active, ignoring enter", .{});
+        // Only one session can be mirrored at a time. Leave control
+        // mode on this terminal rather than keep a gateway nothing
+        // listens to.
+        log.warn("tmux session already active, leaving control mode", .{});
+        const text = "\r\nghostty: a tmux control mode session is already " ++
+            "attached in another terminal; detach it first.\r\n";
+        if (self.alloc.dupe(u8, text)) |data| {
+            self.io.queueMessage(.{ .tmux_echo = .{
+                .alloc = self.alloc,
+                .data = data,
+            } }, .unlocked);
+        } else |_| {}
+        self.io.queueMessage(.{ .tmux_force_quit = {} }, .unlocked);
         return;
     }
 
     self.app.tmux = .init(self.alloc, self);
     log.info("tmux control mode entered gateway={x}", .{self.id});
 
-    // Match iTerm2's gateway window naming so e2e / AX can tell the
-    // control plate apart from follower tabs that share this window.
+    // The gateway shows the control plate rather than a shell. Name its
+    // tab so it isn't mistaken for one of the session's tabs.
     _ = self.rt_app.performAction(
         .{ .surface = self },
         .set_title,
@@ -5245,23 +5392,38 @@ fn tmuxWindows(self: *Surface, snapshot: *terminal.tmux.Snapshot) void {
         return;
     }
 
-    const session = if (self.app.tmux) |*s| s else {
+    const session = self.tmuxGatewaySession() orelse {
         snapshot.destroy();
         return;
     };
-
-    if (!session.isLeader(self)) {
-        snapshot.destroy();
-        return;
-    }
 
     session.applyLayout(snapshot);
 }
 
 fn tmuxActiveWindow(self: *Surface, window_id: usize) void {
     if (comptime !terminal.options.tmux_control_mode) return;
-    const session = if (self.app.tmux) |*s| s else return;
+    const session = self.tmuxGatewaySession() orelse return;
     session.setActiveWindow(window_id);
+}
+
+fn tmuxActivePane(
+    self: *Surface,
+    v: apprt.surface.Message.TmuxActivePane,
+) void {
+    if (comptime !terminal.options.tmux_control_mode) return;
+    const session = self.tmuxGatewaySession() orelse return;
+    session.setActivePane(v.window_id, v.pane_id);
+}
+
+fn tmuxWindowRenamed(self: *Surface, req: apprt.surface.Message.WriteReq) void {
+    defer req.deinit();
+    if (comptime !terminal.options.tmux_control_mode) return;
+
+    const slice = req.slice();
+    if (slice.len < @sizeOf(u64)) return;
+    const window_id = std.mem.readInt(u64, slice[0..@sizeOf(u64)], .little);
+    const session = self.tmuxGatewaySession() orelse return;
+    session.renameWindow(@intCast(window_id), slice[@sizeOf(u64)..]);
 }
 
 /// Turn a follower's terminal output into keys for its tmux pane.
@@ -5277,6 +5439,10 @@ fn tmuxSendKeys(self: *Surface, req: apprt.surface.Message.WriteReq) void {
 /// Resize a follower's tmux pane to match its surface.
 fn tmuxResize(self: *Surface, grid_size: rendererpkg.GridSize) void {
     if (comptime !terminal.options.tmux_control_mode) return;
+
+    // Native tabs follow tmux's pane sizes; resizing a surface never
+    // resizes its pane.
+    if (comptime TmuxSession.native_layout) return;
 
     const session = if (self.app.tmux) |*s| s else return;
     const pane = session.paneForSurface(self) orelse return;
@@ -5294,21 +5460,26 @@ fn tmuxOutput(self: *Surface, req: apprt.surface.Message.WriteReq) void {
     const data = slice[@sizeOf(u64)..];
     if (data.len == 0) return;
 
-    const session = if (self.app.tmux) |*s| s else return;
+    const session = self.tmuxGatewaySession() orelse return;
     const surface = session.surfaceForPane(@intCast(pane_id)) orelse return;
 
-    var stack = std.heap.stackFallback(4096, surface.alloc);
-    const alloc = stack.get();
+    var stack_buf: [4096]u8 = undefined;
+    var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, surface.alloc);
+    const alloc = stack.allocator();
     var buf: std.Io.Writer.Allocating = .init(alloc);
     defer buf.deinit();
 
+    // The follower's reader thread parses the output (see termio.Tmux).
+    // Parsing it here on the app thread would deadlock as soon as the
+    // follower's stream handler waits for room in the app mailbox, which
+    // only this thread drains.
     surface.tmuxFilterTitle(data, &buf.writer) catch {
         // Showing the title text is better than dropping the output.
-        surface.io.processOutput(data);
+        surface.io.tmuxQueueOutput(data);
         return;
     };
 
-    surface.io.processOutput(buf.writer.buffered());
+    surface.io.tmuxQueueOutput(buf.writer.buffered());
 }
 
 const TmuxTitleState = enum { ground, escape, string, string_escape };
@@ -5364,7 +5535,7 @@ fn tmuxFilterTitle(
 }
 
 /// Drop the session and close every follower. The gateway stays.
-fn tmuxTeardown(self: *Surface) void {
+pub fn tmuxTeardown(self: *Surface) void {
     if (comptime !terminal.options.tmux_control_mode) return;
 
     const session = if (self.app.tmux) |*s| s else return;
@@ -5378,9 +5549,8 @@ fn tmuxTeardown(self: *Surface) void {
     owned.deinit();
     log.info("tmux control mode exited", .{});
 
-    // Clear the iTerm2-style gateway title so AX / reattach can see a
-    // normal shell again. Use a placeholder until the shell sets OSC title;
-    // an empty AX name makes focus_gateway fall through awkwardly.
+    // The gateway is a shell again. Replace the control plate title with
+    // a placeholder until the shell sets its own.
     _ = self.rt_app.performAction(
         .{ .surface = self },
         .set_title,

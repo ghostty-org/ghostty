@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const build_config = @import("../../../build_config.zig");
 const assert = @import("../../../quirks.zig").inlineAssert;
 const adw = @import("adw");
@@ -248,6 +249,10 @@ pub const Window = extern struct {
         /// behaves slightly differently under certain scenarios.
         quick_terminal: bool = false,
 
+        /// Set while one of our tabs moves to another native window. The
+        /// tab view selects another tab then, which the user didn't.
+        moving_tab: bool = false,
+
         /// Timeout source to react to this window becoming (in)active.
         handle_active_state_source: ?c_uint = null,
 
@@ -494,8 +499,19 @@ pub const Window = extern struct {
         };
 
         // Add the page and select it
+        return self.insertTab(tab, position, true);
+    }
+
+    /// Add a tab at `position` and show its title and tooltip on its page.
+    pub fn insertTab(
+        self: *Self,
+        tab: *Tab,
+        position: c_int,
+        select: bool,
+    ) *adw.TabPage {
+        const tab_view = self.private().tab_view;
         const page = tab_view.insert(tab.as(gtk.Widget), position);
-        tab_view.setSelectedPage(page);
+        if (select) tab_view.setSelectedPage(page);
 
         // Create some property bindings
         _ = tab.as(gobject.Object).bindProperty(
@@ -512,6 +528,71 @@ pub const Window = extern struct {
         );
 
         return page;
+    }
+
+    /// The tab that mirrors tmux window `window` of attach `session`.
+    pub fn findTmuxTab(self: *Self, session: u64, window: usize) ?*Tab {
+        const tab_view = self.private().tab_view;
+        const n = tab_view.getNPages();
+        var i: c_int = 0;
+        while (i < n) : (i += 1) {
+            const tab = gobject.ext.cast(Tab, tab_view.getNthPage(i).getChild()) orelse continue;
+            const tmux = tab.getSplitTree().getTmux() orelse continue;
+            if (tmux.session == session and tmux.window == window) return tab;
+        }
+        return null;
+    }
+
+    /// Move the tab of a tmux window right after the tab of the tmux
+    /// window `after`, or before every other tab of the same attach if
+    /// `after` is null, so that tabs follow tmux's window order. Returns
+    /// true if the tab moved.
+    pub fn placeTmuxTab(self: *Self, tab: *Tab, session: u64, after: ?usize) bool {
+        const tab_view = self.private().tab_view;
+        const page = tab_view.getPage(tab.as(gtk.Widget));
+        const position = tab_view.getPagePosition(page);
+
+        const target: c_int = target: {
+            if (after) |id| {
+                const other = self.findTmuxTab(session, id) orelse return false;
+                const other_page = tab_view.getPage(other.as(gtk.Widget));
+                const other_position = tab_view.getPagePosition(other_page);
+
+                // Taking the tab out first moves everything after it.
+                break :target if (position < other_position)
+                    other_position
+                else
+                    other_position + 1;
+            }
+
+            const n = tab_view.getNPages();
+            var i: c_int = 0;
+            while (i < n) : (i += 1) {
+                const child = tab_view.getNthPage(i).getChild();
+                const other = gobject.ext.cast(Tab, child) orelse continue;
+                if (other == tab) continue;
+                const tmux = other.getSplitTree().getTmux() orelse continue;
+                if (tmux.session != session) continue;
+                if (position < i) return false;
+                break :target i;
+            }
+            return false;
+        };
+
+        if (target == position) return false;
+        return tab_view.reorderPage(page, target) != 0;
+    }
+
+    /// Select the page of a tab.
+    pub fn selectTabPage(self: *Self, tab: *Tab) void {
+        const tab_view = self.private().tab_view;
+        tab_view.setSelectedPage(tab_view.getPage(tab.as(gtk.Widget)));
+    }
+
+    /// Close a tab the way its close button does.
+    pub fn closeTab(self: *Self, tab: *Tab) void {
+        const tab_view = self.private().tab_view;
+        tab_view.closePage(tab_view.getPage(tab.as(gtk.Widget)));
     }
 
     pub const SelectTab = union(enum) {
@@ -626,6 +707,8 @@ pub const Window = extern struct {
         const app = Application.default();
         const window = Window.new(app, .none);
 
+        self.private().moving_tab = true;
+        defer self.private().moving_tab = false;
         tab_view.transferPage(
             page,
             window.private().tab_view,
@@ -1603,6 +1686,20 @@ pub const Window = extern struct {
         _: *gtk.Window,
         self: *Self,
     ) callconv(.c) c_int {
+        // The tabs of tmux windows close when tmux reports their windows
+        // gone, so a native window with any of them closes tab by tab,
+        // each the way its close button does (tmux tabs kill their
+        // window). The native window closes with its last tab.
+        if (self.hasTmuxTabs()) {
+            const tab_view = self.private().tab_view;
+            var i = tab_view.getNPages();
+            while (i > 0) {
+                i -= 1;
+                tab_view.closePage(tab_view.getNthPage(i));
+            }
+            return @intFromBool(true);
+        }
+
         if (self.getNeedsConfirmQuit()) {
             // Show a confirmation dialog
             const dialog: *CloseConfirmationDialog = .new(.window);
@@ -1628,6 +1725,42 @@ pub const Window = extern struct {
         self: *Self,
     ) callconv(.c) void {
         self.as(gtk.Window).destroy();
+    }
+
+    /// Whether any tab of this window mirrors a tmux window.
+    fn hasTmuxTabs(self: *Self) bool {
+        const tab_view = self.private().tab_view;
+        const n = tab_view.getNPages();
+        var i: c_int = 0;
+        while (i < n) : (i += 1) {
+            const tab = gobject.ext.cast(Tab, tab_view.getNthPage(i).getChild()) orelse continue;
+            if (tab.getSplitTree().getTmux() != null) return true;
+        }
+        return false;
+    }
+
+    /// The tmux windows of the tabs of attach `session` in this window,
+    /// in tab order, leaving out the tab `skip`. The caller owns the
+    /// result.
+    fn tmuxTabWindows(
+        self: *Self,
+        alloc: Allocator,
+        session: u64,
+        skip: ?*Tab,
+    ) Allocator.Error![]usize {
+        var windows: std.ArrayList(usize) = .empty;
+        errdefer windows.deinit(alloc);
+        const tab_view = self.private().tab_view;
+        const n = tab_view.getNPages();
+        var i: c_int = 0;
+        while (i < n) : (i += 1) {
+            const tab = gobject.ext.cast(Tab, tab_view.getNthPage(i).getChild()) orelse continue;
+            if (tab == skip) continue;
+            const tmux = tab.getSplitTree().getTmux() orelse continue;
+            if (tmux.session != session) continue;
+            try windows.append(alloc, tmux.window);
+        }
+        return windows.toOwnedSlice(alloc);
     }
 
     fn closeConfirmationCloseTab(
@@ -1668,9 +1801,24 @@ pub const Window = extern struct {
         const tab = gobject.ext.cast(Tab, child) orelse
             return @intFromBool(false);
 
+        // A tmux tab is closed by killing its window. The tab stays until
+        // tmux reports the window gone and closes it (while it applies
+        // that, which is the one time a tmux tab closes here).
+        if (!Application.default().isTmuxApplying()) tmux: {
+            const tree = tab.getSplitTree();
+            const tmux = tree.getTmux() orelse break :tmux;
+            if (!tree.tmuxNativeEvent(.{ .close_tab = .{
+                .session = tmux.session,
+                .window = tmux.window,
+            } })) break :tmux;
+            priv.tab_view.closePageFinish(page, @intFromBool(false));
+            return @intFromBool(true);
+        }
+
         // If the tab says it doesn't need confirmation then we go ahead
-        // and close immediately.
-        if (!tab.getNeedsConfirmQuit()) {
+        // and close immediately. Neither does a tab that tmux closes:
+        // its window is gone already.
+        if (!tab.getNeedsConfirmQuit() or Application.default().isTmuxApplying()) {
             priv.tab_view.closePageFinish(page, @intFromBool(true));
             return @intFromBool(true);
         }
@@ -1719,6 +1867,64 @@ pub const Window = extern struct {
         // If the tab was previously marked as needing attention
         // (e.g. due to a bell character), we now unmark that
         page.setNeedsAttention(@intFromBool(false));
+
+        // Selecting the tab of a tmux window makes it tmux's current
+        // window, unless the selection is tmux's own being applied, or
+        // the tab view's own when a tab moves to another native window.
+        const by_user = !Application.default().isTmuxApplying() and
+            !priv.moving_tab and
+            priv.tab_view.getIsTransferringPage() == 0;
+        if (by_user) tmux: {
+            const tab = gobject.ext.cast(Tab, child) orelse break :tmux;
+            const tmux = tab.getSplitTree().getTmux() orelse break :tmux;
+            const core = tab.getSplitTree().getTmuxCore() orelse break :tmux;
+            _ = core.tmuxNativeEvent(.{ .tab_selected = .{
+                .session = tmux.session,
+                .window = tmux.window,
+            } });
+        }
+
+        self.syncTabOverviewNewTab();
+    }
+
+    /// The tab overview creates a tab with a shell, which isn't what a new
+    /// tab next to a tmux tab is: the tab bar's button asks tmux for a
+    /// window instead, but the overview needs its tab right away. So its
+    /// button is only offered while the selected tab isn't a tmux tab.
+    ///
+    /// This has to be redone when the selected tab becomes a tmux tab,
+    /// which happens after it is selected for a tab tmux creates.
+    pub fn syncTabOverviewNewTab(self: *Self) void {
+        const priv = self.private();
+        const page = priv.tab_view.getSelectedPage();
+        const tab = if (page) |v| gobject.ext.cast(Tab, v.getChild()) else null;
+        const is_tmux = if (tab) |v| v.getSplitTree().getTmux() != null else false;
+        priv.tab_overview.setEnableNewTab(@intFromBool(!is_tmux));
+    }
+
+    fn tabViewPageReordered(
+        _: *adw.TabView,
+        page: *adw.TabPage,
+        _: c_int,
+        self: *Self,
+    ) callconv(.c) void {
+        // Tabs that tmux reorders are already in tmux's order.
+        if (Application.default().isTmuxApplying()) return;
+
+        // tmux windows are ordered by index, so moving a tmux tab
+        // reorders the windows of its native window to match.
+        const tab = gobject.ext.cast(Tab, page.getChild()) orelse return;
+        const tmux = tab.getSplitTree().getTmux() orelse return;
+        const alloc = Application.default().allocator();
+        const windows = self.tmuxTabWindows(alloc, tmux.session, null) catch |err| {
+            log.warn("failed to reorder tmux windows err={}", .{err});
+            return;
+        };
+        defer alloc.free(windows);
+        _ = tab.getSplitTree().tmuxNativeEvent(.{ .reorder = .{
+            .session = tmux.session,
+            .windows = windows,
+        } });
     }
 
     fn tabViewPageAttached(
@@ -1773,6 +1979,38 @@ pub const Window = extern struct {
             self,
             .{},
         );
+
+        // A tmux tab moved here from another native window now belongs
+        // with the tmux tabs of this one, which tmux has to remember for
+        // the next layout (and the next attach).
+        if (!Application.default().isTmuxApplying()) tmux: {
+            const tmux = tab.getSplitTree().getTmux() orelse break :tmux;
+            const alloc = Application.default().allocator();
+            const others = self.tmuxTabWindows(alloc, tmux.session, tab) catch |err| {
+                log.warn("failed to regroup tmux window err={}", .{err});
+                break :tmux;
+            };
+            defer alloc.free(others);
+            _ = tab.getSplitTree().tmuxNativeEvent(.{ .regroup = .{
+                .tab = .{ .session = tmux.session, .window = tmux.window },
+                .beside = if (others.len > 0) others[0] else null,
+            } });
+
+            // It was dropped at a place among those tabs, and tmux orders
+            // the windows of a native window by index, so the drop is a
+            // reorder too. Without it, the tab would go back to where its
+            // index puts it on the next layout, and tab navigation would
+            // follow the old order until then.
+            const windows = self.tmuxTabWindows(alloc, tmux.session, null) catch |err| {
+                log.warn("failed to reorder tmux windows err={}", .{err});
+                break :tmux;
+            };
+            defer alloc.free(windows);
+            _ = tab.getSplitTree().tmuxNativeEvent(.{ .reorder = .{
+                .session = tmux.session,
+                .windows = windows,
+            } });
+        }
     }
 
     fn tabViewPageDetached(
@@ -2354,6 +2592,7 @@ pub const Window = extern struct {
             class.bindTemplateCallback("close_page", &tabViewClosePage);
             class.bindTemplateCallback("page_attached", &tabViewPageAttached);
             class.bindTemplateCallback("page_detached", &tabViewPageDetached);
+            class.bindTemplateCallback("page_reordered", &tabViewPageReordered);
             class.bindTemplateCallback("setup_tab_menu", &setupTabMenu);
             class.bindTemplateCallback("tab_create_window", &tabViewCreateWindow);
             class.bindTemplateCallback("notify_n_pages", &tabViewNPages);

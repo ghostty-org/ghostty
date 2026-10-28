@@ -9,8 +9,12 @@ const gtk = @import("gtk");
 
 const configpkg = @import("../../../config.zig");
 const apprt = @import("../../../apprt.zig");
+const input = @import("../../../input.zig");
+const CoreSurface = @import("../../../Surface.zig");
+const TmuxSession = @import("../../../TmuxSession.zig");
 const ext = @import("../ext.zig");
 const gresource = @import("../build/gresource.zig");
+const scale_util = @import("../scale.zig");
 const Common = @import("../class.zig").Common;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
 const Application = @import("application.zig").Application;
@@ -170,7 +174,42 @@ pub const SplitTree = extern struct {
         /// close dialog.
         pending_close: ?Surface.Tree.Node.Handle,
 
+        /// Set when this tree mirrors a tmux window. See applyTmuxTree.
+        tmux: ?Tmux = null,
+
+        /// The source that reports our size to tmux once allocation is
+        /// done, and the size last reported. See snapshot.
+        tmux_size_source: ?c_uint = null,
+        tmux_size: [2]c_int = .{ 0, 0 },
+
+        /// A divider the user dragged, reported to tmux once the drag
+        /// pauses. See tmuxSplitDragged.
+        tmux_drag: ?TmuxDrag = null,
+        tmux_drag_source: ?c_uint = null,
+
         pub var offset: c_int = 0;
+    };
+
+    const TmuxDrag = struct {
+        handle: Surface.Tree.Node.Handle,
+        ratio: f64,
+    };
+
+    /// How long a divider has to stay put before its position is sent to
+    /// tmux. tmux lays the panes out again for every resize, and dragging
+    /// produces a position for every frame.
+    const tmux_drag_delay_ms = 150;
+
+    /// The tmux window a tree mirrors.
+    pub const Tmux = struct {
+        /// `apprt.action.TmuxWindow.Spec.session`.
+        session: u64,
+
+        /// The tmux window id.
+        window: usize,
+
+        /// The serial of the spec the tree was last set from.
+        serial: u64,
     };
 
     fn init(self: *Self, _: *Class) callconv(.c) void {
@@ -593,6 +632,184 @@ pub const SplitTree = extern struct {
         return tree.zoomed != null;
     }
 
+    /// The tmux window this tree mirrors, if it mirrors one.
+    pub fn getTmux(self: *Self) ?Tmux {
+        return self.private().tmux;
+    }
+
+    /// Show the tree of a tmux window. `focused` is the surface tmux has
+    /// active, which gets focus whenever this tree is shown.
+    ///
+    /// tmux sends the whole window on every change, so a tree that is
+    /// already shown is left alone instead of being rebuilt.
+    pub fn applyTmuxTree(
+        self: *Self,
+        tree: *const Surface.Tree,
+        focused: ?*Surface,
+        tmux: Tmux,
+    ) void {
+        const priv = self.private();
+        priv.tmux = tmux;
+        if (focused) |v| priv.last_focused.set(v);
+
+        // A tree with the same surfaces in the same places only needs its
+        // dividers moved, which most layout changes are about: rebuilding
+        // the widgets would flicker and lose the drag in progress.
+        if (priv.tree) |old| {
+            if (sameShape(old, tree)) {
+                self.moveDividers(old, tree);
+                return;
+            }
+        }
+
+        // A drag that hasn't been reported is about splits that are going
+        // away.
+        self.cancelTmuxDrag();
+        self.setTree(tree);
+    }
+
+    /// Whether two trees differ in their split ratios at most.
+    fn sameShape(a: *const Surface.Tree, b: *const Surface.Tree) bool {
+        if (a.nodes.len != b.nodes.len) return false;
+        if (!std.meta.eql(a.zoomed, b.zoomed)) return false;
+        for (a.nodes, b.nodes) |x, y| switch (x) {
+            .leaf => |v| switch (y) {
+                .leaf => |w| if (v != w) return false,
+                .split => return false,
+            },
+            .split => |v| switch (y) {
+                .leaf => return false,
+                .split => |w| if (v.layout != w.layout or
+                    v.left != w.left or
+                    v.right != w.right) return false,
+            },
+        };
+        return true;
+    }
+
+    /// Give `tree`, a tree of the same shape, the ratios of `to`, and move
+    /// the dividers that show it.
+    fn moveDividers(self: *Self, tree: *Surface.Tree, to: *const Surface.Tree) void {
+        for (tree.nodes, to.nodes, 0..) |node, want, i| {
+            const old = switch (node) {
+                .split => |v| v.ratio,
+                .leaf => continue,
+            };
+            if (old == want.split.ratio) continue;
+            const handle: u16 = @intCast(i);
+            tree.resizeInPlace(@fromBackingInt(handle), want.split.ratio);
+        }
+
+        // A pending rebuild builds the widgets from the tree, and until
+        // then the widgets are those of an older tree.
+        if (self.private().rebuild_source != null) return;
+        const child = self.private().tree_bin.getChild() orelse return;
+        SplitTreeSplit.syncRatios(child, tree);
+    }
+
+    /// The user dragged the divider of split `handle` to `ratio`. A tmux
+    /// tab doesn't own its layout, so the drag is a request for tmux to
+    /// resize a pane, which then comes back as a new layout.
+    fn tmuxSplitDragged(self: *Self, handle: Surface.Tree.Node.Handle, ratio: f64) void {
+        const priv = self.private();
+        if (priv.tmux == null) return;
+
+        // Another divider is reported right away rather than dropped.
+        if (priv.tmux_drag) |v| if (v.handle != handle) self.reportTmuxDrag();
+
+        priv.tmux_drag = .{ .handle = handle, .ratio = ratio };
+        if (priv.tmux_drag_source) |v| _ = glib.Source.remove(v);
+        priv.tmux_drag_source = glib.timeoutAdd(tmux_drag_delay_ms, onTmuxDrag, self);
+    }
+
+    fn onTmuxDrag(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
+        self.private().tmux_drag_source = null;
+        self.reportTmuxDrag();
+        return 0;
+    }
+
+    fn reportTmuxDrag(self: *Self) void {
+        const priv = self.private();
+        const drag = priv.tmux_drag orelse return;
+        self.cancelTmuxDrag();
+
+        const tmux = priv.tmux orelse return;
+        _ = self.tmuxNativeEvent(.{ .split_ratio = .{
+            .tab = .{ .session = tmux.session, .window = tmux.window },
+            .serial = tmux.serial,
+            .handle = @backingInt(drag.handle),
+            .ratio = drag.ratio,
+        } });
+    }
+
+    fn cancelTmuxDrag(self: *Self) void {
+        const priv = self.private();
+        priv.tmux_drag = null;
+        if (priv.tmux_drag_source) |v| {
+            _ = glib.Source.remove(v);
+            priv.tmux_drag_source = null;
+        }
+    }
+
+    /// Perform a binding action through tmux if this tree mirrors a tmux
+    /// window. Returns false if it doesn't, or if tmux leaves the action
+    /// to us, so that the caller performs it natively.
+    ///
+    /// A tmux tree whose surface hasn't initialized (or failed to claim
+    /// its pane) has nothing to ask tmux with, and performing the action
+    /// natively would put a local shell into the tmux window that the
+    /// next layout drops again, so the action is dropped.
+    fn tmuxBindingAction(self: *Self, action: input.Binding.Action) bool {
+        if (self.private().tmux == null) return false;
+        const surface = self.getActiveSurface() orelse return true;
+        const core = surface.core() orelse return true;
+        return core.tmuxBindingAction(action) catch |err| {
+            log.warn("tmux binding action failed err={}", .{err});
+            return true;
+        };
+    }
+
+    /// A surface in this tree that was created for `pane` and hasn't
+    /// claimed it yet. The tree it was created for may be replaced before
+    /// that happens, and the replacement must reuse it rather than create
+    /// a second surface for the same pane.
+    pub fn findTmuxSurface(self: *Self, pane: apprt.action.TmuxWindow.Pane) ?*Surface {
+        const tree = self.getTree() orelse return null;
+        var it = tree.iterator();
+        while (it.next()) |entry| {
+            if (entry.view.core() != null) continue;
+            const v = entry.view.getTmuxPane() orelse continue;
+            if (std.meta.eql(v, pane)) return entry.view;
+        }
+        return null;
+    }
+
+    /// A core surface in this tree, to reach the tmux session through.
+    pub fn getTmuxCore(self: *Self) ?*CoreSurface {
+        const tree = self.getTree() orelse return null;
+        var it = tree.iterator();
+        while (it.next()) |entry| {
+            if (entry.view.core()) |v| return v;
+        }
+        return null;
+    }
+
+    /// Tell the tmux session about something done to the tab of this
+    /// tree. Returns false if no session mirrors it, so that the caller
+    /// handles it natively.
+    pub fn tmuxNativeEvent(self: *Self, event: TmuxSession.Session.NativeEvent) bool {
+        if (self.private().tmux == null) return false;
+
+        // A tab whose surfaces haven't initialized yet has no core surface
+        // to go through, but the gateway has the same font and padding.
+        const core: *CoreSurface = self.getTmuxCore() orelse gateway: {
+            const session = if (Application.default().core().tmux) |*v| v else return false;
+            break :gateway session.leader;
+        };
+        return core.tmuxNativeEvent(event);
+    }
+
     /// Get the tree data model that we're showing in this widget. This
     /// does not clone the tree.
     pub fn getTree(self: *Self) ?*Surface.Tree {
@@ -670,6 +887,13 @@ pub const SplitTree = extern struct {
     fn dispose(self: *Self) callconv(.c) void {
         const priv = self.private();
         priv.last_focused.deinit();
+        if (priv.tmux_size_source) |v| {
+            if (glib.Source.remove(v) == 0) {
+                log.warn("unable to remove tmux size source", .{});
+            }
+            priv.tmux_size_source = null;
+        }
+        self.cancelTmuxDrag();
         if (priv.rebuild_source) |v| {
             if (glib.Source.remove(v) == 0) {
                 log.warn("unable to remove rebuild source", .{});
@@ -707,6 +931,54 @@ pub const SplitTree = extern struct {
         );
     }
 
+    /// A tmux tab owns the size of its tmux window: tmux lays the panes
+    /// out in the cells that fit the tab. Only the tab that is shown gets
+    /// drawn, so it speaks for every tab of its native window.
+    ///
+    /// This is checked on every snapshot rather than on allocation because
+    /// a widget with a layout manager, like ours, never has its
+    /// size_allocate called; a size change always redraws it though.
+    fn snapshot(self: *Self, snap: *gtk.Snapshot) callconv(.c) void {
+        gtk.Widget.virtual_methods.snapshot.call(
+            Class.parent,
+            self.as(Parent),
+            snap,
+        );
+
+        // Reported once allocation settles; allocations come in bursts
+        // while a window is resized.
+        const priv = self.private();
+        if (priv.tmux == null) return;
+        const widget = self.as(gtk.Widget);
+        if (priv.tmux_size[0] == widget.getWidth() and
+            priv.tmux_size[1] == widget.getHeight()) return;
+        if (priv.tmux_size_source == null) priv.tmux_size_source = glib.idleAdd(
+            onTmuxSize,
+            self,
+        );
+    }
+
+    fn onTmuxSize(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
+        const priv = self.private();
+        priv.tmux_size_source = null;
+
+        const tmux = priv.tmux orelse return 0;
+        const widget = self.as(gtk.Widget);
+        const width = widget.getWidth();
+        const height = widget.getHeight();
+        if (width <= 0 or height <= 0) return 0;
+
+        priv.tmux_size = .{ width, height };
+        const scale = scale_util.widgetSurfaceScale(widget);
+        _ = self.tmuxNativeEvent(.{ .view_size = .{
+            .tab = .{ .session = tmux.session, .window = tmux.window },
+            .width = @intFromFloat(@round(@as(f64, @floatFromInt(width)) * scale)),
+            .height = @intFromFloat(@round(@as(f64, @floatFromInt(height)) * scale)),
+        } });
+        return 0;
+    }
+
     //---------------------------------------------------------------
     // Signal handlers
 
@@ -732,6 +1004,14 @@ pub const SplitTree = extern struct {
             return;
         };
 
+        // The splits of a tmux window are made by tmux.
+        if (self.tmuxBindingAction(.{ .new_split = switch (direction) {
+            .left => .left,
+            .right => .right,
+            .up => .up,
+            .down => .down,
+        } })) return;
+
         self.newSplit(
             direction,
             self.getActiveSurface(),
@@ -748,6 +1028,8 @@ pub const SplitTree = extern struct {
     ) callconv(.c) void {
         _ = parameter_;
 
+        if (self.tmuxBindingAction(.equalize_splits)) return;
+
         const old_tree = self.getTree() orelse return;
         var new_tree = old_tree.equalize(Application.default().allocator()) catch |err| {
             log.warn("unable to equalize tree: {}", .{err});
@@ -762,6 +1044,8 @@ pub const SplitTree = extern struct {
         _: ?*glib.Variant,
         self: *Self,
     ) callconv(.c) void {
+        if (self.tmuxBindingAction(.toggle_split_zoom)) return;
+
         const tree = self.getTree() orelse return;
         if (tree.zoomed != null) {
             tree.zoomed = null;
@@ -779,6 +1063,8 @@ pub const SplitTree = extern struct {
         _: ?*glib.Variant,
         self: *Self,
     ) callconv(.c) void {
+        if (self.tmuxBindingAction(.close_surface)) return;
+
         const surface = self.getActiveSurface() orelse return;
         surface.close();
     }
@@ -971,9 +1257,15 @@ pub const SplitTree = extern struct {
 
         // Replacing our tree widget hierarchy can reset focus state.
         // If we have a last-focused surface, restore focus to it.
+        //
+        // tmux rebuilds trees of tabs that aren't shown, and those must
+        // not take focus from the tab that is. They restore focus when
+        // they are mapped (propSurfaceMapped).
         if (priv.last_focused.get()) |v| {
             defer v.unref();
-            v.grabFocus();
+            if (priv.tmux == null or self.as(gtk.Widget).getMapped() != 0) {
+                v.grabFocus();
+            }
         }
 
         // Our split status may have changed
@@ -1167,6 +1459,7 @@ pub const SplitTree = extern struct {
             // Virtual methods
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
             gobject.Object.virtual_methods.finalize.implement(class, &finalize);
+            gtk.Widget.virtual_methods.snapshot.implement(class, &snapshot);
         }
 
         pub const as = C.Class.as;
@@ -1219,6 +1512,11 @@ const SplitTreeSplit = extern struct {
         limits_changed: bool = false,
         pos_changed: bool = false,
 
+        /// Set when we moved the divider to a ratio from the tree rather
+        /// than the user, so that onIdle doesn't take it for a drag. See
+        /// syncRatios.
+        programmatic: bool = false,
+
         // Template bindings
         paned: *gtk.Paned,
 
@@ -1259,6 +1557,24 @@ const SplitTreeSplit = extern struct {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
     }
 
+    /// Move the dividers of `widget` and the splits inside it to the
+    /// ratios of `tree`, the tree they were built from, whose ratios
+    /// changed in place.
+    fn syncRatios(widget: *gtk.Widget, tree: *const Surface.Tree) void {
+        const self = gobject.ext.cast(Self, widget) orelse return;
+        const priv = self.private();
+        const ratio: f64 = tree.nodes[priv.handle.idx()].split.ratio;
+        if (ratio != priv.ratio) {
+            priv.ratio = ratio;
+            const before = priv.paned.getPosition();
+            self.syncSplitRatio(.tree_to_widget);
+            if (priv.paned.getPosition() != before) priv.programmatic = true;
+        }
+
+        if (priv.paned.getStartChild()) |v| syncRatios(v, tree);
+        if (priv.paned.getEndChild()) |v| syncRatios(v, tree);
+    }
+
     const SyncDirection = enum {
         // Update gtk.Paned widget to match ratio from split tree node.
         tree_to_widget,
@@ -1295,6 +1611,11 @@ const SplitTreeSplit = extern struct {
             );
             break :max gobject.ext.Value.get(&val, c_int);
         };
+
+        // A paned that was never allocated has no limits yet (the maximum
+        // is G_MAXINT), so there is no position to sync. It is placed from
+        // the ratio once it is allocated: see propPositionLimits.
+        if (max == std.math.maxInt(c_int)) return;
 
         // The size of the split as pixels, which ratios are relative to.
         // Since gtk.Paned doesn't shrink the end child below its minimum
@@ -1415,6 +1736,7 @@ const SplitTreeSplit = extern struct {
             priv.idle = null;
             priv.limits_changed = false;
             priv.pos_changed = false;
+            priv.programmatic = false;
         }
 
         if (priv.limits_changed) {
@@ -1426,9 +1748,20 @@ const SplitTreeSplit = extern struct {
             return 0;
         }
 
+        // The tree's ratio was applied to the widget, not the other way.
+        if (priv.programmatic) return 0;
+
         // If only position changed, this is a manual human update and
         // we need to write our update back to the tree.
+        const ratio = priv.ratio;
         self.syncSplitRatio(.widget_to_tree);
+
+        // A tab that mirrors a tmux window asks tmux to move the divider.
+        if (priv.ratio != ratio) {
+            if (ext.getAncestor(SplitTree, self.as(gtk.Widget))) |tree| {
+                tree.tmuxSplitDragged(priv.handle, priv.ratio);
+            }
+        }
         return 0;
     }
 

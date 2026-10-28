@@ -755,6 +755,7 @@ pub const Surface = extern struct {
             command: ?configpkg.Command = null,
             shell_integration: ?configpkg.Config.ShellIntegration = null,
             working_directory: ?[:0]const u8 = null,
+            tmux_pane: ?apprt.action.TmuxWindow.Pane = null,
 
             pub const none: @This() = .{};
         } = .none,
@@ -772,8 +773,15 @@ pub const Surface = extern struct {
             .command = if (overrides.command) |c| c.clone(alloc) catch null else null,
             .shell_integration = overrides.shell_integration,
             .working_directory = if (overrides.working_directory) |wd| alloc.dupeSentinel(u8, wd, 0) catch null else null,
+            .tmux_pane = overrides.tmux_pane,
         };
         return self;
+    }
+
+    /// The tmux pane this surface was created for, if any. See
+    /// `Overrides.tmux_pane`.
+    pub fn getTmuxPane(self: *Self) ?apprt.action.TmuxWindow.Pane {
+        return self.private().overrides.tmux_pane;
     }
 
     pub fn core(self: *Self) ?*CoreSurface {
@@ -1494,6 +1502,14 @@ pub const Surface = extern struct {
         );
 
         dialog.present(self.as(gtk.Widget));
+    }
+
+    /// Device pixels per logical pixel of the surface, which is what widget
+    /// sizes and native split resize amounts count in. Unlike
+    /// `getContentScale`, this leaves out the font DPI scaling.
+    pub fn getPixelScale(self: *Self) f32 {
+        const widget = self.private().render_surface.as(gtk.Widget);
+        return @floatCast(scale_util.widgetSurfaceScale(widget));
     }
 
     /// Scale x/y by the GDK device scale.
@@ -3705,6 +3721,15 @@ pub const Surface = extern struct {
         self: *Self,
     ) callconv(.c) void {
         const title = std.mem.span(title_ptr);
+
+        // A tmux pane has a title of its own. tmux doesn't report it when
+        // it changes, so the surface's title is set here as well.
+        if (self.getTmuxPane() != null) if (self.core()) |core_surface| {
+            _ = core_surface.tmuxBindingAction(.{ .set_surface_title = title }) catch |err| {
+                log.warn("failed to set tmux pane title err={}", .{err});
+            };
+        };
+
         self.setTitleOverride(if (title.len == 0) null else title);
     }
 
@@ -3836,6 +3861,21 @@ pub const Surface = extern struct {
         };
 
         const dir = self.calcDropDirection(x, y);
+
+        // tmux panes are moved by tmux, and only next to each other: a tab
+        // shows either a tmux window or native surfaces.
+        if (self.getTmuxPane() != null or from.getTmuxPane() != null) {
+            const core_surface = self.core() orelse return 0;
+            return @intFromBool(core_surface.tmuxNativeEvent(.{ .move_pane = .{
+                .source = dropped,
+                .direction = switch (dir) {
+                    .left => .left,
+                    .right => .right,
+                    .up => .up,
+                    .down => .down,
+                },
+            } }));
+        }
 
         // The only error that could happen here is an OOM,
         // and in that case we're already milliseconds away from crashing, so...
