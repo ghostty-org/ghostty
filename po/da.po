@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-14 14:34-0500\n"
+"POT-Creation-Date: 2026-10-27 20:45-0700\n"
 "PO-Revision-Date: 2026-10-08 13:20+0200\n"
 "Last-Translator: Karl G. Nielsen <karl@bacano.dk>\n"
 "Language-Team: Danish <dansk@dansk-gruppen.dk>\n"
@@ -62,110 +62,110 @@ msgstr ""
 msgid "Read-only"
 msgstr "Skrivebeskyttet"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:311 src/apprt/gtk/ui/1.4/window.blp:205
+#: src/apprt/gtk/ui/1.0/surface.blp:334 src/apprt/gtk/ui/1.4/window.blp:205
 msgid "Copy"
 msgstr "Kopiér"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:316 src/apprt/gtk/ui/1.4/window.blp:210
+#: src/apprt/gtk/ui/1.0/surface.blp:339 src/apprt/gtk/ui/1.4/window.blp:210
 msgid "Paste"
 msgstr "Sæt ind"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:321
+#: src/apprt/gtk/ui/1.0/surface.blp:344
 msgid "Notify on Next Command Finish"
 msgstr "Giv mig besked når den næste kommando er færdig"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:328 src/apprt/gtk/ui/1.4/window.blp:283
+#: src/apprt/gtk/ui/1.0/surface.blp:351 src/apprt/gtk/ui/1.4/window.blp:283
 msgid "Clear"
 msgstr "Ryd"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:333 src/apprt/gtk/ui/1.4/window.blp:288
+#: src/apprt/gtk/ui/1.0/surface.blp:356 src/apprt/gtk/ui/1.4/window.blp:288
 msgid "Reset"
 msgstr "Nulstil"
 
 # I de andre oversættelser af 'split' bruges 'del' i stedet for 'opdel', men tror det er for tvetydigt at have 'del' stående alene.
-#: src/apprt/gtk/ui/1.0/surface.blp:340 src/apprt/gtk/ui/1.4/window.blp:252
+#: src/apprt/gtk/ui/1.0/surface.blp:363 src/apprt/gtk/ui/1.4/window.blp:252
 msgid "Split"
 msgstr "Opdel"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:343 src/apprt/gtk/ui/1.4/window.blp:255
+#: src/apprt/gtk/ui/1.0/surface.blp:366 src/apprt/gtk/ui/1.4/window.blp:255
 msgid "Change Title…"
 msgstr "Skift titel…"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:348 src/apprt/gtk/ui/1.4/window.blp:182
+#: src/apprt/gtk/ui/1.0/surface.blp:371 src/apprt/gtk/ui/1.4/window.blp:182
 #: src/apprt/gtk/ui/1.4/window.blp:260 src/input/command.zig:487
 msgid "Split Up"
 msgstr "Del opad"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:354 src/apprt/gtk/ui/1.4/window.blp:187
+#: src/apprt/gtk/ui/1.0/surface.blp:377 src/apprt/gtk/ui/1.4/window.blp:187
 #: src/apprt/gtk/ui/1.4/window.blp:265 src/input/command.zig:492
 msgid "Split Down"
 msgstr "Del nedad"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:360 src/apprt/gtk/ui/1.4/window.blp:192
+#: src/apprt/gtk/ui/1.0/surface.blp:383 src/apprt/gtk/ui/1.4/window.blp:192
 #: src/apprt/gtk/ui/1.4/window.blp:270 src/input/command.zig:477
 msgid "Split Left"
 msgstr "Del mod venstre"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:366 src/apprt/gtk/ui/1.4/window.blp:197
+#: src/apprt/gtk/ui/1.0/surface.blp:389 src/apprt/gtk/ui/1.4/window.blp:197
 #: src/apprt/gtk/ui/1.4/window.blp:275 src/input/command.zig:482
 msgid "Split Right"
 msgstr "Del mod højre"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:372
+#: src/apprt/gtk/ui/1.0/surface.blp:395
 msgid "Close Split"
 msgstr "Luk deling"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:378
+#: src/apprt/gtk/ui/1.0/surface.blp:401
 msgid "Tab"
 msgstr "Fane"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:381 src/apprt/gtk/ui/1.4/window.blp:234
+#: src/apprt/gtk/ui/1.0/surface.blp:404 src/apprt/gtk/ui/1.4/window.blp:234
 #: src/apprt/gtk/ui/1.4/window.blp:341 src/input/command.zig:464
 msgid "Change Tab Title…"
 msgstr "Skift fanetitel…"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:386 src/apprt/gtk/ui/1.4/window.blp:61
+#: src/apprt/gtk/ui/1.0/surface.blp:409 src/apprt/gtk/ui/1.4/window.blp:61
 #: src/apprt/gtk/ui/1.4/window.blp:112 src/apprt/gtk/ui/1.4/window.blp:239
 #: src/input/command.zig:427
 msgid "New Tab"
 msgstr "Ny fane"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:391 src/apprt/gtk/ui/1.4/window.blp:244
+#: src/apprt/gtk/ui/1.0/surface.blp:414 src/apprt/gtk/ui/1.4/window.blp:244
 #: src/input/command.zig:613
 msgid "Close Tab"
 msgstr "Luk fane"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:398
+#: src/apprt/gtk/ui/1.0/surface.blp:421
 msgid "Window"
 msgstr "Vindue"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:401 src/apprt/gtk/ui/1.4/window.blp:217
+#: src/apprt/gtk/ui/1.0/surface.blp:424 src/apprt/gtk/ui/1.4/window.blp:217
 msgid "Change Window Title…"
 msgstr "Skift titel på vindue…"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:406 src/apprt/gtk/ui/1.4/window.blp:222
+#: src/apprt/gtk/ui/1.0/surface.blp:429 src/apprt/gtk/ui/1.4/window.blp:222
 #: src/input/command.zig:421
 msgid "New Window"
 msgstr "Nyt vindue"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:411 src/apprt/gtk/ui/1.4/window.blp:227
+#: src/apprt/gtk/ui/1.0/surface.blp:434 src/apprt/gtk/ui/1.4/window.blp:227
 #: src/input/command.zig:630
 msgid "Close Window"
 msgstr "Luk vindue"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:419 src/apprt/gtk/ui/1.4/window.blp:305
+#: src/apprt/gtk/ui/1.0/surface.blp:442 src/apprt/gtk/ui/1.4/window.blp:305
 msgid "Config"
 msgstr "Konfiguration"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:422 src/apprt/gtk/ui/1.4/window.blp:308
+#: src/apprt/gtk/ui/1.0/surface.blp:445 src/apprt/gtk/ui/1.4/window.blp:308
 msgid "Open Configuration in OS Editor"
 msgstr "Åbn konfiguration i styresystemets redigeringsprogram"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:428 src/apprt/gtk/ui/1.4/window.blp:314
+#: src/apprt/gtk/ui/1.0/surface.blp:451 src/apprt/gtk/ui/1.4/window.blp:314
 msgid "Open Configuration in New Window"
 msgstr "Åbn konfiguration i nyt vindue"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:434 src/apprt/gtk/ui/1.4/window.blp:320
+#: src/apprt/gtk/ui/1.0/surface.blp:457 src/apprt/gtk/ui/1.4/window.blp:320
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:12
 msgid "Reload Configuration"
 msgstr "Genindlæs konfiguration"
@@ -204,13 +204,13 @@ msgstr "Terminalinspektør"
 msgid "About Ghostty"
 msgstr "Om Ghostty"
 
-#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:708
 msgid "Quit"
 msgstr "Afslut"
 
 #: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:192
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:196
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:388
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:392
 msgid "Authorize Clipboard Access"
 msgstr "Autorisér adgang til udklipsholderen"
 
@@ -222,17 +222,17 @@ msgstr "Afvis"
 msgid "Allow"
 msgstr "Tillad"
 
-#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:91
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:107
 msgid "Remember choice for this split"
 msgstr "Husk mit valg for denne deling"
 
-#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:92
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:108
 msgid "Reload configuration to show this prompt again"
 msgstr "Genindlæs konfigurationen for at se denne dialog igen"
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2150
+#: src/apprt/gtk/class/application.zig:2165
 msgid "Cancel"
 msgstr "Annullér"
 
@@ -264,31 +264,31 @@ msgstr "Lad feltet stå tomt for at gendanne standardtitlen."
 msgid "OK"
 msgstr "OK"
 
-#: src/apprt/gtk/class/application.zig:1735
+#: src/apprt/gtk/class/application.zig:1749
 msgid "The keybind was revoked by the system."
 msgstr "Tastaturgenvejen blev ophævet af systemet."
 
-#: src/apprt/gtk/class/application.zig:1737
+#: src/apprt/gtk/class/application.zig:1751
 msgid "The keybind was denied by the system."
 msgstr "Tastaturgenvejen blev afvist af systemet."
 
-#: src/apprt/gtk/class/application.zig:1748
+#: src/apprt/gtk/class/application.zig:1763
 msgid "Global keybind unavailable"
 msgstr "Global tastaturgenvej utilgængelig"
 
-#: src/apprt/gtk/class/application.zig:2146
+#: src/apprt/gtk/class/application.zig:2161
 msgid "Export Terminal IO Events"
 msgstr "Eksportér terminal IO-begivenheder"
 
-#: src/apprt/gtk/class/application.zig:2149
+#: src/apprt/gtk/class/application.zig:2164
 msgid "Export"
 msgstr "Eksportér"
 
-#: src/apprt/gtk/class/application.zig:2648
+#: src/apprt/gtk/class/application.zig:2675
 msgid "Editing configuration file"
 msgstr "Redigerer konfigurationsfil"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:193
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:389
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
@@ -296,7 +296,7 @@ msgstr ""
 "Et program prøver at skrive til udklipsholderen. Indholdet af den nuværende "
 "udklipsholder er vist nedenfor."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:393
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
@@ -304,11 +304,11 @@ msgstr ""
 "Et program prøver at læse fra udklipsholderen. Indholdet af den nuværende "
 "udklipsholder er vist nedenfor."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:200
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:396
 msgid "Warning: Potentially Unsafe Paste"
 msgstr "Advarsel: Potentielt usikker indsætning"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:397
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
@@ -349,16 +349,16 @@ msgstr "Alle terminalsessioner i dette vindue vil blive afsluttet."
 msgid "The currently running process in this split will be terminated."
 msgstr "Den kørende proces i denne opdeling vil blive afsluttet."
 
-#: src/apprt/gtk/class/surface.zig:1191
+#: src/apprt/gtk/class/surface.zig:1208
 msgid "Command Finished"
 msgstr "Kommandoen er færdig"
 
-#: src/apprt/gtk/class/surface.zig:1192
+#: src/apprt/gtk/class/surface.zig:1209
 #: src/apprt/gtk/class/surface_child_exited.zig:102
 msgid "Command Succeeded"
 msgstr "Kommandoen lykkedes"
 
-#: src/apprt/gtk/class/surface.zig:1193
+#: src/apprt/gtk/class/surface.zig:1210
 #: src/apprt/gtk/class/surface_child_exited.zig:106
 msgid "Command Failed"
 msgstr "Kommandoen fejlede"
@@ -379,15 +379,15 @@ msgstr "Skift vinduestitel"
 msgid "Reloaded the configuration"
 msgstr "Konfigurationen blev genindlæst"
 
-#: src/apprt/gtk/class/window.zig:1886
+#: src/apprt/gtk/class/window.zig:1887
 msgid "Copied to clipboard"
 msgstr "Kopieret til udklipsholder"
 
-#: src/apprt/gtk/class/window.zig:1888
+#: src/apprt/gtk/class/window.zig:1889
 msgid "Cleared clipboard"
 msgstr "Udklipsholderen blev ryddet"
 
-#: src/apprt/gtk/class/window.zig:2027
+#: src/apprt/gtk/class/window.zig:2028
 msgid "Ghostty Developers"
 msgstr "Ghostty udviklerne"
 
@@ -1129,14 +1129,22 @@ msgstr "Gentag"
 msgid "Redo the last undone action."
 msgstr "Gentag den sidste fortrudte handling."
 
+#: src/input/command.zig:702
+msgid "Clear Broadcast Groups"
+msgstr ""
+
 #: src/input/command.zig:703
+msgid "Remove all terminals from broadcast input groups."
+msgstr ""
+
+#: src/input/command.zig:709
 msgid "Quit the application."
 msgstr "Afslut programmet."
 
-#: src/input/command.zig:708
+#: src/input/command.zig:714
 msgid "Ghostty"
 msgstr "Ghostty"
 
-#: src/input/command.zig:709
+#: src/input/command.zig:715
 msgid "Put a little Ghostty in your terminal."
 msgstr "Sæt en lille Ghostty i din terminal."
