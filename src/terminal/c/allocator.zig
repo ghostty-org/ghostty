@@ -7,11 +7,13 @@ const CAllocator = lib.alloc.Allocator;
 /// (or the default allocator if NULL).
 ///
 /// Returns a pointer to the allocated buffer, or NULL if the
-/// allocation failed.
+/// allocation failed or `len` is zero.
 pub fn alloc(
     alloc_: ?*const CAllocator,
     len: usize,
 ) callconv(lib.calling_conv) ?[*]u8 {
+    // Zig's empty allocation pointer is not safe to expose to foreign runtimes.
+    if (len == 0) return null;
     const allocator = lib.alloc.default(alloc_);
     const buf = allocator.alloc(u8, len) catch return null;
     return buf.ptr;
@@ -47,6 +49,7 @@ test "alloc with null allocator" {
 test "alloc zero length" {
     const ptr = alloc(&lib.alloc.test_allocator, 0);
     defer free(&lib.alloc.test_allocator, ptr, 0);
+    try testing.expectEqual(null, ptr);
 }
 
 test "free null pointer" {

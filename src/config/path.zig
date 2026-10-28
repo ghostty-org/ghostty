@@ -7,6 +7,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const cli = @import("../cli.zig");
 const internal_os = @import("../os/main.zig");
 const formatterpkg = @import("formatter.zig");
+const global = @import("../global.zig");
 
 const log = std.log.scoped(.config);
 
@@ -71,9 +72,9 @@ pub const Path = union(enum) {
         }
 
         if (optional)
-            return .{ .optional = try arena_alloc.dupeZ(u8, value) }
+            return .{ .optional = try arena_alloc.dupeSentinel(u8, value, 0) }
         else
-            return .{ .required = try arena_alloc.dupeZ(u8, value) };
+            return .{ .required = try arena_alloc.dupeSentinel(u8, value, 0) };
     }
 
     /// Parse CLI option.
@@ -94,9 +95,9 @@ pub const Path = union(enum) {
 
     /// Used by formatter.
     pub fn formatEntry(self: *const Path, formatter: formatterpkg.EntryFormatter) !void {
-        var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes + 1]u8 = undefined;
         const value = switch (self.*) {
-            .optional => |path| std.fmt.bufPrint(
+            .optional => |path| std.mem.print(
                 &buf,
                 "?{s}",
                 .{path},
@@ -121,10 +122,10 @@ pub const Path = union(enum) {
     ) Allocator.Error!Path {
         return switch (self) {
             .optional => |path| .{
-                .optional = try arena_alloc.dupeZ(u8, path),
+                .optional = try arena_alloc.dupeSentinel(u8, path, 0),
             },
             .required => |path| .{
-                .required = try arena_alloc.dupeZ(u8, path),
+                .required = try arena_alloc.dupeSentinel(u8, path, 0),
             },
         };
     }
@@ -154,22 +155,26 @@ pub const Path = union(enum) {
 
         // If it isn't absolute, we need to make it absolute relative
         // to the base.
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
 
         // Check if the path starts with a tilde and expand it to the
         // home directory on Linux/macOS. We explicitly look for "~/"
         // because we don't support alternate users such as "~alice/"
         if (std.mem.startsWith(u8, path, "~/")) expand: {
             // Windows isn't supported yet
-            if (comptime builtin.os.tag == .windows) break :expand;
+            if (comptime builtin.target.os.tag == .windows) break :expand;
+
+            var environ_map = try global.environMap();
+            defer environ_map.deinit();
 
             const expanded: []const u8 = internal_os.expandHome(
+                global.io(),
+                &environ_map,
                 path,
                 &buf,
             ) catch |err| {
                 try diags.append(arena_alloc, .{
-                    .message = try std.fmt.allocPrintSentinel(
-                        arena_alloc,
+                    .message = try arena_alloc.printSentinel(
                         "error expanding home directory for path {s}: {}",
                         .{ path, err },
                         0,
@@ -189,38 +194,41 @@ pub const Path = union(enum) {
             );
 
             switch (self.*) {
-                .optional, .required => |*p| p.* = try arena_alloc.dupeZ(u8, expanded),
+                .optional, .required => |*p| p.* = try arena_alloc.dupeSentinel(u8, expanded, 0),
             }
 
             return;
         }
 
-        var dir = try std.fs.openDirAbsolute(base, .{});
-        defer dir.close();
+        var dir = try std.Io.Dir.openDirAbsolute(global.io(), base, .{});
+        defer dir.close(global.io());
 
-        const abs = dir.realpath(path, &buf) catch |err| abs: {
-            if (err == error.FileNotFound) {
-                // The file doesn't exist. Try to resolve the relative path
-                // another way.
-                const resolved = try std.fs.path.resolve(arena_alloc, &.{ base, path });
-                defer arena_alloc.free(resolved);
-                @memcpy(buf[0..resolved.len], resolved);
-                break :abs buf[0..resolved.len];
-            }
+        const abs = abs: {
+            const abs_len = dir.realPathFile(global.io(), path, &buf) catch |err| {
+                if (err == error.FileNotFound) {
+                    // The file doesn't exist. Try to resolve the relative path
+                    // another way.
+                    const resolved = try std.fs.path.resolve(arena_alloc, &.{ base, path });
+                    defer arena_alloc.free(resolved);
+                    @memcpy(buf[0..resolved.len], resolved);
+                    break :abs buf[0..resolved.len];
+                }
 
-            try diags.append(arena_alloc, .{
-                .message = try std.fmt.allocPrintSentinel(
-                    arena_alloc,
-                    "error resolving file path {s}: {}",
-                    .{ path, err },
-                    0,
-                ),
-            });
+                try diags.append(arena_alloc, .{
+                    .message = try arena_alloc.printSentinel(
+                        "error resolving file path {s}: {}",
+                        .{ path, err },
+                        0,
+                    ),
+                });
 
-            // Blank this path so that we don't attempt to resolve it again
-            self.* = .{ .required = "" };
+                // Blank this path so that we don't attempt to resolve it again
+                self.* = .{ .required = "" };
 
-            return;
+                return;
+            };
+
+            break :abs buf[0..abs_len];
         };
 
         log.debug(
@@ -229,7 +237,7 @@ pub const Path = union(enum) {
         );
 
         switch (self.*) {
-            .optional, .required => |*p| p.* = try arena_alloc.dupeZ(u8, abs),
+            .optional, .required => |*p| p.* = try arena_alloc.dupeSentinel(u8, abs, 0),
         }
     }
 
@@ -357,7 +365,7 @@ pub const Path = union(enum) {
 /// be automatically expanded relative to the path of the config file (or the home
 /// directory).
 pub const RepeatablePath = struct {
-    value: std.ArrayListUnmanaged(Path) = .{},
+    value: std.ArrayList(Path) = .empty,
 
     pub fn parseCLI(self: *RepeatablePath, alloc: Allocator, input: ?[]const u8) ParseError!void {
         const item = try Path.parse(alloc, input) orelse {
@@ -404,10 +412,10 @@ pub const RepeatablePath = struct {
             return;
         }
 
-        var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes + 1]u8 = undefined;
         for (self.value.items) |item| {
             const value = switch (item) {
-                .optional => |path| std.fmt.bufPrint(
+                .optional => |path| std.mem.print(
                     &buf,
                     "?{s}",
                     .{path},

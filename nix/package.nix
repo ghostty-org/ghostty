@@ -10,10 +10,11 @@
   git,
   ncurses,
   pkg-config,
-  zig_0_15,
+  zig_0_17,
   pandoc,
+  systemd,
   revision ? "dirty",
-  optimize ? "Debug",
+  optimize ? "debug",
   enableX11 ? true,
   enableWayland ? true,
   wayland-protocols,
@@ -26,11 +27,11 @@
   buildInputs = import ./build-support/build-inputs.nix {
     inherit pkgs lib stdenv enableX11 enableWayland;
   };
-  strip = optimize != "Debug" && optimize != "ReleaseSafe";
+  strip = optimize != "debug" && optimize != "safe";
 in
   stdenv.mkDerivation (finalAttrs: {
     pname = "ghostty";
-    version = "1.3.2-dev+${revision}-nix";
+    version = "1.4.1-dev+${revision}-nix";
 
     # We limit source like this to try and reduce the amount of rebuilds as possible
     # thus we only provide the source that is needed for the build
@@ -63,7 +64,7 @@ in
         ncurses
         pandoc
         pkg-config
-        zig_0_15
+        zig_0_17
         gobject-introspection
         wrapGAppsHook4
         blueprint-compiler
@@ -92,6 +93,7 @@ in
       "-Dcpu=baseline"
       "-Doptimize=${optimize}"
       "-Dstrip=${lib.boolToString strip}"
+      "-Dinstalled-exe-path=${placeholder "out"}/bin/ghostty"
     ];
 
     outputs = [
@@ -127,6 +129,47 @@ in
       echo "gst_all_1.gstreamer" >> "$out/nix-support/propagated-user-env-packages"
       echo "gst_all_1.gst-plugins-base" >> "$out/nix-support/propagated-user-env-packages"
       echo "gst_all_1.gst-plugins-good" >> "$out/nix-support/propagated-user-env-packages"
+    '';
+
+    # The systemd, D-Bus and desktop files launch Ghostty by the path given
+    # in -Dinstalled-exe-path. systemd only searches its own directory for a
+    # bare name on NixOS, so check that every one of them names an
+    # executable that exists.
+    doInstallCheck = stdenv.hostPlatform.isLinux;
+
+    nativeInstallCheckInputs = [systemd];
+
+    installCheckPhase = ''
+      runHook preInstallCheck
+
+      # The verifier starts a user manager, which needs somewhere to keep
+      # its runtime state; the sandbox gives it no /run. dbus.socket and
+      # graphical-session.target aren't in the sandbox either, so only the
+      # unit itself is checked, including its ExecStart.
+      export XDG_RUNTIME_DIR="$TMPDIR/run" HOME="$TMPDIR/home"
+      mkdir -p -m 0700 "$XDG_RUNTIME_DIR" "$HOME"
+      for unit in "$out"/share/systemd/user/*.service; do
+        # Its messages are colored and end in a carriage return, which
+        # `nix build -L` shows as a blank line, so strip both.
+        status=0
+        output=$(SYSTEMD_COLORS=0 systemd-analyze --user verify --man=no --recursive-errors=no "$unit" 2>&1) || status=$?
+        [[ -z "$output" ]] || echo "''${output//$'\r'/}" >&2
+        if ((status != 0)); then
+          exit "$status"
+        fi
+      done
+
+      for file in "$out"/share/dbus-1/services/*.service "$out"/share/applications/com.mitchellh.ghostty*.desktop; do
+        while IFS='=' read -r key value; do
+          exe=''${value%% *}
+          if [[ "$exe" != /* || ! -x "$exe" ]]; then
+            echo "$file: $key does not name an executable: $exe" >&2
+            exit 1
+          fi
+        done < <(grep -E '^(TryExec|Exec)=' "$file")
+      done
+
+      runHook postInstallCheck
     '';
 
     meta = {

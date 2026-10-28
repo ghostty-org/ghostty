@@ -15,6 +15,7 @@ const Config = configpkg.Config;
 const BlockingQueue = @import("datastruct/main.zig").BlockingQueue;
 const renderer = @import("renderer.zig");
 const font = @import("font/main.zig");
+const global = @import("global.zig");
 
 const log = std.log.scoped(.app);
 
@@ -53,10 +54,13 @@ mailbox: Mailbox.Queue,
 /// same font configuration.
 font_grid_set: font.SharedGridSet,
 
+/// The app-scoped render device, shared by the renderers of all surfaces.
+device: ?*renderer.Device,
+
 // Used to rate limit desktop notifications. Some platforms (notably macOS) will
 // run out of resources if desktop notifications are sent too fast and the OS
 // will kill Ghostty.
-last_notification_time: ?std.time.Instant = null,
+last_notification_time: ?std.Io.Timestamp = null,
 last_notification_digest: u64 = 0,
 
 /// The conditional state of the configuration. See the equivalent field
@@ -77,6 +81,32 @@ pub fn create(alloc: Allocator) CreateError!*App {
     var app = try alloc.create(App);
     errdefer alloc.destroy(app);
     try app.init(alloc);
+
+    // If font discovery supports warmup, then we call it. Some font
+    // mechanisms (e.g. CoreText) have a multi-millisecond one-time cost
+    // on startup.
+    if (comptime @hasDecl(font.Discover, "warmup")) {
+        if (std.Thread.spawn(
+            .{},
+            font.Discover.warmup,
+            .{},
+        )) |thr| thr.detach() else |err| {
+            log.warn("font warmup thread spawn failed err={}", .{err});
+        }
+    }
+
+    // Same for the renderer's graphics API (e.g. Metal), which pays
+    // one-time framework initialization costs on first use.
+    if (comptime @hasDecl(renderer.Device, "warmup")) {
+        if (std.Thread.spawn(
+            .{},
+            renderer.Device.warmup,
+            .{},
+        )) |thr| thr.detach() else |err| {
+            log.warn("renderer warmup thread spawn failed err={}", .{err});
+        }
+    }
+
     return app;
 }
 
@@ -95,9 +125,10 @@ pub fn init(
 
     self.* = .{
         .alloc = alloc,
-        .surfaces = .{},
+        .surfaces = .empty,
         .mailbox = .{},
         .font_grid_set = font_grid_set,
+        .device = null,
         .config_conditional_state = .{},
     };
 }
@@ -113,6 +144,10 @@ pub fn deinit(self: *App) void {
     // should gracefully close all surfaces.
     assert(self.font_grid_set.count() == 0);
     self.font_grid_set.deinit();
+
+    // Clean up our render device. This must happen after all surfaces
+    // are gone since their renderers borrow it.
+    if (self.device) |dev| dev.deinit(self.alloc);
 }
 
 pub fn destroy(self: *App) void {
@@ -236,20 +271,26 @@ pub fn needsConfirmQuit(self: *const App) bool {
 
 /// Drain the mailbox.
 fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
-    while (self.mailbox.pop()) |message| {
+    while (self.mailbox.pop(global.io())) |message| {
         if (comptime std.log.logEnabled(.debug, .app)) {
             switch (message) {
                 // these tend to be way too verbose for normal debugging
-                .redraw_surface => {},
                 else => log.debug("mailbox message={t}", .{message}),
             }
         }
         switch (message) {
-            .open_config => try self.performAction(rt_app, .open_config),
+            .open_config => |v| try self.performAction(
+                rt_app,
+                .{
+                    .open_config = switch (v) {
+                        .os_open => .os_open,
+                        .new_window => .new_window,
+                    },
+                },
+            ),
             .new_window => |msg| try self.newWindow(rt_app, msg),
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
-            .redraw_surface => |surface| try self.redrawSurface(rt_app, surface),
 
             // If we're quitting, then we set the quit flag and stop
             // draining the mailbox immediately. This lets us defer
@@ -272,20 +313,6 @@ pub fn closeSurface(self: *App, surface: *Surface) void {
 pub fn focusSurface(self: *App, surface: *Surface) void {
     if (!self.hasSurface(surface)) return;
     self.focused_surface = surface;
-}
-
-fn redrawSurface(
-    self: *App,
-    rt_app: *apprt.App,
-    surface: *apprt.Surface,
-) !void {
-    if (!self.hasRtSurface(surface)) return;
-
-    _ = try rt_app.performAction(
-        .{ .surface = surface.core() },
-        .render,
-        {},
-    );
 }
 
 /// Create a new window
@@ -424,7 +451,14 @@ pub fn performAction(
         .ignore => {},
         .quit => _ = try rt_app.performAction(.app, .quit, {}),
         .new_window => _ = try self.newWindow(rt_app, .{ .parent = null }),
-        .open_config => _ = try rt_app.performAction(.app, .open_config, {}),
+        .open_config => |v| _ = try rt_app.performAction(
+            .app,
+            .open_config,
+            switch (v) {
+                .os_open => .os_open,
+                .new_window => .new_window,
+            },
+        ),
         .reload_config => _ = try rt_app.performAction(.app, .reload_config, .{}),
         .close_all_windows => _ = try rt_app.performAction(.app, .close_all_windows, {}),
         .toggle_quick_terminal => _ = try rt_app.performAction(.app, .toggle_quick_terminal, {}),
@@ -475,8 +509,8 @@ pub fn performAllAction(
         // are logged but processing continues.
         .surface => for (self.surfaces.items) |surface| {
             _ = surface.core().performBindingAction(action) catch |err| {
-                log.warn("error performing binding action on surface ptr={X} err={}", .{
-                    @intFromPtr(surface),
+                log.warn("error performing binding action on surface id={x} err={}", .{
+                    surface.core().id,
                     err,
                 });
             };
@@ -515,18 +549,10 @@ pub fn findSurfaceByID(self: *const App, id: u64) ?*Surface {
     return null;
 }
 
-fn hasRtSurface(self: *const App, surface: *apprt.Surface) bool {
-    for (self.surfaces.items) |v| {
-        if (v == surface) return true;
-    }
-
-    return false;
-}
-
 /// The message types that can be sent to the app thread.
 pub const Message = union(enum) {
     // Open the configuration file
-    open_config: void,
+    open_config: OpenConfig,
 
     /// Create a new terminal window.
     new_window: NewWindow,
@@ -544,15 +570,16 @@ pub const Message = union(enum) {
         message: apprt.surface.Message,
     },
 
-    /// Redraw a surface. This only has an effect for runtimes that
-    /// use single-threaded draws. To redraw a surface for all runtimes,
-    /// wake up the renderer thread. The renderer thread will send this
-    /// message if it needs to.
-    redraw_surface: *apprt.Surface,
-
     const NewWindow = struct {
         /// The parent surface
         parent: ?*Surface = null,
+    };
+
+    pub const OpenConfig = enum {
+        /// Open the config in the OS default editor.
+        os_open,
+        /// Open the config in a new window using $EDITOR or $VISUAL
+        new_window,
     };
 };
 
@@ -566,7 +593,7 @@ pub const Mailbox = struct {
 
     /// Send a message to the surface.
     pub fn push(self: Mailbox, msg: Message, timeout: Queue.Timeout) Queue.Size {
-        const result = self.mailbox.push(msg, timeout);
+        const result = self.mailbox.push(global.io(), msg, timeout);
 
         // Wake up our app loop
         self.rt_app.wakeup();

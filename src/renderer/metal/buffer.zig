@@ -81,12 +81,12 @@ pub fn Buffer(comptime T: type) type {
                 self.buffer.msgSend(void, objc.sel("release"), .{});
 
                 // Allocate a new buffer with enough to hold double what we require.
-                const size = req_bytes * 2;
+                self.len = data.len * 2;
                 self.buffer = self.opts.device.msgSend(
                     objc.Object,
                     objc.sel("newBufferWithLength:options:"),
                     .{
-                        @as(c_ulong, @intCast(size * @sizeOf(T))),
+                        @as(c_ulong, @intCast(self.len * @sizeOf(T))),
                         self.opts.resource_options,
                     },
                 );
@@ -138,12 +138,12 @@ pub fn Buffer(comptime T: type) type {
                 self.buffer.msgSend(void, objc.sel("release"), .{});
 
                 // Allocate a new buffer with enough to hold double what we require.
-                const size = req_bytes * 2;
+                self.len = total_len * 2;
                 self.buffer = self.opts.device.msgSend(
                     objc.Object,
                     objc.sel("newBufferWithLength:options:"),
                     .{
-                        @as(c_ulong, @intCast(size * @sizeOf(T))),
+                        @as(c_ulong, @intCast(self.len * @sizeOf(T))),
                         self.opts.resource_options,
                     },
                 );

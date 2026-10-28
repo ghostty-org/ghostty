@@ -68,11 +68,6 @@ pub const Parser = struct {
         // we're in a broken state then we'd have already deinited the buffer.
         if (self.state == .broken) return null;
 
-        if (self.buffer.written().len >= self.max_bytes) {
-            self.broken();
-            return error.OutOfMemory;
-        }
-
         switch (self.state) {
             // Drop because we're in a broken state.
             .broken => return null,
@@ -117,7 +112,7 @@ pub const Parser = struct {
                 const line = written[idx..];
 
                 if (parseBlockTerminator(line)) |terminator| {
-                    const output = std.mem.trimRight(
+                    const output = std.mem.trimEnd(
                         u8,
                         written[0..idx],
                         "\r\n",
@@ -137,6 +132,13 @@ pub const Parser = struct {
 
                 // Didn't end the block, continue accumulating.
             },
+        }
+
+        // Only enforce the limit on bytes we actually store, so a line
+        // filling the buffer exactly can still be terminated.
+        if (self.buffer.written().len >= self.max_bytes) {
+            self.broken();
+            return error.OutOfMemory;
         }
 
         self.buffer.writer.writeByte(byte) catch |err| switch (err) {
@@ -581,10 +583,10 @@ pub const Notification = union(enum) {
             try writer.writeAll(@tagName(@as(TagType, self)));
             try writer.writeAll(" = ");
 
-            inline for (info.fields) |u_field| {
-                if (self == @field(TagType, u_field.name)) {
-                    const value = @field(self, u_field.name);
-                    switch (u_field.type) {
+            inline for (info.field_names, info.field_types) |field_name, field_type| {
+                if (self == @field(TagType, field_name)) {
+                    const value = @field(self, field_name);
+                    switch (field_type) {
                         []const u8 => try writer.print("\"{s}\"", .{std.mem.trim(u8, value, " \t\r\n")}),
                         else => try writer.print("{any}", .{value}),
                     }
@@ -620,6 +622,49 @@ test "tmux begin/error empty" {
     const n = (try c.put('\n')).?;
     try testing.expect(n == .block_err);
     try testing.expectEqualStrings("", n.block_err);
+}
+
+test "tmux notification exactly max_bytes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const line = "%sessions-changed";
+    var c: Parser = .{ .buffer = .init(alloc), .max_bytes = line.len };
+    defer c.deinit();
+
+    // Twice, because the second '%' arrives while the buffer is still
+    // full from the first notification.
+    for (0..2) |_| {
+        for (line) |byte| try testing.expect(try c.put(byte) == null);
+        const n = (try c.put('\n')).?;
+        try testing.expect(n == .sessions_changed);
+    }
+}
+
+test "tmux block terminator exactly max_bytes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const block = "hello\n%end 1578922740 269 1";
+    var c: Parser = .{ .buffer = .init(alloc), .max_bytes = block.len };
+    defer c.deinit();
+    for ("%begin 1578922740 269 1\n") |byte| try testing.expect(try c.put(byte) == null);
+    for (block) |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .block_end);
+    try testing.expectEqualStrings("hello", n.block_end);
+}
+
+test "tmux exceeding max_bytes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const line = "%sessions-changed";
+    var c: Parser = .{ .buffer = .init(alloc), .max_bytes = line.len - 1 };
+    defer c.deinit();
+    for (line[0 .. line.len - 1]) |byte| try testing.expect(try c.put(byte) == null);
+    try testing.expectError(error.OutOfMemory, c.put(line[line.len - 1]));
+    try testing.expect(try c.put('\n') == null);
 }
 
 test "tmux begin/end data" {

@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <ghostty/vt.h>
 
@@ -28,14 +29,37 @@ static bool compression_idle_step(GhosttyTerminal terminal) {
 }
 //! [compression-idle-step]
 
+//! [memory-usage]
+// Return the bytes of memory a terminal currently holds. A server hosting
+// many terminals can compare this figure across terminals to decide which
+// one to compress or shut down first.
+static uint64_t terminal_resident_bytes(GhosttyTerminal terminal) {
+  // GHOSTTY_INIT_SIZED sets the size field, which the call requires.
+  GhosttyTerminalMemoryUsage usage =
+      GHOSTTY_INIT_SIZED(GhosttyTerminalMemoryUsage);
+  GhosttyResult result = ghostty_terminal_get(
+      terminal,
+      GHOSTTY_TERMINAL_DATA_MEMORY_USAGE,
+      &usage);
+  assert(result == GHOSTTY_SUCCESS);
+
+  // Count both screens and any images. The alternate screen reports zero
+  // until a program such as a full-screen editor first switches to it.
+  return usage.primary_resident_bytes + usage.primary_image_bytes +
+         usage.alternate_resident_bytes + usage.alternate_image_bytes;
+}
+//! [memory-usage]
+
 int main(void) {
   GhosttyTerminal terminal;
-  GhosttyTerminalOptions opts = {
-    .cols = 80,
-    .rows = 24,
-    .max_scrollback = 10 * 1024 * 1024,
-  };
-  GhosttyResult result = ghostty_terminal_new(NULL, &terminal, opts);
+  GhosttyResult result = ghostty_terminal_new(NULL, &terminal, 80, 24);
+  assert(result == GHOSTTY_SUCCESS);
+
+  size_t max_scrollback_bytes = 10 * 1024 * 1024;
+  result = ghostty_terminal_set(
+      terminal,
+      GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
+      &max_scrollback_bytes);
   assert(result == GHOSTTY_SUCCESS);
 
   //! [compression-activity]
@@ -64,8 +88,15 @@ int main(void) {
   }
   //! [compression-activity]
 
+  uint64_t before = terminal_resident_bytes(terminal);
+
   // Simulate the idle timer and its short pending-work continuations.
   while (compression_idle_step(terminal)) {}
+
+  uint64_t after = terminal_resident_bytes(terminal);
+  printf("resident memory: %llu bytes before compression, %llu after\n",
+         (unsigned long long)before,
+         (unsigned long long)after);
 
   ghostty_terminal_free(terminal);
   return 0;

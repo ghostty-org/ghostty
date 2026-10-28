@@ -49,12 +49,7 @@ static void print_selection(
 
 int main() {
   GhosttyTerminal terminal;
-  GhosttyTerminalOptions opts = {
-    .cols = 80,
-    .rows = 8,
-    .max_scrollback = 0,
-  };
-  GhosttyResult result = ghostty_terminal_new(NULL, &terminal, opts);
+  GhosttyResult result = ghostty_terminal_new(NULL, &terminal, 80, 8);
   assert(result == GHOSTTY_SUCCESS);
 
   // A realistic shell transcript with OSC 133 semantic prompt markers.

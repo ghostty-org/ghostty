@@ -9,6 +9,7 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
     private var lastSurfaceConfig: Ghostty.SurfaceView.DerivedConfig?
 
     /// KVO observation for tab group window changes.
+    private weak var observedTabGroup: NSWindowTabGroup?
     private var tabGroupWindowsObservation: NSKeyValueObservation?
     private var tabBarVisibleObservation: NSKeyValueObservation?
 
@@ -103,6 +104,16 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // In all cases, we have to hide the background view since this has multiple subviews
         // that force a background color.
         titlebarBackgroundView?.isHidden = true
+
+        if #available(macOS 27.0, *) {
+            // Add some delay to cover the cases where:
+            // 1. AppKit resets the style after exiting fullscreen
+            // 2. AppKit resets the style after adding a new tab
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50)) { [weak self] in
+                self?.reduceTabBarBackgroundGoldenGate()
+            }
+        }
+
     }
 
     @available(macOS 13.0, *)
@@ -120,6 +131,11 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         titlebarAppearsTransparent = true
     }
 
+    @available(macOS 27.0, *)
+    final func reduceTabBarBackgroundGoldenGate() {
+        titlebarContainer?.firstDescendant(withClassName: "NSSubduedGlassEffectView")?.subviews.first?.alphaValue = 0.5
+    }
+
     // MARK: View Finders
 
     private var titlebarBackgroundView: NSView? {
@@ -129,9 +145,27 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
     // MARK: Tab Group Observation
 
     private func setupKVO() {
-        // See the docs for the respective setup functions for why.
-        setupTabGroupObservation()
-        setupTabBarVisibleObservation()
+        // This can run from one of the observation callbacks below. Replacing
+        // an observation before its callback returns leaves the window retained
+        // by AppKit, so always rebind on the next main-queue turn.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            // Recheck because the tab group and observation state may have changed
+            // while this work was waiting on the main queue.
+            let currentTabGroup = self.tabGroup
+            let observationsValid = currentTabGroup == nil || (
+                self.tabGroupWindowsObservation != nil &&
+                self.tabBarVisibleObservation != nil
+            )
+
+            // Keep the existing observations when they already match.
+            guard self.observedTabGroup !== currentTabGroup || !observationsValid else { return }
+
+            self.observedTabGroup = currentTabGroup
+            self.setupTabGroupObservation()
+            self.setupTabBarVisibleObservation()
+        }
     }
 
     /// Monitors the tabGroup windows value for any changes and resyncs the appearance on change.

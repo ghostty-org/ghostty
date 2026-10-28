@@ -7,12 +7,7 @@
 int main() {
   // Create a small terminal
   GhosttyTerminal terminal;
-  GhosttyTerminalOptions opts = {
-    .cols = 10,
-    .rows = 3,
-    .max_scrollback = 0,
-  };
-  GhosttyResult result = ghostty_terminal_new(NULL, &terminal, opts);
+  GhosttyResult result = ghostty_terminal_new(NULL, &terminal, 10, 3);
   assert(result == GHOSTTY_SUCCESS);
 
   // Write some content so the grid has interesting data

@@ -82,10 +82,15 @@ so our integration focuses on Ghostty-specific features like `sudo`,
 `ssh-env`, and `ssh-terminfo`.
 
 The shell integration is automatically enabled when running Nushell in Ghostty,
-but you can also load it manually is shell integration is disabled:
+but you can also load it manually if shell integration is disabled.
+
+Note that Nushell doesn't allow sourcing not _parse-time constants_,
+so `GHOSTTY_RESOURCES_DIR` environment variable cannot be used.
+
+Here is an example of `config.nu` with default `GHOSTTY_RESOURCES_DIR` for macOS:
 
 ```nushell
-source $GHOSTTY_RESOURCES_DIR/shell-integration/nushell/vendor/autoload/ghostty.nu
+source /Applications/Ghostty.app/Contents/Resources/ghostty/shell-integration/nushell/vendor/autoload/ghostty.nu
 use ghostty *
 ```
 

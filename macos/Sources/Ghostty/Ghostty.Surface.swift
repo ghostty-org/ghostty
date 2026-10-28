@@ -10,7 +10,9 @@ extension Ghostty {
     ///
     /// Wraps a `ghostty_surface_t`
     final class Surface: Sendable {
-        private let surface: ghostty_surface_t
+        /// A surface is sendable because it is just a reference type. Using the surface in parameters
+        /// may be unsafe but the value itself is safe to send across threads.
+        nonisolated(unsafe) private let surface: ghostty_surface_t
 
         /// Read the underlying C value for this surface. This is unsafe because the value will be
         /// freed when the Surface class is deinitialized.
@@ -24,6 +26,13 @@ extension Ghostty {
         }
 
         deinit {
+            guard !Thread.isMainThread else {
+                // The surface remains registered with the app and holds unretained
+                // userdata until it is freed. When already on the main thread, free
+                // it synchronously so teardown completes before we disappear.
+                ghostty_surface_free(surface)
+                return
+            }
             // deinit is not guaranteed to happen on the main actor and our API
             // calls into libghostty must happen there so we capture the surface
             // value so we don't capture `self` and then we detach it in a task.
@@ -35,8 +44,9 @@ extension Ghostty {
             }
         }
 
-        /// Send text to the terminal as if it was typed. This doesn't send the key events so keyboard
-        /// shortcuts and other encodings do not take effect.
+        /// Send text to the terminal using paste semantics. This doesn't send key events, so keyboard
+        /// shortcuts and other encodings do not take effect. Bracketed paste framing is applied when
+        /// the terminal has enabled it.
         @MainActor
         func sendText(_ text: String) {
             let len = text.utf8CString.count
@@ -46,6 +56,31 @@ extension Ghostty {
                 // len includes the null terminator so we do len - 1
                 ghostty_surface_text(surface, ptr, UInt(len - 1))
             }
+        }
+
+        /// Paste text into the terminal as if it came from the clipboard. Unlike `sendText`, this
+        /// honors paste protection, so unsafe text (e.g. containing newlines) prompts for
+        /// confirmation first. Use this for text from external sources such as drag and drop.
+        @MainActor
+        func pasteText(_ text: String) {
+            let len = text.utf8CString.count
+            if len <= 1 { return }
+
+            text.withCString { ptr in
+                // len includes the null terminator so we do len - 1
+                ghostty_surface_paste_text(surface, ptr, UInt(len - 1))
+            }
+        }
+
+        /// Returns the modifiers that participate in text translation for key
+        /// events on this surface. This honors configuration such as
+        /// `macos-option-as-alt`, which may exclude option from translation.
+        ///
+        /// - Parameter mods: The full set of modifiers for the key event.
+        /// - Returns: The subset of `mods` to use for keyboard layout translation.
+        @MainActor
+        func keyTranslationMods(_ mods: Input.Mods) -> Input.Mods {
+            Input.Mods(cMods: ghostty_surface_key_translation_mods(surface, mods.cMods))
         }
 
         /// Send a key event to the terminal.

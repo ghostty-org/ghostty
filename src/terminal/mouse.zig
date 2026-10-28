@@ -1,6 +1,7 @@
 const std = @import("std");
 const build_options = @import("terminal_options");
 const lib = @import("lib.zig");
+const compat_testing = @import("../lib/compat/testing.zig");
 
 /// The event types that can be reported for mouse-related activities.
 /// These are all mutually exclusive (hence in a single enum).
@@ -164,5 +165,5 @@ test "cursor shape from string" {
 }
 
 test {
-    _ = std.testing.refAllDeclsRecursive(@This());
+    _ = compat_testing.refAllDeclsRecursive(@This());
 }

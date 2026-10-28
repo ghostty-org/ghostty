@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const compat_thread = @import("../lib/compat/thread.zig");
 
 /// Returns a blocking queue implementation for type T.
 ///
@@ -62,12 +63,12 @@ pub fn BlockingQueue(
         len: Size = 0,
 
         /// The big mutex that must be held to read/write.
-        mutex: std.Thread.Mutex = .{},
+        mutex: std.Io.Mutex = .init,
 
         /// A CV for being notified when the queue is no longer full. This is
         /// used for writing. Note we DON'T have a CV for waiting on the
         /// queue not being EMPTY because we use external notifiers for that.
-        cond_not_full: std.Thread.Condition = .{},
+        cond_not_full: std.Io.Condition = .init,
         not_full_waiters: usize = 0,
 
         /// Allocate the blocking queue on the heap.
@@ -80,8 +81,8 @@ pub fn BlockingQueue(
                 .len = 0,
                 .write = 0,
                 .read = 0,
-                .mutex = .{},
-                .cond_not_full = .{},
+                .mutex = .init,
+                .cond_not_full = .init,
                 .not_full_waiters = 0,
             };
 
@@ -98,9 +99,9 @@ pub fn BlockingQueue(
         /// Push a value to the queue. This returns the total size of the
         /// queue (unread items) after the push. A return value of zero
         /// means that the push failed.
-        pub fn push(self: *Self, value: T, timeout: Timeout) Size {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+        pub fn push(self: *Self, io: std.Io, value: T, timeout: Timeout) Size {
+            self.mutex.lockUncancelable(io);
+            defer self.mutex.unlock(io);
 
             // The
             if (self.full()) {
@@ -111,13 +112,23 @@ pub fn BlockingQueue(
                     .forever => {
                         self.not_full_waiters += 1;
                         defer self.not_full_waiters -= 1;
-                        self.cond_not_full.wait(&self.mutex);
+                        self.cond_not_full.waitUncancelable(io, &self.mutex);
                     },
 
                     .ns => |ns| {
                         self.not_full_waiters += 1;
                         defer self.not_full_waiters -= 1;
-                        self.cond_not_full.timedWait(&self.mutex, ns) catch return 0;
+                        compat_thread.waitTimeout(
+                            &self.cond_not_full,
+                            io,
+                            &self.mutex,
+                            .{
+                                .duration = .{
+                                    .raw = .fromNanoseconds(ns),
+                                    .clock = .awake,
+                                },
+                            },
+                        ) catch return 0;
                     },
                 }
 
@@ -136,9 +147,9 @@ pub fn BlockingQueue(
         }
 
         /// Pop a value from the queue without blocking.
-        pub fn pop(self: *Self) ?T {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+        pub fn pop(self: *Self, io: std.Io) ?T {
+            self.mutex.lockUncancelable(io);
+            defer self.mutex.unlock(io);
 
             // If we're empty we have nothing
             if (self.len == 0) return null;
@@ -151,7 +162,7 @@ pub fn BlockingQueue(
             self.len -= 1;
 
             // If we have consumers waiting on a full queue, notify.
-            if (self.not_full_waiters > 0) self.cond_not_full.signal();
+            if (self.not_full_waiters > 0) self.cond_not_full.signal(io);
 
             return self.data[n];
         }
@@ -160,8 +171,8 @@ pub fn BlockingQueue(
         /// until `deinit` is called on the return value. This is used if
         /// you know you're going to "pop" and utilize all the values
         /// quickly to avoid many locks, bounds checks, and cv signals.
-        pub fn drain(self: *Self) DrainIterator {
-            self.mutex.lock();
+        pub fn drain(self: *Self, io: std.Io) DrainIterator {
+            self.mutex.lockUncancelable(io);
             return .{ .queue = self };
         }
 
@@ -180,12 +191,12 @@ pub fn BlockingQueue(
                 return self.queue.data[n];
             }
 
-            pub fn deinit(self: *DrainIterator) void {
+            pub fn deinit(self: *DrainIterator, io: std.Io) void {
                 // If we have consumers waiting on a full queue, notify.
-                if (self.queue.not_full_waiters > 0) self.queue.cond_not_full.signal();
+                if (self.queue.not_full_waiters > 0) self.queue.cond_not_full.signal(io);
 
                 // Unlock
-                self.queue.mutex.unlock();
+                self.queue.mutex.unlock(io);
             }
         };
 
@@ -200,49 +211,51 @@ pub fn BlockingQueue(
 test "basic push and pop" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     const Q = BlockingQueue(u64, 4);
     const q = try Q.create(alloc);
     defer q.destroy(alloc);
 
     // Should have no values
-    try testing.expect(q.pop() == null);
+    try testing.expect(q.pop(io) == null);
 
     // Push until we're full
-    try testing.expectEqual(@as(Q.Size, 1), q.push(1, .{ .instant = {} }));
-    try testing.expectEqual(@as(Q.Size, 2), q.push(2, .{ .instant = {} }));
-    try testing.expectEqual(@as(Q.Size, 3), q.push(3, .{ .instant = {} }));
-    try testing.expectEqual(@as(Q.Size, 4), q.push(4, .{ .instant = {} }));
-    try testing.expectEqual(@as(Q.Size, 0), q.push(5, .{ .instant = {} }));
+    try testing.expectEqual(@as(Q.Size, 1), q.push(io, 1, .{ .instant = {} }));
+    try testing.expectEqual(@as(Q.Size, 2), q.push(io, 2, .{ .instant = {} }));
+    try testing.expectEqual(@as(Q.Size, 3), q.push(io, 3, .{ .instant = {} }));
+    try testing.expectEqual(@as(Q.Size, 4), q.push(io, 4, .{ .instant = {} }));
+    try testing.expectEqual(@as(Q.Size, 0), q.push(io, 5, .{ .instant = {} }));
 
     // Pop!
-    try testing.expect(q.pop().? == 1);
-    try testing.expect(q.pop().? == 2);
-    try testing.expect(q.pop().? == 3);
-    try testing.expect(q.pop().? == 4);
-    try testing.expect(q.pop() == null);
+    try testing.expect(q.pop(io).? == 1);
+    try testing.expect(q.pop(io).? == 2);
+    try testing.expect(q.pop(io).? == 3);
+    try testing.expect(q.pop(io).? == 4);
+    try testing.expect(q.pop(io) == null);
 
     // Drain does nothing
-    var it = q.drain();
+    var it = q.drain(io);
     try testing.expect(it.next() == null);
-    it.deinit();
+    it.deinit(io);
 
     // Verify we can still push
-    try testing.expectEqual(@as(Q.Size, 1), q.push(1, .{ .instant = {} }));
+    try testing.expectEqual(@as(Q.Size, 1), q.push(io, 1, .{ .instant = {} }));
 }
 
 test "timed push" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     const Q = BlockingQueue(u64, 1);
     const q = try Q.create(alloc);
     defer q.destroy(alloc);
 
     // Push
-    try testing.expectEqual(@as(Q.Size, 1), q.push(1, .{ .instant = {} }));
-    try testing.expectEqual(@as(Q.Size, 0), q.push(2, .{ .instant = {} }));
+    try testing.expectEqual(@as(Q.Size, 1), q.push(io, 1, .{ .instant = {} }));
+    try testing.expectEqual(@as(Q.Size, 0), q.push(io, 2, .{ .instant = {} }));
 
     // Timed push should fail
-    try testing.expectEqual(@as(Q.Size, 0), q.push(2, .{ .ns = 1000 }));
+    try testing.expectEqual(@as(Q.Size, 0), q.push(io, 2, .{ .ns = 1000 }));
 }

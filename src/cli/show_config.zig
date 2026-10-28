@@ -5,6 +5,7 @@ const Action = @import("ghostty.zig").Action;
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
 const Pager = @import("Pager.zig");
+const global = @import("../global.zig");
 
 pub const Options = struct {
     /// If true, do not load the user configuration, only load the defaults.
@@ -66,7 +67,7 @@ pub fn run(alloc: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(alloc, global.args());
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }
@@ -81,7 +82,7 @@ pub fn run(alloc: Allocator) !u8 {
         .docs = opts.docs,
     };
 
-    var pager: Pager = if (!opts.@"no-pager") .init(alloc) else .{};
+    var pager: Pager = if (!opts.@"no-pager") .init() else .{};
     defer pager.deinit();
     var buffer: [4096]u8 = undefined;
     const writer = pager.writer(&buffer);

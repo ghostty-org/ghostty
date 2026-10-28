@@ -59,4 +59,7 @@ pub const locales = [_][:0]const u8{
     "kk",
     "be",
     "eu",
+    "da",
+    "sr",
+    "sr@latin",
 };

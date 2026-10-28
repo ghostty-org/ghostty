@@ -1,7 +1,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const LimitedAllocator = @import("../../../datastruct/main.zig").LimitedAllocator;
 const Glyf = @import("../../../font/opentype/glyf.zig").Glyf;
+const fraction = @import("../../fraction.zig");
 
 /// Maximum decoded glyph payload size accepted by the protocol.
 /// This is documented in the spec.
@@ -271,7 +273,11 @@ pub const Request = union(enum) {
         };
 
         /// Decode this request's base64 glyf payload into an owned outline.
-        pub fn decodeGlyfPayload(self: Register, alloc: Allocator) DecodeError!Glyf.Outline {
+        pub fn decodeGlyfPayload(
+            self: Register,
+            alloc: Allocator,
+            max_allocation_bytes: usize,
+        ) DecodeError!Glyf.Outline {
             // Prep base64 decoding, initial validation.
             const Decoder = std.base64.standard.Decoder;
             const payload_bytes = self.payload();
@@ -283,11 +289,9 @@ pub const Request = union(enum) {
             // we'll have stack space. We don't use much stack space in
             // the future function calls either, so try a stack allocator
             // here and fallback to heap as necessary.
-            var data_stack = std.heap.stackFallback(
-                max_payload_size,
-                alloc,
-            );
-            const data_alloc = data_stack.get();
+            var data_stack_buf: [max_payload_size]u8 = undefined;
+            var data_stack: std.heap.BufferFirstAllocator = .init(&data_stack_buf, alloc);
+            const data_alloc = data_stack.allocator();
             const data = try data_alloc.alloc(u8, size);
             defer data_alloc.free(data);
 
@@ -299,12 +303,21 @@ pub const Request = union(enum) {
             // decode call below. Glyf.Entry.decode returns an owned Outline, so
             // it is safe to free `data` before returning that outline.
             const glyf_entry = Glyf.Entry.init(data) catch return error.MalformedPayload;
-            return glyf_entry.decode(alloc) catch |err| switch (err) {
-                error.OutOfMemory => error.OutOfMemory,
+
+            // The points slice is the dominant decoded allocation. Limiting
+            // every allocation made by the decoder prevents a compact record
+            // from expanding into an unbounded persistent outline.
+            var limited: LimitedAllocator = .init(alloc, max_allocation_bytes);
+            return glyf_entry.decode(limited.allocator()) catch |err| switch (err) {
+                error.OutOfMemory => if (limited.limit_exceeded)
+                    error.PayloadTooLarge
+                else
+                    error.OutOfMemory,
                 // Unsupported fields
                 error.CompositeNotSupported => error.CompositeUnsupported,
                 error.InstructionsNotSupported => error.HintingUnsupported,
                 // Various semantic issues
+                error.ReadFailed,
                 error.EndOfStream,
                 error.EndPointsOutOfOrder,
                 error.TooManyPoints,
@@ -562,9 +575,7 @@ pub const Pad = struct {
     /// Top/bottom fractions are relative to cell height; left/right fractions
     /// are relative to render span width.
     fn parseFraction(value: []const u8) ?f64 {
-        const result = std.fmt.parseFloat(f64, value) catch return null;
-        if (!(result >= 0 and result <= 1)) return null;
-        return result;
+        return fraction.parse(value);
     }
 };
 
@@ -789,7 +800,10 @@ test "register decodes glyf payload" {
     var cmd = try testParse(testing.allocator, "r;cp=e0a0;AAAAAAAAAAAAAA==");
     defer cmd.deinit(testing.allocator);
 
-    var outline = try cmd.register.decodeGlyfPayload(testing.allocator);
+    var outline = try cmd.register.decodeGlyfPayload(
+        testing.allocator,
+        std.math.maxInt(usize),
+    );
     defer outline.deinit(testing.allocator);
 
     try testing.expectEqual(@as(usize, 0), outline.points.len);
@@ -802,7 +816,10 @@ test "register rejects malformed glyf payload" {
     var cmd = try testParse(testing.allocator, "r;cp=e0a0;%%%not-base64%%%");
     defer cmd.deinit(testing.allocator);
 
-    try testing.expectError(error.MalformedPayload, cmd.register.decodeGlyfPayload(testing.allocator));
+    try testing.expectError(
+        error.MalformedPayload,
+        cmd.register.decodeGlyfPayload(testing.allocator, std.math.maxInt(usize)),
+    );
 }
 
 test "register response without payload" {

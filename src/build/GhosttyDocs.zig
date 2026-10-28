@@ -50,7 +50,7 @@ pub fn init(
         generate_markdown.root_module.addOptions("build_options", generate_markdown_options);
 
         const generate_markdown_step = b.addRunArtifact(generate_markdown);
-        const markdown_output = generate_markdown_step.captureStdOut();
+        const markdown_output = generate_markdown_step.captureStdOut(.{});
 
         try steps.append(b.allocator, &b.addInstallFile(
             markdown_output,
@@ -68,7 +68,7 @@ pub fn init(
         generate_html.addFileArg(markdown_output);
 
         try steps.append(b.allocator, &b.addInstallFile(
-            generate_html.captureStdOut(),
+            generate_html.captureStdOut(.{}),
             "share/ghostty/doc/" ++ manpage.name ++ "." ++ manpage.section ++ ".html",
         ).step);
 
@@ -83,7 +83,7 @@ pub fn init(
         generate_manpage.addFileArg(markdown_output);
 
         try steps.append(b.allocator, &b.addInstallFile(
-            generate_manpage.captureStdOut(),
+            generate_manpage.captureStdOut(.{}),
             "share/man/man" ++ manpage.section ++ "/" ++ manpage.name ++ "." ++ manpage.section,
         ).step);
     }

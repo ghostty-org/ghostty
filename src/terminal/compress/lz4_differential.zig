@@ -407,8 +407,8 @@ fn runSuite(budget: Budget, seed: u64) !void {
     // Every generator across every boundary size and the small-size sweep.
     // Small inputs hit the literal-only format edges: below the minimum
     // match sizes, around nibble limits, and around extension steps.
-    inline for (@typeInfo(Generator).@"enum".fields) |field| {
-        const gen: Generator = @enumFromInt(field.value);
+    inline for (@typeInfo(Generator).@"enum".field_values) |field_value| {
+        const gen: Generator = @fromBackingInt(field_value);
 
         for (boundary_sizes) |size| {
             const input = ws.input[0..size];
@@ -485,7 +485,7 @@ test "lz4 differential light" {
 test "lz4 differential exhaustive" {
     // Slow. Enable explicitly, ideally together with a test filter:
     //   GHOSTTY_LZ4_SLOW=1 zig build test -Dtest-filter="lz4 differential"
-    if (!std.process.hasEnvVarConstant("GHOSTTY_LZ4_SLOW"))
+    if (!std.testing.environ.containsConstant("GHOSTTY_LZ4_SLOW"))
         return error.SkipZigTest;
 
     // Several independent seeds; the suite is deterministic per seed.

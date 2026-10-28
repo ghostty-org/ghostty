@@ -6,6 +6,7 @@
 //! extract this into a more full-featured library on its own.
 
 pub const ghostty = @import("ghostty.zig").ghostty;
+pub const version = @import("ghostty.zig").version;
 pub const Source = @import("Source.zig");
 
 test {

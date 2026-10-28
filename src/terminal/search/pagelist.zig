@@ -147,7 +147,8 @@ pub const PageListSearch = struct {
 
 test "simple search" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -194,7 +195,8 @@ test "simple search" {
 
 test "feed multiple pages with matches" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -238,7 +240,8 @@ test "feed multiple pages with matches" {
 
 test "feed multiple pages no matches" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -277,7 +280,8 @@ test "feed multiple pages no matches" {
 
 test "feed iteratively through multiple matches" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 80, .rows = 24 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 80, .rows = 24 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -318,7 +322,8 @@ test "feed iteratively through multiple matches" {
 
 test "feed with match spanning page boundary" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 80, .rows = 24 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 80, .rows = 24 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -372,10 +377,11 @@ test "feed with match spanning page boundary" {
 
 test "compressed history match spanning page boundary remains compressed" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{
         .cols = 80,
         .rows = 24,
-        .max_scrollback = 10 * 1024 * 1024,
+        .max_scrollback_bytes = 10 * 1024 * 1024,
     });
     defer t.deinit(alloc);
 
@@ -442,7 +448,8 @@ test "compressed history match spanning page boundary remains compressed" {
 
 test "feed with match spanning page boundary with newline" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 80, .rows = 24 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 80, .rows = 24 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -480,7 +487,11 @@ test "feed with pruned page" {
     const alloc = testing.allocator;
 
     // Zero here forces minimum max size to effectively two pages.
-    var p: PageList = try .init(alloc, 80, 24, 0);
+    var p: PageList = try .init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+        .max_size = 0,
+    });
     defer p.deinit();
 
     // Grow to capacity
@@ -523,7 +534,10 @@ test "feed with pruned page" {
 
 test "feed keeps its tracked pin within a shorter page" {
     const alloc = testing.allocator;
-    var pages: PageList = try .init(alloc, 10, 2, null);
+    var pages: PageList = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+    });
     defer pages.deinit();
 
     const first = pages.pages.first.?;
@@ -547,4 +561,61 @@ test "feed keeps its tracked pin within a shorter page" {
     try testing.expect(try search.feed());
     try testing.expectEqual(shorter, search.pin.node);
     try testing.expect(pages.pinIsValid(search.pin.*));
+}
+
+test "feed discovers pages prepended after exhaustion" {
+    const alloc = testing.allocator;
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{
+        .cols = 10,
+        .rows = 10,
+        .max_scrollback_bytes = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("Fizz");
+
+    // Exhaust the list: one match on the only page and nothing left to feed.
+    const pages = &t.screens.active.pages;
+    var search: PageListSearch = try .init(
+        alloc,
+        "Fizz",
+        pages,
+        pages.pages.last.?,
+    );
+    defer search.deinit();
+    try testing.expect(search.next() != null);
+    try testing.expect(search.next() == null);
+    try testing.expect(!try search.feed());
+
+    // Prepend an older page the way incremental snapshot history restore
+    // does. The frontier pin names the page that used to be first, and
+    // finalize keeps that node's identity, so the pin now has a `prev`.
+    const old_first = pages.pages.first.?;
+    {
+        var allocation = try pages.allocatePage(.{ .cols = 10, .rows = 2 });
+        defer allocation.deinit();
+        const page = allocation.page();
+        page.size.rows = 2;
+        for ("Fizz", 0..) |c, x| page.getRowAndCell(x, 1).cell.* = .init(c);
+        try allocation.finalize(.prepend, .{});
+    }
+    const prepended = pages.pages.first.?;
+    try testing.expect(prepended != old_first);
+    try testing.expectEqual(old_first, search.pin.node);
+
+    // Feeding resumes into the restored history and finds its match.
+    try testing.expect(try search.feed());
+    try testing.expectEqual(prepended, search.pin.node);
+    const h = search.next().?;
+    const sel = h.untracked();
+    try testing.expectEqual(prepended, sel.start.node);
+    try testing.expectEqual(prepended, sel.end.node);
+    try testing.expectEqual(@as(size.CellCountInt, 1), sel.start.y);
+    try testing.expectEqual(@as(size.CellCountInt, 0), sel.start.x);
+    try testing.expectEqual(@as(size.CellCountInt, 3), sel.end.x);
+    try testing.expect(search.next() == null);
+    try testing.expect(!try search.feed());
 }

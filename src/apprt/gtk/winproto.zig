@@ -8,6 +8,7 @@ const Config = @import("../../config.zig").Config;
 const input = @import("../../input.zig");
 const key = @import("key.zig");
 const ApprtWindow = @import("class/window.zig").Window;
+const GlobalShortcuts = @import("class/global_shortcuts.zig").GlobalShortcuts;
 
 pub const noop = @import("winproto/noop.zig");
 pub const x11 = @import("winproto/x11.zig");
@@ -32,14 +33,14 @@ pub const App = union(Protocol) {
         app_id: [:0]const u8,
         config: *const Config,
     ) !App {
-        inline for (@typeInfo(App).@"union".fields) |field| {
-            if (try field.type.init(
+        inline for (@typeInfo(App).@"union".field_names, @typeInfo(App).@"union".field_types) |field_name, field_type| {
+            if (try field_type.init(
                 alloc,
                 gdk_display,
                 app_id,
                 config,
             )) |v| {
-                return @unionInit(App, field.name, v);
+                return @unionInit(App, field_name, v);
             }
         }
 
@@ -78,6 +79,26 @@ pub const App = union(Protocol) {
             inline else => |*v| try v.initQuickTerminal(apprt_window),
         }
     }
+
+    /// Bind all global keybinds through a mechanism native to the
+    /// windowing protocol. Returns false if there is none; the caller
+    /// should then fall back to the XDG desktop portal.
+    pub fn bindGlobalShortcuts(
+        self: *App,
+        shortcuts: *GlobalShortcuts,
+        config: *const Config,
+    ) bool {
+        return switch (self.*) {
+            inline else => |*v| v.bindGlobalShortcuts(shortcuts, config),
+        };
+    }
+
+    /// Unbind all global keybinds bound via bindGlobalShortcuts.
+    pub fn clearGlobalShortcuts(self: *App) void {
+        switch (self.*) {
+            inline else => |*v| v.clearGlobalShortcuts(),
+        }
+    }
 };
 
 /// Per-Window state for the underlying windowing protocol.
@@ -98,15 +119,15 @@ pub const Window = union(Protocol) {
     ) !Window {
         return switch (app.*) {
             inline else => |*v, tag| {
-                inline for (@typeInfo(Window).@"union".fields) |field| {
+                inline for (@typeInfo(Window).@"union".field_names, @typeInfo(Window).@"union".field_types) |field_name, field_type| {
                     if (comptime std.mem.eql(
                         u8,
-                        field.name,
+                        field_name,
                         @tagName(tag),
                     )) return @unionInit(
                         Window,
-                        field.name,
-                        try field.type.init(
+                        field_name,
+                        try field_type.init(
                             alloc,
                             v,
                             apprt_window,
@@ -141,7 +162,7 @@ pub const Window = union(Protocol) {
         };
     }
 
-    pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
+    pub fn addSubprocessEnv(self: *Window, env: *std.process.Environ.Map) !void {
         switch (self.*) {
             inline else => |*v| try v.addSubprocessEnv(env),
         }

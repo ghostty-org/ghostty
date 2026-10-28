@@ -16,6 +16,7 @@ const Application = @import("application.zig").Application;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
 const TitleDialog = @import("title_dialog.zig").TitleDialog;
+const Overrides = @import("Overrides.zig");
 
 const log = std.log.scoped(.gtk_ghostty_window);
 
@@ -162,7 +163,7 @@ pub const Tab = extern struct {
         /// The title of this tab. This is usually bound to the active surface.
         title: ?[:0]const u8 = null,
 
-        /// The manually overridden title from `promptTabTitle`.
+        /// The manually overridden title.
         title_override: ?[:0]const u8 = null,
 
         /// The tooltip of this tab. This is usually bound to the active surface.
@@ -187,13 +188,7 @@ pub const Tab = extern struct {
         }
     }
 
-    pub fn new(config: ?*Config, overrides: struct {
-        command: ?configpkg.Command = null,
-        working_directory: ?[:0]const u8 = null,
-        title: ?[:0]const u8 = null,
-
-        pub const none: @This() = .{};
-    }) *Self {
+    pub fn new(config: ?*Config, overrides: Overrides) *Self {
         const tab = gobject.ext.newInstance(Tab, .{});
 
         const priv: *Private = tab.private();
@@ -212,6 +207,7 @@ pub const Tab = extern struct {
         // Create our initial surface in the split tree.
         priv.split_tree.newSplit(.right, null, .{
             .command = overrides.command,
+            .shell_integration = overrides.shell_integration,
             .working_directory = overrides.working_directory,
             .title = overrides.title,
         }) catch |err| switch (err) {
@@ -553,7 +549,7 @@ pub const Tab = extern struct {
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
                     .major = 1,
-                    .minor = 5,
+                    .minor = 0,
                     .name = "tab",
                 }),
             );

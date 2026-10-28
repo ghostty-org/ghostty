@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-03-25 16:24-0700\n"
+"POT-Creation-Date: 2026-10-14 14:34-0500\n"
 "PO-Revision-Date: 2026-02-18 14:32+0000\n"
 "Last-Translator: Aindriú Mac Giolla Eoin <aindriu80@yahoo.com>\n"
 "Language-Team: Irish <gaeilge-gnulinux@lists.sourceforge.net>\n"
@@ -21,95 +21,33 @@ msgstr ""
 msgid "Open in Ghostty"
 msgstr "Oscail i nGhostty"
 
-#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
-msgid "Authorize Clipboard Access"
-msgstr "Údarú rochtain ar an ngearrthaisce"
-
-#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:17
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:17
-msgid "Deny"
-msgstr "Diúltaigh"
-
-#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:18
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:18
-msgid "Allow"
-msgstr "Ceadaigh"
-
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
-msgid "Remember choice for this split"
-msgstr "Sábháil an rogha don scoilt seo"
-
-#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
-msgid "Reload configuration to show this prompt again"
-msgstr "Athlódáil an chumraíocht chun an teachtaireacht seo a thaispeáint arís"
-
-#: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
-#: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-msgid "Cancel"
-msgstr "Cealaigh"
-
-#: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:8
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:85
-#: src/apprt/gtk/ui/1.3/surface-child-exited.blp:17
-msgid "Close"
-msgstr "Dún"
-
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
-msgid "Configuration Errors"
-msgstr "Earráidí cumraíochta"
-
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:7
-msgid ""
-"One or more configuration errors were found. Please review the errors below, "
-"and either reload your configuration or ignore these errors."
-msgstr ""
-"Fuarthas earráid chumraíochta amháin nó níos mó. Athbhreithnigh na hearráidí "
-"thíos, agus athlódáil do chumraíocht nó déan neamhaird de na hearráidí seo."
-
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:10
-msgid "Ignore"
-msgstr "Déan neamhaird de"
-
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:11
-#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:300
-msgid "Reload Configuration"
-msgstr "Athlódáil cumraíocht"
-
-#: src/apprt/gtk/ui/1.2/debug-warning.blp:7
-#: src/apprt/gtk/ui/1.3/debug-warning.blp:6
-msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr ""
-"⚠️ Tá leagan dífhabhtaithe de Ghostty á rith agat! Laghdófar an fheidhmíocht."
-
-#: src/apprt/gtk/ui/1.5/inspector-window.blp:5
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Cigire teirminéil"
-
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:29
+#: src/apprt/gtk/ui/1.0/search-overlay.blp:29
 msgid "Find…"
 msgstr "Cuardaigh…"
 
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:64
+#: src/apprt/gtk/ui/1.0/search-overlay.blp:69
 msgid "Previous Match"
 msgstr "An toradh roimhe seo"
 
-#: src/apprt/gtk/ui/1.2/search-overlay.blp:74
+#: src/apprt/gtk/ui/1.0/search-overlay.blp:79
 msgid "Next Match"
 msgstr "An chéad toradh eile"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:6
+#: src/apprt/gtk/ui/1.0/search-overlay.blp:90
+#: src/apprt/gtk/ui/1.3/surface-child-exited.blp:17
+#: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:7
+msgid "Close"
+msgstr "Dún"
+
+#: src/apprt/gtk/ui/1.0/surface.blp:6
 msgid "Oh, no."
 msgstr "Ó, fadbh."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:7
+#: src/apprt/gtk/ui/1.0/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
 msgstr "Ní féidir comhthéacs OpenGL a fháil le haghaidh rindreála."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:97
+#: src/apprt/gtk/ui/1.0/surface.blp:96
 msgid ""
 "This terminal is in read-only mode. You can still view, select, and scroll "
 "through the content, but no input events will be sent to the running "
@@ -119,99 +57,202 @@ msgstr ""
 "roghnú agus scroláil tríd an ábhar, ach ní seolfar aon teagmhais ionchuir "
 "chuig an bhfeidhmchlár atá ag rith."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:107
+#: src/apprt/gtk/ui/1.0/surface.blp:107
 msgid "Read-only"
 msgstr "Inléite amháin"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:200
+#: src/apprt/gtk/ui/1.0/surface.blp:311 src/apprt/gtk/ui/1.4/window.blp:205
 msgid "Copy"
 msgstr "Cóipeáil"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:265 src/apprt/gtk/ui/1.5/window.blp:205
+#: src/apprt/gtk/ui/1.0/surface.blp:316 src/apprt/gtk/ui/1.4/window.blp:210
 msgid "Paste"
 msgstr "Greamaigh"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:270
+#: src/apprt/gtk/ui/1.0/surface.blp:321
 msgid "Notify on Next Command Finish"
 msgstr "Seol fógra nuair a chríochnaíonn an chéad ordú eile"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:273
+#: src/apprt/gtk/ui/1.0/surface.blp:328 src/apprt/gtk/ui/1.4/window.blp:283
 msgid "Clear"
 msgstr "Glan"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:282 src/apprt/gtk/ui/1.5/window.blp:278
+#: src/apprt/gtk/ui/1.0/surface.blp:333 src/apprt/gtk/ui/1.4/window.blp:288
 msgid "Reset"
 msgstr "Athshocraigh"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:289 src/apprt/gtk/ui/1.5/window.blp:242
+#: src/apprt/gtk/ui/1.0/surface.blp:340 src/apprt/gtk/ui/1.4/window.blp:252
 msgid "Split"
 msgstr "Scoilt"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:245
+#: src/apprt/gtk/ui/1.0/surface.blp:343 src/apprt/gtk/ui/1.4/window.blp:255
 msgid "Change Title…"
 msgstr "Athraigh teideal…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:297 src/apprt/gtk/ui/1.5/window.blp:177
-#: src/apprt/gtk/ui/1.5/window.blp:250
+#: src/apprt/gtk/ui/1.0/surface.blp:348 src/apprt/gtk/ui/1.4/window.blp:182
+#: src/apprt/gtk/ui/1.4/window.blp:260 src/input/command.zig:487
 msgid "Split Up"
 msgstr "Scoilt suas"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:303 src/apprt/gtk/ui/1.5/window.blp:182
-#: src/apprt/gtk/ui/1.5/window.blp:255
+#: src/apprt/gtk/ui/1.0/surface.blp:354 src/apprt/gtk/ui/1.4/window.blp:187
+#: src/apprt/gtk/ui/1.4/window.blp:265 src/input/command.zig:492
 msgid "Split Down"
 msgstr "Scoilt síos"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:309 src/apprt/gtk/ui/1.5/window.blp:187
-#: src/apprt/gtk/ui/1.5/window.blp:260
+#: src/apprt/gtk/ui/1.0/surface.blp:360 src/apprt/gtk/ui/1.4/window.blp:192
+#: src/apprt/gtk/ui/1.4/window.blp:270 src/input/command.zig:477
 msgid "Split Left"
 msgstr "Scoilt ar chlé"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:315 src/apprt/gtk/ui/1.5/window.blp:192
-#: src/apprt/gtk/ui/1.5/window.blp:265
+#: src/apprt/gtk/ui/1.0/surface.blp:366 src/apprt/gtk/ui/1.4/window.blp:197
+#: src/apprt/gtk/ui/1.4/window.blp:275 src/input/command.zig:482
 msgid "Split Right"
 msgstr "Scoilt ar dheis"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:321
+#: src/apprt/gtk/ui/1.0/surface.blp:372
 msgid "Close Split"
-msgstr ""
+msgstr "Dún scoilt"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:327
+#: src/apprt/gtk/ui/1.0/surface.blp:378
 msgid "Tab"
 msgstr "Táb"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:224
-#: src/apprt/gtk/ui/1.5/window.blp:320
+#: src/apprt/gtk/ui/1.0/surface.blp:381 src/apprt/gtk/ui/1.4/window.blp:234
+#: src/apprt/gtk/ui/1.4/window.blp:341 src/input/command.zig:464
 msgid "Change Tab Title…"
 msgstr "Athraigh teideal an táb…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:57
-#: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
+#: src/apprt/gtk/ui/1.0/surface.blp:386 src/apprt/gtk/ui/1.4/window.blp:61
+#: src/apprt/gtk/ui/1.4/window.blp:112 src/apprt/gtk/ui/1.4/window.blp:239
+#: src/input/command.zig:427
 msgid "New Tab"
 msgstr "Táb nua"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:340 src/apprt/gtk/ui/1.5/window.blp:234
+#: src/apprt/gtk/ui/1.0/surface.blp:391 src/apprt/gtk/ui/1.4/window.blp:244
+#: src/input/command.zig:613
 msgid "Close Tab"
 msgstr "Dún táb"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:347
+#: src/apprt/gtk/ui/1.0/surface.blp:398
 msgid "Window"
 msgstr "Fuinneog"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:350 src/apprt/gtk/ui/1.5/window.blp:212
+#: src/apprt/gtk/ui/1.0/surface.blp:401 src/apprt/gtk/ui/1.4/window.blp:217
+msgid "Change Window Title…"
+msgstr "Athraigh teideal na fuinneoige…"
+
+#: src/apprt/gtk/ui/1.0/surface.blp:406 src/apprt/gtk/ui/1.4/window.blp:222
+#: src/input/command.zig:421
 msgid "New Window"
 msgstr "Fuinneog nua"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:355 src/apprt/gtk/ui/1.5/window.blp:217
+#: src/apprt/gtk/ui/1.0/surface.blp:411 src/apprt/gtk/ui/1.4/window.blp:227
+#: src/input/command.zig:630
 msgid "Close Window"
 msgstr "Dún fuinneog"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:363
+#: src/apprt/gtk/ui/1.0/surface.blp:419 src/apprt/gtk/ui/1.4/window.blp:305
 msgid "Config"
 msgstr "Cumraíocht"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:295
-msgid "Open Configuration"
-msgstr "Oscail cumraíocht"
+#: src/apprt/gtk/ui/1.0/surface.blp:422 src/apprt/gtk/ui/1.4/window.blp:308
+msgid "Open Configuration in OS Editor"
+msgstr "Oscail an chumraíocht in eagarthóir an OS"
+
+#: src/apprt/gtk/ui/1.0/surface.blp:428 src/apprt/gtk/ui/1.4/window.blp:314
+msgid "Open Configuration in New Window"
+msgstr "Oscail an chumraíocht i bhfuinneog nua"
+
+#: src/apprt/gtk/ui/1.0/surface.blp:434 src/apprt/gtk/ui/1.4/window.blp:320
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:12
+msgid "Reload Configuration"
+msgstr "Athlódáil cumraíocht"
+
+#: src/apprt/gtk/ui/1.3/debug-warning.blp:6
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""
+"⚠️ Tá leagan dífhabhtaithe de Ghostty á rith agat! Laghdófar an fheidhmíocht."
+
+#: src/apprt/gtk/ui/1.4/inspector-window.blp:5
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: Cigire teirminéil"
+
+#: src/apprt/gtk/ui/1.4/window.blp:62 src/apprt/gtk/ui/1.4/window.blp:113
+msgid "New Split"
+msgstr "Scoilt nua"
+
+#: src/apprt/gtk/ui/1.4/window.blp:72 src/apprt/gtk/ui/1.4/window.blp:131
+msgid "View Open Tabs"
+msgstr "Féach ar na táib oscailte"
+
+#: src/apprt/gtk/ui/1.4/window.blp:82 src/apprt/gtk/ui/1.4/window.blp:145
+msgid "Main Menu"
+msgstr "Príomh-Roghchlár"
+
+#: src/apprt/gtk/ui/1.4/window.blp:295
+msgid "Command Palette"
+msgstr "Pailéad ordaithe"
+
+#: src/apprt/gtk/ui/1.4/window.blp:300
+msgid "Terminal Inspector"
+msgstr "Cigire teirminéil"
+
+#: src/apprt/gtk/ui/1.4/window.blp:328
+msgid "About Ghostty"
+msgstr "Maidir le Ghostty"
+
+#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:702
+msgid "Quit"
+msgstr "Scoir"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:192
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:196
+msgid "Authorize Clipboard Access"
+msgstr "Údarú rochtain ar an ngearrthaisce"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:16
+msgid "Deny"
+msgstr "Diúltaigh"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:17
+msgid "Allow"
+msgstr "Ceadaigh"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:91
+msgid "Remember choice for this split"
+msgstr "Sábháil an rogha don scoilt seo"
+
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:92
+msgid "Reload configuration to show this prompt again"
+msgstr "Athlódáil an chumraíocht chun an teachtaireacht seo a thaispeáint arís"
+
+#: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
+#: src/apprt/gtk/ui/1.5/title-dialog.blp:8
+#: src/apprt/gtk/class/application.zig:2150
+msgid "Cancel"
+msgstr "Cealaigh"
+
+#: src/apprt/gtk/ui/1.5/command-palette.blp:17
+msgid "Execute a command…"
+msgstr "Rith ordú…"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
+msgid "Configuration Errors"
+msgstr "Earráidí cumraíochta"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:7
+msgid ""
+"One or more configuration errors were found. Please review the errors below, "
+"and either reload your configuration or ignore these errors."
+msgstr ""
+"Fuarthas earráid chumraíochta amháin nó níos mó. Athbhreithnigh na hearráidí "
+"thíos, agus athlódáil do chumraíocht nó déan neamhaird de na hearráidí seo."
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:11
+msgid "Ignore"
+msgstr "Déan neamhaird de"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
@@ -221,39 +262,31 @@ msgstr "Fág bán chun an teideal réamhshocraithe a athbhunú."
 msgid "OK"
 msgstr "Ceart go leor"
 
-#: src/apprt/gtk/ui/1.5/window.blp:58 src/apprt/gtk/ui/1.5/window.blp:108
-msgid "New Split"
-msgstr "Scoilt nua"
+#: src/apprt/gtk/class/application.zig:1735
+msgid "The keybind was revoked by the system."
+msgstr "Chuir an córas an ceangal eochrach ar ceal."
 
-#: src/apprt/gtk/ui/1.5/window.blp:68 src/apprt/gtk/ui/1.5/window.blp:126
-msgid "View Open Tabs"
-msgstr "Féach ar na táib oscailte"
+#: src/apprt/gtk/class/application.zig:1737
+msgid "The keybind was denied by the system."
+msgstr "Dhiúltaigh an córas an ceangal eochrach."
 
-#: src/apprt/gtk/ui/1.5/window.blp:78 src/apprt/gtk/ui/1.5/window.blp:140
-msgid "Main Menu"
-msgstr "Príomh-Roghchlár"
+#: src/apprt/gtk/class/application.zig:1748
+msgid "Global keybind unavailable"
+msgstr "Níl ceangal eochrach uilíoch inúsáidte"
 
-#: src/apprt/gtk/ui/1.5/window.blp:285
-msgid "Command Palette"
-msgstr "Pailéad ordaithe"
+#: src/apprt/gtk/class/application.zig:2146
+msgid "Export Terminal IO Events"
+msgstr "Easpórtáil imeachtaí I/O teirminéil"
 
-#: src/apprt/gtk/ui/1.5/window.blp:290
-msgid "Terminal Inspector"
-msgstr "Cigire teirminéil"
+#: src/apprt/gtk/class/application.zig:2149
+msgid "Export"
+msgstr "Easpórtáil"
 
-#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1772
-msgid "About Ghostty"
-msgstr "Maidir le Ghostty"
+#: src/apprt/gtk/class/application.zig:2648
+msgid "Editing configuration file"
+msgstr "Comhad cumraíochta á chur in eagar"
 
-#: src/apprt/gtk/ui/1.5/window.blp:312
-msgid "Quit"
-msgstr "Scoir"
-
-#: src/apprt/gtk/ui/1.5/command-palette.blp:17
-msgid "Execute a command…"
-msgstr "Rith ordú…"
-
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:193
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
@@ -261,7 +294,7 @@ msgstr ""
 "Tá feidhmchlár ag iarraidh scríobh chuig an ngearrthaisce. Taispeántar ábhar "
 "reatha an ghearrthaisce thíos."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:202
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
@@ -269,11 +302,11 @@ msgstr ""
 "Tá feidhmchlár ag iarraidh léamh ón ngearrthaisce. Taispeántar ábhar reatha "
 "an ghearrthaisce thíos."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:200
 msgid "Warning: Potentially Unsafe Paste"
 msgstr "Rabhadh: Greamaigh a d'fhéadfadh a bheith neamhshábháilte"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:206
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
@@ -281,79 +314,847 @@ msgstr ""
 "D’fhéadfadh sé a bheith contúirteach an téacs seo a ghreamú isteach sa "
 "teirminéal, toisc go d'fhéadfadh roinnt orduithe a fhorghníomhú."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:184
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:183
 msgid "Quit Ghostty?"
 msgstr "Scoir Ghostty?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:184
 msgid "Close Tab?"
 msgstr "Dún táb?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Window?"
 msgstr "Dún fuinneog?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:187
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
 msgid "Close Split?"
 msgstr "Dún an scoilt?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:193
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:192
 msgid "All terminal sessions will be terminated."
 msgstr "Cuirfear deireadh le gach seisiún teirminéil."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:194
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions in this tab will be terminated."
 msgstr "Cuirfear deireadh le gach seisiún teirminéil sa táb seo."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:195
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:194
 msgid "All terminal sessions in this window will be terminated."
 msgstr "Cuirfear deireadh le gach seisiún teirminéil san fhuinneog seo."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:196
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:195
 msgid "The currently running process in this split will be terminated."
 msgstr ""
 "Cuirfear deireadh leis an bpróiseas atá ar siúl faoi láthair sa scoilt seo."
 
-#: src/apprt/gtk/class/surface.zig:1141
+#: src/apprt/gtk/class/surface.zig:1191
 msgid "Command Finished"
 msgstr "Ordú críochnaithe"
 
-#: src/apprt/gtk/class/surface.zig:1142
+#: src/apprt/gtk/class/surface.zig:1192
+#: src/apprt/gtk/class/surface_child_exited.zig:102
 msgid "Command Succeeded"
 msgstr "D’éirigh leis an ordú"
 
-#: src/apprt/gtk/class/surface.zig:1143
+#: src/apprt/gtk/class/surface.zig:1193
+#: src/apprt/gtk/class/surface_child_exited.zig:106
 msgid "Command Failed"
 msgstr "Theip ar an ordú"
 
-#: src/apprt/gtk/class/surface_child_exited.zig:109
-msgid "Command succeeded"
-msgstr "D'éirigh leis an ordú"
-
-#: src/apprt/gtk/class/surface_child_exited.zig:113
-msgid "Command failed"
-msgstr "Theip ar an ordú"
-
-#: src/apprt/gtk/class/title_dialog.zig:225
+#: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Terminal Title"
 msgstr "Athraigh teideal teirminéil"
 
-#: src/apprt/gtk/class/title_dialog.zig:226
+#: src/apprt/gtk/class/title_dialog.zig:227
 msgid "Change Tab Title"
 msgstr "Athraigh teideal an táb"
 
-#: src/apprt/gtk/class/window.zig:1067
+#: src/apprt/gtk/class/title_dialog.zig:228
+msgid "Change Window Title"
+msgstr "Athraigh teideal na fuinneoige"
+
+#: src/apprt/gtk/class/window.zig:1184
 msgid "Reloaded the configuration"
 msgstr "Tá an chumraíocht athlódáilte"
 
-#: src/apprt/gtk/class/window.zig:1611
+#: src/apprt/gtk/class/window.zig:1886
 msgid "Copied to clipboard"
 msgstr "Cóipeáilte chuig an ghearrthaisce"
 
-#: src/apprt/gtk/class/window.zig:1613
+#: src/apprt/gtk/class/window.zig:1888
 msgid "Cleared clipboard"
 msgstr "Gearrthaisce glanta"
 
-#: src/apprt/gtk/class/window.zig:1753
+#: src/apprt/gtk/class/window.zig:2027
 msgid "Ghostty Developers"
 msgstr "Forbróirí Ghostty"
+
+#: src/input/command.zig:149
+msgid "Reset Terminal"
+msgstr "Athshocraigh an teirminéal"
+
+#: src/input/command.zig:150
+msgid "Reset the terminal to a clean state."
+msgstr "Athshocraigh an teirminéal go staid ghlan."
+
+#: src/input/command.zig:155
+msgid "Copy to Clipboard"
+msgstr "Cóipeáil chuig an ngearrthaisce"
+
+#: src/input/command.zig:156
+msgid ""
+"Copy the selected text to the clipboard in both plain and styled formats."
+msgstr ""
+"Cóipeáil an téacs roghnaithe chuig an ghearrthaisce i bhformáidí simplí agus "
+"stílithe araon."
+
+#: src/input/command.zig:159
+msgid "Copy Selection as Plain Text to Clipboard"
+msgstr "Cóipeáil an roghnúchán mar ghnáth-théacs chuig an ngearrthaisce"
+
+#: src/input/command.zig:160
+msgid "Copy the selected text as plain text to the clipboard."
+msgstr "Cóipeáil an roghnúchán mar ghnáth-théacs chuig an ngearrthaisce."
+
+#: src/input/command.zig:163
+msgid "Copy Selection as ANSI Sequences to Clipboard"
+msgstr "Cóipeáil an roghnúchán mar sheichimh ANSI chuig an ngearrthaisce"
+
+#: src/input/command.zig:164
+msgid "Copy the selected text as ANSI escape sequences to the clipboard."
+msgstr ""
+"Cóipeáil an téacs roghnaithe mar seicheamh éalúcháin ANSI chuig an "
+"ngearrthaisce."
+
+#: src/input/command.zig:167
+msgid "Copy Selection as HTML to Clipboard"
+msgstr "Cóipeáil an roghnúchán mar HTML chuig an ngearrthaisce"
+
+#: src/input/command.zig:168
+msgid "Copy the selected text as HTML to the clipboard."
+msgstr "Cóipeáil an téacs roghnaithe mar HTML chuig an ngearrthaisce."
+
+#: src/input/command.zig:173
+msgid "Copy URL to Clipboard"
+msgstr "Cóipeáil an URL chuig an ngearrthaisce"
+
+#: src/input/command.zig:174
+msgid "Copy the URL under the cursor to the clipboard."
+msgstr "Cóipeáil an URL faoin gcúrsóir chuig an ngearrthaisce."
+
+#: src/input/command.zig:179
+msgid "Copy Terminal Title to Clipboard"
+msgstr "Cóipeáil teideal an teirminéil chuig an ngearrthaisce"
+
+#: src/input/command.zig:180
+msgid ""
+"Copy the terminal title to the clipboard. If the terminal title is not set "
+"this has no effect."
+msgstr ""
+"Cóipeáil teideal an teirminéil chuig an ngearrthaisce. Mura bhfuil teideal an teirminéil socraithe, "
+"níl aon éifeacht aige seo."
+
+#: src/input/command.zig:185
+msgid "Paste from Clipboard"
+msgstr "Greamaigh ón ngearrthaisce"
+
+#: src/input/command.zig:186
+msgid "Paste the contents of the main clipboard."
+msgstr "Greamaigh ábhar na príomhghearrthaisce."
+
+#: src/input/command.zig:191
+msgid "Paste from Selection"
+msgstr "Greamaigh ón roghnúchán"
+
+#: src/input/command.zig:192
+msgid "Paste the contents of the selection clipboard."
+msgstr "Greamaigh ábhar na gearrthaisce roghnúcháin."
+
+#: src/input/command.zig:197
+msgid "Start Search"
+msgstr "Tosaigh cuardach"
+
+#: src/input/command.zig:198
+msgid "Start a search if one isn't already active."
+msgstr "Tosaigh cuardach mura bhfuil ceann ar siúl cheana féin."
+
+#: src/input/command.zig:203
+msgid "Search Selection"
+msgstr "Cuardaigh an roghnúchán"
+
+#: src/input/command.zig:204
+msgid "Start a search for the current text selection."
+msgstr "Tosaigh cuardach ar an roghnúchán téacs reatha."
+
+#: src/input/command.zig:209
+msgid "End Search"
+msgstr "Cuir deireadh leis an gcuardach"
+
+#: src/input/command.zig:210
+msgid "End the current search if any and hide any GUI elements."
+msgstr ""
+"Cuir deireadh leis an gcuardach reatha, má tá ceann ann, agus folaigh aon eilimintí "
+"GUI."
+
+#: src/input/command.zig:215
+msgid "Next Search Result"
+msgstr "An chéad toradh cuardaigh eile"
+
+#: src/input/command.zig:216
+msgid "Navigate to the next search result, if any."
+msgstr "Téigh go dtí an chéad toradh cuardaigh eile, má tá ceann ann."
+
+#: src/input/command.zig:219
+msgid "Previous Search Result"
+msgstr "An toradh cuardaigh roimhe seo"
+
+#: src/input/command.zig:220
+msgid "Navigate to the previous search result, if any."
+msgstr "Téigh go dtí an toradh cuardaigh roimhe seo, má tá ceann ann."
+
+#: src/input/command.zig:225
+msgid "Increase Font Size"
+msgstr "Méadaigh méid an chló"
+
+#: src/input/command.zig:226
+msgid "Increase the font size by 1 point."
+msgstr "Méadaigh méid an chló faoi 1 phointe."
+
+#: src/input/command.zig:231
+msgid "Decrease Font Size"
+msgstr "Laghdaigh méid an chló"
+
+#: src/input/command.zig:232
+msgid "Decrease the font size by 1 point."
+msgstr "Laghdaigh méid an chló faoi phointe amháin."
+
+#: src/input/command.zig:237
+msgid "Reset Font Size"
+msgstr "Athshocraigh méid an chló"
+
+#: src/input/command.zig:238
+msgid "Reset the font size to the default."
+msgstr "Athshocraigh méid an chló go dtí an méid réamhshocraithe."
+
+#: src/input/command.zig:243
+msgid "Clear Screen"
+msgstr "Glan an Scáileán"
+
+#: src/input/command.zig:244
+msgid "Clear the screen and scrollback."
+msgstr "Glan an scáileán agus an scrollú siar."
+
+#: src/input/command.zig:249
+msgid "Select All"
+msgstr "Roghnaigh gach rud"
+
+#: src/input/command.zig:250
+msgid "Select all text on the screen."
+msgstr "Roghnaigh an téacs go léir ar an scáileán."
+
+#: src/input/command.zig:255
+msgid "Scroll to Top"
+msgstr "Scrollaigh go dtí an barr"
+
+#: src/input/command.zig:256
+msgid "Scroll to the top of the screen."
+msgstr "Scrollaigh go barr an scáileáin."
+
+#: src/input/command.zig:261
+msgid "Scroll to Bottom"
+msgstr "Scrollaigh go dtí an bun"
+
+#: src/input/command.zig:262
+msgid "Scroll to the bottom of the screen."
+msgstr "Scrollaigh go bun an scáileáin."
+
+#: src/input/command.zig:267
+msgid "Scroll to Selection"
+msgstr "Scrollaigh go dtí an roghnúchán"
+
+#: src/input/command.zig:268
+msgid "Scroll to the selected text."
+msgstr "Scrollaigh go dtí an téacs roghnaithe."
+
+#: src/input/command.zig:273
+msgid "Scroll Page Up"
+msgstr "Scrollaigh leathanach suas"
+
+#: src/input/command.zig:274
+msgid "Scroll the screen up by a page."
+msgstr "Scrollaigh an scáileán suas leathanach amháin."
+
+#: src/input/command.zig:279
+msgid "Scroll Page Down"
+msgstr "Scrollaigh leathanach síos"
+
+#: src/input/command.zig:280
+msgid "Scroll the screen down by a page."
+msgstr "Scrollaigh an scáileán síos leathanach amháin."
+
+#: src/input/command.zig:286
+msgid "Copy Screen to Temporary File and Copy Path"
+msgstr "Cóipeáil an scáileán chuig comhad sealadach agus cóipeáil an cosán"
+
+#: src/input/command.zig:287
+msgid ""
+"Copy the screen contents to a temporary file and copy the path to the "
+"clipboard."
+msgstr ""
+"Cóipeáil ábhar an scáileáin chuig comhad sealadach agus cóipeáil an cosán "
+"chuig an ngearrthaisce."
+
+#: src/input/command.zig:291
+msgid "Copy Screen to Temporary File and Paste Path"
+msgstr "Cóipeáil an scáileán chuig comhad sealadach agus greamaigh an cosán"
+
+#: src/input/command.zig:292
+msgid ""
+"Copy the screen contents to a temporary file and paste the path to the file."
+msgstr ""
+"Cóipeáil ábhar an scáileáin chuig comhad sealadach agus greamaigh cosán "
+"an chomhaid."
+
+#: src/input/command.zig:296
+msgid "Copy Screen to Temporary File and Open"
+msgstr "Cóipeáil an scáileáin chuig comhad sealadach agus oscail"
+
+#: src/input/command.zig:297
+msgid "Copy the screen contents to a temporary file and open it."
+msgstr "Cóipeáil ábhar an scáileáin chuig comhad sealadach agus oscail é."
+
+#: src/input/command.zig:305
+msgid "Copy Screen as HTML to Temporary File and Copy Path"
+msgstr ""
+"Cóipeáil an scáileán mar HTML chuig comhad sealadach agus cóipeáil an "
+"cosán"
+
+#: src/input/command.zig:306
+msgid ""
+"Copy the screen contents as HTML to a temporary file and copy the path to "
+"the clipboard."
+msgstr ""
+"Cóipeáil ábhar an scáileáin mar HTML chuig comhad sealadach agus cóipeáil an "
+"cosán chuig an ngearrthaisce."
+
+#: src/input/command.zig:313
+msgid "Copy Screen as HTML to Temporary File and Paste Path"
+msgstr ""
+"Cóipeáil an scáileán mar HTML chuig comhad sealadach agus greamaigh an cosán"
+
+#: src/input/command.zig:314
+msgid ""
+"Copy the screen contents as HTML to a temporary file and paste the path to "
+"the file."
+msgstr ""
+"Cóipeáil ábhar an scáileáin mar HTML chuig comhad sealadach agus greamaigh "
+"cosán an chomhaid."
+
+#: src/input/command.zig:321
+msgid "Copy Screen as HTML to Temporary File and Open"
+msgstr "Cóipeáil an scáileán mar HTML chuig comhad sealadach agus oscail"
+
+#: src/input/command.zig:322
+msgid "Copy the screen contents as HTML to a temporary file and open it."
+msgstr ""
+"Cóipeáil ábhar an scáileáin mar HTML chuig comhad sealadach agus oscail é."
+
+#: src/input/command.zig:330
+msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
+msgstr ""
+"Cóipeáil an Scáileán mar Sheichimh ANSI chuig Comhad Sealadach agus Cóipeáil "
+"an cosán"
+
+#: src/input/command.zig:331
+msgid ""
+"Copy the screen contents as ANSI escape sequences to a temporary file and "
+"copy the path to the clipboard."
+msgstr ""
+"Cóipeáil ábhar an scáileáin mar seicheamh éalúcháin ANSI chuig comhad "
+"sealadach agus cóipeáil an cosán chuig an ngearrthaisce."
+
+#: src/input/command.zig:338
+msgid "Copy Screen as ANSI Sequences to Temporary File and Paste Path"
+msgstr ""
+"Cóipeáil an scáileán mar sheichimh ANSI chuig comhad sealadach agus "
+"greamaigh an cosán"
+
+#: src/input/command.zig:339
+msgid ""
+"Copy the screen contents as ANSI escape sequences to a temporary file and "
+"paste the path to the file."
+msgstr ""
+"Cóipeáil ábhar an scáileáin mar sheichimh éalaithe ANSI chuig comhad sealadach agus "
+"greamaigh cosán an chomhaid."
+
+#: src/input/command.zig:346
+msgid "Copy Screen as ANSI Sequences to Temporary File and Open"
+msgstr ""
+"Cóipeáil an scáileán mar sheichimh ANSI chuig comhad sealadach agus oscail"
+
+#: src/input/command.zig:347
+msgid ""
+"Copy the screen contents as ANSI escape sequences to a temporary file and "
+"open it."
+msgstr ""
+"Cóipeáil ábhar an scáileáin mar seicheamh éalúcháin ANSI chuig comhad "
+"sealadach agus oscail é."
+
+#: src/input/command.zig:354
+msgid "Copy Selection to Temporary File and Copy Path"
+msgstr ""
+"Cóipeáil an roghnúchán chuig comhad sealadach agus cóipeáil an cosán"
+
+#: src/input/command.zig:355
+msgid ""
+"Copy the selection contents to a temporary file and copy the path to the "
+"clipboard."
+msgstr ""
+"Cóipeáil ábhar an roghnúcháin chuig comhad sealadach agus cóipeáil an cosán "
+"chuig an ngearrthaisce."
+
+#: src/input/command.zig:359
+msgid "Copy Selection to Temporary File and Paste Path"
+msgstr "Cóipeáil an roghnúchán chuig comhad sealadach agus greamaigh an cosán"
+
+#: src/input/command.zig:360
+msgid ""
+"Copy the selection contents to a temporary file and paste the path to the "
+"file."
+msgstr ""
+"Cóipeáil ábhar an roghnúcháin chuig comhad sealadach agus greamaigh "
+"cosán an chomhaid."
+
+#: src/input/command.zig:364
+msgid "Copy Selection to Temporary File and Open"
+msgstr "Cóipeáil an roghnúchán chuig comhad sealadach agus oscail"
+
+#: src/input/command.zig:365
+msgid "Copy the selection contents to a temporary file and open it."
+msgstr "Cóipeáil ábhar an roghnúcháin chuig comhad sealadach agus oscail é."
+
+#: src/input/command.zig:373
+msgid "Copy Selection as HTML to Temporary File and Copy Path"
+msgstr ""
+"Cóipeáil an roghnúchán mar HTML chuig comhad sealadach agus cóipeáil an "
+"cosán"
+
+#: src/input/command.zig:374
+msgid ""
+"Copy the selection contents as HTML to a temporary file and copy the path to "
+"the clipboard."
+msgstr ""
+"Cóipeáil ábhar an roghnúcháin mar HTML chuig comhad sealadach agus cóipeáil "
+"an cosán chuig an ngearrthaisce."
+
+#: src/input/command.zig:381
+msgid "Copy Selection as HTML to Temporary File and Paste Path"
+msgstr ""
+"Cóipeáil an roghnúchán mar HTML chuig comhad sealadach agus greamaigh an "
+"cosán"
+
+#: src/input/command.zig:382
+msgid ""
+"Copy the selection contents as HTML to a temporary file and paste the path "
+"to the file."
+msgstr ""
+"Cóipeáil ábhar an roghnúcháin mar HTML chuig comhad sealadach agus greamaigh "
+"cosán an chomhaid."
+
+#: src/input/command.zig:389
+msgid "Copy Selection as HTML to Temporary File and Open"
+msgstr "Cóipeáil an roghnúchán mar HTML chuig comhad sealadach agus oscail"
+
+#: src/input/command.zig:390
+msgid "Copy the selection contents as HTML to a temporary file and open it."
+msgstr ""
+"Cóipeáil ábhar an roghnúcháin mar HTML chuig comhad sealadach agus oscail é."
+
+#: src/input/command.zig:398
+msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
+msgstr ""
+"Cóipeáil an roghnúchán mar sheichimh ANSI chuig comhad sealadach agus cóipeáil "
+"an cosán"
+
+#: src/input/command.zig:399
+msgid ""
+"Copy the selection contents as ANSI escape sequences to a temporary file and "
+"copy the path to the clipboard."
+msgstr ""
+"Cóipeáil ábhar an roghnúcháin mar seicheamh éalúcháin ANSI chuig comhad "
+"sealadach agus cóipeáil an cosán chuig an ngearrthaisce."
+
+#: src/input/command.zig:406
+msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
+msgstr ""
+"Cóipeáil an rogha mar sheichimh ANSI chuig comhad sealadach agus greamaigh "
+"an cosán"
+
+#: src/input/command.zig:407
+msgid ""
+"Copy the selection contents as ANSI escape sequences to a temporary file and "
+"paste the path to the file."
+msgstr ""
+"Cóipeáil ábhar an roghnúcháin mar seicheamh éalúcháin ANSI chuig comhad "
+"sealadach agus greamaigh cosán an chomhaid."
+
+#: src/input/command.zig:414
+msgid "Copy Selection as ANSI Sequences to Temporary File and Open"
+msgstr ""
+"Cóipeáil an roghnúchán mar sheichimh ANSI chuig comhad sealadach agus oscail"
+
+#: src/input/command.zig:415
+msgid ""
+"Copy the selection contents as ANSI escape sequences to a temporary file and "
+"open it."
+msgstr ""
+"Cóipeáil ábhar an roghnúcháin mar seicheamh éalúcháin ANSI chuig comhad "
+"sealadach agus oscail é."
+
+#: src/input/command.zig:422
+msgid "Open a new window."
+msgstr "Oscail fuinneog nua."
+
+#: src/input/command.zig:428
+msgid "Open a new tab."
+msgstr "Oscail táb nua."
+
+#: src/input/command.zig:434
+msgid "Move Tab Left"
+msgstr "Bog an táb ar chlé"
+
+#: src/input/command.zig:435
+msgid "Move the current tab to the left."
+msgstr "Bog an táb reatha ar chlé."
+
+#: src/input/command.zig:439
+msgid "Move Tab Right"
+msgstr "Bog an táb ar dheis"
+
+#: src/input/command.zig:440
+msgid "Move the current tab to the right."
+msgstr "Bog an táb reatha ar dheis."
+
+#: src/input/command.zig:446
+msgid "Move Tab to New Window"
+msgstr "Bog an táb go fuinneog nua"
+
+#: src/input/command.zig:447
+msgid "Move the current tab to a new window."
+msgstr "Bog an táb reatha go fuinneog nua."
+
+#: src/input/command.zig:452
+msgid "Toggle Tab Overview"
+msgstr "Scoránaigh an forbhreathnú ar na táib"
+
+#: src/input/command.zig:453
+msgid "Toggle the tab overview."
+msgstr "Scoránaigh an forbhreathnú ar na táib."
+
+#: src/input/command.zig:458
+msgid "Change Terminal Title…"
+msgstr "Athraigh teideal an teirminéal…"
+
+#: src/input/command.zig:459
+msgid "Prompt for a new title for the current terminal."
+msgstr "Iarr teideal nua don teirminéal reatha."
+
+#: src/input/command.zig:465
+msgid "Prompt for a new title for the current tab."
+msgstr "Iarr teideal nua don táb reatha."
+
+#: src/input/command.zig:478
+msgid "Split the terminal to the left."
+msgstr "Scoilt an teirminéal ar chlé."
+
+#: src/input/command.zig:483
+msgid "Split the terminal to the right."
+msgstr "Scoilt an teirminéal ar dheis."
+
+#: src/input/command.zig:488
+msgid "Split the terminal up."
+msgstr "Scoilt an teirminéal suas."
+
+#: src/input/command.zig:493
+msgid "Split the terminal down."
+msgstr "Scoilt an teirminéal síos."
+
+#: src/input/command.zig:500
+msgid "Focus Split: Previous"
+msgstr "Fócas ar scoilt: an ceann roimhe seo"
+
+#: src/input/command.zig:501
+msgid "Focus the previous split, if any."
+msgstr "Cuir an fócas ar an scoilt roimhe seo, má tá ceann ann."
+
+#: src/input/command.zig:505
+msgid "Focus Split: Next"
+msgstr "Fócas ar scoilt: an chéad cheann eile"
+
+#: src/input/command.zig:506
+msgid "Focus the next split, if any."
+msgstr "Cuir an fócas ar an gcéad scoilt eile, má tá ceann ann."
+
+#: src/input/command.zig:510
+msgid "Focus Split: Left"
+msgstr "Fócas ar scoilt: an ceann ar chlé"
+
+#: src/input/command.zig:511
+msgid "Focus the split to the left, if it exists."
+msgstr "Cuir an fócas ar an scoilt ar chlé, má tá ceann ann."
+
+#: src/input/command.zig:515
+msgid "Focus Split: Right"
+msgstr "Fócas ar scoilt: an ceann ar dheis"
+
+#: src/input/command.zig:516
+msgid "Focus the split to the right, if it exists."
+msgstr "Cuir an fócas ar an scoilt ar dheis, má tá ceann ann."
+
+#: src/input/command.zig:520
+msgid "Focus Split: Up"
+msgstr "Fócas ar scoilt: an ceann thuas"
+
+#: src/input/command.zig:521
+msgid "Focus the split above, if it exists."
+msgstr "Cuir an fócas ar an scoilt thuas, má tá ceann ann."
+
+#: src/input/command.zig:525
+msgid "Focus Split: Down"
+msgstr "Fócas ar scoilt: an ceann thíos"
+
+#: src/input/command.zig:526
+msgid "Focus the split below, if it exists."
+msgstr "Cuir an fócas ar an scoilt thíos, má tá ceann ann."
+
+#: src/input/command.zig:533
+msgid "Focus Window: Previous"
+msgstr "Fócas ar fhuinneog: an ceann roimhe seo"
+
+#: src/input/command.zig:534
+msgid "Focus the previous window, if any."
+msgstr "Cuir an fócas ar an bhfuinneog roimhe seo, má tá ceann ann."
+
+#: src/input/command.zig:538
+msgid "Focus Window: Next"
+msgstr "Fócas ar fhuinneog: an chéad cheann eile"
+
+#: src/input/command.zig:539
+msgid "Focus the next window, if any."
+msgstr "Cuir an fócas ar an gcéad fhuinneog eile, má tá ceann ann."
+
+#: src/input/command.zig:545
+msgid "Toggle Split Zoom"
+msgstr "Scoránaigh uasmhéadú an phána"
+
+#: src/input/command.zig:546
+msgid "Toggle the zoom state of the current split."
+msgstr "Athraigh staid súmála an scoilte reatha."
+
+#: src/input/command.zig:551
+msgid "Toggle Read-Only Mode"
+msgstr "Scoránaigh an mód inléite amháin"
+
+#: src/input/command.zig:552
+msgid "Toggle read-only mode for the current surface."
+msgstr "Scoránaigh an mód inléite amháin don dromchla reatha."
+
+#: src/input/command.zig:557
+msgid "Equalize Splits"
+msgstr "Cothromaigh na scoilteanna"
+
+#: src/input/command.zig:558
+msgid "Equalize the size of all splits."
+msgstr "Cothromaigh méid na scoilteanna uile."
+
+#: src/input/command.zig:563
+msgid "Reset Window Size"
+msgstr "Athshocraigh méid na fuinneoige"
+
+#: src/input/command.zig:564
+msgid "Reset the window size to the default."
+msgstr "Athshocraigh méid na fuinneoige go dtí an méid réamhshocraithe."
+
+#: src/input/command.zig:569
+msgid "Toggle Inspector"
+msgstr "Scoránaigh an scrúdaitheoir"
+
+#: src/input/command.zig:570
+msgid "Toggle the inspector."
+msgstr "Scoránaigh an scrúdaitheoir."
+
+#: src/input/command.zig:575
+msgid "Show the GTK Inspector"
+msgstr "Taispeáin an scrúdaitheoir GTK"
+
+#: src/input/command.zig:576
+msgid "Show the GTK inspector."
+msgstr "Taispeáin an scrúdaitheoir GTK."
+
+#: src/input/command.zig:581
+msgid "Show On-Screen Keyboard"
+msgstr "Taispeáin an méarchlár scáileáin"
+
+#: src/input/command.zig:582
+msgid "Show the on-screen keyboard if present."
+msgstr "Taispeáin an méarchlár scáileáin, má tá ceann ann."
+
+#: src/input/command.zig:588
+msgid "Open Config Using OS editor"
+msgstr "Oscail an chumraíocht in eagarthóir OS"
+
+#: src/input/command.zig:589
+msgid "Open the config file with the OS's default editor."
+msgstr ""
+"Oscail an comhad cumraíochta le heagarthóir réamhshocraithe an OS."
+
+#: src/input/command.zig:593
+msgid "Open Config in New Terminal Window"
+msgstr "Oscail an chumraíocht i bhfuinneog teirminéil nua"
+
+#: src/input/command.zig:594
+msgid "Open the config file in a new window using $EDITOR or $VISUAL."
+msgstr ""
+"Oscail an comhad cumraíochta i bhfuinneog nua ag baint úsáide as $EDITOR nó "
+"$VISUAL."
+
+#: src/input/command.zig:600
+msgid "Reload Config"
+msgstr "Athlódáil an chumraíocht"
+
+#: src/input/command.zig:601
+msgid "Reload the config file."
+msgstr "Athlódáil an comhad cumraíochta."
+
+#: src/input/command.zig:606
+msgid "Close Terminal"
+msgstr "Dún an teirminéal"
+
+#: src/input/command.zig:607
+msgid "Close the current terminal."
+msgstr "Dún an teirminéal reatha."
+
+#: src/input/command.zig:614
+msgid "Close the current tab."
+msgstr "Dún an táb reatha."
+
+#: src/input/command.zig:618
+msgid "Close Other Tabs"
+msgstr "Dún na táib eile"
+
+#: src/input/command.zig:619
+msgid "Close all tabs in this window except the current one."
+msgstr "Dún gach táb san fhuinneog seo seachas an ceann reatha."
+
+#: src/input/command.zig:623
+msgid "Close Tabs to the Right"
+msgstr "Dún na táib ar dheis"
+
+#: src/input/command.zig:624
+msgid "Close all tabs to the right of the current one."
+msgstr "Dún na táib uile ar dheis an chinn reatha."
+
+#: src/input/command.zig:631
+msgid "Close the current window."
+msgstr "Dún an fhuinneog reatha."
+
+#: src/input/command.zig:636
+msgid "Close All Windows"
+msgstr "Dún gach fuinneog"
+
+#: src/input/command.zig:637
+msgid "Close all windows."
+msgstr "Dún na fuinneoga uile."
+
+#: src/input/command.zig:642
+msgid "Toggle Maximize"
+msgstr "Scoránaigh uasmhéadú"
+
+#: src/input/command.zig:643
+msgid "Toggle the maximized state of the current window."
+msgstr "Scoránaigh staid uasmhéadaithe na fuinneoige reatha."
+
+#: src/input/command.zig:648
+msgid "Toggle Fullscreen"
+msgstr "Scoránaigh lánscáileán"
+
+#: src/input/command.zig:649
+msgid "Toggle the fullscreen state of the current window."
+msgstr "Scoránaigh staid lánscáileáin na fuinneoige reatha."
+
+#: src/input/command.zig:654
+msgid "Toggle Window Decorations"
+msgstr "Scoránaigh maisiúcháin na fuinneoige"
+
+#: src/input/command.zig:655
+msgid "Toggle the window decorations."
+msgstr "Scoránaigh na maisiúcháin fuinneoige."
+
+#: src/input/command.zig:660
+msgid "Toggle Float on Top"
+msgstr "Scoránaigh snámh ar barr"
+
+#: src/input/command.zig:661
+msgid "Toggle the float on top state of the current window."
+msgstr "Scoránaigh an staid snáimh ar barr don fhuinneog reatha."
+
+#: src/input/command.zig:666
+msgid "Toggle Secure Input"
+msgstr "Scoránaigh ionchur slán"
+
+#: src/input/command.zig:667
+msgid "Toggle secure input mode."
+msgstr "Scoránaigh an mód ionchuir shláin."
+
+#: src/input/command.zig:672
+msgid "Toggle Mouse Reporting"
+msgstr "Scoránaigh tuairisciú luiche"
+
+#: src/input/command.zig:673
+msgid "Toggle whether mouse events are reported to terminal applications."
+msgstr ""
+"Scoránaigh tuairisciú imeachtaí luiche chuig feidhmchláir teirminéil. "
+
+#: src/input/command.zig:678
+msgid "Toggle Background Opacity"
+msgstr "Scoránaigh teimhneacht an chúlra"
+
+#: src/input/command.zig:679
+msgid "Toggle the background opacity of a window that started transparent."
+msgstr "Scoránaigh teimhneacht chúlra fuinneoige a bhí trédhearcach ar dtús."
+
+#: src/input/command.zig:684
+msgid "Check for Updates"
+msgstr "Lorg nuashonruithe"
+
+#: src/input/command.zig:685
+msgid "Check for updates to the application."
+msgstr "Lorg nuashonruithe ar an bhfeidhmchlár."
+
+#: src/input/command.zig:690
+msgid "Undo"
+msgstr "Cealaigh"
+
+#: src/input/command.zig:691
+msgid "Undo the last action."
+msgstr "Cealaigh an gníomh deireanach."
+
+#: src/input/command.zig:696
+msgid "Redo"
+msgstr "Athdhéan"
+
+#: src/input/command.zig:697
+msgid "Redo the last undone action."
+msgstr "Athdhéan an gníomh deireanach a cealaíodh."
+
+#: src/input/command.zig:703
+msgid "Quit the application."
+msgstr "Scoir an feidhmchlár."
+
+#: src/input/command.zig:708
+msgid "Ghostty"
+msgstr "Ghostty"
+
+#: src/input/command.zig:709
+msgid "Put a little Ghostty in your terminal."
+msgstr "Cuir Ghosttín i do teirminéal."

@@ -96,7 +96,8 @@ test "tracked_grid_ref snapshots after terminal scroll" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{ .cols = 5, .rows = 2, .max_scrollback = 10_000 },
+        5,
+        2,
     ));
     defer terminal_c.free(terminal);
 
@@ -128,7 +129,8 @@ test "tracked_grid_ref reports no value after reset" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{ .cols = 5, .rows = 2, .max_scrollback = 10_000 },
+        5,
+        2,
     ));
     defer terminal_c.free(terminal);
 
@@ -154,7 +156,8 @@ test "tracked_grid_ref reports no value after alternate screen reset" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{ .cols = 5, .rows = 2, .max_scrollback = 10_000 },
+        5,
+        2,
     ));
     defer terminal_c.free(terminal);
 
@@ -194,7 +197,8 @@ test "tracked_grid_ref reports no value after terminal free" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{ .cols = 5, .rows = 2, .max_scrollback = 10_000 },
+        5,
+        2,
     ));
 
     terminal_c.vt_write(terminal, "A", 1);

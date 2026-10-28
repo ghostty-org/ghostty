@@ -11,6 +11,7 @@ pub const Application = @import("class/application.zig").Application;
 pub const Window = @import("class/window.zig").Window;
 pub const Config = @import("class/config.zig").Config;
 pub const Surface = @import("class/surface.zig").Surface;
+pub const RenderSurface = @import("class/render_surface.zig").RenderSurface;
 
 /// Common methods for all GObject classes we create.
 pub fn Common(
@@ -145,16 +146,24 @@ pub fn Common(
                 /// as the virtual method but the self parameter points to the
                 /// target instead of the original class.
                 fn ImplementFunc(comptime T: type) type {
-                    var params: [fn_info.params.len]std.builtin.Type.Fn.Param = undefined;
-                    @memcpy(&params, fn_info.params);
-                    params[0].type = *ClassInstance(T);
-                    return @Type(.{ .@"fn" = .{
-                        .calling_convention = fn_info.calling_convention,
-                        .is_generic = fn_info.is_generic,
-                        .is_var_args = fn_info.is_var_args,
-                        .return_type = fn_info.return_type,
-                        .params = &params,
-                    } });
+                    var types: [fn_info.param_types.len]type = undefined;
+                    var attrs: [fn_info.param_types.len]std.lang.Type.Fn.ParamAttributes = undefined;
+
+                    inline for (fn_info.param_types, fn_info.param_attrs, &types, &attrs) |param_type, param_attr, *ty, *attr| {
+                        ty.* = param_type.?;
+                        attr.* = .{ .@"noalias" = param_attr.@"noalias" };
+                    }
+                    types[0] = *ClassInstance(T);
+
+                    return @Fn(
+                        &types,
+                        &attrs,
+                        fn_info.return_type.?,
+                        .{
+                            .@"callconv" = fn_info.attrs.@"callconv",
+                            .varargs = fn_info.attrs.varargs,
+                        },
+                    );
                 }
             };
         }

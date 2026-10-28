@@ -9,11 +9,12 @@ const Benchmark = @import("Benchmark.zig");
 const options = @import("options.zig");
 const Parser = @import("../terminal/osc.zig").Parser;
 const log = std.log.scoped(.@"osc-parser-bench");
+const global = @import("../global.zig");
 
 opts: Options,
 
 /// The file, opened in the setup function.
-data_f: ?std.fs.File = null,
+data_f: ?std.Io.File = null,
 
 parser: Parser,
 
@@ -24,6 +25,11 @@ pub const Options = struct {
     /// use stdin by default but I find that a hanging CLI command
     /// with no interaction is a bit annoying.
     data: ?[]const u8 = null,
+
+    /// The most bytes to keep from each OSC sequence whose number the
+    /// parser does not implement. Zero, the default, discards them like
+    /// the parser does by default. See `osc.Parser.unknown_max_bytes`.
+    @"unknown-max-bytes": usize = 0,
 };
 
 /// Create a new terminal stream handler for the given arguments.
@@ -38,6 +44,7 @@ pub fn create(
         .data_f = null,
         .parser = .init(alloc),
     };
+    ptr.parser.unknown_max_bytes = opts.@"unknown-max-bytes";
     return ptr;
 }
 
@@ -70,7 +77,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
 fn teardown(ptr: *anyopaque) void {
     const self: *OscParser = @ptrCast(@alignCast(ptr));
     if (self.data_f) |f| {
-        f.close();
+        f.close(global.io());
         self.data_f = null;
     }
 }
@@ -80,7 +87,7 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
 
     const f = self.data_f orelse return;
     var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    var r = f.reader(&read_buf);
+    var r = f.reader(global.io(), &read_buf);
 
     var osc_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {

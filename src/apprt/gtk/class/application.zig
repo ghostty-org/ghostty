@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
@@ -5,25 +6,27 @@ const adw = @import("adw");
 const gdk = @import("gdk");
 const gio = @import("gio");
 const glib = @import("glib");
+const glibunix = @import("glibunix");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const build_config = @import("../../../build_config.zig");
 const build_info = @import("../build/info.zig");
-const state = &@import("../../../global.zig").state;
+const cli = @import("../../../cli.zig");
+const global = @import("../../../global.zig");
 const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
 const CoreApp = @import("../../../App.zig");
+const compat_file = @import("../../../lib/compat/file.zig");
 const configpkg = @import("../../../config.zig");
 const input = @import("../../../input.zig");
 const internal_os = @import("../../../os/main.zig");
 const systemd = @import("../../../os/systemd.zig");
 const terminal = @import("../../../terminal/main.zig");
-const xev = @import("../../../global.zig").xev;
+const xev = global.xev;
 const Binding = @import("../../../input.zig").Binding;
 const CoreConfig = configpkg.Config;
 const CoreSurface = @import("../../../Surface.zig");
-const lib = @import("../../../lib/main.zig");
 
 const ext = @import("../ext.zig");
 const key = @import("../key.zig");
@@ -42,8 +45,12 @@ const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseCo
 const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialog;
 const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
 const OpenURI = @import("../portal.zig").OpenURI;
+const media = @import("../media.zig");
+const Overrides = @import("Overrides.zig");
 
 const log = std.log.scoped(.gtk_ghostty_application);
+
+extern "c" fn setenv(name: ?[*]const u8, value: ?[*]const u8, overwrite: c_int) c_int;
 
 /// Function used to funnel GLib/GObject/GTK log messages into Zig's logging
 /// system rather than just getting dumped directly to stderr.
@@ -188,6 +195,11 @@ pub const Application = extern struct {
         /// only be set by the main loop thread.
         running: bool = false,
 
+        /// True once we've told systemd that startup is complete. Reloads
+        /// before then (e.g. syncing the color scheme during startup) must
+        /// not notify systemd, or it sees READY=1 before we're ready.
+        systemd_ready: bool = false,
+
         /// The timer used to quit the application after the last window is
         /// closed. Even if there is no quit delay set, this is the state
         /// used to determine to close the app.
@@ -218,6 +230,12 @@ pub const Application = extern struct {
 
         open_uri: OpenURI = undefined,
 
+        // The audio bell's MediaFile, reused across bells so we don't leak a
+        // GStreamer pipeline (and its GL threads) on every ring. Built lazily
+        // on the first audio bell and rebuilt when `bell-audio-path` changes;
+        // unref'd on dispose. See ringBell and media.zig.
+        bell_media: ?*gtk.MediaFile = null,
+
         pub var offset: c_int = 0;
     };
 
@@ -243,7 +261,7 @@ pub const Application = extern struct {
     pub fn new(
         rt_app: *ApprtApp,
         core_app: *CoreApp,
-    ) Allocator.Error!*Self {
+    ) (error{ GtkMinimumVersion, AdwaitaMinimumVersion } || Allocator.Error)!*Self {
         const alloc = core_app.alloc;
 
         // Capture GLib/GObject/GTK log messages and funnel them through Zig's
@@ -251,8 +269,8 @@ pub const Application = extern struct {
         _ = glib.logSetWriterFunc(glibLogWriterFunction, null, null);
 
         // Log our GTK versions
-        gtk_version.logVersion();
-        adw_version.logVersion();
+        try gtk_version.logVersion();
+        try adw_version.logVersion();
 
         // Load our configuration.
         var config = CoreConfig.load(alloc) catch |err| err: {
@@ -271,15 +289,17 @@ pub const Application = extern struct {
         };
         defer config.deinit();
 
+        // Set the old language,
         const saved_language: ?[:0]const u8 = saved_language: {
             const old_language = old_language: {
-                const result = (internal_os.getenv(alloc, "LANG") catch break :old_language null) orelse break :old_language null;
-                defer result.deinit(alloc);
-                break :old_language alloc.dupeZ(u8, result.value) catch break :old_language null;
+                const lang = global.environ().getPosix("LANG") orelse break :old_language null;
+                break :old_language alloc.dupeSentinel(u8, @ptrCast(lang), 0) catch null;
             };
-
-            if (config.language) |language| _ = internal_os.setenv("LANG", language);
-
+            if (config.language) |language| {
+                // Override LANG if we need to (sync global environs if so)
+                _ = setenv("LANG", @ptrCast(language), 1);
+                global.syncEnviron();
+            }
             break :saved_language old_language;
         };
 
@@ -294,7 +314,7 @@ pub const Application = extern struct {
 
         // Setup our GTK init env vars
         setGtkEnv(&config) catch |err| switch (err) {
-            error.NoSpaceLeft => {
+            error.WriteFailed => {
                 // If we fail to set GTK environment variables then we still
                 // try to start the application...
                 log.warn(
@@ -338,7 +358,7 @@ pub const Application = extern struct {
             // I'm unsure of any scenario where this happens. Because we don't
             // want to litter null checks everywhere, we just exit here.
             log.warn("gdk display is null, exiting", .{});
-            std.posix.exit(1);
+            std.process.exit(1);
         };
 
         // Setup our windowing protocol logic
@@ -541,6 +561,7 @@ pub const Application = extern struct {
 
         // Tell systemd that we are ready.
         systemd.notify.ready();
+        priv.systemd_ready = true;
 
         log.debug("entering runloop", .{});
         defer log.debug("exiting runloop", .{});
@@ -696,6 +717,11 @@ pub const Application = extern struct {
             .initial_size => return Action.initialSize(target, value),
 
             .inspector => return Action.controlInspector(target, value),
+            .export_terminal_io => return try Action.exportTerminalIO(
+                self,
+                target,
+                value,
+            ),
 
             .key_sequence => return Action.keySequence(target, value),
             .key_table => return Action.keyTable(target, value),
@@ -705,10 +731,11 @@ pub const Application = extern struct {
             .mouse_visibility => Action.mouseVisibility(target, value),
 
             .move_tab => return Action.moveTab(target, value),
+            .move_tab_to_new_window => return Action.moveTabToNewWindow(target),
 
             .new_split => return Action.newSplit(target, value),
 
-            .new_tab => return Action.newTab(target),
+            .new_tab => return Action.newTab(target, .none),
 
             .new_window => try Action.newWindow(
                 self,
@@ -719,7 +746,7 @@ pub const Application = extern struct {
                 .none,
             ),
 
-            .open_config => return Action.openConfig(self),
+            .open_config => return Action.openConfig(self, value),
 
             .open_url => Action.openUrl(self, value),
 
@@ -741,6 +768,8 @@ pub const Application = extern struct {
 
             .resize_split => return Action.resizeSplit(target, value),
 
+            .resize_window => return Action.resizeWindow(target, value),
+
             .ring_bell => Action.ringBell(target),
 
             // GTK has no accessibility consumer for this yet.
@@ -750,12 +779,15 @@ pub const Application = extern struct {
 
             .set_title => Action.setTitle(target, value),
             .set_tab_title => return Action.setTabTitle(target, value),
+            .set_window_title => return Action.setWindowTitle(target, value),
 
             .show_child_exited => return Action.showChildExited(target, value),
 
             .show_gtk_inspector => Action.showGtkInspector(),
 
             .size_limit => return Action.sizeLimit(target, value),
+
+            .cell_size => return Action.cellSize(target, value),
 
             .toggle_maximize => Action.toggleMaximize(target),
             .toggle_fullscreen => Action.toggleFullscreen(target),
@@ -779,7 +811,6 @@ pub const Application = extern struct {
             .float_window,
             .toggle_visibility,
             .toggle_background_opacity,
-            .cell_size,
             .render_inspector,
             .renderer_health,
             .color_change,
@@ -874,9 +905,133 @@ pub const Application = extern struct {
 
         const writer = &buf.writer;
 
-        // Load standard css first as it can override some of the user configured styling.
-        try loadRuntimeCss414(config, writer);
-        try loadRuntimeCss416(config, writer);
+        const window_theme = config.@"window-theme";
+        const headerbar_background = config.@"window-titlebar-background" orelse config.background;
+        const headerbar_foreground = config.@"window-titlebar-foreground" orelse config.foreground;
+
+        try writer.writeAll(
+            \\/*
+            \\ * Child Exited Overlay
+            \\ */
+            \\
+            \\.child-exited.normal revealer widget {
+            \\  background-color: color-mix(
+            \\    in srgb,
+            \\    var(--success-bg-color),
+            \\    transparent 50%
+            \\  );
+            \\}
+            \\
+            \\.child-exited.abnormal revealer widget {
+            \\  background-color: color-mix(
+            \\    in srgb,
+            \\    var(--error-bg-color),
+            \\    transparent 50%
+            \\  );
+            \\}
+            \\
+            \\/*
+            \\ * Surface
+            \\ */
+            \\
+            \\.surface progressbar.error trough progress {
+            \\  background-color: color-mix(
+            \\    in srgb,
+            \\    var(--error-bg-color),
+            \\    transparent 50%
+            \\  );
+            \\}
+            \\
+            \\.surface .bell-overlay {
+            \\  border-color: color-mix(
+            \\    in srgb,
+            \\    var(--accent-color),
+            \\    transparent 50%
+            \\  );
+            \\}
+            \\
+            \\/*
+            \\ * Drag and Drop Overlay
+            \\ */
+            \\.drop-overlay.drop-left {
+            \\  background: linear-gradient(
+            \\    to left,
+            \\    transparent, 50%,
+            \\    color-mix(in srgb, var(--accent-bg-color), transparent 80%) 50%
+            \\  );
+            \\}
+            \\.drop-overlay.drop-right {
+            \\  background: linear-gradient(
+            \\    to right,
+            \\    transparent, 50%,
+            \\    color-mix(in srgb, var(--accent-bg-color), transparent 80%) 50%
+            \\  );
+            \\}
+            \\.drop-overlay.drop-top {
+            \\  background: linear-gradient(
+            \\    to top,
+            \\    transparent, 50%,
+            \\    color-mix(in srgb, var(--accent-bg-color), transparent 80%) 50%
+            \\  );
+            \\}
+            \\.drop-overlay.drop-bottom {
+            \\  background: linear-gradient(
+            \\    to bottom,
+            \\    transparent, 50%,
+            \\    color-mix(in srgb, var(--accent-bg-color), transparent 80%) 50%
+            \\  );
+            \\}
+            \\
+            \\/*
+            \\ * Splits
+            \\ */
+            \\
+            \\.window .split paned > separator {
+            \\  background-color: color-mix(
+            \\    in srgb,
+            \\    var(--window-bg-color),
+            \\    transparent 0%
+            \\  );
+            \\}
+            \\
+        );
+
+        switch (window_theme) {
+            .ghostty => try writer.print(
+                \\:root {{
+                \\  --ghostty-fg: rgb({d},{d},{d});
+                \\  --ghostty-bg: rgb({d},{d},{d});
+                \\  --headerbar-fg-color: var(--ghostty-fg);
+                \\  --headerbar-bg-color: var(--ghostty-bg);
+                \\  --headerbar-backdrop-color: oklab(from var(--headerbar-bg-color) calc(l * 0.9) a b / alpha);
+                \\  --overview-fg-color: var(--ghostty-fg);
+                \\  --overview-bg-color: var(--ghostty-bg);
+                \\  --popover-fg-color: var(--ghostty-fg);
+                \\  --popover-bg-color: var(--ghostty-bg);
+                \\  --window-fg-color: var(--ghostty-fg);
+                \\  --window-bg-color: var(--ghostty-bg);
+                \\}}
+                \\listview.command-palette-view {{
+                \\  --view-fg-color: var(--ghostty-fg);
+                \\  --view-bg-color: var(--ghostty-bg);
+                \\}}
+                \\windowhandle {{
+                \\  background-color: var(--headerbar-bg-color);
+                \\  color: var(--headerbar-fg-color);
+                \\}}
+                \\windowhandle:backdrop {{
+                \\ background-color: var(--headerbar-backdrop-color);
+                \\}}
+            , .{
+                headerbar_foreground.r,
+                headerbar_foreground.g,
+                headerbar_foreground.b,
+                headerbar_background.r,
+                headerbar_background.g,
+                headerbar_background.b,
+            }),
+            else => {},
+        }
 
         const unfocused_fill: CoreConfig.Color = config.@"unfocused-split-fill" orelse config.background;
 
@@ -927,143 +1082,11 @@ pub const Application = extern struct {
         priv.css_provider.loadFromBytes(bytes);
     }
 
-    /// Load runtime CSS for older than GTK 4.16
-    fn loadRuntimeCss414(
-        config: *const CoreConfig,
-        writer: *std.Io.Writer,
-    ) std.Io.Writer.Error!void {
-        if (gtk_version.runtimeAtLeast(4, 16, 0)) return;
+    const LoadCustomCssError = std.Io.File.OpenError ||
+        compat_file.ReadToEndAllocError ||
+        std.mem.Allocator.Error;
 
-        const window_theme = config.@"window-theme";
-        const headerbar_background = config.@"window-titlebar-background" orelse config.background;
-        const headerbar_foreground = config.@"window-titlebar-foreground" orelse config.foreground;
-
-        switch (window_theme) {
-            .ghostty => try writer.print(
-                \\windowhandle {{
-                \\  background-color: rgb({d},{d},{d});
-                \\  color: rgb({d},{d},{d});
-                \\}}
-                \\windowhandle:backdrop {{
-                \\ background-color: oklab(from rgb({d},{d},{d}) calc(l * 0.9) a b / alpha);
-                \\}}
-                \\
-            , .{
-                headerbar_background.r,
-                headerbar_background.g,
-                headerbar_background.b,
-                headerbar_foreground.r,
-                headerbar_foreground.g,
-                headerbar_foreground.b,
-                headerbar_background.r,
-                headerbar_background.g,
-                headerbar_background.b,
-            }),
-            else => {},
-        }
-    }
-
-    /// Load runtime for GTK 4.16 and newer
-    fn loadRuntimeCss416(
-        config: *const CoreConfig,
-        writer: *std.Io.Writer,
-    ) std.Io.Writer.Error!void {
-        if (gtk_version.runtimeUntil(4, 16, 0)) return;
-
-        const window_theme = config.@"window-theme";
-        const headerbar_background = config.@"window-titlebar-background" orelse config.background;
-        const headerbar_foreground = config.@"window-titlebar-foreground" orelse config.foreground;
-
-        try writer.writeAll(
-            \\/*
-            \\ * Child Exited Overlay
-            \\ */
-            \\
-            \\.child-exited.normal revealer widget {
-            \\  background-color: color-mix(
-            \\    in srgb,
-            \\    var(--success-bg-color),
-            \\    transparent 50%
-            \\  );
-            \\}
-            \\
-            \\.child-exited.abnormal revealer widget {
-            \\  background-color: color-mix(
-            \\    in srgb,
-            \\    var(--error-bg-color),
-            \\    transparent 50%
-            \\  );
-            \\}
-            \\
-            \\/*
-            \\ * Surface
-            \\ */
-            \\
-            \\.surface progressbar.error trough progress {
-            \\  background-color: color-mix(
-            \\    in srgb,
-            \\    var(--error-bg-color),
-            \\    transparent 50%
-            \\  );
-            \\}
-            \\
-            \\.surface .bell-overlay {
-            \\  border-color: color-mix(
-            \\    in srgb,
-            \\    var(--accent-color),
-            \\    transparent 50%
-            \\  );
-            \\}
-            \\
-            \\/*
-            \\ * Splits
-            \\ */
-            \\
-            \\.window .split paned > separator {
-            \\  background-color: color-mix(
-            \\    in srgb,
-            \\    var(--window-bg-color),
-            \\    transparent 0%
-            \\  );
-            \\}
-            \\
-        );
-
-        switch (window_theme) {
-            .ghostty => try writer.print(
-                \\:root {{
-                \\  --ghostty-fg: rgb({d},{d},{d});
-                \\  --ghostty-bg: rgb({d},{d},{d});
-                \\  --headerbar-fg-color: var(--ghostty-fg);
-                \\  --headerbar-bg-color: var(--ghostty-bg);
-                \\  --headerbar-backdrop-color: oklab(from var(--headerbar-bg-color) calc(l * 0.9) a b / alpha);
-                \\  --overview-fg-color: var(--ghostty-fg);
-                \\  --overview-bg-color: var(--ghostty-bg);
-                \\  --popover-fg-color: var(--ghostty-fg);
-                \\  --popover-bg-color: var(--ghostty-bg);
-                \\  --window-fg-color: var(--ghostty-fg);
-                \\  --window-bg-color: var(--ghostty-bg);
-                \\}}
-                \\windowhandle {{
-                \\  background-color: var(--headerbar-bg-color);
-                \\  color: var(--headerbar-fg-color);
-                \\}}
-                \\windowhandle:backdrop {{
-                \\ background-color: var(--headerbar-backdrop-color);
-                \\}}
-            , .{
-                headerbar_foreground.r,
-                headerbar_foreground.g,
-                headerbar_foreground.b,
-                headerbar_background.r,
-                headerbar_background.g,
-                headerbar_background.b,
-            }),
-            else => {},
-        }
-    }
-
-    fn loadCustomCss(self: *Self) (std.fs.File.ReadError || Allocator.Error)!void {
+    fn loadCustomCss(self: *Self) LoadCustomCssError!void {
         const priv: *Private = self.private();
         const alloc = self.allocator();
         const display = gdk.Display.getDefault() orelse {
@@ -1087,7 +1110,11 @@ pub const Application = extern struct {
                 .optional => |path| .{ path, true },
                 .required => |path| .{ path, false },
             };
-            const file = std.fs.openFileAbsolute(path, .{}) catch |err| {
+            const file = std.Io.Dir.openFileAbsolute(
+                global.io(),
+                path,
+                .{},
+            ) catch |err| {
                 if (err != error.FileNotFound or !optional) {
                     log.warn(
                         "error opening gtk-custom-css file {s}: {}",
@@ -1096,12 +1123,14 @@ pub const Application = extern struct {
                 }
                 continue;
             };
-            defer file.close();
+            defer file.close(global.io());
 
             const css_file_size_limit = 5 * 1024 * 1024; // 5MB
 
             log.info("loading gtk-custom-css path={s}", .{path});
-            const contents = file.readToEndAlloc(
+
+            const contents = compat_file.readToEndAlloc(
+                file,
                 alloc,
                 css_file_size_limit,
             ) catch |err| switch (err) {
@@ -1111,6 +1140,7 @@ pub const Application = extern struct {
                 },
                 else => |e| return e,
             };
+
             defer alloc.free(contents);
 
             const bytes = glib.Bytes.new(contents.ptr, contents.len);
@@ -1141,7 +1171,8 @@ pub const Application = extern struct {
 
     fn syncActionAccelerators(self: *Self) void {
         self.syncActionAccelerator("app.quit", .{ .quit = {} });
-        self.syncActionAccelerator("app.open-config", .{ .open_config = {} });
+        self.syncActionAccelerator("app.open-config::os-open", .{ .open_config = .os_open });
+        self.syncActionAccelerator("app.open-config::new-window", .{ .open_config = .new_window });
         self.syncActionAccelerator("app.reload-config", .{ .reload_config = {} });
         self.syncActionAccelerator("win.toggle-inspector", .{ .inspector = .toggle });
         self.syncActionAccelerator("app.show-gtk-inspector", .show_gtk_inspector);
@@ -1258,7 +1289,7 @@ pub const Application = extern struct {
     ) callconv(.c) void {
         const location = css_section.toString();
         defer glib.free(location);
-        if (comptime gtk_version.atLeast(4, 16, 0)) bytes: {
+        bytes: {
             const bytes = css_section.getBytes() orelse break :bytes;
             var len: usize = undefined;
             const ptr = bytes.getData(&len) orelse break :bytes;
@@ -1310,11 +1341,13 @@ pub const Application = extern struct {
         // Setup our event loop
         self.startupXev();
 
+        // Setup some signal handlers. This must happen before anything
+        // that might notify systemd, since with Type=notify-reload systemd
+        // refuses to start us if our reload signal has no handler.
+        self.startupSignals();
+
         // Setup our style manager (light/dark mode)
         self.startupStyleManager();
-
-        // Setup some signal handlers
-        self.startupSignals();
 
         // Setup our action map
         self.startupActionMap();
@@ -1400,8 +1433,8 @@ pub const Application = extern struct {
     fn startupSignals(self: *Self) void {
         const priv = self.private();
         assert(priv.signal_source == null);
-        priv.signal_source = glib.unixSignalAdd(
-            std.posix.SIG.USR2,
+        priv.signal_source = glibunix.signalAdd(
+            @backingInt(std.posix.SIG.USR2),
             handleSigusr2,
             self,
         );
@@ -1415,14 +1448,22 @@ pub const Application = extern struct {
         const as_variant_type = glib.VariantType.new("as");
         defer as_variant_type.free();
 
+        const tas_variant_type = glib.VariantType.new("(tas)");
+        defer tas_variant_type.free();
+
+        const s_variant_type = glib.ext.VariantType.newFor([:0]const u8);
+        defer s_variant_type.free();
+
         const actions = [_]ext.actions.Action(Self){
             .init("new-window", actionNewWindow, null),
             .init("new-window-command", actionNewWindow, as_variant_type),
-            .init("open-config", actionOpenConfig, null),
+            .init("new-tab", actionNewTab, tas_variant_type),
+            .init("open-config", actionOpenConfig, s_variant_type),
             .init("present-surface", actionPresentSurface, t_variant_type),
             .init("quit", actionQuit, null),
             .init("reload-config", actionReloadConfig, null),
             .init("toggle-quick-terminal", actionToggleQuickTerminal, null),
+            .init("ring-bell", actionRingBell, null),
         };
 
         ext.actions.add(Self, self, &actions);
@@ -1454,6 +1495,14 @@ pub const Application = extern struct {
             self,
             .{},
         );
+
+        _ = GlobalShortcuts.signals.@"bind-failed".connect(
+            priv.global_shortcuts,
+            *Application,
+            globalShortcutBindFailed,
+            self,
+            .{},
+        );
     }
 
     fn activate(self: *Self) callconv(.c) void {
@@ -1461,7 +1510,7 @@ pub const Application = extern struct {
 
         // Queue a new window
         const priv = self.private();
-        _ = priv.core_app.mailbox.push(.{
+        _ = priv.core_app.mailbox.push(global.io(), .{
             .new_window = .{},
         }, .{ .forever = {} });
 
@@ -1478,12 +1527,17 @@ pub const Application = extern struct {
             diag.close();
             diag.unref(); // strong ref from get()
         }
-        priv.config_errors_dialog.set(null);
+        priv.config_errors_dialog.deinit();
         if (priv.signal_source) |v| {
             if (glib.Source.remove(v) == 0) {
                 log.warn("unable to remove signal source", .{});
             }
             priv.signal_source = null;
+        }
+
+        if (priv.bell_media) |v| {
+            v.unref();
+            priv.bell_media = null;
         }
 
         gobject.Object.virtual_methods.dispose.call(
@@ -1662,6 +1716,42 @@ pub const Application = extern struct {
         };
     }
 
+    /// May fire before any window exists, hence a desktop notification
+    /// rather than a toast.
+    fn globalShortcutBindFailed(
+        _: *GlobalShortcuts,
+        failure: *const GlobalShortcuts.BindFailed,
+        self: *Self,
+    ) callconv(.c) void {
+        var label_buf: [128]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&label_buf);
+        const label: []const u8 = label: {
+            const ok = key.labelFromTrigger(&writer, failure.trigger) catch false;
+            break :label if (ok) writer.buffered() else "?";
+        };
+
+        const detail: [*:0]const u8 = detail: {
+            if (failure.message[0] != 0) break :detail failure.message;
+            break :detail if (failure.revoked)
+                i18n._("The keybind was revoked by the system.")
+            else
+                i18n._("The keybind was denied by the system.");
+        };
+
+        var body_buf: [512]u8 = undefined;
+        const body = std.mem.printSentinel(
+            &body_buf,
+            "{s}: {s}",
+            .{ label, detail },
+            0,
+        ) catch return;
+
+        Action.desktopNotification(self, .app, .{
+            .title = std.mem.span(i18n._("Global keybind unavailable")),
+            .body = body,
+        });
+    }
+
     fn actionReloadConfig(
         _: *gio.SimpleAction,
         _: ?*glib.Variant,
@@ -1703,117 +1793,180 @@ pub const Application = extern struct {
     ) callconv(.c) void {
         log.debug("received new window action", .{});
 
-        var arena: std.heap.ArenaAllocator = .init(Application.default().allocator());
+        var arena: std.heap.ArenaAllocator = .init(self.core().alloc);
         defer arena.deinit();
 
         const alloc = arena.allocator();
 
-        var working_directory: ?[:0]const u8 = null;
-        var title: ?[:0]const u8 = null;
-        var command: ?configpkg.Command = null;
-        var args: std.ArrayList([:0]const u8) = .empty;
-
-        overrides: {
+        const overrides = overrides: {
             // were we given a parameter?
-            const parameter = parameter_ orelse break :overrides;
+            const arguments = parameter_ orelse break :overrides null;
 
             const as_variant_type = glib.VariantType.new("as");
             defer as_variant_type.free();
 
             // ensure that the supplied parameter is an array of strings
-            if (glib.Variant.isOfType(parameter, as_variant_type) == 0) {
+            if (glib.Variant.isOfType(arguments, as_variant_type) == 0) {
                 log.warn("parameter is of type '{s}', not '{s}'", .{
-                    parameter.getTypeString(),
+                    arguments.getTypeString(),
                     as_variant_type.peekString()[0..as_variant_type.getStringLength()],
                 });
-                break :overrides;
+                break :overrides null;
             }
 
-            const s_variant_type = glib.VariantType.new("s");
-            defer s_variant_type.free();
+            var arguments_it: glib.VariantIter = undefined;
+            _ = arguments_it.init(arguments);
 
-            var it: glib.VariantIter = undefined;
-            _ = it.init(parameter);
+            break :overrides Overrides.parse(alloc, &arguments_it) catch null;
+        };
 
-            var e_seen: bool = false;
-            var i: usize = 0;
-
-            while (it.nextValue()) |value| : (i += 1) {
-                defer value.unref();
-
-                // just to be sure
-                if (value.isOfType(s_variant_type) == 0) continue;
-
-                var len: usize = undefined;
-                const buf = value.getString(&len);
-                const str = buf[0..len];
-
-                log.debug("new-window argument: {d} {s}", .{ i, str });
-
-                if (e_seen) {
-                    const duplicated = alloc.dupeZ(u8, str) catch |err| {
-                        log.warn("unable to duplicate argument {d} {s}: {t}", .{ i, str, err });
-                        break :overrides;
-                    };
-                    args.append(alloc, duplicated) catch |err| {
-                        log.warn("unable to append argument {d} {s}: {t}", .{ i, str, err });
-                        break :overrides;
-                    };
-                    continue;
-                }
-
-                if (std.mem.eql(u8, str, "-e")) {
-                    e_seen = true;
-                    continue;
-                }
-
-                if (lib.cutPrefix(u8, str, "--command=")) |v| {
-                    var cmd: configpkg.Command = undefined;
-                    cmd.parseCLI(alloc, v) catch |err| {
-                        log.warn("unable to parse command: {t}", .{err});
-                        continue;
-                    };
-                    command = cmd;
-                    continue;
-                }
-                if (lib.cutPrefix(u8, str, "--working-directory=")) |v| {
-                    working_directory = alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| wd: {
-                        log.warn("unable to duplicate working directory: {t}", .{err});
-                        break :wd null;
-                    };
-                    continue;
-                }
-                if (lib.cutPrefix(u8, str, "--title=")) |v| {
-                    title = alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| t: {
-                        log.warn("unable to duplicate title: {t}", .{err});
-                        break :t null;
-                    };
-                    continue;
-                }
-            }
-        }
-
-        if (args.items.len > 0) {
-            command = .{
-                .direct = args.items,
-            };
-        }
-
-        Action.newWindow(self, null, .{
-            .command = command,
-            .working_directory = working_directory,
-            .title = title,
-        }) catch |err| {
+        Action.newWindow(
+            self,
+            null,
+            if (overrides) |o| .{
+                .command = o.command,
+                .shell_integration = o.shell_integration,
+                .working_directory = o.working_directory,
+                .title = o.title,
+            } else .none,
+        ) catch |err| {
             log.warn("unable to create new window: {t}", .{err});
         };
     }
 
-    pub fn actionOpenConfig(
+    /// Handle `app.new-tab` GTK action
+    pub fn actionNewTab(
         _: *gio.SimpleAction,
-        _: ?*glib.Variant,
+        parameter_: ?*glib.Variant,
         self: *Self,
     ) callconv(.c) void {
-        _ = self.core().mailbox.push(.open_config, .forever);
+        log.debug("received new tab action", .{});
+
+        const core_app = self.core();
+
+        var arena: std.heap.ArenaAllocator = .init(core_app.alloc);
+        defer arena.deinit();
+
+        const alloc = arena.allocator();
+
+        const surface_id_, const overrides = result: {
+            // were we given a parameter?
+            const parameter = parameter_ orelse {
+                log.warn("app.new-tab did not receive a parameter", .{});
+                return;
+            };
+
+            log.warn("got parameter: {s}", .{parameter.getTypeString()});
+
+            const tas_variant_type = glib.VariantType.new("(tas)");
+            defer tas_variant_type.free();
+
+            // ensure that the supplied parameter is an array of strings
+            if (glib.Variant.isOfType(parameter, tas_variant_type) == 0) {
+                log.warn("parameter is of type '{s}', not '{s}'", .{
+                    parameter.getTypeString(),
+                    tas_variant_type.peekString()[0..tas_variant_type.getStringLength()],
+                });
+                return;
+            }
+
+            var surface_id: u64 = 0;
+            var arguments_it_: ?*glib.VariantIter = null;
+            defer if (arguments_it_) |arguments_it| arguments_it.free();
+
+            parameter.get("(tas)", &surface_id, &arguments_it_);
+
+            const arguments_it = arguments_it_ orelse return;
+
+            const overrides = Overrides.parse(alloc, arguments_it) catch return;
+
+            break :result .{ if (surface_id == 0) null else surface_id, overrides };
+        };
+
+        const surface_ = surface: {
+            if (surface_id_) |surface_id| find_by_id: {
+                break :surface core_app.findSurfaceByID(surface_id) orelse {
+                    log.warn("new-tab: unable to find surface 0x{x:0>16}", .{surface_id});
+                    break :find_by_id;
+                };
+            }
+            find_focused: {
+                break :surface core_app.focusedSurface() orelse {
+                    log.warn("new-tab: unable to find surface", .{});
+                    break :find_focused;
+                };
+            }
+            break :surface null;
+        };
+
+        if (surface_) |surface| {
+            if (!Action.newTab(
+                .{
+                    .surface = surface,
+                },
+                .{
+                    .command = overrides.command,
+                    .shell_integration = overrides.shell_integration,
+                    .working_directory = overrides.working_directory,
+                    .title = overrides.title,
+                },
+            )) {
+                log.warn("new-tab: unable to create tab", .{});
+            }
+        } else {
+            Action.newWindow(
+                self,
+                null,
+                .{
+                    .command = overrides.command,
+                    .shell_integration = overrides.shell_integration,
+                    .working_directory = overrides.working_directory,
+                    .title = overrides.title,
+                },
+            ) catch |err| {
+                log.warn("new-tab: unable to create new window: {t}", .{err});
+            };
+        }
+    }
+
+    pub fn actionOpenConfig(
+        _: *gio.SimpleAction,
+        parameter_: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const target: CoreApp.Message.OpenConfig = target: {
+            const target_map: std.StaticStringMap(CoreApp.Message.OpenConfig) = .initComptime(&.{
+                .{ "os-open", .os_open },
+                .{ "new-window", .new_window },
+            });
+
+            const parameter = parameter_ orelse {
+                log.warn("no parameter provided to app.open-config action", .{});
+                break :target .os_open;
+            };
+
+            const s_variant_type = glib.ext.VariantType.newFor([:0]const u8);
+            defer s_variant_type.free();
+
+            if (parameter.isOfType(s_variant_type) == 0) {
+                log.warn("parameter to app.open-config action is of type '{s}' not '{s}'", .{
+                    parameter.getTypeString(),
+                    s_variant_type.peekString()[0..s_variant_type.getStringLength()],
+                });
+                break :target .os_open;
+            }
+
+            var len: usize = undefined;
+            const buf = parameter.getString(&len);
+            const str = buf[0..len];
+
+            break :target target_map.get(str) orelse {
+                log.warn("'{s}' is not configured as a target for the app.open-config action", .{str});
+                break :target .os_open;
+            };
+        };
+
+        _ = self.core().mailbox.push(global.io(), .{ .open_config = target }, .forever);
     }
 
     fn actionPresentSurface(
@@ -1839,6 +1992,7 @@ pub const Application = extern struct {
         const surface = self.core().findSurfaceByID(surface_id) orelse return;
 
         _ = self.core().mailbox.push(
+            global.io(),
             .{
                 .surface_message = .{
                     .surface = surface,
@@ -1847,6 +2001,40 @@ pub const Application = extern struct {
             },
             .forever,
         );
+    }
+
+    pub fn actionRingBell(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv: *Private = self.private();
+        const config = priv.config.get();
+
+        // Do our sound
+        if (config.@"bell-features".audio) audio: {
+            const config_path = config.@"bell-audio-path" orelse break :audio;
+            const path, const required = switch (config_path) {
+                .optional => |path| .{ path, false },
+                .required => |path| .{ path, true },
+            };
+
+            const volume = std.math.clamp(
+                config.@"bell-audio-volume",
+                0.0,
+                1.0,
+            );
+
+            // Reuse one MediaFile per application (rebuilt only when the path
+            // changes) so each bell replays the same pipeline instead of
+            // leaking a fresh one. Assign unconditionally: bellMediaFile frees
+            // any stale MediaFile and returns the current slot value (possibly
+            // null if the path is now inaccessible), so priv.bell_media never
+            // dangles.
+            priv.bell_media = media.bellMediaFile(priv.bell_media, path, required);
+            const media_file = priv.bell_media orelse break :audio;
+            media.playBell(media_file, volume);
+        }
     }
 
     //----------------------------------------------------------------
@@ -1866,11 +2054,8 @@ pub const Application = extern struct {
         fn init(class: *Class) callconv(.c) void {
             // Register our compiled resources exactly once.
             {
-                const c = @cImport({
-                    // generated header files
-                    @cInclude("ghostty_resources.h");
-                });
-                if (c.ghostty_get_resource()) |ptr| {
+                const ghostty_gtk_resources = @import("ghostty_gtk_resources");
+                if (ghostty_gtk_resources.ghostty_get_resource()) |ptr| {
                     gio.resourcesRegister(@ptrCast(@alignCast(ptr)));
                 } else {
                     // If we fail to load resources then things will
@@ -1894,11 +2079,11 @@ pub const Application = extern struct {
     };
 
     pub fn openUrlFallback(self: *Application, kind: apprt.action.OpenUrl.Kind, url: []const u8) void {
+        _ = self;
         // Fallback to the minimal cross-platform way of opening a URL.
         // This is always a safe fallback and enables for example Windows
         // to open URLs (GTK on Windows via WSL is a thing).
         internal_os.open(
-            self.allocator(),
             kind,
             url,
         ) catch |err| log.warn("unable to open url: {}", .{err});
@@ -1937,6 +2122,98 @@ const Action = struct {
             .surface => |v| v.rt_surface.gobj().copyTitleToClipboard(),
         };
     }
+
+    pub fn exportTerminalIO(
+        self: *Application,
+        target: apprt.Target,
+        value: apprt.Action.Value(.export_terminal_io),
+    ) Allocator.Error!bool {
+        const surface = switch (target) {
+            .app => return false,
+            .surface => |v| v.rt_surface.gobj(),
+        };
+
+        const alloc = self.allocator();
+        const contents = try alloc.dupe(u8, value.contents);
+        errdefer alloc.free(contents);
+        const request = try alloc.create(ExportTerminalIORequest);
+        errdefer alloc.destroy(request);
+        request.* = .{
+            .alloc = alloc,
+            .contents = contents,
+        };
+
+        const parent = ext.getAncestor(gtk.Window, surface.as(gtk.Widget));
+        const dialog = gtk.FileChooserNative.new(
+            i18n._("Export Terminal IO Events"),
+            parent,
+            .save,
+            i18n._("Export"),
+            i18n._("Cancel"),
+        );
+        const chooser = dialog.as(gtk.FileChooser);
+        chooser.setCreateFolders(1);
+        chooser.setCurrentName("ghostty-terminal-io.txt");
+
+        _ = gtk.NativeDialog.signals.response.connect(
+            dialog,
+            *ExportTerminalIORequest,
+            ExportTerminalIORequest.response,
+            request,
+            .{ .destroyData = ExportTerminalIORequest.destroy },
+        );
+        dialog.as(gtk.NativeDialog).show();
+        return true;
+    }
+
+    const ExportTerminalIORequest = struct {
+        alloc: Allocator,
+        contents: []u8,
+
+        fn destroy(self: *ExportTerminalIORequest) callconv(.c) void {
+            self.alloc.free(self.contents);
+            self.alloc.destroy(self);
+        }
+
+        fn response(
+            dialog: *gtk.FileChooserNative,
+            response_id: c_int,
+            self: *ExportTerminalIORequest,
+        ) callconv(.c) void {
+            defer dialog.unref();
+
+            if (response_id != @backingInt(gtk.ResponseType.accept)) return;
+
+            const file = dialog.as(gtk.FileChooser).getFile() orelse {
+                log.warn("inspector export dialog returned no file", .{});
+                return;
+            };
+            defer file.unref();
+
+            var gerr: ?*glib.Error = null;
+            const replaced = file.replaceContents(
+                self.contents.ptr,
+                self.contents.len,
+                null,
+                0,
+                .{},
+                null,
+                null,
+                &gerr,
+            );
+            if (gerr) |err| {
+                defer err.free();
+                log.err(
+                    "failed to export terminal IO events err={s}",
+                    .{err.f_message orelse "(unknown)"},
+                );
+                return;
+            }
+            if (replaced == 0) {
+                log.err("failed to export terminal IO events", .{});
+            }
+        }
+    };
 
     pub fn configChange(
         self: *Application,
@@ -2057,7 +2334,7 @@ const Action = struct {
                     .previous => .previous,
                     .next => .next,
                     .last => .last,
-                    else => .{ .n = @intCast(@intFromEnum(tab)) },
+                    else => .{ .n = @intCast(@backingInt(tab)) },
                 });
             },
         }
@@ -2202,6 +2479,26 @@ const Action = struct {
         }
     }
 
+    pub fn moveTabToNewWindow(
+        target: apprt.Target,
+    ) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring new_tab_to_new_window", .{});
+                    return false;
+                };
+
+                return window.moveTabToNewWindow(surface);
+            },
+        }
+    }
+
     pub fn newSplit(
         target: apprt.Target,
         direction: apprt.action.SplitDirection,
@@ -2224,7 +2521,7 @@ const Action = struct {
         }
     }
 
-    pub fn newTab(target: apprt.Target) bool {
+    pub fn newTab(target: apprt.Target, overrides: Overrides) bool {
         switch (target) {
             .app => {
                 log.warn("new tab to app is unexpected", .{});
@@ -2243,23 +2540,18 @@ const Action = struct {
                     log.warn("surface is not in a window, ignoring new_tab", .{});
                     return false;
                 };
-                window.newTab(core);
+                window.newTab(core, .{
+                    .command = overrides.command,
+                    .shell_integration = overrides.shell_integration,
+                    .working_directory = overrides.working_directory,
+                    .title = overrides.title,
+                });
                 return true;
             },
         }
     }
 
-    pub fn newWindow(
-        self: *Application,
-        parent: ?*CoreSurface,
-        overrides: struct {
-            command: ?configpkg.Command = null,
-            working_directory: ?[:0]const u8 = null,
-            title: ?[:0]const u8 = null,
-
-            pub const none: @This() = .{};
-        },
-    ) !void {
+    pub fn newWindow(self: *Application, parent: ?*CoreSurface, overrides: Overrides) !void {
         // Note that we've requested a window at least once. This is used
         // to trigger quit on no windows. Note I'm not sure if this is REALLY
         // necessary, but I don't want to risk a bug where on a slow machine
@@ -2276,6 +2568,7 @@ const Action = struct {
             parent,
             .{
                 .command = overrides.command,
+                .shell_integration = overrides.shell_integration,
                 .working_directory = overrides.working_directory,
                 .title = overrides.title,
             },
@@ -2286,13 +2579,7 @@ const Action = struct {
         self: *Application,
         win: *Window,
         parent: ?*CoreSurface,
-        overrides: struct {
-            command: ?configpkg.Command = null,
-            working_directory: ?[:0]const u8 = null,
-            title: ?[:0]const u8 = null,
-
-            pub const none: @This() = .{};
-        },
+        overrides: Overrides,
     ) void {
         // Setup a binding so that whenever our config changes so does the
         // window. There's never a time when the window config should be out
@@ -2308,6 +2595,7 @@ const Action = struct {
         // Create a new tab with window context (first tab in new window)
         win.newTabForWindow(parent, .{
             .command = overrides.command,
+            .shell_integration = overrides.shell_integration,
             .working_directory = overrides.working_directory,
             .title = overrides.title,
         });
@@ -2328,18 +2616,56 @@ const Action = struct {
         gtk.Window.present(win.as(gtk.Window));
     }
 
-    pub fn openConfig(self: *Application) bool {
-        // Get the config file path
+    pub fn openConfig(self: *Application, value: apprt.action.OpenConfig) bool {
         const alloc = self.allocator();
+
+        // Get the config file path
         const path = configpkg.edit.openPath(alloc) catch |err| {
-            log.warn("error getting config file path: {}", .{err});
+            log.warn("error getting config file path: {t}", .{err});
             return false;
         };
         defer alloc.free(path);
 
-        // Open it using openURL. "path" isn't actually a URL but
-        // at the time of writing that works just fine for GTK.
-        openUrl(self, .{ .kind = .text, .url = path });
+        switch (value) {
+            .os_open => {
+                // Open it using openUrl. "path" isn't actually a URL but
+                // at the time of writing that works just fine for GTK.
+                openUrl(self, .{ .kind = .text, .url = path });
+            },
+
+            .new_window => {
+                const cmd = internal_os.getConfigEditCommand(alloc, path, .default) catch |err| {
+                    log.warn("unable to get command to edit the config: {t}", .{err});
+                    return false;
+                };
+                defer alloc.free(cmd);
+
+                const command: configpkg.Command = .{
+                    .direct = &.{ "/bin/sh", "-c", cmd },
+                };
+
+                const title = alloc.printSentinel(
+                    "{s} {s}",
+                    .{ i18n._("Editing configuration file"), path },
+                    0,
+                ) catch |err| t: {
+                    log.warn("unable to format title: {t}", .{err});
+                    break :t null;
+                };
+                defer if (title) |t| alloc.free(t);
+
+                Action.newWindow(self, null, .{
+                    .command = command,
+                    .title = title,
+                    .shell_integration = null,
+                    .working_directory = null,
+                }) catch |err| {
+                    log.warn("unable to create new window: {t}", .{err});
+                    return false;
+                };
+            },
+        }
+
         return true;
     }
 
@@ -2434,6 +2760,23 @@ const Action = struct {
                     },
                 }
             },
+            .window => {
+                switch (target) {
+                    .app => return false,
+                    .surface => |v| {
+                        const surface = v.rt_surface.surface;
+                        const win = ext.getAncestor(
+                            Window,
+                            surface.as(gtk.Widget),
+                        ) orelse {
+                            log.warn("surface is not in a window, ignoring prompt_window_title", .{});
+                            return false;
+                        };
+                        win.promptWindowTitle();
+                        return true;
+                    },
+                }
+            },
         }
     }
 
@@ -2444,11 +2787,13 @@ const Action = struct {
         target: apprt.Target,
         opts: apprt.action.ReloadConfig,
     ) !void {
-        // Tell systemd that reloading has started.
-        systemd.notify.reloading();
+        // Tell systemd that reloading has started, but only once startup
+        // is complete. A reload during startup is not a reload to systemd.
+        const notify_systemd = self.private().systemd_ready;
+        if (notify_systemd) systemd.notify.reloading();
 
         // When we exit this function tell systemd that reloading has finished.
-        defer systemd.notify.ready();
+        defer if (notify_systemd) systemd.notify.ready();
 
         // Get our config object.
         const config: *Config = config: {
@@ -2522,6 +2867,30 @@ const Action = struct {
                         return false;
                     },
                 };
+            },
+        }
+    }
+
+    pub fn resizeWindow(
+        target: apprt.Target,
+        value: apprt.action.ResizeWindow,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("resize_window to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring resize_window", .{});
+                    return false;
+                };
+
+                return window.resizeSurface(surface, value);
             },
         }
     }
@@ -2605,6 +2974,30 @@ const Action = struct {
         }
     }
 
+    pub fn setWindowTitle(
+        target: apprt.Target,
+        value: apprt.action.SetTitle,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("set_tab_title to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring set_window_title", .{});
+                    return false;
+                };
+                window.setTitleOverride(if (value.title.len == 0) null else value.title);
+                return true;
+            },
+        }
+    }
+
     pub fn showChildExited(
         target: apprt.Target,
         value: apprt.surface.Message.ChildExited,
@@ -2634,6 +3027,19 @@ const Action = struct {
                     .height = value.min_height,
                 });
 
+                return true;
+            },
+        }
+    }
+
+    pub fn cellSize(
+        target: apprt.Target,
+        value: apprt.action.CellSize,
+    ) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                core.rt_surface.surface.setCellSize(value.width, value.height);
                 return true;
             },
         }
@@ -2846,108 +3252,62 @@ const Action = struct {
 /// given the runtime environment or configuration.
 ///
 /// This must be called BEFORE GTK initialization.
-fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
+fn setGtkEnv(config: *const CoreConfig) std.Io.Writer.Error!void {
     assert(gtk.isInitialized() == 0);
 
-    var gdk_debug: struct {
-        /// output OpenGL debug information
+    const gdk_debug: struct {
+        /// Output OpenGL debug information,
+        /// `gtk-opengl-debug` dumps logs directly to stderr so both must be true
+        /// to enable OpenGL debugging.
         opengl: bool = false,
-        /// disable GLES, Ghostty can't use GLES
-        @"gl-disable-gles": bool = false,
-        // GTK's new renderer can cause blurry font when using fractional scaling.
-        @"gl-no-fractional": bool = false,
-        /// Disabling Vulkan can improve startup times by hundreds of
-        /// milliseconds on some systems. We don't use Vulkan so we can just
-        /// disable it.
-        @"vulkan-disable": bool = false,
     } = .{
-        // `gtk-opengl-debug` dumps logs directly to stderr so both must be true
-        // to enable OpenGL debugging.
-        .opengl = state.logging.stderr and config.@"gtk-opengl-debug",
+        .opengl = global.logging().stderr and config.@"gtk-opengl-debug",
     };
 
-    var gdk_disable: struct {
-        @"gles-api": bool = false,
-        /// current gtk implementation for color management is not good enough.
-        /// see: https://bugs.kde.org/show_bug.cgi?id=495647
-        /// gtk issue: https://gitlab.gnome.org/GNOME/gtk/-/issues/6864
-        @"color-mgmt": bool = true,
-        /// Disabling Vulkan can improve startup times by hundreds of
-        /// milliseconds on some systems. We don't use Vulkan so we can just
-        /// disable it.
-        vulkan: bool = false,
+    const gdk_disable: struct {
+        // Even though we don't use GTK's GL context anymore, there can still
+        // occasionally be conflicts when Vulkan and OpenGL are used together.
+        // Disabling Vulkan also saves hundreds of milliseconds of initialization
+        // time on certain systems.
+        vulkan: bool = true,
     } = .{};
 
-    environment: {
-        if (gtk_version.runtimeAtLeast(4, 18, 0)) {
-            gdk_disable.@"color-mgmt" = false;
-        }
-
-        if (gtk_version.runtimeAtLeast(4, 16, 0)) {
-            // From gtk 4.16, GDK_DEBUG is split into GDK_DEBUG and GDK_DISABLE.
-            // For the remainder of "why" see the 4.14 comment below.
-            gdk_disable.@"gles-api" = true;
-            gdk_disable.vulkan = true;
-            break :environment;
-        }
-        if (gtk_version.runtimeAtLeast(4, 14, 0)) {
-            // We need to export GDK_DEBUG to run on Wayland after GTK 4.14.
-            // Older versions of GTK do not support these values so it is safe
-            // to always set this. Forwards versions are uncertain so we'll have
-            // to reassess...
-            //
-            // Upstream issue: https://gitlab.gnome.org/GNOME/gtk/-/issues/6589
-            gdk_debug.@"gl-disable-gles" = true;
-            gdk_debug.@"vulkan-disable" = true;
-
-            if (gtk_version.runtimeUntil(4, 17, 5)) {
-                // Removed at GTK v4.17.5
-                gdk_debug.@"gl-no-fractional" = true;
-            }
-            break :environment;
-        }
-
-        // Versions prior to 4.14 are a bit of an unknown for Ghostty. It
-        // is an environment that isn't tested well and we don't have a
-        // good understanding of what we may need to do.
-        gdk_debug.@"vulkan-disable" = true;
-    }
-
     {
         var buf: [1024]u8 = undefined;
-        var fmt = std.io.fixedBufferStream(&buf);
-        const writer = fmt.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
         var first: bool = true;
-        inline for (@typeInfo(@TypeOf(gdk_debug)).@"struct".fields) |field| {
-            if (@field(gdk_debug, field.name)) {
+        inline for (@typeInfo(@TypeOf(gdk_debug)).@"struct".field_names) |field| {
+            if (@field(gdk_debug, field)) {
                 if (!first) try writer.writeAll(",");
-                try writer.writeAll(field.name);
+                try writer.writeAll(field);
                 first = false;
             }
         }
         try writer.writeByte(0);
-        const value = fmt.getWritten();
+        const value = writer.buffered();
         log.warn("setting GDK_DEBUG={s}", .{value[0 .. value.len - 1]});
-        _ = internal_os.setenv("GDK_DEBUG", value[0 .. value.len - 1 :0]);
+        _ = setenv("GDK_DEBUG", @ptrCast(value[0 .. value.len - 1 :0]), 1);
     }
 
     {
         var buf: [1024]u8 = undefined;
-        var fmt = std.io.fixedBufferStream(&buf);
-        const writer = fmt.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
         var first: bool = true;
-        inline for (@typeInfo(@TypeOf(gdk_disable)).@"struct".fields) |field| {
-            if (@field(gdk_disable, field.name)) {
+        inline for (@typeInfo(@TypeOf(gdk_disable)).@"struct".field_names) |field| {
+            if (@field(gdk_disable, field)) {
                 if (!first) try writer.writeAll(",");
-                try writer.writeAll(field.name);
+                try writer.writeAll(field);
                 first = false;
             }
         }
         try writer.writeByte(0);
-        const value = fmt.getWritten();
+        const value = writer.buffered();
         log.warn("setting GDK_DISABLE={s}", .{value[0 .. value.len - 1]});
-        _ = internal_os.setenv("GDK_DISABLE", value[0 .. value.len - 1 :0]);
+        _ = setenv("GDK_DISABLE", @ptrCast(value[0 .. value.len - 1 :0]), 1);
     }
+
+    // Sync environ after altering system env
+    global.syncEnviron();
 }
 
 fn findActiveWindow(data: ?*const anyopaque, _: ?*const anyopaque) callconv(.c) c_int {

@@ -26,7 +26,7 @@ pub const Face = switch (options.backend) {
 /// If a DPI can't be calculated, this DPI is used. This is probably
 /// wrong on modern devices so it is highly recommended you get the DPI
 /// using whatever platform method you can.
-pub const default_dpi = if (builtin.os.tag == .macos) 72 else 96;
+pub const default_dpi = if (builtin.target.os.tag == .macos) 72 else 96;
 
 /// These are the flags to customize how freetype loads fonts. This is
 /// only non-void if the freetype backend is enabled.

@@ -45,7 +45,6 @@ struct AboutView: View {
 
     private var copyright: String? { Bundle.main.infoDictionary?["NSHumanReadableCopyright"] as? String }
 
-    #if os(macOS)
     // This creates a background style similar to the Apple "About My Mac" Window
     private struct VisualEffectBackground: NSViewRepresentable {
         let material: NSVisualEffectView.Material
@@ -72,7 +71,6 @@ struct AboutView: View {
             return visualEffect
         }
     }
-    #endif
 
     var body: some View {
         VStack(alignment: .center) {
@@ -141,9 +139,7 @@ struct AboutView: View {
         .padding(.top, 8)
         .padding(32)
         .frame(minWidth: 256)
-        #if os(macOS)
         .background(VisualEffectBackground(material: .underWindowBackground).ignoresSafeArea())
-        #endif
     }
 
     private struct PropertyRow: View {

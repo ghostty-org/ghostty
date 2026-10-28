@@ -254,6 +254,68 @@ struct SplitTreeTests {
         }
     }
 
+    // MARK: - Zooming
+
+    @Test func nonSplitTreeCannotBeZoomed() {
+        let view = MockView()
+        let tree = SplitTree<MockView>(root: .leaf(view: view), zoomed: .leaf(view: view))
+        #expect(tree.zoomed == nil)
+        #expect(!tree.isZoomed)
+    }
+
+    @Test func zoomedNodeMustExistInTree() throws {
+        let (tree, _, _) = try makeHorizontalSplit()
+        let outsideView = MockView()
+        let treeWithZoomed = SplitTree<MockView>(root: tree.root, zoomed: .leaf(view: outsideView))
+        #expect(treeWithZoomed.zoomed == nil)
+        #expect(!treeWithZoomed.isZoomed)
+    }
+
+    @Test func removingSiblingClearsZoomWhenNoLongerSplit() throws {
+        let (tree, view1, view2) = try makeHorizontalSplit()
+        let treeWithZoomed = SplitTree<MockView>(root: tree.root, zoomed: .leaf(view: view2))
+        #expect(treeWithZoomed.zoomed != nil)
+        #expect(treeWithZoomed.isZoomed)
+
+        let remaining = treeWithZoomed.removing(.leaf(view: view1))
+        #expect(!remaining.isSplit)
+        #expect(remaining.zoomed == nil)
+        #expect(!remaining.isZoomed)
+    }
+
+    @Test func removingZoomedNodeClearsZoom() throws {
+        let (tree, view1, view2) = try makeHorizontalSplit()
+        let treeWithZoomed = SplitTree<MockView>(root: tree.root, zoomed: .leaf(view: view2))
+        let remaining = treeWithZoomed.removing(.leaf(view: view2))
+        #expect(remaining.zoomed == nil)
+        #expect(!remaining.isZoomed)
+    }
+
+    @Test func removingSiblingPreservesZoomIfStillSplit() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        let view3 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        tree = try tree.inserting(view: view3, at: view2, direction: .right)
+
+        let treeWithZoomed = SplitTree<MockView>(root: tree.root, zoomed: .leaf(view: view2))
+        #expect(treeWithZoomed.zoomed != nil)
+        #expect(treeWithZoomed.isZoomed)
+
+        // Removing view1 leaves view2 and view3, which is still split
+        let remaining = treeWithZoomed.removing(.leaf(view: view1))
+        #expect(remaining.isSplit)
+        #expect(remaining.zoomed != nil)
+        #expect(remaining.isZoomed)
+
+        // Removing view3 leaves only view2, so it's no longer split
+        let finalTree = remaining.removing(.leaf(view: view3))
+        #expect(!finalTree.isSplit)
+        #expect(finalTree.zoomed == nil)
+        #expect(!finalTree.isZoomed)
+    }
+
     // MARK: - Collection Conformance
 
     @Test func treeIteratesLeavesInOrder() throws {

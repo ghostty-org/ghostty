@@ -26,6 +26,21 @@ struct MenuShortcutManagerTests {
         #expect(item.keyEquivalentModifierMask == .command)
     }
 
+    @MainActor @Test func physicalBackquoteUsesCurrentKeyboardLayout() throws {
+        let config = try TemporaryConfig("keybind=super+backquote=toggle_quick_terminal")
+        let expected = try #require(KeyboardLayout.character(for: 0x32, modifiers: .command))
+        let item = NSMenuItem(title: "Quick Terminal", action: nil, keyEquivalent: "")
+        let manager = Ghostty.MenuShortcutManager()
+
+        manager.reset()
+        manager.syncMenuShortcut(config, action: "toggle_quick_terminal", menuItem: item)
+
+        #expect(item.keyEquivalent == String(expected))
+        #expect(item.keyEquivalentModifierMask == .command)
+        #expect(!item.allowsAutomaticKeyEquivalentLocalization)
+        #expect(!item.allowsAutomaticKeyEquivalentMirroring)
+    }
+
     @Test(.bug("https://github.com/ghostty-org/ghostty/issues/11396", id: 11396))
     func overrideDefault() async throws {
         let config = try TemporaryConfig("keybind=super+h=goto_split:left")

@@ -89,7 +89,8 @@ pub const SurfaceScrolledWindow = extern struct {
         const priv = self.private();
 
         if (priv.config_binding) |binding| {
-            binding.as(gobject.Object).unref();
+            binding.unbind();
+            binding.unref();
             priv.config_binding = null;
         }
 
@@ -157,6 +158,17 @@ pub const SurfaceScrolledWindow = extern struct {
         };
     }
 
+    /// Update our size request to match the smallest size our surface
+    /// can be resized to within a split.
+    pub fn syncSplitMinSize(self: *Self) void {
+        const surface = self.private().surface orelse return;
+        const size = surface.getSplitMinSize();
+        self.as(gtk.Widget).setSizeRequest(
+            @intCast(size.width),
+            @intCast(size.height),
+        );
+    }
+
     fn propSurface(
         self: *Self,
         _: *gobject.ParamSpec,
@@ -165,21 +177,27 @@ pub const SurfaceScrolledWindow = extern struct {
         const priv = self.private();
         const scrolled_window = self.private().scrolled_window.as(gtk.ScrolledWindow);
         scrolled_window.setChild(if (priv.surface) |s| s.as(gtk.Widget) else null);
+        self.syncSplitMinSize();
 
         // Unbind old config binding if it exists
         if (priv.config_binding) |binding| {
-            binding.as(gobject.Object).unref();
+            binding.unbind();
+            binding.unref();
             priv.config_binding = null;
         }
 
         // Bind config from surface to our config property
         if (priv.surface) |surface| {
-            priv.config_binding = surface.as(gobject.Object).bindProperty(
+            const binding = surface.as(gobject.Object).bindProperty(
                 properties.config.name,
                 self.as(gobject.Object),
                 properties.config.name,
                 .{ .sync_create = true },
             );
+            // Keep another ref, otherwise the binding would be freed and
+            // our pointer become stale if the surface gets finalized.
+            binding.ref();
+            priv.config_binding = binding;
         }
     }
 
@@ -199,7 +217,7 @@ pub const SurfaceScrolledWindow = extern struct {
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
                     .major = 1,
-                    .minor = 5,
+                    .minor = 0,
                     .name = "surface-scrolled-window",
                 }),
             );

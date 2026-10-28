@@ -1,24 +1,20 @@
 const std = @import("std");
 const ghostty_vt = @import("ghostty-vt");
 
-pub fn main() !void {
-    var gpa: std.heap.DebugAllocator(.{}) = .init;
-    defer _ = gpa.deinit();
-    const alloc = gpa.allocator();
-
+pub fn main(init: std.process.Init) !void {
     // Create a terminal
-    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = 150, .rows = 80 });
-    defer t.deinit(alloc);
+    var t: ghostty_vt.Terminal = try .init(init.io, init.gpa, .{ .cols = 150, .rows = 80 });
+    defer t.deinit(init.gpa);
 
     // Create a read-only VT stream for parsing terminal sequences
     var stream = t.vtStream();
     defer stream.deinit();
 
     // Read from stdin
-    const stdin = std.fs.File.stdin();
+    const stdin = std.Io.File.stdin();
     var buf: [4096]u8 = undefined;
     while (true) {
-        const n = try stdin.readAll(&buf);
+        const n = try stdin.readStreaming(init.io, &.{&buf});
         if (n == 0) break;
 
         // Replace \n with \r\n
@@ -35,7 +31,7 @@ pub fn main() !void {
     });
 
     // Write to stdout
-    var stdout_writer = std.fs.File.stdout().writer(&buf);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &buf);
     const stdout = &stdout_writer.interface;
     try stdout.print("{f}", .{formatter});
     try stdout.flush();

@@ -1,6 +1,61 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const apple_sdk = @import("apple_sdk");
+const translate_c = @import("translate_c");
+
+const Framework = struct {
+    const Tag = enum { all, macos };
+
+    tag: Tag,
+    name: []const u8,
+    headers: []const []const u8,
+};
+
+const frameworks = [_]Framework{
+    .{ .tag = .all, .name = "CoreFoundation", .headers = &.{"CoreFoundation.h"} },
+    .{ .tag = .all, .name = "CoreGraphics", .headers = &.{"CoreGraphics.h"} },
+    .{ .tag = .all, .name = "CoreText", .headers = &.{"CoreText.h"} },
+    .{ .tag = .all, .name = "CoreVideo", .headers = &.{ "CoreVideo.h", "CVPixelBuffer.h" } },
+    .{ .tag = .all, .name = "QuartzCore", .headers = &.{"CALayer.h"} },
+    .{ .tag = .all, .name = "IOSurface", .headers = &.{"IOSurfaceRef.h"} },
+    .{ .tag = .macos, .name = "Carbon", .headers = &.{"Carbon.h"} },
+};
+
+const extra_headers = [_][]const u8{
+    "dispatch/dispatch.h",
+    "os/log.h",
+    "os/signpost.h",
+};
+
+fn includeFiles(b: *std.Build, tag: Framework.Tag) ![]translate_c.Options.IncludeFile {
+    var len: usize = 0;
+    for (frameworks) |framework| {
+        if (tag != .macos and framework.tag == .macos) continue;
+        len += framework.headers.len;
+    }
+    len += extra_headers.len;
+    var includes_builder: std.ArrayList(translate_c.Options.IncludeFile) =
+        try .initCapacity(b.allocator, len);
+
+    for (frameworks) |framework| {
+        if (tag != .macos and framework.tag == .macos) continue;
+        for (framework.headers) |h| {
+            const path = try b.allocator.print("{s}/{s}", .{ framework.name, h });
+            includes_builder.appendAssumeCapacity(.{ .path = path });
+        }
+    }
+
+    for (extra_headers) |h| includes_builder.appendAssumeCapacity(.{ .path = h });
+
+    return includes_builder.items;
+}
+
+fn linkFrameworks(tag: Framework.Tag, module: *std.Build.Module) !void {
+    for (frameworks) |framework| {
+        if (tag != .macos and framework.tag == .macos) continue;
+        module.linkFramework(framework.name, .{});
+    }
+}
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -8,6 +63,15 @@ pub fn build(b: *std.Build) !void {
 
     const module = b.addModule("macos", .{
         .root_source_file = b.path("main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    try translate_c.addImportToModule(b, "macos_c", module, .{
+        .source = .{ .includes = .{ .files = try includeFiles(
+            b,
+            if (target.result.os.tag == .macos) .macos else .all,
+        ) } },
         .target = target,
         .optimize = optimize,
     });
@@ -21,34 +85,18 @@ pub fn build(b: *std.Build) !void {
         .linkage = .static,
     });
 
-    lib.addCSourceFile(.{
+    lib.root_module.addCSourceFile(.{
         .file = b.path("os/zig_macos.c"),
         .flags = &.{"-std=c99"},
     });
-    lib.addCSourceFile(.{
+    lib.root_module.addCSourceFile(.{
         .file = b.path("text/ext.c"),
     });
-    lib.linkFramework("CoreFoundation");
-    lib.linkFramework("CoreGraphics");
-    lib.linkFramework("CoreText");
-    lib.linkFramework("CoreVideo");
-    lib.linkFramework("QuartzCore");
-    lib.linkFramework("IOSurface");
-    if (target.result.os.tag == .macos) {
-        lib.linkFramework("Carbon");
-        module.linkFramework("Carbon", .{});
-    }
 
-    if (target.result.os.tag.isDarwin()) {
-        module.linkFramework("CoreFoundation", .{});
-        module.linkFramework("CoreGraphics", .{});
-        module.linkFramework("CoreText", .{});
-        module.linkFramework("CoreVideo", .{});
-        module.linkFramework("QuartzCore", .{});
-        module.linkFramework("IOSurface", .{});
-
-        try apple_sdk.addPaths(b, lib);
+    inline for (.{ lib.root_module, module }) |mod| {
+        try linkFrameworks(if (target.result.os.tag == .macos) .macos else .all, mod);
     }
+    try apple_sdk.addPaths(b, lib);
     b.installArtifact(lib);
 
     {
@@ -63,7 +111,7 @@ pub fn build(b: *std.Build) !void {
         if (target.result.os.tag.isDarwin()) {
             try apple_sdk.addPaths(b, test_exe);
         }
-        test_exe.linkLibrary(lib);
+        test_exe.root_module.linkLibrary(lib);
 
         var it = module.import_table.iterator();
         while (it.next()) |entry| {

@@ -29,12 +29,12 @@ pub const ButtonState = enum(c_int) {
 pub const Button = enum(c_int) {
     const Self = @This();
 
-    /// The maximum value in this enum. This can be used to create a densely
-    /// packed array, for example.
+    /// The maximum value in this enum. Since the values start at zero, a
+    /// densely packed array indexed by this enum needs `max + 1` elements.
     pub const max = max: {
         var cur = 0;
-        for (@typeInfo(Self).@"enum".fields) |field| {
-            if (field.value > cur) cur = field.value;
+        for (@typeInfo(Self).@"enum".field_values) |value| {
+            if (value > cur) cur = value;
         }
 
         break :max cur;

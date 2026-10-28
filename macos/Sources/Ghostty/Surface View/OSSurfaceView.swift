@@ -3,7 +3,7 @@ import GhosttyKit
 import SwiftUI
 
 extension Ghostty {
-    class OSSurfaceView: OSView, ObservableObject {
+    class OSSurfaceView: NSView, ObservableObject {
         typealias ID = UUID
 
         /// Unique ID per surface
@@ -117,41 +117,55 @@ extension Ghostty {
 
 extension Ghostty.OSSurfaceView {
     @MainActor class SearchState: ObservableObject {
+
+        /// We should always change needle's text and its selection together
+        struct Needle: Equatable {
+            var text: String
+            var selection: Range<String.Index>?
+
+            static let empty = Needle(text: "", selection: nil)
+        }
+
         /// The pasteboard used to persist the search needle.
         ///
         /// The `.find` pasteboard lets us sync our needle across the system and other find bars.
-        private let pasteboard: OSPasteboard
+        private let pasteboard: NSPasteboard
 
-        @Published var needle: String = ""
+        @Published var needle = Needle.empty
+
         @Published var selected: UInt?
         @Published var total: UInt?
 
-        /// The range of the needle's text selection in the find bar.
-        @Published var needleSelection: Range<String.Index>?
-
         init(
             from startSearch: Ghostty.Action.StartSearch,
-            pasteboard: OSPasteboard = OSPasteboard.find
+            pasteboard: NSPasteboard? = nil
         ) {
-            self.pasteboard = pasteboard
+            self.pasteboard = pasteboard ?? .find
             if let needle = startSearch.needle, !needle.isEmpty {
-                self.needle = needle
+                setNeedle(needle)
                 writePasteboardNeedle()
             } else {
                 readPasteboardNeedle()
             }
         }
 
+        /// Replaces the search needle while keeping its selection valid.
+        func setNeedle(_ needle: String, selectAll: Bool = false) {
+            self.needle = .init(
+                text: needle,
+                selection: selectAll ? needle.startIndex..<needle.endIndex : nil
+            )
+        }
+
         func readPasteboardNeedle() {
             let pasteboardNeedle = pasteboard.string
-            if let pasteboardNeedle, pasteboardNeedle != needle {
-                needle = pasteboardNeedle
-                needleSelection = needle.startIndex..<needle.endIndex
+            if let pasteboardNeedle, pasteboardNeedle != needle.text {
+                setNeedle(pasteboardNeedle, selectAll: true)
             }
         }
 
         func writePasteboardNeedle() {
-            pasteboard.string = needle
+            pasteboard.string = needle.text
         }
     }
 
@@ -159,9 +173,7 @@ extension Ghostty.OSSurfaceView {
         guard let surface = self.surface else { return false }
         let action = "navigate_search:next"
         if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
-#if canImport(AppKit)
             AppDelegate.logger.warning("action failed action=\(action, privacy: .public)")
-#endif
             return false
         }
         return true
@@ -171,9 +183,7 @@ extension Ghostty.OSSurfaceView {
         guard let surface = self.surface else { return false }
         let action = "navigate_search:previous"
         if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
-#if canImport(AppKit)
             AppDelegate.logger.warning("action failed action=\(action, privacy: .public)")
-#endif
             return false
         }
         return true

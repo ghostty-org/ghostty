@@ -432,11 +432,11 @@ inline fn addFloatToInt(int: *u32, float: f64) void {
 
 /// Clamp all metrics to their allowable range.
 fn clamp(self: *Metrics) void {
-    inline for (std.meta.fields(Metrics)) |field| {
-        if (@hasDecl(Minimums, field.name)) {
-            @field(self, field.name) = @max(
-                @field(self, field.name),
-                @field(Minimums, field.name),
+    inline for (@typeInfo(Metrics).@"struct".field_names) |field| {
+        if (@hasDecl(Minimums, field)) {
+            @field(self, field) = @max(
+                @field(self, field),
+                @field(Minimums, field),
             );
         }
     }
@@ -490,7 +490,7 @@ pub const Modifier = union(enum) {
             .percent => |v| {
                 try formatter.formatEntry(
                     []const u8,
-                    std.fmt.bufPrint(
+                    std.mem.print(
                         &buf,
                         "{d}%",
                         .{(v - 1) * 100},
@@ -501,7 +501,7 @@ pub const Modifier = union(enum) {
             .absolute => |v| {
                 try formatter.formatEntry(
                     []const u8,
-                    std.fmt.bufPrint(
+                    std.mem.print(
                         &buf,
                         "{d}",
                         .{v},
@@ -588,24 +588,23 @@ pub const Modifier = union(enum) {
 
 /// Key is an enum of all the available metrics keys.
 pub const Key = key: {
-    const field_infos = std.meta.fields(Metrics);
-    var enumFields: [field_infos.len]std.builtin.Type.EnumField = undefined;
+    const field_names = @typeInfo(Metrics).@"struct".field_names;
+    const field_types = @typeInfo(Metrics).@"struct".field_types;
+    var names: [field_names.len][]const u8 = undefined;
+    var raw_values: [field_names.len]comptime_int = undefined;
     var count: usize = 0;
-    for (field_infos, 0..) |field, i| {
-        if (field.type != u32 and field.type != i32 and field.type != f64) continue;
-        enumFields[i] = .{ .name = field.name, .value = i };
+    for (field_names, field_types, &names, &raw_values, 0..) |field, field_type, *name, *raw, i| {
+        if (field_type != u32 and field_type != i32 and field_type != f64) continue;
+        name.* = field;
+        raw.* = i;
         count += 1;
     }
 
-    var decls = [_]std.builtin.Type.Declaration{};
-    break :key @Type(.{
-        .@"enum" = .{
-            .tag_type = std.math.IntFittingRange(0, count - 1),
-            .fields = enumFields[0..count],
-            .decls = &decls,
-            .is_exhaustive = true,
-        },
-    });
+    const TagInt = std.math.IntFittingRange(0, count - 1);
+    var values: [count]TagInt = undefined;
+    for (raw_values, &values) |raw, *v| v.* = raw;
+
+    break :key @Enum(TagInt, .exhaustive, names[0..count], &values);
 };
 
 // NOTE: This is purposely not pub because we want to force outside callers

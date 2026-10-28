@@ -11,13 +11,14 @@ const options = @import("options.zig");
 const UTF8Decoder = @import("../terminal/UTF8Decoder.zig");
 const uucode = @import("uucode");
 const symbols_table = @import("../unicode/symbols_table.zig").table;
+const global = @import("../global.zig");
 
 const log = std.log.scoped(.@"is-symbol-bench");
 
 opts: Options,
 
 /// The file, opened in the setup function.
-data_f: ?std.fs.File = null,
+data_f: ?std.Io.File = null,
 
 pub const Options = struct {
     /// Which test to run.
@@ -80,7 +81,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
 fn teardown(ptr: *anyopaque) void {
     const self: *IsSymbol = @ptrCast(@alignCast(ptr));
     if (self.data_f) |f| {
-        f.close();
+        f.close(global.io());
         self.data_f = null;
     }
 }
@@ -90,7 +91,7 @@ fn stepUucode(ptr: *anyopaque) Benchmark.Error!void {
 
     const f = self.data_f orelse return;
     var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    var f_reader = f.reader(&read_buf);
+    var f_reader = f.reader(global.io(), &read_buf);
     var r = &f_reader.interface;
 
     var d: UTF8Decoder = .{};
@@ -117,7 +118,7 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
 
     const f = self.data_f orelse return;
     var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    var f_reader = f.reader(&read_buf);
+    var f_reader = f.reader(global.io(), &read_buf);
     var r = &f_reader.interface;
 
     var d: UTF8Decoder = .{};

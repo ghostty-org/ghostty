@@ -6,6 +6,7 @@ const gdk = @import("gdk");
 const Config = @import("../../../config.zig").Config;
 const input = @import("../../../input.zig");
 const ApprtWindow = @import("../class/window.zig").Window;
+const GlobalShortcuts = @import("../class/global_shortcuts.zig").GlobalShortcuts;
 
 const log = std.log.scoped(.winproto_noop);
 
@@ -35,6 +36,16 @@ pub const App = struct {
         return false;
     }
     pub fn initQuickTerminal(_: *App, _: *ApprtWindow) !void {}
+
+    pub fn bindGlobalShortcuts(
+        _: *App,
+        _: *GlobalShortcuts,
+        _: *const Config,
+    ) bool {
+        return false;
+    }
+
+    pub fn clearGlobalShortcuts(_: *App) void {}
 };
 
 pub const Window = struct {
@@ -67,7 +78,7 @@ pub const Window = struct {
         return true;
     }
 
-    pub fn addSubprocessEnv(_: *Window, _: *std.process.EnvMap) !void {}
+    pub fn addSubprocessEnv(_: *Window, _: *std.process.Environ.Map) !void {}
 
     pub fn setUrgent(_: *Window, _: bool) !void {}
 };

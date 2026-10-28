@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const gio = @import("gio");
+const global = @import("../../global.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -11,12 +12,13 @@ const token_format = std.fmt.comptimePrint("{{x:0>{}}}", .{token_hex_len});
 
 /// Generate a token suitable for use in requests to the XDG Desktop Portal
 pub fn generateToken() usize {
-    return std.crypto.random.int(usize);
+    const rng_impl: std.Random.IoSource = .{ .io = global.io() };
+    return rng_impl.interface().int(usize);
 }
 
 /// Format a request token consistently for use in portal object paths and payloads.
 pub fn formatToken(buf: *TokenBuffer, token: usize) [:0]const u8 {
-    return std.fmt.bufPrintZ(buf, token_format, .{token}) catch unreachable;
+    return std.mem.printSentinel(buf, token_format, .{token}, 0) catch unreachable;
 }
 
 /// Get the XDG portal request path for the current Ghostty instance.

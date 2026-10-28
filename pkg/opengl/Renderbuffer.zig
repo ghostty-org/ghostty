@@ -1,7 +1,7 @@
 const Renderbuffer = @This();
 
 const std = @import("std");
-const c = @import("c.zig").c;
+const c = @import("opengl_c");
 const errors = @import("errors.zig");
 const glad = @import("glad.zig");
 
@@ -47,7 +47,7 @@ pub const Binding = struct {
         _ = self;
         glad.context.RenderbufferStorage.?(
             c.GL_RENDERBUFFER,
-            @intCast(@intFromEnum(format)),
+            @intCast(@backingInt(format)),
             width,
             height,
         );

@@ -558,5 +558,5 @@ test "getIndex box glyph" {
     // Should find a box glyph
     const idx = r.getIndex(alloc, 0x2500, .regular, null).?;
     try testing.expectEqual(Style.regular, idx.style);
-    try testing.expectEqual(@intFromEnum(Collection.Index.Special.sprite), idx.idx);
+    try testing.expectEqual(@backingInt(Collection.Index.Special.sprite), idx.idx);
 }

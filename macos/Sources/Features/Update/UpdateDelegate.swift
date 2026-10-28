@@ -23,12 +23,12 @@ extension UpdateDriver: SPUUpdaterDelegate {
     /// delegate method on the responsible driver instead.
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
         viewModel.state = .installing(.init(
-            isAutoUpdate: true,
-            retryTerminatingApplication: immediateInstallHandler,
-            dismiss: { [weak viewModel] in
-                viewModel?.state = .idle
-            }
+            appcastItem: item,
+            retryTerminatingApplication: immediateInstallHandler
         ))
+        AppDelegate.logger.info("Version: \(item.displayVersionString) installed silently, waiting for relaunch...")
+        // Even when hasUnobtrusiveTarget is false, we don't show the alert immediately.
+        // We wait until the user manually checks for updates or relaunches.
         return true
     }
 }

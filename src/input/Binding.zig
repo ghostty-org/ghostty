@@ -285,13 +285,13 @@ pub fn lessThan(_: void, lhs: Binding, rhs: Binding) bool {
 
     const lhs_key: c_int = blk: {
         switch (lhs.trigger.key) {
-            .physical => break :blk @intFromEnum(lhs.trigger.key.physical),
+            .physical => break :blk @backingInt(lhs.trigger.key.physical),
             .unicode => break :blk @intCast(lhs.trigger.key.unicode),
         }
     };
     const rhs_key: c_int = blk: {
         switch (rhs.trigger.key) {
-            .physical => break :blk @intFromEnum(rhs.trigger.key.physical),
+            .physical => break :blk @backingInt(rhs.trigger.key.physical),
             .unicode => break :blk @intCast(rhs.trigger.key.unicode),
         }
     };
@@ -592,6 +592,9 @@ pub const Action = union(enum) {
     /// the last tab.
     move_tab: isize,
 
+    /// Move a tab to a new window.
+    move_tab_to_new_window,
+
     /// Toggle the tab overview.
     ///
     /// This is only supported on Linux and when the system's libadwaita
@@ -607,6 +610,13 @@ pub const Action = union(enum) {
     /// and persists across focus changes within the tab.
     prompt_tab_title,
 
+    /// Change the title of the current window via a pop-up prompt. The
+    /// title set via this prompt overrides any title set by the terminal
+    /// and persists across focus changes within the tab.
+    ///
+    /// Only implemented on Linux.
+    prompt_window_title,
+
     /// Set the title for the current focused surface.
     ///
     /// If the title is empty, the surface title is reset to an empty title.
@@ -616,6 +626,13 @@ pub const Action = union(enum) {
     ///
     /// If the title is empty, the tab title override is cleared.
     set_tab_title: []const u8,
+
+    /// Set the title for the current focused window.
+    ///
+    /// If the title is empty, the tab title override is cleared.
+    ///
+    /// Only implement on Linux.
+    set_window_title: []const u8,
 
     /// Create a new split in the specified direction.
     ///
@@ -691,12 +708,14 @@ pub const Action = union(enum) {
     /// untested.
     show_on_screen_keyboard,
 
-    /// Open the configuration file in the default OS editor.
+    /// Open the configuration file in an editor.
     ///
-    /// If your default OS editor isn't configured then this will fail.
-    /// Currently, any failures to open the configuration will show up only in
-    /// the logs.
-    open_config,
+    /// * `os_open`: Use the OS's default editor to edit the configuration file.
+    ///   This is the default action. (Available since 1.4.0)
+    /// * `new_window`: Launch the editor specified in `$EDITOR` or `$VISUAL` in
+    ///   a new Ghostty window to edit the configuration file. GTK only. (Available
+    ///   since 1.4.0.)
+    open_config: OpenConfig,
 
     /// Reload the configuration.
     ///
@@ -746,8 +765,8 @@ pub const Action = union(enum) {
 
     /// Maximize or unmaximize the current window.
     ///
-    /// This has no effect on macOS as it does not have the concept of
-    /// maximized windows.
+    /// On macOS, this zooms the window, which is the closest equivalent
+    /// since macOS has no concept of a maximized window.
     toggle_maximize,
 
     /// Fullscreen or unfullscreen the current window.
@@ -1193,6 +1212,16 @@ pub const Action = union(enum) {
         pub const default: CloseTabMode = .this;
     };
 
+    pub const OpenConfig = enum {
+        /// Open the config in the OS default editor.
+        os_open,
+
+        /// Open the config in a new window using $EDITOR or $VISUAL
+        new_window,
+
+        pub const default: OpenConfig = .os_open;
+    };
+
     fn parseEnum(comptime T: type, value: []const u8) !T {
         return std.meta.stringToEnum(T, value) orelse return Error.InvalidFormat;
     }
@@ -1206,40 +1235,40 @@ pub const Action = union(enum) {
     }
 
     fn parseParameter(
-        comptime field: std.builtin.Type.UnionField,
+        comptime T: type,
         param: []const u8,
-    ) !field.type {
-        const field_info = @typeInfo(field.type);
+    ) !T {
+        const field_info = @typeInfo(T);
 
         // Fields can provide a custom "parse" function
         if (field_info == .@"struct" or
             field_info == .@"union" or
             field_info == .@"enum")
         {
-            if (@hasDecl(field.type, "parse") and
-                @typeInfo(@TypeOf(field.type.parse)) == .@"fn")
+            if (@hasDecl(T, "parse") and
+                @typeInfo(@TypeOf(T.parse)) == .@"fn")
             {
-                return try field.type.parse(param);
+                return try T.parse(param);
             }
         }
 
         return switch (field_info) {
-            .@"enum" => try parseEnum(field.type, param),
-            .int => try parseInt(field.type, param),
-            .float => try parseFloat(field.type, param),
+            .@"enum" => try parseEnum(T, param),
+            .int => try parseInt(T, param),
+            .float => try parseFloat(T, param),
             .@"struct" => |info| blk: {
                 // Only tuples are supported to avoid ambiguity with field
                 // ordering
                 comptime assert(info.is_tuple);
 
                 var it = std.mem.splitAny(u8, param, ",");
-                var value: field.type = undefined;
-                inline for (info.fields) |field_| {
+                var value: T = undefined;
+                inline for (info.field_names, info.field_types) |field_name, field_type| {
                     const next = it.next() orelse return Error.InvalidFormat;
-                    @field(value, field_.name) = switch (@typeInfo(field_.type)) {
-                        .@"enum" => try parseEnum(field_.type, next),
-                        .int => try parseInt(field_.type, next),
-                        .float => try parseFloat(field_.type, next),
+                    @field(value, field_name) = switch (@typeInfo(field_type)) {
+                        .@"enum" => try parseEnum(field_type, next),
+                        .int => try parseInt(field_type, next),
+                        .float => try parseFloat(field_type, next),
                         else => unreachable,
                     };
                 }
@@ -1268,19 +1297,19 @@ pub const Action = union(enum) {
         if (action.len == 0) return Error.InvalidFormat;
 
         const actionInfo = @typeInfo(Action).@"union";
-        inline for (actionInfo.fields) |field| {
-            if (std.mem.eql(u8, action, field.name)) {
+        inline for (actionInfo.field_names, actionInfo.field_types) |field, field_type| {
+            if (std.mem.eql(u8, action, field)) {
                 // If the field type is void we expect no value
-                switch (field.type) {
+                switch (field_type) {
                     void => {
                         if (colonIdx != null) return Error.InvalidFormat;
-                        return @unionInit(Action, field.name, {});
+                        return @unionInit(Action, field, {});
                     },
 
                     []const u8 => {
                         const idx = colonIdx orelse return Error.InvalidFormat;
                         const param = input[idx + 1 ..];
-                        return @unionInit(Action, field.name, param);
+                        return @unionInit(Action, field, param);
                     },
 
                     // Cursor keys can't be set currently
@@ -1291,15 +1320,15 @@ pub const Action = union(enum) {
                         // can be optional for action types that can have a
                         // "default" decl.
                         const idx = colonIdx orelse {
-                            switch (@typeInfo(field.type)) {
+                            switch (@typeInfo(field_type)) {
                                 .@"struct",
                                 .@"union",
                                 .@"enum",
-                                => if (@hasDecl(field.type, "default")) {
+                                => if (@hasDecl(field_type, "default")) {
                                     return @unionInit(
                                         Action,
-                                        field.name,
-                                        @field(field.type, "default"),
+                                        field,
+                                        @field(field_type, "default"),
                                     );
                                 },
 
@@ -1312,8 +1341,8 @@ pub const Action = union(enum) {
                         const param = input[idx + 1 ..];
                         return @unionInit(
                             Action,
-                            field.name,
-                            try parseParameter(field, param),
+                            field,
+                            try parseParameter(field_type, param),
                         );
                     },
                 }
@@ -1377,8 +1406,10 @@ pub const Action = union(enum) {
             .set_font_size,
             .prompt_surface_title,
             .prompt_tab_title,
+            .prompt_window_title,
             .set_surface_title,
             .set_tab_title,
+            .set_window_title,
             .clear_screen,
             .select_all,
             .scroll_to_top,
@@ -1425,6 +1456,7 @@ pub const Action = union(enum) {
             .last_tab,
             .goto_tab,
             .move_tab,
+            .move_tab_to_new_window,
             .toggle_tab_overview,
             .new_split,
             .goto_split,
@@ -1443,33 +1475,41 @@ pub const Action = union(enum) {
     pub fn Scoped(comptime s: Scope) type {
         @setEvalBranchQuota(100_000);
 
-        const all_fields = @typeInfo(Action).@"union".fields;
+        const all_fields = @typeInfo(Action).@"union";
+        const field_names = all_fields.field_names;
+        const field_types = all_fields.field_types;
+        const field_attrs = all_fields.field_attrs;
 
         // Find all fields that are app-scoped
-        var i: usize = 0;
-        var union_fields: [all_fields.len]std.builtin.Type.UnionField = undefined;
-        var enum_fields: [all_fields.len]std.builtin.Type.EnumField = undefined;
-        for (all_fields) |field| {
-            const action = @unionInit(Action, field.name, undefined);
+        var i: comptime_int = 0;
+        var names: [field_names.len][]const u8 = undefined;
+        var types: [field_names.len]type = undefined;
+        var attrs: [field_names.len]std.lang.Type.Union.FieldAttributes = undefined;
+        var raw_values: [field_names.len]comptime_int = undefined;
+
+        inline for (field_names, field_types, field_attrs) |field_name, field_type, field_attr| {
+            const action = @unionInit(Action, field_name, undefined);
             if (action.scope() == s) {
-                union_fields[i] = field;
-                enum_fields[i] = .{ .name = field.name, .value = i };
+                names[i] = field_name;
+                types[i] = field_type;
+                attrs[i] = field_attr;
+                raw_values[i] = i;
                 i += 1;
             }
         }
 
+        const TagInt = std.math.IntFittingRange(0, i);
+        var values: [i]TagInt = undefined;
+        for (raw_values[0..i], &values) |raw, *v| v.* = raw;
+
         // Build our union
-        return @Type(.{ .@"union" = .{
-            .layout = .auto,
-            .tag_type = @Type(.{ .@"enum" = .{
-                .tag_type = std.math.IntFittingRange(0, i),
-                .fields = enum_fields[0..i],
-                .decls = &.{},
-                .is_exhaustive = true,
-            } }),
-            .fields = union_fields[0..i],
-            .decls = &.{},
-        } });
+        return @Union(
+            .auto,
+            @Enum(TagInt, .exhaustive, names[0..i], &values),
+            names[0..i],
+            types[0..i],
+            attrs[0..i],
+        );
     }
 
     /// Returns the scoped version of this action. If the action is not
@@ -1526,7 +1566,7 @@ pub const Action = union(enum) {
         const value_info = @typeInfo(Value);
         switch (Value) {
             void => {},
-            []const u8 => try std.zig.stringEscape(value, writer),
+            []const u8 => try writer.print("{s}", .{value}),
             else => switch (value_info) {
                 .@"enum" => try writer.print("{t}", .{value}),
                 .float => try writer.print("{d}", .{value}),
@@ -1540,9 +1580,9 @@ pub const Action = union(enum) {
                     if (!info.is_tuple) {
                         @compileError("unhandled struct type: " ++ @typeName(Value));
                     } else {
-                        inline for (info.fields, 0..) |field, i| {
-                            try formatValue(writer, @field(value, field.name));
-                            if (i + 1 < info.fields.len) try writer.writeAll(",");
+                        inline for (info.field_names, 0..) |field, i| {
+                            try formatValue(writer, @field(value, field));
+                            if (i + 1 < info.field_names.len) try writer.writeAll(",");
                         }
                     }
                 },
@@ -1721,12 +1761,12 @@ pub const Trigger = struct {
 
             // Check if its a modifier
             const modsInfo = @typeInfo(key.Mods).@"struct";
-            inline for (modsInfo.fields) |field| {
-                if (field.type == bool) {
-                    if (std.mem.eql(u8, part, field.name)) {
+            inline for (modsInfo.field_names, modsInfo.field_types) |field, field_type| {
+                if (field_type == bool) {
+                    if (std.mem.eql(u8, part, field)) {
                         // Repeat not allowed
-                        if (@field(result.mods, field.name)) return Error.InvalidFormat;
-                        @field(result.mods, field.name) = true;
+                        if (@field(result.mods, field)) return Error.InvalidFormat;
+                        @field(result.mods, field) = true;
                         continue :loop;
                     }
                 }
@@ -1756,10 +1796,10 @@ pub const Trigger = struct {
 
             // Check if its a key
             const keysInfo = @typeInfo(key.Key).@"enum";
-            inline for (keysInfo.fields) |field| {
-                if (!std.mem.eql(u8, field.name, "unidentified")) {
-                    if (std.mem.eql(u8, part, field.name)) {
-                        const keyval = @field(key.Key, field.name);
+            inline for (keysInfo.field_names) |field| {
+                if (!std.mem.eql(u8, field, "unidentified")) {
+                    if (std.mem.eql(u8, part, field)) {
+                        const keyval = @field(key.Key, field);
                         result.key = .{ .physical = keyval };
                         continue :loop;
                     }
@@ -1973,7 +2013,7 @@ pub const Trigger = struct {
         // then I don't want to handle this.
         var buffer: [1]u21 = undefined;
         const slice = uucode.get(.case_folding_full, cp).with(&buffer, cp);
-        var array: [3]u21 = [_]u21{0} ** 3;
+        var array: [3]u21 = @splat(0);
         @memcpy(array[0..slice.len], slice);
         return array;
     }
@@ -3117,7 +3157,7 @@ test "parse: backwards compatibility with <= 1.1.x" {
                 .trigger = .{ .key = v },
                 .action = .{ .ignore = {} },
             },
-            try parseSingle(try std.fmt.bufPrint(&buf, "{s}=ignore", .{k})),
+            try parseSingle(try std.mem.print(&buf, "{s}=ignore", .{k})),
         );
     }
 }
@@ -4613,12 +4653,14 @@ test "action: format" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    const a: Action = .{ .text = "👻" };
+    const a: Action = .{ .text = "👻Ghostty'\"" };
 
     var buf: std.Io.Writer.Allocating = .init(alloc);
     defer buf.deinit();
     try a.format(&buf.writer);
-    try testing.expectEqualStrings("text:\\xf0\\x9f\\x91\\xbb", buf.written());
+
+    const b = try Binding.Action.parse(buf.written());
+    try testing.expect(a.equal(b));
 }
 
 test "action: format set title" {

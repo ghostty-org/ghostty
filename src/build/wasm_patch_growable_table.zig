@@ -12,15 +12,13 @@ const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     // This is a one-off patcher, so we leak all our memory on purpose
     // and let the OS clean it up when we exit.
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    const alloc = gpa.allocator();
+    const alloc = init.arena.allocator();
 
     // Parse args: program input output
-    const args = try std.process.argsAlloc(alloc);
-    defer std.process.argsFree(alloc, args);
+    const args = try init.minimal.args.toSlice(alloc);
     if (args.len != 3) {
         std.log.err("usage: wasm_growable_table <input.wasm> <output.wasm>", .{});
         std.process.exit(1);
@@ -30,17 +28,18 @@ pub fn main() !void {
     // Patch the file.
     const output: []const u8 = try patchTableGrowable(
         alloc,
-        try std.fs.cwd().readFileAlloc(
-            alloc,
+        try std.Io.Dir.cwd().readFileAlloc(
+            init.io,
             args[1],
-            std.math.maxInt(usize),
+            alloc,
+            .unlimited,
         ),
     );
 
     // Write our output
-    const out_file = try std.fs.cwd().createFile(args[2], .{});
-    defer out_file.close();
-    try out_file.writeAll(output);
+    const out_file = try std.Io.Dir.cwd().createFile(init.io, args[2], .{});
+    defer out_file.close(init.io);
+    try out_file.writePositionalAll(init.io, output, 0);
 }
 
 /// Patch the WASM binary's table section to remove the maximum size

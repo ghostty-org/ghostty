@@ -2,6 +2,7 @@ const std = @import("std");
 
 const gio = @import("gio");
 const glib = @import("glib");
+const global = @import("../../global.zig");
 
 const log = std.log.scoped(.gtk_post_fork);
 
@@ -85,12 +86,10 @@ pub fn postFork(cmd: *Command) Command.PostForkError!void {
         return;
     };
 
-    const start = std.time.Instant.now() catch unreachable;
+    const start: std.Io.Timestamp = .now(global.io(), .awake);
 
     loop: while (true) {
-        const now = std.time.Instant.now() catch unreachable;
-
-        if (now.since(start) > 250 * std.time.ns_per_ms) {
+        if (start.untilNow(global.io(), .awake).toMilliseconds() > 250) {
             if (cmd.rt_pre_exec_info.linux_cgroup_hard_fail) {
                 log.err("transition to new transient systemd scope {s} took too long", .{expected_cgroup});
                 return error.PostForkError;
@@ -116,6 +115,6 @@ pub fn postFork(cmd: *Command) Command.PostForkError!void {
             }
         }
 
-        std.Thread.sleep(25 * std.time.ns_per_ms);
+        std.Io.sleep(global.io(), .fromMilliseconds(25), .awake) catch unreachable;
     }
 }

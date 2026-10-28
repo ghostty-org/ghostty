@@ -24,7 +24,7 @@ const Terminal = @import("../Terminal.zig");
 /// lives in the same page.
 pub const ViewportSearch = struct {
     window: SlidingWindow,
-    fingerprint: ?Fingerprint,
+    fingerprint: Fingerprint = .{},
 
     /// If this is null, then active dirty tracking is disabled and if the
     /// viewport overlaps the active area we always re-search. If this is
@@ -43,21 +43,19 @@ pub const ViewportSearch = struct {
         errdefer window.deinit();
         return .{
             .window = window,
-            .fingerprint = null,
             .active_dirty = null,
         };
     }
 
     pub fn deinit(self: *ViewportSearch) void {
-        if (self.fingerprint) |*fp| fp.deinit(self.window.alloc);
+        self.fingerprint.deinit(self.window.alloc);
         self.window.deinit();
     }
 
     /// Reset our fingerprint and results so that the next update will
     /// always re-search.
     pub fn reset(self: *ViewportSearch) void {
-        if (self.fingerprint) |*fp| fp.deinit(self.window.alloc);
-        self.fingerprint = null;
+        self.fingerprint.clearAndRetainCapacity();
         self.window.clearAndRetainCapacity();
     }
 
@@ -80,48 +78,37 @@ pub const ViewportSearch = struct {
         self: *ViewportSearch,
         list: *PageList,
     ) Allocator.Error!bool {
-        // See if our viewport changed
-        var fingerprint: Fingerprint = try .init(self.window.alloc, list);
-        if (self.fingerprint) |*old| {
-            if (old.eql(fingerprint)) match: {
-                // Determine if we need to check if we overlap the active
-                // area. If we have dirty tracking on we also set it to
-                // false here.
-                const check_active: bool = active: {
-                    const dirty = self.active_dirty orelse break :active true;
-                    if (!dirty) break :active false;
-                    self.active_dirty = false;
-                    break :active true;
-                };
+        // See if our viewport changed. We retain the fingerprint buffer so
+        // unchanged viewports don't allocate and changed viewports usually
+        // reuse the previous capacity.
+        const fingerprint = &self.fingerprint;
+        if (!try fingerprint.update(self.window.alloc, list)) match: {
+            // Determine if we need to check if we overlap the active area.
+            // If we have dirty tracking on we also set it to false here.
+            const check_active: bool = active: {
+                const dirty = self.active_dirty orelse break :active true;
+                if (!dirty) break :active false;
+                self.active_dirty = false;
+                break :active true;
+            };
 
-                if (check_active) {
-                    // If our fingerprint contains the active area, then we always
-                    // re-search since the active area is mutable.
-                    const active_tl = list.getTopLeft(.active);
-                    const active_br = list.getBottomRight(.active).?;
+            if (check_active) {
+                // If our fingerprint contains the active area, then we always
+                // re-search since the active area is mutable.
+                const active_tl = list.getTopLeft(.active);
+                const active_br = list.getBottomRight(.active).?;
 
-                    // If our viewport contains the start or end of the active area,
-                    // we are in the active area. We purposely do this first
-                    // because our viewport is always larger than the active area.
-                    for (old.entries) |entry| {
-                        if (entry.node == active_tl.node) break :match;
-                        if (entry.node == active_br.node) break :match;
-                    }
+                // If our viewport contains the start or end of the active area,
+                // we are in the active area. We purposely do this first because
+                // our viewport is always larger than the active area.
+                for (fingerprint.entries.items) |entry| {
+                    if (entry.node == active_tl.node) break :match;
+                    if (entry.node == active_br.node) break :match;
                 }
-
-                // No change
-                fingerprint.deinit(self.window.alloc);
-                return false;
             }
 
-            old.deinit(self.window.alloc);
-            self.fingerprint = null;
-        }
-        assert(self.fingerprint == null);
-        self.fingerprint = fingerprint;
-        errdefer {
-            fingerprint.deinit(self.window.alloc);
-            self.fingerprint = null;
+            // No change
+            return false;
         }
 
         // If our active area was set as dirty, we always unset it here
@@ -135,7 +122,8 @@ pub const ViewportSearch = struct {
         // exists) so we can cover the overlap. We only do this for the
         // soft-wrapped prior pages.
         const overlap_len = self.window.needle.len -| 1;
-        var node_ = fingerprint.entries[0].node.prev;
+        const entries = fingerprint.entries.items;
+        var node_ = entries[0].node.prev;
         var added: usize = 0;
         while (node_) |node| : (node_ = node.prev) {
             // We could be more accurate here and count bytes since the
@@ -149,13 +137,13 @@ pub const ViewportSearch = struct {
         // We can use our fingerprint nodes to initialize our sliding
         // window, since we already traversed the viewport once.
         var end_append: SlidingWindow.AppendResult = undefined;
-        for (fingerprint.entries) |entry| {
+        for (entries) |entry| {
             end_append = try self.window.append(entry.node);
         }
 
         // Add any trailing overlap as well.
         trailing: {
-            const end: *PageList.List.Node = fingerprint.entries[fingerprint.entries.len - 1].node;
+            const end: *PageList.List.Node = entries[entries.len - 1].node;
             if (!end_append.last_row_wrapped) break :trailing;
 
             node_ = end.next;
@@ -184,48 +172,64 @@ pub const ViewportSearch = struct {
         /// The node addresses and generations that make up the viewport. We
         /// can't safely dereference cached node pointers because the nodes may
         /// be invalid, so equality only compares these captured values.
-        entries: []const Entry,
+        entries: std.ArrayListUnmanaged(Entry) = .empty,
 
         const Entry = struct {
             node: *PageList.List.Node,
             serial: u64,
         };
 
-        pub fn init(alloc: Allocator, pages: *PageList) Allocator.Error!Fingerprint {
-            var list: std.ArrayList(Entry) = .empty;
-            defer list.deinit(alloc);
-
-            // Get our viewport area. Bottom right of a viewport can never
-            // fail.
-            const tl = pages.getTopLeft(.viewport);
-            const br = pages.getBottomRight(.viewport).?;
-
-            var it = tl.pageIterator(.right_down, br);
-            while (it.next()) |chunk| try list.append(alloc, .{
-                .node = chunk.node,
-                .serial = chunk.node.serial,
-            });
-            return .{ .entries = try list.toOwnedSlice(alloc) };
-        }
-
         pub fn deinit(self: *Fingerprint, alloc: Allocator) void {
-            alloc.free(self.entries);
+            self.entries.deinit(alloc);
         }
 
-        pub fn eql(self: Fingerprint, other: Fingerprint) bool {
-            if (self.entries.len != other.entries.len) return false;
-            for (self.entries, other.entries) |a, b| {
-                if (a.node != b.node) return false;
-                if (a.serial != b.serial) return false;
+        pub fn clearAndRetainCapacity(self: *Fingerprint) void {
+            self.entries.clearRetainingCapacity();
+        }
+
+        /// Update this fingerprint to match the current viewport.
+        ///
+        /// Returns true if the viewport changed. The viewport can have at
+        /// most one entry per visible row, so we reserve that upper bound
+        /// before mutating the retained buffer. This lets us rebuild in one
+        /// pass while still preserving the old fingerprint if allocation
+        /// fails.
+        pub fn update(self: *Fingerprint, alloc: Allocator, pages: *PageList) Allocator.Error!bool {
+            try self.entries.ensureTotalCapacity(alloc, pages.rows);
+
+            const old_len = self.entries.items.len;
+            var changed = false;
+
+            var i: usize = 0;
+            var it = pages.pageIterator(.right_down, .{ .viewport = .{} }, null);
+            while (it.next()) |chunk| : (i += 1) {
+                const entry: Entry = .{
+                    .node = chunk.node,
+                    .serial = chunk.node.serial,
+                };
+                if (!changed) {
+                    changed = i >= old_len or
+                        self.entries.items[i].node != entry.node or
+                        self.entries.items[i].serial != entry.serial;
+                }
+
+                if (i < self.entries.items.len) {
+                    self.entries.items[i] = entry;
+                } else {
+                    self.entries.appendAssumeCapacity(entry);
+                }
             }
-            return true;
+
+            self.entries.shrinkRetainingCapacity(i);
+            return changed or i != old_len;
         }
     };
 };
 
 test "simple search" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -268,7 +272,8 @@ test "simple search" {
 
 test "fingerprint detects node generation changes" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var search: ViewportSearch = try .init(alloc, "needle");
@@ -278,7 +283,7 @@ test "fingerprint detects node generation changes" {
     try testing.expect(try search.update(&t.screens.active.pages));
     try testing.expect(!try search.update(&t.screens.active.pages));
 
-    const old_entry = search.fingerprint.?.entries[0];
+    const old_entry = search.fingerprint.entries.items[0];
     const node = t.screens.active.pages.pages.first.?;
     try testing.expectEqual(node, old_entry.node);
     const original_serial = node.serial;
@@ -288,14 +293,38 @@ test "fingerprint detects node generation changes" {
     // The viewport still contains the same pointer, but its generation has
     // changed, so the cached window must be rebuilt.
     try testing.expect(try search.update(&t.screens.active.pages));
-    const new_entry = search.fingerprint.?.entries[0];
+    const new_entry = search.fingerprint.entries.items[0];
     try testing.expectEqual(old_entry.node, new_entry.node);
     try testing.expect(old_entry.serial != new_entry.serial);
 }
 
+test "fingerprint only allocates on changes" {
+    const alloc = testing.allocator;
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(alloc);
+
+    var failing = testing.FailingAllocator.init(alloc, .{});
+    const failing_alloc = failing.allocator();
+
+    var search: ViewportSearch = try .init(failing_alloc, "needle");
+    defer search.deinit();
+    search.active_dirty = false;
+
+    try testing.expect(try search.update(&t.screens.active.pages));
+
+    // Fail the next allocation. An unchanged viewport with active dirty
+    // tracking disabled should reuse the existing fingerprint and return
+    // unchanged before rebuilding the search window, so this update should
+    // succeed without reporting a viewport change.
+    failing.fail_index = failing.alloc_index;
+    try testing.expect(!try search.update(&t.screens.active.pages));
+}
+
 test "clear screen and search" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -328,7 +357,8 @@ test "clear screen and search" {
 
 test "clear screen and search dirty tracking" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -375,7 +405,8 @@ test "clear screen and search dirty tracking" {
 
 test "history search, no active area" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 2 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 2 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();

@@ -53,7 +53,7 @@ pub fn init(
     defer desc.release();
 
     // Set our properties
-    desc.setProperty("pixelFormat", @intFromEnum(opts.pixel_format));
+    desc.setProperty("pixelFormat", @backingInt(opts.pixel_format));
     desc.setProperty("width", @as(c_ulong, width));
     desc.setProperty("height", @as(c_ulong, height));
     desc.setProperty("resourceOptions", opts.resource_options);

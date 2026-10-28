@@ -28,6 +28,7 @@ const SharedGrid = font.SharedGrid;
 const discovery = @import("discovery.zig");
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
+const global = @import("../global.zig");
 
 const log = std.log.scoped(.font_shared_grid_set);
 
@@ -44,7 +45,7 @@ font_lib: Library,
 font_discover: ?Discover = null,
 
 /// Lock to protect multi-threaded access to the map.
-lock: std.Thread.Mutex = .{},
+lock: std.Io.Mutex = .init,
 
 pub const InitError = Library.InitError;
 
@@ -79,8 +80,8 @@ pub fn deinit(self: *SharedGridSet) void {
 
 /// Returns the number of cached grids.
 pub fn count(self: *SharedGridSet) usize {
-    self.lock.lock();
-    defer self.lock.unlock();
+    self.lock.lockUncancelable(global.io());
+    defer self.lock.unlock(global.io());
     return self.map.count();
 }
 
@@ -100,8 +101,8 @@ pub fn ref(
     var key = try Key.init(self.alloc, config, font_size);
     errdefer key.deinit();
 
-    self.lock.lock();
-    defer self.lock.unlock();
+    self.lock.lockUncancelable(global.io());
+    defer self.lock.unlock(global.io());
 
     const gop = try self.map.getOrPut(self.alloc, key);
     if (gop.found_existing) {
@@ -188,15 +189,15 @@ fn collection(
         // A buffer we use to store the font names for logging.
         var name_buf: [256]u8 = undefined;
 
-        inline for (@typeInfo(Style).@"enum".fields) |field| {
-            const style = @field(Style, field.name);
+        inline for (@typeInfo(Style).@"enum".field_names) |field| {
+            const style = @field(Style, field);
             for (key.descriptorsForStyle(style)) |desc| {
                 {
                     var disco_it = try disco.discover(self.alloc, desc);
                     defer disco_it.deinit();
                     if (try disco_it.next()) |face| {
                         log.info("font {s}: {s}", .{
-                            field.name,
+                            field,
                             try face.name(&name_buf),
                         });
 
@@ -227,7 +228,7 @@ fn collection(
                     defer disco_it.deinit();
                     if (try disco_it.next()) |face| {
                         log.info("font {s}: {s}", .{
-                            field.name,
+                            field,
                             try face.name(&name_buf),
                         });
 
@@ -243,7 +244,7 @@ fn collection(
                 }
 
                 log.warn("font-family {s} not found: {s}", .{
-                    field.name,
+                    field,
                     desc.family.?,
                 });
             }
@@ -339,6 +340,24 @@ fn collection(
     // specifying a font-family for emoji.
     if (comptime builtin.target.os.tag.isDarwin() and Discover != void) apple_emoji: {
         const disco = try self.discover() orelse break :apple_emoji;
+
+        // Fast path: we know the exact name of the font we want so we
+        // can look it up directly, which is sometimes significantly faster than
+        // full discovery (e.g. CoreText).
+        if (@hasDecl(Discover, "discoverExactFamily")) {
+            if (try disco.discoverExactFamily(
+                "Apple Color Emoji",
+            )) |face| {
+                _ = try c.addDeferred(self.alloc, face, .{
+                    .style = .regular,
+                    .fallback = true,
+                    // No size adjustment for emojis.
+                    .size_adjustment = .none,
+                });
+                break :apple_emoji;
+            }
+        }
+
         var disco_it = try disco.discover(self.alloc, .{
             .family = "Apple Color Emoji",
         });
@@ -392,8 +411,8 @@ fn collection(
 /// Decrement the ref count for the given key. If the ref count is zero,
 /// the grid will be deinitialized and removed from the map.j:w
 pub fn deref(self: *SharedGridSet, key: Key) void {
-    self.lock.lock();
-    defer self.lock.unlock();
+    self.lock.lockUncancelable(global.io());
+    defer self.lock.unlock(global.io());
 
     const entry = self.map.getEntry(key) orelse return;
     assert(entry.value_ptr.ref >= 1);
@@ -549,8 +568,8 @@ pub const Key = struct {
 
     /// These are the offsets into the descriptors array for
     /// each style. For example, bold is from
-    /// offsets[@intFromEnum(.bold) - 1] to
-    /// offsets[@intFromEnum(.bold)].
+    /// offsets[@backingInt(.bold) - 1] to
+    /// offsets[@backingInt(.bold)].
     style_offsets: StyleOffsets = @splat(0),
 
     /// The codepoint map configuration.
@@ -574,10 +593,10 @@ pub const Key = struct {
     comptime {
         // We assume this throughout this structure. If this changes
         // we may need to change this structure.
-        assert(@intFromEnum(Style.regular) == 0);
-        assert(@intFromEnum(Style.bold) == 1);
-        assert(@intFromEnum(Style.italic) == 2);
-        assert(@intFromEnum(Style.bold_italic) == 3);
+        assert(@backingInt(Style.regular) == 0);
+        assert(@backingInt(Style.bold) == 1);
+        assert(@backingInt(Style.italic) == 2);
+        assert(@backingInt(Style.bold_italic) == 3);
     }
 
     pub fn init(
@@ -708,7 +727,7 @@ pub const Key = struct {
         self: Key,
         style: Style,
     ) []const discovery.Descriptor {
-        const idx = @intFromEnum(style);
+        const idx = @backingInt(style);
         const start: usize = if (idx == 0) 0 else self.style_offsets[idx - 1];
         const end = self.style_offsets[idx];
         return self.descriptors[start..end];
@@ -726,8 +745,8 @@ pub const Key = struct {
         autoHash(hasher, self.metric_modifiers.count());
         autoHash(hasher, self.freetype_load_flags);
         if (self.metric_modifiers.count() > 0) {
-            inline for (@typeInfo(Metrics.Key).@"enum".fields) |field| {
-                const key = @field(Metrics.Key, field.name);
+            inline for (@typeInfo(Metrics.Key).@"enum".field_names) |field| {
+                const key = @field(Metrics.Key, field);
                 if (self.metric_modifiers.get(key)) |value| {
                     autoHash(hasher, key);
                     value.hash(hasher);

@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <ghostty/vt/allocator.h>
+#include <ghostty/vt/io.h>
 #include <ghostty/vt/selection.h>
 #include <ghostty/vt/types.h>
 #include <ghostty/vt/terminal.h>
@@ -106,7 +107,11 @@ typedef struct {
   /** Whether to unwrap soft-wrapped lines. */
   bool unwrap;
 
-  /** Whether to trim trailing whitespace on non-blank lines. */
+  /**
+   * Whether to trim trailing whitespace on non-blank lines. Trailing blank
+   * lines are always trimmed, except in VT output without trimming, where
+   * they are kept as part of the layout.
+   */
   bool trim;
 
   /** Extra terminal state to include in styled output. */
@@ -136,6 +141,30 @@ GHOSTTY_API GhosttyResult ghostty_formatter_terminal_new(
     GhosttyFormatter* formatter,
     GhosttyTerminal terminal,
     GhosttyFormatterTerminalOptions options);
+
+/**
+ * Run the formatter and stream output to a writer.
+ *
+ * Each call formats the current terminal state and invokes the writer
+ * synchronously as output becomes available. The callback may be called more
+ * than once and must not call formatter or terminal APIs using the same
+ * formatter or its terminal.
+ *
+ * If an error occurs, the writer may already contain a partial formatted
+ * output. The operation cannot be resumed from that partial output. This
+ * function does not flush or make the caller's destination durable.
+ *
+ * @param formatter The formatter handle (must not be NULL)
+ * @param writer Destination writer whose write callback must not be NULL
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_IO_ERROR if the writer rejects
+ *         output, GHOSTTY_LIMIT_EXCEEDED if output accounting overflows, or
+ *         GHOSTTY_INVALID_VALUE if an argument is invalid
+ *
+ * @ingroup formatter
+ */
+GHOSTTY_API GhosttyResult ghostty_formatter_format(
+    GhosttyFormatter formatter,
+    GhosttyWriter writer);
 
 /**
  * Run the formatter and produce output into the caller-provided buffer.
@@ -171,6 +200,8 @@ GHOSTTY_API GhosttyResult ghostty_formatter_format_buf(GhosttyFormatter formatte
  * The caller is responsible for freeing the returned buffer with
  * ghostty_free(), passing the same allocator (or NULL for the default)
  * that was used for the allocation.
+ * Empty output returns GHOSTTY_SUCCESS with *out_ptr set to NULL and
+ * *out_len set to zero. This result can be passed to ghostty_free().
  *
  * @param formatter The formatter handle (must not be NULL)
  * @param allocator Pointer to allocator, or NULL to use the default allocator

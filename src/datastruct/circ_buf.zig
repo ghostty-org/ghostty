@@ -167,18 +167,18 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
             const prev_len = self.len();
             const prev_cap = self.storage.len;
             self.storage = try alloc.realloc(self.storage, size);
+            const retained_len = @min(prev_len, size);
 
             // If we grew, we need to set our new defaults. We can add it
             // at the end since we rotated to start.
             if (size > prev_cap) {
                 @memset(self.storage[prev_cap..], default);
-
-                // Fix up our head/tail
-                if (self.full) {
-                    self.head = prev_len;
-                    self.full = false;
-                }
             }
+
+            // Fix up our head/tail for the new capacity.
+            self.head = if (retained_len == size) 0 else retained_len;
+            self.tail = 0;
+            self.full = retained_len == size;
         }
 
         /// Rotate the data so that it is zero-aligned.
@@ -791,6 +791,61 @@ test "CircBuf resize shrink" {
         try testing.expectEqual(@as(u8, 2), slices[0][1]);
         try testing.expectEqual(@as(u8, 3), slices[0][2]);
     }
+}
+
+test "CircBuf resize shrink partially full" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const Buf = CircBuf(u8, 0);
+    var buf = try Buf.init(alloc, 5);
+    defer buf.deinit(alloc);
+
+    try buf.append(1);
+    try buf.append(2);
+    try buf.append(3);
+
+    try buf.resize(alloc, 2);
+    try testing.expect(buf.full);
+    try testing.expectEqual(@as(usize, 2), buf.len());
+    try testing.expectEqual(@as(usize, 2), buf.capacity());
+
+    var it = buf.iterator(.forward);
+    try testing.expectEqual(@as(u8, 1), it.next().?.*);
+    try testing.expectEqual(@as(u8, 2), it.next().?.*);
+    try testing.expect(it.next() == null);
+    try testing.expectError(error.OutOfMemory, buf.append(4));
+}
+
+test "CircBuf resize shrink to length" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const Buf = CircBuf(u8, 0);
+    var buf = try Buf.init(alloc, 5);
+    defer buf.deinit(alloc);
+
+    try buf.append(1);
+    try buf.append(2);
+    try buf.resize(alloc, 2);
+
+    try testing.expect(buf.full);
+    try testing.expectEqual(@as(usize, 2), buf.len());
+    try testing.expectEqual(@as(usize, 2), buf.capacity());
+}
+
+test "CircBuf resize empty to zero" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const Buf = CircBuf(u8, 0);
+    var buf = try Buf.init(alloc, 5);
+    defer buf.deinit(alloc);
+
+    try buf.resize(alloc, 0);
+    try testing.expect(buf.full);
+    try testing.expectEqual(@as(usize, 0), buf.len());
+    try testing.expectEqual(@as(usize, 0), buf.capacity());
 }
 
 test "CircBuf append empty slice" {

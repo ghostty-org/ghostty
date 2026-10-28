@@ -1,0 +1,8 @@
+# Ghostty snapshot fixture
+# Kaitai type: continuation_record
+# Kaitai params:
+# Kaitai offset: 0
+# Wire version: 1
+
+# Bare ESC leaves the VT parser unfinished.
+07 00 01 00 00 00 1c d9 1d 17 1b

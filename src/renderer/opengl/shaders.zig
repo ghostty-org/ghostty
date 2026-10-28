@@ -63,22 +63,16 @@ const PipelineDescription = struct {
 
 /// We create a type for the pipeline collection based on our desc array.
 const PipelineCollection = t: {
-    var fields: [pipeline_descs.len]std.builtin.Type.StructField = undefined;
-    for (pipeline_descs, 0..) |pipeline, i| {
-        fields[i] = .{
-            .name = pipeline[0],
-            .type = Pipeline,
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(Pipeline),
-        };
+    var names: [pipeline_descs.len][]const u8 = undefined;
+    var types: [pipeline_descs.len]type = @splat(Pipeline);
+    var attrs: [pipeline_descs.len]std.lang.Type.Struct.FieldAttributes = @splat(.{
+        .@"align" = @alignOf(Pipeline),
+    });
+
+    for (pipeline_descs, &names) |pipeline, *name| {
+        name.* = pipeline[0];
     }
-    break :t @Type(.{ .@"struct" = .{
-        .layout = .auto,
-        .fields = &fields,
-        .decls = &.{},
-        .is_tuple = false,
-    } });
+    break :t @Struct(.auto, null, &names, &types, &attrs);
 };
 
 /// This contains the state for the shaders used by the Metal renderer.
@@ -94,6 +88,12 @@ pub const Shaders = struct {
     /// Set to true when deinited, if you try to deinit a defunct set
     /// of shaders it will just be ignored, to prevent double-free.
     defunct: bool = false,
+
+    pub const uninit: Shaders = .{
+        .pipelines = undefined,
+        .post_pipelines = &.{},
+        .defunct = true,
+    };
 
     /// Initialize our shader set.
     ///
@@ -163,7 +163,7 @@ pub const Shaders = struct {
 pub const Uniforms = extern struct {
     /// The projection matrix for turning world coordinates to normalized.
     /// This is calculated based on the size of the screen.
-    projection_matrix: math.Mat align(16),
+    projection_matrix: [4][4]f32 align(16),
 
     /// Size of the screen (render target) in pixels.
     screen_size: [2]f32 align(8),

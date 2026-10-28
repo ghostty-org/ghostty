@@ -17,9 +17,12 @@ const xdg = wayland.client.xdg;
 
 const Config = @import("../../../config.zig").Config;
 const Globals = @import("wayland/Globals.zig");
+const Hotkeys = @import("wayland/Hotkeys.zig");
 const input = @import("../../../input.zig");
 const ApprtWindow = @import("../class/window.zig").Window;
+const GlobalShortcuts = @import("../class/global_shortcuts.zig").GlobalShortcuts;
 const BlurRegion = @import("BlurRegion.zig");
+const gtk_version = @import("../gtk_version.zig");
 
 const log = std.log.scoped(.winproto_wayland);
 
@@ -27,6 +30,7 @@ const log = std.log.scoped(.winproto_wayland);
 pub const App = struct {
     display: *wl.Display,
     globals: *Globals,
+    hotkeys: Hotkeys,
 
     pub fn init(
         alloc: Allocator,
@@ -35,7 +39,6 @@ pub const App = struct {
         config: *const Config,
     ) !?App {
         _ = config;
-        _ = app_id;
 
         const gdk_wayland_display = gobject.ext.cast(
             gdk_wayland.WaylandDisplay,
@@ -49,14 +52,33 @@ pub const App = struct {
         const globals: *Globals = try .init(alloc, display);
         errdefer globals.deinit();
 
+        var hotkeys: Hotkeys = try .init(alloc, app_id);
+        errdefer hotkeys.deinit();
+
         return .{
             .display = display,
             .globals = globals,
+            .hotkeys = hotkeys,
         };
     }
 
     pub fn deinit(self: *App) void {
+        self.hotkeys.deinit();
         self.globals.deinit();
+    }
+
+    pub fn bindGlobalShortcuts(
+        self: *App,
+        shortcuts: *GlobalShortcuts,
+        config: *const Config,
+    ) bool {
+        const manager = self.globals.get(.vicinae_hotkey_manager) orelse return false;
+        self.hotkeys.bind(manager, shortcuts, config);
+        return true;
+    }
+
+    pub fn clearGlobalShortcuts(self: *App) void {
+        self.hotkeys.clear();
     }
 
     pub fn eventMods(
@@ -153,6 +175,12 @@ pub const Window = struct {
         };
 
         const bg_effect: ?*ext.BackgroundEffectSurfaceV1 = bg: {
+            if (gtk_version.runtimeAtLeast(4, 23, 3)) {
+                // GTK 4.23.3 added an official way to do background blur,
+                // so we don't need to do anything on our own.
+                break :bg null;
+            }
+
             const mgr = app.globals.get(.ext_background_effect) orelse
                 break :bg null;
 
@@ -225,7 +253,7 @@ pub const Window = struct {
         };
     }
 
-    pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
+    pub fn addSubprocessEnv(self: *Window, env: *std.process.Environ.Map) !void {
         _ = self;
         _ = env;
     }
@@ -278,7 +306,7 @@ pub const Window = struct {
         }
 
         const wl_region = try compositor.createRegion();
-        errdefer if (wl_region) |r| r.destroy();
+        defer wl_region.destroy();
         for (region.slices.items) |s| wl_region.add(
             @intCast(s.x),
             @intCast(s.y),
@@ -287,6 +315,7 @@ pub const Window = struct {
         );
 
         bg.setBlurRegion(wl_region);
+        self.blur_region.deinit(self.globals.alloc);
         self.blur_region = region;
     }
 
@@ -295,7 +324,7 @@ pub const Window = struct {
 
         // The protocol requests uint instead of enum so we have
         // to convert it.
-        deco.requestMode(@intCast(@intFromEnum(self.getDecorationMode())));
+        deco.requestMode(@intCast(@backingInt(self.getDecorationMode())));
     }
 
     fn getDecorationMode(self: Window) org.KdeKwinServerDecorationManager.Mode {
@@ -382,7 +411,7 @@ pub const Window = struct {
                 .right => .right,
             };
 
-            slide.setLocation(@intCast(@intFromEnum(slide_location)));
+            slide.setLocation(@intCast(@backingInt(slide_location)));
             slide.commit();
             break :slide slide;
         } else null;

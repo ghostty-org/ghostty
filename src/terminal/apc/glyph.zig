@@ -133,9 +133,7 @@
 //! ## Glossary Capacity
 //!
 //! Each session holds at most 1024 registrations keyed by codepoint.
-//! Registrations live for the session duration. A 1025th registration
-//! evicts the oldest entry (FIFO). Sessions are isolated: two tabs may
-//! independently register the same codepoint.
+//! Each allocation made by the `glyf` decoder is limited to 64 KiB.
 //!
 //! ## Security: PUA-Only Restriction
 //!
@@ -149,6 +147,9 @@
 //! Reference: <https://raw.githubusercontent.com/raphamorim/rio/779dba839dbb76c551f2efa852b82a2ed669101b/specs/glyph-protocol.md>
 
 const std = @import("std");
+
+/// APC identifier for the glyph protocol.
+pub const identifier = "25a1";
 
 pub const request = @import("glyph/request.zig");
 pub const response = @import("glyph/response.zig");

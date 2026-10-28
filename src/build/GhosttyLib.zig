@@ -1,11 +1,14 @@
 const GhosttyLib = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const RunStep = std.Build.Step.Run;
 const CombineArchivesStep = @import("CombineArchivesStep.zig");
 const Config = @import("Config.zig");
+const LibsystemOverrideStep = @import("LibsystemOverrideStep.zig");
 const SharedDeps = @import("SharedDeps.zig");
 const LipoStep = @import("LipoStep.zig");
+const GhosttyPkgConfig = @import("GhosttyPkgConfig.zig");
 
 /// The step that generates the file.
 step: *std.Build.Step,
@@ -27,14 +30,14 @@ pub fn initStatic(
             .target = deps.config.target,
             .optimize = deps.config.optimize,
             .strip = deps.config.strip,
-            .omit_frame_pointer = deps.config.strip,
+            .omit_frame_pointer = deps.config.omitFramePointer(),
             .unwind_tables = if (deps.config.strip) .none else .sync,
+            .link_libc = true,
         }),
 
         // Fails on self-hosted x86_64 on macOS
         .use_llvm = true,
     });
-    lib.linkLibC();
 
     // These must be bundled since we're compiling into a static lib.
     // Otherwise, you get undefined symbol errors.
@@ -57,9 +60,19 @@ pub fn initStatic(
     const combined = CombineArchivesStep.create(b, deps.config.target, "ghostty-internal", lib_list.items);
     combined.step.dependOn(&lib.step);
 
+    // On Darwin, prefer libSystem's libc/libm over the bundled
+    // compiler-rt for consumers of this archive. See
+    // libsystem_override.sh for details. This is a no-op elsewhere.
+    const override = LibsystemOverrideStep.create(
+        b,
+        deps.config.target,
+        combined.output,
+        "libghostty-internal.a",
+    );
+
     return .{
-        .step = combined.step,
-        .output = combined.output,
+        .step = override.step orelse combined.step,
+        .output = override.output,
 
         // Static libraries cannot have dSYMs because they aren't linked.
         .dsym = null,
@@ -72,6 +85,14 @@ pub fn initShared(
     b: *std.Build,
     deps: *const SharedDeps,
 ) !GhosttyLib {
+    // For dynamic linking, we prefer dynamic linking and to search by
+    // mode first. Mode first will search all paths for a dynamic library
+    // before falling back to static.
+    const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
+        .preferred_link_mode = .dynamic,
+        .search_strategy = .mode_first,
+    };
+
     const lib = b.addLibrary(.{
         .name = "ghostty",
         .linkage = .dynamic,
@@ -80,7 +101,7 @@ pub fn initShared(
             .target = deps.config.target,
             .optimize = deps.config.optimize,
             .strip = deps.config.strip,
-            .omit_frame_pointer = deps.config.strip,
+            .omit_frame_pointer = deps.config.omitFramePointer(),
             .unwind_tables = if (deps.config.strip) .none else .sync,
         }),
 
@@ -99,12 +120,12 @@ pub fn initShared(
     {
         // The CRT initialization code in msvcrt.lib calls __vcrt_initialize
         // and __acrt_initialize, which are in the static CRT libraries.
-        lib.linkSystemLibrary("libvcruntime");
+        lib.root_module.linkSystemLibrary("libvcruntime", dynamic_link_opts);
 
         // ucrt.lib is in the Windows SDK 'ucrt' dir. Detect the SDK
         // installation and add the UCRT library path.
         const arch = deps.config.target.result.cpu.arch;
-        const sdk = std.zig.WindowsSdk.find(b.allocator, arch) catch null;
+        const sdk = std.zig.WindowsSdk.find(b.allocator, b.graph.io, arch, &b.graph.environ_map) catch null;
         if (sdk) |s| {
             if (s.windows10sdk) |w10| {
                 const arch_str: []const u8 = switch (arch) {
@@ -113,18 +134,17 @@ pub fn initShared(
                     .aarch64 => "arm64",
                     else => "x64",
                 };
-                const ucrt_lib_path = std.fmt.allocPrint(
-                    b.allocator,
+                const ucrt_lib_path = b.allocator.print(
                     "{s}\\Lib\\{s}\\ucrt\\{s}",
                     .{ w10.path, w10.version, arch_str },
                 ) catch null;
 
                 if (ucrt_lib_path) |path| {
-                    lib.addLibraryPath(.{ .cwd_relative = path });
+                    lib.root_module.addLibraryPath(.{ .cwd_relative = path });
                 }
             }
         }
-        lib.linkSystemLibrary("libucrt");
+        lib.root_module.linkSystemLibrary("libucrt", dynamic_link_opts);
     }
 
     // Get our debug symbols
@@ -147,7 +167,7 @@ pub fn initShared(
     // it doesn't rewrite Libs: into an archive-only reference when both
     // shared and static libraries are installed. Install a dedicated
     // static module so consumers can request the archive explicitly.
-    const pcs = pkgConfigFiles(b, deps);
+    const pcs = try pkgConfigFiles(b, deps);
 
     return .{
         .step = &lib.step,
@@ -229,39 +249,22 @@ const PkgConfigFiles = struct {
 fn pkgConfigFiles(
     b: *std.Build,
     deps: *const SharedDeps,
-) PkgConfigFiles {
+) !PkgConfigFiles {
     const os_tag = deps.config.target.result.os.tag;
-    const wf = b.addWriteFiles();
+
+    const pkg_config: GhosttyPkgConfig = try .init(b, .{
+        .name = "ghostty-internal",
+        .name_static = "ghostty-internal-static",
+        .description = "Ghostty internal library (not for external use)",
+        .description_static = "Ghostty internal library, static (not for external use)",
+        .version = deps.config.version,
+        .libs = &.{b.fmt("${{libdir}}/{s}", .{sharedLibraryName(os_tag)})},
+        .libs_static = &.{b.fmt("${{libdir}}/{s}", .{staticLibraryName(os_tag)})},
+    });
 
     return .{
-        .shared = wf.add("ghostty-internal.pc", b.fmt(
-            \\prefix={s}
-            \\includedir=${{prefix}}/include
-            \\libdir=${{prefix}}/lib
-            \\
-            \\Name: ghostty-internal
-            \\URL: https://github.com/ghostty-org/ghostty
-            \\Description: Ghostty internal library (not for external use)
-            \\Version: {f}
-            \\Cflags: -I${{includedir}}
-            \\Libs: ${{libdir}}/{s}
-            \\Libs.private:
-            \\Requires.private:
-        , .{ b.install_prefix, deps.config.version, sharedLibraryName(os_tag) })),
-        .static = wf.add("ghostty-internal-static.pc", b.fmt(
-            \\prefix={s}
-            \\includedir=${{prefix}}/include
-            \\libdir=${{prefix}}/lib
-            \\
-            \\Name: ghostty-internal-static
-            \\URL: https://github.com/ghostty-org/ghostty
-            \\Description: Ghostty internal library, static (not for external use)
-            \\Version: {f}
-            \\Cflags: -I${{includedir}}
-            \\Libs: ${{libdir}}/{s}
-            \\Libs.private:
-            \\Requires.private:
-        , .{ b.install_prefix, deps.config.version, staticLibraryName(os_tag) })),
+        .shared = pkg_config.getSharedFile(),
+        .static = pkg_config.getStaticFile(),
     };
 }
 

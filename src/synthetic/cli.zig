@@ -9,6 +9,7 @@ pub const Action = enum {
     ascii,
     kitty,
     osc,
+    styled,
     utf8,
 
     /// Returns the struct associated with the action. The struct
@@ -24,28 +25,30 @@ pub const Action = enum {
             .ascii => @import("cli/Ascii.zig"),
             .kitty => @import("cli/Kitty.zig"),
             .osc => @import("cli/Osc.zig"),
+            .styled => @import("cli/Styled.zig"),
             .utf8 => @import("cli/Utf8.zig"),
         };
     }
 };
 
 /// An entrypoint for the synthetic generator CLI.
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     const alloc = std.heap.c_allocator;
-    const action_ = try cli.action.detectArgs(Action, alloc);
+    const action_ = try cli.action.detectArgs(Action, alloc, init.minimal.args);
     const action = action_ orelse return error.NoAction;
-    try mainAction(alloc, action, .cli);
+    try mainAction(init.io, alloc, action, .{ .cli = init.minimal.args });
 }
 
 pub const Args = union(enum) {
     /// The arguments passed to the CLI via argc/argv.
-    cli,
+    cli: std.process.Args,
 
-    /// Simple string arguments, parsed via std.process.ArgIteratorGeneral.
+    /// Simple string arguments, parsed via ArgIteratorGeneral.
     string: []const u8,
 };
 
 pub fn mainAction(
+    io: std.Io,
     alloc: Allocator,
     action: Action,
     args: Args,
@@ -53,13 +56,14 @@ pub fn mainAction(
     switch (action) {
         inline else => |comptime_action| {
             const Impl = Action.Struct(comptime_action);
-            try mainActionImpl(Impl, alloc, args);
+            try mainActionImpl(Impl, io, alloc, args);
         },
     }
 }
 
 fn mainActionImpl(
     comptime Impl: type,
+    io: std.Io,
     alloc: Allocator,
     args: Args,
 ) !void {
@@ -68,13 +72,13 @@ fn mainActionImpl(
     var opts: Options = .{};
     defer if (@hasDecl(Options, "deinit")) opts.deinit();
     switch (args) {
-        .cli => {
-            var iter = try cli.args.argsIterator(alloc);
+        .cli => |process_args| {
+            var iter = try cli.args.argsIterator(alloc, process_args);
             defer iter.deinit();
             try cli.args.parse(Options, alloc, &opts, &iter);
         },
         .string => |str| {
-            var iter = try std.process.ArgIteratorGeneral(.{}).init(
+            var iter = try std.process.Args.IteratorGeneral(.{}).init(
                 alloc,
                 str,
             );
@@ -84,16 +88,13 @@ fn mainActionImpl(
     }
 
     // TODO: Make this a command line option.
-    const seed: u64 = @truncate(@as(
-        u128,
-        @bitCast(std.time.nanoTimestamp()),
-    ));
+    const seed: u64 = @truncate(@as(u96, @bitCast(std.Io.Timestamp.now(io, .real).toNanoseconds())));
     var prng = std.Random.DefaultPrng.init(seed);
     const rand = prng.random();
 
     // Our output always goes to stdout.
     var buffer: [2048]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    var stdout_writer = std.Io.File.stdout().writer(io, &buffer);
     const writer = &stdout_writer.interface;
 
     // Create our implementation
@@ -109,8 +110,8 @@ fn mainActionImpl(
 
 test {
     // Make sure we ref all our actions
-    inline for (@typeInfo(Action).@"enum".fields) |field| {
-        const action = @field(Action, field.name);
+    inline for (@typeInfo(Action).@"enum".field_names) |field| {
+        const action = @field(Action, field);
         const Impl = Action.Struct(action);
         _ = Impl;
     }

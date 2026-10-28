@@ -47,7 +47,7 @@ Write commit messages that follow commit style guidelines for the project.
   and **how the new behavior works** at a high level.
 - Use plain prose, not bullet points. Wrap lines at ~72 characters.
 - Focus on the _why_ and _how_ rather than restating the diff.
-- Keep the tone direct and technical without no filler phrases.
+- Keep the tone direct and technical without filler phrases.
 - Don't exceed a handful of paragraphs; less is more.
 
 ## Workflow

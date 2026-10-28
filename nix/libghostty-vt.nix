@@ -11,7 +11,7 @@
   versionCheckHook,
   darwin,
   xcbuild,
-  zig_0_15,
+  zig_0_17,
   revision ? "dirty",
   optimize ? "Debug",
   simd ? true,
@@ -37,29 +37,15 @@ stdenv.mkDerivation (finalAttrs: {
     );
   };
 
-  # Zig's build runner computes relative paths from `cwd` to the build directory.
-  # The logic is purely lexical, so if the `cwd` is a symlink that resolves to a different depth during `chdir`, the computed path becomes incorrect.
-  #
-  # See: https://codeberg.org/ziglang/zig/issues/32121
-  #
-  # Workaround: override `linkFarm` with a copy-farm so deps are real directories, not symlinks.
   deps = callPackage ../build.zig.zon.nix {
     name = "${finalAttrs.pname}-cache-${finalAttrs.version}";
-    linkFarm = name: entries:
-      runCommand name {} ''
-        mkdir -p $out
-        ${lib.concatMapStringsSep "\n" (e: ''
-            cp -rL ${e.path} $out/${e.name}
-          '')
-          entries}
-      '';
   };
 
   nativeBuildInputs =
     [
       git
       pkg-config
-      zig_0_15
+      zig_0_17
     ]
     ++ lib.optionals stdenv.hostPlatform.isDarwin [
       darwin.cctools
@@ -264,7 +250,7 @@ stdenv.mkDerivation (finalAttrs: {
   meta = {
     homepage = "https://ghostty.org";
     license = lib.licenses.mit;
-    platforms = zig_0_15.meta.platforms;
+    platforms = zig_0_17.meta.platforms;
     pkgConfigModules = [
       "libghostty-vt"
       "libghostty-vt-static"

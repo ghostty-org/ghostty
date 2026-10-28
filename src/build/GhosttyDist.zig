@@ -27,7 +27,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
     var resources: std.ArrayListUnmanaged(Resource) = .empty;
     if (!cfg.emit_lib_vt) {
         {
-            const gtk = SharedDeps.gtkNgDistResources(b);
+            const gtk = SharedDeps.gtkDistResources(b);
             try resources.append(alloc, gtk.resources_c);
             try resources.append(alloc, gtk.resources_h);
         }
@@ -237,11 +237,11 @@ pub const Resource = struct {
 
     /// Returns true if the dist path exists at build time.
     pub fn exists(self: *const Resource, b: *std.Build) bool {
-        if (b.build_root.handle.access(self.dist, .{})) {
+        if (b.root.access(b.graph.io, self.dist, .{})) {
             // If we have a ".git" directory then we're a git checkout
             // and we never want to use the dist path. This shouldn't happen
             // so show a warning to the user.
-            if (b.build_root.handle.access(".git", .{})) {
+            if (b.root.access(b.graph.io, ".git", .{})) {
                 std.log.warn(
                     "dist resource '{s}' should not be in a git checkout",
                     .{self.dist},

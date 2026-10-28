@@ -74,6 +74,7 @@ const Benchmark = @import("Benchmark.zig");
 const options = @import("options.zig");
 const PageList = terminalpkg.PageList;
 const Terminal = terminalpkg.Terminal;
+const global = @import("../global.zig");
 
 const log = std.log.scoped(.@"scrollback-compression-bench");
 
@@ -134,10 +135,10 @@ pub fn create(
 
     ptr.* = .{
         .opts = opts,
-        .terminal = try .init(alloc, .{
+        .terminal = try .init(global.io(), alloc, .{
             .rows = opts.@"terminal-rows",
             .cols = opts.@"terminal-cols",
-            .max_scrollback = opts.@"max-scrollback",
+            .max_scrollback_bytes = opts.@"max-scrollback",
         }),
     };
     return ptr;
@@ -182,13 +183,13 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
 /// terminal-stream benchmark. Parser and file IO costs remain in setup.
 fn loadCorpus(self: *ScrollbackCompression) !void {
     const data_file = try options.dataFile(self.opts.data) orelse return;
-    defer data_file.close();
+    defer data_file.close(global.io());
 
     var stream = self.terminal.vtStream();
     defer stream.deinit();
 
     var read_buf: [64 * 1024]u8 align(std.atomic.cache_line) = undefined;
-    var file_reader = data_file.reader(&read_buf);
+    var file_reader = data_file.reader(global.io(), &read_buf);
     const reader = &file_reader.interface;
 
     var buf: [64 * 1024]u8 = undefined;

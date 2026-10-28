@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("c.zig").c;
+const c = @import("hb_c");
 const Error = @import("errors.zig").Error;
 
 /// Data type holding the memory modes available to client programs.
@@ -55,7 +55,7 @@ pub const Blob = struct {
         const handle = c.hb_blob_create_or_fail(
             data.ptr,
             @intCast(data.len),
-            @intFromEnum(mode),
+            @backingInt(mode),
             null,
             null,
         ) orelse return Error.HarfbuzzFailed;

@@ -4,13 +4,6 @@ import GhosttyKit
 
 // MARK: C Extensions
 
-/// A command is fully self-contained so it is Sendable.
-extension ghostty_command_s: @unchecked @retroactive Sendable {}
-
-/// A surface is sendable because it is just a reference type. Using the surface in parameters
-/// may be unsafe but the value itself is safe to send across threads.
-extension ghostty_surface_t: @unchecked @retroactive Sendable {}
-
 extension Ghostty {
     // The user notification category identifier
     static let userNotificationCategory = "com.mitchellh.ghostty.userNotification"
@@ -216,7 +209,6 @@ extension Ghostty {
     }
 }
 
-#if canImport(AppKit)
 // MARK: SplitFocusDirection Extensions
 
 extension Ghostty.SplitFocusDirection {
@@ -243,57 +235,16 @@ extension Ghostty.SplitFocusDirection {
         }
     }
 }
-#endif
 
 extension Ghostty {
-    /// The type of a clipboard request
-    enum ClipboardRequest {
-        /// A direct paste of clipboard contents
-        case paste
-
-        /// An application is attempting to read from the clipboard using OSC 52
-        case osc_52_read
-
-        /// An application is attempting to write to the clipboard using OSC 52
-        case osc_52_write(OSPasteboard?)
-
-        /// The text to show in the clipboard confirmation prompt for a given request type
-        func text() -> String {
-            switch self {
-            case .paste:
-                return """
-                Pasting this text to the terminal may be dangerous as it looks like some commands may be executed.
-                """
-            case .osc_52_read:
-                return """
-                An application is attempting to read from the clipboard.
-                The current clipboard contents are shown below.
-                """
-            case .osc_52_write:
-                return """
-                An application is attempting to write to the clipboard.
-                The content to write is shown below.
-                """
-            }
-        }
-
-        static func from(request: ghostty_clipboard_request_e) -> ClipboardRequest? {
-            switch request {
-            case GHOSTTY_CLIPBOARD_REQUEST_PASTE:
-                return .paste
-            case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ:
-                return .osc_52_read
-            case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_WRITE:
-                return .osc_52_write(nil)
-            default:
-                return nil
-            }
-        }
-    }
-
+    /// One representation of clipboard contents. The data is binary-safe;
+    /// textual consumers use `string`.
     struct ClipboardContent {
         let mime: String
-        let data: String
+        let data: Data
+
+        /// The data as text, if it is valid UTF-8.
+        var string: String? { String(data: data, encoding: .utf8) }
 
         static func from(content: ghostty_clipboard_content_s) -> ClipboardContent? {
             guard let mimePtr = content.mime,
@@ -301,9 +252,15 @@ extension Ghostty {
                 return nil
             }
 
+            let data: Data = if content.len > 0 {
+                Data(bytes: dataPtr, count: content.len)
+            } else {
+                Data()
+            }
+
             return ClipboardContent(
                 mime: String(cString: mimePtr),
-                data: String(cString: dataPtr)
+                data: data
             )
         }
     }
@@ -425,11 +382,6 @@ extension Ghostty.Notification {
 
     /// Notification to show/hide the inspector
     static let didControlInspector = Notification.Name("com.mitchellh.ghostty.didControlInspector")
-
-    static let confirmClipboard = Notification.Name("com.mitchellh.ghostty.confirmClipboard")
-    static let ConfirmClipboardStrKey = confirmClipboard.rawValue + ".str"
-    static let ConfirmClipboardStateKey = confirmClipboard.rawValue + ".state"
-    static let ConfirmClipboardRequestKey = confirmClipboard.rawValue + ".request"
 
     /// Notification sent to the active split view to resize the split.
     static let didResizeSplit = Notification.Name("com.mitchellh.ghostty.didResizeSplit")

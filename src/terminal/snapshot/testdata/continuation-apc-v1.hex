@@ -1,0 +1,8 @@
+# Ghostty snapshot fixture
+# Kaitai type: continuation_record
+# Kaitai params:
+# Kaitai offset: 0
+# Wire version: 1
+
+# Incomplete Kitty APC payload.
+07 00 07 00 00 00 bd ff a8 ff 1b 5f 47 64 61 74 61

@@ -8,7 +8,7 @@ const Key = @import("key.zig").Key;
 
 /// The full list of entries for the current platform.
 pub const entries: []const Entry = entries: {
-    const native_idx = switch (builtin.os.tag) {
+    const native_idx = switch (builtin.target.os.tag) {
         .ios, .macos => 4, // mac
         .windows => 3, // win
         .freebsd, .linux => 2, // xkb

@@ -21,9 +21,9 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
             .strip = false,
             .omit_frame_pointer = false,
             .unwind_tables = .sync,
+            .link_libc = true,
         }),
     });
-    build_data_exe.linkLibC();
 
     deps.help_strings.addImport(build_data_exe);
 
@@ -39,7 +39,7 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
         const run = b.addRunArtifact(build_data_exe);
         run.addArg("+terminfo");
         const wf = b.addWriteFiles();
-        const source = wf.addCopyFile(run.captureStdOut(), "ghostty.terminfo");
+        const source = wf.addCopyFile(run.captureStdOut(.{}), "ghostty.terminfo");
 
         if (cfg.emit_terminfo) {
             const source_install = b.addInstallFile(
@@ -63,8 +63,8 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
             const run_step = RunStep.create(b, "infotocap");
             run_step.addArg("infotocap");
             run_step.addFileArg(source);
-            const out_source = run_step.captureStdOut();
-            _ = run_step.captureStdErr(); // so we don't see stderr
+            const out_source = run_step.captureStdOut(.{});
+            _ = run_step.captureStdErr(.{}); // so we don't see stderr
 
             const cap_install = b.addInstallFile(
                 out_source,
@@ -84,33 +84,14 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
             const path = run_step.addOutputFileArg(terminfo_share_dir);
 
             run_step.addFileArg(source);
-            _ = run_step.captureStdErr(); // so we don't see stderr
+            _ = run_step.captureStdErr(.{}); // so we don't see stderr
 
-            // Ensure that `share/terminfo` is a directory, otherwise the `cp
-            // -R` will create a file named `share/terminfo`
-            const mkdir_step = RunStep.create(b, "make share/terminfo directory");
-            switch (cfg.target.result.os.tag) {
-                // windows mkdir shouldn't need "-p"
-                .windows => mkdir_step.addArgs(&.{"mkdir"}),
-                else => mkdir_step.addArgs(&.{ "mkdir", "-p" }),
-            }
-
-            mkdir_step.addArg(b.fmt(
-                "{s}/share/{s}",
-                .{ b.install_path, terminfo_share_dir },
-            ));
-
-            try steps.append(b.allocator, &mkdir_step.step);
-
-            // Use cp -R instead of Step.InstallDir because we need to preserve
-            // symlinks in the terminfo database. Zig's InstallDir step doesn't
-            // handle symlinks correctly yet.
-            const copy_step = RunStep.create(b, "copy terminfo db");
-            copy_step.addArgs(&.{ "cp", "-R" });
-            copy_step.addFileArg(path);
-            copy_step.addArg(b.fmt("{s}/share", .{b.install_path}));
-            copy_step.step.dependOn(&mkdir_step.step);
-            try steps.append(b.allocator, &copy_step.step);
+            const install_step = b.addInstallDirectory(.{
+                .source_dir = path,
+                .install_dir = .{ .custom = "share" },
+                .install_subdir = terminfo_share_dir,
+            });
+            try steps.append(b.allocator, &install_step.step);
         }
     }
 
@@ -143,7 +124,7 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
         const run = b.addRunArtifact(build_data_exe);
         run.addArg("+fish");
         const wf = b.addWriteFiles();
-        _ = wf.addCopyFile(run.captureStdOut(), "ghostty.fish");
+        _ = wf.addCopyFile(run.captureStdOut(.{}), "ghostty.fish");
 
         const install_step = b.addInstallDirectory(.{
             .source_dir = wf.getDirectory(),
@@ -158,7 +139,7 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
         const run = b.addRunArtifact(build_data_exe);
         run.addArg("+zsh");
         const wf = b.addWriteFiles();
-        _ = wf.addCopyFile(run.captureStdOut(), "_ghostty");
+        _ = wf.addCopyFile(run.captureStdOut(.{}), "_ghostty");
 
         const install_step = b.addInstallDirectory(.{
             .source_dir = wf.getDirectory(),
@@ -173,7 +154,7 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
         const run = b.addRunArtifact(build_data_exe);
         run.addArg("+bash");
         const wf = b.addWriteFiles();
-        _ = wf.addCopyFile(run.captureStdOut(), "ghostty.bash");
+        _ = wf.addCopyFile(run.captureStdOut(.{}), "ghostty.bash");
 
         const install_step = b.addInstallDirectory(.{
             .source_dir = wf.getDirectory(),
@@ -190,22 +171,22 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
         {
             const run = b.addRunArtifact(build_data_exe);
             run.addArg("+vim-syntax");
-            _ = wf.addCopyFile(run.captureStdOut(), "syntax/ghostty.vim");
+            _ = wf.addCopyFile(run.captureStdOut(.{}), "syntax/ghostty.vim");
         }
         {
             const run = b.addRunArtifact(build_data_exe);
             run.addArg("+vim-ftdetect");
-            _ = wf.addCopyFile(run.captureStdOut(), "ftdetect/ghostty.vim");
+            _ = wf.addCopyFile(run.captureStdOut(.{}), "ftdetect/ghostty.vim");
         }
         {
             const run = b.addRunArtifact(build_data_exe);
             run.addArg("+vim-ftplugin");
-            _ = wf.addCopyFile(run.captureStdOut(), "ftplugin/ghostty.vim");
+            _ = wf.addCopyFile(run.captureStdOut(.{}), "ftplugin/ghostty.vim");
         }
         {
             const run = b.addRunArtifact(build_data_exe);
             run.addArg("+vim-compiler");
-            _ = wf.addCopyFile(run.captureStdOut(), "compiler/ghostty.vim");
+            _ = wf.addCopyFile(run.captureStdOut(.{}), "compiler/ghostty.vim");
         }
 
         const vim_step = b.addInstallDirectory(.{
@@ -233,7 +214,7 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
         const run = b.addRunArtifact(build_data_exe);
         run.addArg("+sublime");
         const wf = b.addWriteFiles();
-        _ = wf.addCopyFile(run.captureStdOut(), "ghostty.sublime-syntax");
+        _ = wf.addCopyFile(run.captureStdOut(.{}), "ghostty.sublime-syntax");
 
         const install_step = b.addInstallDirectory(.{
             .source_dir = wf.getDirectory(),
@@ -267,27 +248,33 @@ fn addLinuxAppResources(
 
     const name = b.fmt("Ghostty{s}", .{
         switch (cfg.optimize) {
-            .Debug, .ReleaseSafe => " (Debug)",
-            .ReleaseFast, .ReleaseSmall => "",
+            .debug, .safe => " (Debug)",
+            .fast, .small => "",
         },
     });
 
     const app_id = b.fmt("com.mitchellh.ghostty{s}", .{
         switch (cfg.optimize) {
-            .Debug, .ReleaseSafe => "-debug",
-            .ReleaseFast, .ReleaseSmall => "",
+            .debug, .safe => "-debug",
+            .fast, .small => "",
         },
     });
 
-    const exe_abs_path = b.fmt(
-        "{s}/bin/ghostty",
-        .{b.install_prefix},
-    );
+    // How the files below launch Ghostty. See -Dinstalled-exe-path.
+    const exe = cfg.installed_exe_path orelse "ghostty";
+
+    // Variables used by the templates.
+    // Fields are nullable since unused fields trigger a build failure.
+    const Variables = struct {
+        NAME: ?[]const u8 = null,
+        APPID: ?[]const u8 = null,
+        GHOSTTY: ?[]const u8 = null,
+    };
 
     // The templates that we will process. The templates are in
     // cmake format and will be processed and saved to the
     // second element of the tuple.
-    const Template = struct { std.Build.LazyPath, []const u8 };
+    const Template = struct { std.Build.LazyPath, []const u8, Variables };
     const templates: []const Template = templates: {
         var ts: std.ArrayList(Template) = .empty;
         defer ts.deinit(b.allocator);
@@ -296,6 +283,7 @@ fn addLinuxAppResources(
         try ts.append(b.allocator, .{
             b.path("dist/linux/app.desktop.in"),
             b.fmt("share/applications/{s}.desktop", .{app_id}),
+            .{ .NAME = name, .APPID = app_id, .GHOSTTY = exe },
         });
 
         // Service for DBus activation.
@@ -305,6 +293,7 @@ fn addLinuxAppResources(
             else
                 b.path("dist/linux/dbus.service.in"),
             b.fmt("share/dbus-1/services/{s}.service", .{app_id}),
+            .{ .APPID = app_id, .GHOSTTY = exe },
         });
 
         // `systemd` user service. This is kind of nasty but `systemd` looks for
@@ -333,6 +322,7 @@ fn addLinuxAppResources(
                     app_id,
                 },
             ),
+            .{ .NAME = name, .APPID = app_id, .GHOSTTY = exe },
         });
 
         // AppStream metainfo so that application has rich metadata
@@ -340,6 +330,7 @@ fn addLinuxAppResources(
         try ts.append(b.allocator, .{
             b.path("dist/linux/com.mitchellh.ghostty.metainfo.xml.in"),
             b.fmt("share/metainfo/{s}.metainfo.xml", .{app_id}),
+            .{ .NAME = name, .APPID = app_id },
         });
 
         break :templates try ts.toOwnedSlice(b.allocator);
@@ -347,21 +338,23 @@ fn addLinuxAppResources(
 
     // Process all our templates
     for (templates) |template| {
-        const tpl = b.addConfigHeader(.{
-            .style = .{ .cmake = template[0] },
-        }, .{
-            .NAME = name,
-            .APPID = app_id,
-            .GHOSTTY = exe_abs_path,
-        });
+        const tpl = b.addConfigHeader(
+            .{ .style = .{ .cmake = template[0] } },
+            .{},
+        );
+        inline for (@typeInfo(Variables).@"struct".field_names) |field| {
+            if (@field(template[2], field)) |v| {
+                tpl.addValue(field, @FieldType(Variables, field), v);
+            }
+        }
 
         // Template output has a single header line we want to remove.
         // We use `tail` to do it since its part of the POSIX standard.
         const tail = b.addSystemCommand(&.{ "tail", "-n", "+2" });
-        tail.setStdIn(.{ .lazy_path = tpl.getOutput() });
+        tail.setStdIn(.{ .lazy_path = tpl.getOutputFile() });
 
         const copy = b.addInstallFile(
-            tail.captureStdOut(),
+            tail.captureStdOut(.{}),
             template[1],
         );
 

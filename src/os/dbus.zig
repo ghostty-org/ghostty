@@ -8,7 +8,7 @@ const builtin = @import("builtin");
 ///
 /// For other platforms and app runtimes, this returns false.
 pub fn launchedByDbusActivation() bool {
-    return switch (builtin.os.tag) {
+    return switch (builtin.target.os.tag) {
         // On Linux, D-Bus activation sets `DBUS_STARTER_ADDRESS` and
         // `DBUS_STARTER_BUS_TYPE`. If these environment variables are present
         // (no matter the value) we were launched by D-Bus activation.

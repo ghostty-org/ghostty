@@ -58,6 +58,21 @@ extension NSWindow {
     }
 }
 
+extension NSWindowController {
+    /// Wraps `showWindow` with an Objective-C exception catcher because selecting
+    /// a tab can raise an AppKit fullscreen window-stack exception.
+    @discardableResult
+    func showWindowSafely(_ sender: Any?) -> Bool {
+        var error: NSError?
+        let success = GhosttyShowWindowSafely(self, sender, &error)
+        if let error {
+            Ghostty.logger.error("showWindow failed: \(error.localizedDescription, privacy: .public)")
+        }
+
+        return success
+    }
+}
+
 /// Native tabbing private API usage. :(
 extension NSWindow {
     var titlebarView: NSView? {

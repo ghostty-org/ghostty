@@ -15,90 +15,6 @@ const log = std.log.scoped(.kitty_gfx);
 /// Codepoint for the unicode placeholder character.
 pub const placeholder: u21 = 0x10EEEE;
 
-/// Returns an iterator that iterates over all of the virtual placements
-/// in the given pin. If `limit` is provided, the iterator will stop
-/// when it reaches that pin (inclusive). If `limit` is not provided,
-/// the iterator will continue until the end of the page list.
-pub fn placementIterator(
-    pin: terminal.Pin,
-    limit: ?terminal.Pin,
-) PlacementIterator {
-    var row_it = pin.rowIterator(.right_down, limit);
-    const row = row_it.next();
-    return .{ .row_it = row_it, .row = row };
-}
-
-/// Iterator over unicode virtual placements.
-pub const PlacementIterator = struct {
-    row_it: terminal.PageList.RowIterator,
-    row: ?terminal.Pin,
-
-    pub fn next(self: *PlacementIterator) ?Placement {
-        while (self.row) |*row| {
-            // This row flag is set on rows that have the virtual placeholder
-            if (!row.rowAndCell().row.kitty_virtual_placeholder) {
-                self.row = self.row_it.next();
-                continue;
-            }
-
-            // Our current run. A run is always only a single row. This
-            // assumption is built-in to our logic so if we want to change
-            // this later we have to redo the logic; tests should cover;
-            var run: ?IncompletePlacement = null;
-
-            // Iterate over our remaining cells and find one with a placeholder.
-            const cells = row.cells(.right);
-            for (cells, row.x..) |*cell, x| {
-                // "row" now points to the top-left pin of the placement.
-                // We need this temporary state to build our incomplete
-                // placement.
-                assert(@intFromPtr(row) == @intFromPtr(&self.row));
-                row.x = @intCast(x);
-
-                // If this cell doesn't have the placeholder, then we
-                // complete the run if we have it otherwise we just move
-                // on and keep searching.
-                if (cell.codepoint() != placeholder) {
-                    if (run) |prev| return prev.complete();
-                    continue;
-                }
-
-                // If we don't have a previous run, then we save this
-                // incomplete one, start a run, and move on.
-                const curr = IncompletePlacement.init(row, cell);
-                if (run) |*prev| {
-                    // If we can't append, then we complete the previous
-                    // run and return it.
-                    if (!prev.append(&curr)) {
-                        // Note: self.row is already updated due to the
-                        // row pointer above. It points back at this same
-                        // cell so we can continue the new placements from
-                        // here.
-                        return prev.complete();
-                    }
-
-                    // append is mutating so if we reached this point
-                    // then prev has been updated.
-                } else {
-                    // For appending, we need to set our initial values.
-                    var prev = curr;
-                    if (prev.row == null) prev.row = 0;
-                    if (prev.col == null) prev.col = 0;
-                    run = prev;
-                }
-            }
-
-            // We move to the next row no matter what
-            self.row = self.row_it.next();
-
-            // If we have a run, we complete it here.
-            if (run) |prev| return prev.complete();
-        }
-
-        return null;
-    }
-};
-
 /// A virtual placement in the terminal. This can represent more than
 /// one cell if the cells combine to be a run.
 pub const Placement = struct {
@@ -124,13 +40,14 @@ pub const Placement = struct {
 
     pub const Error = error{
         PlacementGridOutOfBounds,
-        PlacementMissingPlacement,
     };
 
     /// Take this virtual placement and convert it to a render placement.
+    /// `target` is the virtual placement that the cells show, from
+    /// `ImageStorage.placeholderTarget`.
     pub fn renderPlacement(
         self: *const Placement,
-        storage: *const ImageStorage,
+        target: *const ImageStorage.Placement,
         img: *const Image,
         cell_width: u32,
         cell_height: u32,
@@ -143,7 +60,7 @@ pub const Placement = struct {
         // - vp_* is for the virtual placement
 
         // Determine the grid size that this virtual placement fits into.
-        const p_grid = try self.grid(storage, img, cell_width, cell_height);
+        const p_grid = try grid(target, img, cell_width, cell_height);
 
         // From here on out we switch to floating point math. These are
         // constants that we'll reference repeatedly.
@@ -358,35 +275,14 @@ pub const Placement = struct {
     // This part of the code does NOT do preserve any aspect ratios. Its
     // dumbly fitting the image into the grid size -- possibly user specified.
     fn grid(
-        self: *const Placement,
-        storage: *const ImageStorage,
+        placement: *const ImageStorage.Placement,
         image: *const Image,
         cell_width: u32,
         cell_height: u32,
-    ) !struct {
+    ) Error!struct {
         rows: u32,
         columns: u32,
     } {
-        // Get the placement. If an ID is specified we look for the exact one.
-        // If no ID, then we find the first virtual placement for this image.
-        const placement = if (self.placement_id > 0) storage.placements.get(.{
-            .image_id = self.image_id,
-            .placement_id = .{ .tag = .external, .id = self.placement_id },
-        }) orelse {
-            return Error.PlacementMissingPlacement;
-        } else placement: {
-            var it = storage.placements.iterator();
-            while (it.next()) |entry| {
-                if (entry.key_ptr.image_id == self.image_id and
-                    entry.value_ptr.location == .virtual)
-                {
-                    break :placement entry.value_ptr.*;
-                }
-            }
-
-            return Error.PlacementMissingPlacement;
-        };
-
         // Use requested rows/columns if specified
         // For unspecified rows/columns, calculate based on the image size.
         var rows = placement.rows;
@@ -405,10 +301,21 @@ pub const Placement = struct {
 /// IncompletePlacement is the placement information present in a single
 /// cell. It is "incomplete" because the specification allows for missing
 /// diacritics and so on that continue from previous valid placements.
-const IncompletePlacement = struct {
-    /// The pin of the cell that created this incomplete placement.
-    pin: terminal.Pin,
-
+///
+/// The render state (see `terminal.RenderState`) uses this to group
+/// placeholder cells into runs while it rebuilds rows. It doesn't store a
+/// position. The caller keeps track of where each run starts.
+///
+/// Building a run looks like this:
+///
+///     var run = IncompletePlacement.init(&style, graphemes).start();
+///     // For each following placeholder cell:
+///     const next: IncompletePlacement = .init(&next_style, next_graphemes);
+///     if (!run.append(&next)) {
+///         // `run` is finished. `next` starts a new run, which
+///         // continues from `next.start()`.
+///     }
+pub const IncompletePlacement = struct {
     /// Lower 24 bits of the image ID. This is specified in the fg color
     /// and is always required.
     image_id_low: u24,
@@ -430,19 +337,14 @@ const IncompletePlacement = struct {
     /// The run width so far in cells.
     width: u32 = 1,
 
-    /// Parse the incomplete placement information from a row and cell.
-    ///
-    /// The cell could be derived from the row but in our usage we already
-    /// have the cell and we don't want to waste cycles recomputing it.
+    /// Read the placement information from one placeholder cell, given
+    /// its style and its combining characters (an empty slice if it has
+    /// none).
     pub fn init(
-        row: *const terminal.Pin,
-        cell: *const terminal.Cell,
+        style: *const terminal.Style,
+        cps: []const u21,
     ) IncompletePlacement {
-        assert(cell.codepoint() == placeholder);
-        const style = row.style(cell);
-
         var result: IncompletePlacement = .{
-            .pin = row.*,
             .image_id_low = colorToId(style.fg_color),
             .placement_id = placement_id: {
                 const id = colorToId(style.underline_color);
@@ -453,7 +355,6 @@ const IncompletePlacement = struct {
         // Try to decode all our diacritics. Any invalid diacritics are
         // treated as if they don't exist. This isn't explicitly specified
         // at the time of writing this but it appears to be how Kitty behaves.
-        const cps: []const u21 = row.grapheme(cell) orelse &.{};
         if (cps.len > 0) {
             result.row = getIndex(cps[0]) orelse value: {
                 log.warn("virtual placement with invalid row diacritic cp={X}", .{cps[0]});
@@ -493,6 +394,17 @@ const IncompletePlacement = struct {
         return result;
     }
 
+    /// Returns this cell as the first cell of a new run. A cell that
+    /// leaves out its row or column would normally continue the run to
+    /// its left. At the start of a run there is nothing to continue, so
+    /// a missing row or column is zero.
+    pub fn start(self: IncompletePlacement) IncompletePlacement {
+        var result = self;
+        if (result.row == null) result.row = 0;
+        if (result.col == null) result.col = 0;
+        return result;
+    }
+
     /// Append this incomplete placement to an existing placement to
     /// create a run. This returns true if the placements are compatible
     /// and were combined. If this returns false, the other placement is
@@ -512,26 +424,12 @@ const IncompletePlacement = struct {
             (other.image_id_high == null or other.image_id_high == self.image_id_high);
     }
 
-    /// Complete the incomplete placement to create a full placement.
-    /// This creates a new placement that isn't continuous with any previous
-    /// placements.
-    ///
-    /// The pin is the pin of the cell that created this incomplete placement.
-    pub fn complete(self: *const IncompletePlacement) Placement {
-        return .{
-            .pin = self.pin,
-            .image_id = image_id: {
-                const low: u32 = @intCast(self.image_id_low);
-                const high: u32 = @intCast(self.image_id_high orelse 0);
-                break :image_id low | (high << 24);
-            },
-
-            .placement_id = self.placement_id orelse 0,
-            .col = self.col orelse 0,
-            .row = self.row orelse 0,
-            .width = self.width,
-            .height = 1,
-        };
+    /// The full image ID. The low 24 bits come from the foreground color
+    /// and the high 8 bits from the optional third diacritic.
+    pub fn imageId(self: *const IncompletePlacement) u32 {
+        const low: u32 = @intCast(self.image_id_low);
+        const high: u32 = @intCast(self.image_id_high orelse 0);
+        return low | (high << 24);
     }
 
     /// Convert a style color to a Kitty image protocol ID. This works by
@@ -552,14 +450,55 @@ const IncompletePlacement = struct {
 };
 
 /// Get the row/col index for a diacritic codepoint. These are 0-indexed.
+///
+/// Rebuilding a row of placeholders calls this up to three times per
+/// cell, so it needs to be fast. Most diacritics are below U+2E00 and
+/// are found with a single table lookup. The few above that use a
+/// binary search.
 fn getIndex(cp: u21) ?u32 {
-    const idx = std.sort.binarySearch(u21, diacritics, cp, (struct {
+    if (cp < dense_end) {
+        @branchHint(.likely);
+        if (cp < dense_start) return null;
+        const idx = dense_index[cp - dense_start];
+        return if (idx == dense_none) null else idx;
+    }
+
+    const sparse = diacritics[sparse_start..];
+    const idx = std.sort.binarySearch(u21, sparse, cp, (struct {
         fn compare(context: u21, item: u21) std.math.Order {
             return std.math.order(context, item);
         }
     }).compare) orelse return null;
-    return @intCast(idx);
+    return @intCast(sparse_start + idx);
 }
+
+/// The range of codepoints covered by `dense_index`. It holds every
+/// diacritic below U+2E00 (all but a few dozen of them) in about 11 KB,
+/// and each of their indexes fits in a byte.
+const dense_start: u21 = diacritics[0];
+const dense_end: u21 = 0x2E00;
+const dense_none = std.math.maxInt(u8);
+
+/// The index in `diacritics` of the first codepoint at or above
+/// `dense_end`. Codepoints from here on are found with a binary search.
+const sparse_start: usize = sparse_start: {
+    for (diacritics, 0..) |cp, i| {
+        if (cp >= dense_end) break :sparse_start i;
+    }
+    break :sparse_start diacritics.len;
+};
+
+/// Maps `cp - dense_start` to the index of `cp` in `diacritics`, or to
+/// `dense_none` if `cp` is not a diacritic.
+const dense_index: [dense_end - dense_start]u8 = table: {
+    @setEvalBranchQuota(100_000);
+    if (sparse_start >= dense_none) @compileError("dense diacritic index overflows u8");
+    var table: [dense_end - dense_start]u8 = @splat(dense_none);
+    for (diacritics[0..sparse_start], 0..) |cp, i| {
+        table[cp - dense_start] = i;
+    }
+    break :table table;
+};
 
 /// These are the diacritics used with the Kitty graphics protocol
 /// Unicode placement feature to specify the row/column for placement.
@@ -883,288 +822,19 @@ test "unicode diacritic" {
     try testing.expectEqual(294, getIndex(0x1d242).?);
 }
 
-test "unicode placement: none" {
-    const alloc = testing.allocator;
-    var t = try terminal.Terminal.init(alloc, .{ .rows = 5, .cols = 5 });
-    defer t.deinit(alloc);
-    t.modes.set(.grapheme_cluster, true);
-
-    // Single cell
-    try t.printString("hello\nworld\n1\n2");
-
-    // No placements
-    const pin = t.screens.active.pages.getTopLeft(.viewport);
-    var it = placementIterator(pin, null);
-    try testing.expect(it.next() == null);
-}
-
-test "unicode placement: single row/col" {
-    const alloc = testing.allocator;
-    var t = try terminal.Terminal.init(alloc, .{ .rows = 5, .cols = 5 });
-    defer t.deinit(alloc);
-    t.modes.set(.grapheme_cluster, true);
-
-    // Single cell
-    try t.printString("\u{10EEEE}\u{0305}\u{0305}");
-
-    // Get our top left pin
-    const pin = t.screens.active.pages.getTopLeft(.viewport);
-
-    // Should have exactly one placement
-    var it = placementIterator(pin, null);
-    {
-        const p = it.next().?;
-        try testing.expectEqual(0, p.image_id);
-        try testing.expectEqual(0, p.placement_id);
-        try testing.expectEqual(0, p.row);
-        try testing.expectEqual(0, p.col);
+test "unicode diacritic lookup matches table" {
+    // Every diacritic maps to its index, through both the dense table
+    // and the binary search.
+    for (diacritics, 0..) |cp, i| {
+        try testing.expectEqual(@as(?u32, @intCast(i)), getIndex(cp));
     }
-    try testing.expect(it.next() == null);
-}
 
-test "unicode placement: continuation break" {
-    const alloc = testing.allocator;
-    var t = try terminal.Terminal.init(alloc, .{ .rows = 5, .cols = 10 });
-    defer t.deinit(alloc);
-    t.modes.set(.grapheme_cluster, true);
-
-    // Two runs because it jumps cols
-    try t.printString("\u{10EEEE}\u{0305}\u{0305}");
-    try t.printString("\u{10EEEE}\u{0305}\u{030E}");
-
-    // Get our top left pin
-    const pin = t.screens.active.pages.getTopLeft(.viewport);
-
-    // Should have exactly one placement
-    var it = placementIterator(pin, null);
-    {
-        const p = it.next().?;
-        try testing.expectEqual(0, p.image_id);
-        try testing.expectEqual(0, p.placement_id);
-        try testing.expectEqual(0, p.row);
-        try testing.expectEqual(0, p.col);
-        try testing.expectEqual(1, p.width);
+    // Nothing else maps, including around both ranges.
+    var cp: u21 = 0;
+    while (cp < 0x1E000) : (cp += 1) {
+        if (std.mem.indexOfScalar(u21, diacritics, cp) != null) continue;
+        try testing.expectEqual(@as(?u32, null), getIndex(cp));
     }
-    {
-        const p = it.next().?;
-        try testing.expectEqual(0, p.image_id);
-        try testing.expectEqual(0, p.placement_id);
-        try testing.expectEqual(0, p.row);
-        try testing.expectEqual(2, p.col);
-        try testing.expectEqual(1, p.width);
-    }
-    try testing.expect(it.next() == null);
-}
-
-test "unicode placement: continuation with diacritics set" {
-    const alloc = testing.allocator;
-    var t = try terminal.Terminal.init(alloc, .{ .rows = 5, .cols = 10 });
-    defer t.deinit(alloc);
-    t.modes.set(.grapheme_cluster, true);
-
-    // Three cells. They'll continue even though they're explicit
-    try t.printString("\u{10EEEE}\u{0305}\u{0305}");
-    try t.printString("\u{10EEEE}\u{0305}\u{030D}");
-    try t.printString("\u{10EEEE}\u{0305}\u{030E}");
-
-    // Get our top left pin
-    const pin = t.screens.active.pages.getTopLeft(.viewport);
-
-    // Should have exactly one placement
-    var it = placementIterator(pin, null);
-    {
-        const p = it.next().?;
-        try testing.expectEqual(0, p.image_id);
-        try testing.expectEqual(0, p.placement_id);
-        try testing.expectEqual(0, p.row);
-        try testing.expectEqual(0, p.col);
-        try testing.expectEqual(3, p.width);
-    }
-    try testing.expect(it.next() == null);
-}
-
-test "unicode placement: continuation with no col" {
-    const alloc = testing.allocator;
-    var t = try terminal.Terminal.init(alloc, .{ .rows = 5, .cols = 10 });
-    defer t.deinit(alloc);
-    t.modes.set(.grapheme_cluster, true);
-
-    // Three cells. They'll continue even though they're explicit
-    try t.printString("\u{10EEEE}\u{0305}\u{0305}");
-    try t.printString("\u{10EEEE}\u{0305}");
-    try t.printString("\u{10EEEE}\u{0305}");
-
-    // Get our top left pin
-    const pin = t.screens.active.pages.getTopLeft(.viewport);
-
-    // Should have exactly one placement
-    var it = placementIterator(pin, null);
-    {
-        const p = it.next().?;
-        try testing.expectEqual(0, p.image_id);
-        try testing.expectEqual(0, p.placement_id);
-        try testing.expectEqual(0, p.row);
-        try testing.expectEqual(0, p.col);
-        try testing.expectEqual(3, p.width);
-    }
-    try testing.expect(it.next() == null);
-}
-
-test "unicode placement: continuation with no diacritics" {
-    const alloc = testing.allocator;
-    var t = try terminal.Terminal.init(alloc, .{ .rows = 5, .cols = 10 });
-    defer t.deinit(alloc);
-    t.modes.set(.grapheme_cluster, true);
-
-    // Three cells. They'll continue even though they're explicit
-    try t.printString("\u{10EEEE}");
-    try t.printString("\u{10EEEE}");
-    try t.printString("\u{10EEEE}");
-
-    // Get our top left pin
-    const pin = t.screens.active.pages.getTopLeft(.viewport);
-
-    // Should have exactly one placement
-    var it = placementIterator(pin, null);
-    {
-        const p = it.next().?;
-        try testing.expectEqual(0, p.image_id);
-        try testing.expectEqual(0, p.placement_id);
-        try testing.expectEqual(0, p.row);
-        try testing.expectEqual(0, p.col);
-        try testing.expectEqual(3, p.width);
-    }
-    try testing.expect(it.next() == null);
-}
-
-test "unicode placement: run ending" {
-    const alloc = testing.allocator;
-    var t = try terminal.Terminal.init(alloc, .{ .rows = 5, .cols = 10 });
-    defer t.deinit(alloc);
-    t.modes.set(.grapheme_cluster, true);
-
-    // Three cells. They'll continue even though they're explicit
-    try t.printString("\u{10EEEE}\u{0305}\u{0305}");
-    try t.printString("\u{10EEEE}\u{0305}\u{030D}");
-    try t.printString("ABC");
-
-    // Get our top left pin
-    const pin = t.screens.active.pages.getTopLeft(.viewport);
-
-    // Should have exactly one placement
-    var it = placementIterator(pin, null);
-    {
-        const p = it.next().?;
-        try testing.expectEqual(0, p.image_id);
-        try testing.expectEqual(0, p.placement_id);
-        try testing.expectEqual(0, p.row);
-        try testing.expectEqual(0, p.col);
-        try testing.expectEqual(2, p.width);
-    }
-    try testing.expect(it.next() == null);
-}
-
-test "unicode placement: run starting in the middle" {
-    const alloc = testing.allocator;
-    var t = try terminal.Terminal.init(alloc, .{ .rows = 5, .cols = 10 });
-    defer t.deinit(alloc);
-    t.modes.set(.grapheme_cluster, true);
-
-    // Three cells. They'll continue even though they're explicit
-    try t.printString("ABC");
-    try t.printString("\u{10EEEE}\u{0305}\u{0305}");
-    try t.printString("\u{10EEEE}\u{0305}\u{030D}");
-
-    // Get our top left pin
-    const pin = t.screens.active.pages.getTopLeft(.viewport);
-
-    // Should have exactly one placement
-    var it = placementIterator(pin, null);
-    {
-        const p = it.next().?;
-        try testing.expectEqual(0, p.image_id);
-        try testing.expectEqual(0, p.placement_id);
-        try testing.expectEqual(0, p.row);
-        try testing.expectEqual(0, p.col);
-        try testing.expectEqual(2, p.width);
-    }
-    try testing.expect(it.next() == null);
-}
-
-test "unicode placement: specifying image id as palette" {
-    const alloc = testing.allocator;
-    var t = try terminal.Terminal.init(alloc, .{ .rows = 5, .cols = 5 });
-    defer t.deinit(alloc);
-    t.modes.set(.grapheme_cluster, true);
-
-    // Single cell
-    try t.setAttribute(.{ .@"256_fg" = 42 });
-    try t.printString("\u{10EEEE}\u{0305}\u{0305}");
-
-    // Get our top left pin
-    const pin = t.screens.active.pages.getTopLeft(.viewport);
-
-    // Should have exactly one placement
-    var it = placementIterator(pin, null);
-    {
-        const p = it.next().?;
-        try testing.expectEqual(42, p.image_id);
-        try testing.expectEqual(0, p.placement_id);
-        try testing.expectEqual(0, p.row);
-        try testing.expectEqual(0, p.col);
-    }
-    try testing.expect(it.next() == null);
-}
-
-test "unicode placement: specifying image id with high bits" {
-    const alloc = testing.allocator;
-    var t = try terminal.Terminal.init(alloc, .{ .rows = 5, .cols = 5 });
-    defer t.deinit(alloc);
-    t.modes.set(.grapheme_cluster, true);
-
-    // Single cell
-    try t.setAttribute(.{ .@"256_fg" = 42 });
-    try t.printString("\u{10EEEE}\u{0305}\u{0305}\u{030E}");
-
-    // Get our top left pin
-    const pin = t.screens.active.pages.getTopLeft(.viewport);
-
-    // Should have exactly one placement
-    var it = placementIterator(pin, null);
-    {
-        const p = it.next().?;
-        try testing.expectEqual(33554474, p.image_id);
-        try testing.expectEqual(0, p.placement_id);
-        try testing.expectEqual(0, p.row);
-        try testing.expectEqual(0, p.col);
-    }
-    try testing.expect(it.next() == null);
-}
-
-test "unicode placement: specifying placement id as palette" {
-    const alloc = testing.allocator;
-    var t = try terminal.Terminal.init(alloc, .{ .rows = 5, .cols = 5 });
-    defer t.deinit(alloc);
-    t.modes.set(.grapheme_cluster, true);
-
-    // Single cell
-    try t.setAttribute(.{ .@"256_fg" = 42 });
-    try t.setAttribute(.{ .@"256_underline_color" = 21 });
-    try t.printString("\u{10EEEE}\u{0305}\u{0305}");
-
-    // Get our top left pin
-    const pin = t.screens.active.pages.getTopLeft(.viewport);
-
-    // Should have exactly one placement
-    var it = placementIterator(pin, null);
-    {
-        const p = it.next().?;
-        try testing.expectEqual(42, p.image_id);
-        try testing.expectEqual(21, p.placement_id);
-        try testing.expectEqual(0, p.row);
-        try testing.expectEqual(0, p.col);
-    }
-    try testing.expect(it.next() == null);
 }
 
 // Fish:
@@ -1174,17 +844,18 @@ test "unicode placement: specifying placement id as palette" {
 // printf "\033_Ga=p,i=1,U=1,q=2,c=4,r=2\033\\"
 test "unicode render placement: dog 4x2" {
     const alloc = testing.allocator;
+    const io = testing.io;
     const cell_width = 36;
     const cell_height = 80;
 
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 100, .rows = 100 });
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 100, .rows = 100 });
     defer t.deinit(alloc);
     var s: ImageStorage = .{};
     defer s.deinit(alloc, t.screens.active);
 
     const image: Image = .{ .id = 1, .width = 500, .height = 306 };
-    try s.addImage(alloc, image);
-    try s.addPlacement(alloc, 1, 0, .{
+    try s.addImage(io, alloc, t.screens.active, image);
+    try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
         .location = .{ .virtual = {} },
         .columns = 4,
         .rows = 2,
@@ -1201,7 +872,7 @@ test "unicode render placement: dog 4x2" {
             .width = 4,
             .height = 1,
         };
-        const rp = try p.renderPlacement(&s, &image, cell_width, cell_height);
+        const rp = try p.renderPlacement(&s.placeholderTarget(1, 0).?.placement, &image, cell_width, cell_height);
         try testing.expectEqual(0, rp.offset_x);
         try testing.expectEqual(36, rp.offset_y);
         try testing.expectEqual(0, rp.source_x);
@@ -1222,7 +893,7 @@ test "unicode render placement: dog 4x2" {
             .width = 4,
             .height = 1,
         };
-        const rp = try p.renderPlacement(&s, &image, cell_width, cell_height);
+        const rp = try p.renderPlacement(&s.placeholderTarget(1, 0).?.placement, &image, cell_width, cell_height);
         try testing.expectEqual(0, rp.offset_x);
         try testing.expectEqual(0, rp.offset_y);
         try testing.expectEqual(0, rp.source_x);
@@ -1241,17 +912,18 @@ test "unicode render placement: dog 4x2" {
 // printf "\033_Ga=p,i=1,U=1,q=2,c=2,r=2\033\\"
 test "unicode render placement: dog 2x2 with blank cells" {
     const alloc = testing.allocator;
+    const io = testing.io;
     const cell_width = 36;
     const cell_height = 80;
 
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 100, .rows = 100 });
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 100, .rows = 100 });
     defer t.deinit(alloc);
     var s: ImageStorage = .{};
     defer s.deinit(alloc, t.screens.active);
 
     const image: Image = .{ .id = 1, .width = 500, .height = 306 };
-    try s.addImage(alloc, image);
-    try s.addPlacement(alloc, 1, 0, .{
+    try s.addImage(io, alloc, t.screens.active, image);
+    try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
         .location = .{ .virtual = {} },
         .columns = 2,
         .rows = 2,
@@ -1268,7 +940,7 @@ test "unicode render placement: dog 2x2 with blank cells" {
             .width = 4,
             .height = 1,
         };
-        const rp = try p.renderPlacement(&s, &image, cell_width, cell_height);
+        const rp = try p.renderPlacement(&s.placeholderTarget(1, 0).?.placement, &image, cell_width, cell_height);
         try testing.expectEqual(0, rp.offset_x);
         try testing.expectEqual(58, rp.offset_y);
         try testing.expectEqual(0, rp.source_x);
@@ -1289,7 +961,7 @@ test "unicode render placement: dog 2x2 with blank cells" {
             .width = 4,
             .height = 1,
         };
-        const rp = try p.renderPlacement(&s, &image, cell_width, cell_height);
+        const rp = try p.renderPlacement(&s.placeholderTarget(1, 0).?.placement, &image, cell_width, cell_height);
         try testing.expectEqual(0, rp.offset_x);
         try testing.expectEqual(0, rp.offset_y);
         try testing.expectEqual(0, rp.source_x);
@@ -1307,17 +979,18 @@ test "unicode render placement: dog 2x2 with blank cells" {
 // printf "\033_Ga=p,i=1,U=1,q=2,c=1,r=1\033\\"
 test "unicode render placement: dog 1x1" {
     const alloc = testing.allocator;
+    const io = testing.io;
     const cell_width = 36;
     const cell_height = 80;
 
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 100, .rows = 100 });
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 100, .rows = 100 });
     defer t.deinit(alloc);
     var s: ImageStorage = .{};
     defer s.deinit(alloc, t.screens.active);
 
     const image: Image = .{ .id = 1, .width = 500, .height = 306 };
-    try s.addImage(alloc, image);
-    try s.addPlacement(alloc, 1, 0, .{
+    try s.addImage(io, alloc, t.screens.active, image);
+    try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
         .location = .{ .virtual = {} },
         .columns = 1,
         .rows = 1,
@@ -1334,7 +1007,7 @@ test "unicode render placement: dog 1x1" {
             .width = 4,
             .height = 1,
         };
-        const rp = try p.renderPlacement(&s, &image, cell_width, cell_height);
+        const rp = try p.renderPlacement(&s.placeholderTarget(1, 0).?.placement, &image, cell_width, cell_height);
         try testing.expectEqual(0, rp.offset_x);
         try testing.expectEqual(29, rp.offset_y);
         try testing.expectEqual(0, rp.source_x);

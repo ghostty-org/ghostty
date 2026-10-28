@@ -1,6 +1,21 @@
 import SwiftUI
 import GhosttyKit
 
+func sortedTerminalPaletteOptions(_ options: [CommandOption]) -> [CommandOption] {
+    options.sorted { lhs, rhs in
+        let lhsTitle = lhs.title.replacingOccurrences(of: ":", with: "\t")
+        let rhsTitle = rhs.title.replacingOccurrences(of: ":", with: "\t")
+        let comparison = lhsTitle.localizedCaseInsensitiveCompare(rhsTitle)
+        if comparison != .orderedSame {
+            return comparison == .orderedAscending
+        }
+        if let lhsKey = lhs.sortKey, let rhsKey = rhs.sortKey {
+            return lhsKey < rhsKey
+        }
+        return false
+    }
+}
+
 struct TerminalCommandPaletteView: View {
     /// The surface that this command palette represents.
     let surfaceView: Ghostty.SurfaceView
@@ -64,19 +79,7 @@ struct TerminalCommandPaletteView: View {
         // Sort the rest. We replace ":" with a character that sorts before space
         // so that "Foo:" sorts before "Foo Bar:". Use sortKey as a tie-breaker
         // for stable ordering when titles are equal.
-        options.append(contentsOf: (jumpOptions + terminalOptions).sorted { a, b in
-            let aNormalized = a.title.replacingOccurrences(of: ":", with: "\t")
-            let bNormalized = b.title.replacingOccurrences(of: ":", with: "\t")
-            let comparison = aNormalized.localizedCaseInsensitiveCompare(bNormalized)
-            if comparison != .orderedSame {
-                return comparison == .orderedAscending
-            }
-            // Tie-breaker: use sortKey if both have one
-            if let aSortKey = a.sortKey, let bSortKey = b.sortKey {
-                return aSortKey < bSortKey
-            }
-            return false
-        })
+        options.append(contentsOf: sortedTerminalPaletteOptions(jumpOptions + terminalOptions))
         return options
     }
 
@@ -84,35 +87,39 @@ struct TerminalCommandPaletteView: View {
     private var updateOptions: [CommandOption] {
         var options: [CommandOption] = []
 
-        guard let updateViewModel, updateViewModel.state.isInstallable else {
+        guard let updateViewModel else {
             return options
         }
 
-        // We override the update available one only because we want to properly
-        // convey it'll go all the way through.
-        let title: String
-        if case .updateAvailable = updateViewModel.state {
-            title = "Update Ghostty and Restart"
-        } else {
-            title = updateViewModel.text
+        if updateViewModel.state.isInstallable {
+            // We override the update available one only because we want to properly
+            // convey it'll go all the way through.
+            let title: String
+            if case .updateAvailable = updateViewModel.state {
+                title = "Update Ghostty and Restart"
+            } else {
+                title = updateViewModel.text
+            }
+
+            options.append(CommandOption(
+                title: title,
+                description: updateViewModel.description,
+                leadingIcon: updateViewModel.iconName ?? "shippingbox.fill",
+                badge: updateViewModel.badge,
+                emphasis: true
+            ) {
+                (NSApp.delegate as? AppDelegate)?.updateController.viewModel.state.confirm()
+            })
         }
 
-        options.append(CommandOption(
-            title: title,
-            description: updateViewModel.description,
-            leadingIcon: updateViewModel.iconName ?? "shippingbox.fill",
-            badge: updateViewModel.badge,
-            emphasis: true
-        ) {
-            (NSApp.delegate as? AppDelegate)?.updateController.installUpdate()
-        })
-
-        options.append(CommandOption(
-            title: "Cancel or Skip Update",
-            description: "Dismiss the current update process"
-        ) {
-            updateViewModel.state.cancel()
-        })
+        if updateViewModel.state.isCancellable {
+            options.append(CommandOption(
+                title: "Cancel or Skip Update",
+                description: "Dismiss the current update process"
+            ) {
+                updateViewModel.state.cancel()
+            })
+        }
 
         return options
     }
@@ -164,7 +171,7 @@ struct TerminalCommandPaletteView: View {
                     subtitle: subtitle,
                     leadingIcon: "rectangle.on.rectangle",
                     leadingColor: displayColor?.displayColor.map { Color($0) },
-                    sortKey: AnySortKey(ObjectIdentifier(surface))
+                    sortKey: ObjectIdentifier(surface)
                 ) {
                     NotificationCenter.default.post(
                         name: Ghostty.Notification.ghosttyPresentTerminal,

@@ -12,6 +12,8 @@ pub const Style = lib.Enum(lib.target, &.{
     "csi_16_t",
     // XTWINOPS: report text area size in characters
     "csi_18_t",
+    // XTWINOPS: report screen size in characters
+    "csi_19_t",
 });
 
 /// Runtime size values used to encode terminal size reports.
@@ -77,6 +79,16 @@ pub fn encode(
                 size.columns,
             },
         ),
+
+        // We have no knowledge of the physical screen size so, like VTE,
+        // we report the size of the text area in characters.
+        .csi_19_t => try writer.print(
+            "\x1b[9;{};{}t",
+            .{
+                size.rows,
+                size.columns,
+            },
+        ),
     }
 }
 
@@ -121,6 +133,14 @@ test "encode csi 18 t" {
     try std.testing.expectEqualStrings("\x1b[8;24;80t", writer.buffered());
 }
 
+test "encode csi 19 t" {
+    var buf: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try encode(&writer, .csi_19_t, testSize());
+
+    try std.testing.expectEqualStrings("\x1b[9;24;80t", writer.buffered());
+}
+
 test "encode max values for all fields" {
     const max_size: Size = .{
         .rows = std.math.maxInt(@FieldType(Size, "rows")),
@@ -150,6 +170,10 @@ test "encode max values for all fields" {
         .{
             .style = .csi_18_t,
             .expected = "\x1b[8;65535;65535t",
+        },
+        .{
+            .style = .csi_19_t,
+            .expected = "\x1b[9;65535;65535t",
         },
     }) |case| {
         var buf: [128]u8 = undefined;
