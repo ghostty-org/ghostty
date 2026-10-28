@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-14 14:34-0500\n"
+"POT-Creation-Date: 2026-10-27 20:45-0700\n"
 "PO-Revision-Date: 2026-08-31 21:45+0200\n"
 "Last-Translator: Марко Костић <marko.m.kostic@gmail.com>\n"
 "Language-Team: Language SR\n"
@@ -59,109 +59,109 @@ msgstr ""
 msgid "Read-only"
 msgstr "Само за читање"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:311 src/apprt/gtk/ui/1.4/window.blp:205
+#: src/apprt/gtk/ui/1.0/surface.blp:334 src/apprt/gtk/ui/1.4/window.blp:205
 msgid "Copy"
 msgstr "Копирај"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:316 src/apprt/gtk/ui/1.4/window.blp:210
+#: src/apprt/gtk/ui/1.0/surface.blp:339 src/apprt/gtk/ui/1.4/window.blp:210
 msgid "Paste"
 msgstr "Убаци"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:321
+#: src/apprt/gtk/ui/1.0/surface.blp:344
 msgid "Notify on Next Command Finish"
 msgstr "Обавести када се следећа наредба заврши"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:328 src/apprt/gtk/ui/1.4/window.blp:283
+#: src/apprt/gtk/ui/1.0/surface.blp:351 src/apprt/gtk/ui/1.4/window.blp:283
 msgid "Clear"
 msgstr "Очисти"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:333 src/apprt/gtk/ui/1.4/window.blp:288
+#: src/apprt/gtk/ui/1.0/surface.blp:356 src/apprt/gtk/ui/1.4/window.blp:288
 msgid "Reset"
 msgstr "Врати"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:340 src/apprt/gtk/ui/1.4/window.blp:252
+#: src/apprt/gtk/ui/1.0/surface.blp:363 src/apprt/gtk/ui/1.4/window.blp:252
 msgid "Split"
 msgstr "Раздели"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:343 src/apprt/gtk/ui/1.4/window.blp:255
+#: src/apprt/gtk/ui/1.0/surface.blp:366 src/apprt/gtk/ui/1.4/window.blp:255
 msgid "Change Title…"
 msgstr "Промени наслов…"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:348 src/apprt/gtk/ui/1.4/window.blp:182
+#: src/apprt/gtk/ui/1.0/surface.blp:371 src/apprt/gtk/ui/1.4/window.blp:182
 #: src/apprt/gtk/ui/1.4/window.blp:260 src/input/command.zig:487
 msgid "Split Up"
 msgstr "Раздели нагоре"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:354 src/apprt/gtk/ui/1.4/window.blp:187
+#: src/apprt/gtk/ui/1.0/surface.blp:377 src/apprt/gtk/ui/1.4/window.blp:187
 #: src/apprt/gtk/ui/1.4/window.blp:265 src/input/command.zig:492
 msgid "Split Down"
 msgstr "Раздели доле"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:360 src/apprt/gtk/ui/1.4/window.blp:192
+#: src/apprt/gtk/ui/1.0/surface.blp:383 src/apprt/gtk/ui/1.4/window.blp:192
 #: src/apprt/gtk/ui/1.4/window.blp:270 src/input/command.zig:477
 msgid "Split Left"
 msgstr "Раздели улево"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:366 src/apprt/gtk/ui/1.4/window.blp:197
+#: src/apprt/gtk/ui/1.0/surface.blp:389 src/apprt/gtk/ui/1.4/window.blp:197
 #: src/apprt/gtk/ui/1.4/window.blp:275 src/input/command.zig:482
 msgid "Split Right"
 msgstr "Раздели удесно"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:372
+#: src/apprt/gtk/ui/1.0/surface.blp:395
 msgid "Close Split"
 msgstr "Затвори разделу"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:378
+#: src/apprt/gtk/ui/1.0/surface.blp:401
 msgid "Tab"
 msgstr "Језичак"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:381 src/apprt/gtk/ui/1.4/window.blp:234
+#: src/apprt/gtk/ui/1.0/surface.blp:404 src/apprt/gtk/ui/1.4/window.blp:234
 #: src/apprt/gtk/ui/1.4/window.blp:341 src/input/command.zig:464
 msgid "Change Tab Title…"
 msgstr "Промени наслов језичка…"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:386 src/apprt/gtk/ui/1.4/window.blp:61
+#: src/apprt/gtk/ui/1.0/surface.blp:409 src/apprt/gtk/ui/1.4/window.blp:61
 #: src/apprt/gtk/ui/1.4/window.blp:112 src/apprt/gtk/ui/1.4/window.blp:239
 #: src/input/command.zig:427
 msgid "New Tab"
 msgstr "Нови језичак"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:391 src/apprt/gtk/ui/1.4/window.blp:244
+#: src/apprt/gtk/ui/1.0/surface.blp:414 src/apprt/gtk/ui/1.4/window.blp:244
 #: src/input/command.zig:613
 msgid "Close Tab"
 msgstr "Затвори језичак"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:398
+#: src/apprt/gtk/ui/1.0/surface.blp:421
 msgid "Window"
 msgstr "Прозор"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:401 src/apprt/gtk/ui/1.4/window.blp:217
+#: src/apprt/gtk/ui/1.0/surface.blp:424 src/apprt/gtk/ui/1.4/window.blp:217
 msgid "Change Window Title…"
 msgstr "Промени наслов прозора…"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:406 src/apprt/gtk/ui/1.4/window.blp:222
+#: src/apprt/gtk/ui/1.0/surface.blp:429 src/apprt/gtk/ui/1.4/window.blp:222
 #: src/input/command.zig:421
 msgid "New Window"
 msgstr "Нови прозор"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:411 src/apprt/gtk/ui/1.4/window.blp:227
+#: src/apprt/gtk/ui/1.0/surface.blp:434 src/apprt/gtk/ui/1.4/window.blp:227
 #: src/input/command.zig:630
 msgid "Close Window"
 msgstr "Затвори прозор"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:419 src/apprt/gtk/ui/1.4/window.blp:305
+#: src/apprt/gtk/ui/1.0/surface.blp:442 src/apprt/gtk/ui/1.4/window.blp:305
 msgid "Config"
 msgstr "Подешавања"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:422 src/apprt/gtk/ui/1.4/window.blp:308
+#: src/apprt/gtk/ui/1.0/surface.blp:445 src/apprt/gtk/ui/1.4/window.blp:308
 msgid "Open Configuration in OS Editor"
 msgstr "Отвори подешавања у уређивачу ОС-а"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:428 src/apprt/gtk/ui/1.4/window.blp:314
+#: src/apprt/gtk/ui/1.0/surface.blp:451 src/apprt/gtk/ui/1.4/window.blp:314
 msgid "Open Configuration in New Window"
 msgstr "Отвори подешавања у новом прозору"
 
-#: src/apprt/gtk/ui/1.0/surface.blp:434 src/apprt/gtk/ui/1.4/window.blp:320
+#: src/apprt/gtk/ui/1.0/surface.blp:457 src/apprt/gtk/ui/1.4/window.blp:320
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:12
 msgid "Reload Configuration"
 msgstr "Поново учитај подешавања"
@@ -200,13 +200,13 @@ msgstr "Инспектор терминала"
 msgid "About Ghostty"
 msgstr "О програму Ghostty"
 
-#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:708
 msgid "Quit"
 msgstr "Изађи"
 
 #: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:192
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:196
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:388
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:392
 msgid "Authorize Clipboard Access"
 msgstr "Одобри приступ остави"
 
@@ -218,17 +218,17 @@ msgstr "Одбиј"
 msgid "Allow"
 msgstr "Дозволи"
 
-#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:91
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:107
 msgid "Remember choice for this split"
 msgstr "Запамти избор за ову разделу"
 
-#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:92
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:108
 msgid "Reload configuration to show this prompt again"
 msgstr "Поново учитај подешавања да би се овај упит поново приказао"
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2150
+#: src/apprt/gtk/class/application.zig:2165
 msgid "Cancel"
 msgstr "Откажи"
 
@@ -260,38 +260,38 @@ msgstr "Остави празно да вратиш подразумевани �
 msgid "OK"
 msgstr "У реду"
 
-#: src/apprt/gtk/class/application.zig:1735
+#: src/apprt/gtk/class/application.zig:1749
 msgid "The keybind was revoked by the system."
 msgstr "Систем је опозвао пречицу."
 
-#: src/apprt/gtk/class/application.zig:1737
+#: src/apprt/gtk/class/application.zig:1751
 msgid "The keybind was denied by the system."
 msgstr "Систем је одбио пречицу."
 
-#: src/apprt/gtk/class/application.zig:1748
+#: src/apprt/gtk/class/application.zig:1763
 msgid "Global keybind unavailable"
 msgstr "Глобална пречица није доступна"
 
-#: src/apprt/gtk/class/application.zig:2146
+#: src/apprt/gtk/class/application.zig:2161
 msgid "Export Terminal IO Events"
 msgstr "Извези догађаје улаза/излаза терминала"
 
-#: src/apprt/gtk/class/application.zig:2149
+#: src/apprt/gtk/class/application.zig:2164
 msgid "Export"
 msgstr "Извези"
 
-#: src/apprt/gtk/class/application.zig:2648
+#: src/apprt/gtk/class/application.zig:2675
 msgid "Editing configuration file"
 msgstr "Уређивање датотеке са подешавањима"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:193
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:389
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
 "Програм покушава да пише у оставу. Тренутни садржај оставе је приказан испод."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:393
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
@@ -299,11 +299,11 @@ msgstr ""
 "Програм покушава да чита из оставе. Тренутни садржај оставе је приказан "
 "испод."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:200
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:396
 msgid "Warning: Potentially Unsafe Paste"
 msgstr "Упозорење: потенцијално небезбедно убацивање"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:397
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
@@ -343,16 +343,16 @@ msgstr "Све сесије терминала у овом прозору бић
 msgid "The currently running process in this split will be terminated."
 msgstr "Тренутно покренут процес у овој раздели биће прекинут."
 
-#: src/apprt/gtk/class/surface.zig:1191
+#: src/apprt/gtk/class/surface.zig:1208
 msgid "Command Finished"
 msgstr "Наредба је завршена"
 
-#: src/apprt/gtk/class/surface.zig:1192
+#: src/apprt/gtk/class/surface.zig:1209
 #: src/apprt/gtk/class/surface_child_exited.zig:102
 msgid "Command Succeeded"
 msgstr "Наредба је успешно извршена"
 
-#: src/apprt/gtk/class/surface.zig:1193
+#: src/apprt/gtk/class/surface.zig:1210
 #: src/apprt/gtk/class/surface_child_exited.zig:106
 msgid "Command Failed"
 msgstr "Наредба није успела"
@@ -373,15 +373,15 @@ msgstr "Промени наслов прозора"
 msgid "Reloaded the configuration"
 msgstr "Поново учитана подешавања"
 
-#: src/apprt/gtk/class/window.zig:1886
+#: src/apprt/gtk/class/window.zig:1887
 msgid "Copied to clipboard"
 msgstr "Копирано у оставу"
 
-#: src/apprt/gtk/class/window.zig:1888
+#: src/apprt/gtk/class/window.zig:1889
 msgid "Cleared clipboard"
 msgstr "Остава очишћена"
 
-#: src/apprt/gtk/class/window.zig:2027
+#: src/apprt/gtk/class/window.zig:2028
 msgid "Ghostty Developers"
 msgstr "Програмери Ghostty-ја"
 
@@ -1111,14 +1111,22 @@ msgstr "Понови"
 msgid "Redo the last undone action."
 msgstr "Понови последњу опозвану радњу."
 
+#: src/input/command.zig:702
+msgid "Clear Broadcast Groups"
+msgstr ""
+
 #: src/input/command.zig:703
+msgid "Remove all terminals from broadcast input groups."
+msgstr ""
+
+#: src/input/command.zig:709
 msgid "Quit the application."
 msgstr "Изађи из програма."
 
-#: src/input/command.zig:708
+#: src/input/command.zig:714
 msgid "Ghostty"
 msgstr "Ghostty"
 
-#: src/input/command.zig:709
+#: src/input/command.zig:715
 msgid "Put a little Ghostty in your terminal."
 msgstr "Убаци мало Ghostty-ја у свој терминал."
