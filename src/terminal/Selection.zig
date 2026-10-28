@@ -522,18 +522,17 @@ pub fn adjust(
             var last_non_boundary: ?Pin = null;
             while (it.next()) |next| {
                 const rac = next.rowAndCell();
-                const cell = rac.cell;
 
                 // Stop at hard line breaks (landing on last col of a non-wrapped row)
                 if (next.x == next.node.cols() - 1 and !rac.row.wrap) break;
 
-                // Empty cells are hard boundaries
-                if (!cell.hasText()) break;
+                // Null means an empty cell, a hard boundary like selectWord.
+                const codepoint = Screen.selectWordCodepoint(next) orelse break;
 
-                const is_boundary = std.mem.indexOfAny(
+                const is_boundary = std.mem.indexOfScalar(
                     u21,
                     codepoints,
-                    &[_]u21{cell.content.codepoint},
+                    codepoint,
                 ) != null;
                 if (!is_boundary) {
                     last_non_boundary = next;
@@ -546,16 +545,17 @@ pub fn adjust(
             if (last_non_boundary != null) {
                 while (it.next()) |next| {
                     const rac = next.rowAndCell();
-                    const cell = rac.cell;
 
                     // Stop at hard line breaks
                     if (next.x == next.node.cols() - 1 and !rac.row.wrap) break;
 
-                    if (!cell.hasText()) break;
-                    const is_boundary = std.mem.indexOfAny(
+                    // Null means an empty cell, a hard boundary like selectWord.
+                    const codepoint = Screen.selectWordCodepoint(next) orelse break;
+
+                    const is_boundary = std.mem.indexOfScalar(
                         u21,
                         codepoints,
-                        &[_]u21{cell.content.codepoint},
+                        codepoint,
                     ) != null;
                     if (is_boundary) break;
                     last_non_boundary = next;
@@ -578,18 +578,17 @@ pub fn adjust(
             var last_non_boundary: ?Pin = null;
             while (it.next()) |next| {
                 const rac = next.rowAndCell();
-                const cell = rac.cell;
 
                 // Stop at hard line breaks
                 if (next.x == next.node.cols() - 1 and !rac.row.wrap) break;
 
-                // Empty cells are hard boundaries
-                if (!cell.hasText()) break;
+                // Null means an empty cell, a hard boundary like selectWord.
+                const codepoint = Screen.selectWordCodepoint(next) orelse break;
 
-                const is_boundary = std.mem.indexOfAny(
+                const is_boundary = std.mem.indexOfScalar(
                     u21,
                     codepoints,
-                    &[_]u21{cell.content.codepoint},
+                    codepoint,
                 ) != null;
                 if (!is_boundary) {
                     last_non_boundary = next;
@@ -602,16 +601,17 @@ pub fn adjust(
             if (last_non_boundary != null) {
                 while (it.next()) |next| {
                     const rac = next.rowAndCell();
-                    const cell = rac.cell;
 
                     // Stop at hard line breaks
                     if (next.x == next.node.cols() - 1 and !rac.row.wrap) break;
 
-                    if (!cell.hasText()) break;
-                    const is_boundary = std.mem.indexOfAny(
+                    // Null means an empty cell, a hard boundary like selectWord.
+                    const codepoint = Screen.selectWordCodepoint(next) orelse break;
+
+                    const is_boundary = std.mem.indexOfScalar(
                         u21,
                         codepoints,
-                        &[_]u21{cell.content.codepoint},
+                        codepoint,
                     ) != null;
                     if (is_boundary) break;
                     last_non_boundary = next;
@@ -1108,7 +1108,7 @@ test "Selection: adjust end of line" {
 
 test "Selection: adjust word_right" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, .{ .cols = 20, .rows = 10, .max_scrollback = 0 });
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 20, .rows = 10, .max_scrollback_bytes = 0 });
     defer s.deinit();
     try s.testWriteString("hello world foo bar");
 
@@ -1165,7 +1165,7 @@ test "Selection: adjust word_right" {
 
 test "Selection: adjust word_right with multiple spaces" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, .{ .cols = 20, .rows = 10, .max_scrollback = 0 });
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 20, .rows = 10, .max_scrollback_bytes = 0 });
     defer s.deinit();
     try s.testWriteString("hello   world");
 
@@ -1190,7 +1190,7 @@ test "Selection: adjust word_right with multiple spaces" {
 
 test "Selection: adjust word_left" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, .{ .cols = 20, .rows = 10, .max_scrollback = 0 });
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 20, .rows = 10, .max_scrollback_bytes = 0 });
     defer s.deinit();
     try s.testWriteString("hello world foo bar");
 
@@ -1248,7 +1248,7 @@ test "Selection: adjust word_left" {
 
 test "Selection: adjust word_left with multiple spaces" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, .{ .cols = 20, .rows = 10, .max_scrollback = 0 });
+    var s = try Screen.init(testing.io, testing.allocator, .{ .cols = 20, .rows = 10, .max_scrollback_bytes = 0 });
     defer s.deinit();
     try s.testWriteString("hello   world");
 

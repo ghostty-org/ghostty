@@ -3533,7 +3533,7 @@ pub fn selectWord(
 }
 
 /// Return the codepoint for word selection, following wide-character spacers.
-fn selectWordCodepoint(pin: Pin) ?u21 {
+pub fn selectWordCodepoint(pin: Pin) ?u21 {
     const rac = pin.rowAndCell();
     const cell = switch (rac.cell.wide) {
         .narrow, .wide => rac.cell,
