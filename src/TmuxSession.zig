@@ -185,6 +185,12 @@ pub const Session = struct {
     /// tab that is shown there.
     window_sizes: std.AutoHashMapUnmanaged(usize, renderer.GridSize) = .empty,
 
+    /// The size in pixels the apprt last reported for each window's tab.
+    /// A tab keeps its pixel size when the cell size changes (font size,
+    /// content scale, config), so its size in cells is recomputed from
+    /// this then. See `cellSizeChanged`.
+    window_views: std.AutoHashMapUnmanaged(usize, PixelSize) = .empty,
+
     /// Whether we subscribed to the order of the windows. See
     /// `terminal.tmux.Viewer.windows_subscription_command`.
     subscribed: bool = false,
@@ -208,6 +214,7 @@ pub const Session = struct {
         self.placed.deinit(self.alloc);
         self.grids.deinit(self.alloc);
         self.window_sizes.deinit(self.alloc);
+        self.window_views.deinit(self.alloc);
         self.* = undefined;
     }
 
@@ -1080,6 +1087,7 @@ pub const Session = struct {
         for (specs.items) |spec| {
             _ = self.mirrored.remove(spec.window);
             _ = self.window_sizes.remove(spec.window);
+            _ = self.window_views.remove(spec.window);
         }
 
         for (snapshot.windows) |*window| {
@@ -1115,6 +1123,44 @@ pub const Session = struct {
 
     /// Give tmux window `window_id` the size of its native tab, unless it
     /// already has it.
+    /// A follower's cell size changed. Its tab keeps its size in pixels,
+    /// so the number of cells that fit changes and tmux has to be told.
+    pub fn cellSizeChanged(self: *Session, surface: *Surface) void {
+        if (comptime !native_layout) return;
+        const pane = self.paneForSurface(surface) orelse return;
+        const window = self.pane_window.get(pane) orelse return;
+        const view = self.window_views.get(window) orelse return;
+        self.sizeView(surface, window, view);
+    }
+
+    /// Give `window`, and the other windows shown in the same native
+    /// window, the cells that fit a tab of `view` pixels, measured with
+    /// `surface`'s cell size and padding.
+    fn sizeView(self: *Session, surface: *const Surface, window: usize, view: PixelSize) void {
+        // The cells that fit, as for a surface of that size. tmux adds
+        // the dividers between panes, which natively are thin borders,
+        // so a split tab ends up with a little room to spare rather than
+        // clipping.
+        const size = surface.size;
+        const pad_w = size.padding.left + size.padding.right;
+        const pad_h = size.padding.top + size.padding.bottom;
+        if (view.width <= pad_w or view.height <= pad_h) return;
+        const grid = gridSize(
+            (view.width - pad_w) / size.cell.width,
+            (view.height - pad_h) / size.cell.height,
+        );
+
+        // Only the shown tab of a native window gets a size, but its
+        // other tabs are the same size.
+        const group: []const usize = if (self.affinityGroupIndex(window)) |i|
+            self.affinities.items[i].items
+        else
+            &.{window};
+        for (group) |id| self.sizeWindow(id, grid);
+    }
+
+    const PixelSize = struct { width: u32, height: u32 };
+
     fn sizeWindow(self: *Session, window_id: usize, size: renderer.GridSize) void {
         if (self.window_sizes.get(window_id)) |last| {
             if (last.columns == size.columns and last.rows == size.rows) return;
@@ -1395,27 +1441,11 @@ pub const Session = struct {
             .view_size => |v| {
                 if (v.tab.session != self.attach) return false;
                 if (!self.mirrored.contains(v.tab.window)) return false;
-
-                // The cells that fit, as for a surface of that size. tmux
-                // adds the dividers between panes, which natively are thin
-                // borders, so a split tab ends up with a little room to
-                // spare rather than clipping.
-                const size = surface.size;
-                const pad_w = size.padding.left + size.padding.right;
-                const pad_h = size.padding.top + size.padding.bottom;
-                if (v.width <= pad_w or v.height <= pad_h) return true;
-                const grid = gridSize(
-                    (v.width - pad_w) / size.cell.width,
-                    (v.height - pad_h) / size.cell.height,
-                );
-
-                // Only the shown tab of a native window gets a size, but
-                // its other tabs are the same size.
-                const group: []const usize = if (self.affinityGroupIndex(v.tab.window)) |i|
-                    self.affinities.items[i].items
-                else
-                    &.{v.tab.window};
-                for (group) |id| self.sizeWindow(id, grid);
+                const view: PixelSize = .{ .width = v.width, .height = v.height };
+                self.window_views.put(self.alloc, v.tab.window, view) catch |err| {
+                    log.warn("failed to track tmux tab size err={}", .{err});
+                };
+                self.sizeView(surface, v.tab.window, view);
                 return true;
             },
 
@@ -1839,6 +1869,7 @@ pub const Session = struct {
             self.placed.clearRetainingCapacity();
             self.grids.clearRetainingCapacity();
             self.window_sizes.clearRetainingCapacity();
+            self.window_views.clearRetainingCapacity();
             if (self.layout) |v| {
                 v.destroy();
                 self.layout = null;
