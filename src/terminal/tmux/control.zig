@@ -198,6 +198,15 @@ pub const Parser = struct {
         return null;
     }
 
+    /// A decimal number written the way tmux writes one: digits only, with
+    /// no leading zeros. `parseInt` also takes a sign and underscores.
+    fn parseDigits(comptime T: type, text: []const u8) ?T {
+        if (text.len == 0) return null;
+        if (text.len > 1 and text[0] == '0') return null;
+        for (text) |c| if (!std.ascii.isDigit(c)) return null;
+        return std.fmt.parseInt(T, text, 10) catch null;
+    }
+
     fn parseNotification(self: *Parser) ParseError!?Notification {
         assert(self.state == .notification);
 
@@ -225,33 +234,17 @@ pub const Parser = struct {
             self.state = .block;
             self.buffer.clearRetainingCapacity();
             return null;
-        } else if (std.mem.eql(u8, cmd, "%output")) cmd: {
-            var re = oni.Regex.init(
-                "^%output %([0-9]+) (.+)$",
-                .{ .capture_group = true },
-                oni.Encoding.utf8,
-                oni.Syntax.default,
-                null,
-            ) catch |err| {
-                log.warn("regex init failed error={}", .{err});
-                return error.RegexError;
-            };
-            defer re.deinit();
-
-            var region = re.search(line, .{}) catch |err| {
-                log.warn("failed to match notification cmd={s} line=\"{s}\" err={}", .{ cmd, line, err });
-                break :cmd;
-            };
-            defer region.deinit();
-            const starts = region.starts();
-            const ends = region.ends();
-
-            const id = std.fmt.parseInt(
-                usize,
-                line[@intCast(starts[1])..@intCast(ends[1])],
-                10,
-            ) catch return self.dropLine(line);
-            const data = line[@intCast(starts[2])..@intCast(ends[2])];
+        } else if (std.mem.eql(u8, cmd, "%output")) {
+            // `%output %<pane> <data>`, parsed by hand: tmux splits pane
+            // output at arbitrary bytes, so a line can end in the middle
+            // of a UTF-8 sequence, which a UTF-8 regex refuses to match.
+            const rest = std.mem.cutPrefix(u8, line, "%output %") orelse
+                return self.dropLine(line);
+            const space = std.mem.indexOfScalar(u8, rest, ' ') orelse
+                return self.dropLine(line);
+            const id = parseDigits(usize, rest[0..space]) orelse return self.dropLine(line);
+            const data = rest[space + 1 ..];
+            if (data.len == 0) return self.dropLine(line);
 
             // Important: do not clear buffer here since name points to it
             self.state = .idle;
@@ -769,6 +762,22 @@ test "tmux block terminator requires numeric metadata" {
     try testing.expectEqualStrings("%end foo bar baz\nhello", n.block_end);
 }
 
+test "tmux output line ending inside a UTF-8 sequence" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // tmux splits pane output at any byte; here the euro sign is cut
+    // after its first two bytes.
+    for ("%output %7 a\xe2\x82") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(7, n.output.pane_id);
+    try testing.expectEqualStrings("a\xe2\x82", n.output.data);
+}
+
 test "tmux notifications with overlong ids are dropped" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -797,6 +806,35 @@ test "tmux notifications with overlong ids are dropped" {
     const n = (try c.put('\n')).?;
     try testing.expect(n == .window_add);
     try testing.expectEqual(3, n.window_add.id);
+}
+
+test "tmux malformed output lines are dropped" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    const lines = [_][]const u8{
+        "%output\n",
+        "%output %\n",
+        "%output %5\n",
+        "%output %5 \n",
+        "%output 5 x\n",
+        "%output %+5 x\n",
+        "%output %1_0 x\n",
+        "%output %05 x\n",
+        "%output %x x\n",
+    };
+    for (lines) |line| {
+        for (line) |byte| try testing.expect(try c.put(byte) == null);
+    }
+
+    for ("%output %5 ok") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(5, n.output.pane_id);
+    try testing.expectEqualStrings("ok", n.output.data);
 }
 
 test "tmux output" {
