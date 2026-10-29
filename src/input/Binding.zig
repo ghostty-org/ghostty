@@ -898,6 +898,7 @@ pub const Action = union(enum) {
     ///   - New window, close window
     ///   - New tab, close tab
     ///   - New split, close split
+    ///   - Move split
     ///
     /// All actions are only undoable/redoable for a limited time.
     /// For example, restoring a closed split can only be done for
@@ -908,8 +909,6 @@ pub const Action = union(enum) {
     /// bounded memory usage over time, closed surfaces don't continue running
     /// in the background indefinitely, and the keybinds become available
     /// for terminal applications to use.
-    ///
-    /// Only implemented on macOS.
     undo,
 
     /// Redo the last undoable action for the focused surface or terminal,

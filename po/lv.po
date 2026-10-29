@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-27 21:37+0100\n"
+"POT-Creation-Date: 2026-10-28 13:35-0700\n"
 "PO-Revision-Date: 2026-08-10 17:32+0300\n"
 "Last-Translator: Ēriks Remess <eriks@remess.lv>\n"
 "Language-Team: Latvian\n"
@@ -228,7 +228,7 @@ msgstr "Lai šo uzvedni parādītu vēlreiz, pārlādējiet konfigurāciju"
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2152
+#: src/apprt/gtk/class/application.zig:2366
 msgid "Cancel"
 msgstr "Atcelt"
 
@@ -260,27 +260,27 @@ msgstr "Atstājiet lauku tukšu, lai atjaunotu noklusēto virsrakstu."
 msgid "OK"
 msgstr "Labi"
 
-#: src/apprt/gtk/class/application.zig:1736
+#: src/apprt/gtk/class/application.zig:1942
 msgid "The keybind was revoked by the system."
 msgstr "Sistēma atsauca taustiņu sasaisti."
 
-#: src/apprt/gtk/class/application.zig:1738
+#: src/apprt/gtk/class/application.zig:1944
 msgid "The keybind was denied by the system."
 msgstr "Sistēma noraidīja taustiņu sasaisti."
 
-#: src/apprt/gtk/class/application.zig:1750
+#: src/apprt/gtk/class/application.zig:1956
 msgid "Global keybind unavailable"
 msgstr "Globālā taustiņu sasaiste nav pieejama"
 
-#: src/apprt/gtk/class/application.zig:2148
+#: src/apprt/gtk/class/application.zig:2362
 msgid "Export Terminal IO Events"
 msgstr "Eksportēt termināļa ievades un izvades notikumus"
 
-#: src/apprt/gtk/class/application.zig:2151
+#: src/apprt/gtk/class/application.zig:2365
 msgid "Export"
 msgstr "Eksportēt"
 
-#: src/apprt/gtk/class/application.zig:2649
+#: src/apprt/gtk/class/application.zig:2863
 msgid "Editing configuration file"
 msgstr "Konfigurācijas faila rediģēšana:"
 
@@ -312,37 +312,50 @@ msgstr ""
 "Šī teksta ielīmēšana terminālī var būt bīstama, jo tas, iespējams, satur "
 "izpildāmas komandas."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:183
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Quit Ghostty?"
 msgstr "Iziet no Ghostty?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:184
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
 msgid "Close Tab?"
 msgstr "Aizvērt cilni?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:187
 msgid "Close Window?"
 msgstr "Aizvērt logu?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:188
 msgid "Close Split?"
 msgstr "Aizvērt nodalījumu?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:192
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:189
+msgid "Close Tabs?"
+msgstr ""
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:190
+msgid "Close All Windows?"
+msgstr ""
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:196
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:201
 msgid "All terminal sessions will be terminated."
 msgstr "Visas termināļa sesijas tiks pārtrauktas."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:193
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:197
 msgid "All terminal sessions in this tab will be terminated."
 msgstr "Visas termināļa sesijas šajā cilnē tiks pārtrauktas."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:194
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:198
 msgid "All terminal sessions in this window will be terminated."
 msgstr "Visas termināļa sesijas šajā logā tiks pārtrauktas."
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:195
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:199
 msgid "The currently running process in this split will be terminated."
 msgstr "Pašlaik palaistais process šajā nodalījumā tiks pārtraukts."
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:200
+msgid "All terminal sessions in these tabs will be terminated."
+msgstr ""
 
 #: src/apprt/gtk/class/surface.zig:1206
 msgid "Command Finished"
@@ -370,19 +383,19 @@ msgstr "Mainīt cilnes virsrakstu"
 msgid "Change Window Title"
 msgstr "Mainīt loga virsrakstu"
 
-#: src/apprt/gtk/class/window.zig:1184
+#: src/apprt/gtk/class/window.zig:1382
 msgid "Reloaded the configuration"
 msgstr "Konfigurācija pārlādēta"
 
-#: src/apprt/gtk/class/window.zig:1887
+#: src/apprt/gtk/class/window.zig:2107
 msgid "Copied to clipboard"
 msgstr "Nokopēts starpliktuvē"
 
-#: src/apprt/gtk/class/window.zig:1889
+#: src/apprt/gtk/class/window.zig:2109
 msgid "Cleared clipboard"
 msgstr "Starpliktuve notīrīta"
 
-#: src/apprt/gtk/class/window.zig:2028
+#: src/apprt/gtk/class/window.zig:2248
 msgid "Ghostty Developers"
 msgstr "Ghostty izstrādātāji"
 

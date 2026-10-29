@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-27 21:37+0100\n"
+"POT-Creation-Date: 2026-10-28 13:35-0700\n"
 "PO-Revision-Date: 2026-10-07 10:07+0900\n"
 "Last-Translator: ekusiadadus <ekusiadadus@gmail.com>\n"
 "Language-Team: Japanese\n"
@@ -231,7 +231,7 @@ msgstr "このプロンプトを再び表示するには設定を再読み込み
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2152
+#: src/apprt/gtk/class/application.zig:2366
 msgid "Cancel"
 msgstr "キャンセル"
 
@@ -263,27 +263,27 @@ msgstr "空白にした場合、デフォルトのタイトルを使用します
 msgid "OK"
 msgstr "OK"
 
-#: src/apprt/gtk/class/application.zig:1736
+#: src/apprt/gtk/class/application.zig:1942
 msgid "The keybind was revoked by the system."
 msgstr "キーバインドがシステムによって解除されました。"
 
-#: src/apprt/gtk/class/application.zig:1738
+#: src/apprt/gtk/class/application.zig:1944
 msgid "The keybind was denied by the system."
 msgstr "キーバインドがシステムによって拒否されました。"
 
-#: src/apprt/gtk/class/application.zig:1750
+#: src/apprt/gtk/class/application.zig:1956
 msgid "Global keybind unavailable"
 msgstr "グローバルキーバインドが利用できません"
 
-#: src/apprt/gtk/class/application.zig:2148
+#: src/apprt/gtk/class/application.zig:2362
 msgid "Export Terminal IO Events"
 msgstr "ターミナルのI/Oイベントをエクスポート"
 
-#: src/apprt/gtk/class/application.zig:2151
+#: src/apprt/gtk/class/application.zig:2365
 msgid "Export"
 msgstr "エクスポート"
 
-#: src/apprt/gtk/class/application.zig:2649
+#: src/apprt/gtk/class/application.zig:2863
 msgid "Editing configuration file"
 msgstr "設定ファイルの編集中"
 
@@ -315,37 +315,50 @@ msgstr ""
 "このテキストをターミナルに貼り付けるとコマンドが実行される可能性があり、危険"
 "な場合があります。"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:183
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Quit Ghostty?"
 msgstr "Ghostty を終了しますか?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:184
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
 msgid "Close Tab?"
 msgstr "タブを閉じますか?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:187
 msgid "Close Window?"
 msgstr "ウィンドウを閉じますか?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:188
 msgid "Close Split?"
 msgstr "分割ウィンドウを閉じますか?"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:192
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:189
+msgid "Close Tabs?"
+msgstr ""
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:190
+msgid "Close All Windows?"
+msgstr ""
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:196
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:201
 msgid "All terminal sessions will be terminated."
 msgstr "すべてのターミナルセッションが終了します。"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:193
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:197
 msgid "All terminal sessions in this tab will be terminated."
 msgstr "タブ内のすべてのターミナルセッションが終了します。"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:194
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:198
 msgid "All terminal sessions in this window will be terminated."
 msgstr "ウィンドウ内のすべてのターミナルセッションが終了します。"
 
-#: src/apprt/gtk/class/close_confirmation_dialog.zig:195
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:199
 msgid "The currently running process in this split will be terminated."
 msgstr "この分割ウィンドウで現在実行中のプロセスが終了します。"
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:200
+msgid "All terminal sessions in these tabs will be terminated."
+msgstr ""
 
 #: src/apprt/gtk/class/surface.zig:1206
 msgid "Command Finished"
@@ -373,19 +386,19 @@ msgstr "タブのタイトルを変更する"
 msgid "Change Window Title"
 msgstr "ウィンドウのタイトルを変更する"
 
-#: src/apprt/gtk/class/window.zig:1184
+#: src/apprt/gtk/class/window.zig:1382
 msgid "Reloaded the configuration"
 msgstr "設定を再読み込みしました"
 
-#: src/apprt/gtk/class/window.zig:1887
+#: src/apprt/gtk/class/window.zig:2107
 msgid "Copied to clipboard"
 msgstr "クリップボードにコピーしました"
 
-#: src/apprt/gtk/class/window.zig:1889
+#: src/apprt/gtk/class/window.zig:2109
 msgid "Cleared clipboard"
 msgstr "クリップボードを空にしました"
 
-#: src/apprt/gtk/class/window.zig:2028
+#: src/apprt/gtk/class/window.zig:2248
 msgid "Ghostty Developers"
 msgstr "Ghostty 開発者"
 
