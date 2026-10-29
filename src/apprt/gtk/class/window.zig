@@ -1876,9 +1876,11 @@ pub const Window = extern struct {
             priv.tab_view.getIsTransferringPage() == 0;
         if (by_user) tmux: {
             const tab = gobject.ext.cast(Tab, child) orelse break :tmux;
-            const tmux = tab.getSplitTree().getTmux() orelse break :tmux;
-            const core = tab.getSplitTree().getTmuxCore() orelse break :tmux;
-            _ = core.tmuxNativeEvent(.{ .tab_selected = .{
+            const tree = tab.getSplitTree();
+            const tmux = tree.getTmux() orelse break :tmux;
+            // A tab that was never shown has no surface yet; the split
+            // tree falls back to the gateway.
+            _ = tree.tmuxNativeEvent(.{ .tab_selected = .{
                 .session = tmux.session,
                 .window = tmux.window,
             } });
