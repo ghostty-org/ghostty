@@ -6774,6 +6774,146 @@ fn logsErr(input: []const u8) bool {
     return probe.handler.csi_t_no_params;
 }
 
+test "stream: CSI subparameters across parsing paths and continuation replay" {
+    const input = "\x1b[4:3m\x1b[38:2:1:2:3:m\x1b[48:2::4:5:6m" ++
+        "\x1b[1:2H\x1b[1:2 q\x1b[>2:1:2 q\x1b[4;3mx";
+    const Raw = struct {
+        output: DifferentialHandler = .{},
+        kitty: usize = 0,
+
+        pub fn deinit(_: *@This()) void {}
+
+        pub fn vtRaw(self: *@This(), action: Parser.Action) !bool {
+            if (action == .csi_dispatch) {
+                const csi_action = action.csi_dispatch;
+                if (csi_action.final == 'q') {
+                    // The ordinary colon-bearing cursor style command
+                    // must have been rejected before it reaches vtRaw.
+                    try testing.expectEqualStrings(
+                        "> ",
+                        csi_action.intermediates,
+                    );
+                    try testing.expectEqualSlices(u16, &.{ 2, 1, 2 }, csi_action.params);
+                    const seps = csi_action.params_sep.?;
+                    try testing.expect(seps.isSet(0) and seps.isSet(1));
+                    try testing.expect(!seps.isSet(2));
+                    self.kitty += 1;
+                }
+            }
+            return false;
+        }
+
+        pub fn vt(self: *@This(), comptime tag: Action.Tag, value: Action.Value(tag)) void {
+            self.output.vt(tag, value);
+        }
+    };
+
+    var expected: DifferentialHandler = .{};
+    for ([_]sgr.Attribute{
+        .{ .underline = .curly },
+        .{ .direct_color_fg = .{ .r = 1, .g = 2, .b = 3 } },
+        .{ .direct_color_bg = .{ .r = 4, .g = 5, .b = 6 } },
+        .{ .underline = .single },
+        .italic,
+    }) |attr| expected.record(.set_attribute, attr);
+    expected.record(.print, @as(u32, 'x'));
+
+    // Check nextSliceUntil's stops as well as ordinary nextSlice.
+    try differential(input);
+    for (0..input.len + 1) |cut| {
+        var bulk: Stream(DifferentialHandler) = .init(.{
+            .handler = .{},
+            .allocator = testing.allocator,
+            .continuation_max_bytes = 4096,
+        });
+        defer bulk.deinit();
+        bulk.nextSlice(input[0..cut]);
+
+        var buf: [4096]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        try bulk.writeContinuation(&writer);
+        var restored: Stream(DifferentialHandler) = .init(.{ .handler = .{} });
+        defer restored.deinit();
+        restored.nextSlice(writer.buffered());
+        try testing.expectEqual(@as(usize, 0), restored.handler.actions);
+        var suffix: Stream(DifferentialHandler) = .init(.{ .handler = .{} });
+        defer suffix.deinit();
+        suffix.nextSlice(input[0..cut]);
+        suffix.handler = .{};
+        suffix.nextSlice(input[cut..]);
+        restored.nextSlice(input[cut..]);
+        try testing.expectEqual(suffix.handler.final(), restored.handler.final());
+
+        bulk.nextSlice(input[cut..]);
+        try testing.expectEqual(expected.actions, bulk.handler.actions);
+        try testing.expectEqual(expected.final(), bulk.handler.final());
+        try testing.expect(bulk.ground());
+
+        var raw: Stream(Raw) = .init(.{ .handler = .{} });
+        defer raw.deinit();
+        raw.nextSlice(input[0..cut]);
+        raw.nextSlice(input[cut..]);
+        try testing.expectEqual(@as(usize, 1), raw.handler.kitty);
+        try testing.expectEqual(expected.final(), raw.handler.output.final());
+    }
+
+    var scalar: Stream(DifferentialHandler) = .init(.{ .handler = .{} });
+    defer scalar.deinit();
+    for (input) |c| scalar.next(c);
+    try testing.expectEqual(expected.final(), scalar.handler.final());
+}
+
+test "stream: CSI parameter limit and separator reset across parsing paths" {
+    const H = struct {
+        bold: usize = 0,
+        prints: usize = 0,
+
+        pub fn deinit(_: *@This()) void {}
+
+        pub fn vt(self: *@This(), comptime tag: Action.Tag, value: Action.Value(tag)) void {
+            switch (tag) {
+                .set_attribute => if (value == .bold) {
+                    self.bold += 1;
+                },
+                .print => self.prints += 1,
+                .print_slice => self.prints += value.cps.len,
+                else => {},
+            }
+        }
+    };
+
+    for ([_]usize{ Parser.MAX_PARAMS - 1, Parser.MAX_PARAMS, Parser.MAX_PARAMS + 1 }) |count| {
+        for ([_]u8{ ';', ':' }) |sep| {
+            for ([_]bool{ false, true }) |trailing| {
+                var input: std.ArrayList(u8) = .empty;
+                defer input.deinit(testing.allocator);
+                try input.appendSlice(testing.allocator, "\x1b[");
+                for (0..count) |i| {
+                    try input.append(testing.allocator, '1');
+                    if (i + 1 < count or trailing) try input.append(testing.allocator, sep);
+                }
+                // The next ordinary SGR must forget all separator and
+                // overflow state, even after a rejected sequence.
+                try input.appendSlice(testing.allocator, "m\x1b[1mx");
+                const expected: usize = if (count > Parser.MAX_PARAMS) 1 else if (sep == ':') 1 else count + 1;
+
+                var bulk: Stream(H) = .init(.{ .handler = .{} });
+                defer bulk.deinit();
+                bulk.nextSlice(input.items);
+                try testing.expectEqual(expected, bulk.handler.bold);
+                try testing.expectEqual(@as(usize, 1), bulk.handler.prints);
+                try testing.expect(bulk.ground());
+
+                var scalar: Stream(H) = .init(.{ .handler = .{} });
+                defer scalar.deinit();
+                for (input.items) |c| scalar.next(c);
+                try testing.expectEqualDeep(bulk.handler, scalar.handler);
+                try differential(input.items);
+            }
+        }
+    }
+}
+
 test "stream: nextSliceUntil differential on generated streams" {
     const alloc = testing.allocator;
     var prng = std.Random.DefaultPrng.init(0x5eed);

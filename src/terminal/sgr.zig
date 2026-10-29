@@ -559,7 +559,7 @@ fn testParse(params: []const u16) Attribute {
 
 fn testParseColon(params: []const u16) Attribute {
     // Mark all parameters except the last as having a colon after.
-    var seps: SepList = .initEmpty();
+    var seps: SepList = .empty;
     for (0..params.len - 1) |i| seps.set(i);
     var p: Parser = .{ .params = params, .params_sep = &seps };
     return p.next().?;
@@ -892,7 +892,7 @@ test "sgr: a colon joins nothing past the last parameter" {
     // Every parameter joined to the next, filling the separators. Walking
     // them stops at the end of the parameters rather than reading a
     // separator that no parameter has.
-    var seps: SepList = .initEmpty();
+    var seps: SepList = .empty;
     seps.setRangeValue(.{ .start = 0, .end = seps.capacity() }, true);
     const params: [SepList.bit_length]u16 = @splat(99);
 
@@ -1158,7 +1158,7 @@ test "sgr: direct color with a trailing colon" {
         .{ 58, Attribute.Tag.underline_color },
     }) |pair| {
         const params = [_]u16{ pair[0], 2, 1, 2, 3 };
-        var seps: SepList = .initEmpty();
+        var seps: SepList = .empty;
         for (0..params.len) |i| seps.set(i);
 
         var p: Parser = .{ .params = &params, .params_sep = &seps };
