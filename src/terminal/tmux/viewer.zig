@@ -1890,6 +1890,11 @@ pub const Viewer = struct {
             first = false;
             try writer.writeAll(std.mem.trimEnd(u8, line, "\r"));
         }
+
+        // With -e, tmux doesn't reset the style after the last line when
+        // its last cell is styled. The program in the pane didn't set it,
+        // so it mustn't color what the program draws next.
+        try writer.writeAll("\x1b[0m");
     }
 
     fn writeCursor(writer: *std.Io.Writer, x: usize, y: usize) std.Io.Writer.Error!void {
@@ -2266,9 +2271,13 @@ const Command = union(enum) {
 
             .follower_capture => |cap| try writer.print(
                 // -C so that the escape sequences -e emits can't
-                // terminate the DCS; see pane_history. -q so that a pane
-                // without an alternate screen answers with nothing.
-                "capture-pane -p -e -C -q{s} -t %{d}\n",
+                // terminate the DCS; see pane_history. -J so that lines
+                // tmux wrapped come back whole: the view wraps them again
+                // and, like tmux, reflows them when the pane is resized
+                // later, which rows broken at the width of the capture
+                // can't do. -q so that a pane without an alternate screen
+                // answers with nothing.
+                "capture-pane -p -e -C -J -q{s} -t %{d}\n",
                 .{ if (cap.screen_key == .alternate) " -a" else "", cap.id },
             ),
 
@@ -3851,15 +3860,45 @@ test "pane restore writes contents, modes and cursor" {
         .state = state,
     });
     try testing.expectEqualStrings(
-        "\x1b[?6l\x1b[r\x1b[H\x1b[2J" ++ "a\r\nb" ++
+        "\x1b[?6l\x1b[r\x1b[H\x1b[2J" ++ "a\r\nb\x1b[0m" ++
             // The primary cursor, saved by entering the alternate screen.
-            "\x1b[4;3H" ++ "\x1b[?1049h\x1b[H\x1b[2J" ++ "x\r\ny" ++
+            "\x1b[4;3H" ++ "\x1b[?1049h\x1b[H\x1b[2J" ++ "x\r\ny\x1b[0m" ++
             "\x1b[?1h" ++ "\x1b>" ++ "\x1b[4l" ++ "\x1b[?7h" ++
             "\x1b[?1000h\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006h" ++
             "\x1b[?1004l\x1b[?2004h" ++ "\x1b[?12l\x1b[?25h" ++ "\x1b[6 q" ++
             "\x1b[1;24r" ++ "\x1b[?6l" ++ "\x1b[6;5H",
         writer.buffered(),
     );
+}
+
+test "pane restore doesn't leave the style of a capture set" {
+    // capture-pane -e doesn't reset the style after the last line when
+    // its last cell is styled. Neither what the program draws next nor the
+    // primary cursor saved by entering the alternate screen may get it.
+    const state = try output.parseFormatStruct(
+        Viewer.PaneState,
+        "%3;4;5;1;bar;none;0;1;2;3;0;1;0;1;0;0;0;1;0;1;0;1;0;23;8,16",
+        ';',
+    );
+
+    var buf: [512]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try Viewer.writePaneRestore(&writer, .{
+        .pane_id = 3,
+        .primary = "\x1b[43mprimary",
+        .alternate = "\x1b[44malternate",
+        .state = state,
+    });
+
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 20, .rows = 24 });
+    defer t.deinit(testing.allocator);
+    var stream = t.vtStream();
+    defer stream.deinit();
+
+    stream.nextSlice(writer.buffered());
+    try testing.expect(t.screens.active.cursor.style.default());
+    stream.nextSlice("\x1b[?1049l");
+    try testing.expect(t.screens.active.cursor.style.default());
 }
 
 test "pane restore with origin mode places the cursor in the region" {
@@ -3893,10 +3932,10 @@ test "pane restore gathers both screens and the state" {
     try testAttach(&viewer, "$0\t@0\t0\t1\t0\t%0\t80\t24\tb25d,80x24,0,0,0\tb25d,80x24,0,0,0\tA\tshell");
 
     const first = viewer.capturePane(0);
-    try testing.expect(std.mem.startsWith(u8, testCommand(first).?, "capture-pane -p -e -C -q -t %0"));
+    try testing.expect(std.mem.startsWith(u8, testCommand(first).?, "capture-pane -p -e -C -J -q -t %0"));
     {
         const actions = viewer.next(.{ .tmux = .{ .block_end = .{ .data = "one\\134two\ntwo\n" } } });
-        try testing.expect(std.mem.startsWith(u8, testCommand(actions).?, "capture-pane -p -e -C -q -a -t %0"));
+        try testing.expect(std.mem.startsWith(u8, testCommand(actions).?, "capture-pane -p -e -C -J -q -a -t %0"));
     }
     {
         const actions = viewer.next(.{ .tmux = .{ .block_end = .{ .data = "vim\n" } } });
