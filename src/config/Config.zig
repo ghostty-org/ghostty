@@ -8032,6 +8032,40 @@ pub const Keybinds = struct {
         try testing.expect(foo_entry.leaf_chained.actions.items[1] == .deactivate_key_table);
     }
 
+    test "parseCLI table else syntax is invalid" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        try keybinds.parseCLI(alloc, "foo/performable:a=copy_to_clipboard");
+        try testing.expectError(
+            error.InvalidFormat,
+            keybinds.parseCLI(alloc, "foo/else=text:hello"),
+        );
+    }
+
+    test "parseCLI else applies to most recent table binding" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        try keybinds.parseCLI(alloc, "foo/performable:a=copy_to_clipboard");
+        try keybinds.parseCLI(alloc, "else=text:hello");
+
+        const foo_entry = keybinds.tables.get("foo").?.get(.{
+            .key = .{ .unicode = 'a' },
+        }).?.value_ptr.*;
+        try testing.expect(foo_entry == .leaf);
+        try testing.expect(foo_entry.leaf.action == .copy_to_clipboard);
+        try testing.expectEqualStrings("hello", foo_entry.leaf.else_action.?.text);
+    }
+
     test "clone with tables" {
         const testing = std.testing;
         var arena = ArenaAllocator.init(testing.allocator);
