@@ -898,14 +898,12 @@ pub fn init(
                 if (app.tmux) |*session| session.paneRegistered(pane_id, self.tmux_grid);
             } else {
                 // Now that we can be split from, let the session create
-                // the next pane. This is a no-op when the apprt creates
-                // surfaces synchronously because we're already inside
-                // that loop.
-                _ = app.mailbox.push(
-                    global.io(),
-                    .{ .tmux_advance = {} },
-                    .{ .forever = {} },
-                );
+                // the next pane on the next app tick. This is a no-op when
+                // the apprt creates surfaces synchronously because we're
+                // already inside that loop. A flag rather than a mailbox
+                // message: this is the app thread, the only one that
+                // drains the app mailbox, so it must not wait for room.
+                if (app.tmux) |*session| session.advance_pending = true;
                 self.rt_app.wakeup();
             }
         }

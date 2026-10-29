@@ -183,6 +183,14 @@ pub fn destroy(self: *App) void {
 /// events. This should be called by the application runtime on every loop
 /// tick.
 pub fn tick(self: *App, rt_app: *apprt.App) !void {
+    // A tmux follower registered since the last tick, so the session can
+    // create the next one. It waits for a tick of its own because surface
+    // presentation is asynchronous on some apprts (macOS).
+    if (self.tmux) |*session| if (session.advance_pending) {
+        session.advance_pending = false;
+        session.advance();
+    };
+
     // Drain our mailbox
     try self.drainMailbox(rt_app);
 }
@@ -315,13 +323,6 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
             .new_window => |msg| try self.newWindow(rt_app, msg),
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
-            .tmux_advance => {
-                if (self.tmux) |*session| session.advance();
-                // Surface presentation is asynchronous on macOS. Continue
-                // follower reconstruction on the next app tick.
-                return;
-            },
-
             // If we're quitting, then we set the quit flag and stop
             // draining the mailbox immediately. This lets us defer
             // mailbox processing to the next tick so that the apprt
@@ -599,9 +600,6 @@ pub const Message = union(enum) {
         surface: *Surface,
         message: apprt.surface.Message,
     },
-
-    /// Continue tmux follower reconstruction on the next app tick.
-    tmux_advance: void,
 
     const NewWindow = struct {
         /// The parent surface
