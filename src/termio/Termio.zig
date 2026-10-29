@@ -487,6 +487,18 @@ pub fn queueInput(
     try self.queueWrite(td, data, linefeed);
 }
 
+/// Queue a report the terminal sends on its own, such as a focus, size,
+/// color scheme or visibility report.
+///
+/// On a tmux control mode gateway the pty speaks the control protocol,
+/// where a report would be read as the start of the next tmux command,
+/// so it is dropped there. Each pane's own surface reports to the program
+/// in that pane.
+fn queueReport(self: *Termio, td: *ThreadData, data: []const u8) !void {
+    if (self.inTmuxControlMode()) return;
+    try self.queueWrite(td, data, false);
+}
+
 /// Type `data` into tmux's active pane through the viewer's command
 /// queue, so tmux's replies stay matched to the commands that caused
 /// them. Long input is split into several `send-keys` commands.
@@ -667,7 +679,7 @@ fn sizeReportLocked(self: *Termio, td: *ThreadData, style: termio.Message.SizeRe
         report_size,
     );
 
-    try self.queueWrite(td, writer.buffered(), false);
+    try self.queueReport(td, writer.buffered());
 }
 
 /// True if the terminal is currently attached to a tmux control mode
@@ -905,7 +917,7 @@ pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
             log.err("error encoding focus event err={}", .{err});
             return;
         };
-        try self.queueWrite(td, writer.buffered(), false);
+        try self.queueReport(td, writer.buffered());
     }
 
     // We always notify our backend of focus changes.
@@ -1007,7 +1019,7 @@ pub fn colorSchemeReportLocked(self: *Termio, td: *ThreadData, force: bool) !voi
     var buf: [terminalpkg.device_status.max_color_scheme_report_encode_size]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);
     try terminalpkg.device_status.encodeColorSchemeReport(&writer, scheme);
-    try self.queueWrite(td, writer.buffered(), false);
+    try self.queueReport(td, writer.buffered());
 }
 
 /// Sends a visibility report to the pty. Unforced reports are only sent while
@@ -1031,7 +1043,7 @@ pub fn visibilityReport(
         &writer,
         if (visible) .potentially_visible else .not_visible,
     );
-    try self.queueWrite(td, writer.buffered(), false);
+    try self.queueReport(td, writer.buffered());
 }
 
 /// ThreadData is the data created and stored in the termio thread
