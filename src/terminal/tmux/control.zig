@@ -185,6 +185,19 @@ pub const Parser = struct {
         return terminator;
     }
 
+    /// Drop a notification line we recognized but can't read, such as one
+    /// with an id that doesn't fit. Any program can print these, so only
+    /// the start of the line is logged, escaped.
+    fn dropLine(self: *Parser, line: []const u8) ?Notification {
+        log.warn("dropping malformed tmux control mode line=\"{f}\" len={}", .{
+            std.zig.fmtString(line[0..@min(line.len, 128)]),
+            line.len,
+        });
+        self.buffer.clearRetainingCapacity();
+        self.state = .idle;
+        return null;
+    }
+
     fn parseNotification(self: *Parser) ParseError!?Notification {
         assert(self.state == .notification);
 
@@ -237,7 +250,7 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
             const data = line[@intCast(starts[2])..@intCast(ends[2])];
 
             // Important: do not clear buffer here since name points to it
@@ -268,7 +281,7 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
             const name = line[@intCast(starts[2])..@intCast(ends[2])];
 
             // Important: do not clear buffer here since name points to it
@@ -308,7 +321,7 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
             const layout = line[@intCast(starts[2])..@intCast(ends[2])];
             const visible_layout = line[@intCast(starts[3])..@intCast(ends[3])];
             const raw_flags = line[@intCast(starts[4])..@intCast(ends[4])];
@@ -346,7 +359,7 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
 
             self.buffer.clearRetainingCapacity();
             self.state = .idle;
@@ -376,7 +389,7 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
             const name = line[@intCast(starts[2])..@intCast(ends[2])];
 
             // Important: do not clear buffer here since name points to it
@@ -407,12 +420,12 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
             const pane_id = std.fmt.parseInt(
                 usize,
                 line[@intCast(starts[2])..@intCast(ends[2])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
 
             self.buffer.clearRetainingCapacity();
             self.state = .idle;
@@ -469,7 +482,7 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[2])..@intCast(ends[2])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
             const name = line[@intCast(starts[3])..@intCast(ends[3])];
 
             // Important: do not clear buffer here since client/name point to it
@@ -754,6 +767,36 @@ test "tmux block terminator requires numeric metadata" {
     const n = (try c.put('\n')).?;
     try testing.expect(n == .block_end);
     try testing.expectEqualStrings("%end foo bar baz\nhello", n.block_end);
+}
+
+test "tmux notifications with overlong ids are dropped" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // Any program can print these; an id that doesn't fit is ignored
+    // rather than trusted, in every place a notification has one.
+    const lines = [_][]const u8{
+        "%output %99999999999999999999999 x\n",
+        "%session-changed $99999999999999999999999 name\n",
+        "%layout-change @99999999999999999999999 b25d,80x24,0,0,0 b25d,80x24,0,0,0 *\n",
+        "%window-add @99999999999999999999999\n",
+        "%window-renamed @99999999999999999999999 name\n",
+        "%window-pane-changed @99999999999999999999999 %1\n",
+        "%window-pane-changed @1 %99999999999999999999999\n",
+        "%client-session-changed client $99999999999999999999999 name\n",
+    };
+    for (lines) |line| {
+        for (line) |byte| try testing.expect(try c.put(byte) == null);
+    }
+
+    // The parser keeps working.
+    for ("%window-add @3") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .window_add);
+    try testing.expectEqual(3, n.window_add.id);
 }
 
 test "tmux output" {
