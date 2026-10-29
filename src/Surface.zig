@@ -776,6 +776,9 @@ pub fn init(
         try termio.Termio.init(&self.io, alloc, .{
             .size = size,
             .grid_override = self.tmux_grid,
+            // Where the apprt shows every pane natively, followers capture
+            // their panes themselves.
+            .tmux_mirror_panes = !TmuxSession.native_layout,
             .full_config = config,
             .config = io_config,
             .backend = backend,

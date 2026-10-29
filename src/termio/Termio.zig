@@ -331,6 +331,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         .enquiry_response = opts.config.enquiry_response,
         .xt_checksum_report = opts.config.xt_checksum_report,
         .tmux_follower = backend == .tmux,
+        .tmux_mirror_panes = opts.tmux_mirror_panes,
     };
 
     const thread_enter_state = try ThreadEnterState.create(

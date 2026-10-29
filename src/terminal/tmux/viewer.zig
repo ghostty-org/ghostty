@@ -191,8 +191,21 @@ pub const Viewer = struct {
     /// The windows in the current session.
     windows: std.ArrayList(Window),
 
-    /// The panes in the current session, mapped by pane ID.
+    /// The panes in the current session, mapped by pane ID. Empty unless
+    /// `mirror_panes` is set.
     panes: PanesMap,
+
+    /// Whether every pane gets a terminal of its own here, filled from
+    /// tmux and kept up to date from `%output`. An embedder that shows
+    /// each pane in a view of its own, which asks for a pane's contents
+    /// with `capturePane`, turns this off so that pane output isn't
+    /// parsed twice.
+    mirror_panes: bool = true,
+
+    /// What `capturePane` gathered so far for the view whose capture is
+    /// in flight. Its replies arrive one right after another, and the
+    /// last one sends the `pane_restore` action.
+    restore: ?PendingRestore = null,
 
     /// The arena used for the prior action allocated state. This contains
     /// the contents for the actions as well as the actions slice itself.
@@ -242,23 +255,22 @@ pub const Viewer = struct {
         /// the next call into the viewer.
         window_renamed: WindowRenamed,
 
-        /// The current contents of a pane, in response to `capturePane`.
-        /// This is only valid until the next call into the viewer.
-        pane_content: PaneContent,
+        /// What a newly created view of a pane needs to show the pane the
+        /// way tmux has it, in response to `capturePane`. Only valid until
+        /// the next call into the viewer. See `writePaneRestore`.
+        pane_restore: PaneRestore,
 
-        /// Where the cursor sits in a pane, sent right after the
-        /// `pane_content` it belongs to.
-        pane_cursor: PaneCursor,
-
-        pub const PaneContent = struct {
+        pub const PaneRestore = struct {
             pane_id: usize,
-            data: []const u8,
-        };
 
-        pub const PaneCursor = struct {
-            pane_id: usize,
-            x: usize,
-            y: usize,
+            /// The contents of the primary and the alternate screen,
+            /// decoded. The alternate screen's only matters when the pane
+            /// is on it.
+            primary: []const u8,
+            alternate: []const u8,
+
+            /// The pane's modes, cursor and scroll region.
+            state: PaneState,
         };
 
         pub const ActivePane = struct {
@@ -289,9 +301,9 @@ pub const Viewer = struct {
                             // Window embeds ArenaAllocator.State; dumping
                             // `{any}` walks freed/poisoned arena nodes.
                             []const Window => try writer.print("[{d} windows]", .{value.len}),
-                            PaneContent => try writer.print(
-                                "%{d} ({d} bytes)",
-                                .{ value.pane_id, value.data.len },
+                            PaneRestore => try writer.print(
+                                "%{d} ({d}+{d} bytes)",
+                                .{ value.pane_id, value.primary.len, value.alternate.len },
                             ),
                             WindowRenamed => try writer.print(
                                 "@{d} \"{s}\"",
@@ -351,6 +363,21 @@ pub const Viewer = struct {
             alloc.free(self.name);
             alloc.free(self.affinities);
             self.layout_arena.promote(alloc).deinit();
+        }
+    };
+
+    /// A pane's modes, cursor and scroll region as tmux reports them.
+    pub const PaneState = Format.list_panes.Struct();
+
+    /// See `restore`. The contents are decoded and owned by the viewer.
+    const PendingRestore = struct {
+        pane_id: usize,
+        primary: []u8 = &.{},
+        alternate: []u8 = &.{},
+
+        fn deinit(self: *PendingRestore, alloc: Allocator) void {
+            alloc.free(self.primary);
+            alloc.free(self.alternate);
         }
     };
 
@@ -423,6 +450,7 @@ pub const Viewer = struct {
             while (it.next()) |kv| kv.value_ptr.deinit(self.alloc);
             self.panes.deinit(self.alloc);
         }
+        if (self.restore) |*v| v.deinit(self.alloc);
         if (self.tmux_version.len > 0) {
             self.alloc.free(self.tmux_version);
         }
@@ -545,8 +573,8 @@ pub const Viewer = struct {
         self.state = .defunct;
     }
 
-    /// Ask tmux for the current contents of a pane. The answer comes back
-    /// as a `pane_content` action.
+    /// Ask tmux for the current contents and modes of a pane. The answer
+    /// comes back as a `pane_restore` action.
     ///
     /// This is how a newly created view of a pane gets what was already on
     /// screen; `%output` only carries what happens from now on.
@@ -556,14 +584,19 @@ pub const Viewer = struct {
             return &.{};
         }
 
-        // The cursor is a second command rather than a `;` sequence
-        // because tmux wraps every command of a sequence in its own
-        // begin/end block, which our queue matches one-to-one.
-        const command: Command = .{ .follower_capture = pane_id };
+        // Three commands rather than a `;` sequence because tmux wraps
+        // every command of a sequence in its own begin/end block, which
+        // our queue matches one-to-one. They are queued together, so
+        // their replies arrive one right after another.
+        const command: Command = .{ .follower_capture = .{
+            .id = pane_id,
+            .screen_key = .primary,
+        } };
         const send = self.command_queue.empty();
         self.queueCommands(&.{
             command,
-            .{ .follower_cursor = pane_id },
+            .{ .follower_capture = .{ .id = pane_id, .screen_key = .alternate } },
+            .{ .follower_state = pane_id },
         }) catch {
             log.warn("failed to queue capture-pane, dropping", .{});
             return &.{};
@@ -1056,7 +1089,7 @@ pub const Viewer = struct {
             self.io,
             self.alloc,
             &self.panes,
-            &panes,
+            if (self.mirror_panes) &panes else null,
             window.layout,
         );
 
@@ -1276,31 +1309,14 @@ pub const Viewer = struct {
         switch (command) {
             .user, .stale => {},
 
-            .follower_capture => |id| try actions.append(arena_alloc, .{
-                .pane_content = .{
-                    .pane_id = id,
-                    .data = try control.unescapeAlloc(arena_alloc, content),
-                },
-            }),
+            .follower_capture => |cap| try self.receivedFollowerCapture(cap, content),
 
-            .follower_cursor => |id| cursor: {
-                const line = std.mem.trim(u8, content, " \r\n");
-                var it = std.mem.splitScalar(u8, line, ',');
-                const x = std.fmt.parseInt(
-                    usize,
-                    it.next() orelse break :cursor,
-                    10,
-                ) catch break :cursor;
-                const y = std.fmt.parseInt(
-                    usize,
-                    it.next() orelse break :cursor,
-                    10,
-                ) catch break :cursor;
-
-                try actions.append(arena_alloc, .{
-                    .pane_cursor = .{ .pane_id = id, .x = x, .y = y },
-                });
-            },
+            .follower_state => |id| try self.receivedFollowerState(
+                arena_alloc,
+                actions,
+                id,
+                content,
+            ),
 
             .pane_state => try self.receivedPaneState(content),
 
@@ -1737,11 +1753,174 @@ pub const Viewer = struct {
         stream.nextSlice(content);
     }
 
+    /// One screen of a view's capture (see `capturePane`). The primary
+    /// screen comes first and starts the pending restore.
+    fn receivedFollowerCapture(
+        self: *Viewer,
+        cap: Command.CapturePane,
+        content: []const u8,
+    ) Allocator.Error!void {
+        // Decoded in place, then shrunk so that it frees at its length.
+        const copy = try self.alloc.dupe(u8, content);
+        errdefer self.alloc.free(copy);
+        const decoded = try self.alloc.realloc(copy, control.unescape(copy).len);
+
+        switch (cap.screen_key) {
+            .primary => {
+                if (self.restore) |*v| v.deinit(self.alloc);
+                self.restore = .{ .pane_id = cap.id, .primary = decoded };
+            },
+            .alternate => {
+                const restore = if (self.restore) |*v| v else null;
+                if (restore == null or restore.?.pane_id != cap.id) {
+                    self.alloc.free(decoded);
+                    return;
+                }
+                self.alloc.free(restore.?.alternate);
+                restore.?.alternate = decoded;
+            },
+        }
+    }
+
+    /// The last reply of a view's capture: the pane's state. Sends the
+    /// `pane_restore` action with whatever screens were captured.
+    fn receivedFollowerState(
+        self: *Viewer,
+        arena_alloc: Allocator,
+        actions: *std.ArrayList(Action),
+        id: usize,
+        content: []const u8,
+    ) Allocator.Error!void {
+        var restore: PendingRestore = if (self.restore) |v| restore: {
+            self.restore = null;
+            if (v.pane_id == id) break :restore v;
+            var stale = v;
+            stale.deinit(self.alloc);
+            break :restore .{ .pane_id = id };
+        } else .{ .pane_id = id };
+        defer restore.deinit(self.alloc);
+
+        const line = std.mem.trim(u8, content, " \r\n");
+        var state = output.parseFormatStruct(
+            Format.list_panes.Struct(),
+            line,
+            Format.list_panes.delim,
+        ) catch {
+            log.info("failed to parse pane state line: {s}", .{line});
+            return;
+        };
+        if (state.pane_id != id) return;
+        state.cursor_shape = try arena_alloc.dupe(u8, state.cursor_shape);
+        state.cursor_colour = try arena_alloc.dupe(u8, state.cursor_colour);
+        state.pane_tabs = try arena_alloc.dupe(u8, state.pane_tabs);
+
+        try actions.append(arena_alloc, .{ .pane_restore = .{
+            .pane_id = id,
+            .primary = try arena_alloc.dupe(u8, restore.primary),
+            .alternate = try arena_alloc.dupe(u8, restore.alternate),
+            .state = state,
+        } });
+    }
+
+    /// Write the bytes that make a fresh view of a pane look the way
+    /// `restore` says: the primary screen's contents, the alternate
+    /// screen's when the pane is on it, then the modes, the scroll region
+    /// and the cursor.
+    pub fn writePaneRestore(
+        writer: *std.Io.Writer,
+        restore: Action.PaneRestore,
+    ) std.Io.Writer.Error!void {
+        const state = restore.state;
+
+        // Start from a cleared primary screen without a scroll region or
+        // origin mode, so the contents land where tmux had them.
+        try writer.writeAll("\x1b[?6l\x1b[r\x1b[H\x1b[2J");
+        try writeScreen(writer, restore.primary);
+
+        if (state.alternate_on) {
+            // Entering the alternate screen saves the primary screen's
+            // cursor, which the pane gets back when it leaves.
+            try writeCursor(writer, state.alternate_saved_x, state.alternate_saved_y);
+            try writer.writeAll("\x1b[?1049h\x1b[H\x1b[2J");
+            try writeScreen(writer, restore.alternate);
+        }
+
+        try writeMode(writer, "?1", state.keypad_cursor_flag);
+        try writer.writeAll(if (state.keypad_flag) "\x1b=" else "\x1b>");
+        try writeMode(writer, "4", state.insert_flag);
+        try writeMode(writer, "?7", state.wrap_flag);
+        try writeMode(writer, "?1000", state.mouse_standard_flag);
+        try writeMode(writer, "?1002", state.mouse_button_flag);
+        try writeMode(writer, "?1003", state.mouse_all_flag);
+        try writeMode(writer, "?1005", state.mouse_utf8_flag);
+        try writeMode(writer, "?1006", state.mouse_sgr_flag);
+        try writeMode(writer, "?1004", state.focus_flag);
+        try writeMode(writer, "?2004", state.bracketed_paste);
+        try writeMode(writer, "?12", state.cursor_blinking);
+        try writeMode(writer, "?25", state.cursor_flag);
+        if (cursorStyle(state.cursor_shape, state.cursor_blinking)) |style| {
+            try writer.print("\x1b[{d} q", .{style});
+        }
+
+        // Setting the scroll region homes the cursor, and origin mode
+        // makes the cursor position relative to the region, so the cursor
+        // goes last.
+        const region = state.scroll_region_upper < state.scroll_region_lower and
+            state.scroll_region_lower < max_coord;
+        if (region) try writer.print("\x1b[{d};{d}r", .{
+            state.scroll_region_upper + 1,
+            state.scroll_region_lower + 1,
+        });
+        try writeMode(writer, "?6", state.origin_flag);
+        const top = if (region and state.origin_flag) state.scroll_region_upper else 0;
+        try writeCursor(writer, state.cursor_x, state.cursor_y -| top);
+    }
+
+    /// tmux reports a position it doesn't have as UINT_MAX. Anything past
+    /// what a terminal can be is skipped.
+    const max_coord = std.math.maxInt(u16);
+
+    /// `capture-pane` gives lines rather than a stream, so they are
+    /// re-terminated for a terminal.
+    fn writeScreen(writer: *std.Io.Writer, content: []const u8) std.Io.Writer.Error!void {
+        var it = std.mem.splitScalar(u8, std.mem.trimEnd(u8, content, "\r\n"), '\n');
+        var first = true;
+        while (it.next()) |line| {
+            if (!first) try writer.writeAll("\r\n");
+            first = false;
+            try writer.writeAll(std.mem.trimEnd(u8, line, "\r"));
+        }
+    }
+
+    fn writeCursor(writer: *std.Io.Writer, x: usize, y: usize) std.Io.Writer.Error!void {
+        if (x >= max_coord or y >= max_coord) return;
+        try writer.print("\x1b[{d};{d}H", .{ y + 1, x + 1 });
+    }
+
+    fn writeMode(writer: *std.Io.Writer, comptime mode: []const u8, on: bool) std.Io.Writer.Error!void {
+        try writer.writeAll("\x1b[" ++ mode);
+        try writer.writeByte(if (on) 'h' else 'l');
+    }
+
+    /// The DECSCUSR style for a tmux cursor shape, if it isn't the default.
+    fn cursorStyle(shape: []const u8, blinking: bool) ?u8 {
+        const steady: u8 = if (std.mem.eql(u8, shape, "block"))
+            2
+        else if (std.mem.eql(u8, shape, "underline"))
+            4
+        else if (std.mem.eql(u8, shape, "bar"))
+            6
+        else
+            return null;
+        return if (blinking) steady - 1 else steady;
+    }
+
     fn receivedOutput(
         self: *Viewer,
         id: usize,
         data: []const u8,
     ) !void {
+        if (!self.mirror_panes) return;
         const entry = self.panes.getEntry(id) orelse {
             log.info("received output for untracked pane id={}", .{id});
             return;
@@ -1772,7 +1951,7 @@ pub const Viewer = struct {
         io: std.Io,
         gpa_alloc: Allocator,
         panes_old: *const PanesMap,
-        panes_new: *PanesMap,
+        panes_new_: ?*PanesMap,
         layout: Layout,
     ) !void {
         switch (layout.content) {
@@ -1783,7 +1962,7 @@ pub const Viewer = struct {
                         io,
                         gpa_alloc,
                         panes_old,
-                        panes_new,
+                        panes_new_,
                         l,
                     );
                 }
@@ -1791,6 +1970,11 @@ pub const Viewer = struct {
 
             // A leaf! Initialize.
             .pane => |id| pane: {
+                // Without a map to fill, the leaves are only checked.
+                const panes_new = panes_new_ orelse {
+                    _ = try paneSize(layout);
+                    break :pane;
+                };
                 const gop = try panes_new.getOrPut(gpa_alloc, id);
                 if (gop.found_existing) break :pane;
                 errdefer _ = panes_new.swapRemove(gop.key_ptr.*);
@@ -1802,21 +1986,10 @@ pub const Viewer = struct {
                     break :pane;
                 }
 
-                // The size comes from untrusted input. Make sure it fits
-                // in a terminal before we create one.
-                const cols = std.math.cast(
-                    size.CellCountInt,
-                    layout.width,
-                ) orelse return error.InvalidLayout;
-                const rows = std.math.cast(
-                    size.CellCountInt,
-                    layout.height,
-                ) orelse return error.InvalidLayout;
-                if (cols == 0 or rows == 0) return error.InvalidLayout;
-
+                const grid = try paneSize(layout);
                 var t: Terminal = try .init(io, gpa_alloc, .{
-                    .cols = cols,
-                    .rows = rows,
+                    .cols = grid.cols,
+                    .rows = grid.rows,
                 });
                 errdefer t.deinit(gpa_alloc);
 
@@ -1825,6 +1998,24 @@ pub const Viewer = struct {
                 };
             },
         }
+    }
+
+    /// The size of a layout leaf as a terminal size. The size comes from
+    /// untrusted input, so it has to fit in a terminal and not be empty.
+    fn paneSize(layout: Layout) error{InvalidLayout}!struct {
+        cols: size.CellCountInt,
+        rows: size.CellCountInt,
+    } {
+        const cols = std.math.cast(
+            size.CellCountInt,
+            layout.width,
+        ) orelse return error.InvalidLayout;
+        const rows = std.math.cast(
+            size.CellCountInt,
+            layout.height,
+        ) orelse return error.InvalidLayout;
+        if (cols == 0 or rows == 0) return error.InvalidLayout;
+        return .{ .cols = cols, .rows = rows };
     }
 
     /// Enters the command queue state from any other state, queueing
@@ -1951,14 +2142,14 @@ const Command = union(enum) {
     /// sent: it only ever takes the place of a command that was.
     stale,
 
-    /// Capture the visible contents of a pane so that a newly created
-    /// view of it isn't blank. The pane ID is carried here because the
-    /// output doesn't identify itself.
-    follower_capture: usize,
+    /// Capture the visible contents of one screen of a pane so that a
+    /// newly created view of it isn't blank. The pane ID is carried here
+    /// because the output doesn't identify itself.
+    follower_capture: CapturePane,
 
-    /// The cursor position for the pane a `follower_capture` just
-    /// captured, so the view resumes where tmux left off.
-    follower_cursor: usize,
+    /// The modes, cursor and scroll region of the pane whose screens were
+    /// just captured, so the view resumes where tmux left off.
+    follower_state: usize,
 
     const CapturePane = struct {
         id: usize,
@@ -2003,7 +2194,7 @@ const Command = union(enum) {
             .pane_state,
             .tmux_version,
             .follower_capture,
-            .follower_cursor,
+            .follower_state,
             .stale,
             => {},
             .user => |v| alloc.free(v.line),
@@ -2073,17 +2264,19 @@ const Command = union(enum) {
 
             .stale => unreachable,
 
-            .follower_capture => |id| try writer.print(
+            .follower_capture => |cap| try writer.print(
                 // -C so that the escape sequences -e emits can't
-                // terminate the DCS; see pane_history.
-                "capture-pane -p -e -C -t %{d}\n",
-                .{id},
+                // terminate the DCS; see pane_history. -q so that a pane
+                // without an alternate screen answers with nothing.
+                "capture-pane -p -e -C -q{s} -t %{d}\n",
+                .{ if (cap.screen_key == .alternate) " -a" else "", cap.id },
             ),
 
-            .follower_cursor => |id| try writer.print(
-                "display-message -p -t %{d} -F '#{{cursor_x}},#{{cursor_y}}'\n",
-                .{id},
-            ),
+            .follower_state => |id| {
+                try writer.print("display-message -p -t %{d} -F '", .{id});
+                try writer.writeAll(comptime Format.list_panes.comptimeFormat());
+                try writer.writeAll("'\n");
+            },
         }
     }
 };
@@ -3488,8 +3681,7 @@ fn testRawStartupScreen(comptime alternate_on: bool) !void {
                     .active_window,
                     .active_pane,
                     .window_renamed,
-                    .pane_content,
-                    .pane_cursor,
+                    .pane_restore,
                     => {},
                     .exit => {
                         return error.UnexpectedViewerExit;
@@ -3643,32 +3835,117 @@ test "unusable list-windows reply keeps the windows" {
     }
 }
 
+test "pane restore writes contents, modes and cursor" {
+    const state = try output.parseFormatStruct(
+        Viewer.PaneState,
+        "%3;4;5;1;bar;none;0;1;2;3;0;1;0;1;0;0;0;1;0;1;0;1;0;23;8,16",
+        ';',
+    );
+
+    var buf: [512]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try Viewer.writePaneRestore(&writer, .{
+        .pane_id = 3,
+        .primary = "a\nb\n",
+        .alternate = "x\r\ny\n",
+        .state = state,
+    });
+    try testing.expectEqualStrings(
+        "\x1b[?6l\x1b[r\x1b[H\x1b[2J" ++ "a\r\nb" ++
+            // The primary cursor, saved by entering the alternate screen.
+            "\x1b[4;3H" ++ "\x1b[?1049h\x1b[H\x1b[2J" ++ "x\r\ny" ++
+            "\x1b[?1h" ++ "\x1b>" ++ "\x1b[4l" ++ "\x1b[?7h" ++
+            "\x1b[?1000h\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006h" ++
+            "\x1b[?1004l\x1b[?2004h" ++ "\x1b[?12l\x1b[?25h" ++ "\x1b[6 q" ++
+            "\x1b[1;24r" ++ "\x1b[?6l" ++ "\x1b[6;5H",
+        writer.buffered(),
+    );
+}
+
+test "pane restore with origin mode places the cursor in the region" {
+    // Primary screen, an unset saved cursor, origin mode inside rows 3-11.
+    const state = try output.parseFormatStruct(
+        Viewer.PaneState,
+        "%1;0;5;1;default;none;0;0;4294967295;4294967295;0;1;0;0;1;0;0;0;0;0;0;0;2;10;",
+        ';',
+    );
+
+    var buf: [512]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try Viewer.writePaneRestore(&writer, .{
+        .pane_id = 1,
+        .primary = "",
+        .alternate = "ignored",
+        .state = state,
+    });
+    try testing.expect(std.mem.endsWith(
+        u8,
+        writer.buffered(),
+        "\x1b[?25h" ++ "\x1b[3;11r" ++ "\x1b[?6h" ++ "\x1b[4;1H",
+    ));
+    try testing.expect(std.mem.indexOf(u8, writer.buffered(), "1049") == null);
+    try testing.expect(std.mem.indexOf(u8, writer.buffered(), "ignored") == null);
+}
+
+test "pane restore gathers both screens and the state" {
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+    try testAttach(&viewer, "$0\t@0\t0\t1\t0\t%0\t80\t24\tb25d,80x24,0,0,0\tb25d,80x24,0,0,0\tA\tshell");
+
+    const first = viewer.capturePane(0);
+    try testing.expect(std.mem.startsWith(u8, testCommand(first).?, "capture-pane -p -e -C -q -t %0"));
+    {
+        const actions = viewer.next(.{ .tmux = .{ .block_end = .{ .data = "one\\134two\ntwo\n" } } });
+        try testing.expect(std.mem.startsWith(u8, testCommand(actions).?, "capture-pane -p -e -C -q -a -t %0"));
+    }
+    {
+        const actions = viewer.next(.{ .tmux = .{ .block_end = .{ .data = "vim\n" } } });
+        try testing.expect(std.mem.startsWith(u8, testCommand(actions).?, "display-message -p -t %0 -F '"));
+    }
+    const actions = viewer.next(.{ .tmux = .{ .block_end = .{
+        .data = "%0;1;2;1;default;none;0;1;0;0;0;1;0;0;0;0;0;0;0;0;0;0;0;23;",
+    } } });
+    var found = false;
+    for (actions) |action| switch (action) {
+        .pane_restore => |v| {
+            found = true;
+            try testing.expectEqual(0, v.pane_id);
+            try testing.expectEqualStrings("one\\two\ntwo\n", v.primary);
+            try testing.expectEqualStrings("vim\n", v.alternate);
+            try testing.expect(v.state.alternate_on);
+            try testing.expectEqual(1, v.state.cursor_x);
+            try testing.expectEqual(2, v.state.cursor_y);
+        },
+        else => {},
+    };
+    try testing.expect(found);
+    try testing.expect(viewer.command_queue.empty());
+}
+
 test "error replies to captures and pane state are not content" {
     var viewer = try Viewer.init(testing.io, testing.allocator);
     defer viewer.deinit();
     try testAttach(&viewer, "$0\t@0\t0\t1\t0\t%0\t80\t24\tb25d,80x24,0,0,0\tb25d,80x24,0,0,0\tA\tshell");
 
-    // The pane closed before the follower's capture ran.
+    // The pane closed before the follower's capture ran: every reply is
+    // an error and no restore goes out.
     const first = viewer.capturePane(7);
     try testing.expect(std.mem.startsWith(u8, testCommand(first).?, "capture-pane"));
-    {
+    for (0..3) |_| {
         const actions = viewer.next(.{ .tmux = .{ .block_err = .{ .data = "can't find pane: %7" } } });
-        try testing.expect(!testHasAction(actions, .pane_content));
-        try testing.expect(std.mem.startsWith(u8, testCommand(actions).?, "display-message"));
+        try testing.expect(!testHasAction(actions, .pane_restore));
     }
-    {
-        const actions = viewer.next(.{ .tmux = .{ .block_err = .{ .data = "can't find pane: %7" } } });
-        try testing.expect(!testHasAction(actions, .pane_cursor));
-        try testing.expect(viewer.command_queue.empty());
-    }
+    try testing.expect(viewer.command_queue.empty());
 
-    // A capture too large to receive is dropped the same way.
+    // A capture too large to receive is dropped the same way, and a state
+    // line we can't read sends nothing.
     _ = viewer.capturePane(0);
+    _ = viewer.next(.{ .tmux = .{ .block_end = .{ .truncated = true } } });
+    _ = viewer.next(.{ .tmux = .{ .block_end = .{ .data = "" } } });
     {
-        const actions = viewer.next(.{ .tmux = .{ .block_end = .{ .truncated = true } } });
-        try testing.expect(!testHasAction(actions, .pane_content));
+        const actions = viewer.next(.{ .tmux = .{ .block_end = .{ .data = "3,4" } } });
+        try testing.expect(!testHasAction(actions, .pane_restore));
     }
-    _ = viewer.next(.{ .tmux = .{ .block_end = .{ .data = "3,4" } } });
     try testing.expect(viewer.command_queue.empty());
 
     // A pane state reply with a line we can't read skips that line.
