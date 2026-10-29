@@ -142,6 +142,10 @@ pub const Session = struct {
     /// create the next pane on the next app tick (see `advance`).
     advance_pending: bool = false,
 
+    /// The user created a pane or window from the gateway. The next update
+    /// of tmux's current window presents it (`TmuxWindow.Spec.present`).
+    present_pending: bool = false,
+
     /// Tmux's active window id, from the select-pane we send on focus and
     /// from `%window-pane-changed` notifications (including an external
     /// `select-window`). `new_tab` prefers this so affinity stays correct
@@ -1236,6 +1240,9 @@ pub const Session = struct {
         self.spec_serial += 1;
         try self.mirrored.put(self.alloc, window.id, self.spec_serial);
 
+        const present = select and self.present_pending;
+        if (present) self.present_pending = false;
+
         return .{
             .session = self.attach,
             .window = window.id,
@@ -1247,6 +1254,7 @@ pub const Session = struct {
             .beside = place.beside,
             .after = place.after,
             .select = select,
+            .present = present,
             .parent = self.leader,
         };
     }
