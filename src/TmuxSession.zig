@@ -43,6 +43,11 @@
 //! one `resize-pane`; when no single `resize-pane` can express it, the
 //! layout is sent again so the divider snaps back.
 //!
+//! This needs tmux 3.2 or later, which added per-window sizes
+//! (`refresh-client -C @<window>:<cols>x<rows>`) and the window order
+//! subscription (`refresh-client -B`). Older versions reply to both with
+//! an error.
+//!
 //! Tab and pane selection go to tmux as `select-window` and `select-pane`.
 //! `tmux_mirror.Selection` remembers the requests tmux hasn't confirmed
 //! yet, so a report that only echoes our own request is not applied

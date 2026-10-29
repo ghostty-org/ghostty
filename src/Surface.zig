@@ -692,9 +692,10 @@ pub fn init(
         if (comptime TmuxSession.native_layout) {
             // The apprt created this surface for a pane. It must never
             // fall back to a shell: the tab it is in shows a tmux window.
+            // The start of init made sure the pane can be claimed.
             const pane = rt_surface.tmuxPane() orelse break :tmux;
-            const session = if (app.tmux) |*s| s else return error.TmuxPaneUnavailable;
-            if (!session.canClaim(pane)) return error.TmuxPaneUnavailable;
+            const session = &app.tmux.?;
+            assert(session.canClaim(pane));
             self.tmux_pane_id = pane.pane;
             self.tmux_grid = session.paneGrid(pane.pane);
             session.registerPane(pane.pane, self);
@@ -5379,12 +5380,10 @@ fn tmuxForceQuit(self: *Surface) void {
     if (!session.isLeader(self)) return;
 
     // Best-effort: drop the control client so the mux server is idle.
-    // Must bypass the viewer queue — force-quit destroys it next. Not
-    // again after a detach, though: by now it could reach the shell.
-    if (!session.detached) {
-        session.detached = true;
-        session.sendRaw("detach-client\n");
-    }
+    // `detach` writes past the viewer queue, which force-quit destroys
+    // next, and does nothing after an earlier detach, when its writes
+    // could reach the shell.
+    session.detach();
 
     self.io.queueMessage(.{ .tmux_force_quit = {} }, .unlocked);
     self.tmuxTeardown();
@@ -5419,7 +5418,7 @@ fn tmuxEnter(self: *Surface) void {
     _ = self.rt_app.performAction(
         .{ .surface = self },
         .set_title,
-        .{ .title = "[↣ tmux tmux]" },
+        .{ .title = "[↣ tmux control]" },
     ) catch |err| {
         log.warn("failed to set tmux gateway title err={}", .{err});
     };
