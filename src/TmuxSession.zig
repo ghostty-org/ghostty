@@ -863,6 +863,12 @@ pub const Session = struct {
             };
         }
 
+        // A pending affinity names the window that new windows should join.
+        // If that window is gone too, they're placed as if there were none.
+        if (self.pending_affinity) |aff| {
+            if (!live.contains(aff)) self.pending_affinity = null;
+        }
+
         if (unknown.items.len > 0) {
             if (self.pending_affinity) |aff| {
                 const target = self.affinityGroupIndex(aff) orelse self.affinities.items.len;
@@ -1003,14 +1009,9 @@ pub const Session = struct {
         // Persist on the attached session.
         // This goes through the viewer's queue like every other command:
         // tmux answers it with a block that would otherwise be taken as
-        // the reply to whatever the viewer has in flight.
-        var cmd_buf: [512]u8 = undefined;
-        const command = std.fmt.bufPrint(
-            &cmd_buf,
-            "set @affinities \"{s}\"\n",
-            .{owned},
-        ) catch return;
-        self.sendCommand(command);
+        // the reply to whatever the viewer has in flight. The value only
+        // holds digits, commas and spaces, so it needs no escaping.
+        self.sendCommandFmt("set @affinities \"{s}\"\n", .{owned});
     }
 
     fn indexPanes(self: *Session, window_id: usize, node: Layout) void {
