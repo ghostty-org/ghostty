@@ -173,10 +173,11 @@ pub fn SplitTree(comptime V: type) type {
         /// The nodes must form exactly one tree: every split child handle
         /// is in range, the root is never a child, and every other node is
         /// the child of exactly one split and reachable from the root (no
-        /// cycles). `zoomed` must be in range. Anything else returns
-        /// `error.InvalidTree`, because every other operation on the tree
-        /// assumes this shape and would loop forever or index out of
-        /// bounds on anything else.
+        /// cycles). Each view is in one leaf only, every split ratio is
+        /// between 0 and 1, and `zoomed` must be in range. Anything else
+        /// returns `error.InvalidTree`, because every other operation on
+        /// the tree assumes this shape and would loop forever, index out
+        /// of bounds or lay views out off screen on anything else.
         pub fn fromNodes(
             gpa: Allocator,
             nodes: []const Node,
@@ -198,13 +199,27 @@ pub fn SplitTree(comptime V: type) type {
             @memset(referenced, false);
             for (nodes) |node| switch (node) {
                 .leaf => {},
-                .split => |s| for ([_]Node.Handle{ s.left, s.right }) |child| {
-                    const i = child.idx();
-                    if (i == 0 or i >= nodes.len or referenced[i]) return error.InvalidTree;
-                    referenced[i] = true;
+                .split => |s| {
+                    // Written this way so that NaN fails too.
+                    if (!(s.ratio >= 0 and s.ratio <= 1)) return error.InvalidTree;
+                    for ([_]Node.Handle{ s.left, s.right }) |child| {
+                        const i = child.idx();
+                        if (i == 0 or i >= nodes.len or referenced[i]) return error.InvalidTree;
+                        referenced[i] = true;
+                    }
                 },
             };
             for (referenced[1..]) |v| if (!v) return error.InvalidTree;
+
+            // A view can only be in one place.
+            var views: std.AutoHashMapUnmanaged(*View, void) = .empty;
+            defer views.deinit(gpa);
+            for (nodes) |node| switch (node) {
+                .leaf => |v| if ((try views.getOrPut(gpa, v)).found_existing) {
+                    return error.InvalidTree;
+                },
+                .split => {},
+            };
 
             // With exactly one parent per node, a walk from the root never
             // visits a node twice, so it reaches every node unless some of
@@ -2757,6 +2772,28 @@ test "SplitTree: fromNodes rejects malformed trees" {
             .{ .leaf = a },
             .{ .leaf = b },
             .{ .leaf = c },
+        },
+        // The same view in two leaves.
+        &.{
+            .{ .split = .{ .layout = .horizontal, .ratio = 0.5, .left = @fromBackingInt(1), .right = @fromBackingInt(2) } },
+            .{ .leaf = a },
+            .{ .leaf = a },
+        },
+        // Ratios that can't be laid out.
+        &.{
+            .{ .split = .{ .layout = .horizontal, .ratio = std.math.nan(f16), .left = @fromBackingInt(1), .right = @fromBackingInt(2) } },
+            .{ .leaf = a },
+            .{ .leaf = b },
+        },
+        &.{
+            .{ .split = .{ .layout = .horizontal, .ratio = 1.5, .left = @fromBackingInt(1), .right = @fromBackingInt(2) } },
+            .{ .leaf = a },
+            .{ .leaf = b },
+        },
+        &.{
+            .{ .split = .{ .layout = .horizontal, .ratio = -0.25, .left = @fromBackingInt(1), .right = @fromBackingInt(2) } },
+            .{ .leaf = a },
+            .{ .leaf = b },
         },
     };
 
