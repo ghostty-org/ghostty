@@ -556,10 +556,19 @@ fn surfaceMessage(self: *App, surface: *Surface, msg: apprt.surface.Message) !vo
     // a simple linear search here.
     if (self.hasSurface(surface)) {
         try surface.handleMessage(msg);
+        return;
     }
 
     // Window was not found, it probably quit before we handled the message.
-    // Not a problem.
+    // Not a problem, but the tmux messages own their payloads.
+    switch (msg) {
+        .tmux_windows => |v| v.destroy(),
+        .tmux_window_renamed,
+        .tmux_output,
+        .tmux_send_keys,
+        => |v| v.deinit(),
+        else => {},
+    }
 }
 
 fn hasSurface(self: *const App, surface: *const Surface) bool {
