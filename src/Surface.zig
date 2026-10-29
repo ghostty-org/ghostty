@@ -1352,7 +1352,13 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .tmux_active_pane => |v| self.tmuxActivePane(v),
         .tmux_window_renamed => |v| self.tmuxWindowRenamed(v),
         .tmux_output => |v| self.tmuxOutput(v),
-        .tmux_exit => self.tmuxTeardown(),
+        .tmux_exit => {
+            self.tmuxTeardown();
+
+            // The pty kept the size it had when control mode started, so
+            // the shell gets the current one again.
+            self.queueIo(.{ .resize = self.size }, .unlocked);
+        },
         .tmux_send_keys => |v| self.tmuxSendKeys(v),
         .tmux_resize => |v| self.tmuxResize(v),
     }
