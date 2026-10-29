@@ -797,6 +797,12 @@ pub const TmuxWindow = struct {
         /// Whether this is tmux's current window, whose tab is selected.
         select: bool,
 
+        /// Whether to also raise the selected tab's native window and focus
+        /// its active pane. Set for the first update after the user split
+        /// or opened a window from the gateway, whose own native window
+        /// would otherwise keep the focus.
+        present: bool = false,
+
         /// The surface that new panes inherit settings such as the font
         /// size from.
         parent: ?*CoreSurface,
