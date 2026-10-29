@@ -138,6 +138,10 @@ pub const Session = struct {
     /// that started it.
     detached: bool = false,
 
+    /// On the sequential path, a follower registered and the session can
+    /// create the next pane on the next app tick (see `advance`).
+    advance_pending: bool = false,
+
     /// Tmux's active window id, from the select-pane we send on focus and
     /// from `%window-pane-changed` notifications (including an external
     /// `select-window`). `new_tab` prefers this so affinity stays correct
