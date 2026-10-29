@@ -104,6 +104,9 @@ pub const StreamHandler = struct {
     /// the pane as typed input.
     tmux_follower: bool = false,
 
+    /// See `termio.Options.tmux_mirror_panes`.
+    tmux_mirror_panes: bool = true,
+
     /// Session password grants for the Kitty clipboard protocol.
     /// Requests carrying a granted password skip the permission prompt.
     kitty_clipboard_grants: terminal.kitty.clipboard.Grants = .{},
@@ -469,6 +472,7 @@ pub const StreamHandler = struct {
                         errdefer self.alloc.destroy(viewer);
                         viewer.* = try .init(global.io(), self.alloc);
                         errdefer viewer.deinit();
+                        viewer.mirror_panes = self.tmux_mirror_panes;
                         self.tmux_viewer = viewer;
                         self.tmux_abandoned = false;
                         self.tmux_control_mode.store(true, .release);
@@ -608,17 +612,7 @@ pub const StreamHandler = struct {
                 } });
             },
 
-            .pane_content => |v| self.tmuxForwardContent(v.pane_id, v.data),
-
-            .pane_cursor => |v| {
-                var buf: [32]u8 = undefined;
-                const seq = std.fmt.bufPrint(
-                    &buf,
-                    "\x1b[{d};{d}H",
-                    .{ v.y + 1, v.x + 1 },
-                ) catch return;
-                self.tmuxForwardOutput(v.pane_id, seq, .decoded);
-            },
+            .pane_restore => |v| self.tmuxForwardRestore(v),
 
             .windows => |windows| {
                 // The layout is owned by the viewer and reused on every
@@ -710,35 +704,21 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.{ .tmux_output = req });
     }
 
-    /// Replay a pane's captured contents into its follower surface.
-    ///
-    /// `capture-pane` gives us plain lines rather than a stream, so we
-    /// clear the screen and re-terminate the lines before handing them
-    /// over.
-    fn tmuxForwardContent(
+    /// Show a pane's captured screens and modes in its follower surface.
+    fn tmuxForwardRestore(
         self: *StreamHandler,
-        pane_id: usize,
-        data: []const u8,
+        restore: terminal.tmux.Viewer.Action.PaneRestore,
     ) void {
-        const trimmed = std.mem.trimEnd(u8, data, "\r\n");
-
         var stack_buf: [4096]u8 = undefined;
         var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.alloc);
-        const alloc = stack.allocator();
-        var buf: std.Io.Writer.Allocating = .init(alloc);
+        var buf: std.Io.Writer.Allocating = .init(stack.allocator());
         defer buf.deinit();
 
-        const writer = &buf.writer;
-        writer.writeAll("\x1b[H\x1b[2J") catch return;
-        var it = std.mem.splitScalar(u8, trimmed, '\n');
-        var first = true;
-        while (it.next()) |line| {
-            if (!first) writer.writeAll("\r\n") catch return;
-            first = false;
-            writer.writeAll(std.mem.trimEnd(u8, line, "\r")) catch return;
-        }
-
-        self.tmuxForwardOutput(pane_id, writer.buffered(), .decoded);
+        terminal.tmux.Viewer.writePaneRestore(&buf.writer, restore) catch {
+            log.warn("failed to build tmux pane restore pane={}", .{restore.pane_id});
+            return;
+        };
+        self.tmuxForwardOutput(restore.pane_id, buf.writer.buffered(), .decoded);
     }
 
     /// Ask tmux for a pane's current contents so a freshly created

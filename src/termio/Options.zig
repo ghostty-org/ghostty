@@ -14,6 +14,11 @@ size: renderer.Size,
 /// grid has to be the pane's no matter how big the surface is.
 grid_override: ?renderer.GridSize = null,
 
+/// Whether a tmux control mode viewer on this terminal keeps a terminal
+/// for every pane (see `terminal.tmux.Viewer.mirror_panes`). Off when the
+/// apprt shows every pane in a view of its own.
+tmux_mirror_panes: bool = true,
+
 /// The full app configuration. This is only available during initialization.
 /// The memory it points to is NOT stable after the init call so any values
 /// in here must be copied.
