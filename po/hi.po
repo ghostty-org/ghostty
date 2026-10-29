@@ -8,7 +8,7 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-08-10 10:06-0500\n"
-"PO-Revision-Date: 2026-10-12 20:31-0700\n"
+"PO-Revision-Date: 2026-10-26 22:43-0700\n"
 "Last-Translator: Krishna Thapa <thapak.sna@gmail.com>\n"
 "Language-Team: Hindi <fedora-trans-hi@redhat.com>\n"
 "Language: hi\n"
@@ -25,7 +25,7 @@ msgstr "घोस्टी में खोलें"
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
 msgid "Authorize Clipboard Access"
-msgstr ""
+msgstr "क्लिपबोर्ड तक पहुँच की अनुमति दें"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:17
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:17
@@ -39,11 +39,11 @@ msgstr "अनुमति दें"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
 msgid "Remember choice for this split"
-msgstr "इस विभाजन चयनको याद रखें"
+msgstr "इस विभाजन के लिए चयन याद रखें"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
 msgid "Reload configuration to show this prompt again"
-msgstr "यह संदेश फिर से दिखाने के लिए विन्यास दोबारा लोड करें"
+msgstr "यह संदेश फिर से दिखाने के लिए विन्यास दोबारा डालें"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
@@ -66,6 +66,8 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
+"विन्यास में एक या अधिक त्रुटियाँ मिली हैं। नीचे दी गई त्रुटियों की जाँच करें "
+"और विन्यास दोबारा डालें या इन त्रुटियों को अनदेखा करें।"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:12
 msgid "Ignore"
@@ -74,13 +76,13 @@ msgstr "अनदेखा करें"
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:13
 #: src/apprt/gtk/ui/1.2/surface.blp:439 src/apprt/gtk/ui/1.5/window.blp:318
 msgid "Reload Configuration"
-msgstr "विन्यास दोबारा लोड करें"
+msgstr "विन्यास दोबारा डालें"
 
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr ""
+msgstr "⚠️ आप घोस्टी का डीबग बिल्ड चला रहे हैं! इसकी गति सामान्य से कम होगी।"
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
 msgid "Ghostty: Terminal Inspector"
@@ -104,7 +106,7 @@ msgstr "अरे नहीं ।"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:8
 msgid "Unable to acquire an OpenGL context for rendering."
-msgstr ""
+msgstr "चित्रण के लिए OpenGL संदर्भ प्राप्त नहीं हो सका।"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:101
 msgid ""
@@ -112,6 +114,9 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
+"यह टर्मिनल केवल पढ़ने के मोड में है। आप अभी भी सामग्री देख सकते हैं, चुन "
+"सकते हैं और उसमें ऊपर-नीचे जा सकते हैं, लेकिन चल रहे अनुप्रयोग को कोई इनपुट "
+"घटना नहीं भेजी जाएगी।"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:112
 msgid "Read-only"
@@ -261,19 +266,19 @@ msgstr "निर्देश क्रियान्वित करें…"
 
 #: src/apprt/gtk/class/application.zig:1767
 msgid "The keybind was revoked by the system."
-msgstr ""
+msgstr "प्रचालन तन्त्र ने कुंजी संयोजन वापस ले लिया।"
 
 #: src/apprt/gtk/class/application.zig:1769
 msgid "The keybind was denied by the system."
-msgstr ""
+msgstr "प्रचालन तन्त्र ने कुंजी संयोजन को अस्वीकार कर दिया।"
 
 #: src/apprt/gtk/class/application.zig:1780
 msgid "Global keybind unavailable"
-msgstr ""
+msgstr "सभी अनुप्रयोगों में काम करने वाला कुंजी संयोजन उपलब्ध नहीं है"
 
 #: src/apprt/gtk/class/application.zig:2259
 msgid "Export Terminal IO Events"
-msgstr ""
+msgstr "टर्मिनल की इनपुट/आउटपुट घटनाएँ निर्यात करें"
 
 #: src/apprt/gtk/class/application.zig:2262
 msgid "Export"
@@ -371,7 +376,7 @@ msgstr "विंडो का शीर्षक बदलें"
 
 #: src/apprt/gtk/class/window.zig:1153
 msgid "Reloaded the configuration"
-msgstr "विन्यास दोबारा लोड किया गया"
+msgstr "विन्यास दोबारा डाला गया"
 
 #: src/apprt/gtk/class/window.zig:1830
 msgid "Copied to clipboard"
@@ -400,7 +405,7 @@ msgstr "क्लिपबोर्ड पर प्रति बनाएँ"
 #: src/input/command.zig:156
 msgid ""
 "Copy the selected text to the clipboard in both plain and styled formats."
-msgstr ""
+msgstr "चुने हुए पाठ की सादे और स्वरूपित, दोनों रूपों में क्लिपबोर्ड पर प्रति बनाएँ।"
 
 #: src/input/command.zig:159
 msgid "Copy Selection as Plain Text to Clipboard"
@@ -412,11 +417,11 @@ msgstr "चुने हुए पाठ की सादे पाठ के �
 
 #: src/input/command.zig:163
 msgid "Copy Selection as ANSI Sequences to Clipboard"
-msgstr ""
+msgstr "चुने हुए पाठ की ANSI अनुक्रमों के रूप में क्लिपबोर्ड पर प्रति बनाएँ"
 
 #: src/input/command.zig:164
 msgid "Copy the selected text as ANSI escape sequences to the clipboard."
-msgstr ""
+msgstr "चुने हुए पाठ की ANSI एस्केप अनुक्रमों के रूप में क्लिपबोर्ड पर प्रति बनाएँ।"
 
 #: src/input/command.zig:167
 msgid "Copy Selection as HTML to Clipboard"
@@ -532,7 +537,7 @@ msgstr "पर्दा साफ करें"
 
 #: src/input/command.zig:244
 msgid "Clear the screen and scrollback."
-msgstr ""
+msgstr "पर्दा और पीछे का इतिहास साफ करें।"
 
 #: src/input/command.zig:249
 msgid "Select All"
@@ -977,11 +982,11 @@ msgstr "$EDITOR या $VISUAL का उपयोग करके विन्�
 
 #: src/input/command.zig:600
 msgid "Reload Config"
-msgstr "विन्यास दोबारा लोड करें"
+msgstr "विन्यास दोबारा डालें"
 
 #: src/input/command.zig:601
 msgid "Reload the config file."
-msgstr "विन्यास फ़ाइल दोबारा लोड करें।"
+msgstr "विन्यास फ़ाइल दोबारा डालें।"
 
 #: src/input/command.zig:606
 msgid "Close Terminal"
@@ -1057,11 +1062,11 @@ msgstr "वर्तमान विंडो को अन्य विंड�
 
 #: src/input/command.zig:666
 msgid "Toggle Secure Input"
-msgstr "सुरक्षित निवेश चालू या बन्द करें"
+msgstr "सुरक्षित इनपुट चालू या बन्द करें"
 
 #: src/input/command.zig:667
 msgid "Toggle secure input mode."
-msgstr "सुरक्षित निवेश मोड चालू या बन्द करें।"
+msgstr "सुरक्षित इनपुट मोड चालू या बन्द करें।"
 
 #: src/input/command.zig:672
 msgid "Toggle Mouse Reporting"
