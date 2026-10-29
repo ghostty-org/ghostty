@@ -76,6 +76,7 @@ pub const Parser = struct {
     action: Action,
     flags: Flags = .{},
     chain: bool,
+    @"else": bool,
 
     pub const Elem = union(enum) {
         /// A leader trigger in a sequence.
@@ -130,9 +131,10 @@ pub const Parser = struct {
             return Error.InvalidFormat;
         };
 
-        // Detect chains. Chains must not have flags.
+        // Detect chains and else. Neither can have flags.
         const chain = std.mem.eql(u8, input[0..eql_idx], "chain");
-        if (chain and start_idx > 0) return Error.InvalidFormat;
+        const @"else" = std.mem.eql(u8, input[0..eql_idx], "else");
+        if ((chain or @"else") and start_idx > 0) return Error.InvalidFormat;
 
         // Sequence iterator goes up to the equal, action is after. We can
         // parse the action now.
@@ -142,11 +144,12 @@ pub const Parser = struct {
                 // for chained inputs. The `next` will never yield this
                 // because we have chain set. When we find a nicer way to
                 // do this we can remove it, the e2e is tested.
-                .input = if (chain) "a" else input[0..eql_idx],
+                .input = if (chain or @"else") "a" else input[0..eql_idx],
             },
             .action = try .parse(input[eql_idx + 1 ..]),
             .flags = flags,
             .chain = chain,
+            .@"else" = @"else",
         };
     }
 
@@ -202,8 +205,9 @@ pub const Parser = struct {
             return .{ .leader = trigger };
         }
 
-        // If we're a chain then return it as-is.
+        // If we're a chain or else then return it as-is.
         if (self.chain) return .{ .chain = self.action };
+        if (self.@"else") return .{ .@"else" = self.action };
 
         // Out of triggers, yield the final action.
         return .{ .binding = .{
@@ -2252,6 +2256,7 @@ pub const Set = struct {
             return .{
                 .action = try self.action.clone(alloc),
                 .flags = self.flags,
+                .else_action = if (self.else_action) |a| try a.clone(alloc) else null,
             };
         }
 
@@ -2266,6 +2271,7 @@ pub const Set = struct {
             return .{
                 .flags = self.flags,
                 .actions = .{ .single = .{self.action} },
+                .else_action = self.else_action,
             };
         }
     };
@@ -2310,6 +2316,7 @@ pub const Set = struct {
             single: [1]Action,
             many: []const Action,
         },
+        else_action: ?Action = null,
 
         pub fn actionsSlice(self: *const GenericLeaf) []const Action {
             return switch (self.actions) {
@@ -2376,7 +2383,8 @@ pub const Set = struct {
                 // is invalid because we handle all valid cases.
                 error.UnexpectedEndOfInput => return error.InvalidFormat,
 
-                // If we had a chain without a parent then the format is wrong.
+                // If we had a chain or else without a valid parent then
+                // the format is wrong.
                 error.NoChainParent => return error.InvalidFormat,
 
                 // If we had an invalid action for a chain (e.g. unbind).
@@ -2412,7 +2420,8 @@ pub const Set = struct {
     };
 
     /// Returns the set that was ultimately updated if a binding was
-    /// added. Unbind does not return a set since nothing was added.
+    /// added. Unbind does not return a set since nothing was added, and
+    /// else does not return a set since nothing can be chained after it.
     fn parseAndPutRecurse(
         root: *Set,
         set: *Set,
@@ -2476,12 +2485,15 @@ pub const Set = struct {
                         set.remove(alloc, t);
                         if (old) |entry| switch (entry) {
                             .leader => unreachable, // Handled above
-                            .leaf => |leaf| set.putFlags(
-                                alloc,
-                                t,
-                                leaf.action,
-                                leaf.flags,
-                            ) catch {},
+                            .leaf => |leaf| leaf: {
+                                set.putFlags(
+                                    alloc,
+                                    t,
+                                    leaf.action,
+                                    leaf.flags,
+                                ) catch break :leaf;
+                                set.chain_parent.?.value_ptr.leaf.else_action = leaf.else_action;
+                            },
 
                             .leaf_chained => |leaf| chain: {
                                 // Rebuild our chain
@@ -2540,7 +2552,14 @@ pub const Set = struct {
                 return set;
             },
 
-            .@"else" => return error.NoChainParent,
+            .@"else" => |action| {
+                // Else can only happen on the root.
+                assert(set == root);
+                // Unbind is not valid for else.
+                if (action == .unbind) return error.InvalidChainAction;
+                try set.setElse(action);
+                return null;
+            },
         }
     }
 
@@ -2686,6 +2705,35 @@ pub const Set = struct {
                 );
             },
         }
+    }
+
+    /// Set the else action of the prior set action. The prior action must
+    /// be a performable binding that is not chained. Nothing can be chained
+    /// after an else, so this clears the chain parent.
+    ///
+    /// It is an error if there is no valid prior chain parent.
+    pub fn setElse(
+        self: *Set,
+        action: Action,
+    ) error{NoChainParent}!void {
+        // Unbind is not a valid else action; callers must check this.
+        assert(action != .unbind);
+
+        const parent = self.chain_parent orelse return error.NoChainParent;
+        switch (parent.value_ptr.*) {
+            // Leader can never be a chain parent.
+            .leader => unreachable,
+
+            // Else can't be combined with chain.
+            .leaf_chained => return error.NoChainParent,
+
+            .leaf => |*leaf| {
+                if (!leaf.flags.performable) return error.NoChainParent;
+                leaf.else_action = action;
+            },
+        }
+
+        self.chain_parent = null;
     }
 
     /// Get a binding for a given trigger.

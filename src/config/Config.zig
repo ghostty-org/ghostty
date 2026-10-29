@@ -7505,9 +7505,11 @@ pub const Keybinds = struct {
                 return;
             }
 
-            // Chains are only allowed at the root level. Their target is
-            // tracked globally by parse order in `self.chain_target`.
-            if (std.mem.startsWith(u8, binding, "chain=")) {
+            // Chains and else are only allowed at the root level. Their
+            // target is tracked globally by parse order in `self.chain_target`.
+            if (std.mem.startsWith(u8, binding, "chain=") or
+                std.mem.startsWith(u8, binding, "else="))
+            {
                 return error.InvalidFormat;
             }
 
@@ -7517,7 +7519,9 @@ pub const Keybinds = struct {
             return;
         }
 
-        if (std.mem.startsWith(u8, value, "chain=")) {
+        if (std.mem.startsWith(u8, value, "chain=") or
+            std.mem.startsWith(u8, value, "else="))
+        {
             switch (self.chain_target) {
                 .root => try self.set.parseAndPut(alloc, value),
                 .table => |table_name| {
