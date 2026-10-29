@@ -565,14 +565,14 @@ pub const SplitTree = extern struct {
     //---------------------------------------------------------------
     // Properties
 
-    /// Returns true if this split tree needs confirmation before quitting based
-    /// on the various Ghostty configurations.
+    /// Returns true if closing this split tree needs confirmation based on
+    /// the various Ghostty configurations (see Surface.needsConfirmClose).
     pub fn getNeedsConfirmQuit(self: *Self) bool {
         const tree = self.getTree() orelse return false;
         var it = tree.iterator();
         while (it.next()) |entry| {
             if (entry.view.core()) |core| {
-                if (core.needsConfirmQuit()) {
+                if (core.needsConfirmClose()) {
                     return true;
                 }
             }
@@ -1085,7 +1085,7 @@ pub const SplitTree = extern struct {
         priv.pending_close = tree.locate(surface) orelse return;
 
         // If we don't need to confirm then just close immediately.
-        if (!core.needsConfirmQuit()) {
+        if (!core.needsConfirmClose()) {
             closeConfirmationClose(
                 null,
                 self,

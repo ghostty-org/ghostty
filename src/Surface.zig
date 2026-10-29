@@ -1089,10 +1089,23 @@ pub fn needsConfirmQuit(self: *Surface) bool {
     if (self.child_exited) return false;
 
     // A tmux follower has no process of its own: the program it shows
-    // runs in the tmux server and survives us.
+    // runs in the tmux server, and quitting only detaches from it.
     if (self.tmux_pane_id != null) return false;
 
-    // Check the configuration for confirming close behavior.
+    return self.confirmCloseByConfig();
+}
+
+/// Whether closing this surface needs confirmation. The same as quitting,
+/// except for a tmux follower: closing it kills its pane, and with it the
+/// program the pane runs.
+pub fn needsConfirmClose(self: *Surface) bool {
+    if (self.tmux_pane_id == null) return self.needsConfirmQuit();
+    if (self.readonly) return true;
+    return self.confirmCloseByConfig();
+}
+
+/// What `confirm-close-surface` says about this surface.
+fn confirmCloseByConfig(self: *Surface) bool {
     return switch (self.config.confirm_close_surface) {
         .always => true,
         .false => false,
@@ -5158,6 +5171,7 @@ pub fn tmuxBindingAction(self: *Surface, action: input.Binding.Action) !bool {
             .current => .current,
             .end => .end,
         },
+        .confirm_close = self.config.confirm_close_surface != .false,
     });
     defer result.deinit(alloc);
 
