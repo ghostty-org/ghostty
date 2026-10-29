@@ -490,6 +490,8 @@ msgstr "खोज अंत"
 #: src/input/command.zig:210
 msgid "End the current search if any and hide any GUI elements."
 msgstr ""
+"यदि कोई खोज चल रही है, तो उसे समाप्त करें और खोज से जुड़े सभी दृश्य घटक "
+"छिपाएँ।"
 
 #: src/input/command.zig:215
 msgid "Next Search Result"
@@ -661,32 +663,44 @@ msgstr ""
 #: src/input/command.zig:330
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
 msgstr ""
+"पर्दे की सामग्री की ANSI अनुक्रमों के रूप में अस्थायी फ़ाइल में प्रति बनाएँ "
+"और पथ की क्लिपबोर्ड पर प्रति बनाएँ"
 
 #: src/input/command.zig:331
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
+"पर्दे की सामग्री की ANSI एस्केप अनुक्रमों के रूप में अस्थायी फ़ाइल में प्रति "
+"बनाएँ और पथ की क्लिपबोर्ड पर प्रति बनाएँ।"
 
 #: src/input/command.zig:338
 msgid "Copy Screen as ANSI Sequences to Temporary File and Paste Path"
 msgstr ""
+"पर्दे की सामग्री की ANSI अनुक्रमों के रूप में अस्थायी फ़ाइल में प्रति बनाएँ "
+"और फ़ाइल का पथ चिपकाएँ"
 
 #: src/input/command.zig:339
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
+"पर्दे की सामग्री की ANSI एस्केप अनुक्रमों के रूप में अस्थायी फ़ाइल में प्रति "
+"बनाएँ और फ़ाइल का पथ चिपकाएँ।"
 
 #: src/input/command.zig:346
 msgid "Copy Screen as ANSI Sequences to Temporary File and Open"
 msgstr ""
+"पर्दे की सामग्री की ANSI अनुक्रमों के रूप में अस्थायी फ़ाइल में प्रति बनाएँ "
+"और फ़ाइल खोलें"
 
 #: src/input/command.zig:347
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
+"पर्दे की सामग्री की ANSI एस्केप अनुक्रमों के रूप में अस्थायी फ़ाइल में प्रति "
+"बनाएँ और फ़ाइल खोलें।"
 
 #: src/input/command.zig:354
 msgid "Copy Selection to Temporary File and Copy Path"
@@ -699,82 +713,106 @@ msgid ""
 "Copy the selection contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
+"चुने हुए पाठ की अस्थायी फ़ाइल में प्रति बनाएँ और पथ की क्लिपबोर्ड पर प्रति "
+"बनाएँ।"
 
 #: src/input/command.zig:359
 msgid "Copy Selection to Temporary File and Paste Path"
-msgstr ""
+msgstr "चुने हुए पाठ की अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल का पथ चिपकाएँ"
 
 #: src/input/command.zig:360
 msgid ""
 "Copy the selection contents to a temporary file and paste the path to the "
 "file."
-msgstr ""
+msgstr "चुने हुए पाठ की अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल का पथ चिपकाएँ।"
 
 #: src/input/command.zig:364
 msgid "Copy Selection to Temporary File and Open"
-msgstr ""
+msgstr "चुने हुए पाठ की अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल खोलें"
 
 #: src/input/command.zig:365
 msgid "Copy the selection contents to a temporary file and open it."
-msgstr ""
+msgstr "चुने हुए पाठ की अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल खोलें।"
 
 #: src/input/command.zig:373
 msgid "Copy Selection as HTML to Temporary File and Copy Path"
 msgstr ""
+"चुने हुए पाठ की HTML के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और पथ की "
+"क्लिपबोर्ड पर प्रति बनाएँ"
 
 #: src/input/command.zig:374
 msgid ""
 "Copy the selection contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
+"चुने हुए पाठ की HTML के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और पथ की "
+"क्लिपबोर्ड पर प्रति बनाएँ।"
 
 #: src/input/command.zig:381
 msgid "Copy Selection as HTML to Temporary File and Paste Path"
 msgstr ""
+"चुने हुए पाठ की HTML के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल का पथ "
+"चिपकाएँ"
 
 #: src/input/command.zig:382
 msgid ""
 "Copy the selection contents as HTML to a temporary file and paste the path "
 "to the file."
 msgstr ""
+"चुने हुए पाठ की HTML के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल का पथ "
+"चिपकाएँ।"
 
 #: src/input/command.zig:389
 msgid "Copy Selection as HTML to Temporary File and Open"
-msgstr ""
+msgstr "चुने हुए पाठ की HTML के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल खोलें"
 
 #: src/input/command.zig:390
 msgid "Copy the selection contents as HTML to a temporary file and open it."
 msgstr ""
+"चुने हुए पाठ की HTML के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और फ़ाइल "
+"खोलें।"
 
 #: src/input/command.zig:398
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
 msgstr ""
+"चुने हुए पाठ की ANSI अनुक्रमों के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और "
+"पथ की क्लिपबोर्ड पर प्रति बनाएँ"
 
 #: src/input/command.zig:399
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
+"चुने हुए पाठ की ANSI एस्केप अनुक्रमों के रूप में अस्थायी फ़ाइल में प्रति "
+"बनाएँ और पथ की क्लिपबोर्ड पर प्रति बनाएँ।"
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
 msgstr ""
+"चुने हुए पाठ की ANSI अनुक्रमों के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और "
+"फ़ाइल का पथ चिपकाएँ"
 
 #: src/input/command.zig:407
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
+"चुने हुए पाठ की ANSI एस्केप अनुक्रमों के रूप में अस्थायी फ़ाइल में प्रति "
+"बनाएँ और फ़ाइल का पथ चिपकाएँ।"
 
 #: src/input/command.zig:414
 msgid "Copy Selection as ANSI Sequences to Temporary File and Open"
 msgstr ""
+"चुने हुए पाठ की ANSI अनुक्रमों के रूप में अस्थायी फ़ाइल में प्रति बनाएँ और "
+"फ़ाइल खोलें"
 
 #: src/input/command.zig:415
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
+"चुने हुए पाठ की ANSI एस्केप अनुक्रमों के रूप में अस्थायी फ़ाइल में प्रति "
+"बनाएँ और फ़ाइल खोलें।"
 
 #: src/input/command.zig:422
 msgid "Open a new window."
