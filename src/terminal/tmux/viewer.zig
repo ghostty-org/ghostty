@@ -7,6 +7,8 @@ const size = @import("../size.zig");
 const CircBuf = @import("../../datastruct/main.zig").CircBuf;
 const CursorStyle = @import("../cursor.zig").Style;
 const Screen = @import("../Screen.zig");
+const Style = @import("../style.zig").Style;
+const ansi = @import("../ansi.zig");
 const ScreenSet = @import("../ScreenSet.zig");
 const Terminal = @import("../Terminal.zig");
 const Layout = @import("layout.zig").Layout;
@@ -1597,6 +1599,75 @@ pub const Viewer = struct {
         }
     }
 
+    /// Prepares a pane terminal's screen for content captured from tmux.
+    /// `%output` for the pane can arrive before the capture's reply, so
+    /// the screen may already show some of it, and that output may have
+    /// set a scroll region, origin mode, a style, protection or a charset.
+    /// The capture replaces all of that content. It is laid out over the
+    /// whole screen from the top-left, in the default style and charset.
+    const Fill = struct {
+        screen: *Screen,
+        region: Terminal.ScrollingRegion,
+        origin: bool,
+        style: Style,
+        protected: bool,
+        protected_mode: ansi.ProtectedMode,
+        charset: Screen.CharsetState,
+
+        fn begin(t: *Terminal) Fill {
+            const screen: *Screen = t.screens.active;
+            const fill: Fill = .{
+                .screen = screen,
+                .region = t.scrolling_region,
+                .origin = t.modes.get(.origin),
+                .style = screen.cursor.style,
+                .protected = screen.cursor.protected,
+                .protected_mode = screen.protected_mode,
+                .charset = screen.charset,
+            };
+            t.modes.set(.origin, false);
+            t.scrolling_region = .{
+                .top = 0,
+                .bottom = t.rows - 1,
+                .left = 0,
+                .right = t.cols - 1,
+            };
+
+            // Erased cells take the background of the style, and protected
+            // cells survive the erase.
+            screen.cursor.style = .{};
+            screen.manualStyleUpdate() catch unreachable;
+            screen.cursor.protected = false;
+            screen.protected_mode = .off;
+            screen.charset = .{};
+
+            // Erasing below the top-left rather than the complete display:
+            // at a prompt, a complete erase scrolls the screen into the
+            // scrollback first.
+            t.setCursorPos(1, 1);
+            t.eraseDisplay(.below, false);
+            return fill;
+        }
+
+        /// Puts back the state that the capture doesn't carry: what the
+        /// output that arrived first set, or what `pane_state` applied
+        /// before the capture's reply.
+        fn end(self: Fill, t: *Terminal) void {
+            const screen = self.screen;
+            t.scrolling_region = self.region;
+            t.modes.set(.origin, self.origin);
+            screen.cursor.protected = self.protected;
+            screen.protected_mode = self.protected_mode;
+            screen.charset = self.charset;
+            screen.cursor.style = self.style;
+            screen.manualStyleUpdate() catch |err| {
+                log.warn("restoring pane style after capture failed err={}", .{err});
+                screen.cursor.style = .{};
+                screen.manualStyleUpdate() catch unreachable;
+            };
+        }
+    };
+
     fn receivedPaneHistory(
         self: *Viewer,
         screen_key: ScreenSet.Key,
@@ -1613,17 +1684,23 @@ pub const Viewer = struct {
         _ = try t.switchScreen(screen_key);
         const screen: *Screen = t.screens.active;
 
+        const fill: Fill = .begin(t);
+        defer fill.end(t);
+
+        // The capture is the pane's complete history, so anything already
+        // in the scrollback is output that arrived first and scrolled.
+        t.eraseDisplay(.scrollback, false);
+
         // Get a VT stream from the terminal so we can send data as-is into
-        // it. This will populate the active area too so it won't be exactly
-        // correct but we'll get the active contents soon.
+        // it. The last rows of the history land in the active area at
+        // first.
         var stream = t.vtStream();
         defer stream.deinit();
         stream.nextSlice(content);
 
-        // Populate the active area to be empty since this is only history.
-        // We'll fill it with blanks and move the cursor to the top-left.
-        t.carriageReturn();
-        for (0..t.rows) |_| try t.index();
+        // Move the rows with content into the scrollback, leaving the
+        // active area empty for the visible contents that come next.
+        try screen.scrollClear();
         t.setCursorPos(1, 1);
 
         // Our active area should be empty
@@ -1652,10 +1729,8 @@ pub const Viewer = struct {
         const t: *Terminal = &pane.terminal;
         _ = try t.switchScreen(screen_key);
 
-        // Erase the active area and reset the cursor to the top-left
-        // before writing the visible content.
-        t.eraseDisplay(.complete, false);
-        t.setCursorPos(1, 1);
+        const fill: Fill = .begin(t);
+        defer fill.end(t);
 
         var stream = t.vtStream();
         defer stream.deinit();
@@ -2373,6 +2448,8 @@ test "initial flow" {
                         defer testing.allocator.free(str);
                         try testing.expectEqualStrings("Hello, world!", str);
                     }
+                    // Only the history's one row, with no blank rows after.
+                    try testing.expectEqual(1, screen.pages.total_rows - pane.terminal.rows);
                     {
                         const str = try screen.dumpStringAlloc(
                             testing.allocator,
@@ -2482,6 +2559,114 @@ test "initial flow" {
             .contains_tags = &.{.exit},
         },
     });
+}
+
+test "pane history after output that arrived first" {
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        .{ .input = .{ .tmux = .{ .block_end = .{ .data = "" } } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 42,
+                .name = "main",
+            } } },
+            .contains_command = "display-message",
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = .{ .data = "3.5a" } } },
+            .contains_command = "list-windows",
+        },
+        .{
+            .input = .{ .tmux = .{
+                .block_end = .{ .data = "$0\t@0\t0\t1\t0\t%0\t83\t44\t027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]\t027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]\tA\tshell" },
+            } },
+            .contains_tags = &.{ .windows, .command },
+            .contains_command = "capture-pane",
+        },
+        // Before the reply to the history capture arrives, output scrolls
+        // past the 20 rows of the pane and protects a row. Then a
+        // full-screen program sets a scroll region and origin mode, draws,
+        // parks the cursor near the top and leaves a background color and
+        // the line drawing charset set.
+        .{
+            .input = .{ .tmux = .{ .output = .{
+                .pane_id = 0,
+                .data = "1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9\r\n10\r\n" ++
+                    "11\r\n12\r\n13\r\n14\r\n15\r\n16\r\n17\r\n18\r\n19\r\n20\r\n" ++
+                    "21\r\n22\r\n23\r\n24\r\n25" ++
+                    "\x1b[18;1H\x1bVkept\x1bW" ++
+                    "\x1b[5;10r\x1b[?6h" ++
+                    "\x1b[Hone\r\ntwo\r\nthree\r\nfour\x1b[2;1H" ++
+                    "\x1b[44m\x1b(0",
+            } } },
+        },
+        // The history is one line: exactly that ends up in the scrollback.
+        .{
+            .input = .{ .tmux = .{ .block_end = .{ .data = "old line" } } },
+            .contains_command = "capture-pane",
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    const pane: *Viewer.Pane = v.panes.getEntry(0).?.value_ptr;
+                    const screen: *Screen = pane.terminal.screens.active;
+                    {
+                        const str = try screen.dumpStringAlloc(
+                            testing.allocator,
+                            .{ .history = .{} },
+                        );
+                        defer testing.allocator.free(str);
+                        try testing.expectEqualStrings("old line", str);
+                    }
+                    try testing.expectEqual(1, screen.pages.total_rows - pane.terminal.rows);
+                    {
+                        const str = try screen.dumpStringAlloc(
+                            testing.allocator,
+                            .{ .active = .{} },
+                        );
+                        defer testing.allocator.free(str);
+                        try testing.expectEqualStrings("", str);
+                    }
+                    try expectFillRestored(&pane.terminal);
+                }
+            }).check,
+        },
+        // The visible contents start at the top-left, and their style
+        // isn't left behind.
+        .{
+            .input = .{ .tmux = .{ .block_end = .{ .data = "\x1b[31mtop\r\nnext" } } },
+            .contains_command = "capture-pane",
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    const pane: *Viewer.Pane = v.panes.getEntry(0).?.value_ptr;
+                    const screen: *Screen = pane.terminal.screens.active;
+                    {
+                        const str = try screen.dumpStringAlloc(
+                            testing.allocator,
+                            .{ .active = .{} },
+                        );
+                        defer testing.allocator.free(str);
+                        try testing.expectEqualStrings("top\nnext", str);
+                    }
+                    try testing.expectEqual(1, screen.pages.total_rows - pane.terminal.rows);
+                    try expectFillRestored(&pane.terminal);
+                }
+            }).check,
+        },
+    });
+}
+
+/// After a capture, the state set by the output that arrived first in the
+/// test above is back in place.
+fn expectFillRestored(t: *Terminal) !void {
+    const screen: *Screen = t.screens.active;
+    try testing.expectEqual(4, t.scrolling_region.top);
+    try testing.expectEqual(9, t.scrolling_region.bottom);
+    try testing.expect(t.modes.get(.origin));
+    try testing.expectEqual(Style.Color{ .palette = 4 }, screen.cursor.style.bg_color);
+    try testing.expectEqual(Style.Color.none, screen.cursor.style.fg_color);
+    try testing.expectEqual(ansi.ProtectedMode.iso, screen.protected_mode);
+    try testing.expect(screen.charset.charsets.g0 == .dec_special);
 }
 
 test "layout change" {
