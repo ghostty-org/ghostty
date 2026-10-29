@@ -113,6 +113,14 @@ pub const Parser = struct {
     /// sent. See `Block.client`.
     block_client: bool = true,
 
+    /// The time, command number and flags of the `%begin` line of the
+    /// block we're in. tmux repeats them on the `%end`/`%error` line, and
+    /// a line in the block (such as pane contents captured with
+    /// `capture-pane`) can have the same shape, so only a line with these
+    /// exact fields ends the block. Null when the `%begin` line didn't
+    /// carry them.
+    block_guard: ?Guard = null,
+
     /// While in `block_overflow`, the start of the current line. A guard
     /// line is short, so this is all we need to recognize the one that
     /// ends the block.
@@ -223,7 +231,7 @@ pub const Parser = struct {
                 )) |v| v + 1 else 0;
                 const line = written[idx..];
 
-                if (parseBlockTerminator(line)) |terminator| {
+                if (parseBlockTerminator(line, self.block_guard)) |terminator| {
                     const output = std.mem.trimEnd(
                         u8,
                         written[0..idx],
@@ -314,6 +322,7 @@ pub const Parser = struct {
         if (self.overflow_len > self.overflow_line.len) return null;
         const terminator = parseBlockTerminator(
             self.overflow_line[0..self.overflow_len],
+            self.block_guard,
         ) orelse return null;
 
         log.warn(
@@ -331,35 +340,52 @@ pub const Parser = struct {
         };
     }
 
-    /// Whether a `%begin <time> <number> <flags>` line is for a command
-    /// this client sent. tmux sets bit 0 of the flags for commands it
-    /// read from a control client; output from hooks and from the
-    /// command the client was started with has it clear. A line we can't
-    /// read is assumed to be ours, which is how every block was treated
-    /// before tmux started reporting this.
-    fn beginFromClient(line: []const u8) bool {
-        var fields = std.mem.tokenizeScalar(u8, line, ' ');
-        _ = fields.next(); // %begin
-        _ = fields.next() orelse return true; // time
-        _ = fields.next() orelse return true; // command number
-        const flags = fields.next() orelse return true;
-        const value = std.fmt.parseInt(usize, flags, 10) catch return true;
-        return value & 1 != 0;
-    }
-
     const ParseError = error{RegexError};
 
     const BlockTerminator = enum { end, err };
 
+    /// The fields that pair a `%begin` line with its `%end`/`%error`.
+    const Guard = struct {
+        time: u64,
+        number: u64,
+        flags: u64,
+
+        /// Read the three fields that follow the command on a guard line.
+        /// Returns null unless there are exactly three numbers, each after
+        /// a single space.
+        fn parse(fields: *std.mem.SplitIterator(u8, .scalar)) ?Guard {
+            const guard: Guard = .{
+                .time = parseField(fields) orelse return null,
+                .number = parseField(fields) orelse return null,
+                .flags = parseField(fields) orelse return null,
+            };
+            if (fields.next() != null) return null;
+            return guard;
+        }
+
+        fn parseField(fields: *std.mem.SplitIterator(u8, .scalar)) ?u64 {
+            return parseDigits(u64, fields.next() orelse return null);
+        }
+
+        /// Whether the block is for a command this client sent. tmux sets
+        /// bit 0 of the flags for commands it read from a control client;
+        /// output from hooks and from the command the client was started
+        /// with has it clear.
+        fn fromClient(self: Guard) bool {
+            return self.flags & 1 != 0;
+        }
+    };
+
     /// Block payload is raw data, so a line only terminates a block if it
-    /// exactly matches tmux's `%end`/`%error` guard-line shape.
-    fn parseBlockTerminator(line_raw: []const u8) ?BlockTerminator {
+    /// exactly matches tmux's `%end`/`%error` guard-line shape and repeats
+    /// the fields of the block's `%begin` line (`begin`, if known).
+    fn parseBlockTerminator(line_raw: []const u8, begin: ?Guard) ?BlockTerminator {
         var line = line_raw;
         if (line.len > 0 and line[line.len - 1] == '\r') {
             line = line[0 .. line.len - 1];
         }
 
-        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        var fields = std.mem.splitScalar(u8, line, ' ');
         const cmd = fields.next() orelse return null;
         const terminator: BlockTerminator = if (std.mem.eql(u8, cmd, "%end"))
             .end
@@ -368,20 +394,31 @@ pub const Parser = struct {
         else
             return null;
 
-        const time = fields.next() orelse return null;
-        const command_id = fields.next() orelse return null;
-        const flags = fields.next() orelse return null;
-        const extra = fields.next();
-
-        // In the future, we should compare these to the %begin block
-        // because the tmux source guarantees that these always match and
-        // that is a more robust way to match.
-        _ = std.fmt.parseInt(usize, time, 10) catch return null;
-        _ = std.fmt.parseInt(usize, command_id, 10) catch return null;
-        _ = std.fmt.parseInt(usize, flags, 10) catch return null;
-        if (extra != null) return null;
-
+        const guard = Guard.parse(&fields) orelse return null;
+        if (begin) |b| if (!std.meta.eql(guard, b)) return null;
         return terminator;
+    }
+
+    /// Drop a notification line we recognized but can't read, such as one
+    /// with an id that doesn't fit. Any program can print these, so only
+    /// the start of the line is logged, escaped.
+    fn dropLine(self: *Parser, line: []const u8) ?Notification {
+        log.warn("dropping malformed tmux control mode line=\"{f}\" len={}", .{
+            std.zig.fmtString(line[0..@min(line.len, 128)]),
+            line.len,
+        });
+        self.buffer.clearRetainingCapacity();
+        self.state = .idle;
+        return null;
+    }
+
+    /// A decimal number written the way tmux writes one: digits only, with
+    /// no leading zeros. `parseInt` also takes a sign and underscores.
+    fn parseDigits(comptime T: type, text: []const u8) ?T {
+        if (text.len == 0) return null;
+        if (text.len > 1 and text[0] == '0') return null;
+        for (text) |c| if (!std.ascii.isDigit(c)) return null;
+        return std.fmt.parseInt(T, text, 10) catch null;
     }
 
     fn parseNotification(self: *Parser) ParseError!?Notification {
@@ -401,42 +438,34 @@ pub const Parser = struct {
         // state on seeing at least a '%'.
         if (std.mem.eql(u8, cmd, "%begin")) {
             // tmux guarantees that begin/end are always in order and never
-            // intermixed, so the time and command number aren't needed to
-            // pair them up. The flags tell us who the command came from.
-            self.block_client = beginFromClient(line);
+            // intermixed; the guard fields tell the block's own end line
+            // apart from data that looks like one, and the flags tell us
+            // who the command came from. A block whose `%begin` we can't
+            // read is assumed to be ours, which is how every block was
+            // treated before tmux started reporting this.
+            self.block_guard = guard: {
+                var fields = std.mem.splitScalar(u8, line, ' ');
+                _ = fields.next(); // %begin
+                break :guard Guard.parse(&fields);
+            };
+            self.block_client = if (self.block_guard) |g| g.fromClient() else true;
 
             // Move to block state because we expect a corresponding end/error
             // and want to accumulate the data.
             self.state = .block;
             self.buffer.clearRetainingCapacity();
             return null;
-        } else if (std.mem.eql(u8, cmd, "%output")) cmd: {
-            var re = oni.Regex.init(
-                "^%output %([0-9]+) (.+)$",
-                .{ .capture_group = true },
-                oni.Encoding.utf8,
-                oni.Syntax.default,
-                null,
-            ) catch |err| {
-                log.warn("regex init failed error={}", .{err});
-                return error.RegexError;
-            };
-            defer re.deinit();
-
-            var region = re.search(line, .{}) catch |err| {
-                log.warn("failed to match notification cmd={s} line=\"{s}\" err={}", .{ cmd, line, err });
-                break :cmd;
-            };
-            defer region.deinit();
-            const starts = region.starts();
-            const ends = region.ends();
-
-            const id = std.fmt.parseInt(
-                usize,
-                line[@intCast(starts[1])..@intCast(ends[1])],
-                10,
-            ) catch unreachable;
-            const data = line[@intCast(starts[2])..@intCast(ends[2])];
+        } else if (std.mem.eql(u8, cmd, "%output")) {
+            // `%output %<pane> <data>`, parsed by hand: tmux splits pane
+            // output at arbitrary bytes, so a line can end in the middle
+            // of a UTF-8 sequence, which a UTF-8 regex refuses to match.
+            const rest = std.mem.cutPrefix(u8, line, "%output %") orelse
+                return self.dropLine(line);
+            const space = std.mem.indexOfScalar(u8, rest, ' ') orelse
+                return self.dropLine(line);
+            const id = parseDigits(usize, rest[0..space]) orelse return self.dropLine(line);
+            const data = rest[space + 1 ..];
+            if (data.len == 0) return self.dropLine(line);
 
             // Important: do not clear buffer here since name points to it
             self.state = .idle;
@@ -466,7 +495,7 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
             const name = line[@intCast(starts[2])..@intCast(ends[2])];
 
             // Important: do not clear buffer here since name points to it
@@ -506,7 +535,7 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
             const layout = line[@intCast(starts[2])..@intCast(ends[2])];
             const visible_layout = line[@intCast(starts[3])..@intCast(ends[3])];
             const raw_flags = line[@intCast(starts[4])..@intCast(ends[4])];
@@ -544,7 +573,7 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
 
             self.buffer.clearRetainingCapacity();
             self.state = .idle;
@@ -595,7 +624,7 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
 
             self.buffer.clearRetainingCapacity();
             self.state = .idle;
@@ -641,7 +670,7 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
             const name = line[@intCast(starts[2])..@intCast(ends[2])];
 
             // Important: do not clear buffer here since name points to it
@@ -675,12 +704,12 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
             const pane_id = std.fmt.parseInt(
                 usize,
                 line[@intCast(starts[2])..@intCast(ends[2])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
 
             self.buffer.clearRetainingCapacity();
             self.state = .idle;
@@ -712,12 +741,12 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
             const window_id = std.fmt.parseInt(
                 usize,
                 line[@intCast(starts[2])..@intCast(ends[2])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
 
             self.buffer.clearRetainingCapacity();
             self.state = .idle;
@@ -784,7 +813,7 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[2])..@intCast(ends[2])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
             const name = line[@intCast(starts[3])..@intCast(ends[3])];
 
             // Important: do not clear buffer here since client/name point to it
@@ -815,7 +844,7 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
             const name = line[@intCast(starts[2])..@intCast(ends[2])];
 
             // Important: do not clear buffer here since name points to it
@@ -846,7 +875,7 @@ pub const Parser = struct {
                 usize,
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
-            ) catch unreachable;
+            ) catch return self.dropLine(line);
 
             self.buffer.clearRetainingCapacity();
             self.state = .idle;
@@ -1150,6 +1179,132 @@ test "tmux exceeding max_bytes" {
     for (line[0 .. line.len - 1]) |byte| try testing.expect(try c.put(byte) == null);
     try testing.expectError(error.OutOfMemory, c.put(line[line.len - 1]));
     try testing.expect(try c.put('\n') == null);
+}
+
+test "tmux block ends only on the guard line of its begin" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // A line with the shape of a guard line, such as captured pane
+    // contents, is data unless it repeats the %begin fields exactly.
+    const data = [_][]const u8{
+        "%end 1578922740 270 1",
+        "%error 1 2 3",
+        "%end +1578922740 269 1",
+        "%end 1578922740 0269 1",
+        "%end 1578922740  269 1",
+        "%end 1578922740 269 1 ",
+        " %end 1578922740 269 1",
+    };
+    for ("%begin 1578922740 269 1\n") |byte| try testing.expect(try c.put(byte) == null);
+    for (data) |line| {
+        for (line) |byte| try testing.expect(try c.put(byte) == null);
+        try testing.expect(try c.put('\n') == null);
+    }
+    for ("%end 1578922740 269 1") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .block_end);
+    const expected = try std.mem.join(alloc, "\n", &data);
+    defer alloc.free(expected);
+    try testing.expectEqualStrings(expected, n.block_end.data);
+}
+
+test "tmux output line ending inside a UTF-8 sequence" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // tmux splits pane output at any byte; here the euro sign is cut
+    // after its first two bytes.
+    for ("%output %7 a\xe2\x82") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(7, n.output.pane_id);
+    try testing.expectEqualStrings("a\xe2\x82", n.output.data);
+}
+
+test "tmux notifications with overlong ids are dropped" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // Any program can print these; an id that doesn't fit is ignored
+    // rather than trusted, in every place a notification has one.
+    const lines = [_][]const u8{
+        "%output %99999999999999999999999 x\n",
+        "%session-changed $99999999999999999999999 name\n",
+        "%layout-change @99999999999999999999999 b25d,80x24,0,0,0 b25d,80x24,0,0,0 *\n",
+        "%window-add @99999999999999999999999\n",
+        "%window-close @99999999999999999999999\n",
+        "%window-renamed @99999999999999999999999 name\n",
+        "%window-pane-changed @99999999999999999999999 %1\n",
+        "%window-pane-changed @1 %99999999999999999999999\n",
+        "%session-window-changed $99999999999999999999999 @1\n",
+        "%session-window-changed $1 @99999999999999999999999\n",
+        "%client-session-changed client $99999999999999999999999 name\n",
+        "%session-renamed $99999999999999999999999 name\n",
+    };
+    for (lines) |line| {
+        for (line) |byte| try testing.expect(try c.put(byte) == null);
+    }
+
+    // The parser keeps working.
+    for ("%window-add @3") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .window_add);
+    try testing.expectEqual(3, n.window_add.id);
+}
+
+test "tmux malformed output lines are dropped" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    const lines = [_][]const u8{
+        "%output\n",
+        "%output %\n",
+        "%output %5\n",
+        "%output %5 \n",
+        "%output 5 x\n",
+        "%output %+5 x\n",
+        "%output %1_0 x\n",
+        "%output %05 x\n",
+        "%output %x x\n",
+    };
+    for (lines) |line| {
+        for (line) |byte| try testing.expect(try c.put(byte) == null);
+    }
+
+    for ("%output %5 ok") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(5, n.output.pane_id);
+    try testing.expectEqualStrings("ok", n.output.data);
+}
+
+test "tmux block without begin fields ends on any guard line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // Nothing to compare against, so any well-formed guard line ends it.
+    for ("%begin\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("data\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("%end 1 2 3") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .block_end);
+    try testing.expectEqualStrings("data", n.block_end.data);
 }
 
 test "tmux begin/end data" {
