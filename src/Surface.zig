@@ -2631,6 +2631,14 @@ fn setCellSize(self: *Surface, size: rendererpkg.CellSize) !void {
         .cell_size,
         .{ .width = size.width, .height = size.height },
     );
+
+    // A tmux pane's grid comes from tmux, which needs to hear that a
+    // different number of cells fits the tab now.
+    if (comptime terminal.options.tmux_control_mode) {
+        if (self.tmux_pane_id != null) {
+            if (self.app.tmux) |*session| session.cellSizeChanged(self);
+        }
+    }
 }
 
 /// Change the font size.
