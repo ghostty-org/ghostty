@@ -747,6 +747,11 @@ pub const Surface = extern struct {
         /// How much pending horizontal scroll do we have?
         pending_horizontal_scroll: f64 = 0.0,
 
+        /// True once a tmux pane surface failed to initialize. Its pane is
+        /// shown by another surface or its session ended, and retrying on
+        /// every resize won't change that.
+        tmux_init_failed: bool = false,
+
         /// Timer to reset the amount of horizontal scroll if the user
         /// stops scrolling.
         pending_horizontal_scroll_reset: ?c_uint = null,
@@ -3552,7 +3557,7 @@ pub const Surface = extern struct {
                 // Setup our resize overlay if configured
                 self.resizeOverlaySchedule();
             }
-        } else {
+        } else if (!priv.tmux_init_failed) {
             // If we haven't initalized a surface yet, now's the time to
             // do so. We cannot do this any earlier since GTK defers the
             // layouting and size allocation until after widget initialization.
@@ -3562,6 +3567,7 @@ pub const Surface = extern struct {
             // is somehow realized before the first resize signal ever fires.
             self.initSurface() catch |err| {
                 log.warn("surface failed to initialize err={}", .{err});
+                if (self.getTmuxPane() != null) priv.tmux_init_failed = true;
             };
         }
     }
@@ -3788,7 +3794,9 @@ pub const Surface = extern struct {
         _ = src;
         _ = x;
         _ = y;
-        var val = gobject.ext.Value.newFrom(self.core().?.id);
+        // A surface that failed to initialize has no id. No surface has
+        // id 0, so dropping this one does nothing.
+        var val = gobject.ext.Value.newFrom(if (self.core()) |v| v.id else @as(u64, 0));
         return gdk.ContentProvider.newForValue(&val);
     }
 
@@ -3849,7 +3857,8 @@ pub const Surface = extern struct {
         defer self.setDropOverlayDirection(null);
 
         const dropped_id = v.getUint64();
-        const dropped = self.core().?.app.findSurfaceByID(dropped_id) orelse return 0;
+        const core_surface = self.core() orelse return 0;
+        const dropped = core_surface.app.findSurfaceByID(dropped_id) orelse return 0;
         const from = dropped.rt_surface.gobj();
 
         const st = ext.getAncestor(
@@ -3865,7 +3874,6 @@ pub const Surface = extern struct {
         // tmux panes are moved by tmux, and only next to each other: a tab
         // shows either a tmux window or native surfaces.
         if (self.getTmuxPane() != null or from.getTmuxPane() != null) {
-            const core_surface = self.core() orelse return 0;
             return @intFromBool(core_surface.tmuxNativeEvent(.{ .move_pane = .{
                 .source = dropped,
                 .direction = switch (dir) {
