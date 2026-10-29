@@ -2799,7 +2799,10 @@ const Action = struct {
 
         if (spec.select) {
             window.selectTabPage(tab);
-            if (window.as(gtk.Window).isActive() != 0) {
+            if (spec.present) {
+                gtk.Window.present(window.as(gtk.Window));
+                if (focused) |v| v.grabFocus();
+            } else if (window.as(gtk.Window).isActive() != 0) {
                 if (focused) |v| v.grabFocus();
             }
         }

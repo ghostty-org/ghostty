@@ -2953,6 +2953,7 @@ pub fn keyCallback(
     // The tmux control mode gateway isn't a terminal the user types into,
     // it's a control plate, so it claims its own keys.
     if (self.tmuxGatewayKey(event)) return .consumed;
+
     // If we allow KAM and KAM is enabled then we do nothing.
     if (self.config.vt_kam_allowed) {
         self.renderer_state.mutex.lockUncancelable(global.io());
@@ -5181,6 +5182,13 @@ pub fn tmuxBindingAction(self: *Surface, action: input.Binding.Action) !bool {
             var lines = commands.lines();
             while (lines.next()) |line| session.sendCommand(line);
 
+            // The gateway's control plate isn't a pane, so a pane made from
+            // it should take the focus rather than leave it on the plate.
+            if (session.isLeader(self)) switch (action) {
+                .new_split, .new_tab, .new_window => session.present_pending = true,
+                else => {},
+            };
+
             // tmux doesn't report that windows were reordered.
             if (action == .move_tab) session.refreshWindows();
             return !commands.then_native;
@@ -5252,8 +5260,11 @@ pub fn tmuxNativeEvent(self: *Surface, event: TmuxSession.Session.NativeEvent) b
 /// tmux.
 fn tmuxGatewayKey(self: *Surface, event: input.KeyEvent) bool {
     if (comptime !terminal.options.tmux_control_mode) return false;
-    if (event.action == .release) return false;
     if (!self.tmuxIsGateway()) return false;
+
+    // Keybindings were handled before we got here. Nothing on the plate
+    // reacts to a release, and nothing that reaches it is typed anywhere.
+    if (event.action == .release) return true;
 
     const session = if (self.app.tmux) |*s| s else return false;
 
@@ -5299,9 +5310,9 @@ fn tmuxGatewayKey(self: *Surface, event: input.KeyEvent) bool {
         return true;
     }
 
-    // Let keybinds and text input through; the plate only claims bare
-    // keys.
-    if (event.mods.super or event.mods.ctrl or event.mods.alt) return false;
+    // The menu keys are bare keys; anything with a modifier is dropped
+    // like any other key below.
+    if (event.mods.super or event.mods.ctrl or event.mods.alt) return true;
 
     switch (event.key) {
         .escape => {
@@ -5324,11 +5335,11 @@ fn tmuxGatewayKey(self: *Surface, event: input.KeyEvent) bool {
             session.echo("\r\ntmux command: ");
         },
 
-        // Everything else is typed into tmux's active pane (see
-        // Termio.queueInput), also when followers exist: a split made
-        // from the plate leaves focus here, and dropping the keys would
-        // make the window look unresponsive until focus moves.
-        else => return false,
+        // Everything else is dropped. The plate isn't a pane: typing meant
+        // for a pane would otherwise run plate commands or land in
+        // whichever pane tmux has active. A pane made from the plate takes
+        // the focus (see `present_pending`), so typing goes there.
+        else => {},
     }
 
     return true;
