@@ -366,9 +366,9 @@ pub const Action = union(Key) {
 
     /// Mirror one tmux control mode window as one native tab: create,
     /// update or close the tab so that its whole split tree matches the
-    /// window. The payload is Zig-only and embedders only get an opaque
-    /// pointer, so they must return false, which makes the core fall back
-    /// to creating panes one split at a time.
+    /// window. The payload is Zig-only. It is only sent to apprts whose
+    /// surfaces have `tmuxPane` (`TmuxSession.native_layout`); on the
+    /// others, each new surface adopts the next tmux pane instead.
     tmux_window: TmuxWindow,
 
     /// Sync with: ghostty_action_tag_e
