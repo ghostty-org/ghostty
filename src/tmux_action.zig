@@ -58,6 +58,12 @@ pub const Context = struct {
     /// `window-new-tab-position` says for native tabs.
     new_tab_position: NewTabPosition = .current,
 
+    /// Whether closing may need confirmation (`confirm-close-surface`).
+    /// Closing a pane or window kills the programs in it, so the close
+    /// actions then stay native: the apprt asks as it does for any close
+    /// and reaches tmux through its native close events.
+    confirm_close: bool = false,
+
     pub const NewTabPosition = enum {
         /// Right after the tab of `window`.
         current,
@@ -197,7 +203,9 @@ pub fn translate(
 
         // The gateway has no pane, and closing it means leaving control
         // mode rather than killing a pane, which the surface handles.
-        .close_surface => if (ctx.pane) |pane|
+        .close_surface => if (ctx.confirm_close)
+            .native
+        else if (ctx.pane) |pane|
             try single(alloc, "kill-pane -t %{d}", .{pane})
         else
             .native,
@@ -211,8 +219,11 @@ pub fn translate(
         .new_tab => affinity(try newTab(alloc, ctx), .tab),
         .new_window => affinity(try single(alloc, "new-window", .{}), .window),
 
-        .close_tab => |mode| try closeTab(alloc, mode, ctx),
-        .close_window => try closeWindow(alloc, ctx),
+        .close_tab => |mode| if (ctx.confirm_close)
+            .native
+        else
+            try closeTab(alloc, mode, ctx),
+        .close_window => if (ctx.confirm_close) .native else try closeWindow(alloc, ctx),
 
         .next_tab => try stepTab(alloc, .next, ctx),
         .previous_tab => try stepTab(alloc, .previous, ctx),
@@ -868,6 +879,17 @@ test "close_window kills every window of the group" {
     try expectCommands("kill-window -t @3\n", .close_window, ungrouped);
 
     try expectKind(.native, .close_window, .{});
+}
+
+test "closing stays native when it may need confirmation" {
+    // The apprt's own close asks first and then kills the pane or window
+    // through its native close events.
+    var confirm = pane_ctx;
+    confirm.confirm_close = true;
+    try expectKind(.native, .close_surface, confirm);
+    try expectKind(.native, .{ .close_tab = .this }, confirm);
+    try expectKind(.native, .{ .close_tab = .other }, confirm);
+    try expectKind(.native, .close_window, confirm);
 }
 
 test "close_all_windows and quit detach" {

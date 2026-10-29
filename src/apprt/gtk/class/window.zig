@@ -253,6 +253,10 @@ pub const Window = extern struct {
         /// tab view selects another tab then, which the user didn't.
         moving_tab: bool = false,
 
+        /// Set while every tab closes after the window's close was
+        /// confirmed once, so that the tabs don't each ask again.
+        close_confirmed: bool = false,
+
         /// Timeout source to react to this window becoming (in)active.
         handle_active_state_source: ?c_uint = null,
 
@@ -1689,14 +1693,23 @@ pub const Window = extern struct {
         // The tabs of tmux windows close when tmux reports their windows
         // gone, so a native window with any of them closes tab by tab,
         // each the way its close button does (tmux tabs kill their
-        // window). The native window closes with its last tab.
+        // window). The native window closes with its last tab. The window
+        // asks once for all of them.
         if (self.hasTmuxTabs()) {
-            const tab_view = self.private().tab_view;
-            var i = tab_view.getNPages();
-            while (i > 0) {
-                i -= 1;
-                tab_view.closePage(tab_view.getNthPage(i));
+            if (self.getNeedsConfirmQuit()) {
+                const dialog: *CloseConfirmationDialog = .new(.window);
+                _ = CloseConfirmationDialog.signals.@"close-request".connect(
+                    dialog,
+                    *Self,
+                    closeConfirmationCloseTabs,
+                    self,
+                    .{},
+                );
+                dialog.present(self.as(gtk.Widget));
+                return @intFromBool(true);
             }
+
+            self.closeEveryTab();
             return @intFromBool(true);
         }
 
@@ -1725,6 +1738,28 @@ pub const Window = extern struct {
         self: *Self,
     ) callconv(.c) void {
         self.as(gtk.Window).destroy();
+    }
+
+    fn closeConfirmationCloseTabs(
+        _: *CloseConfirmationDialog,
+        self: *Self,
+    ) callconv(.c) void {
+        self.closeEveryTab();
+    }
+
+    /// Close every tab without each one asking for confirmation.
+    fn closeEveryTab(self: *Self) void {
+        const priv = self.private();
+        priv.close_confirmed = true;
+        defer priv.close_confirmed = false;
+
+        // From the end: a native tab is removed as it closes, a tmux tab
+        // only once tmux reports its window gone.
+        var i = priv.tab_view.getNPages();
+        while (i > 0) {
+            i -= 1;
+            priv.tab_view.closePage(priv.tab_view.getNthPage(i));
+        }
     }
 
     /// Whether any tab of this window mirrors a tmux window.
@@ -1777,6 +1812,37 @@ pub const Window = extern struct {
         tab_view.closePageFinish(page, @intFromBool(true));
     }
 
+    fn closeConfirmationKillTmuxTab(
+        _: *CloseConfirmationDialog,
+        page: *adw.TabPage,
+    ) callconv(.c) void {
+        const tab_view = ext.getAncestor(
+            adw.TabView,
+            page.getChild().as(gtk.Widget),
+        ) orelse {
+            log.warn("close confirmation called for non-existent page", .{});
+            return;
+        };
+        const tab = gobject.ext.cast(Tab, page.getChild()) orelse {
+            tab_view.closePageFinish(page, @intFromBool(true));
+            return;
+        };
+
+        // Without a session to kill the window in, the tab just closes.
+        tab_view.closePageFinish(page, @intFromBool(!killTmuxTab(tab)));
+    }
+
+    /// Ask tmux to kill the window a tab mirrors. The tab closes when tmux
+    /// reports the window gone. Returns false if no session mirrors it.
+    fn killTmuxTab(tab: *Tab) bool {
+        const tree = tab.getSplitTree();
+        const tmux = tree.getTmux() orelse return false;
+        return tree.tmuxNativeEvent(.{ .close_tab = .{
+            .session = tmux.session,
+            .window = tmux.window,
+        } });
+    }
+
     fn closeConfirmationCancelTab(
         _: *CloseConfirmationDialog,
         page: *adw.TabPage,
@@ -1805,12 +1871,31 @@ pub const Window = extern struct {
         // tmux reports the window gone and closes it (while it applies
         // that, which is the one time a tmux tab closes here).
         if (!Application.default().isTmuxApplying()) tmux: {
-            const tree = tab.getSplitTree();
-            const tmux = tree.getTmux() orelse break :tmux;
-            if (!tree.tmuxNativeEvent(.{ .close_tab = .{
-                .session = tmux.session,
-                .window = tmux.window,
-            } })) break :tmux;
+            if (tab.getSplitTree().getTmux() == null) break :tmux;
+
+            // Killing the window ends the programs in it, so it asks
+            // first like closing any other tab.
+            if (!priv.close_confirmed and tab.getNeedsConfirmQuit()) {
+                const dialog: *CloseConfirmationDialog = .new(.tab);
+                _ = CloseConfirmationDialog.signals.@"close-request".connect(
+                    dialog,
+                    *adw.TabPage,
+                    closeConfirmationKillTmuxTab,
+                    page,
+                    .{},
+                );
+                _ = CloseConfirmationDialog.signals.cancel.connect(
+                    dialog,
+                    *adw.TabPage,
+                    closeConfirmationCancelTab,
+                    page,
+                    .{},
+                );
+                dialog.present(child);
+                return @intFromBool(true);
+            }
+
+            if (!killTmuxTab(tab)) break :tmux;
             priv.tab_view.closePageFinish(page, @intFromBool(false));
             return @intFromBool(true);
         }
@@ -1818,7 +1903,10 @@ pub const Window = extern struct {
         // If the tab says it doesn't need confirmation then we go ahead
         // and close immediately. Neither does a tab that tmux closes:
         // its window is gone already.
-        if (!tab.getNeedsConfirmQuit() or Application.default().isTmuxApplying()) {
+        if (priv.close_confirmed or
+            !tab.getNeedsConfirmQuit() or
+            Application.default().isTmuxApplying())
+        {
             priv.tab_view.closePageFinish(page, @intFromBool(true));
             return @intFromBool(true);
         }
