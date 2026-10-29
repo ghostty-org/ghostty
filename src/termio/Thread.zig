@@ -343,22 +343,44 @@ fn drainMailbox(
                 defer v.alloc.free(v.pw);
                 try io.kittyClipboardGrant(v.pw, .write);
             },
+            .tmux_command => |v| {
+                defer v.alloc.free(v.data);
+                io.tmuxCommand(data, v.data);
+            },
+            .tmux_write => |v| {
+                defer v.alloc.free(v.data);
+                io.tmuxWrite(data, v.data);
+            },
+            .tmux_raw => |v| {
+                defer v.alloc.free(v.data);
+                try io.queueWrite(data, v.data, false);
+            },
+            .tmux_echo => |v| {
+                defer v.alloc.free(v.data);
+                io.tmuxEcho(v.data);
+            },
+            .tmux_capture_pane => |v| io.tmuxCapturePane(data, v),
+            .tmux_refresh_windows => io.tmuxRefreshWindows(data),
+            .tmux_logging_toggle => io.tmuxToggleLogging(),
+            .tmux_force_quit => io.tmuxForceQuit(),
+            .tmux_detaching => io.tmuxDetaching(),
+            .tmux_grid => |v| try io.setGridOverride(data, v),
             .start_synchronized_output => self.startSynchronizedOutput(cb),
             .linefeed_mode => |v| self.flags.linefeed_mode = v,
             .focused => |v| try io.focusGained(data, v),
-            .write_small => |v| try io.queueWrite(
+            .write_small => |v| try io.queueInput(
                 data,
                 v.data[0..v.len],
                 self.flags.linefeed_mode,
             ),
-            .write_stable => |v| try io.queueWrite(
+            .write_stable => |v| try io.queueInput(
                 data,
                 v,
                 self.flags.linefeed_mode,
             ),
             .write_alloc => |v| {
                 defer v.alloc.free(v.data);
-                try io.queueWrite(
+                try io.queueInput(
                     data,
                     v.data,
                     self.flags.linefeed_mode,

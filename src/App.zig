@@ -16,6 +16,7 @@ const BlockingQueue = @import("datastruct/main.zig").BlockingQueue;
 const renderer = @import("renderer.zig");
 const font = @import("font/main.zig");
 const global = @import("global.zig");
+const TmuxSession = @import("TmuxSession.zig");
 
 const log = std.log.scoped(.app);
 
@@ -67,6 +68,11 @@ last_notification_digest: u64 = 0,
 /// in the Surface struct for more information. In this case, this applies
 /// to the app-level config and as a default for new surfaces.
 config_conditional_state: configpkg.ConditionalState,
+
+/// The active tmux control mode session, if any. Only one surface can be
+/// the gateway at a time, so this lives on the app rather than on a
+/// surface.
+tmux: ?TmuxSession.Session = null,
 
 /// Set to false once we've created at least one surface. This
 /// never goes true again. This can be used by surfaces to determine
@@ -133,7 +139,22 @@ pub fn init(
     };
 }
 
+/// Detach from tmux before the application quits, while every surface
+/// is still alive. Closing a follower otherwise tells tmux to kill its
+/// pane, and quitting closes them all. The session survives with all of
+/// its windows and panes.
+pub fn tmuxDetachForQuit(self: *App) void {
+    const session = if (self.tmux) |*s| s else return;
+    session.detach();
+    session.leader.tmuxTeardown();
+}
+
 pub fn deinit(self: *App) void {
+    if (self.tmux) |*session| {
+        session.deinit();
+        self.tmux = null;
+    }
+
     // Clean up all our surfaces
     for (self.surfaces.items) |surface| surface.deinit();
     self.surfaces.deinit(self.alloc);
@@ -162,6 +183,14 @@ pub fn destroy(self: *App) void {
 /// events. This should be called by the application runtime on every loop
 /// tick.
 pub fn tick(self: *App, rt_app: *apprt.App) !void {
+    // A tmux follower registered since the last tick, so the session can
+    // create the next one. It waits for a tick of its own because surface
+    // presentation is asynchronous on some apprts (macOS).
+    if (self.tmux) |*session| if (session.advance_pending) {
+        session.advance_pending = false;
+        session.advance();
+    };
+
     // Drain our mailbox
     try self.drainMailbox(rt_app);
 }
@@ -224,8 +253,11 @@ pub fn deleteSurface(self: *App, rt_surface: *apprt.Surface) void {
     // There was a bug where we relied on hasSurface to return false and
     // just let focused surface be but the allocator was reusing addresses
     // after free and giving false positives, so we must clear it.
+    //
+    // This compares apprt surfaces because a surface whose initialization
+    // failed is deleted too, and has no core surface.
     if (self.focused_surface) |focused| {
-        if (focused == rt_surface.core()) {
+        if (focused.rt_surface == rt_surface) {
             self.focused_surface = null;
         }
     }
@@ -291,7 +323,6 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
             .new_window => |msg| try self.newWindow(rt_app, msg),
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
-
             // If we're quitting, then we set the quit flag and stop
             // draining the mailbox immediately. This lets us defer
             // mailbox processing to the next tick so that the apprt
@@ -525,10 +556,19 @@ fn surfaceMessage(self: *App, surface: *Surface, msg: apprt.surface.Message) !vo
     // a simple linear search here.
     if (self.hasSurface(surface)) {
         try surface.handleMessage(msg);
+        return;
     }
 
     // Window was not found, it probably quit before we handled the message.
-    // Not a problem.
+    // Not a problem, but the tmux messages own their payloads.
+    switch (msg) {
+        .tmux_windows => |v| v.destroy(),
+        .tmux_window_renamed,
+        .tmux_output,
+        .tmux_send_keys,
+        => |v| v.deinit(),
+        else => {},
+    }
 }
 
 fn hasSurface(self: *const App, surface: *const Surface) bool {

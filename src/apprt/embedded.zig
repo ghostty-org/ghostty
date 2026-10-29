@@ -306,6 +306,11 @@ pub const App = struct {
         comptime action: apprt.Action.Key,
         value: apprt.Action.Value(action),
     ) !bool {
+        // Never sent here: embedded surfaces have no `tmuxPane`, so tmux
+        // panes are adopted one surface at a time. The payload is Zig-only
+        // in any case.
+        if (comptime action == .tmux_window) return false;
+
         // Special case certain actions before they are sent to the
         // embedded apprt.
         self.performPreAction(target, action, value);

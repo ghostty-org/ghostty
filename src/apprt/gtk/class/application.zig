@@ -236,8 +236,19 @@ pub const Application = extern struct {
         // unref'd on dispose. See ringBell and media.zig.
         bell_media: ?*gtk.MediaFile = null,
 
+        /// Non-zero while a tmux window is being mirrored. Native tab
+        /// changes made then come from tmux and must not be reported back
+        /// to it.
+        tmux_applying: u32 = 0,
+
         pub var offset: c_int = 0;
     };
+
+    /// Whether a tmux window is being mirrored right now. See
+    /// `Private.tmux_applying`.
+    pub fn isTmuxApplying(self: *Self) bool {
+        return self.private().tmux_applying > 0;
+    }
 
     /// Get this application as the default, allowing access to its
     /// properties globally.
@@ -658,6 +669,10 @@ pub const Application = extern struct {
     }
 
     fn quitNow(self: *Self) void {
+        // Leave tmux first. Destroying the windows closes every follower,
+        // and a follower that closes on its own kills its tmux pane.
+        self.private().core_app.tmuxDetachForQuit();
+
         // Get all our windows and destroy them, forcing them to free.
         const list = gtk.Window.listToplevels();
         defer list.free();
@@ -769,6 +784,8 @@ pub const Application = extern struct {
             .resize_split => return Action.resizeSplit(target, value),
 
             .resize_window => return Action.resizeWindow(target, value),
+
+            .tmux_window => return Action.tmuxWindow(self, value),
 
             .ring_bell => Action.ringBell(target),
 
@@ -2581,16 +2598,7 @@ const Action = struct {
         parent: ?*CoreSurface,
         overrides: Overrides,
     ) void {
-        // Setup a binding so that whenever our config changes so does the
-        // window. There's never a time when the window config should be out
-        // of sync with the application config.
-        _ = gobject.Object.bindProperty(
-            self.as(gobject.Object),
-            "config",
-            win.as(gobject.Object),
-            "config",
-            .{},
-        );
+        bindWindowConfig(self, win);
 
         // Create a new tab with window context (first tab in new window)
         win.newTabForWindow(parent, .{
@@ -2614,6 +2622,210 @@ const Action = struct {
 
         // Show the window
         gtk.Window.present(win.as(gtk.Window));
+    }
+
+    /// Setup a binding so that whenever our config changes so does the
+    /// window. There's never a time when the window config should be out
+    /// of sync with the application config.
+    fn bindWindowConfig(self: *Application, win: *Window) void {
+        _ = gobject.Object.bindProperty(
+            self.as(gobject.Object),
+            "config",
+            win.as(gobject.Object),
+            "config",
+            .{},
+        );
+    }
+
+    /// Show a tmux window as a tab: create, update or close it so that it
+    /// shows the window's whole split tree. See `apprt.Action.tmux_window`.
+    pub fn tmuxWindow(self: *Application, value: apprt.action.TmuxWindow) bool {
+        const spec = value.spec;
+        const priv = self.private();
+
+        // Selecting and closing tabs below must not be reported to tmux
+        // as if the user did it.
+        priv.tmux_applying += 1;
+        defer priv.tmux_applying -= 1;
+
+        const found = findTmuxTab(self, spec.session, spec.window);
+
+        // An empty tree is how a closed window is reported. This is the
+        // only way a tmux tab closes: a tab with surfaces left in it would
+        // otherwise close as soon as it was emptied.
+        if (spec.nodes.len == 0) {
+            const v = found orelse return true;
+
+            v.window.closeTab(v.tab);
+            return true;
+        }
+
+        // A new tab goes into the native window of a tab of the same
+        // group, or into a new native window.
+        var new_window: ?*Window = null;
+        const target: TmuxTab = found orelse new: {
+            const window: *Window = window: {
+                if (spec.beside) |id| if (findTmuxTab(self, spec.session, id)) |v| {
+                    break :window v.window;
+                };
+
+                priv.requested_window = true;
+                const window = Window.new(self, .none);
+                bindWindowConfig(self, window);
+                new_window = window;
+                break :window window;
+            };
+
+            const tab = Tab.newEmpty(window.getConfig());
+            _ = window.insertTab(tab, window.getTabView().getNPages(), false);
+            break :new .{ .window = window, .tab = tab };
+        };
+        const window = target.window;
+        const tab = target.tab;
+        const split_tree = tab.getSplitTree();
+
+        // A tab created for a spec that can't be shown would stay empty,
+        // so it goes again, with the native window if that was new too.
+        var shown = false;
+        defer if (!shown and found == null) {
+            if (new_window) |v| v.as(gtk.Window).destroy() else window.closeTab(tab);
+        };
+
+        // Leaves are the surfaces the core already has for the panes, a
+        // surface created by an earlier spec that hasn't claimed its pane
+        // yet, or a new surface that claims the pane once it initializes.
+        const alloc = self.allocator();
+        const nodes = alloc.alloc(Surface.Tree.Node, spec.nodes.len) catch |err| {
+            log.warn("failed to mirror tmux window err={}", .{err});
+            return false;
+        };
+        defer alloc.free(nodes);
+        var created: std.ArrayList(*Surface) = .empty;
+        defer {
+            for (created.items) |v| v.unref();
+            created.deinit(alloc);
+        }
+        created.ensureTotalCapacity(alloc, spec.nodes.len) catch |err| {
+            log.warn("failed to mirror tmux window err={}", .{err});
+            return false;
+        };
+
+        for (spec.nodes, nodes) |node, *native| native.* = switch (node) {
+            .leaf => |leaf| .{ .leaf = surface: {
+                if (leaf.surface) |core| break :surface core.rt_surface.gobj();
+
+                const pane: apprt.action.TmuxWindow.Pane = .{
+                    .session = spec.session,
+                    .window = spec.window,
+                    .pane = leaf.pane,
+                };
+                if (split_tree.findTmuxSurface(pane)) |v| break :surface v;
+
+                const surface: *Surface = .new(.{
+                    .command = null,
+                    .shell_integration = null,
+                    .working_directory = null,
+                    .title = null,
+                    .tmux_pane = pane,
+                });
+                _ = surface.refSink();
+                created.appendAssumeCapacity(surface);
+                if (spec.parent) |parent| surface.setParent(parent, .split);
+                surface.bindIsSplit(split_tree);
+                break :surface surface;
+            } },
+
+            .split => |v| .{ .split = .{
+                .layout = switch (v.layout) {
+                    .horizontal => .horizontal,
+                    .vertical => .vertical,
+                },
+                .ratio = v.ratio,
+                .left = @fromBackingInt(v.left),
+                .right = @fromBackingInt(v.right),
+            } },
+        };
+
+        var tree = Surface.Tree.fromNodes(
+            alloc,
+            nodes,
+            if (spec.zoomed) |v| @fromBackingInt(v) else null,
+        ) catch |err| {
+            log.warn("invalid tmux window tree err={}", .{err});
+            return false;
+        };
+        defer tree.deinit();
+
+        const focused: ?*Surface = focused: {
+            const handle = spec.focused orelse break :focused null;
+            if (handle >= nodes.len) break :focused null;
+            break :focused switch (nodes[handle]) {
+                .leaf => |v| v,
+                .split => null,
+            };
+        };
+
+        split_tree.applyTmuxTree(&tree, focused, .{
+            .session = spec.session,
+            .window = spec.window,
+            .serial = spec.serial,
+        });
+        window.syncTabOverviewNewTab();
+        shown = true;
+        _ = window.placeTmuxTab(tab, spec.session, spec.after);
+
+        // The tab title is the window name, whatever the panes call
+        // themselves.
+        const same_title = if (tab.getTitleOverride()) |v|
+            std.mem.eql(u8, v, spec.title)
+        else
+            false;
+        if (!same_title) tab.setTitleOverride(spec.title);
+
+        if (new_window) |v| {
+            const surface: ?*Surface = focused orelse for (nodes) |node| switch (node) {
+                .leaf => |leaf| break leaf,
+                .split => {},
+            } else null;
+            if (surface) |s| {
+                s.estimateInitialSize();
+                if (s.getDefaultSize()) |size| v.as(gtk.Window).setDefaultSize(
+                    @intCast(size.width),
+                    @intCast(size.height),
+                );
+            }
+            gtk.Window.present(v.as(gtk.Window));
+        }
+
+        if (spec.select) {
+            window.selectTabPage(tab);
+            if (spec.present) {
+                gtk.Window.present(window.as(gtk.Window));
+                if (focused) |v| v.grabFocus();
+            } else if (window.as(gtk.Window).isActive() != 0) {
+                if (focused) |v| v.grabFocus();
+            }
+        }
+
+        return true;
+    }
+
+    const TmuxTab = struct {
+        window: *Window,
+        tab: *Tab,
+    };
+
+    /// The tab that mirrors a tmux window, in any native window.
+    fn findTmuxTab(self: *Application, session: u64, window_id: usize) ?TmuxTab {
+        const list = self.as(gtk.Application).getWindows();
+        var node: ?*glib.List = list;
+        while (node) |v| : (node = v.f_next) {
+            const data = v.f_data orelse continue;
+            const window = gobject.ext.cast(Window, @as(*gtk.Window, @ptrCast(@alignCast(data)))) orelse continue;
+            const tab = window.findTmuxTab(session, window_id) orelse continue;
+            return .{ .window = window, .tab = tab };
+        }
+        return null;
     }
 
     pub fn openConfig(self: *Application, value: apprt.action.OpenConfig) bool {

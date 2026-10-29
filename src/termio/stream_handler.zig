@@ -25,6 +25,11 @@ pub const StreamHandler = struct {
     size: *renderer.Size,
     terminal: *terminal.Terminal,
 
+    /// The grid that replaces the one that fits `size`, if any. See
+    /// `termio.Options.grid_override`. Only changed with the renderer
+    /// state mutex held.
+    grid_override: *const ?renderer.GridSize,
+
     /// Mailbox for data to the termio thread.
     termio_mailbox: *termio.Mailbox,
 
@@ -76,6 +81,32 @@ pub const StreamHandler = struct {
     /// The tmux control mode viewer state.
     tmux_viewer: if (tmux_enabled) ?*terminal.tmux.Viewer else void = if (tmux_enabled) null else {},
 
+    /// True while tmux control mode is active. Unlike `tmux_viewer` this
+    /// is read from other threads (the GUI thread queries it through
+    /// `Termio.inTmuxControlMode`) so that input can be routed to tmux
+    /// instead of being written to the pty as raw bytes.
+    tmux_control_mode: std.atomic.Value(bool) = .init(false),
+
+    /// True while tmux protocol logging is enabled. This is toggled from
+    /// the GUI thread by the "L" key on the control plate.
+    tmux_logging: std.atomic.Value(bool) = .init(false),
+
+    /// The protocol line we're accumulating for logging.
+    tmux_log_line: std.ArrayList(u8) = .empty,
+
+    /// True once the control plate force-quit the session. tmux keeps
+    /// talking to us but we no longer listen.
+    tmux_abandoned: bool = false,
+
+    /// True for a tmux control mode follower. tmux is the terminal of
+    /// record for the pane and already answered every query in its
+    /// output, so we don't: a second answer would reach the program in
+    /// the pane as typed input.
+    tmux_follower: bool = false,
+
+    /// See `termio.Options.tmux_mirror_panes`.
+    tmux_mirror_panes: bool = true,
+
     /// Session password grants for the Kitty clipboard protocol.
     /// Requests carrying a granted password skip the permission prompt.
     kitty_clipboard_grants: terminal.kitty.clipboard.Grants = .{},
@@ -104,6 +135,9 @@ pub const StreamHandler = struct {
         self.kittyClipboardWriteAbort();
         self.kitty_clipboard_grants.deinit(self.alloc);
         if (comptime tmux_enabled) tmux: {
+            self.tmux_control_mode.store(false, .release);
+            self.tmux_logging.store(false, .release);
+            self.tmux_log_line.deinit(self.alloc);
             const viewer = self.tmux_viewer orelse break :tmux;
             viewer.deinit();
             self.alloc.destroy(viewer);
@@ -149,6 +183,14 @@ pub const StreamHandler = struct {
     }
 
     inline fn messageWriter(self: *StreamHandler, msg: termio.Message) void {
+        if (self.tmux_follower) switch (msg) {
+            .write_small, .write_stable, .write_alloc => {
+                msg.deinit();
+                return;
+            },
+            else => {},
+        };
+
         self.termio_mailbox.send(msg, self.renderer_state.mutex);
         self.termio_messaged = true;
     }
@@ -401,6 +443,11 @@ pub const StreamHandler = struct {
     }
 
     pub inline fn dcsPut(self: *StreamHandler, byte: u8) !void {
+        if (comptime tmux_enabled) {
+            if (self.tmux_viewer != null and
+                self.tmux_logging.load(.acquire)) self.tmuxLogIn(byte);
+        }
+
         var cmd = self.dcs.put(byte) orelse return;
         defer cmd.deinit();
         try self.dcsCommand(&cmd);
@@ -419,7 +466,8 @@ pub const StreamHandler = struct {
                 // If tmux control mode is disabled at the build level,
                 // then this whole block shouldn't be analyzed.
                 if (comptime !tmux_enabled) break :tmux;
-                log.info("tmux control mode event cmd={f}", .{tmux});
+                // Debug only: this includes every line of pane output.
+                log.debug("tmux control mode event cmd={f}", .{tmux});
 
                 switch (tmux) {
                     .enter => {
@@ -429,22 +477,33 @@ pub const StreamHandler = struct {
                         errdefer self.alloc.destroy(viewer);
                         viewer.* = try .init(global.io(), self.alloc);
                         errdefer viewer.deinit();
+                        viewer.mirror_panes = self.tmux_mirror_panes;
                         self.tmux_viewer = viewer;
+                        self.tmux_abandoned = false;
+                        self.tmux_control_mode.store(true, .release);
+
+                        // This surface is now the gateway: it shows the
+                        // control plate instead of a tmux pane.
+                        self.tmuxPrint(tmux_menu);
+                        self.surfaceMessageWriter(.{ .tmux_enter = {} });
                         break :tmux;
                     },
 
                     .exit => {
-                        // Free our viewer state if we have one
-                        if (self.tmux_viewer) |viewer| {
-                            viewer.deinit();
-                            self.alloc.destroy(viewer);
-                            self.tmux_viewer = null;
-                        }
+                        self.tmuxExit();
 
                         // And always break since we assert below
                         // that we're not handling an exit command.
                         break :tmux;
                     },
+
+                    // Pane output has to reach the follower surface that
+                    // mirrors the pane, which lives on the app thread.
+                    .output => |out| self.tmuxForwardOutput(
+                        out.pane_id,
+                        out.data,
+                        .escaped,
+                    ),
 
                     else => {},
                 }
@@ -453,9 +512,10 @@ pub const StreamHandler = struct {
                 assert(tmux != .exit);
 
                 const viewer = self.tmux_viewer orelse {
-                    // This can only really happen if we failed to
-                    // initialize the viewer on enter.
-                    log.info(
+                    // After a force-quit we keep draining the protocol
+                    // but no longer act on it, so stay quiet. Otherwise
+                    // we failed to initialize the viewer on enter.
+                    if (!self.tmux_abandoned) log.info(
                         "received tmux control mode command without viewer: {f}",
                         .{tmux},
                     );
@@ -463,29 +523,34 @@ pub const StreamHandler = struct {
                     break :tmux;
                 };
 
-                for (viewer.next(.{ .tmux = tmux })) |action| {
+                // The actions live in viewer memory. Handing an action on
+                // can let go of the renderer state mutex for a moment
+                // (when a mailbox is full), and the IO thread can destroy
+                // the viewer in that moment (force-quit). So nothing of
+                // the viewer is used once it is gone: the session id is
+                // read up front, and the loop ends when the viewer did.
+                const actions = viewer.next(.{ .tmux = tmux });
+                const session_id = viewer.session_id;
+                for (actions) |action| {
                     log.info("tmux viewer action={f}", .{action});
-                    switch (action) {
-                        .exit => {
-                            // We ignore this because we will fully exit when
-                            // our DCS connection ends. We may want to handle
-                            // this in the future to notify our GUI we're
-                            // disconnected though.
-                        },
-
-                        .command => |command| {
-                            assert(command.len > 0);
-                            assert(command[command.len - 1] == '\n');
-                            self.messageWriter(try termio.Message.writeReq(
-                                self.alloc,
-                                command,
-                            ));
-                        },
-
-                        .windows => {
-                            // TODO
-                        },
+                    // The viewer never sees %exit (that is handled above),
+                    // so this means it gave up on its own. Tearing it down
+                    // frees what we're iterating, so leave the loop.
+                    if (action == .exit) {
+                        self.tmuxAbort();
+                        break :tmux;
                     }
+
+                    // An action we couldn't carry out leaves the viewer
+                    // waiting for something that won't happen, so the
+                    // session can't continue either.
+                    self.tmuxAction(action, session_id) catch |err| {
+                        log.warn("failed to handle tmux action err={}", .{err});
+                        self.tmuxAbort();
+                        break :tmux;
+                    };
+
+                    if (self.tmux_viewer != viewer) break :tmux;
                 }
             },
 
@@ -507,6 +572,378 @@ pub const StreamHandler = struct {
                 self.messageWriter(msg);
             },
         }
+    }
+
+    //---------------------------------------------------------------
+    // tmux control mode
+    //
+    // The surface that sees DCS 1000p becomes the "gateway". It stops
+    // being a normal terminal and instead shows the control plate: the
+    // command menu below, the protocol log, and the command prompt. Each
+    // tmux pane gets its own follower surface, driven from the app
+    // thread. See TmuxSession for that side of things.
+
+    /// The control plate, printed on the gateway when control mode starts.
+    const tmux_menu =
+        "\r\n** tmux mode started **\r\n" ++
+        "\r\n" ++
+        "Command Menu\r\n" ++
+        "----------------------------\r\n" ++
+        "esc    Detach cleanly.\r\n" ++
+        "  X    Force-quit tmux mode.\r\n" ++
+        "  L    Toggle logging.\r\n" ++
+        "  C    Run tmux command.\r\n";
+
+    /// Carry out a viewer action. `session_id` is the viewer's: the viewer
+    /// may be gone by the time this sends the action on.
+    fn tmuxAction(
+        self: *StreamHandler,
+        action: terminal.tmux.Viewer.Action,
+        session_id: usize,
+    ) !void {
+        switch (action) {
+            .exit => {
+                // Handled by the caller so we can leave the action loop
+                // before freeing the viewer.
+            },
+
+            .command => |command| {
+                assert(command.len > 0);
+                assert(command[command.len - 1] == '\n');
+                if (self.tmux_logging.load(.acquire)) self.tmuxLogOut(command);
+                self.messageWriter(.{ .tmux_write = .{
+                    .alloc = self.alloc,
+                    .data = try self.alloc.dupe(u8, command),
+                } });
+            },
+
+            .pane_restore => |v| self.tmuxForwardRestore(v),
+
+            .windows => |windows| {
+                // The layout is owned by the viewer and reused on every
+                // update, so the app thread gets its own copy.
+                const snapshot = terminal.tmux.Snapshot.create(
+                    self.alloc,
+                    session_id,
+                    windows,
+                ) catch |err| {
+                    log.warn("failed to copy tmux windows err={}", .{err});
+                    return;
+                };
+
+                self.surfaceMessageWriter(.{ .tmux_windows = snapshot });
+            },
+
+            .active_window => |window_id| {
+                self.surfaceMessageWriter(.{ .tmux_active_window = window_id });
+            },
+
+            .active_pane => |v| self.surfaceMessageWriter(.{ .tmux_active_pane = .{
+                .window_id = v.window_id,
+                .pane_id = v.pane_id,
+            } }),
+
+            .window_renamed => |v| {
+                // Same framing as pane output: the id, then the bytes.
+                var stack_buf: [256]u8 = undefined;
+                var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.alloc);
+                const alloc = stack.allocator();
+                const payload = alloc.alloc(u8, @sizeOf(u64) + v.name.len) catch {
+                    log.warn("failed to allocate tmux window name", .{});
+                    return;
+                };
+                defer alloc.free(payload);
+                std.mem.writeInt(u64, payload[0..@sizeOf(u64)], v.window_id, .little);
+                @memcpy(payload[@sizeOf(u64)..], v.name);
+
+                const req = apprt.surface.Message.WriteReq.init(
+                    self.alloc,
+                    payload,
+                ) catch |err| {
+                    log.warn("failed to queue tmux window name err={}", .{err});
+                    return;
+                };
+                self.surfaceMessageWriter(.{ .tmux_window_renamed = req });
+            },
+        }
+    }
+
+    /// Hand pane output to the app thread so it can be injected into the
+    /// follower surface that mirrors the pane.
+    fn tmuxForwardOutput(
+        self: *StreamHandler,
+        pane_id: usize,
+        data: []const u8,
+        encoding: enum { escaped, decoded },
+    ) void {
+        if (data.len == 0) return;
+
+        var stack_buf: [1024]u8 = undefined;
+        var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.alloc);
+        const alloc = stack.allocator();
+        const payload = alloc.alloc(u8, @sizeOf(u64) + data.len) catch {
+            log.warn("failed to allocate tmux pane output", .{});
+            return;
+        };
+        defer alloc.free(payload);
+        std.mem.writeInt(u64, payload[0..@sizeOf(u64)], pane_id, .little);
+        @memcpy(payload[@sizeOf(u64)..], data);
+
+        // The parser leaves `%output` escaped, and decoding never grows
+        // the data, so the copy is decoded in place.
+        const body = payload[@sizeOf(u64)..];
+        const decoded = switch (encoding) {
+            .escaped => terminal.tmux.unescape(body),
+            .decoded => body,
+        };
+        if (decoded.len == 0) return;
+
+        const req = apprt.surface.Message.WriteReq.init(
+            self.alloc,
+            payload[0 .. @sizeOf(u64) + decoded.len],
+        ) catch |err| {
+            log.warn("failed to queue tmux pane output err={}", .{err});
+            return;
+        };
+
+        self.surfaceMessageWriter(.{ .tmux_output = req });
+    }
+
+    /// Show a pane's captured screens and modes in its follower surface.
+    fn tmuxForwardRestore(
+        self: *StreamHandler,
+        restore: terminal.tmux.Viewer.Action.PaneRestore,
+    ) void {
+        var stack_buf: [4096]u8 = undefined;
+        var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.alloc);
+        var buf: std.Io.Writer.Allocating = .init(stack.allocator());
+        defer buf.deinit();
+
+        terminal.tmux.Viewer.writePaneRestore(&buf.writer, restore) catch {
+            log.warn("failed to build tmux pane restore pane={}", .{restore.pane_id});
+            return;
+        };
+        self.tmuxForwardOutput(restore.pane_id, buf.writer.buffered(), .decoded);
+    }
+
+    /// Ask tmux for a pane's current contents so a freshly created
+    /// follower isn't blank. Returns the bytes to write to the pty, if
+    /// any; see tmuxSubmitCommand for the ownership rules.
+    ///
+    /// The renderer state mutex must be held.
+    pub fn tmuxCapturePane(self: *StreamHandler, pane_id: usize) ?[]const u8 {
+        if (comptime !tmux_enabled) return null;
+
+        const viewer = self.tmux_viewer orelse return null;
+        var result: ?[]const u8 = null;
+        for (viewer.capturePane(pane_id)) |action| switch (action) {
+            .command => |sent| {
+                if (self.tmux_logging.load(.acquire)) self.tmuxLogOut(sent);
+                result = sent;
+            },
+
+            else => {
+                self.tmuxAction(action, viewer.session_id) catch |err| {
+                    log.warn("failed to handle tmux action err={}", .{err});
+                };
+
+                // Like the read thread, stop once the viewer is gone.
+                if (self.tmux_viewer != viewer) return null;
+            },
+        };
+
+        return result;
+    }
+
+    /// Ask tmux for the window list again, for a change it sends no
+    /// notification for. Returns the bytes to write to the pty, if any;
+    /// see tmuxSubmitCommand for the ownership rules.
+    ///
+    /// The renderer state mutex must be held.
+    pub fn tmuxRefreshWindows(self: *StreamHandler) ?[]const u8 {
+        if (comptime !tmux_enabled) return null;
+
+        const viewer = self.tmux_viewer orelse return null;
+        for (viewer.refreshWindows()) |action| switch (action) {
+            .command => |sent| {
+                if (self.tmux_logging.load(.acquire)) self.tmuxLogOut(sent);
+                return sent;
+            },
+            else => {},
+        };
+
+        return null;
+    }
+
+    /// The viewer gave up while tmux is still attached: a layout it
+    /// couldn't apply, a command we failed to send, running out of memory.
+    /// Ask tmux to detach, or the gateway would stay in control mode with
+    /// nobody listening, then tear down like a normal exit. What tmux
+    /// sends until it leaves control mode is drained quietly.
+    fn tmuxAbort(self: *StreamHandler) void {
+        log.warn("tmux control mode failed, detaching", .{});
+        if (self.alloc.dupe(u8, "detach-client\n")) |data| {
+            self.messageWriter(.{ .tmux_raw = .{
+                .alloc = self.alloc,
+                .data = data,
+            } });
+        } else |err| log.warn("failed to queue tmux detach err={}", .{err});
+        self.tmux_abandoned = true;
+        self.tmuxExit();
+    }
+
+    /// Tear down our control mode state and let the GUI know.
+    fn tmuxExit(self: *StreamHandler) void {
+        self.tmux_control_mode.store(false, .release);
+        self.tmux_logging.store(false, .release);
+        self.tmux_log_line.clearAndFree(self.alloc);
+
+        const viewer = self.tmux_viewer orelse return;
+        viewer.deinit();
+        self.alloc.destroy(viewer);
+        self.tmux_viewer = null;
+        self.surfaceMessageWriter(.{ .tmux_exit = {} });
+    }
+
+    /// Print text on the terminal without it passing through the pty.
+    /// `\r` and `\n` are honored; other control characters are dropped so
+    /// that raw protocol lines can't corrupt the plate.
+    ///
+    /// The renderer state mutex must be held.
+    pub fn tmuxPrint(self: *StreamHandler, text: []const u8) void {
+        var i: usize = 0;
+        while (i < text.len) {
+            var cp: u21 = text[i];
+            var len: usize = 1;
+            decode: {
+                const seq_len = std.unicode.utf8ByteSequenceLength(
+                    text[i],
+                ) catch break :decode;
+                if (i + seq_len > text.len) break :decode;
+                cp = std.unicode.utf8Decode(
+                    text[i..][0..seq_len],
+                ) catch break :decode;
+                len = seq_len;
+            }
+            i += len;
+
+            switch (cp) {
+                0x08 => self.terminal.backspace(),
+                '\r' => self.terminal.carriageReturn(),
+                '\n' => self.terminal.linefeed() catch {},
+                0x00...0x07, 0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {},
+                else => self.terminal.print(cp) catch {},
+            }
+        }
+
+        self.queueRender() catch {};
+    }
+
+    /// Log a protocol line we received, one byte at a time as it's parsed.
+    fn tmuxLogIn(self: *StreamHandler, byte: u8) void {
+        if (byte != '\n') {
+            // Don't let a pathological line grow without bound.
+            if (self.tmux_log_line.items.len >= 4096) return;
+            self.tmux_log_line.append(self.alloc, byte) catch {};
+            return;
+        }
+
+        defer self.tmux_log_line.clearRetainingCapacity();
+        self.tmuxPrint("< ");
+        self.tmuxPrint(std.mem.trimEnd(u8, self.tmux_log_line.items, "\r"));
+        self.tmuxPrint("\r\n");
+    }
+
+    /// Log a command we're about to send.
+    fn tmuxLogOut(self: *StreamHandler, command: []const u8) void {
+        self.tmuxPrint("> ");
+        self.tmuxPrint(std.mem.trimEnd(u8, command, "\r\n"));
+        self.tmuxPrint("\r\n");
+    }
+
+    /// Send a command to tmux on behalf of the GUI. Returns the bytes to
+    /// write to the pty, if any. The memory is owned by the viewer and is
+    /// only valid until we next process input, which the read thread can
+    /// do as soon as the renderer state mutex is released: copy or write
+    /// it before that.
+    ///
+    /// The renderer state mutex must be held.
+    pub fn tmuxSubmitCommand(
+        self: *StreamHandler,
+        command: []const u8,
+    ) ?[]const u8 {
+        if (comptime !tmux_enabled) return null;
+
+        const viewer = self.tmux_viewer orelse return null;
+        if (command.len == 0 or command[command.len - 1] != '\n') {
+            log.warn("ignoring tmux command without a trailing newline", .{});
+            return null;
+        }
+
+        var result: ?[]const u8 = null;
+        for (viewer.sendCommand(command)) |action| switch (action) {
+            .command => |sent| {
+                if (self.tmux_logging.load(.acquire)) self.tmuxLogOut(sent);
+                result = sent;
+            },
+
+            else => {
+                self.tmuxAction(action, viewer.session_id) catch |err| {
+                    log.warn("failed to handle tmux action err={}", .{err});
+                };
+
+                // Like the read thread, stop once the viewer is gone.
+                if (self.tmux_viewer != viewer) return null;
+            },
+        };
+
+        return result;
+    }
+
+    /// Toggle protocol logging and report the new state on the plate.
+    ///
+    /// The renderer state mutex must be held.
+    pub fn tmuxToggleLogging(self: *StreamHandler) void {
+        if (comptime !tmux_enabled) return;
+
+        const enabled = !self.tmux_logging.load(.acquire);
+        self.tmux_logging.store(enabled, .release);
+        self.tmuxPrint(if (enabled)
+            "\r\ntmux logging enabled\r\n"
+        else
+            "\r\ntmux logging disabled\r\n");
+    }
+
+    /// Whether commands may still be sent to tmux: there is a viewer and
+    /// it isn't waiting for tmux to leave (see `tmuxDetaching`).
+    ///
+    /// The renderer state mutex must be held.
+    pub fn tmuxSending(self: *const StreamHandler) bool {
+        if (comptime !tmux_enabled) return false;
+        const viewer = self.tmux_viewer orelse return false;
+        return viewer.state != .defunct;
+    }
+
+    /// We're about to detach by writing to tmux directly. The viewer stays
+    /// until tmux confirms with `%exit`, but nothing tmux sends until then
+    /// is a reply to its queue.
+    ///
+    /// The renderer state mutex must be held.
+    pub fn tmuxDetaching(self: *StreamHandler) void {
+        if (comptime !tmux_enabled) return;
+        const viewer = self.tmux_viewer orelse return;
+        viewer.detach();
+    }
+
+    /// Abandon control mode without detaching. The tmux client keeps
+    /// running and the server keeps the session, we just stop listening.
+    ///
+    /// The renderer state mutex must be held.
+    pub fn tmuxForceQuit(self: *StreamHandler) void {
+        if (comptime !tmux_enabled) return;
+        if (self.tmux_viewer == null) return;
+        self.tmux_abandoned = true;
+        self.tmuxExit();
     }
 
     pub fn apcEnd(self: *StreamHandler) !void {
@@ -726,7 +1163,7 @@ pub const StreamHandler = struct {
 
             // Force resize back to the window size
             .enable_mode_3 => {
-                const grid_size = self.size.grid();
+                const grid_size = self.grid_override.* orelse self.size.grid();
                 self.terminal.resize(
                     self.alloc,
                     .{

@@ -26,6 +26,7 @@ pub const Exec = @import("termio/Exec.zig");
 pub const Options = @import("termio/Options.zig");
 pub const Termio = @import("termio/Termio.zig");
 pub const Thread = @import("termio/Thread.zig");
+pub const Tmux = @import("termio/Tmux.zig");
 pub const Backend = backend.Backend;
 pub const DerivedConfig = Termio.DerivedConfig;
 pub const Mailbox = mailbox.Mailbox;

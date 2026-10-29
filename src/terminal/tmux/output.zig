@@ -36,6 +36,33 @@ pub fn parseFormatStruct(
     return result;
 }
 
+/// Like `parseFormatStruct`, but the last variable takes the rest of the
+/// string, delimiters included. Use this to put a variable whose value
+/// can contain the delimiter (a window name, say) last.
+pub fn parseFormatStructRest(
+    comptime T: type,
+    str: []const u8,
+    delimiter: u8,
+) ParseError!T {
+    const fields = @typeInfo(T).@"struct".field_names;
+    var it = std.mem.splitScalar(u8, str, delimiter);
+    var result: T = undefined;
+    inline for (fields, 0..) |field, i| {
+        const part = if (i < fields.len - 1)
+            it.next() orelse return error.MissingEntry
+        else if (it.index != null)
+            it.rest()
+        else
+            return error.MissingEntry;
+        @field(result, field) = Variable.parse(
+            @field(Variable, field),
+            part,
+        ) catch return error.FormatError;
+    }
+
+    return result;
+}
+
 pub fn comptimeFormat(
     comptime vars: []const Variable,
     comptime delimiter: u8,
@@ -62,7 +89,13 @@ pub fn format(
 ) std.Io.Writer.Error!void {
     for (vars, 0..) |variable, i| {
         if (i != 0) try writer.writeByte(delimiter);
-        try writer.print("#{{{t}}}", .{variable});
+        if (variable == .affinities) {
+            // Keep this field non-empty when the option is unset. The parser
+            // strips the A sentinel below.
+            try writer.writeAll("A#{@affinities}");
+        } else {
+            try writer.print("#{{{t}}}", .{variable});
+        }
     }
 }
 
@@ -89,6 +122,8 @@ pub fn FormatStruct(comptime vars: []const Variable) type {
 /// a subset of them here that are relevant to the use case of implementing
 /// control mode for terminal emulators.
 pub const Variable = enum {
+    /// Native window grouping stored in the `@affinities` session option.
+    affinities,
     /// 1 if pane is in alternate screen.
     alternate_on,
     /// Saved cursor X in alternate screen.
@@ -148,8 +183,13 @@ pub const Variable = enum {
     session_id,
     /// Server version (e.g., `3.5a`).
     version,
+    /// 1 if the window is the session's current window.
+    window_active,
     /// Unique window ID prefixed with `@` (e.g., `@0`, `@42`).
     window_id,
+    /// The window's index in the session (the number tmux shows in its
+    /// status line; not the same as the id).
+    window_index,
     /// Width of window.
     window_width,
     /// Height of window.
@@ -159,6 +199,16 @@ pub const Variable = enum {
     /// encodes pane dimensions as `WxH,X,Y[,ID]` with `{...}` for horizontal
     /// splits and `[...]` for vertical splits.
     window_layout,
+    /// Name of the window. tmux escapes tabs, newlines and other
+    /// non-printable characters in names, but it may contain spaces and
+    /// any punctuation.
+    window_name,
+    /// Window layout description as it is shown: while the window is
+    /// zoomed this has only the zoomed pane, at the full window size.
+    /// Same format as `window_layout`.
+    window_visible_layout,
+    /// 1 if the window is zoomed.
+    window_zoomed_flag,
     /// Pane wrap flag.
     wrap_flag,
 
@@ -180,6 +230,8 @@ pub const Variable = enum {
             .mouse_standard_flag,
             .mouse_utf8_flag,
             .origin_flag,
+            .window_active,
+            .window_zoomed_flag,
             .wrap_flag,
             => std.mem.eql(u8, value, "1"),
             .alternate_saved_x,
@@ -201,13 +253,21 @@ pub const Variable = enum {
                 try std.fmt.parseInt(usize, value[1..], 10)
             else
                 return error.FormatError,
-            .window_width => try std.fmt.parseInt(usize, value, 10),
-            .window_height => try std.fmt.parseInt(usize, value, 10),
+            .window_index,
+            .window_width,
+            .window_height,
+            => try std.fmt.parseInt(usize, value, 10),
+            .affinities => if (value.len > 0 and value[0] == 'A')
+                value[1..]
+            else
+                return error.FormatError,
             .cursor_colour,
             .cursor_shape,
             .pane_tabs,
             .version,
             .window_layout,
+            .window_name,
+            .window_visible_layout,
             => value,
         };
     }
@@ -229,6 +289,8 @@ pub const Variable = enum {
             .mouse_standard_flag,
             .mouse_utf8_flag,
             .origin_flag,
+            .window_active,
+            .window_zoomed_flag,
             .wrap_flag,
             => bool,
             .alternate_saved_x,
@@ -240,14 +302,18 @@ pub const Variable = enum {
             .session_id,
             .window_id,
             .pane_id,
+            .window_index,
             .window_width,
             .window_height,
             => usize,
+            .affinities,
             .cursor_colour,
             .cursor_shape,
             .pane_tabs,
             .version,
             .window_layout,
+            .window_name,
+            .window_visible_layout,
             => []const u8,
         };
     }
@@ -456,6 +522,13 @@ test "parse cursor_colour" {
     try testing.expectEqualStrings("", try Variable.parse(.cursor_colour, ""));
 }
 
+test "parse affinities strips sentinel" {
+    try testing.expectEqualStrings(
+        "0,1|2,3",
+        try Variable.parse(.affinities, "A0,1|2,3"),
+    );
+}
+
 test "parse cursor_shape" {
     try testing.expectEqualStrings("block", try Variable.parse(.cursor_shape, "block"));
     try testing.expectEqualStrings("underline", try Variable.parse(.cursor_shape, "underline"));
@@ -534,6 +607,27 @@ test "parseFormatStruct with empty layout field" {
     try testing.expectEqualStrings("", result.window_layout);
 }
 
+test "parse window flags and index" {
+    try testing.expectEqual(true, try Variable.parse(.window_active, "1"));
+    try testing.expectEqual(false, try Variable.parse(.window_active, "0"));
+    try testing.expectEqual(true, try Variable.parse(.window_zoomed_flag, "1"));
+    try testing.expectEqual(false, try Variable.parse(.window_zoomed_flag, "0"));
+    try testing.expectEqual(3, try Variable.parse(.window_index, "3"));
+    try testing.expectError(error.InvalidCharacter, Variable.parse(.window_index, "@3"));
+}
+
+test "parseFormatStructRest keeps delimiters in the last field" {
+    const T = FormatStruct(&.{ .window_id, .window_name });
+    const result = try parseFormatStructRest(T, "@1\ta b;c\td", '\t');
+    try testing.expectEqual(1, result.window_id);
+    try testing.expectEqualStrings("a b;c\td", result.window_name);
+
+    const empty = try parseFormatStructRest(T, "@1\t", '\t');
+    try testing.expectEqualStrings("", empty.window_name);
+
+    try testing.expectError(error.MissingEntry, parseFormatStructRest(T, "@1", '\t'));
+}
+
 fn testFormat(
     comptime vars: []const Variable,
     comptime delimiter: u8,
@@ -550,6 +644,10 @@ fn testFormat(
 
 test "format single variable" {
     try testFormat(&.{.session_id}, ' ', "#{session_id}");
+}
+
+test "format affinities option" {
+    try testFormat(&.{.affinities}, ' ', "A#{@affinities}");
 }
 
 test "format multiple variables" {
