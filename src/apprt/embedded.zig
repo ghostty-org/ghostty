@@ -306,8 +306,9 @@ pub const App = struct {
         comptime action: apprt.Action.Key,
         value: apprt.Action.Value(action),
     ) !bool {
-        // The payload is Zig-only, so embedders can't read it. Returning
-        // false makes the core create tmux panes one split at a time.
+        // Never sent here: embedded surfaces have no `tmuxPane`, so tmux
+        // panes are adopted one surface at a time. The payload is Zig-only
+        // in any case.
         if (comptime action == .tmux_window) return false;
 
         // Special case certain actions before they are sent to the

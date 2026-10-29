@@ -462,7 +462,8 @@ pub const StreamHandler = struct {
                 // If tmux control mode is disabled at the build level,
                 // then this whole block shouldn't be analyzed.
                 if (comptime !tmux_enabled) break :tmux;
-                log.info("tmux control mode event cmd={f}", .{tmux});
+                // Debug only: this includes every line of pane output.
+                log.debug("tmux control mode event cmd={f}", .{tmux});
 
                 switch (tmux) {
                     .enter => {
