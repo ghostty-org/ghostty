@@ -27,12 +27,12 @@ struct GitHistoryPickerTests {
         try await Task.sleep(for: .milliseconds(100))
         let control = try #require(find(GitHistoryScopePicker.Control.self, in: host).first)
 
-        func open() async throws -> (NSPopover, GitCollectionSearchField.Field, GitCollectionTableView) {
+        func open() async throws -> (NSPopover, NSSearchField, GitCollectionTableView) {
             control.showPicker()
             try await Task.sleep(for: .milliseconds(100))
             let popover = try #require(control.popover)
             let view = try #require(popover.contentViewController?.view)
-            let search = try #require(find(GitCollectionSearchField.Field.self, in: view).first)
+            let search = try #require(find(NSSearchField.self, in: view).first)
             let table = try #require(find(GitCollectionTableView.self, in: view).first)
             #expect(table.visibleRect.height > 120 && search.bounds.width > 150)
             #expect(popover.contentSize.height <= 340 && popover.contentSize.width == 340)
@@ -49,14 +49,14 @@ struct GitHistoryPickerTests {
             }
             return (popover, search, table)
         }
-        func type(_ text: String, into field: GitCollectionSearchField.Field) async throws {
+        func type(_ text: String, into field: NSSearchField) async throws {
             field.stringValue = text
-            let delegate = try #require(field.delegate as? GitCollectionSearchField.Coordinator)
+            let delegate = try #require(field.delegate as? GitHistoryScopePopoverController)
             delegate.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
             try await Task.sleep(for: .milliseconds(80))
         }
-        func key(_ selector: String, in field: GitCollectionSearchField.Field) throws {
-            let delegate = try #require(field.delegate as? GitCollectionSearchField.Coordinator)
+        func key(_ selector: String, in field: NSSearchField) throws {
+            let delegate = try #require(field.delegate as? GitHistoryScopePopoverController)
             let editor = field.currentEditor() as? NSTextView ?? NSTextView()
             #expect(delegate.control(field, textView: editor, doCommandBy: NSSelectorFromString(selector)))
         }

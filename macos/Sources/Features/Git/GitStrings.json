@@ -1,4 +1,6 @@
 {
+  "Git collection view mode": { "en": "Git collection view mode", "zh-Hans": "Git 列表显示方式" },
+  "History branch scope": { "en": "History branch scope", "zh-Hans": "历史分支范围" },
   "Wrap diff lines": { "en": "Wrap diff lines", "zh-Hans": "Diff 自动换行" },
   "Commit Staged": { "en": "Commit Staged", "zh-Hans": "提交暂存" },
   "Stage All and Commit": { "en": "Stage All and Commit", "zh-Hans": "全部暂存并提交" },

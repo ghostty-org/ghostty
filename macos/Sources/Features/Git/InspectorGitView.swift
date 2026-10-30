@@ -12,7 +12,6 @@ struct InspectorGitView: View {
     @AppStorage("git.collection.viewMode") private var changesMode: GitCollectionMode = .list
     @State private var branchesQuery = ""
     @State private var historyQuery = ""
-    @State private var isPullPushOpen = false
 
     private var collectionKey: String { content.repository?.stateKey ?? "git" }
 
@@ -183,107 +182,19 @@ struct InspectorGitView: View {
     }
 
     private var pullPushButton: some View {
-        Button {
-            isPullPushOpen.toggle()
-        } label: {
-            if isPullOrPushLoading {
-                ProgressView().controlSize(.small).scaleEffect(0.55)
-            } else {
-                Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: 11, weight: .medium))
-            }
-        }
-        .buttonStyle(GitHeaderActionButtonStyle(selected: isPullPushOpen, isBusy: isPullOrPushLoading))
-        .popover(isPresented: $isPullPushOpen, arrowEdge: .bottom) {
-            pullPushPopoverView
-        }
+        GitPullPushControl(
+            isBusy: isPullOrPushLoading,
+            canPull: content.repository != nil && !isNetworkBusy && content.operation == nil && !isDetachedHead && hasRemote,
+            canPush: content.repository != nil && !isNetworkBusy && content.operation == nil && !isDetachedHead && hasRemote && canPushCurrent,
+            canPushTo: content.repository != nil && !isNetworkBusy && content.operation == nil && !isDetachedHead && hasRemote,
+            canMerge: content.repository != nil && !isNetworkBusy && content.operation == nil && !isDetachedHead
+                && GitForge(origin: content.workingTree.remoteURL) != nil,
+            behindCount: currentBranch?.behindCount,
+            aheadCount: currentBranch?.aheadCount,
+            perform: { perform(.gitAction($0)) }
+        )
+        .frame(width: 24, height: 22)
         .help(GitL10n.text("Pull or Push"))
-        .disabled(content.repository == nil || isNetworkBusy)
-    }
-
-    private var pullPushPopoverView: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Button {
-                isPullPushOpen = false
-                perform(.gitAction(.pull))
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.down")
-                        .font(.system(size: 11, weight: .medium))
-                        .frame(width: 14)
-                    Text(GitL10n.text("Pull"))
-                        .font(.system(size: 12))
-                    Spacer(minLength: 4)
-                    if let behind = currentBranch?.behindCount, behind > 0 {
-                        Text("↓ \(behind)")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Color.secondary.opacity(0.12), in: Capsule())
-                    }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(GitMenuRowButtonStyle())
-            .disabled(content.operation != nil || isDetachedHead || !hasRemote)
-
-            Button {
-                isPullPushOpen = false
-                perform(.gitAction(.push))
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 11, weight: .medium))
-                        .frame(width: 14)
-                    Text(GitL10n.text("Push"))
-                        .font(.system(size: 12))
-                    Spacer(minLength: 4)
-                    if let ahead = currentBranch?.aheadCount, ahead > 0 {
-                        Text("↑ \(ahead)")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.tint)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Color.accentColor.opacity(0.12), in: Capsule())
-                    }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(GitMenuRowButtonStyle())
-            .disabled(content.operation != nil || isDetachedHead || !hasRemote || !canPushCurrent)
-
-            Divider()
-                .padding(.vertical, 2)
-
-            Button {
-                isPullPushOpen = false
-                perform(.gitAction(.pushTo))
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 11, weight: .medium))
-                        .frame(width: 14)
-                    Text(GitL10n.text("Push to…"))
-                        .font(.system(size: 12))
-                    Spacer(minLength: 4)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(GitMenuRowButtonStyle())
-            .disabled(content.operation != nil || isDetachedHead || !hasRemote)
-            Button {
-                isPullPushOpen = false
-                perform(.gitAction(.integration(.review, nil)))
-            } label: {
-                Label(GitL10n.text("Merge into…"), systemImage: "arrow.triangle.pull")
-                    .font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(GitMenuRowButtonStyle())
-            .disabled(content.operation != nil || isDetachedHead || GitForge(origin: content.workingTree.remoteURL) == nil)
-        }
-        .padding(5)
-        .frame(width: 200)
     }
 
     private var fetchButton: some View {

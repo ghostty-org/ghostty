@@ -65,27 +65,38 @@ extension EnvironmentValues {
 }
 
 /// One compact mode control is used in Changes, Branches and the History picker.
-struct GitCollectionModePicker: View {
+struct GitCollectionModePicker: NSViewRepresentable {
     @Binding var mode: GitCollectionMode
-    @Environment(\.gitCollectionColors) private var colors
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(GitCollectionMode.allCases, id: \.self) { value in
-                Button { mode = value } label: {
-                    Image(systemName: value.symbol)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(mode == value ? colors.accent : colors.secondary))
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(GitToolbarButtonStyle(colors: colors, selected: mode == value))
-                .help(GitL10n.format("{0} view", value.title))
-                .accessibilityLabel(GitL10n.format("{0} view", value.title))
-                .accessibilityValue(mode == value ? GitL10n.text("Selected") : "")
-            }
+    func makeCoordinator() -> Coordinator { Coordinator(mode: $mode) }
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl(labels: GitCollectionMode.allCases.map(\.title),
+                                         trackingMode: .selectOne, target: context.coordinator,
+                                         action: #selector(Coordinator.changed(_:)))
+        for (index, value) in GitCollectionMode.allCases.enumerated() {
+            control.setLabel("", forSegment: index)
+            control.setImage(NSImage(systemSymbolName: value.symbol, accessibilityDescription: value.title), forSegment: index)
+            control.setWidth(26, forSegment: index)
+            control.setToolTip(GitL10n.format("{0} view", value.title), forSegment: index)
         }
-        .modifier(GitToolbarSegmentedStyle(colors: colors))
-        .fixedSize()
+        control.segmentStyle = .texturedRounded
+        control.controlSize = .small
+        control.setAccessibilityLabel(GitL10n.text("Git collection view mode"))
+        return control
+    }
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.mode = $mode
+        control.selectedSegment = GitCollectionMode.allCases.firstIndex(of: mode) ?? 0
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSSegmentedControl, context: Context) -> CGSize? {
+        CGSize(width: 54, height: 26)
+    }
+    final class Coordinator: NSObject {
+        var mode: Binding<GitCollectionMode>
+        init(mode: Binding<GitCollectionMode>) { self.mode = mode }
+        @objc func changed(_ sender: NSSegmentedControl) {
+            guard GitCollectionMode.allCases.indices.contains(sender.selectedSegment) else { return }
+            mode.wrappedValue = GitCollectionMode.allCases[sender.selectedSegment]
+        }
     }
 }
 

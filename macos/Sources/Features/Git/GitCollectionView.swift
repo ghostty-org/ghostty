@@ -75,13 +75,20 @@ struct GitCollectionView: NSViewRepresentable {
     var controller: GitCollectionController?
     var cancel: () -> Void = {}
     let perform: (InspectorGitAction) -> Void
+    var explicitColors: GitCollectionColors?
     @Environment(\.gitCollectionColors) private var colors
+    fileprivate var effectiveColors: GitCollectionColors { explicitColors ?? colors }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
     }
     func makeNSView(context: Context) -> NSScrollView {
+        makeNativeView(coordinator: context.coordinator)
+    }
+    func makeNativeView(coordinator: Coordinator, colors: GitCollectionColors? = nil) -> NSScrollView {
+        var value = self
+        value.explicitColors = colors ?? explicitColors
         let scroll = NSScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
@@ -96,22 +103,22 @@ struct GitCollectionView: NSViewRepresentable {
         column.minWidth = 0
         column.resizingMask = .autoresizingMask
         table.addTableColumn(column)
-        table.dataSource = context.coordinator
-        table.delegate = context.coordinator
-        table.target = context.coordinator
+        table.dataSource = coordinator
+        table.delegate = coordinator
+        table.target = coordinator
         table.action = #selector(Coordinator.clicked)
         table.doubleAction = #selector(Coordinator.doubleClicked)
         let menu = NSMenu()
-        menu.delegate = context.coordinator
+        menu.delegate = coordinator
         table.menu = menu
         table.setAccessibilityIdentifier(stateKey)
         scroll.documentView = table
-        context.coordinator.table = table
-        table.rowIdentity = { [weak coordinator = context.coordinator] index in
+        coordinator.table = table
+        table.rowIdentity = { [weak coordinator] index in
             guard let coordinator, coordinator.rows.indices.contains(index), coordinator.rows[index].item.isSelectable else { return nil }
             return coordinator.rows[index].id
         }
-        context.coordinator.update(self)
+        coordinator.update(value)
         return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) { context.coordinator.update(self) }
@@ -182,9 +189,9 @@ struct GitCollectionView: NSViewRepresentable {
                     }
                 }
             }
-            if old?.colors != value.colors {
+            if old?.effectiveColors != value.effectiveColors {
                 table.enumerateAvailableRowViews { view, index in
-                    (view as? GitCollectionRowView)?.colors = value.colors
+                    (view as? GitCollectionRowView)?.colors = value.effectiveColors
                     if self.rows.indices.contains(index), let cell = table.view(atColumn: 0, row: index, makeIfNecessary: false) as? GitCollectionCell {
                         self.configure(cell, row: self.rows[index])
                     }
@@ -324,7 +331,7 @@ struct GitCollectionView: NSViewRepresentable {
         }
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
             let view = GitCollectionRowView()
-            view.colors = input?.colors ?? .init()
+            view.colors = input?.effectiveColors ?? .init()
             view.showsHighlight = rows[row].item.isSelectable
             view.isPointerHovered = table?.hoveredRowID == rows[row].id
             view.isMultipleSelection = (table?.selectedRowIndexes.count ?? 0) > 1
@@ -340,7 +347,7 @@ struct GitCollectionView: NSViewRepresentable {
             var displayed = row
             if let table, table.selectedRowIndexes.count > 1, selectedRows.contains(row.id),
                let batch = selectedBatch, !batch.paths.isDisjoint(with: input?.pending ?? []) { displayed.item.enabled = false }
-            cell.configure(displayed, colors: input?.colors ?? .init(), toggle: { [weak self] in self?.toggleFolder(row.id) },
+            cell.configure(displayed, colors: input?.effectiveColors ?? .init(), toggle: { [weak self] in self?.toggleFolder(row.id) },
                            stage: { [weak self] in self?.toggleStage(rowID: row.id) })
         }
         func tableViewSelectionDidChange(_ notification: Notification) {
@@ -507,6 +514,16 @@ struct GitCollectionView: NSViewRepresentable {
         }
 
         private enum MenuCommand { case action(InspectorGitAction), copy(String) }
+        private final class MenuInvocation: NSObject {
+            let command: MenuCommand
+            let perform: (InspectorGitAction) -> Void
+            let pasteboard: NSPasteboard
+            init(command: MenuCommand, perform: @escaping (InspectorGitAction) -> Void, pasteboard: NSPasteboard) {
+                self.command = command
+                self.perform = perform
+                self.pasteboard = pasteboard
+            }
+        }
         func menuNeedsUpdate(_ menu: NSMenu) {
             menu.removeAllItems()
             menu.autoenablesItems = false
@@ -516,7 +533,9 @@ struct GitCollectionView: NSViewRepresentable {
             let item = rows[index].item
             func add(_ title: String, _ command: MenuCommand, enabled: Bool = true) {
                 let value = NSMenuItem(title: title, action: #selector(menuAction(_:)), keyEquivalent: "")
-                value.target = self; value.representedObject = command; value.isEnabled = enabled
+                value.target = self
+                value.representedObject = MenuInvocation(command: command, perform: input.perform, pasteboard: table.pasteboard)
+                value.isEnabled = enabled
                 menu.addItem(value)
             }
             switch item.kind {
@@ -570,10 +589,10 @@ struct GitCollectionView: NSViewRepresentable {
             }
         }
         @objc private func menuAction(_ sender: NSMenuItem) {
-            guard let command = sender.representedObject as? MenuCommand else { return }
-            switch command {
-            case .action(let action): input?.perform(action)
-            case .copy(let value): InspectorCopyMenu.copy(value, to: table?.pasteboard ?? .general)
+            guard let invocation = sender.representedObject as? MenuInvocation else { return }
+            switch invocation.command {
+            case .action(let action): invocation.perform(action)
+            case .copy(let value): InspectorCopyMenu.copy(value, to: invocation.pasteboard)
             }
         }
     }

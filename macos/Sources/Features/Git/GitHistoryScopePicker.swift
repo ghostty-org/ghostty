@@ -15,12 +15,14 @@ struct GitHistoryScopePicker: NSViewRepresentable {
     var tags: [GitRefDecoration] = []
     let perform: (InspectorGitAction) -> Void
     @Environment(\.gitCollectionColors) private var colors
+    var nativeColors: GitCollectionColors { colors }
 
-    final class Control: NSButton {
+    final class Control: NSButton, NSPopoverDelegate {
         private let chevron = NSImageView()
         fileprivate var content: GitHistoryScopePicker?
         private(set) var popover: NSPopover?
-        private var host: NSHostingController<AnyView>?
+        private var host: GitHistoryScopePopoverController?
+        private weak var responderBeforePopover: NSResponder?
         override init(frame: NSRect) {
             super.init(frame: frame)
             cell = GitScopeButtonCell()
@@ -54,33 +56,39 @@ struct GitHistoryScopePicker: NSViewRepresentable {
             layer?.borderWidth = 0.5
             layer?.borderColor = content.colors.separator.cgColor
             setAccessibilityValue(content.title)
-            if popover?.isShown == true { host?.rootView = browser() }
         }
-        private func browser() -> AnyView {
-            guard let content else { return AnyView(EmptyView()) }
-            let selected = content.selectedID.map { $0.hasPrefix("refs/tags/") ? "ref:tag:" + String($0.dropFirst("refs/tags/".count)) : $0 }
-            return GitRefPopoverStyle.content(GitRefBrowser(branches: content.branches, worktrees: content.worktrees, isBusy: content.isBusy,
-                branchesError: content.enabled ? nil : GitL10n.text("Branch status unavailable"), worktreesError: content.worktreesError,
-                isPicker: true, state: content.state, stateKey: content.stateKey, selectedID: selected, tags: content.tags,
-                close: { [weak self] in self?.popover?.performClose(nil) }, perform: content.perform), colors: content.colors,
-                size: pickerSize)
-        }
-        private var pickerSize: NSSize {
-            GitRefPopoverStyle.pickerSize(branchCount: content?.branches.count ?? 0,
-                worktreeCount: content?.worktrees.count ?? 0, tagCount: content?.tags.count ?? 0)
+        private func browser(_ content: GitHistoryScopePicker) -> GitHistoryScopePopoverController {
+            GitHistoryScopePopoverController(content: content) { [weak self] in
+                self?.popover?.performClose(nil)
+            }
         }
         @objc func showPicker() {
-            guard window != nil else { return }
+            guard window != nil, let snapshot = content else { return }
             if popover?.isShown == true { popover?.performClose(nil); return }
-            let host = NSHostingController(rootView: browser())
+            responderBeforePopover = window?.firstResponder
+            let host = browser(snapshot)
             let popover = NSPopover()
             popover.behavior = .transient
             popover.animates = false
+            popover.delegate = self
             popover.contentViewController = host
-            popover.contentSize = pickerSize
+            popover.contentSize = host.preferredContentSize
             self.host = host
             self.popover = popover
             popover.show(relativeTo: bounds, of: self, preferredEdge: .minX)
+        }
+        func popoverDidClose(_ notification: Notification) {
+            host?.saveAnchor()
+            if let window {
+                if let view = responderBeforePopover as? NSView, view.window === window {
+                    window.makeFirstResponder(view)
+                } else if self.window != nil {
+                    window.makeFirstResponder(self)
+                }
+            }
+            responderBeforePopover = nil
+            popover = nil
+            host = nil
         }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()

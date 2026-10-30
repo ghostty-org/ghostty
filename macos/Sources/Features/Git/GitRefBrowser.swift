@@ -44,11 +44,11 @@ struct GitRefBrowser: View {
             }.padding(.horizontal, 10)
             }
             if isPicker {
-                HStack(spacing: 0) {
-                    scopeButton(.currentBranch)
-                    scopeButton(.allBranches)
+                GitHistoryScopeSegments(selectedID: selectedID) { scope in
+                    close()
+                    perform(.selectHistoryScope(scope))
                 }
-                .modifier(GitToolbarSegmentedStyle(colors: colors))
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
             }
             GitCollectionView(source: decorations.map(GitCollectionSource.decorations) ?? .refs(branches: branches, worktrees: worktrees, scopes: false,
@@ -67,14 +67,6 @@ struct GitRefBrowser: View {
             }
         }.environment(\.locale, Locale(identifier: SettingsStrings(language: settings.language).languageCode))
     }
-    private func scopeButton(_ scope: GitHistoryScope) -> some View {
-        Button { close(); perform(.selectHistoryScope(scope)) } label: {
-            Text(scope.displayName).font(.system(size: 11, weight: .medium))
-                .frame(maxWidth: .infinity).frame(height: 24)
-        }
-        .buttonStyle(GitToolbarButtonStyle(colors: colors, selected: selectedID == "scope:" + scope.rawValue))
-    }
-
     private func cancel() {
         if let externalCancel { externalCancel() } else if isPicker || decorations != nil { close() } else { query = "" }
     }
