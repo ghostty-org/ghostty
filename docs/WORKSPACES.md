@@ -151,6 +151,10 @@ membership and selection together, restores the workspace sidebar host, prepares
 the correctly sized terminal frame and restores focus. Fullscreen transition
 notifications defer switches until the transition completes; delayed presentation
 callbacks carry a generation so rapid subsequent switches supersede them.
+The latest valid request replaces an older queued switch for that window.
+Selecting the current workspace cancels its pending switch. Both successful
+and failed native fullscreen transitions drain requests after the callback
+returns, and only if another transition has not started.
 Native transitions are tracked by the actual NSWindow identity, so logical group
 reassignment cannot leave a stale transition blocking future operations.
 Non-native (borderless) fullscreen has no native tab stack: inside the same

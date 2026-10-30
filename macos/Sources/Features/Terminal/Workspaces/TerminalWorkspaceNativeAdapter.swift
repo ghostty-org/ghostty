@@ -51,10 +51,7 @@ final class TerminalWorkspaceNativeAdapter {
                     // AppKit still owns its fullscreen stack while delivering
                     // this notification. Drain queued workspace commands only
                     // after the native transition has completely unwound.
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self, !self.transitioningWindows.contains(host) else { return }
-                        self.transitionCompleted?(host)
-                    }
+                    self.scheduleTransitionCompletion(in: host)
                 }
             })
         }
@@ -73,7 +70,14 @@ final class TerminalWorkspaceNativeAdapter {
 
     func fullscreenTransitionFailed(in host: UUID) {
         transitions = transitions.filter { $0.value.host != host && $0.value.window != nil }
-        transitionCompleted?(host)
+        scheduleTransitionCompletion(in: host)
+    }
+
+    private func scheduleTransitionCompletion(in host: UUID) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.transitioningWindows.contains(host) else { return }
+            self.transitionCompleted?(host)
+        }
     }
 
     func preflightError(_ controllers: [TerminalController]) -> String? {

@@ -250,7 +250,13 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         adopt(source)
         source.workspaceSwitcherIsPresented = false
         source.workspacePopover.close()
-        if source.workspaceID == id { return source }
+        // Every new valid request supersedes the older intent for this host,
+        // including "stay here" and requests arriving before a queued drain.
+        deferredSwitches.removeValue(forKey: source.windowSessionID)
+        if source.workspaceID == id {
+            operationError = nil
+            return source
+        }
         if native.transitioningWindows.contains(source.windowSessionID) {
             if creating == nil { deferredSwitches[source.windowSessionID] = id }
             operationError = WorkspaceL10n.text("The window is changing fullscreen mode. Try again when it finishes.", "窗口正在切换全屏状态，请完成后重试。")
