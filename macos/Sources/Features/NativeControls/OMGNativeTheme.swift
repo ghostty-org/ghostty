@@ -91,6 +91,8 @@ final class OMGNativeThemeObserver: NSObject {
 }
 
 class OMGNativeSurfaceView: NSView {
+    /// Embedded chrome inherits the terminal backdrop; only popup roots paint one.
+    var paintsBackground = true { didSet { updateBackdrop(); needsDisplay = true } }
     private let themeObserver = OMGNativeThemeObserver()
     private(set) var theme = OMGNativeTheme(background: .windowBackgroundColor, foreground: .labelColor)
     var onThemeChange: ((OMGNativeTheme) -> Void)?
@@ -159,7 +161,7 @@ class OMGNativeSurfaceView: NSView {
     var effectiveOpacity: Double { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ? 1 : theme.opacity }
 
     private func updateBackdrop() {
-        let blur: Ghostty.Config.BackgroundBlur = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ||
+        let blur: Ghostty.Config.BackgroundBlur = !paintsBackground || NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ||
             (effectiveOpacity >= 1 && !theme.blur.isGlassStyle) ? .disabled : theme.blur
         if backdropBlur != blur {
             backdrop?.removeFromSuperview()
@@ -184,7 +186,7 @@ class OMGNativeSurfaceView: NSView {
         }
 #endif
         // Only configure an auxiliary window owned by this surface, never its terminal origin.
-        if let window, window.contentViewController?.view === self ||
+        if paintsBackground, let window, window.contentViewController?.view === self ||
             (hasExplicitSource && window !== themeObserver.sourceWindow) {
             window.isOpaque = effectiveOpacity >= 1
             window.backgroundColor = effectiveOpacity >= 1 ? theme.background : .clear
@@ -195,7 +197,7 @@ class OMGNativeSurfaceView: NSView {
     }
 
     override func updateLayer() {
-        layer?.backgroundColor = (backdrop == nil ? theme.background.withAlphaComponent(effectiveOpacity) : .clear).cgColor
+        layer?.backgroundColor = (paintsBackground && backdrop == nil ? theme.background.withAlphaComponent(effectiveOpacity) : .clear).cgColor
     }
 }
 

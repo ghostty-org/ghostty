@@ -19,6 +19,10 @@ struct GitPullPushControl: NSViewRepresentable {
         view.configure(self)
     }
 
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: Control, context: Context) -> CGSize? {
+        CGSize(width: 24, height: 24)
+    }
+
     final class Control: NativeActionControl {
         private var content: GitPullPushControl?
 

@@ -197,7 +197,7 @@ struct InspectorGitView: View {
             aheadCount: currentBranch?.aheadCount,
             perform: { perform(.gitAction($0)) }
         )
-        .frame(width: 24, height: 22)
+        .frame(width: 24, height: 24)
         .help(GitL10n.text("Pull or Push"))
     }
 
@@ -207,7 +207,7 @@ struct InspectorGitView: View {
             help: GitL10n.text("Fetch remote changes"),
             enabled: content.repository != nil && !isNetworkBusy,
             style: .plain,
-            height: 22,
+            height: 24,
             identifier: "git.fetch",
             menu: [
                 .action(GitL10n.text("Fetch"), enabled: content.repository != nil && !isNetworkBusy) {
@@ -229,7 +229,7 @@ struct InspectorGitView: View {
             ],
             action: { _ in perform(.gitAction(.fetch)) }
         )
-        .frame(width: 24, height: 22)
+        .frame(width: 24, height: 24)
         .help(GitL10n.text("Fetch remote changes"))
     }
 

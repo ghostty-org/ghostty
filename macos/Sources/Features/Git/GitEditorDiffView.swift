@@ -151,24 +151,30 @@ struct GitEditorDiffView: View {
                     Text(sourceError).foregroundStyle(.secondary).padding()
                     GitDiffTextView(text: document.text)
                 } else if let presentation = content.presentation {
-                    if review {
-                        GitDiffReviewView(presentation: presentation, before: content.before, after: content.after,
-                                          path: document.file.path, theme: theme,
-                                          split: mode == GitL10n.text("Side by Side"), selectedRow: reviewRow)
-                            .id(model.selected?.id)
-                    } else if mode == GitL10n.text("Side by Side") {
-                        HSplitView {
-                            sourcePane(GitL10n.text("Before"), text: content.before, path: document.file.oldPath ?? document.file.path,
-                                       highlights: presentation.beforeHighlights, side: 0)
-                            sourcePane(GitL10n.text("After"), text: content.after, path: document.file.path,
-                                       highlights: presentation.afterHighlights, side: 1)
-                        }
-                    } else {
-                        GitDiffLinkedEditor(text: presentation.text, path: document.file.path,
-                                            highlights: presentation.highlights, isActive: isActive,
-                                            theme: theme, wordWrap: wordWrap, link: scroll, side: 2, actions: actions, close: close)
-                            .id("inline-\(model.selected?.id ?? "")")
-                    }
+                    NativeEditorContentDeck(items: [
+                        EditorContentItem(id: .diffMode("review"), content: AnyView(
+                            GitDiffReviewView(presentation: presentation, before: content.before, after: content.after,
+                                              path: document.file.path, theme: theme,
+                                              split: mode == GitL10n.text("Side by Side"), selectedRow: reviewRow)
+                        )),
+                        EditorContentItem(id: .diffMode("split"), content: AnyView(
+                            HSplitView {
+                                sourcePane(GitL10n.text("Before"), text: content.before, path: document.file.oldPath ?? document.file.path,
+                                           highlights: presentation.beforeHighlights, side: 0)
+                                sourcePane(GitL10n.text("After"), text: content.after, path: document.file.path,
+                                           highlights: presentation.afterHighlights, side: 1)
+                            }
+                        )),
+                        EditorContentItem(id: .diffMode("inline"), content: AnyView(
+                            GitDiffLinkedEditor(text: presentation.text, path: document.file.path,
+                                                highlights: presentation.highlights,
+                                                isActive: isActive && !review && mode == GitL10n.text("Inline"),
+                                                theme: theme, wordWrap: wordWrap, link: scroll, side: 2, actions: actions, close: close)
+                        )),
+                    ], selectedID: .diffMode(review ? "review" : mode == GitL10n.text("Side by Side") ? "split" : "inline"))
+                    .id(model.selected?.id)
+                    .transaction { $0.animation = nil }
+
                 }
             } else if !model.isLoading && model.error == nil {
                 Text(GitL10n.text("No changed files")).foregroundStyle(.secondary).padding()
@@ -358,7 +364,7 @@ struct GitEditorDiffView: View {
                 .background(toolbarSurface)
                 .overlay(alignment: .bottom) { Divider() }
             GitDiffLinkedEditor(text: text, path: path, highlights: highlights,
-                                isActive: isActive, theme: theme, wordWrap: wordWrap, link: scroll, side: side, actions: actions, close: close)
+                                isActive: isActive && !review && mode == GitL10n.text("Side by Side"), theme: theme, wordWrap: wordWrap, link: scroll, side: side, actions: actions, close: close)
                 .id("\(model.selected?.id ?? "")-\(side)")
         }.frame(minWidth: 120)
     }
@@ -379,12 +385,13 @@ struct GitDiffModeSwitcher: NSViewRepresentable {
             control.setImage(NSImage(
                 systemSymbolName: index == 0 ? "rectangle.split.2x1" : "text.alignleft",
                 accessibilityDescription: labels[index]
-            ), forSegment: index)
+            )?.withSymbolConfiguration(.init(pointSize: 12, weight: .medium)), forSegment: index)
             control.setToolTip(GitL10n.format("{0} Diff", labels[index]), forSegment: index)
             control.setWidth(26, forSegment: index)
         }
         control.segmentStyle = .texturedRounded
         control.controlSize = .small
+        control.font = .systemFont(ofSize: 11, weight: .medium)
         control.setAccessibilityLabel(GitL10n.text("Git diff view mode"))
         update(control, context: context)
         return control
@@ -428,6 +435,7 @@ struct GitDiffReviewSwitcher: NSViewRepresentable {
                                          target: context.coordinator, action: #selector(Coordinator.activate(_:)))
         control.segmentStyle = .rounded
         control.controlSize = .small
+        control.font = .systemFont(ofSize: 11, weight: .medium)
         labels.enumerated().forEach { index, label in control.setToolTip(label, forSegment: index) }
         control.setAccessibilityLabel(GitL10n.text("Git diff presentation"))
         update(control, context: context)

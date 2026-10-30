@@ -60,6 +60,7 @@ final class AgentHistorySessionListHeaderController: NSViewController {
             refreshButton.heightAnchor.constraint(equalToConstant: 28),
         ])
         let surface = OMGNativeSurfaceView()
+        surface.paintsBackground = false
         row.translatesAutoresizingMaskIntoConstraints = false
         surface.addSubview(row)
         NSLayoutConstraint.activate([

@@ -50,6 +50,7 @@ private final class OMGNativeTextCell: NSTextFieldCell {
 }
 
 final class OMGNativePopUpButton: NSPopUpButton, OMGNativeThemeApplying {
+    override var wantsUpdateLayer: Bool { false }
     private(set) var theme = OMGNativeTheme(background: .windowBackgroundColor, foreground: .labelColor)
     private var hovered = false
     private var tracking: NSTrackingArea?
@@ -114,8 +115,6 @@ final class OMGNativePopUpButton: NSPopUpButton, OMGNativeThemeApplying {
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.clear.setFill()
-        dirtyRect.fill(using: .copy)
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5)
         (isHighlighted ? theme.selectedFill : hovered && isEnabled ? theme.hoverFill : theme.controlFill).setFill()
         shape.fill()

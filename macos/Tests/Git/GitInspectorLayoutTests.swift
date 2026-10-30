@@ -371,6 +371,12 @@ struct GitInspectorLayoutTests {
                 #expect(!visibleWrap.isHiddenOrHasHiddenAncestor)
                 let currentRefresh = try #require(buttons(in: view).first { $0.toolTip == GitL10n.text("Refresh diff") })
                 #expect(abs(currentRefresh.convert(currentRefresh.bounds, to: view).minX - refreshX) < 1)
+                if !review && mode == GitL10n.text("Side by Side") {
+                    let visibleEditors = editors(in: view).filter { !$0.isHiddenOrHasHiddenAncestor }
+                    #expect(visibleEditors.count == 2)
+                    #expect(sources.allSatisfy { source in visibleEditors.contains { $0 === source } },
+                            "Switching modes must reveal the retained native editors, not rebuild them.")
+                }
             }
         }
         if FileManager.default.fileExists(atPath: "/tmp/omg-git-render") {

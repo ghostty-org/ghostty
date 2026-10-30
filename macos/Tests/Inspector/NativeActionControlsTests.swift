@@ -4,7 +4,76 @@ import Testing
 
 @MainActor
 struct NativeActionControlsTests {
-    @Test func symbolsKeepTheirAspectRatioAndHoverPixelsAreErased() throws {
+    @Test func windowDisplayUsesCustomDrawingForControlsAndRows() async throws {
+        final class Probe: NativeActionControl {
+            var drawCount = 0
+            override func draw(_ dirtyRect: NSRect) { drawCount += 1; super.draw(dirtyRect) }
+        }
+        let root = OMGNativeSurfaceView(frame: .init(x: 0, y: 0, width: 400, height: 300))
+        let window = NSWindow(contentRect: root.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.title = "OMG Native Control Review"
+        window.contentView = root
+        defer { window.contentView = nil; window.close() }
+        let buttons = ["ellipsis", "arrow.up.arrow.down", "arrow.clockwise", "chevron.left"].enumerated().map { index, symbol in
+            let button = Probe(frame: .init(x: 20 + index * 40, y: 240, width: 28, height: 28))
+            button.configure(title: "", symbol: symbol, help: symbol, enabled: true, style: .plain, identifier: nil)
+            root.addSubview(button)
+            return button
+        }
+        for (index, title) in ["No Grouping", "By Project", "By Date"].enumerated() {
+            let button = Probe(frame: .init(x: 20, y: 190 - index * 36, width: 360, height: 30))
+            button.configure(title: title, symbol: index == 0 ? "checkmark" : nil, help: nil, enabled: true,
+                             style: .plain, identifier: nil)
+            button.alignment = .left
+            root.addSubview(button)
+        }
+        for (index, title) in ["Cancel", "Save"].enumerated() {
+            let button = Probe(frame: .init(x: 220 + index * 80, y: 20, width: 70, height: 28))
+            button.configure(title: title, symbol: nil, help: nil, enabled: true,
+                             style: index == 0 ? .bordered : .prominent, identifier: nil)
+            root.addSubview(button)
+        }
+        root.applyTheme(.init(background: NSColor(srgbRed: 0.12, green: 0.12, blue: 0.19, alpha: 1),
+                              foreground: NSColor(white: 0.85, alpha: 1), accent: .systemBlue))
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        try await Task.sleep(for: .milliseconds(100))
+        for button in buttons {
+            #expect(!button.wantsUpdateLayer)
+            button.needsDisplay = true
+            button.displayIfNeeded()
+            #expect(button.drawCount > 0, "Test the real AppKit display dispatch, not a direct draw() call.")
+        }
+        for row in [NativeHoverRowView(), GitCollectionRowView(), TerminalWorkspaceSelectionRow()] {
+            #expect(!row.wantsUpdateLayer)
+        }
+        let bitmap = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+        func sampleBackground(of button: NSView) throws -> NSColor {
+            root.cacheDisplay(in: root.bounds, to: bitmap)
+            let rect = root.convert(button.bounds, from: button)
+            let scale = CGFloat(bitmap.pixelsWide) / root.bounds.width
+            return try #require(bitmap.colorAt(x: Int((rect.minX + 4) * scale),
+                                              y: Int((root.bounds.height - rect.midY) * scale)))
+        }
+        let probe = buttons[0]
+        probe.setHovered(false)
+        probe.displayIfNeeded()
+        let idle = try sampleBackground(of: probe)
+        probe.setHovered(true)
+        probe.displayIfNeeded()
+        #expect(try sampleBackground(of: probe) != idle)
+        probe.setHovered(false)
+        probe.displayIfNeeded()
+        #expect(try sampleBackground(of: probe) == idle)
+        #expect(probe.drawCount >= 3)
+        root.cacheDisplay(in: root.bounds, to: bitmap)
+        try #require(bitmap.representation(using: .png, properties: [:]))
+            .write(to: URL(fileURLWithPath: "/tmp/omg-native-dispatch-review.png"))
+    }
+
+    @Test func symbolsKeepTheirAspectRatioAndRepositoryLabelDoesNotHighlight() throws {
         let button = NativeActionControl(frame: .init(x: 0, y: 0, width: 28, height: 28))
         for symbol in ["ellipsis", "arrow.up.arrow.down", "arrow.clockwise", "stop.fill"] {
             button.configure(title: "", symbol: symbol, help: nil, enabled: true, style: .plain, identifier: nil)
@@ -15,18 +84,6 @@ struct NativeActionControlsTests {
         }
         button.image = nil
         button.applyTheme(.init(background: .black, foreground: .white))
-        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 28, pixelsHigh: 28,
-            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-            bytesPerRow: 0, bitsPerPixel: 0))
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-        button.setHovered(true)
-        button.draw(button.bounds)
-        #expect((bitmap.colorAt(x: 14, y: 14)?.alphaComponent ?? 0) > 0)
-        button.setHovered(false)
-        button.draw(button.bounds)
-        #expect(bitmap.colorAt(x: 14, y: 14)?.alphaComponent == 0)
         button.showsHover = false
         button.setHovered(true)
         #expect(button.effectiveFill == .clear)
@@ -35,6 +92,11 @@ struct NativeActionControlsTests {
     @Test func detachedControlsRejectStaleEnterEventsAndTablesHaveOnlyOneHoveredRow() {
         let button = NativeActionControl()
         button.setHovered(true)
+        let other = NativeActionControl()
+        other.setHovered(true)
+        #expect(!button.isHovered && other.isHovered)
+        button.setHovered(true)
+        #expect(button.isHovered && !other.isHovered)
         button.mouseEntered(with: NSEvent())
         #expect(!button.isHovered)
         let table = NSTableView()

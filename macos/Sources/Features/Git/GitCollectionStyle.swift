@@ -181,6 +181,7 @@ final class GitStageCheckbox: NSButton {
 }
 
 final class GitCollectionRowView: NSTableRowView {
+    override var wantsUpdateLayer: Bool { false }
     override init(frame frameRect: NSRect) { super.init(frame: frameRect); wantsLayer = true }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     var colors = GitCollectionColors() { didSet { needsDisplay = true } }
@@ -188,8 +189,6 @@ final class GitCollectionRowView: NSTableRowView {
     var isPointerHovered = false { didSet { if oldValue != isPointerHovered { needsDisplay = true } } }
     var isMultipleSelection = false { didSet { if oldValue != isMultipleSelection { needsDisplay = true } } }
     override func drawBackground(in dirtyRect: NSRect) {
-        NSColor.clear.setFill()
-        dirtyRect.fill(using: .copy)
         guard showsHighlight, isPointerHovered, !isSelected else { return }
         colors.hover.setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 1), xRadius: 3, yRadius: 3).fill()

@@ -6,6 +6,7 @@ enum EditorContentKey: Hashable {
     case workspace
     case document(EditorDocumentID)
     case diff(UUID)
+    case diffMode(String)
     case empty
 }
 

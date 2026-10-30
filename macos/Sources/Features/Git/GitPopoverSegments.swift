@@ -97,8 +97,6 @@ final class GitPopoverSegments: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.clear.setFill()
-        dirtyRect.fill(using: .copy)
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
         colors.text.gitOpacity(0.025).setFill()
         shape.fill()
@@ -122,6 +120,7 @@ final class GitPopoverSegments: NSView {
 
 @MainActor
 private final class GitPopoverSegmentButton: NSButton {
+    override var wantsUpdateLayer: Bool { false }
     private var colors = GitCollectionColors()
     private var hovered = false
     fileprivate var segmentID: String?
@@ -198,8 +197,6 @@ private final class GitPopoverSegmentButton: NSButton {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.clear.setFill()
-        dirtyRect.fill(using: .copy)
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 4, yRadius: 4)
         if isSelectedSegment {
             colors.accent.withAlphaComponent(hovered ? 0.22 : 0.13).setFill()

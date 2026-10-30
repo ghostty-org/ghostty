@@ -44,7 +44,11 @@ final class NativeTableHover: NSObject {
     }
 
     func setRow(_ row: NativeHoverRowView?) {
-        guard hoveredView !== row else { return }
+        if hoveredView === row {
+            // Reattachment can reset a recycled row while the pointer stays still.
+            row?.isHovered = true
+            return
+        }
         hoveredView?.isHovered = false
         hoveredView = row
         row?.isHovered = true
@@ -55,13 +59,12 @@ final class NativeTableHover: NSObject {
 }
 
 final class NativeHoverRowView: NSTableRowView {
+    override var wantsUpdateLayer: Bool { false }
     var isHovered = false { didSet { if oldValue != isHovered { needsDisplay = true } } }
     override init(frame frameRect: NSRect) { super.init(frame: frameRect); wantsLayer = true }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); isHovered = false }
     override func drawBackground(in dirtyRect: NSRect) {
-        NSColor.clear.setFill()
-        dirtyRect.fill(using: .copy)
         guard isHovered, !isSelected else { return }
         OMGNativeTheme.resolve(for: self).hoverFill.setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 1), xRadius: 5, yRadius: 5).fill()

@@ -64,6 +64,7 @@ final class AgentHistoryToolbarController: NSViewController, NSSearchFieldDelega
             filterButton.heightAnchor.constraint(equalToConstant: 28),
         ])
         let surface = OMGNativeSurfaceView()
+        surface.paintsBackground = false
         row.translatesAutoresizingMaskIntoConstraints = false
         surface.addSubview(row)
         NSLayoutConstraint.activate([

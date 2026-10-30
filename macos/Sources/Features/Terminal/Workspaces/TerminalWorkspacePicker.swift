@@ -754,6 +754,7 @@ final class TerminalWorkspaceTableView: NSTableView {
 }
 
 final class TerminalWorkspaceSelectionRow: NSTableRowView {
+    override var wantsUpdateLayer: Bool { false }
     override init(frame frameRect: NSRect) { super.init(frame: frameRect); wantsLayer = true }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     var isHovered = false { didSet { if oldValue != isHovered { needsDisplay = true } } }
@@ -761,8 +762,6 @@ final class TerminalWorkspaceSelectionRow: NSTableRowView {
     override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
 
     override func drawBackground(in dirtyRect: NSRect) {
-        NSColor.clear.setFill()
-        dirtyRect.fill(using: .copy)
         guard isHovered, !isSelected else { return }
         OMGNativeTheme.resolve(for: self).hoverFill.setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: 6, yRadius: 6).fill()
@@ -929,8 +928,6 @@ private final class WorkspaceChoiceButton: NativeActionControl {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func draw(_ dirtyRect: NSRect) {
         if let swatch {
-            NSColor.clear.setFill()
-            dirtyRect.fill(using: .copy)
             let circle = NSRect(x: bounds.midX - 11, y: bounds.midY - 11, width: 22, height: 22)
             swatch.setFill()
             NSBezierPath(ovalIn: circle).fill()

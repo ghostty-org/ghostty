@@ -11,6 +11,9 @@ struct NativeOptionsButton: NSViewRepresentable {
         button.configure(title: title, symbol: symbol, help: help, enabled: true, style: .plain, identifier: nil)
         button.entries = entries
     }
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NativeOptionsControl, context: Context) -> CGSize? {
+        CGSize(width: 24, height: 24)
+    }
     static func dismantleNSView(_ view: NativeOptionsControl, coordinator: ()) { view.dismiss() }
 }
 

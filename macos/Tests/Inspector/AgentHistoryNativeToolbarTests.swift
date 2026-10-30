@@ -37,6 +37,10 @@ struct AgentHistoryNativeToolbarTests {
         var changed: [String] = []
         var snapshot = toolbarSnapshot(query: "", searchChanged: { changed.append($0) })
         controller.update(snapshot)
+        let surface = try #require(controller.view as? OMGNativeSurfaceView)
+        #expect(!surface.paintsBackground)
+        surface.updateLayer()
+        #expect(surface.layer?.backgroundColor?.alpha == 0)
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 32))
         host.addSubview(controller.view)
         controller.view.frame = host.bounds

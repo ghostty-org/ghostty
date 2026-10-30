@@ -79,6 +79,7 @@ struct NativeMenuButton: NSViewRepresentable {
 }
 
 class NativeActionControl: NSButton, NSMenuDelegate {
+    private static weak var hoveredControl: NativeActionControl?
     var showsHover = true { didSet { needsDisplay = true } }
     var onPress: (() -> Void)?
     var contextEntries: [NativeMenuEntry] = []
@@ -93,13 +94,17 @@ class NativeActionControl: NSButton, NSMenuDelegate {
         set { actionStyle = newValue; needsDisplay = true }
     }
     override var isFlipped: Bool { true }
+    // Explicit rendering contract, including subclasses with additional sublayers.
+    override var wantsUpdateLayer: Bool { false }
     override var alignmentRectInsets: NSEdgeInsets { .init(top: 0, left: 0, bottom: 0, right: 0) }
     override var isEnabled: Bool { didSet { needsDisplay = true } }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        // Own the backing pixels: transparent idle fills must erase the old hover paint.
+        // Let AppKit clear the backing store before each draw; manual .copy clearing
+        // punches holes through ancestors during composited/offscreen rendering.
         wantsLayer = true
+        clipsToBounds = true
         setButtonType(.momentaryPushIn)
         controlSize = .small
         font = .systemFont(ofSize: 11, weight: .medium)
@@ -172,6 +177,15 @@ class NativeActionControl: NSButton, NSMenuDelegate {
         refreshHover()
     }
     func setHovered(_ hovered: Bool) {
+        if hovered {
+            if let previous = Self.hoveredControl, previous !== self {
+                previous.isHovered = false
+                previous.needsDisplay = true
+            }
+            Self.hoveredControl = self
+        } else if Self.hoveredControl === self {
+            Self.hoveredControl = nil
+        }
         guard isHovered != hovered else { return }
         isHovered = hovered
         needsDisplay = true
@@ -192,7 +206,7 @@ class NativeActionControl: NSButton, NSMenuDelegate {
 
     var effectiveFill: NSColor {
         if !isEnabled { return actionStyle == .plain ? .clear : theme.controlFill }
-        if isMenuOpen || isHighlighted { return theme.selectedFill }
+        if isMenuOpen || (isHighlighted && NativePointerLocation.contains(self)) { return theme.selectedFill }
         if actionStyle == .prominent { return theme.accent.withAlphaComponent(isHovered ? 0.32 : 0.23) }
         if isHovered && showsHover { return theme.hoverFill }
         return actionStyle == .bordered ? theme.controlFill : .clear
@@ -202,8 +216,9 @@ class NativeActionControl: NSButton, NSMenuDelegate {
     var glyphRect: NSRect {
         let textWidth = title.isEmpty ? 0 : min(max(0, bounds.width - 35),
             ceil((title as NSString).size(withAttributes: [.font: font ?? NSFont.systemFont(ofSize: 11)]).width))
-        let size = image?.size ?? .zero
-        let scale = max(size.width, size.height) > 0 ? 12 / max(size.width, size.height) : 0
+        let size = image?.withSymbolConfiguration(.init(pointSize: 12, weight: .medium))?.size ?? image?.size ?? .zero
+        // Use SF Symbols' optical metrics, only shrinking symbols that exceed the slot.
+        let scale = max(size.width, size.height) > 0 ? min(1, 16 / max(size.width, size.height)) : 0
         let width = size.width * scale
         let height = size.height * scale
         let gap: CGFloat = image != nil && !title.isEmpty ? 5 : 0
@@ -212,8 +227,6 @@ class NativeActionControl: NSButton, NSMenuDelegate {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.clear.setFill()
-        dirtyRect.fill(using: .copy)
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5)
         effectiveFill.setFill()
         shape.fill()

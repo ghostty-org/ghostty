@@ -1,5 +1,9 @@
 # Native hover and glyph follow-up
 
+Superseded by `appkit-render-dispatch-review-2026-10-31.md`: the direct-draw
+test was insufficient, and the manual `.copy` clearing introduced here has
+been removed after composite-rendering review.
+
 Base: `2e4882fec`. No installation or commit in this batch.
 
 ## Fixes
