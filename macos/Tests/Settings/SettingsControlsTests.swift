@@ -30,6 +30,54 @@ struct SettingsControlsTests {
         #expect(value == "on")
     }
 
+    @Test func sshHostPickerUsesNativeItemsAndPreservesHostIdentity() throws {
+        var value = "local"
+        let binding = Binding(get: { value }, set: { value = $0 })
+        let items: [SSHHostPicker.Item] = [
+            .init(id: "local", title: "Local", detail: "This Mac", symbol: "desktopcomputer"),
+            .init(id: "cloud", title: "cloud", detail: "me@example.test:22", status: "Connected"),
+        ]
+        let picker = SSHHostPicker(items: items, selection: binding, accessibilityLabel: "SSH target")
+        let coordinator = picker.makeCoordinator()
+        let button = NSPopUpButton(frame: .zero, pullsDown: false)
+        coordinator.update(button)
+
+        #expect(button.itemTitles == ["Select an SSH host…", "Local · This Mac", "cloud · me@example.test:22 · Connected"])
+        #expect(button.selectedItem?.representedObject as? String == "local")
+        #expect(button.item(at: 0)?.isEnabled == false)
+        #expect(button.menu?.autoenablesItems == false)
+
+        coordinator.parent = .init(items: Array(items.reversed()), selection: binding, accessibilityLabel: "SSH target")
+        coordinator.update(button)
+        #expect(button.selectedItem?.representedObject as? String == "local")
+
+        coordinator.selectItem(button)
+        #expect(value == "local")
+        button.selectItem(at: 1)
+        coordinator.selectItem(button)
+        #expect(value == "cloud")
+        button.selectItem(at: 1)
+        coordinator.parent = .init(items: items, selection: binding, enabled: false, accessibilityLabel: "SSH target")
+        coordinator.selectItem(button)
+        #expect(value == "cloud")
+    }
+
+    @Test func hostMenuPreservesDistinctIdentitiesWithIdenticalDisplayNames() {
+        var value = "second"
+        let picker = SSHHostPicker(
+            items: [.init(id: "first", title: "cloud"), .init(id: "second", title: "cloud")],
+            selection: Binding(get: { value }, set: { value = $0 })
+        )
+        let coordinator = picker.makeCoordinator()
+        let button = NSPopUpButton(frame: .zero, pullsDown: false)
+        coordinator.update(button)
+        #expect(button.numberOfItems == 3)
+        #expect(button.selectedItem?.representedObject as? String == "second")
+        button.selectItem(at: 1)
+        coordinator.selectItem(button)
+        #expect(value == "first")
+    }
+
     @Test func agentIsOnlyInIntegrationsAndHasConsistentName() {
         #expect(!OhMyGhosttySettingsTab.primary.contains(.agents))
         #expect(OhMyGhosttySettingsTab.integrations.first == .agents)

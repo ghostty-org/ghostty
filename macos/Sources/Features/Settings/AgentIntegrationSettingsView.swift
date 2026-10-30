@@ -143,27 +143,24 @@ struct AgentIntegrationSettingsView: View {
     }
 
     private var hostPicker: some View {
-        SSHHostPicker(items: [.init(id: AgentIntegrationManager.localID, title: strings.agentLocalHost)] +
-            registry.hosts.map { .init(id: $0.id, title: $0.name + " · " + ($0.endpoint ?? $0.connection.displayEndpoint)) }, selection: $target) {
-                HStack(spacing: 12) {
-                    Image(systemName: local ? "desktopcomputer" : "network").font(.title2).foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(hostName).font(.headline)
-                        Text(local ? strings.agentLocalMachine : registry.host(target)?.connection.displayEndpoint ?? "SSH")
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                    }
-                    Spacer(minLength: 10)
-                    if !local {
-                        Text(registry.isConnected(target) ? strings.sshConnected : strings.agentSSHNotConnected)
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Image(systemName: "chevron.up.chevron.down").foregroundStyle(.secondary)
-                }
-                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 9))
-                .contentShape(Rectangle())
-            }
-            .help(strings.agentHostLabel)
+        SSHHostPicker(
+            items: [
+                .init(id: AgentIntegrationManager.localID, title: strings.agentLocalHost,
+                      detail: strings.agentLocalMachine, symbol: "desktopcomputer")
+            ] + registry.hosts.map { host in
+                .init(
+                    id: host.id,
+                    title: host.name,
+                    detail: host.endpoint ?? host.connection.displayEndpoint,
+                    status: registry.isConnected(host.id) ? strings.sshConnected : strings.agentSSHNotConnected
+                )
+            },
+            selection: $target,
+            accessibilityLabel: strings.agentHostLabel,
+            height: 56
+        )
+        .frame(maxWidth: .infinity)
+        .help(strings.agentHostLabel)
     }
 
     private func row(_ agent: SupportedAgent) -> some View {

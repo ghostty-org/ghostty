@@ -15,20 +15,14 @@ struct SSHRegistrationSettingsView: View {
             Toggle(strings.sshAutomaticRegistration, isOn: $registry.automaticallyRegister)
                 .toggleStyle(OMGSettingsToggleStyle()).controlSize(.small)
             HStack {
-                SSHHostPicker(items: choices.map { .init(id: $0.id, title: $0.title) }, selection: $selectedID) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "network").foregroundStyle(.secondary)
-                        Text(choices.first(where: { $0.id == selectedID })?.title ?? strings.sshRegistrationTarget)
-                            .lineLimit(1).truncationMode(.middle)
-                        Spacer(minLength: 8)
-                        Image(systemName: "chevron.down").font(.caption)
-                    }
-                    .font(.system(size: 12)).padding(.horizontal, 11).frame(height: OMGSettingsControlMetrics.height)
-                    .background(.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: OMGSettingsControlMetrics.radius))
-                    .overlay(RoundedRectangle(cornerRadius: OMGSettingsControlMetrics.radius).strokeBorder(.primary.opacity(0.09)))
-                    .contentShape(Rectangle())
-                }
-                .disabled(choices.isEmpty || loadingHosts)
+                SSHHostPicker(
+                    items: choices.map { .init(id: $0.id, title: $0.name, detail: $0.endpoint) },
+                    selection: $selectedID,
+                    enabled: !choices.isEmpty && !loadingHosts,
+                    accessibilityLabel: strings.sshRegistrationTarget,
+                    placeholderTitle: strings.sshRegistrationTarget
+                )
+                .frame(minWidth: 250, maxWidth: 400)
                 Button(strings.sshRegister) { register() }
                     .disabled(registering || selectedConnection == nil || !agents.busy.isEmpty)
                 if registering || loadingHosts || !registry.pending.isEmpty { ProgressView().controlSize(.small) }

@@ -591,6 +591,11 @@ struct SettingsStrings: Equatable, Sendable {
         t("Replace this pane's terminal with a new SSH connection using the saved arguments. Output from the interrupted session is discarded.",
           "用已保存的参数在这个面板里重新连接，替换当前终端；断线前的输出会被丢弃。")
     }
+    var runtimeRecoveryReconnect: String { t("Reconnect Session", "重新连接会话") }
+    var runtimeRecoveryHelp: String {
+        t("Reconnect to the original remote session in this pane. Recovery requires the session to still exist on the remote host.",
+          "在当前面板重新连接原远端会话；恢复需要该会话仍保留在远端主机上。")
+    }
     var sshRecoveryReconnect: String { t("Reconnect in New Tab", "在新标签页重连") }
     var sshRecoveryDismissHelp: String {
         t("Dismiss this prompt and keep using this pane as a local terminal.",
