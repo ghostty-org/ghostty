@@ -4,6 +4,52 @@ import Testing
 
 @MainActor
 struct NativeActionControlsTests {
+    @Test func symbolsKeepTheirAspectRatioAndHoverPixelsAreErased() throws {
+        let button = NativeActionControl(frame: .init(x: 0, y: 0, width: 28, height: 28))
+        for symbol in ["ellipsis", "arrow.up.arrow.down", "arrow.clockwise", "stop.fill"] {
+            button.configure(title: "", symbol: symbol, help: nil, enabled: true, style: .plain, identifier: nil)
+            let image = try #require(button.image)
+            #expect(abs(button.glyphRect.width / button.glyphRect.height - image.size.width / image.size.height) < 0.001)
+            #expect(button.glyphRect.midX == button.bounds.midX)
+            #expect(button.glyphRect.midY == button.bounds.midY)
+        }
+        button.image = nil
+        button.applyTheme(.init(background: .black, foreground: .white))
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 28, pixelsHigh: 28,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0))
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        button.setHovered(true)
+        button.draw(button.bounds)
+        #expect((bitmap.colorAt(x: 14, y: 14)?.alphaComponent ?? 0) > 0)
+        button.setHovered(false)
+        button.draw(button.bounds)
+        #expect(bitmap.colorAt(x: 14, y: 14)?.alphaComponent == 0)
+        button.showsHover = false
+        button.setHovered(true)
+        #expect(button.effectiveFill == .clear)
+    }
+
+    @Test func detachedControlsRejectStaleEnterEventsAndTablesHaveOnlyOneHoveredRow() {
+        let button = NativeActionControl()
+        button.setHovered(true)
+        button.mouseEntered(with: NSEvent())
+        #expect(!button.isHovered)
+        let table = NSTableView()
+        let hover = NativeTableHover(table: table)
+        let first = NativeHoverRowView()
+        let second = NativeHoverRowView()
+        hover.setRow(first)
+        #expect(first.isHovered && !second.isHovered)
+        hover.setRow(second)
+        #expect(!first.isHovered && second.isHovered)
+        hover.setRow(nil)
+        #expect(!first.isHovered && !second.isHovered)
+        #expect(table.selectedRow == -1)
+    }
+
     @Test func menusKeepTheOriginalActionAndDoNotReenableUnavailableItems() throws {
         var events: [String] = []
         var entries: [NativeMenuEntry] = [

@@ -62,6 +62,7 @@ final class OMGNativePopUpButton: NSPopUpButton, OMGNativeThemeApplying {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil { options?.close(); options = nil }
+        wantsLayer = true
         applyTheme(.resolve(for: self))
     }
 
@@ -109,10 +110,12 @@ final class OMGNativePopUpButton: NSPopUpButton, OMGNativeThemeApplying {
         tracking = area
         addTrackingArea(area)
     }
-    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
+    override func mouseEntered(with event: NSEvent) { hovered = NativePointerLocation.contains(self); needsDisplay = true }
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
 
     override func draw(_ dirtyRect: NSRect) {
+        NSColor.clear.setFill()
+        dirtyRect.fill(using: .copy)
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5)
         (isHighlighted ? theme.selectedFill : hovered && isEnabled ? theme.hoverFill : theme.controlFill).setFill()
         shape.fill()

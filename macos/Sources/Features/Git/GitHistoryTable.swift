@@ -34,6 +34,7 @@ struct GitHistoryTable: NSViewRepresentable {
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
         let table = GitHoverTableView()
         table.copyValue = { [weak coordinator = context.coordinator] in coordinator?.selectedCopyValue() }
         table.headerView = nil

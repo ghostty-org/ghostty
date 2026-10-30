@@ -133,7 +133,7 @@ struct OMGNativeThemeTests {
         #expect(!button.isMenuOpen)
         let event = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [],
             timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
-        button.mouseEntered(with: event)
+        button.setHovered(true)
         #expect(button.isHovered)
         button.mouseExited(with: event)
         #expect(!button.isHovered)

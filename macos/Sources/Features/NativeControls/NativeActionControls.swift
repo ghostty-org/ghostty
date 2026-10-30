@@ -16,6 +16,7 @@ struct NativeActionButton: NSViewRepresentable {
     var expands = false
     var identifier: String?
     var accessibilityValue: String?
+    var showsHover = true
     var menu: [NativeMenuEntry] = []
     let action: (NSButton) -> Void
     @Environment(\.isEnabled) private var environmentEnabled
@@ -26,6 +27,7 @@ struct NativeActionButton: NSViewRepresentable {
         button.configure(title: title, symbol: symbol, help: help,
                          enabled: enabled && environmentEnabled, style: style, identifier: identifier)
         button.setAccessibilityValue(accessibilityValue)
+        button.showsHover = showsHover
         button.onPress = { [weak button] in
             guard let button else { return }
             action(button)
@@ -77,6 +79,7 @@ struct NativeMenuButton: NSViewRepresentable {
 }
 
 class NativeActionControl: NSButton, NSMenuDelegate {
+    var showsHover = true { didSet { needsDisplay = true } }
     var onPress: (() -> Void)?
     var contextEntries: [NativeMenuEntry] = []
     private(set) var theme = OMGNativeTheme(background: .windowBackgroundColor, foreground: .labelColor)
@@ -95,6 +98,8 @@ class NativeActionControl: NSButton, NSMenuDelegate {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        // Own the backing pixels: transparent idle fills must erase the old hover paint.
+        wantsLayer = true
         setButtonType(.momentaryPushIn)
         controlSize = .small
         font = .systemFont(ofSize: 11, weight: .medium)
@@ -104,6 +109,10 @@ class NativeActionControl: NSButton, NSMenuDelegate {
         focusRingType = .none
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         themeObserver.onChange = { [weak self] in self?.applyTheme($0) }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                     NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(windowChanged(_:)), name: name, object: nil)
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -136,6 +145,7 @@ class NativeActionControl: NSButton, NSMenuDelegate {
         super.viewDidMoveToWindow()
         themeObserver.sourceWindow = window?.sheetParent ?? window
         applyTheme(.resolve(for: self))
+        refreshHover()
     }
 
     override var intrinsicContentSize: NSSize {
@@ -151,17 +161,23 @@ class NativeActionControl: NSButton, NSMenuDelegate {
                                   owner: self)
         tracking = area
         addTrackingArea(area)
-        if let window {
-            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-            isHovered = window.isKeyWindow && visibleRect.contains(point)
-        } else {
-            isHovered = false
-        }
-        needsDisplay = true
+        refreshHover()
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true; needsDisplay = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false; needsDisplay = true }
+    @objc private func refreshHover() {
+        setHovered(NativePointerLocation.contains(self))
+    }
+    @objc private func windowChanged(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        refreshHover()
+    }
+    func setHovered(_ hovered: Bool) {
+        guard isHovered != hovered else { return }
+        isHovered = hovered
+        needsDisplay = true
+    }
+    override func mouseEntered(with event: NSEvent) { refreshHover() }
+    override func mouseExited(with event: NSEvent) { setHovered(false) }
     override func highlight(_ flag: Bool) { super.highlight(flag); needsDisplay = true }
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
@@ -178,7 +194,7 @@ class NativeActionControl: NSButton, NSMenuDelegate {
         if !isEnabled { return actionStyle == .plain ? .clear : theme.controlFill }
         if isMenuOpen || isHighlighted { return theme.selectedFill }
         if actionStyle == .prominent { return theme.accent.withAlphaComponent(isHovered ? 0.32 : 0.23) }
-        if isHovered { return theme.hoverFill }
+        if isHovered && showsHover { return theme.hoverFill }
         return actionStyle == .bordered ? theme.controlFill : .clear
     }
 
@@ -186,13 +202,18 @@ class NativeActionControl: NSButton, NSMenuDelegate {
     var glyphRect: NSRect {
         let textWidth = title.isEmpty ? 0 : min(max(0, bounds.width - 35),
             ceil((title as NSString).size(withAttributes: [.font: font ?? NSFont.systemFont(ofSize: 11)]).width))
-        let width: CGFloat = image == nil ? 0 : 12
+        let size = image?.size ?? .zero
+        let scale = max(size.width, size.height) > 0 ? 12 / max(size.width, size.height) : 0
+        let width = size.width * scale
+        let height = size.height * scale
         let gap: CGFloat = image != nil && !title.isEmpty ? 5 : 0
         return NSRect(x: alignment == .left && !title.isEmpty ? 8 : (bounds.width - textWidth - width - gap) / 2,
-                      y: (bounds.height - width) / 2, width: width, height: width)
+                      y: (bounds.height - height) / 2, width: width, height: height)
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        NSColor.clear.setFill()
+        dirtyRect.fill(using: .copy)
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5)
         effectiveFill.setFill()
         shape.fill()
@@ -250,6 +271,17 @@ class NativeActionControl: NSButton, NSMenuDelegate {
     @objc private func activate() {
         guard isEnabled else { return }
         onPress?()
+    }
+}
+
+enum NativePointerLocation {
+    static func contains(_ view: NSView) -> Bool {
+        guard let window = view.window, window.isKeyWindow, window.isVisible,
+              !view.isHiddenOrHasHiddenAncestor else { return false }
+        let screenPoint = NSEvent.mouseLocation
+        guard NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0) == window.windowNumber else { return false }
+        let point = view.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        return view.visibleRect.contains(point)
     }
 }
 

@@ -168,6 +168,8 @@ final class InspectorFileTreeController: NSViewController, NSOutlineViewDataSour
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
         (item as? Item)?.node.isDirectory == true
     }
+    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? { NativeHoverRowView() }
+
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
         guard let item = item as? Item else { return nil }
         let identifier = NSUserInterfaceItemIdentifier("file")
@@ -241,6 +243,8 @@ final class InspectorFileTreeController: NSViewController, NSOutlineViewDataSour
 }
 
 final class InspectorFilesOutlineView: NSOutlineView {
+    private lazy var hover = NativeTableHover(table: self)
+    override func updateTrackingAreas() { super.updateTrackingAreas(); hover.update() }
     var openSelection: (() -> Void)?
     var renameSelection: (() -> Void)?
     var menuForItem: ((InspectorFileTreeController.Item) -> NSMenu?)?

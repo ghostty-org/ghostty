@@ -97,6 +97,8 @@ final class GitPopoverSegments: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        NSColor.clear.setFill()
+        dirtyRect.fill(using: .copy)
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
         colors.text.gitOpacity(0.025).setFill()
         shape.fill()
@@ -131,6 +133,7 @@ private final class GitPopoverSegmentButton: NSButton {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        wantsLayer = true
         setButtonType(.momentaryPushIn)
         isBordered = false
         translatesAutoresizingMaskIntoConstraints = false
@@ -179,7 +182,7 @@ private final class GitPopoverSegmentButton: NSButton {
         tracking = area
     }
 
-    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
+    override func mouseEntered(with event: NSEvent) { hovered = NativePointerLocation.contains(self); needsDisplay = true }
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
 
     override func becomeFirstResponder() -> Bool {
@@ -195,6 +198,8 @@ private final class GitPopoverSegmentButton: NSButton {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        NSColor.clear.setFill()
+        dirtyRect.fill(using: .copy)
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 4, yRadius: 4)
         if isSelectedSegment {
             colors.accent.withAlphaComponent(hovered ? 0.22 : 0.13).setFill()

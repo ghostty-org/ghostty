@@ -143,6 +143,7 @@ struct InspectorGitView: View {
                     title: content.repository?.repositoryName ?? "Git",
                     help: content.repository?.worktreePath ?? "",
                     height: 20,
+                    showsHover: false,
                     menu: [
                         .action(GitL10n.text("Copy repository name"), symbol: "doc.on.doc") {
                             InspectorCopyMenu.copy(content.repository?.repositoryName ?? "Git")

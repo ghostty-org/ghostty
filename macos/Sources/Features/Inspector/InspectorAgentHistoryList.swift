@@ -237,6 +237,8 @@ final class InspectorAgentHistoryListController: NSViewController, NSTableViewDa
         func perform() { callback(action) }
     }
 
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { NativeHoverRowView() }
+
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         rows[row].height(for: max(1, scroll.contentSize.width))
@@ -259,6 +261,8 @@ final class InspectorAgentHistoryListController: NSViewController, NSTableViewDa
 }
 
 private final class InspectorAgentSessionTable: NSTableView {
+    private lazy var hover = NativeTableHover(table: self)
+    override func updateTrackingAreas() { super.updateTrackingAreas(); hover.update() }
     var onActivate: (() -> Void)?
     var onDisclosure: ((Bool) -> Void)?
     var contextMenu: ((Int) -> NSMenu?)?

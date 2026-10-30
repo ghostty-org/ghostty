@@ -33,7 +33,7 @@ class GitHoverTableView: InspectorCopyTableView {
         addTrackingArea(area); tracking = area
         updateHoverFromPointer()
     }
-    override func mouseMoved(with event: NSEvent) { setHover(at: convert(event.locationInWindow, from: nil)) }
+    override func mouseMoved(with event: NSEvent) { updateHoverFromPointer() }
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     override func mouseExited(with event: NSEvent) { clearHover() }
     func setHover(at point: NSPoint?) {
@@ -43,8 +43,8 @@ class GitHoverTableView: InspectorCopyTableView {
     }
     func clearHover() { setHover(at: nil) }
     func updateHoverFromPointer() {
-        guard !isHidden, let window, window.isKeyWindow else { clearHover(); return }
-        setHover(at: convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        guard let window, NativePointerLocation.contains(self) else { clearHover(); return }
+        setHover(at: convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil))
     }
     func refreshRowBackgrounds() {
         enumerateAvailableRowViews { view, index in
