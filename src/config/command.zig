@@ -63,6 +63,8 @@ pub const Command = union(enum) {
             break :tag .{ .shell, trimmed };
         };
 
+        if (str.len == 0) return error.ValueRequired;
+
         switch (tag) {
             .shell => {
                 // We have a shell command, so we can just dupe it.
@@ -74,9 +76,9 @@ pub const Command = union(enum) {
                 // We're not shell expanding, so the arguments are naively
                 // split on spaces.
                 var builder: std.ArrayListUnmanaged([:0]const u8) = .empty;
-                var args = std.mem.splitScalar(
+                var args = std.mem.tokenizeScalar(
                     u8,
-                    std.mem.trim(u8, str, " "),
+                    str,
                     ' ',
                 );
                 while (args.next()) |arg| {
@@ -207,6 +209,8 @@ pub const Command = union(enum) {
         try testing.expectError(error.ValueRequired, v.parseCLI(alloc, null));
         try testing.expectError(error.ValueRequired, v.parseCLI(alloc, ""));
         try testing.expectError(error.ValueRequired, v.parseCLI(alloc, " "));
+        try testing.expectError(error.ValueRequired, v.parseCLI(alloc, "direct:"));
+        try testing.expectError(error.ValueRequired, v.parseCLI(alloc, "shell:"));
     }
 
     test "Command: parseCLI shell expanded" {
@@ -245,6 +249,13 @@ pub const Command = union(enum) {
         try testing.expectEqual(v.direct.len, 2);
         try testing.expectEqualStrings(v.direct[0], "echo");
         try testing.expectEqualStrings(v.direct[1], "hello");
+
+        // Repeated spaces between arguments.
+        try v.parseCLI(alloc, "direct:echo   hello");
+        try testing.expect(v == .direct);
+        try testing.expectEqual(@as(usize, 2), v.direct.len);
+        try testing.expectEqualStrings("echo", v.direct[0]);
+        try testing.expectEqualStrings("hello", v.direct[1]);
     }
 
     test "Command: argIterator shell" {

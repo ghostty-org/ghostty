@@ -6482,6 +6482,21 @@ pub const SelectionWordChars = struct {
         try testing.expectEqual(@as(u21, '│'), chars.codepoints[1]);
         try testing.expectEqual(@as(u21, ';'), chars.codepoints[2]);
     }
+
+    test "parseCLI truncated UTF-8" {
+        const testing = std.testing;
+        for ([_][]const u8{
+            "\xc2",
+            "\xe2",
+            "\xe2\x94",
+            "\xf0",
+            "\xf0\x9f",
+            "\xf0\x9f\x98",
+        }) |input| {
+            var chars: Self = .{};
+            try testing.expectError(error.InvalidValue, chars.parseCLI(testing.allocator, input));
+        }
+    }
 };
 
 /// FontVariation is a repeatable configuration value that sets a single

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-14 14:34-0500\n"
+"POT-Creation-Date: 2026-10-28 20:24+0200\n"
 "PO-Revision-Date: 2026-08-19 14:23+0700\n"
 "Last-Translator: Satrio Bayu Aji <halosatrio@gmail.com>\n"
 "Language-Team: Indonesian <translation-team-id@lists.sourceforge.net>\n"
@@ -54,9 +54,9 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
-"Terminal ini sedang dalam model baca-saja. Anda hanya bisa melihat, "
-"memilih, dan menggulir konten, tetapi peristiwa input tidak akan dikirim ke "
-"aplikasi berjalan."
+"Terminal ini sedang dalam model baca-saja. Anda hanya bisa melihat, memilih, "
+"dan menggulir konten, tetapi peristiwa input tidak akan dikirim ke aplikasi "
+"berjalan."
 
 #: src/apprt/gtk/ui/1.0/surface.blp:107
 msgid "Read-only"
@@ -208,8 +208,8 @@ msgid "Quit"
 msgstr "Keluar"
 
 #: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:192
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:196
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:388
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:392
 msgid "Authorize Clipboard Access"
 msgstr "Izinkan Akses Papan Klip"
 
@@ -221,17 +221,17 @@ msgstr "Tolak"
 msgid "Allow"
 msgstr "Izinkan"
 
-#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:91
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:107
 msgid "Remember choice for this split"
 msgstr "Ingat pilihan untuk bagian ini"
 
-#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:92
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:108
 msgid "Reload configuration to show this prompt again"
 msgstr "Muat ulang konfigurasi untuk menampilkan pesan ini lagi"
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2150
+#: src/apprt/gtk/class/application.zig:2152
 msgid "Cancel"
 msgstr "Batal"
 
@@ -263,31 +263,31 @@ msgstr "Biarkan kosong untuk mengembalikan judul bawaan."
 msgid "OK"
 msgstr "OK"
 
-#: src/apprt/gtk/class/application.zig:1735
+#: src/apprt/gtk/class/application.zig:1736
 msgid "The keybind was revoked by the system."
 msgstr "Pemetaan tombol dicabut oleh sistem."
 
-#: src/apprt/gtk/class/application.zig:1737
+#: src/apprt/gtk/class/application.zig:1738
 msgid "The keybind was denied by the system."
 msgstr "Pemetaan tombol ditolak oleh sistem."
 
-#: src/apprt/gtk/class/application.zig:1748
+#: src/apprt/gtk/class/application.zig:1750
 msgid "Global keybind unavailable"
 msgstr "Pemetaan tombol global tidak tersedia"
 
-#: src/apprt/gtk/class/application.zig:2146
+#: src/apprt/gtk/class/application.zig:2148
 msgid "Export Terminal IO Events"
 msgstr "Ekspor Peristiwa IO Terminal"
 
-#: src/apprt/gtk/class/application.zig:2149
+#: src/apprt/gtk/class/application.zig:2151
 msgid "Export"
 msgstr "Ekspor"
 
-#: src/apprt/gtk/class/application.zig:2648
+#: src/apprt/gtk/class/application.zig:2649
 msgid "Editing configuration file"
 msgstr "Mengubah berkas konfigurasi"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:193
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:389
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
@@ -295,7 +295,7 @@ msgstr ""
 "Aplikasi sedang mencoba menulis ke papan klip. Isi papan klip saat ini "
 "ditampilkan di bawah ini."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:393
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
@@ -303,11 +303,11 @@ msgstr ""
 "Aplikasi sedang mencoba membaca dari papan klip. Isi papan klip saat ini "
 "ditampilkan di bawah ini."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:200
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:396
 msgid "Warning: Potentially Unsafe Paste"
 msgstr "Peringatan: Tempelan Berpotensi Tidak Aman"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:397
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
@@ -347,16 +347,24 @@ msgstr "Semua sesi terminal di jendela ini akan diakhiri."
 msgid "The currently running process in this split will be terminated."
 msgstr "Proses yang sedang berjalan dalam bagian ini akan diakhiri."
 
-#: src/apprt/gtk/class/surface.zig:1191
+#: src/apprt/gtk/class/command_palette.zig:693
+msgid "Untitled"
+msgstr ""
+
+#: src/apprt/gtk/class/command_palette.zig:697
+msgid "Focus"
+msgstr ""
+
+#: src/apprt/gtk/class/surface.zig:1206
 msgid "Command Finished"
 msgstr "Perintah Selesai"
 
-#: src/apprt/gtk/class/surface.zig:1192
+#: src/apprt/gtk/class/surface.zig:1207
 #: src/apprt/gtk/class/surface_child_exited.zig:102
 msgid "Command Succeeded"
 msgstr "Perintah Berhasil"
 
-#: src/apprt/gtk/class/surface.zig:1193
+#: src/apprt/gtk/class/surface.zig:1208
 #: src/apprt/gtk/class/surface_child_exited.zig:106
 msgid "Command Failed"
 msgstr "Perintah Gagal"
@@ -377,15 +385,15 @@ msgstr "Ubah Judul Jendela"
 msgid "Reloaded the configuration"
 msgstr "Memuat ulang konfigurasi"
 
-#: src/apprt/gtk/class/window.zig:1886
+#: src/apprt/gtk/class/window.zig:1887
 msgid "Copied to clipboard"
 msgstr "Disalin ke papan klip"
 
-#: src/apprt/gtk/class/window.zig:1888
+#: src/apprt/gtk/class/window.zig:1889
 msgid "Cleared clipboard"
 msgstr "Papan klip dibersihkan"
 
-#: src/apprt/gtk/class/window.zig:2027
+#: src/apprt/gtk/class/window.zig:2028
 msgid "Ghostty Developers"
 msgstr "Pengembang Ghostty"
 
@@ -595,9 +603,7 @@ msgstr "Salin Layar ke Berkas Sementara dan Salin Jalur"
 msgid ""
 "Copy the screen contents to a temporary file and copy the path to the "
 "clipboard."
-msgstr ""
-"Salin isi layar ke berkas sementara dan salin jalurnya ke "
-"papan klip."
+msgstr "Salin isi layar ke berkas sementara dan salin jalurnya ke papan klip."
 
 #: src/input/command.zig:291
 msgid "Copy Screen to Temporary File and Paste Path"
@@ -626,8 +632,8 @@ msgid ""
 "Copy the screen contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
-"Salin isi layar sebagai HTML ke berkas sementara dan salin jalurnya ke "
-"papan klip."
+"Salin isi layar sebagai HTML ke berkas sementara dan salin jalurnya ke papan "
+"klip."
 
 #: src/input/command.zig:313
 msgid "Copy Screen as HTML to Temporary File and Paste Path"
@@ -638,8 +644,8 @@ msgid ""
 "Copy the screen contents as HTML to a temporary file and paste the path to "
 "the file."
 msgstr ""
-"Salin isi layar sebagai HTML ke berkas sementara dan tempel jalur ke "
-"berkas tersebut."
+"Salin isi layar sebagai HTML ke berkas sementara dan tempel jalur ke berkas "
+"tersebut."
 
 #: src/input/command.zig:321
 msgid "Copy Screen as HTML to Temporary File and Open"
@@ -694,8 +700,7 @@ msgid ""
 "Copy the selection contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
-"Salin isi pilihan ke berkas sementara dan salin jalurnya ke "
-"papan klip."
+"Salin isi pilihan ke berkas sementara dan salin jalurnya ke papan klip."
 
 #: src/input/command.zig:359
 msgid "Copy Selection to Temporary File and Paste Path"
@@ -706,8 +711,7 @@ msgid ""
 "Copy the selection contents to a temporary file and paste the path to the "
 "file."
 msgstr ""
-"Salin isi pilihan ke berkas sementara dan tempel jalur ke berkas "
-"tersebut."
+"Salin isi pilihan ke berkas sementara dan tempel jalur ke berkas tersebut."
 
 #: src/input/command.zig:364
 msgid "Copy Selection to Temporary File and Open"
@@ -738,8 +742,8 @@ msgid ""
 "Copy the selection contents as HTML to a temporary file and paste the path "
 "to the file."
 msgstr ""
-"Salin isi pilihan sebagai HTML ke berkas sementara dan tempel jalur "
-"ke berkas tersebut."
+"Salin isi pilihan sebagai HTML ke berkas sementara dan tempel jalur ke "
+"berkas tersebut."
 
 #: src/input/command.zig:389
 msgid "Copy Selection as HTML to Temporary File and Open"
@@ -758,8 +762,8 @@ msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
-"Salin isi pilihan sebagai urutan escape ANSI ke berkas sementara dan "
-"salin jalurnya ke papan klip."
+"Salin isi pilihan sebagai urutan escape ANSI ke berkas sementara dan salin "
+"jalurnya ke papan klip."
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
@@ -987,7 +991,8 @@ msgstr "Buka Konfigurasi dalam Jendela Terminal Baru"
 
 #: src/input/command.zig:594
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
-msgstr "Buka berkas konfigurasi dalam jendela baru menggunakan $EDITOR atau $VISUAL."
+msgstr ""
+"Buka berkas konfigurasi dalam jendela baru menggunakan $EDITOR atau $VISUAL."
 
 #: src/input/command.zig:600
 msgid "Reload Config"
@@ -1120,10 +1125,6 @@ msgstr "Ulangi tindakan yang terakhir diurungkan."
 #: src/input/command.zig:703
 msgid "Quit the application."
 msgstr "Keluar dari aplikasi."
-
-#: src/input/command.zig:708
-msgid "Ghostty"
-msgstr "Ghostty"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."

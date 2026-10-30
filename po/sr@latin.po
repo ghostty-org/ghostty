@@ -11,7 +11,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-14 14:34-0500\n"
+"POT-Creation-Date: 2026-10-28 20:24+0200\n"
 "PO-Revision-Date: 2026-08-31 21:45+0200\n"
 "Last-Translator: Marko Kostić <marko.m.kostic@gmail.com>\n"
 "Language-Team: Language SR\n"
@@ -210,8 +210,8 @@ msgid "Quit"
 msgstr "Izađi"
 
 #: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:192
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:196
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:388
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:392
 msgid "Authorize Clipboard Access"
 msgstr "Odobri pristup ostavi"
 
@@ -223,17 +223,17 @@ msgstr "Odbij"
 msgid "Allow"
 msgstr "Dozvoli"
 
-#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:91
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:107
 msgid "Remember choice for this split"
 msgstr "Zapamti izbor za ovu razdelu"
 
-#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:92
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:108
 msgid "Reload configuration to show this prompt again"
 msgstr "Ponovo učitaj podešavanja da bi se ovaj upit ponovo prikazao"
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2150
+#: src/apprt/gtk/class/application.zig:2152
 msgid "Cancel"
 msgstr "Otkaži"
 
@@ -265,38 +265,38 @@ msgstr "Ostavi prazno da vratiš podrazumevani naslov."
 msgid "OK"
 msgstr "U redu"
 
-#: src/apprt/gtk/class/application.zig:1735
+#: src/apprt/gtk/class/application.zig:1736
 msgid "The keybind was revoked by the system."
 msgstr "Sistem je opozvao prečicu."
 
-#: src/apprt/gtk/class/application.zig:1737
+#: src/apprt/gtk/class/application.zig:1738
 msgid "The keybind was denied by the system."
 msgstr "Sistem je odbio prečicu."
 
-#: src/apprt/gtk/class/application.zig:1748
+#: src/apprt/gtk/class/application.zig:1750
 msgid "Global keybind unavailable"
 msgstr "Globalna prečica nije dostupna"
 
-#: src/apprt/gtk/class/application.zig:2146
+#: src/apprt/gtk/class/application.zig:2148
 msgid "Export Terminal IO Events"
 msgstr "Izvezi događaje ulaza/izlaza terminala"
 
-#: src/apprt/gtk/class/application.zig:2149
+#: src/apprt/gtk/class/application.zig:2151
 msgid "Export"
 msgstr "Izvezi"
 
-#: src/apprt/gtk/class/application.zig:2648
+#: src/apprt/gtk/class/application.zig:2649
 msgid "Editing configuration file"
 msgstr "Uređivanje datoteke sa podešavanjima"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:193
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:389
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
 "Program pokušava da piše u ostavu. Trenutni sadržaj ostave je prikazan ispod."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:393
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
@@ -304,11 +304,11 @@ msgstr ""
 "Program pokušava da čita iz ostave. Trenutni sadržaj ostave je prikazan "
 "ispod."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:200
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:396
 msgid "Warning: Potentially Unsafe Paste"
 msgstr "Upozorenje: potencijalno nebezbedno ubacivanje"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:397
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
@@ -348,16 +348,24 @@ msgstr "Sve sesije terminala u ovom prozoru biće prekinute."
 msgid "The currently running process in this split will be terminated."
 msgstr "Trenutno pokrenut proces u ovoj razdeli biće prekinut."
 
-#: src/apprt/gtk/class/surface.zig:1191
+#: src/apprt/gtk/class/command_palette.zig:693
+msgid "Untitled"
+msgstr ""
+
+#: src/apprt/gtk/class/command_palette.zig:697
+msgid "Focus"
+msgstr ""
+
+#: src/apprt/gtk/class/surface.zig:1206
 msgid "Command Finished"
 msgstr "Naredba je završena"
 
-#: src/apprt/gtk/class/surface.zig:1192
+#: src/apprt/gtk/class/surface.zig:1207
 #: src/apprt/gtk/class/surface_child_exited.zig:102
 msgid "Command Succeeded"
 msgstr "Naredba je uspešno izvršena"
 
-#: src/apprt/gtk/class/surface.zig:1193
+#: src/apprt/gtk/class/surface.zig:1208
 #: src/apprt/gtk/class/surface_child_exited.zig:106
 msgid "Command Failed"
 msgstr "Naredba nije uspela"
@@ -378,15 +386,15 @@ msgstr "Promeni naslov prozora"
 msgid "Reloaded the configuration"
 msgstr "Ponovo učitana podešavanja"
 
-#: src/apprt/gtk/class/window.zig:1886
+#: src/apprt/gtk/class/window.zig:1887
 msgid "Copied to clipboard"
 msgstr "Kopirano u ostavu"
 
-#: src/apprt/gtk/class/window.zig:1888
+#: src/apprt/gtk/class/window.zig:1889
 msgid "Cleared clipboard"
 msgstr "Ostava očišćena"
 
-#: src/apprt/gtk/class/window.zig:2027
+#: src/apprt/gtk/class/window.zig:2028
 msgid "Ghostty Developers"
 msgstr "Programeri Ghostty-ja"
 
@@ -1121,10 +1129,6 @@ msgstr "Ponovi poslednju opozvanu radnju."
 #: src/input/command.zig:703
 msgid "Quit the application."
 msgstr "Izađi iz programa."
-
-#: src/input/command.zig:708
-msgid "Ghostty"
-msgstr "Ghostty"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."

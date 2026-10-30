@@ -9,6 +9,7 @@
 import Testing
 import AppKit
 @testable import Ghostty
+import GhosttyKit
 
 struct NSPasteboardTypeExtensionTests {
     /// Test text/plain MIME type converts to .string
@@ -33,37 +34,38 @@ struct NSPasteboardTypeExtensionTests {
     }
 }
 
+// MARK: - Test Helpers
+
+/// Creates a uniquely-named pasteboard so tests never touch the user's
+/// general pasteboard and can run concurrently.
+private func makePasteboard() -> NSPasteboard {
+    let pasteboard = NSPasteboard(name: .init("test-\(UUID().uuidString)"))
+    pasteboard.clearContents()
+    return pasteboard
+}
+
+/// Builds an item carrying a plain string (public.utf8-plain-text).
+private func stringItem(_ string: String) -> NSPasteboardItem {
+    let item = NSPasteboardItem()
+    item.setString(string, forType: .string)
+    return item
+}
+
+/// Builds an item carrying a file URL (public.file-url). The string stored on
+/// the pasteboard is the URL string form, e.g. "file:///Users/test%20file.txt",
+/// which is exactly what AppKit registers when a file URL is copied.
+private func fileURLItem(_ urlString: String) -> NSPasteboardItem {
+    let item = NSPasteboardItem()
+    item.setString(urlString, forType: .fileURL)
+    return item
+}
+
 /// Tests for `NSPasteboard.getOpinionatedStringContents`, which per its documented
 /// semantics must, for each pasteboard item:
 /// - prefer the absolute filesystem path of a file URL, shell-escaped,
 /// - otherwise fall back to any plain string on the item,
 /// and return nil when nothing usable is found. Multiple results join with a space.
 struct NSPasteboardOpinionatedContentsTests {
-    // MARK: - Test Helpers
-
-    /// Creates a uniquely-named pasteboard so tests never touch the user's
-    /// general pasteboard and can run concurrently.
-    private func makePasteboard() -> NSPasteboard {
-        let pasteboard = NSPasteboard(name: .init("test-\(UUID().uuidString)"))
-        pasteboard.clearContents()
-        return pasteboard
-    }
-
-    /// Builds an item carrying a plain string (public.utf8-plain-text).
-    private func stringItem(_ string: String) -> NSPasteboardItem {
-        let item = NSPasteboardItem()
-        item.setString(string, forType: .string)
-        return item
-    }
-
-    /// Builds an item carrying a file URL (public.file-url). The string stored on
-    /// the pasteboard is the URL string form, e.g. "file:///Users/test%20file.txt",
-    /// which is exactly what AppKit registers when a file URL is copied.
-    private func fileURLItem(_ urlString: String) -> NSPasteboardItem {
-        let item = NSPasteboardItem()
-        item.setString(urlString, forType: .fileURL)
-        return item
-    }
 
     // MARK: - Plain String Contents
 
@@ -251,5 +253,88 @@ struct NSPasteboardOpinionatedContentsTests {
         pasteboard.writeObjects([item])
 
         #expect(pasteboard.getOpinionatedStringContents() == nil)
+    }
+}
+
+struct NSPasteboardGhosttyDataTests {
+    // MARK: - Plain Texts
+
+    @Test func testTextPlainMimeTypeNoStringReturnsNil() {
+        let pasteboard = makePasteboard()
+        #expect(pasteboard.ghosttyData(forMime: "text/plain") == nil)
+    }
+
+    @Test func testTextPlainMimeTypeReturnsData() {
+        let pasteboard = makePasteboard()
+        let text = "hello world"
+        pasteboard.writeObjects([stringItem(text)])
+
+        #expect(pasteboard.ghosttyData(forMime: "text/plain") == text.data(using: .utf8))
+    }
+
+    // MARK: - Text URI List
+
+    @Test func testTextURIListNoFileURLsReturnsNil() {
+        let pasteboard = makePasteboard()
+        #expect(pasteboard.ghosttyData(forMime: "text/uri-list") == nil)
+    }
+
+    @Test func testTextURIListReturnsData() {
+        let pasteboard = makePasteboard()
+        let fileURLs = "file:///Users/test/a.txt\r\nfile:///Users/test/b.txt\r\n"
+        pasteboard.writeObjects([
+            fileURLItem("file:///Users/test/a.txt"),
+            fileURLItem("file:///Users/test/b.txt"),
+        ])
+
+        #expect(pasteboard.ghosttyData(forMime: "text/uri-list") == fileURLs.data(using: .utf8))
+    }
+
+    // MARK: - Other MIME types
+
+    @Test func testImagePNGMIMETypeReturnsData() {
+        let pasteboard = makePasteboard()
+        let imageData = Data([0x89, 0x50, 0x4e, 0x47])
+        let item = NSPasteboardItem()
+        item.setData(imageData, forType: .png)
+        pasteboard.writeObjects([item])
+
+        #expect(pasteboard.ghosttyData(forMime: "image/png") == imageData)
+    }
+}
+
+struct NSPasteboardGhosttyAvailableMimesTests {
+    @Test func testWithMultipleTypesReturnsAvailableTypes() {
+        let pasteboard = makePasteboard()
+        let imageData = Data([0x89, 0x50, 0x4e, 0x47])
+        let item = NSPasteboardItem()
+        item.setData(imageData, forType: .png)
+
+        pasteboard.writeObjects([
+            fileURLItem("file:///Users/test/a.txt"),
+            fileURLItem("file:///Users/test/b.txt"),
+            item,
+        ])
+
+        #expect(pasteboard.ghosttyAvailableMimes() == ["text/plain", "text/uri-list", "image/png", "image/tiff"])
+    }
+}
+
+struct NSPasteboardGhosttyTests {
+    @Test func testStandardClipboardReturnsGeneralPasteboard() {
+        #expect(NSPasteboard.ghostty(GHOSTTY_CLIPBOARD_STANDARD) === NSPasteboard.general)
+    }
+
+    @Test func testSelectionClipboardReturnsGhosttySelectionPasteboard() {
+        #expect(NSPasteboard.ghostty(GHOSTTY_CLIPBOARD_SELECTION) === NSPasteboard.ghosttySelection)
+    }
+
+    @Test func testPrimaryClipboardReturnsNil() {
+        #expect(NSPasteboard.ghostty(GHOSTTY_CLIPBOARD_PRIMARY) == nil)
+    }
+
+    @Test func testUnknownClipboardReturnsNil() {
+        let unknown = ghostty_clipboard_e(rawValue: 999)
+        #expect(NSPasteboard.ghostty(unknown) == nil)
     }
 }

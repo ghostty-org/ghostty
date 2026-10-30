@@ -640,6 +640,8 @@ pub const Handler = struct {
                 self.terminal.carriageReturn();
             },
             .reverse_index => self.terminal.reverseIndex(),
+            .back_index => self.terminal.backIndex(),
+            .forward_index => self.terminal.forwardIndex(),
             .cursor_up => self.terminal.cursorUp(value.value),
             .cursor_down => self.terminal.cursorDown(value.value),
             .cursor_left => self.terminal.cursorLeft(value.value),
@@ -663,6 +665,8 @@ pub const Handler = struct {
             .erase_chars => self.terminal.eraseChars(value),
             .insert_lines => self.terminal.insertLines(value),
             .insert_blanks => self.terminal.insertBlanks(value),
+            .insert_columns => self.terminal.insertColumns(value),
+            .delete_columns => self.terminal.deleteColumns(value),
             .delete_lines => self.terminal.deleteLines(value),
             .scroll_up => try self.terminal.scrollUp(value),
             .scroll_down => self.terminal.scrollDown(value),

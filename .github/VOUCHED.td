@@ -87,6 +87,7 @@ charliie-dev
 chernetskyi
 chronologos
 clemg
+clinta
 cmwetherell
 complexsplit
 crayxt
@@ -190,6 +191,7 @@ jamylak
 jarred-sumner
 jcollie
 jesusvazquez
+jglanz
 jguthmiller
 jmcgover
 jmr
@@ -339,8 +341,10 @@ rmengelbrecht
 rmunn
 robmorgan
 rockorager
+romen
 ronijacobson
 rpfaeffle
+rtgibbons
 ruoyouz
 ruseel
 sahilkmishra
@@ -376,6 +380,7 @@ thomasfedb
 thoutbeckers
 ticclick
 tnagatomi
+tonypapousek
 toppk
 tothedarktowercame
 trag1c

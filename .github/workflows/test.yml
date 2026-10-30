@@ -83,6 +83,7 @@ jobs:
     runs-on: namespace-profile-ghostty-xsm
     needs:
       - skip
+      - build-gate
       - build-bench
       - build-dist
       - build-dist-lib-vt
@@ -102,7 +103,8 @@ jobs:
       - build-libghostty-vt-windows
       - build-linux
       - build-linux-libghostty
-      - build-nix
+      - build-nix-ghostty
+      - build-nix-lib-vt
       # - build-nix-macos
       - build-macos
       - build-macos-xcode-27
@@ -129,6 +131,7 @@ jobs:
       - blueprint-compiler
       - test-pkg-linux
       - test-debian-13
+      - test-dist
       - valgrind
       - zig-fmt
 
@@ -155,7 +158,7 @@ jobs:
   build-bench:
     # We build benchmarks on large because it uses fast mode
     runs-on: namespace-profile-ghostty-lg
-    needs: test
+    needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -213,7 +216,8 @@ jobs:
         dir: ${{ fromJSON(needs.list-examples.outputs.zig) }}
     name: Example ${{ matrix.dir }}
     runs-on: namespace-profile-ghostty-xsm
-    needs: [test, list-examples]
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: [skip, list-examples]
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -245,7 +249,8 @@ jobs:
   build-example-zig-vt-macos-no-sdk:
     name: Example zig-vt (macOS, no SDK)
     runs-on: namespace-profile-ghostty-macos-golden
-    needs: test
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
     env:
       ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
@@ -262,7 +267,7 @@ jobs:
             /Users/runner/zig
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
           determinate: true
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
@@ -281,7 +286,8 @@ jobs:
         dir: ${{ fromJSON(needs.list-examples.outputs.cmake) }}
     name: Example ${{ matrix.dir }}
     runs-on: namespace-profile-ghostty-xsm
-    needs: [test, list-examples]
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: [skip, list-examples]
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -324,7 +330,8 @@ jobs:
     name: Example ${{ matrix.dir }} (Windows)
     runs-on: namespace-profile-ghostty-windows
     timeout-minutes: 45
-    needs: [test, list-examples]
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: [skip, list-examples]
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -346,7 +353,8 @@ jobs:
         dir: ${{ fromJSON(needs.list-examples.outputs.swift) }}
     name: Example ${{ matrix.dir }}
     runs-on: namespace-profile-ghostty-macos-golden
-    needs: [test, list-examples]
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: [skip, list-examples]
     env:
       ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
@@ -363,7 +371,7 @@ jobs:
             /Users/runner/zig
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
           determinate: true
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
@@ -387,7 +395,8 @@ jobs:
 
   build-cmake:
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -425,7 +434,8 @@ jobs:
 
   test-lib-vt-pkgconfig:
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -542,7 +552,8 @@ jobs:
     strategy:
       fail-fast: false
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -576,7 +587,8 @@ jobs:
     strategy:
       fail-fast: false
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -622,7 +634,8 @@ jobs:
             # x86_64-windows-msvc
           ]
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -660,7 +673,8 @@ jobs:
           - target: thumb-freestanding-eabi
             cpu: cortex_m4
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -692,7 +706,8 @@ jobs:
 
   build-libghostty-vt-wasm:
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -783,7 +798,7 @@ jobs:
   # don't regress any feature combination.
   build-libghostty-vt-features:
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -847,7 +862,8 @@ jobs:
             arch: arm64
             expect_encryption: false
     runs-on: namespace-profile-ghostty-macos-golden
-    needs: test
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
     env:
       ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
@@ -864,7 +880,7 @@ jobs:
             /Users/runner/zig
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
           determinate: true
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
@@ -895,7 +911,8 @@ jobs:
         target:
           [aarch64-linux-android, x86_64-linux-android, arm-linux-androideabi]
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -939,7 +956,7 @@ jobs:
   build-libghostty-vt-windows:
     runs-on: namespace-profile-ghostty-windows
     timeout-minutes: 45
-    needs: test
+    needs: build-gate
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -982,13 +999,10 @@ jobs:
           "exit code: 0x{0:X8}" -f $code
           exit $code
 
+  # The x86_64 build is build-gate.
   build-linux:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [namespace-profile-ghostty-md, namespace-profile-ghostty-md-arm64]
-    runs-on: ${{ matrix.os }}
-    needs: test
+    runs-on: namespace-profile-ghostty-md-arm64
+    needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -1017,7 +1031,8 @@ jobs:
 
   build-linux-libghostty:
     runs-on: namespace-profile-ghostty-md
-    needs: test
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -1044,13 +1059,23 @@ jobs:
       - name: Build Libghostty
         run: nix develop -c zig build -Dapp-runtime=none
 
-  build-nix:
+  build-nix-ghostty:
     strategy:
       fail-fast: false
       matrix:
         os: [namespace-profile-ghostty-md, namespace-profile-ghostty-md-arm64]
+        variant:
+          - optimize: releasefast
+            version: ".fast"
+            # Release builds must be stripped.
+            symbols: "no symbols"
+          - optimize: debug
+            version: ".debug"
+            # Debug builds must not be stripped.
+            symbols: "main_ghostty.main"
+    name: build-nix ghostty-${{ matrix.variant.optimize }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    needs: test
+    needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -1064,6 +1089,7 @@ jobs:
           path: |
             /nix
             /zig
+            /home/runner/.cache/nix
 
       # Install Nix and use that to run our tests so our environment matches exactly.
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
@@ -1074,63 +1100,69 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-      - name: Test release NixOS package build
-        run: nix build .#ghostty-releasefast
+      - name: Test NixOS package build
+        run: nix build .#ghostty-${{ matrix.variant.optimize }}
 
       - name: Check version
-        run: result/bin/ghostty +version | grep -q '.fast'
+        run: result/bin/ghostty +version | grep -q '${{ matrix.variant.version }}'
 
-      - name: Check to see if the binary has been stripped
-        run: nm result/bin/.ghostty-wrapped 2>&1 | grep -q 'no symbols'
+      - name: Check symbols
+        run: nm result/bin/.ghostty-wrapped 2>&1 | grep -q '${{ matrix.variant.symbols }}'
 
-      - name: Test debug NixOS package build
-        run: nix build .#ghostty-debug
+  build-nix-lib-vt:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [namespace-profile-ghostty-md, namespace-profile-ghostty-md-arm64]
+        variant:
+          - releasefast
+          - releasefast-no-simd
+          - debug
+          - debug-no-simd
+    name: build-nix libghostty-vt-${{ matrix.variant }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: build-gate
+    env:
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Check version
-        run: result/bin/ghostty +version | grep -q '.debug'
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+            /zig
+            /home/runner/.cache/nix
 
-      - name: Check to see if the binary has not been stripped
-        run: nm result/bin/.ghostty-wrapped 2>&1 | grep -q 'main_ghostty.main'
+      # Install Nix and use that to run our tests so our environment matches exactly.
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-      - name: Test fast build of libghostty-vt
+      # One invocation so the flake is evaluated once and the test
+      # derivations build in parallel.
+      - name: Test libghostty-vt build
+        env:
+          PKG: libghostty-vt-${{ matrix.variant }}
         run: |
-          nix build .#libghostty-vt-releasefast
-          nix build .#libghostty-vt-releasefast.tests.sanity-check
-          nix build .#libghostty-vt-releasefast.tests.pkg-config
-          nix build .#libghostty-vt-releasefast.tests.build-with-shared
-          nix build .#libghostty-vt-releasefast.tests.build-with-static
-          nix build .#libghostty-vt-releasefast.tests.build-example-c-vt-build-info
-
-      - name: Test fast (no SIMD) build of libghostty-vt
-        run: |
-          nix build .#libghostty-vt-releasefast-no-simd
-          nix build .#libghostty-vt-releasefast-no-simd.tests.sanity-check
-          nix build .#libghostty-vt-releasefast-no-simd.tests.pkg-config
-          nix build .#libghostty-vt-releasefast-no-simd.tests.build-with-shared
-          nix build .#libghostty-vt-releasefast-no-simd.tests.build-with-static
-          nix build .#libghostty-vt-releasefast-no-simd.tests.build-example-c-vt-build-info
-
-      - name: Test debug build of libghostty-vt
-        run: |
-          nix build .#libghostty-vt-debug
-          nix build .#libghostty-vt-debug.tests.sanity-check
-          nix build .#libghostty-vt-debug.tests.pkg-config
-          nix build .#libghostty-vt-debug.tests.build-with-shared
-          nix build .#libghostty-vt-debug.tests.build-with-static
-          nix build .#libghostty-vt-debug.tests.build-example-c-vt-build-info
-
-      - name: Test debug (no SIMD) build of libghostty-vt
-        run: |
-          nix build .#libghostty-vt-debug-no-simd
-          nix build .#libghostty-vt-debug-no-simd.tests.sanity-check
-          nix build .#libghostty-vt-debug-no-simd.tests.pkg-config
-          nix build .#libghostty-vt-debug-no-simd.tests.build-with-shared
-          nix build .#libghostty-vt-debug-no-simd.tests.build-with-static
-          nix build .#libghostty-vt-debug-no-simd.tests.build-example-c-vt-build-info
+          nix build \
+            ".#$PKG" \
+            ".#$PKG.tests.sanity-check" \
+            ".#$PKG.tests.pkg-config" \
+            ".#$PKG.tests.build-with-shared" \
+            ".#$PKG.tests.build-with-static" \
+            ".#$PKG.tests.build-example-c-vt-build-info"
 
   build-dist:
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    needs: build-gate
     outputs:
       artifact-id: ${{ steps.upload-artifact.outputs.artifact-id }}
     env:
@@ -1156,10 +1188,10 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-      - name: Build and Check Source Tarball
+      - name: Build Source Tarball
         run: |
           rm -rf zig-out/dist
-          nix develop -c zig build distcheck
+          nix develop -c zig build dist
           cp zig-out/dist/*.tar.gz ghostty-source.tar.gz
 
       - name: Upload artifact
@@ -1170,9 +1202,40 @@ jobs:
           path: |-
             ghostty-source.tar.gz
 
+  # Builds the tarball again and runs the tests from inside it. build-dist
+  # only builds the tarball so the jobs that use it don't wait on this.
+  test-dist:
+    runs-on: namespace-profile-ghostty-md
+    needs: build-gate
+    env:
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+            /zig
+
+      # Install Nix and use that to run our tests so our environment matches exactly.
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Check Source Tarball
+        run: nix develop -c zig build distcheck
+
   build-dist-lib-vt:
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -1250,7 +1313,7 @@ jobs:
 
   # build-nix-macos:
   #   runs-on: namespace-profile-ghostty-macos-golden
-  #   needs: test
+  #   needs: build-gate
   #   steps:
   #     - name: Checkout code
   #       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1302,7 +1365,7 @@ jobs:
 
   build-macos:
     runs-on: namespace-profile-ghostty-macos-golden
-    needs: test
+    needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
@@ -1319,7 +1382,7 @@ jobs:
             /Users/runner/zig
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
           determinate: true
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
@@ -1354,7 +1417,7 @@ jobs:
 
   build-macos-xcode-27:
     runs-on: namespace-profile-ghostty-macos-golden
-    needs: test
+    needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
@@ -1371,7 +1434,7 @@ jobs:
             /Users/runner/zig
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
           determinate: true
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
@@ -1394,7 +1457,7 @@ jobs:
 
   build-macos-freetype:
     runs-on: namespace-profile-ghostty-macos-golden
-    needs: test
+    needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
@@ -1411,7 +1474,7 @@ jobs:
             /Users/runner/zig
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
           determinate: true
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
@@ -1439,12 +1502,13 @@ jobs:
         run: |
           nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_freetype
 
-  test:
+  # A quick x86_64 Linux build that expensive jobs wait on so we don't
+  # pay for them when Ghostty doesn't even compile. Cheap jobs only
+  # need skip. This also serves as our x86_64 Linux build check.
+  build-gate:
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
     needs: skip
     runs-on: namespace-profile-ghostty-md
-    outputs:
-      zig_version: ${{ steps.zig.outputs.version }}
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -1452,10 +1516,35 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Get required Zig version
-        id: zig
-        run: |
-          echo "version=$(sed -n -E 's/^\s*\.?minimum_zig_version\s*=\s*"([^"]+)".*/\1/p' build.zig.zon)" >> $GITHUB_OUTPUT
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+            /zig
+
+      # Install Nix and use that to run our tests so our environment matches exactly.
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Test Build
+        run: nix develop -c zig build
+
+  test:
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
+    runs-on: namespace-profile-ghostty-md
+    env:
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Cache
         uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
@@ -1725,7 +1814,7 @@ jobs:
         wayland: ["true", "false"]
     name: GTK x11=${{ matrix.x11 }} wayland=${{ matrix.wayland }}
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -1749,7 +1838,11 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      # The x11 and wayland options only change which windowing code is
+      # compiled and none of it has unit tests, so the full suite runs once
+      # in the default configuration. The other legs are build-only.
       - name: Test
+        if: matrix.x11 == 'true' && matrix.wayland == 'true'
         run: |
           nix develop -c \
             zig build \
@@ -1770,10 +1863,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        simd: ["true", "false"]
-    name: Build -Dsimd=${{ matrix.simd }}
+        # -Dsimd=true is the default, which the GTK tests already cover.
+        simd: ["false"]
+    name: Test -Dsimd=${{ matrix.simd }}
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -1808,7 +1902,7 @@ jobs:
         sentry: ["true", "false"]
     name: Build -Dsentry=${{ matrix.sentry }}
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -1838,7 +1932,7 @@ jobs:
 
   test-macos:
     runs-on: namespace-profile-ghostty-macos-golden
-    needs: test
+    needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
@@ -1855,7 +1949,7 @@ jobs:
             /Users/runner/zig
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
           determinate: true
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
@@ -1883,7 +1977,7 @@ jobs:
         i18n: ["true", "false"]
     name: Build -Di18n=${{ matrix.i18n }}
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -1914,7 +2008,8 @@ jobs:
   test-fuzz-libghostty:
     name: Build test/fuzz-libghostty
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -2051,7 +2146,7 @@ jobs:
             /Users/runner/zig
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
           determinate: true
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
@@ -2222,7 +2317,8 @@ jobs:
           - pkg: wuffs
     name: Test pkg/${{ matrix.pkg }} ${{ matrix.args }}
     runs-on: namespace-profile-ghostty-sm
-    needs: test
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -2254,7 +2350,7 @@ jobs:
     name: Test build on Debian 13
     runs-on: namespace-profile-ghostty-sm
     timeout-minutes: 10
-    needs: [test, build-dist]
+    needs: build-dist
     steps:
       - name: Install and configure Namespace CLI
         uses: namespacelabs/nscloud-setup@df198f982fcecfb8264bea3f1274b56a61b6dfdc # v0.0.12
@@ -2284,7 +2380,7 @@ jobs:
     if: github.repository == 'ghostty-org/ghostty'
     runs-on: namespace-profile-ghostty-lg
     timeout-minutes: 30
-    needs: test
+    needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -2316,63 +2412,3 @@ jobs:
       - name: valgrind
         run: |
           nix develop -c zig build test-valgrind
-
-  # build-freebsd:
-  #   name: Build on FreeBSD
-  #   needs: test
-  #   runs-on: namespace-profile-mitchellh-sm-systemd
-  #   strategy:
-  #     matrix:
-  #       release:
-  #         - "14.3"
-  #         - "15.0"
-  #   timeout-minutes: 10
-  #   steps:
-  #     - name: Checkout Ghostty
-  #       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-  #
-  #     - name: Start SSH
-  #       run: |
-  #         sudo systemctl start ssh
-  #
-  #     - name: Set up FreeBSD VM
-  #       uses: vmactions/freebsd-vm@487ce35b96fae3e60d45b521735f5aa436ecfade # v1.2.4
-  #       with:
-  #         release: ${{ matrix.release }}
-  #         copyback: false
-  #         usesh: true
-  #         prepare: |
-  #           pkg install -y \
-  #             devel/blueprint-compiler \
-  #             devel/gettext \
-  #             devel/git \
-  #             devel/pkgconf \
-  #             ftp/curl \
-  #             graphics/wayland \
-  #             security/ca_root_nss \
-  #             textproc/hs-pandoc \
-  #             x11-fonts/jetbrains-mono \
-  #             x11-toolkits/libadwaita \
-  #             x11-toolkits/gtk40 \
-  #             x11-toolkits/gtk4-layer-shell
-  #           curl -L -o /tmp/zig.tar.xz "https://ziglang.org/download/${{ needs.test.outputs.zig_version }}/zig-x86_64-freebsd-${{ needs.test.outputs.zig_version }}.tar.xz" && \
-  #             mkdir /opt && \
-  #             tar -xf /tmp/zig.tar.xz -C /opt && \
-  #             rm /tmp/zig.tar.xz && \
-  #             ln -s "/opt/zig-x86_64-freebsd-${{ needs.test.outputs.zig_version }}/zig" /usr/local/bin/zig
-  #
-  #         run: |
-  #           zig env
-  #
-  #     - name: Run tests
-  #       shell: freebsd {0}
-  #       run: |
-  #         cd $GITHUB_WORKSPACE
-  #         zig build test
-  #
-  #     - name: Build GTK app runtime
-  #       shell: freebsd {0}
-  #       run: |
-  #         cd $GITHUB_WORKSPACE
-  #         zig build
-  #         ./zig-out/bin/ghostty +version

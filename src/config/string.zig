@@ -69,6 +69,8 @@ pub const CodepointIterator = struct {
             else => |start| {
                 const cp_len = std.unicode.utf8ByteSequenceLength(start) catch
                     return error.InvalidString;
+                if (cp_len > self.bytes.len - self.i) return error.InvalidString;
+
                 defer self.i += cp_len;
                 return std.unicode.utf8Decode(self.bytes[self.i..][0..cp_len]) catch
                     return error.InvalidString;
@@ -158,5 +160,31 @@ test "codepointIterator: unicode escape" {
 test "codepointIterator: emoji unicode escape" {
     var it = codepointIterator("\\u{1F601}");
     try std.testing.expectEqual(@as(u21, 0x1F601), (try it.next()).?);
+    try std.testing.expectEqual(null, try it.next());
+}
+
+test "codepointIterator: truncated UTF-8" {
+    for ([_][]const u8{
+        "\xc2",
+        "\xe2",
+        "\xe2\x94",
+        "\xf0",
+        "\xf0\x9f",
+        "\xf0\x9f\x98",
+    }) |bytes| {
+        var it = codepointIterator(bytes);
+        try std.testing.expectError(error.InvalidString, it.next());
+    }
+}
+
+test "codepointIterator: truncated UTF-8 after valid prefix" {
+    var it = codepointIterator("a\xc2");
+    try std.testing.expectEqual(@as(u21, 'a'), (try it.next()).?);
+    try std.testing.expectError(error.InvalidString, it.next());
+}
+
+test "codepointIterator: valid two-byte UTF-8 at end" {
+    var it = codepointIterator("\xc2\x80");
+    try std.testing.expectEqual(@as(u21, 0x80), (try it.next()).?);
     try std.testing.expectEqual(null, try it.next());
 }

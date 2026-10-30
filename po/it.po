@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-14 14:34-0500\n"
+"POT-Creation-Date: 2026-10-28 20:24+0200\n"
 "PO-Revision-Date: 2026-09-12 18:00+0200\n"
 "Last-Translator: Giacomo Bettini <giaco.bettini@gmail.com>\n"
 "Language-Team: Italian <tp@lists.linux.it>\n"
@@ -208,8 +208,8 @@ msgid "Quit"
 msgstr "Chiudi"
 
 #: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:192
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:196
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:388
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:392
 msgid "Authorize Clipboard Access"
 msgstr "Consenti accesso agli Appunti"
 
@@ -221,18 +221,18 @@ msgstr "Non consentire"
 msgid "Allow"
 msgstr "Consenti"
 
-#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:91
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:107
 msgid "Remember choice for this split"
 msgstr "Ricorda scelta per questo riquadro"
 
-#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:92
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:108
 msgid "Reload configuration to show this prompt again"
 msgstr ""
 "Ricarica la configurazione per visualizzare nuovamente questo messaggio"
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2150
+#: src/apprt/gtk/class/application.zig:2152
 msgid "Cancel"
 msgstr "Annulla"
 
@@ -264,31 +264,31 @@ msgstr "Lasciare vuoto per ripristinare il titolo predefinito."
 msgid "OK"
 msgstr "OK"
 
-#: src/apprt/gtk/class/application.zig:1735
+#: src/apprt/gtk/class/application.zig:1736
 msgid "The keybind was revoked by the system."
 msgstr "La scorciatoia è stata revocata dal sistema."
 
-#: src/apprt/gtk/class/application.zig:1737
+#: src/apprt/gtk/class/application.zig:1738
 msgid "The keybind was denied by the system."
 msgstr "La scorciatoia è stata negata dal sistema."
 
-#: src/apprt/gtk/class/application.zig:1748
+#: src/apprt/gtk/class/application.zig:1750
 msgid "Global keybind unavailable"
 msgstr "Scorciatoia globale non disponibile."
 
-#: src/apprt/gtk/class/application.zig:2146
+#: src/apprt/gtk/class/application.zig:2148
 msgid "Export Terminal IO Events"
 msgstr "Esporta eventi di I/O del terminale"
 
-#: src/apprt/gtk/class/application.zig:2149
+#: src/apprt/gtk/class/application.zig:2151
 msgid "Export"
 msgstr "Esporta"
 
-#: src/apprt/gtk/class/application.zig:2648
+#: src/apprt/gtk/class/application.zig:2649
 msgid "Editing configuration file"
 msgstr "Modificando il file di configurazione"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:193
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:389
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
@@ -296,7 +296,7 @@ msgstr ""
 "Un'applicazione sta cercando di scrivere negli Appunti. Il contenuto attuale "
 "degli Appunti è mostrato di seguito."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:393
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
@@ -304,11 +304,11 @@ msgstr ""
 "Un'applicazione sta cercando di leggere dagli Appunti. Il contenuto attuale "
 "degli Appunti è mostrato di seguito."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:200
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:396
 msgid "Warning: Potentially Unsafe Paste"
 msgstr "Attenzione: Incolla potenzialmente pericoloso"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:397
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
@@ -349,16 +349,24 @@ msgid "The currently running process in this split will be terminated."
 msgstr ""
 "Il processo attualmente in esecuzione in questo riquadro sarà terminato."
 
-#: src/apprt/gtk/class/surface.zig:1191
+#: src/apprt/gtk/class/command_palette.zig:693
+msgid "Untitled"
+msgstr ""
+
+#: src/apprt/gtk/class/command_palette.zig:697
+msgid "Focus"
+msgstr ""
+
+#: src/apprt/gtk/class/surface.zig:1206
 msgid "Command Finished"
 msgstr "Comando terminato"
 
-#: src/apprt/gtk/class/surface.zig:1192
+#: src/apprt/gtk/class/surface.zig:1207
 #: src/apprt/gtk/class/surface_child_exited.zig:102
 msgid "Command Succeeded"
 msgstr "Comando riuscito"
 
-#: src/apprt/gtk/class/surface.zig:1193
+#: src/apprt/gtk/class/surface.zig:1208
 #: src/apprt/gtk/class/surface_child_exited.zig:106
 msgid "Command Failed"
 msgstr "Comando fallito"
@@ -379,15 +387,15 @@ msgstr "Cambia titolo della finestra"
 msgid "Reloaded the configuration"
 msgstr "Configurazione ricaricata"
 
-#: src/apprt/gtk/class/window.zig:1886
+#: src/apprt/gtk/class/window.zig:1887
 msgid "Copied to clipboard"
 msgstr "Copiato negli Appunti"
 
-#: src/apprt/gtk/class/window.zig:1888
+#: src/apprt/gtk/class/window.zig:1889
 msgid "Cleared clipboard"
 msgstr "Appunti svuotati"
 
-#: src/apprt/gtk/class/window.zig:2027
+#: src/apprt/gtk/class/window.zig:2028
 msgid "Ghostty Developers"
 msgstr "Sviluppatori di Ghostty"
 
@@ -1137,10 +1145,6 @@ msgstr "Ripristina l'ultima azione annullata."
 #: src/input/command.zig:703
 msgid "Quit the application."
 msgstr "Chiudi l'applicazione."
-
-#: src/input/command.zig:708
-msgid "Ghostty"
-msgstr "Ghostty"
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."

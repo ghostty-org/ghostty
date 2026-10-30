@@ -1,5 +1,5 @@
 name: ghostty
-base: core24
+base: core26
 summary: A terminal emulator
 description: |
   Ghostty is a fast, feature-rich, and cross-platform terminal emulator that
@@ -49,10 +49,13 @@ parts:
         *)      arch=""     ;;
       esac
 
+      # Keep in sync with minimum_zig_version in build.zig.zon
+      zig_version=0.17.0
+
       rm -rf $CRAFT_PART_SRC/*
 
       if [[ -n $arch ]]; then
-        curl -LO --retry-connrefused --retry 10 https://ziglang.org/download/0.16.0/zig-$arch-linux-0.16.0.tar.xz
+        curl -LO --retry-connrefused --retry 10 https://ziglang.org/download/$zig_version/zig-$arch-linux-$zig_version.tar.xz
       else
         echo "Unsupported arch"
         exit 1
@@ -74,6 +77,7 @@ parts:
     build-attributes: [enable-patchelf]
     build-packages:
       - libgtk-4-dev
+      - libgtk4-layer-shell-dev
       - libadwaita-1-dev
       - libxml2-utils
       - git
@@ -85,15 +89,21 @@ parts:
       - libharfbuzz-dev
       - libpng-dev
       - zlib1g-dev
-    # TODO: Remove -fno-sys=gtk4-layer-shell when we upgrade to a version that packages it Ubuntu 24.10+
     override-build: |
       craftctl set version=$(cat VERSION)
+
+      # We link -lbzip2 but Ubuntu only ships libbz2.so. Same workaround as
+      # bzip2-redirect in flatpak/dependencies.yml.
+      mkdir -p bzip2-redirect/lib
+      echo 'INPUT(libbz2.so)' > bzip2-redirect/lib/libbzip2.so
+
       $CRAFT_PART_SRC/../../zig/src/zig build \
+        --search-prefix $PWD/bzip2-redirect \
         -Dsnap \
-        -Dpatch-rpath=\$ORIGIN/../usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:/snap/core24/current/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR \
+        -Dpatch-rpath=\$ORIGIN/../usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:/snap/core26/current/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR \
         -Doptimize=ReleaseFast \
         -Dcpu=baseline \
-        -fno-sys=gtk4-layer-shell \
+        -fsys=gtk4-layer-shell \
         -fsys=freetype \
         -fsys=fontconfig \
         -fsys=harfbuzz \
@@ -109,14 +119,17 @@ parts:
       - libadwaita-1-0
       - libglib2.0-0t64
       - libgtk-4-1
-      - libgtk-4-media-gstreamer
+      - libgtk4-layer-shell0
+      - gstreamer1.0-plugins-base
+      - gstreamer1.0-plugins-good
+      - gstreamer1.0-pulseaudio
       - ibus-gtk4
       - libpciaccess0
       - libtinfo6
       - libedit2
       - libelf1t64
       - libsensors5
-      - libllvm17
+      - libllvm21
       - libunistring5
       - librsvg2-2
       - librsvg2-common

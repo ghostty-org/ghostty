@@ -182,13 +182,13 @@ pub fn next(self: *CommaSplitter) Error!?[]const u8 {
                             self.index += 1;
                             unicodeescape_digits += 1;
                             unicodeescape_value <<= 4;
-                            unicodeescape_value += d - 'a';
+                            unicodeescape_value += d - 'a' + 10;
                         },
                         'A'...'F' => |d| {
                             self.index += 1;
                             unicodeescape_digits += 1;
                             unicodeescape_value <<= 4;
-                            unicodeescape_value += d - 'A';
+                            unicodeescape_value += d - 'A' + 10;
                         },
                         else => return error.IllegalEscape,
                     }
@@ -443,6 +443,40 @@ test "splitter 25" {
 
     var s: CommaSplitter = .init("a,\\u{10,df}");
     try testing.expectEqualStrings("a", (try s.next()).?);
+    try testing.expectError(error.IllegalEscape, s.next());
+}
+
+test "splitter rejects oversized Unicode escape with letters" {
+    if (comptime !escape_outside_quotes) return error.SkipZigTest;
+    const std = @import("std");
+    const testing = std.testing;
+
+    var s: CommaSplitter = .init("\\u{aaaaaa}");
+    try testing.expectError(error.IllegalEscape, s.next());
+}
+
+test "splitter rejects oversized Unicode escape with uppercase letters" {
+    if (comptime !escape_outside_quotes) return error.SkipZigTest;
+    const std = @import("std");
+    const testing = std.testing;
+
+    var s: CommaSplitter = .init("\\u{AAAAAA}");
+    try testing.expectError(error.IllegalEscape, s.next());
+}
+
+test "splitter rejects oversized quoted Unicode escape with letters" {
+    const std = @import("std");
+    const testing = std.testing;
+
+    var s: CommaSplitter = .init("\"\\u{aaaaaa}\"");
+    try testing.expectError(error.IllegalEscape, s.next());
+}
+
+test "splitter rejects oversized quoted Unicode escape with uppercase letters" {
+    const std = @import("std");
+    const testing = std.testing;
+
+    var s: CommaSplitter = .init("\"\\u{AAAAAA}\"");
     try testing.expectError(error.IllegalEscape, s.next());
 }
 

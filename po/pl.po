@@ -4,14 +4,15 @@
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Bartosz Sokorski <b.sokorski@gmail.com>, 2025.
 # trag1c <dev@jakubr.me>, 2025.
+# Rayzerrek <rayserrek@gmail.com>, 2026.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-14 14:34-0500\n"
-"PO-Revision-Date: 2026-08-13 21:08+0100\n"
-"Last-Translator: trag1c <dev@jakubr.me>\n"
+"POT-Creation-Date: 2026-10-28 20:24+0200\n"
+"PO-Revision-Date: 2026-10-27 13:33+0100\n"
+"Last-Translator: Rayzerrek <rayserrek@gmail.com>\n"
 "Language-Team: Polish <translation-team-pl@lists.sourceforge.net>\n"
 "Language: pl\n"
 "MIME-Version: 1.0\n"
@@ -56,9 +57,9 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
-"Ten terminal znajduje się w trybie tylko do odczytu. Wciąż możesz "
-"przeglądać, zaznaczać i przewijać zawartość, ale wprowadzane dane nie będą "
-"przesyłane do wykonywanej aplikacji."
+"Ten terminal działa w trybie tylko do odczytu. Nadal możesz przeglądać, "
+"zaznaczać i przewijać zawartość, ale wprowadzane dane nie będą przesyłane do "
+"działającej aplikacji."
 
 #: src/apprt/gtk/ui/1.0/surface.blp:107
 msgid "Read-only"
@@ -74,7 +75,7 @@ msgstr "Wklej"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:321
 msgid "Notify on Next Command Finish"
-msgstr "Powiadom o ukończeniu następnej komendy"
+msgstr "Powiadom o zakończeniu następnego polecenia"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:328 src/apprt/gtk/ui/1.4/window.blp:283
 msgid "Clear"
@@ -169,7 +170,7 @@ msgstr "Otwórz konfigurację w nowym oknie"
 #: src/apprt/gtk/ui/1.0/surface.blp:434 src/apprt/gtk/ui/1.4/window.blp:320
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:12
 msgid "Reload Configuration"
-msgstr "Przeładuj konfigurację"
+msgstr "Wczytaj konfigurację ponownie"
 
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
 msgid ""
@@ -194,7 +195,7 @@ msgstr "Menu główne"
 
 #: src/apprt/gtk/ui/1.4/window.blp:295
 msgid "Command Palette"
-msgstr "Paleta komend"
+msgstr "Paleta poleceń"
 
 #: src/apprt/gtk/ui/1.4/window.blp:300
 msgid "Terminal Inspector"
@@ -206,11 +207,11 @@ msgstr "O Ghostty"
 
 #: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:702
 msgid "Quit"
-msgstr "Zamknij"
+msgstr "Zakończ"
 
 #: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:192
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:196
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:388
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:392
 msgid "Authorize Clipboard Access"
 msgstr "Udziel dostępu do schowka"
 
@@ -222,23 +223,23 @@ msgstr "Odmów"
 msgid "Allow"
 msgstr "Zezwól"
 
-#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:91
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:107
 msgid "Remember choice for this split"
 msgstr "Zapamiętaj wybór dla tego podziału"
 
-#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:92
+#: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:108
 msgid "Reload configuration to show this prompt again"
-msgstr "Przeładuj konfigurację, by ponownie wyświetlić ten komunikat"
+msgstr "Wczytaj konfigurację ponownie, aby znów wyświetlić ten komunikat"
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2150
+#: src/apprt/gtk/class/application.zig:2152
 msgid "Cancel"
 msgstr "Anuluj"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:17
 msgid "Execute a command…"
-msgstr "Wykonaj komendę…"
+msgstr "Wykonaj polecenie…"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
 msgid "Configuration Errors"
@@ -249,8 +250,8 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Znaleziono jeden lub więcej błędów konfiguracji. Sprawdź błędy wylistowane "
-"poniżej i przeładuj konfigurację lub zignoruj je."
+"Konfiguracja zawiera błędy. Sprawdź je poniżej, a następnie wczytaj "
+"konfigurację ponownie lub zignoruj błędy."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:11
 msgid "Ignore"
@@ -264,61 +265,61 @@ msgstr "Pozostaw puste, by przywrócić domyślny tytuł."
 msgid "OK"
 msgstr "OK"
 
-#: src/apprt/gtk/class/application.zig:1735
+#: src/apprt/gtk/class/application.zig:1736
 msgid "The keybind was revoked by the system."
 msgstr "Skrót klawiszowy został unieważniony przez system."
 
-#: src/apprt/gtk/class/application.zig:1737
+#: src/apprt/gtk/class/application.zig:1738
 msgid "The keybind was denied by the system."
 msgstr "Skrót klawiszowy został odrzucony przez system."
 
-#: src/apprt/gtk/class/application.zig:1748
+#: src/apprt/gtk/class/application.zig:1750
 msgid "Global keybind unavailable"
 msgstr "Globalny skrót klawiszowy jest niedostępny"
 
-#: src/apprt/gtk/class/application.zig:2146
+#: src/apprt/gtk/class/application.zig:2148
 msgid "Export Terminal IO Events"
 msgstr "Wyeksportuj zdarzenia IO terminala"
 
-#: src/apprt/gtk/class/application.zig:2149
+#: src/apprt/gtk/class/application.zig:2151
 msgid "Export"
 msgstr "Eksportuj"
 
-#: src/apprt/gtk/class/application.zig:2648
+#: src/apprt/gtk/class/application.zig:2649
 msgid "Editing configuration file"
 msgstr "Edytowanie pliku konfiguracyjnego"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:193
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:389
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Aplikacja próbuje zapisać do schowka. Obecna zawartość schowka pokazana "
-"poniżej."
+"Aplikacja próbuje zapisać dane w schowku. Poniżej widzisz jego aktualną "
+"zawartość."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:393
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Aplikacja próbuje odczytać zawartość schowka. Zawartość schowka pokazana "
-"poniżej."
+"Aplikacja próbuje odczytać zawartość schowka. Poniżej widzisz jego aktualną "
+"zawartość."
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:200
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:396
 msgid "Warning: Potentially Unsafe Paste"
 msgstr "Uwaga: potencjalnie niebezpieczne wklejenie ze schowka"
 
-#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:397
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
 "Wklejenie tego tekstu do terminala może być niebezpieczne, ponieważ może "
-"spowodować wykonanie komend."
+"spowodować wykonanie poleceń."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:183
 msgid "Quit Ghostty?"
-msgstr "Zamknąć Ghostty?"
+msgstr "Zakończyć Ghostty?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
 msgid "Close Tab?"
@@ -338,29 +339,37 @@ msgstr "Wszystkie sesje terminala zostaną zakończone."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions in this tab will be terminated."
-msgstr "Wszystkie sesje terminala w obecnej karcie zostaną zakończone."
+msgstr "Wszystkie sesje terminala w tej karcie zostaną zakończone."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:194
 msgid "All terminal sessions in this window will be terminated."
-msgstr "Wszystkie sesje terminala w obecnym oknie zostaną zakończone."
+msgstr "Wszystkie sesje terminala w tym oknie zostaną zakończone."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:195
 msgid "The currently running process in this split will be terminated."
-msgstr "Wszystkie trwające procesy w obecnym podziale zostaną zakończone."
+msgstr "Proces działający w tym podziale zostanie zakończony."
 
-#: src/apprt/gtk/class/surface.zig:1191
+#: src/apprt/gtk/class/command_palette.zig:693
+msgid "Untitled"
+msgstr ""
+
+#: src/apprt/gtk/class/command_palette.zig:697
+msgid "Focus"
+msgstr ""
+
+#: src/apprt/gtk/class/surface.zig:1206
 msgid "Command Finished"
-msgstr "Komenda zakończona"
+msgstr "Polecenie zakończone"
 
-#: src/apprt/gtk/class/surface.zig:1192
+#: src/apprt/gtk/class/surface.zig:1207
 #: src/apprt/gtk/class/surface_child_exited.zig:102
 msgid "Command Succeeded"
-msgstr "Komenda wykonana pomyślnie"
+msgstr "Polecenie wykonane pomyślnie"
 
-#: src/apprt/gtk/class/surface.zig:1193
+#: src/apprt/gtk/class/surface.zig:1208
 #: src/apprt/gtk/class/surface_child_exited.zig:106
 msgid "Command Failed"
-msgstr "Komenda nie powiodła się"
+msgstr "Polecenie nie powiodło się"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Terminal Title"
@@ -376,17 +385,17 @@ msgstr "Zmień tytuł okna"
 
 #: src/apprt/gtk/class/window.zig:1184
 msgid "Reloaded the configuration"
-msgstr "Przeładowano konfigurację"
+msgstr "Ponownie wczytano konfigurację"
 
-#: src/apprt/gtk/class/window.zig:1886
+#: src/apprt/gtk/class/window.zig:1887
 msgid "Copied to clipboard"
 msgstr "Skopiowano do schowka"
 
-#: src/apprt/gtk/class/window.zig:1888
+#: src/apprt/gtk/class/window.zig:1889
 msgid "Cleared clipboard"
 msgstr "Wyczyszczono schowek"
 
-#: src/apprt/gtk/class/window.zig:2027
+#: src/apprt/gtk/class/window.zig:2028
 msgid "Ghostty Developers"
 msgstr "Twórcy Ghostty"
 
@@ -450,8 +459,8 @@ msgid ""
 "Copy the terminal title to the clipboard. If the terminal title is not set "
 "this has no effect."
 msgstr ""
-"Skopiuj tytuł terminala do schowka. Ta komenda nie ma efektu, jeśli tytuł "
-"terminala nie został ustawiony."
+"Skopiuj tytuł terminala do schowka. To polecenie nie zostanie wykonane jeśli "
+"terminal nie ma ustawionego tytułu."
 
 #: src/input/command.zig:185
 msgid "Paste from Clipboard"
@@ -592,170 +601,165 @@ msgstr "Przewiń ekran w dół o jedną stronę."
 
 #: src/input/command.zig:286
 msgid "Copy Screen to Temporary File and Copy Path"
-msgstr "Skopiuj ekran do tymczasowego pliku i skopiuj ścieżkę"
+msgstr "Zapisz ekran do pliku tymczasowego i skopiuj ścieżkę"
 
 #: src/input/command.zig:287
 msgid ""
 "Copy the screen contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
-"Skopiuj zawartość ekranu do tymczasowego pliku i skopiuj jego ścieżkę do "
+"Zapisz zawartość ekranu do pliku tymczasowego i skopiuj jego ścieżkę do "
 "schowka."
 
 #: src/input/command.zig:291
 msgid "Copy Screen to Temporary File and Paste Path"
-msgstr "Skopiuj ekran do tymczasowego pliku i wklej ścieżkę"
+msgstr "Zapisz ekran do pliku tymczasowego i wklej ścieżkę"
 
 #: src/input/command.zig:292
 msgid ""
 "Copy the screen contents to a temporary file and paste the path to the file."
-msgstr "Skopiuj zawartość ekranu do tymczasowego pliku i wklej jego ścieżkę."
+msgstr "Zapisz zawartość ekranu do pliku tymczasowego i wklej jego ścieżkę."
 
 #: src/input/command.zig:296
 msgid "Copy Screen to Temporary File and Open"
-msgstr "Skopiuj ekran do tymczasowego pliku i otwórz"
+msgstr "Zapisz ekran do pliku tymczasowego i otwórz"
 
 #: src/input/command.zig:297
 msgid "Copy the screen contents to a temporary file and open it."
-msgstr "Skopiuj zawartość ekranu do tymczasowego pliku i otwórz go."
+msgstr "Zapisz zawartość ekranu do pliku tymczasowego i otwórz go."
 
 #: src/input/command.zig:305
 msgid "Copy Screen as HTML to Temporary File and Copy Path"
-msgstr "Skopiuj ekran jako HTML do tymczasowego pliku i skopiuj ścieżkę"
+msgstr "Zapisz ekran jako HTML do pliku tymczasowego i skopiuj ścieżkę"
 
 #: src/input/command.zig:306
 msgid ""
 "Copy the screen contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
-"Skopiuj zawartość ekranu jako HTML do tymczasowego pliku i skopiuj jego "
+"Zapisz zawartość ekranu jako HTML do pliku tymczaswego i skopiuj jego "
 "ścieżkę do schowka."
 
 #: src/input/command.zig:313
 msgid "Copy Screen as HTML to Temporary File and Paste Path"
-msgstr "Skopiuj ekran jako HTML do tymczasowego pliku i wklej ścieżkę"
+msgstr "Zapisz ekran jako HTML do pliku tymczasowego i wklej ścieżkę"
 
 #: src/input/command.zig:314
 msgid ""
 "Copy the screen contents as HTML to a temporary file and paste the path to "
 "the file."
 msgstr ""
-"Skopiuj zawartość ekranu jako HTML do tymczasowego pliku i wklej jego "
-"ścieżkę."
+"Zapisz zawartość ekranu jako HTML do pliku tymczasowego i wklej jego ścieżkę."
 
 #: src/input/command.zig:321
 msgid "Copy Screen as HTML to Temporary File and Open"
-msgstr "Skopiuj ekran jako HTML do tymczasowego pliku i otwórz"
+msgstr "Zapisz ekran jako HTML do tymczasowego pliku i otwórz"
 
 #: src/input/command.zig:322
 msgid "Copy the screen contents as HTML to a temporary file and open it."
-msgstr "Skopiuj zawartość ekranu jako HTML do tymczasowego pliku i otwórz go."
+msgstr "Zapisz zawartość ekranu jako HTML do pliku tymczasowego i otwórz go."
 
 #: src/input/command.zig:330
 msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
-msgstr "Skopiuj ekran jako sekwencje ANSI do tymczasowego pliku i otwórz"
+msgstr "Zapisz ekran jako sekwencje ANSI do pliku tymczasowego i otwórz"
 
 #: src/input/command.zig:331
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
-"Skopiuj zawartość ekranu jako sekwencje ucieczki ANSI do tymczasowego pliku "
-"i wklej jego ścieżkę."
+"Zapisz zawartość ekranu jako sekwencje ucieczki ANSI do pliku tymczasowego i "
+"skopiuj jego ścieżkę do schowka."
 
 #: src/input/command.zig:338
 msgid "Copy Screen as ANSI Sequences to Temporary File and Paste Path"
 msgstr ""
-"Skopiuj ekran jako sekwencje ANSI do tymczasowego pliku i wklej ścieżkę"
+"Zapisz zawartość ekranu jako ANSI do pliku tymczasowego i wklej ścieżkę"
 
 #: src/input/command.zig:339
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
-"Skopiuj zawartość ekranu jako sekwencje ucieczki ANSI do tymczasowego pliku "
-"i wklej jego ścieżkę."
+"Zapisz zawartość ekranu jako sekwencje ucieczki ANSI do pliku tymczasowego i "
+"wklej jego ścieżkę."
 
 #: src/input/command.zig:346
 msgid "Copy Screen as ANSI Sequences to Temporary File and Open"
-msgstr "Skopiuj ekran jako sekwencje ANSI do tymczasowego pliku i otwórz"
+msgstr "Zapisz ekran jako sekwencje ANSI do pliku tymczasowego i otwórz"
 
 #: src/input/command.zig:347
 msgid ""
 "Copy the screen contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
-"Skopiuj zawartość ekranu jako sekwencje ucieczki ANSI do tymczasowego pliku "
-"i otwórz go."
+"Zapisz zawartość ekranu jako sekwencje ucieczki ANSI do pliku tymczasowego i "
+"otwórz go."
 
 #: src/input/command.zig:354
 msgid "Copy Selection to Temporary File and Copy Path"
-msgstr "Skopiuj zaznaczenie do tymczasowego pliku i skopiuj ścieżkę"
+msgstr "Zapisz zaznaczenie do pliku tymczasowego i skopiuj ścieżkę"
 
 #: src/input/command.zig:355
 msgid ""
 "Copy the selection contents to a temporary file and copy the path to the "
 "clipboard."
 msgstr ""
-"Skopiuj zawartość zaznaczenia do tymczasowego pliku i skopiuj jego ścieżkę "
-"do schowka."
+"Zapisz zaznaczenie do pliku tymczasowego i skopiuj jego ścieżkę do schowka."
 
 #: src/input/command.zig:359
 msgid "Copy Selection to Temporary File and Paste Path"
-msgstr "Skopiuj zaznaczenie do tymczasowego pliku i wklej ścieżkę"
+msgstr "Zapisz zaznaczenie do pliku tymczasowego i wklej ścieżkę"
 
 #: src/input/command.zig:360
 msgid ""
 "Copy the selection contents to a temporary file and paste the path to the "
 "file."
-msgstr ""
-"Skopiuj zawartość zaznaczenia do tymczasowego pliku i wklej jego ścieżkę."
+msgstr "Zapisz zaznaczenie do pliku tymczasowego i wklej jego ścieżkę."
 
 #: src/input/command.zig:364
 msgid "Copy Selection to Temporary File and Open"
-msgstr "Skopiuj zaznaczenie do tymczasowego pliku i otwórz"
+msgstr "Zapisz zaznaczenie do pliku tymczasowego i otwórz"
 
 #: src/input/command.zig:365
 msgid "Copy the selection contents to a temporary file and open it."
-msgstr "Skopiuj zawartość zaznaczenia do tymczasowego pliku i otwórz go."
+msgstr "Zapisz zaznaczenie do pliku tymczasowego i otwórz go."
 
 #: src/input/command.zig:373
 msgid "Copy Selection as HTML to Temporary File and Copy Path"
-msgstr "Skopiuj zaznaczenie jako HTML do tymczasowego pliku i skopiuj ścieżkę"
+msgstr "Zapisz zaznaczenie jako HTML do pliku tymczasowego i skopiuj ścieżkę"
 
 #: src/input/command.zig:374
 msgid ""
 "Copy the selection contents as HTML to a temporary file and copy the path to "
 "the clipboard."
 msgstr ""
-"Skopiuj zawartość zaznaczenia jako HTML do tymczasowego pliku i skopiuj jego "
-"ścieżkę do schowka."
+"Zapisz zaznaczenie jako HTML do pliku tymczasowego i skopiuj jego ścieżkę do "
+"schowka."
 
 #: src/input/command.zig:381
 msgid "Copy Selection as HTML to Temporary File and Paste Path"
-msgstr "Skopiuj zaznaczenie jako HTML do tymczasowego pliku i wklej ścieżkę"
+msgstr "Zapisz zaznaczenie jako HTML do pliku tymczasowego i wklej ścieżkę"
 
 #: src/input/command.zig:382
 msgid ""
 "Copy the selection contents as HTML to a temporary file and paste the path "
 "to the file."
 msgstr ""
-"Skopiuj zawartość zaznaczenia jako HTML do tymczasowego pliku i wklej jego "
-"ścieżkę."
+"Zapisz zaznaczenie jako HTML do pliku tymczasowego i wklej jego ścieżkę."
 
 #: src/input/command.zig:389
 msgid "Copy Selection as HTML to Temporary File and Open"
-msgstr "Skopiuj zaznaczenie jako HTML do tymczasowego pliku i otwórz"
+msgstr "Zapisz zaznaczenie jako HTML do pliku tymczasowego i otwórz"
 
 #: src/input/command.zig:390
 msgid "Copy the selection contents as HTML to a temporary file and open it."
-msgstr ""
-"Skopiuj zawartość zaznaczenia jako HTML do tymczasowego pliku i otwórz go."
+msgstr "Zapisz zaznaczenie jako HTML do pliku tymczasowego i otwórz go."
 
 #: src/input/command.zig:398
 msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
 msgstr ""
-"Skopiuj zaznaczenie jako sekwencje ANSI do tymczasowego pliku i skopiuj "
+"Zapisz zaznaczenie jako sekwencje ANSI do pliku tymczasowego i skopiuj "
 "ścieżkę"
 
 #: src/input/command.zig:399
@@ -763,41 +767,41 @@ msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "copy the path to the clipboard."
 msgstr ""
-"Skopiuj zawartość zaznaczenia jako sekwencje ucieczki ANSI do tymczasowego "
-"pliku i skopiuj jego ścieżkę do schowka."
+"Zapisz zaznaczenie jako sekwencje ucieczki ANSI do pliku tymczasowego i "
+"skopiuj jego ścieżkę do schowka."
 
 #: src/input/command.zig:406
 msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
 msgstr ""
-"Skopiuj zaznaczenie jako sekwencje ANSI do tymczasowego pliku i wklej ścieżkę"
+"Zapisz zaznaczenie jako sekwencje ANSI do pliku tymczasowego i wklej ścieżkę"
 
 #: src/input/command.zig:407
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "paste the path to the file."
 msgstr ""
-"Skopiuj zawartość zaznaczenia jako sekwencje ucieczki ANSI do tymczasowego "
-"pliku i wklej jego ścieżkę."
+"Zapisz zaznaczenie jako sekwencje ucieczki ANSI do pliku tymczasowego i "
+"wklej jego ścieżkę."
 
 #: src/input/command.zig:414
 msgid "Copy Selection as ANSI Sequences to Temporary File and Open"
-msgstr "Skopiuj zaznaczenie jako sekwencje ANSI do tymczasowego pliku i otwórz"
+msgstr "Zapisz zaznaczenie jako sekwencje ANSI do pliku tymczasowego i otwórz"
 
 #: src/input/command.zig:415
 msgid ""
 "Copy the selection contents as ANSI escape sequences to a temporary file and "
 "open it."
 msgstr ""
-"Skopiuj zawartość zaznaczenia jako sekwencje ucieczki ANSI do tymczasowego "
-"pliku i otwórz go."
+"Zapisz zaznaczenie jako sekwencje ucieczki ANSI do tymczasowego pliku i  "
+"otwórz go."
 
 #: src/input/command.zig:422
 msgid "Open a new window."
-msgstr "Otwórz w nowym oknie."
+msgstr "Otwórz nowe okno."
 
 #: src/input/command.zig:428
 msgid "Open a new tab."
-msgstr "Otwórz w nowej karcie."
+msgstr "Otwórz nową kartę."
 
 #: src/input/command.zig:434
 msgid "Move Tab Left"
@@ -805,7 +809,7 @@ msgstr "Przenieś kartę w lewo"
 
 #: src/input/command.zig:435
 msgid "Move the current tab to the left."
-msgstr "Przenieś obecną kartę w lewo."
+msgstr "Przenieś aktywną kartę w lewo."
 
 #: src/input/command.zig:439
 msgid "Move Tab Right"
@@ -813,7 +817,7 @@ msgstr "Przenieś kartę w prawo"
 
 #: src/input/command.zig:440
 msgid "Move the current tab to the right."
-msgstr "Przenieś obecną kartę w prawo."
+msgstr "Przenieś aktywną kartę w prawo."
 
 #: src/input/command.zig:446
 msgid "Move Tab to New Window"
@@ -821,7 +825,7 @@ msgstr "Przenieś kartę do nowego okna"
 
 #: src/input/command.zig:447
 msgid "Move the current tab to a new window."
-msgstr "Przenieś obecną kartę do nowego okna."
+msgstr "Przenieś aktywną kartę do nowego okna."
 
 #: src/input/command.zig:452
 msgid "Toggle Tab Overview"
@@ -837,11 +841,11 @@ msgstr "Zmień tytuł terminala…"
 
 #: src/input/command.zig:459
 msgid "Prompt for a new title for the current terminal."
-msgstr "Poproś o nowy tytuł dla obecnego terminala."
+msgstr "Otwórz okno zmiany tytułu aktywnego terminala."
 
 #: src/input/command.zig:465
 msgid "Prompt for a new title for the current tab."
-msgstr "Poproś o nowy tytuł dla obecnej karty."
+msgstr "Otwórz okno zmiany tytułu aktywnej karty."
 
 #: src/input/command.zig:478
 msgid "Split the terminal to the left."
@@ -909,7 +913,7 @@ msgstr "Przejdź do podziału niżej, jeśli taki jest."
 
 #: src/input/command.zig:533
 msgid "Focus Window: Previous"
-msgstr "Przejdź do okna: poprzednie"
+msgstr "Przejdź do poprzedniego okna"
 
 #: src/input/command.zig:534
 msgid "Focus the previous window, if any."
@@ -917,7 +921,7 @@ msgstr "Przejdź do poprzedniego okna, jeśli takie jest."
 
 #: src/input/command.zig:538
 msgid "Focus Window: Next"
-msgstr "Przejdź do okna: następne"
+msgstr "Przejdź do następnego okna"
 
 #: src/input/command.zig:539
 msgid "Focus the next window, if any."
@@ -937,7 +941,7 @@ msgstr "Przełącz tryb tylko do odczytu"
 
 #: src/input/command.zig:552
 msgid "Toggle read-only mode for the current surface."
-msgstr "Włącz/wyłącz tryb tylko do odczytu dla obecnej powierzchni."
+msgstr "Włącz lub wyłącz tryb tylko do odczytu dla aktywnego terminala."
 
 #: src/input/command.zig:557
 msgid "Equalize Splits"
@@ -981,7 +985,7 @@ msgstr "Wyświetl klawiaturę ekranową, jeśli jest obecna."
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
-msgstr "Otwórz konfigurację używając edytora systemowego"
+msgstr "Otwórz konfigurację w systemowym edytorze"
 
 #: src/input/command.zig:589
 msgid "Open the config file with the OS's default editor."
@@ -993,15 +997,16 @@ msgstr "Otwórz konfigurację w nowym oknie terminala"
 
 #: src/input/command.zig:594
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
-msgstr "Otwórz plik konfiguracyjny w nowym oknie używając $EDITOR lub $VISUAL."
+msgstr ""
+"Otwórz plik konfiguracyjny w nowym oknie za pomocą $EDITOR lub $VISUAL."
 
 #: src/input/command.zig:600
 msgid "Reload Config"
-msgstr "Przeładuj konfigurację"
+msgstr "Wczytaj konfigurację ponownie"
 
 #: src/input/command.zig:601
 msgid "Reload the config file."
-msgstr "Przeładuj plik konfiguracyjny."
+msgstr "Wczytaj plik konfiguracyjny ponownie."
 
 #: src/input/command.zig:606
 msgid "Close Terminal"
@@ -1009,11 +1014,11 @@ msgstr "Zamknij terminal"
 
 #: src/input/command.zig:607
 msgid "Close the current terminal."
-msgstr "Zamknij obecny terminal."
+msgstr "Zamknij aktywny terminal."
 
 #: src/input/command.zig:614
 msgid "Close the current tab."
-msgstr "Zamknij obecną kartę."
+msgstr "Zamknij aktywną kartę."
 
 #: src/input/command.zig:618
 msgid "Close Other Tabs"
@@ -1021,7 +1026,7 @@ msgstr "Zamknij inne karty"
 
 #: src/input/command.zig:619
 msgid "Close all tabs in this window except the current one."
-msgstr "Zamknij wszystkie karty w tym oknie poza obecną."
+msgstr "Zamknij wszystkie karty w tym oknie poza aktywną."
 
 #: src/input/command.zig:623
 msgid "Close Tabs to the Right"
@@ -1029,11 +1034,11 @@ msgstr "Zamknij karty po prawej"
 
 #: src/input/command.zig:624
 msgid "Close all tabs to the right of the current one."
-msgstr "Zamknij wszystkie karty po prawej od obecnej."
+msgstr "Zamknij wszystkie karty po prawej od aktywnej."
 
 #: src/input/command.zig:631
 msgid "Close the current window."
-msgstr "Zamknij obecne okno."
+msgstr "Zamknij aktywne okno."
 
 #: src/input/command.zig:636
 msgid "Close All Windows"
@@ -1049,7 +1054,7 @@ msgstr "Przełącz maksymalizację"
 
 #: src/input/command.zig:643
 msgid "Toggle the maximized state of the current window."
-msgstr "Włącz/wyłącz maksymalizację obecnego okna."
+msgstr "Włącz/wyłącz maksymalizację aktywnego okna."
 
 #: src/input/command.zig:648
 msgid "Toggle Fullscreen"
@@ -1057,7 +1062,7 @@ msgstr "Przełącz pełny ekran"
 
 #: src/input/command.zig:649
 msgid "Toggle the fullscreen state of the current window."
-msgstr "Przełącz stan pełnego ekranu obecnego okna."
+msgstr "Przełącz tryb pełnoekranowy aktywnego okna."
 
 #: src/input/command.zig:654
 msgid "Toggle Window Decorations"
@@ -1073,7 +1078,7 @@ msgstr "Przełącz zawsze na wierzchu"
 
 #: src/input/command.zig:661
 msgid "Toggle the float on top state of the current window."
-msgstr "Włącz/wyłącz wyświetlanie obecnego okna zawsze na wierzchu."
+msgstr "Włącz/wyłącz wyświetlanie aktywnego okna zawsze na wierzchu."
 
 #: src/input/command.zig:666
 msgid "Toggle Secure Input"
@@ -1097,7 +1102,9 @@ msgstr "Przełącz przezroczystość tła"
 
 #: src/input/command.zig:679
 msgid "Toggle the background opacity of a window that started transparent."
-msgstr "Włącz/wyłącz przezroczystość tła w oknie powstałym jako przezroczyste."
+msgstr ""
+"Włącz/wyłącz przezroczystość tła okna, które było przezroczyste przy "
+"otwarciu."
 
 #: src/input/command.zig:684
 msgid "Check for Updates"
@@ -1125,12 +1132,8 @@ msgstr "Powtórz ostatnią cofniętą akcję."
 
 #: src/input/command.zig:703
 msgid "Quit the application."
-msgstr "Wyjdź z aplikacji."
-
-#: src/input/command.zig:708
-msgid "Ghostty"
-msgstr "Ghostty"
+msgstr "Zakończ działanie aplikacji."
 
 #: src/input/command.zig:709
 msgid "Put a little Ghostty in your terminal."
-msgstr "Umieść małe Ghostty w twoim terminalu."
+msgstr "Wstaw małego Ghostty do terminala."
