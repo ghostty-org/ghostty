@@ -561,9 +561,14 @@ fn parseDecimalId(text: []const u8) ?usize {
 
 /// Decode tmux control mode octal escaping in place. tmux encodes
 /// bytes less than ASCII 32 and `\` itself as `\ooo` (backslash +
-/// three octal digits). The decoded output is always <= the input
-/// length, so this can safely write back into the same buffer.
-fn decodeEscapedOutput(data: []u8) []const u8 {
+/// three octal digits). Invalid escapes are replaced with '?'.
+///
+/// The decoded output is always <= the input length, so we write back
+/// into the same buffer and return the slice containing the decoded bytes.
+///
+/// This should only be called once for a buffer. Otherwise, a decoded
+/// backslash may be interpreted as another escape.
+pub fn unescape(data: []u8) []const u8 {
     var read_idx: usize = 0;
     var write_idx: usize = 0;
 
@@ -579,29 +584,24 @@ fn decodeEscapedOutput(data: []u8) []const u8 {
         read_idx += 1; // consume '\'
 
         // Try to decode three octal digits following the backslash.
-        // If fewer than 3 bytes remain or any digit is non-octal,
-        // emit '?' as a visible replacement rather than silently
-        // dropping %output payload
-        var value: u8 = 0;
+        // We use u16 so we can reject values above 255 without overflowing.
+        var value: u16 = 0;
         var ok = false;
 
-        // after consuming '\' read_idx is at the first potential octal digit, we need +2 after it.
         if (read_idx + 2 < data.len) {
             var i: usize = 0;
             while (i < 3) : (i += 1) {
                 const digit = data[read_idx];
                 if (digit < '0' or digit > '7') break;
 
-                // tmux encodes bytes < 32 and '\' (92 = \134),
-                // so the max decoded value is 92. No overflow.
                 value = value * 8 + (digit - '0');
                 read_idx += 1;
             }
 
-            ok = i == 3;
+            ok = i == 3 and value <= std.math.maxInt(u8);
         }
 
-        data[write_idx] = if (ok) value else '?';
+        data[write_idx] = if (ok) @intCast(value) else '?';
         write_idx += 1;
     }
 
@@ -632,7 +632,7 @@ pub const Notification = union(enum) {
     block_end: []const u8,
     block_err: []const u8,
 
-    /// Raw output from a pane.
+    /// Escaped output from a pane.
     output: Output,
 
     /// The client is now attached to the session with ID session-id, which is
@@ -697,24 +697,12 @@ pub const Notification = union(enum) {
 
     pub const Output = struct {
         pane_id: usize,
-        data: []u8,
-        /// Tracks whether `data` has been decoded for this Output copy.
+
+        /// Escaped output from tmux. Use `unescape` to decode it.
         ///
-        /// `data` points into the parser buffer and is mutated in place, while this
-        /// flag belongs to this Output copy. A copy made before `decoded()` runs
-        /// keeps the flag false even after another copy decodes the buffer in place,
-        /// so only one copy of an Output may call `decoded()`.
-        is_decoded: bool = false,
-
-        pub fn decoded(self: *Output) []const u8 {
-            if (!self.is_decoded) {
-                const data = decodeEscapedOutput(self.data);
-                self.data = self.data[0..data.len];
-                self.is_decoded = true;
-            }
-
-            return self.data;
-        }
+        /// This points into the parser buffer and is only valid until
+        /// the parser receives more input.
+        data: []u8,
     };
 
     pub fn format(self: Notification, writer: *std.Io.Writer) !void {
@@ -913,59 +901,54 @@ test "tmux output" {
     try testing.expectEqualStrings("foo bar baz", n.output.data);
 }
 
-test "tmux decode octal escape" {
+test "tmux unescape octal escape" {
     const testing = std.testing;
 
     var input = [_]u8{ '\\', '0', '3', '3', '[', '?', '2', '0', '0', '4', 'h' };
-    const got = decodeEscapedOutput(input[0..]);
+    const got = unescape(input[0..]);
     const expected = [_]u8{ 0x1b, '[', '?', '2', '0', '0', '4', 'h' };
 
     try testing.expectEqualSlices(u8, expected[0..], got);
 }
 
-test "tmux decode malformed escape" {
+test "tmux unescape malformed escape" {
     const testing = std.testing;
 
     var input = [_]u8{ '\\', '0', 'x', '3' };
-    const got = decodeEscapedOutput(input[0..]);
+    const got = unescape(input[0..]);
     const expected = [_]u8{ '?', 'x', '3' };
 
     try testing.expectEqualSlices(u8, expected[0..], got);
 }
 
-test "tmux output decodes escapes" {
+test "tmux unescape byte range" {
+    const testing = std.testing;
+
+    var input = "\\000\\377\\400\\777".*;
+    try testing.expectEqualSlices(u8, &.{ 0, 255, '?', '?' }, unescape(&input));
+}
+
+test "tmux output remains escaped until consumed" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
     var c: Parser = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%output %42 \\033ktitle\\033\\134") |byte| try testing.expect(try c.put(byte) == null);
-    var n = (try c.put('\n')).?;
+    const n = (try c.put('\n')).?;
     const expected = [_]u8{ 0x1b, 'k', 't', 'i', 't', 'l', 'e', 0x1b, '\\' };
 
     try testing.expect(n == .output);
     try testing.expectEqual(42, n.output.pane_id);
     try testing.expectEqualStrings("\\033ktitle\\033\\134", n.output.data);
-    try testing.expectEqualSlices(u8, expected[0..], n.output.decoded());
+    try testing.expectEqualSlices(u8, expected[0..], unescape(n.output.data));
 }
 
-test "tmux output decoded is idempotent" {
+test "tmux unescape preserves literal backslash followed by octal digits" {
     const testing = std.testing;
-    const alloc = testing.allocator;
 
-    var c: Parser = .{ .buffer = .init(alloc) };
-    defer c.deinit();
-    for ("%output %42 \\033ktitle\\033\\134") |byte| try testing.expect(try c.put(byte) == null);
-    var n = (try c.put('\n')).?;
-
-    try testing.expect(n == .output);
-
-    const first = n.output.decoded();
-    const second = n.output.decoded();
-
-    try testing.expectEqual(@intFromPtr(first.ptr), @intFromPtr(second.ptr));
-    try testing.expectEqual(first.len, second.len);
-    try testing.expectEqualSlices(u8, first, second);
+    var input = "\\134033".*;
+    try testing.expectEqualStrings("\\033", unescape(&input));
 }
 
 test "tmux session-changed" {

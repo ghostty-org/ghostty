@@ -1191,8 +1191,7 @@ pub const Viewer = struct {
         };
         const pane: *Pane = entry.value_ptr;
         const stream = try pane.outputStream(self.alloc);
-        var output_val = out;
-        const data = output_val.decoded();
+        const data = control.unescape(out.data);
         stream.nextSlice(data);
     }
 
@@ -1724,7 +1723,7 @@ test "initial flow" {
     defer viewer.deinit();
 
     var new_output = "new\\134output".*;
-    var ignored_output = "ignored".*;
+    var ignored_output = "ignored\\134output".*;
 
     try testViewer(&viewer, &.{
         .{ .input = .{ .tmux = .{ .block_end = "" } } },
@@ -1901,6 +1900,7 @@ test "initial flow" {
             .contains_tags = &.{.exit},
         },
     });
+    try testing.expectEqualStrings("ignored\\134output", &ignored_output);
 }
 
 test "layout change" {
