@@ -1,7 +1,7 @@
 # Swedish translations for com.mitchellh.ghostty package.
 # Copyright (C) 2026 "Mitchell Hashimoto, Ghostty contributors"
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
-# Automatically generated, 2026.
+# Daniel Nylander <po@danielnylander.se> 2026.
 #
 msgid ""
 msgstr ""
@@ -10,7 +10,7 @@ msgstr ""
 "POT-Creation-Date: 2026-10-28 20:24+0200\n"
 "PO-Revision-Date: 2026-10-30 12:00+0100\n"
 "Last-Translator: Daniel Nylander <po@danielnylander.se>\n"
-"Language-Team: Swedish\n"
+"Language-Team: <tp-sv@listor.tp-sv.se>\n"
 "Language: sv\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
