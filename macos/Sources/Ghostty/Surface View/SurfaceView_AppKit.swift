@@ -844,6 +844,10 @@ extension Ghostty {
 
         // MARK: - NSView
 
+        private lazy var surfaceInputContext = SurfaceInputContext(client: self)
+
+        override var inputContext: NSTextInputContext? { surfaceInputContext }
+
         override func becomeFirstResponder() -> Bool {
             let result = super.becomeFirstResponder()
             if result { focusDidChange(true) }
