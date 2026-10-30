@@ -186,16 +186,13 @@ struct VerticalTabMouseTests {
         try await nativeDrag(toRow: 0)
         #expect(group.windows == initialOrder, "Dragging within the source row must keep tab order")
         // The header is outside all row drop destinations, so release there
-        // must cancel without committing tab order. Escape is covered with
-        // actual keyboard events in VerticalTabDragLifecycleTests.
+        // must cancel without committing tab order. Native drag lifecycle is covered by
+        // VerticalNativeTabOutlineDesktopTests.
         try await nativeDrag(toRow: -1)
         #expect(group.windows == initialOrder, "A rejected drop must preserve native tab order")
         try await nativeDrag(toRow: 2)
         #expect(group.windows == [initialOrder[1], initialOrder[2], initialOrder[0]], "A completed drag must commit native tab order")
 
-        let dragLifecycle = VerticalTabDragLifecycleMonitor()
-        defer { dragLifecycle.finish() }
-        var dragCleanups = 0
         var owner: MonitorOwner? = MonitorOwner()
         let monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown,
             handler: WeakLocalEventMonitor.handler(for: owner!) { owner, event in owner.received += 1; return event })
@@ -217,15 +214,6 @@ struct VerticalTabMouseTests {
                 windowNumber: sourceWindow.windowNumber, context: nil, eventNumber: step * 2, clickCount: 1, pressure: 1))
             let up = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime + 0.01,
                 windowNumber: sourceWindow.windowNumber, context: nil, eventNumber: step * 2 + 1, clickCount: 1, pressure: 0))
-            if step % 8 == 0 {
-                // Start the production source monitor, then deliver a genuine
-                // AppKit release before the next row click. A no-op/cancelled
-                // drag has no performDrop to rescue this lifecycle.
-                dragLifecycle.begin { dragCleanups += 1 }
-                NSApp.sendEvent(up)
-                try await Task.sleep(for: .milliseconds(10))
-                #expect(dragCleanups == step / 8 + 1)
-            }
             NSApp.postEvent(up, atStart: true)
             NSApp.sendEvent(down)
             if let queued = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true) { NSApp.sendEvent(queued) }

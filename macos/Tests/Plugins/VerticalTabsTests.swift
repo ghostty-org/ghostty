@@ -97,34 +97,6 @@ struct VerticalTabsTests {
         ) == nil)
     }
 
-    @Test func onlyPerformedDropRejectsUpdates() {
-        var activity = VerticalTabDropActivity.idle
-        #expect(activity.acceptsUpdates)
-        activity = .active
-        #expect(activity.acceptsUpdates)
-        activity = .performed
-        #expect(!activity.acceptsUpdates)
-    }
-
-    @Test func rowDropPayloadRoutesPaneAndTabThroughOneDestination() {
-        #expect(VerticalTabDropPayload.resolve(
-            hasSurface: false,
-            hasTab: true
-        ) == .tab)
-        #expect(VerticalTabDropPayload.resolve(
-            hasSurface: true,
-            hasTab: false
-        ) == .surface)
-        #expect(VerticalTabDropPayload.resolve(
-            hasSurface: true,
-            hasTab: true
-        ) == .surface)
-        #expect(VerticalTabDropPayload.resolve(
-            hasSurface: false,
-            hasTab: false
-        ) == nil)
-    }
-
     @Test func stableMoveDescriptorResolvesRecreatedValuesBySessionID() throws {
         struct Value {
             let generation: Int

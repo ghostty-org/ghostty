@@ -1404,8 +1404,12 @@ class BaseTerminalController: NSWindowController,
         // want to move focus to our focused terminal surface. This works around
         // various weirdness with moving surfaces around.
         if let window, window.firstResponder == window, let focusedSurface {
-            DispatchQueue.main.async {
-                Ghostty.moveFocus(to: focusedSurface)
+            DispatchQueue.main.async { [weak window, weak focusedSurface] in
+                // Another native control may acquire focus during tab handoff.
+                // Repair only an unresolved window responder, not a newer choice.
+                guard let window, window.isKeyWindow, window.firstResponder === window,
+                      let focusedSurface, focusedSurface.window === window else { return }
+                window.makeFirstResponder(focusedSurface)
             }
         }
 

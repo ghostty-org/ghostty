@@ -2448,8 +2448,20 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard reordered != windows else { return false }
 
         tabLayoutState.setOrderingMode(.manual)
-        applyCanonicalTabOrder(reordered, in: tabGroup)
-        return true
+        // Like Ghostty's move_tab path, move only the requested window. Applying
+        // the whole permutation can detach every intervening window on a drag.
+        let selectedWindow = tabGroup.selectedWindow
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            tabGroup.removeWindow(movedWindow)
+            tabGroup.insertWindow(movedWindow, at: destination)
+        }
+        if let selectedWindow, tabGroup.windows.contains(selectedWindow) {
+            tabGroup.selectedWindow = selectedWindow
+        }
+        movedWindow.invalidateRestorableState()
+        Self.refreshTabs(in: tabGroup)
+        return tabGroup.windows == reordered
     }
 
     func setTabGroupingMode(_ mode: GhosttyTabGroupingMode) {

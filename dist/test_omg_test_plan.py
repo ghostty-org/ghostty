@@ -17,6 +17,7 @@ QUICK_INPUT_DESKTOP_TEST = "GhosttyTests/QuickInputFooterMouseTests"
 DESKTOP_TESTS = {
     "GhosttyTests/VerticalTabMouseTests",
     "GhosttyTests/VerticalTabFullscreenTests",
+    "GhosttyTests/VerticalNativeTabOutlineDesktopTests",
     "GhosttyTests/TerminalWorkspaceManagementDesktopTests",
     QUICK_INPUT_DESKTOP_TEST,
     VISUAL_DESKTOP_TEST,
@@ -77,7 +78,8 @@ class PlannerTests(unittest.TestCase):
 
     def test_tabs_keep_policy_tests_and_defer_only_real_native_drag(self):
         result = self.plan(modules=["tabs"])
-        self.assertIn("GhosttyTests/VerticalTabDragLifecycleTests", result["only_testing"])
+        self.assertIn("GhosttyTests/VerticalNativeTabOutlineTests", result["only_testing"])
+        self.assertIn("GhosttyTests/VerticalNativeTabSidebarTests", result["only_testing"])
         self.assertIn("GhosttyTests/VerticalTabsIntegrationTests", result["only_testing"])
         self.assertNotIn("GhosttyTests/VerticalTabMouseTests", result["only_testing"])
         self.assertEqual(set(result["deferred_desktop"]), DESKTOP_TESTS - {QUICK_INPUT_DESKTOP_TEST})

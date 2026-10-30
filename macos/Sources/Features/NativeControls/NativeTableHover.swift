@@ -58,7 +58,7 @@ final class NativeTableHover: NSObject {
     @objc func mouseExited(with event: NSEvent) { setRow(nil) }
 }
 
-final class NativeHoverRowView: NSTableRowView {
+class NativeHoverRowView: NSTableRowView {
     override var wantsUpdateLayer: Bool { false }
     var isHovered = false { didSet { if oldValue != isHovered { needsDisplay = true } } }
     override init(frame frameRect: NSRect) { super.init(frame: frameRect); wantsLayer = true }

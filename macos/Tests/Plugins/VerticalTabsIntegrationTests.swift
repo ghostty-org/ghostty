@@ -137,10 +137,10 @@ struct VerticalTabsIntegrationTests {
         let state = VerticalTabWindowLayoutState(isSidebarVisible: true)
         state.applyPreferences(grouping: .none, ordering: .manual)
         state.updateTabs(controllers, selectedID: ObjectIdentifier(first))
-        let host = NSHostingView(rootView: TerminalTabSidebarView(
+        let host = NativeTabSidebarHostingView(configuration: NativeTabSidebarConfiguration(
             controller: first, layoutState: state, statusStore: appDelegate.tabActivities,
             backgroundColor: .black
-        ).environment(\.colorScheme, .dark))
+        ))
         previewWindow.contentView = host
         previewWindow.orderFront(nil)
 

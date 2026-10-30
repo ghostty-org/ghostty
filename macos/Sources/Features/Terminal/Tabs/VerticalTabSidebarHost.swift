@@ -6,7 +6,7 @@ import SwiftUI
 /// cannot keep its terminal controllers (and therefore the group) alive.
 @MainActor
 final class VerticalTabSidebarHost {
-    private weak var hostingView: NSHostingView<TerminalTabSidebarView>?
+    private weak var hostingView: NativeTabSidebarHostingView?
     private var containers: [ObjectIdentifier: Weak<VerticalTabSidebarContainer>] = [:]
     private weak var outgoingContainer: VerticalTabSidebarContainer?
     private(set) var mountCount = 0
@@ -37,8 +37,8 @@ final class VerticalTabSidebarHost {
         }
     }
 
-    /// SwiftUI's onAppear/selection effects run after native host mounting.
-    /// Reapply a saved group position there instead of auto-scrolling to a
+    /// Native selection updates can run after host mounting.
+    /// Reapply a saved group position instead of auto-scrolling to a
     /// selected tab the user may intentionally have scrolled away from.
     func restorePendingScrollPosition() -> Bool {
         guard pendingScrollOffset != nil else { return false }
@@ -103,15 +103,14 @@ final class VerticalTabSidebarHost {
                 outgoingContainer = hostingView.superview as? VerticalTabSidebarContainer
                 outgoingContainer?.retainLastFrame(of: hostingView)
                 hostingView.removeFromSuperview()
-                hostingView.rootView = content
+                hostingView.configure(content)
                 destination.install(hostingView)
             }
-            // Replacing the root value of the same type retains SwiftUI row and
-            // scroll identity. Background containers never update this root.
-            if !moved && updateContent { hostingView.rootView = content }
+            // Reconfigure the existing controller without replacing row/scroll
+            // identity. Background containers never update this root.
+            if !moved && updateContent { hostingView.configure(content) }
         } else {
-            let host = NSHostingView(rootView: content)
-            host.sizingOptions = []
+            let host = NativeTabSidebarHostingView(configuration: content)
             self.hostingView = host
             mountCount += 1
             destination.install(host)
@@ -124,7 +123,7 @@ final class VerticalTabSidebarHost {
 final class VerticalTabSidebarContainer: NSView {
     weak var controller: TerminalController?
     weak var owner: VerticalTabSidebarHost?
-    var content: TerminalTabSidebarView?
+    var content: NativeTabSidebarConfiguration?
     private let lastFrame = NSImageView()
     private var keyObserver: NSObjectProtocol?
 
@@ -181,7 +180,7 @@ final class VerticalTabSidebarContainer: NSView {
     func configure(
         controller: TerminalController,
         owner: VerticalTabSidebarHost,
-        content: TerminalTabSidebarView
+        content: NativeTabSidebarConfiguration
     ) {
         if self.owner !== owner { self.owner?.unregister(self) }
         self.controller = controller
@@ -191,7 +190,7 @@ final class VerticalTabSidebarContainer: NSView {
         if isSelectedWindow { owner.presentSelectedWindow(updateContent: true) }
     }
 
-    func install(_ host: NSHostingView<TerminalTabSidebarView>) {
+    func install(_ host: NativeTabSidebarHostingView) {
         host.frame = bounds
         host.autoresizingMask = [.width, .height]
         addSubview(host)
@@ -215,7 +214,7 @@ final class VerticalTabSidebarContainer: NSView {
 
     func retainLastFrame(of host: NSView) {
         // AppKit can expose the outgoing window for one more frame during a
-        // tab switch. Keep its pixels, not a second live SwiftUI hierarchy.
+        // tab switch. Keep its pixels, not a second live sidebar hierarchy.
         guard host.bounds.width > 0, host.bounds.height > 0,
               let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
         host.cacheDisplay(in: host.bounds, to: bitmap)
@@ -245,11 +244,11 @@ struct SharedTerminalTabSidebar: NSViewRepresentable {
         container.configure(
             controller: controller,
             owner: layoutState.sidebarHost,
-            content: TerminalTabSidebarView(
+            content: NativeTabSidebarConfiguration(
                 controller: controller,
                 layoutState: layoutState,
                 statusStore: statusStore,
-                backgroundColor: backgroundColor,
+                backgroundColor: NSColor(backgroundColor),
                 backgroundOpacity: backgroundOpacity
             )
         )

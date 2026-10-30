@@ -51,7 +51,7 @@ struct TerminalWorkspaceIntegrationTests {
         controller.tabLayoutState.updateTabs([controller], selectedID: ObjectIdentifier(controller))
         TerminalWorkspacePresentation.begin()
         container.configure(controller: controller, owner: host,
-            content: TerminalTabSidebarView(controller: controller, layoutState: controller.tabLayoutState,
+            content: NativeTabSidebarConfiguration(controller: controller, layoutState: controller.tabLayoutState,
                 statusStore: delegate.tabActivities, backgroundColor: .black))
         #expect(host.liveView == nil)
         TerminalWorkspacePresentation.end()

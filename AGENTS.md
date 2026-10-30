@@ -87,3 +87,11 @@ must update `docs/PLUGIN_DEVELOPMENT.md` and relevant tests in the same commit.
 
 See `docs/oh-my-ghostty-architecture.md` for the detailed architecture baseline.
 
+
+## Local task checkpoints
+
+At task start, inspect the working tree and commit completed, authorized work
+from the preceding task before starting unrelated changes. At task completion,
+commit the task's scoped implementation, tests and documentation. Do not amend,
+push, or silently include unrelated edits. Preserve and identify concurrent
+work instead of staging it indiscriminately.

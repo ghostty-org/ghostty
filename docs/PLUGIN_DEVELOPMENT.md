@@ -424,6 +424,13 @@ not a third-party SDK:
 - manifest-driven built-in Agent adapters using bounded OSC 3008 presentation
   events on the owning Surface.
 
+The vertical tab sidebar renders those host-owned activities with AppKit
+`NSOutlineView` cells and native image views. Providers still supply the existing
+icon/activity values; they do not own rows, selection, drag sessions or terminal
+windows. A split icon resolves activity per Surface. Remote project grouping uses
+the connection and remote directory, never a local filesystem probe of that
+remote path. See `macos/NATIVE_SIDEBAR.md` for ownership and validation boundaries.
+
 ### Experimental protocol components
 
 These compile and have unit tests, but no production transport connects them:
