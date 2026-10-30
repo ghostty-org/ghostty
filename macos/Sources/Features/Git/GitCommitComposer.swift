@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct GitCommitComposer: View {
@@ -13,15 +12,14 @@ struct GitCommitComposer: View {
     var canStageAll = true
     var hasHead = false
     var submit: (Bool, Bool) -> Void = { _, _ in }
-    @Environment(\.gitCollectionColors) private var colors
     @ObservedObject private var settings = OhMyGhosttySettings.shared
     @State private var generation: Task<Void, Never>?
     @State private var generationID: UUID?
     @State private var draftRevision = 0
+    @State private var replaceConfirmationID: UUID?
     @State private var notice: String?
     @State private var noticeID = UUID()
     @State private var noticeExpires = false
-    @State private var confirmReplace = false
     @State private var editorHeight: CGFloat = 44
     @State private var focused = false
 
@@ -31,8 +29,13 @@ struct GitCommitComposer: View {
                 HStack(alignment: .top) {
                     Text(notice).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     Spacer(minLength: 0)
-                    Button { self.notice = nil } label: { Image(systemName: "xmark") }
-                        .buttonStyle(.plain).help(GitL10n.text("Dismiss message"))
+                    NativeActionButton(
+                        symbol: "xmark",
+                        help: GitL10n.text("Dismiss message"),
+                        height: 22
+                    ) { _ in
+                        self.notice = nil
+                    }
                 }
             }
             GitCommitMessageEditor(text: $message, height: $editorHeight, focusChanged: { focused = $0 })
@@ -45,59 +48,59 @@ struct GitCommitComposer: View {
                 }
                 .modifier(GitInputSurface(focused: focused))
             HStack(spacing: 6) {
-                Button {
-                    if generationID != nil { cancelGeneration() } else { requestGeneration() }
-                } label: {
-                    Image(systemName: generationID == nil ? "sparkles" : "stop.fill")
-                        .frame(width: 28, height: 28)
+                NativeActionButton(
+                    symbol: generationID == nil ? "sparkles" : "stop.fill",
+                    help: GitL10n.text(
+                        generationID == nil
+                            ? "Generate a commit message using your configured agents"
+                            : "Cancel"
+                    ),
+                    enabled: generationID != nil || !(isBusy || isUpdatingIndex || !canCommit || stagedCount == 0 || repository == nil),
+                    style: .bordered,
+                    height: 28,
+                    identifier: "git.commit.generate"
+                ) { button in
+                    if generationID != nil {
+                        cancelGeneration()
+                    } else {
+                        requestGeneration(from: button.window)
+                    }
                 }
-                .buttonStyle(GitCommitActionStyle(colors: colors, prominent: false))
-                .disabled(generationID == nil && (isBusy || isUpdatingIndex || !canCommit || stagedCount == 0 || repository == nil))
-                .help(GitL10n.text(generationID == nil ? "Generate a commit message using your configured agents" : "Cancel"))
-                .accessibilityLabel(GitL10n.text(generationID == nil ? "Generate" : "Cancel"))
                 HStack(spacing: 0) {
-                    Button(action: commit) {
-                        HStack(spacing: 5) {
-                            if isBusy || generationID != nil { ProgressView().controlSize(.mini) } else { Image(systemName: "checkmark") }
-                            Text(GitL10n.text("Commit Staged"))
-                        }
-                        .frame(maxWidth: .infinity).frame(height: 28)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(GitCommitActionStyle(colors: colors, prominent: true))
-                    .disabled(!allowsSubmit(stageAll: false, amend: false))
+                    NativeActionButton(
+                        title: GitL10n.text("Commit Staged"),
+                        symbol: isBusy || generationID != nil ? "arrow.triangle.2.circlepath" : "checkmark",
+                        enabled: allowsSubmit(stageAll: false, amend: false),
+                        style: .prominent,
+                        height: 28,
+                        expands: true,
+                        identifier: "git.commit.staged"
+                    ) { _ in commit() }
                     Color.clear.frame(width: 4, height: 28)
-                    Menu {
-                        commitOption("Commit Staged", stageAll: false, amend: false)
-                        commitOption("Stage All and Commit", stageAll: true, amend: false)
-                        Divider()
-                        commitOption("Amend Last Commit", stageAll: false, amend: true)
-                        commitOption("Stage All and Amend", stageAll: true, amend: true)
-                    } label: {
-                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
-                            .frame(width: 28, height: 28)
-                    }
-                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                    .frame(width: 28, height: 28)
-                    .foregroundStyle(Color(menuEnabled ? colors.accent : colors.secondary))
-                    .background(Color(colors.text).opacity(menuEnabled ? 0.10 : 0.035), in: RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(colors.text).opacity(menuEnabled ? 0.22 : 0.06)))
-                    .disabled(!menuEnabled)
-                    .help(GitL10n.text("Commit options"))
-                    .accessibilityLabel(GitL10n.text("Commit options"))
+                    NativeMenuButton(
+                        symbol: "chevron.down",
+                        help: GitL10n.text("Commit options"),
+                        enabled: menuEnabled,
+                        style: .bordered,
+                        height: 28,
+                        identifier: "git.commit.options",
+                        entries: commitMenuEntries
+                    )
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 11, weight: .medium))
-
             }
         }
-        .confirmationDialog(GitL10n.text("Replace the existing commit message?"), isPresented: $confirmReplace) {
-            Button(GitL10n.text("Generate and Replace")) { startGeneration() }
-            Button(GitL10n.text("Cancel"), role: .cancel) {}
-        }
         .onChange(of: message) { _ in draftRevision += 1 }
-        .onChange(of: repository) { _ in cancelGeneration(); notice = nil }
-        .onDisappear { cancelGeneration() }
+        .onChange(of: repository) { _ in
+            cancelGeneration()
+            replaceConfirmationID = nil
+            notice = nil
+        }
+        .onDisappear {
+            cancelGeneration()
+            replaceConfirmationID = nil
+        }
         .task(id: noticeID) {
             guard noticeExpires else { return }
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
@@ -118,14 +121,56 @@ struct GitCommitComposer: View {
         return (amend || hasChanges) && (amend || !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
-    private func commitOption(_ title: String, stageAll: Bool, amend: Bool) -> some View {
-        Button(GitL10n.text(title)) { submit(stageAll, amend) }
-            .disabled(!allowsSubmit(stageAll: stageAll, amend: amend))
+    private var commitMenuEntries: [NativeMenuEntry] {
+        [
+            .action(
+                GitL10n.text("Commit Staged"),
+                symbol: "checkmark",
+                enabled: allowsSubmit(stageAll: false, amend: false)
+            ) { submit(false, false) },
+            .action(
+                GitL10n.text("Stage All and Commit"),
+                symbol: "plus",
+                enabled: allowsSubmit(stageAll: true, amend: false)
+            ) { submit(true, false) },
+            .separator,
+            .action(
+                GitL10n.text("Amend Last Commit"),
+                symbol: "arrow.uturn.backward",
+                enabled: allowsSubmit(stageAll: false, amend: true)
+            ) { submit(false, true) },
+            .action(
+                GitL10n.text("Stage All and Amend"),
+                symbol: "plus",
+                enabled: allowsSubmit(stageAll: true, amend: true)
+            ) { submit(true, true) },
+        ]
     }
 
-    private func requestGeneration() {
+    private func requestGeneration(from window: NSWindow?) {
         guard !settings.gitCommitAIRoutes.isEmpty else { SettingsNavigation.open(.git); return }
-        if message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { startGeneration() } else { confirmReplace = true }
+        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            startGeneration()
+            return
+        }
+
+        guard let window else { return }
+        let confirmationID = UUID()
+        replaceConfirmationID = confirmationID
+        let originalRevision = draftRevision
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = GitL10n.text("Replace the existing commit message?")
+        alert.addButton(withTitle: GitL10n.text("Generate and Replace"))
+        alert.addButton(withTitle: GitL10n.text("Cancel"))
+        let accept: (NSApplication.ModalResponse) -> Void = { [self] response in
+            guard response == .alertFirstButtonReturn,
+                  replaceConfirmationID == confirmationID,
+                  draftRevision == originalRevision else { return }
+            replaceConfirmationID = nil
+            startGeneration()
+        }
+        alert.beginSheetModal(for: window, completionHandler: accept)
     }
 
     private func cancelGeneration() {
@@ -166,28 +211,6 @@ struct GitCommitComposer: View {
                 } else { notice = error.localizedDescription }
             }
         }
-    }
-}
-
-private struct GitCommitActionStyle: ButtonStyle {
-    let colors: GitCollectionColors
-    let prominent: Bool
-    @Environment(\.isEnabled) private var enabled
-    @State private var hovered = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(enabled ? (prominent ? Color.white : Color(colors.accent)) : Color(colors.secondary).opacity(0.55))
-            .background(background(pressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6)
-                .stroke(Color(enabled ? colors.accent : colors.text).opacity(enabled ? 0.55 : 0.06)))
-            .onHover { hovered = $0 }
-    }
-
-    private func background(pressed: Bool) -> Color {
-        guard enabled else { return Color(colors.text).opacity(0.035) }
-        if prominent { return Color(colors.accent).opacity(pressed ? 0.65 : hovered ? 0.95 : 0.82) }
-        return Color(colors.accent).opacity(pressed ? 0.28 : hovered ? 0.20 : 0.10)
     }
 }
 

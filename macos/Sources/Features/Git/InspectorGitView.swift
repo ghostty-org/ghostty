@@ -32,13 +32,12 @@ struct InspectorGitView: View {
                         .font(.caption)
                         .foregroundStyle(.primary)
                     Spacer()
-                    Button { perform(.gitAction(.clearOperationNotice)) } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 10))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help(GitL10n.text("Dismiss message"))
+                    NativeActionButton(
+                        symbol: "xmark",
+                        help: GitL10n.text("Dismiss message"),
+                        action: { _ in perform(.gitAction(.clearOperationNotice)) }
+                    )
+                    .frame(width: 24, height: 24)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
@@ -57,12 +56,12 @@ struct InspectorGitView: View {
                     }
                     .frame(maxHeight: 64)
                     Spacer(minLength: 0)
-                    Button { perform(.gitAction(.clearOperationError)) } label: {
-                        Image(systemName: "xmark").font(.system(size: 10))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help(GitL10n.text("Dismiss Git error"))
+                    NativeActionButton(
+                        symbol: "xmark",
+                        help: GitL10n.text("Dismiss Git error"),
+                        action: { _ in perform(.gitAction(.clearOperationError)) }
+                    )
+                    .frame(width: 24, height: 24)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
@@ -140,14 +139,19 @@ struct InspectorGitView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.tint)
 
-                Text(content.repository?.repositoryName ?? "Git")
-                    .font(.system(size: 13, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(content.repository?.worktreePath ?? "")
-                    .contextMenu {
-                        Button(GitL10n.text("Copy repository name")) { InspectorCopyMenu.copy(content.repository?.repositoryName ?? "Git") }
-                    }
+                NativeActionButton(
+                    title: content.repository?.repositoryName ?? "Git",
+                    help: content.repository?.worktreePath ?? "",
+                    height: 20,
+                    expands: true,
+                    menu: [
+                        .action(GitL10n.text("Copy repository name"), symbol: "doc.on.doc") {
+                            InspectorCopyMenu.copy(content.repository?.repositoryName ?? "Git")
+                        },
+                    ],
+                    action: { _ in }
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer(minLength: 4)
 
@@ -198,41 +202,35 @@ struct InspectorGitView: View {
     }
 
     private var fetchButton: some View {
-        Button {
-            perform(.gitAction(.fetch))
-        } label: {
-            if isFetchLoading {
-                ProgressView().controlSize(.small).scaleEffect(0.55)
-            } else {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 11, weight: .medium))
-            }
-        }
-        .buttonStyle(GitHeaderActionButtonStyle(selected: false, isBusy: isFetchLoading))
-        .help(GitL10n.text("Fetch remote changes"))
-        .disabled(content.repository == nil || isNetworkBusy)
-        .contextMenu {
-            Button(GitL10n.text("Fetch")) {
-                perform(.gitAction(.fetch))
-            }
-            Button(GitL10n.text("Refresh (Local Only)")) {
-                perform(.gitAction(.refreshLocal))
-            }
-            Divider()
-            Menu(GitL10n.text("Auto-Fetch Interval")) {
-                ForEach([0, 1, 2, 5, 10, 15, 30, 60], id: \.self) { minutes in
-                    Button {
+        NativeActionButton(
+            symbol: isFetchLoading ? "arrow.triangle.2.circlepath" : "arrow.clockwise",
+            help: GitL10n.text("Fetch remote changes"),
+            enabled: content.repository != nil && !isNetworkBusy,
+            style: .plain,
+            height: 22,
+            identifier: "git.fetch",
+            menu: [
+                .action(GitL10n.text("Fetch"), enabled: content.repository != nil && !isNetworkBusy) {
+                    perform(.gitAction(.fetch))
+                },
+                .action(GitL10n.text("Refresh (Local Only)")) {
+                    perform(.gitAction(.refreshLocal))
+                },
+                .separator,
+                .submenu(GitL10n.text("Auto-Fetch Interval"), entries: [0, 1, 2, 5, 10, 15, 30, 60].map { minutes in
+                    .action(
+                        settingsStrings.gitAutoFetchIntervalTitle(minutes),
+                        symbol: settings.gitAutoFetchInterval == minutes ? "checkmark" : nil,
+                        checked: settings.gitAutoFetchInterval == minutes
+                    ) {
                         settings.gitAutoFetchInterval = minutes
-                    } label: {
-                        if settings.gitAutoFetchInterval == minutes {
-                            Label(settingsStrings.gitAutoFetchIntervalTitle(minutes), systemImage: "checkmark")
-                        } else {
-                            Text(settingsStrings.gitAutoFetchIntervalTitle(minutes))
-                        }
                     }
-                }
-            }
-        }
+                }),
+            ],
+            action: { _ in perform(.gitAction(.fetch)) }
+        )
+        .frame(width: 24, height: 22)
+        .help(GitL10n.text("Fetch remote changes"))
     }
 
     private var currentBranch: GitBranchInfo? {
@@ -301,9 +299,13 @@ struct InspectorGitView: View {
             GitCollectionToolbar(query: activeQuery, mode: $changesMode, placeholder: searchPlaceholder,
                                  controller: activeController, cancel: { activeQuery.wrappedValue = "" })
             if content.activeTab == .branches {
-                Button { perform(.gitAction(.createWorktree(nil))) } label: { Image(systemName: "plus") }
-                    .buttonStyle(.borderless).help(GitL10n.text("New Worktree"))
-                    .disabled(content.operation != nil || content.workingTree.worktreesError != nil)
+                NativeActionButton(
+                    symbol: "plus",
+                    help: GitL10n.text("New Worktree"),
+                    enabled: content.operation == nil && content.workingTree.worktreesError == nil,
+                    height: 24,
+                    action: { _ in perform(.gitAction(.createWorktree(nil))) }
+                )
             }
         }
         }

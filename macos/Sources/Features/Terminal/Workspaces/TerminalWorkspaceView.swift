@@ -1,40 +1,153 @@
 import AppKit
 import SwiftUI
 
-struct TerminalWorkspaceButton: View {
+struct TerminalWorkspaceHeaderState {
+    let name: String
+    let symbol: String
+    let tint: NSColor
+    let needsAttention: Bool
+    let isPresented: Bool
+    let shortcut: String
+}
+
+struct TerminalWorkspaceButton: NSViewRepresentable {
     @ObservedObject var controller: TerminalController
     @ObservedObject private var store: TerminalWorkspaceStore
-    @State private var hovered = false
+    @ObservedObject private var coordinator: TerminalWorkspaceCoordinator
+    @ObservedObject private var activities: TabActivityStore
 
     init(controller: TerminalController) {
         self.controller = controller
         self.store = controller.workspaceCoordinator.store
+        self.coordinator = controller.workspaceCoordinator
+        self.activities = (NSApp.delegate as? AppDelegate)?.tabActivities ?? TabActivityStore()
     }
 
-    var body: some View {
-        let workspace = controller.workspaceCoordinator.presentationWorkspace(controller.workspaceID)
-        Button { controller.workspaceSwitcherIsPresented.toggle() } label: {
-            HStack(spacing: 7) {
-                Image(systemName: workspace?.symbol ?? "square.grid.2x2").foregroundStyle(workspace?.tint ?? .secondary)
-                Text(workspace?.name ?? WorkspaceL10n.text("Workspace", "工作区")).fontWeight(.medium).lineLimit(1)
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
-                if let activities = (NSApp.delegate as? AppDelegate)?.tabActivities {
-                    WorkspaceAttentionDot(currentID: controller.workspaceID, activities: activities)
-                }
-            }
-            .font(.system(size: 12))
-            .padding(.horizontal, 7).padding(.vertical, 5)
-            .contentShape(Rectangle())
-            .background(hovered || controller.workspaceSwitcherIsPresented ? Color.primary.opacity(0.06) : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-        .help(WorkspaceL10n.text("Switch workspace", "切换工作区") + " · " +
-              (OMGKeyboardShortcut(storageValue: store.shortcut(slot: 0))?.displayValue ?? ""))
-        .accessibilityLabel(WorkspaceL10n.text("Workspace: ", "工作区：") + (workspace?.name ?? ""))
-        .background(WorkspacePopoverAnchor(controller: controller))
+    func makeNSView(context: Context) -> TerminalWorkspaceHeaderButton {
+        TerminalWorkspaceHeaderButton()
     }
+
+    func updateNSView(_ button: TerminalWorkspaceHeaderButton, context: Context) {
+        let workspace = controller.workspaceCoordinator.presentationWorkspace(controller.workspaceID)
+        let needsAttention = coordinator.liveControllers.contains { other in
+            guard other.workspaceID != controller.workspaceID else { return false }
+            return other.surfaceTree.contains { surface in
+                let state = activities.activity(for: surface.id)?.state
+                return state == .needsAttention || state == .error
+            } || activities.activity(for: other.tabSessionID)?.state == .needsAttention
+        }
+        let shortcut = OMGKeyboardShortcut(storageValue: store.shortcut(slot: 0))?.displayValue ?? ""
+        let state = TerminalWorkspaceHeaderState(
+            name: workspace?.name ?? WorkspaceL10n.text("Workspace", "工作区"),
+            symbol: workspace?.symbol ?? "square.grid.2x2",
+            tint: NSColor(workspace?.tint ?? .secondary),
+            needsAttention: needsAttention,
+            isPresented: controller.workspaceSwitcherIsPresented,
+            shortcut: shortcut
+        )
+        button.configure(state, controller: controller) { [weak controller] in
+            controller?.workspaceSwitcherIsPresented.toggle()
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: TerminalWorkspaceHeaderButton, context: Context) -> CGSize? {
+        nsView.fittingSize(proposedWidth: proposal.width)
+    }
+}
+
+@MainActor
+final class TerminalWorkspaceHeaderButton: NSButton {
+    private let symbolView = NSImageView()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let chevronView = NSImageView()
+    private let attentionView = NSView()
+    private weak var controller: TerminalController?
+    private var activate: (() -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        title = ""
+        bezelStyle = .recessed
+        isBordered = false
+        setButtonType(.momentaryPushIn)
+        wantsLayer = true
+        target = self
+        action = #selector(activateWorkspace)
+        symbolView.imageScaling = .scaleProportionallyDown
+        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        chevronView.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)
+            .flatMap { $0.withSymbolConfiguration(.init(pointSize: 9, weight: .medium)) }
+        chevronView.contentTintColor = .secondaryLabelColor
+        attentionView.wantsLayer = true
+        attentionView.layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.8).cgColor
+        attentionView.layer?.cornerRadius = 2.5
+        let row = NSStackView(views: [symbolView, titleLabel, chevronView, attentionView])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 7
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            symbolView.widthAnchor.constraint(equalToConstant: 16),
+            symbolView.heightAnchor.constraint(equalToConstant: 16),
+            chevronView.widthAnchor.constraint(equalToConstant: 12),
+            chevronView.heightAnchor.constraint(equalToConstant: 12),
+            attentionView.widthAnchor.constraint(equalToConstant: 5),
+            attentionView.heightAnchor.constraint(equalToConstant: 5),
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 7),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -7),
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 5),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
+        ])
+        attentionView.isHidden = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let superview, bounds.contains(convert(point, from: superview)) else { return nil }
+        return self
+    }
+
+    func configure(_ state: TerminalWorkspaceHeaderState,
+                   controller: TerminalController,
+                   activate: @escaping () -> Void) {
+        self.controller = controller
+        wantsLayer = true
+        titleLabel.stringValue = state.name
+        symbolView.image = NSImage(systemSymbolName: state.symbol, accessibilityDescription: nil)
+        symbolView.contentTintColor = state.tint
+        attentionView.isHidden = !state.needsAttention
+        layer?.backgroundColor = state.isPresented
+            ? NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
+            : nil
+        let base = WorkspaceL10n.text("Switch workspace", "切换工作区")
+        toolTip = state.shortcut.isEmpty ? base : "\(base) · \(state.shortcut)"
+        setAccessibilityLabel(WorkspaceL10n.text("Workspace: ", "工作区：") + state.name)
+        setAccessibilityIdentifier("workspace.switcher")
+        setAccessibilityHelp(state.shortcut.isEmpty ? nil : state.shortcut)
+        self.activate = activate
+        controller.workspacePopover.update(anchor: self)
+        needsLayout = true
+        invalidateIntrinsicContentSize()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let controller, window != nil { controller.workspacePopover.update(anchor: self) }
+    }
+
+    func fittingSize(proposedWidth _: CGFloat?) -> CGSize {
+        let textWidth = ceil((titleLabel.stringValue as NSString).size(
+            withAttributes: [.font: titleLabel.font ?? .systemFont(ofSize: 12)]
+        ).width)
+        return CGSize(width: textWidth + 16 + 12 + 5 + 28 + 21, height: 28)
+    }
+
+    @objc private func activateWorkspace() { activate?() }
 }
 
 /// The controller owns both the native popover and its management session.
@@ -50,6 +163,7 @@ final class WorkspacePopoverPresentation: NSObject, NSPopoverDelegate {
     private(set) var contentCreationCount = 0
     var isShown: Bool { popover.isShown }
     var contentView: NSView? { popover.contentViewController?.view }
+    var contentController: NSViewController? { popover.contentViewController }
 
     init(controller: TerminalController) {
         self.controller = controller
@@ -88,7 +202,12 @@ final class WorkspacePopoverPresentation: NSObject, NSPopoverDelegate {
             }, reopen: { [weak controller] in controller?.workspaceSwitcherIsPresented = true })
         }
         guard let management else { return }
-        popover.contentViewController = NSHostingController(rootView: TerminalWorkspacePicker(model: management))
+        let picker = TerminalWorkspacePickerController(model: management)
+        picker.onPreferredSizeChange = { [weak popover] size in
+            popover?.contentSize = size
+        }
+        popover.contentViewController = picker
+        popover.contentSize = picker.fittingSize(proposedWidth: nil)
         contentCreationCount += 1
         popover.show(relativeTo: rect, of: source, preferredEdge: .maxY)
     }
@@ -124,42 +243,6 @@ final class WorkspacePopoverPresentation: NSObject, NSPopoverDelegate {
     }
 }
 
-private struct WorkspacePopoverAnchor: NSViewRepresentable {
-    let controller: TerminalController
-    final class AnchorView: NSView {
-        weak var controller: TerminalController?
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if window != nil { controller?.workspacePopover.update(anchor: self) }
-        }
-    }
-    func makeNSView(context: Context) -> AnchorView { AnchorView() }
-    func updateNSView(_ view: AnchorView, context: Context) {
-        view.controller = controller
-        controller.workspacePopover.update(anchor: view)
-    }
-}
-
-private struct WorkspaceAttentionDot: View {
-    let currentID: UUID
-    @ObservedObject var activities: TabActivityStore
-    @ObservedObject private var coordinator = TerminalWorkspaceCoordinator.shared
-    var body: some View {
-        let needsAttention = coordinator.liveControllers.contains { controller in
-            guard controller.workspaceID != currentID else { return false }
-            return controller.surfaceTree.contains { surface in
-                let state = activities.activity(for: surface.id)?.state
-                return state == .needsAttention || state == .error
-            } || activities.activity(for: controller.tabSessionID)?.state == .needsAttention
-        }
-        if needsAttention {
-            Circle().fill(Color.orange.opacity(0.8)).frame(width: 5, height: 5)
-                .help(WorkspaceL10n.text("Another workspace needs attention", "其他工作区有待处理事项"))
-        }
-    }
-}
-
 struct WorkspaceShortcutSettingsView: View {
     @ObservedObject private var store = TerminalWorkspaceStore.shared
     var body: some View {
@@ -175,7 +258,12 @@ struct WorkspaceShortcutSettingsView: View {
                         OMGShortcutRecorder(storageValue: Binding(
                             get: { store.shortcut(slot: slot) }, set: { store.setShortcut(slot: slot, value: $0) }
                         )).frame(width: 112, height: 24)
-                        Button(WorkspaceL10n.text("Reset", "重置")) {
+                        NativeActionButton(
+                            title: WorkspaceL10n.text("Reset", "重置"),
+                            style: .bordered,
+                            height: 22,
+                            identifier: "workspace.shortcut.reset.\(slot)"
+                        ) { _ in
                             store.setShortcut(slot: slot, value: TerminalWorkspaceStore.defaultShortcut(slot: slot))
                         }
                     }

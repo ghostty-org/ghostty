@@ -10,13 +10,15 @@ struct AgentHistoryTranscriptTable: NSViewRepresentable {
     let strings: AgentHistoryStrings
     let highlightText: String
     let onFork: () -> Void
+    var onFind: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let scrollView = AgentHistoryTranscriptScrollView()
+        scrollView.onFind = onFind
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
@@ -51,6 +53,7 @@ struct AgentHistoryTranscriptTable: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        (scrollView as? AgentHistoryTranscriptScrollView)?.onFind = onFind
         context.coordinator.update(
             messages: messages,
             agentName: agentName,
@@ -129,6 +132,18 @@ struct AgentHistoryTranscriptTable: NSViewRepresentable {
             )
             return cell
         }
+    }
+}
+
+final class AgentHistoryTranscriptScrollView: NSScrollView {
+    var onFind: () -> Void = {}
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if AgentHistoryFindShortcut.accepts(event, in: self) {
+            onFind()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }
 

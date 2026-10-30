@@ -27,6 +27,8 @@ struct GitCollectionSearchField: NSViewRepresentable {
     let controller: GitCollectionController
     let cancel: () -> Void
     final class Field: NSSearchField {
+        // The custom cell paints the full bounds, without the system bezel's layout outsets.
+        override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0) }
         var autofocus = false
         var colors = GitCollectionColors()
         private var hovered = false

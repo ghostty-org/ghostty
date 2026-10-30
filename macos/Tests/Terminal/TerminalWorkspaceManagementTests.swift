@@ -226,19 +226,24 @@ struct TerminalWorkspaceManagementTests {
         defer { fixture.close() }
         for index in 1...8 { _ = fixture.store.create(name: "Project \(index)", symbol: "briefcase", color: "blue") }
         let model = fixture.model
-        let host = NSHostingView(rootView: TerminalWorkspacePicker(model: model)
-            .background(Color(nsColor: .windowBackgroundColor)))
+        let picker = TerminalWorkspacePickerController(model: model)
+        let host = picker.view
         let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 360, height: 470), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = host
+        window.contentViewController = picker
+        window.appearance = NSAppearance(named: .aqua)
+        host.wantsLayer = true
+        host.layer?.backgroundColor = NSColor(white: 0.96, alpha: 1).cgColor
         defer { window.contentView = nil; window.close() }
         window.orderFront(nil)
         func capture(_ name: String) async throws {
             try await Task.sleep(for: .milliseconds(50))
-            window.setContentSize(host.fittingSize)
+            window.setContentSize(picker.fittingSize(proposedWidth: nil))
             host.layoutSubtreeIfNeeded()
-            #expect(host.fittingSize.width == 360)
+            #expect(host.bounds.width == 360)
+            #expect(host.fittingSize.width <= host.bounds.width)
             #expect(host.fittingSize.height < 600)
+            window.displayIfNeeded()
             let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: bitmap)
             try #require(bitmap.representation(using: .png, properties: [:]))
@@ -252,6 +257,111 @@ struct TerminalWorkspaceManagementTests {
         try await capture("move")
         model.beginDelete(try #require(fixture.store.workspaces.last).id)
         try await capture("delete")
+    }
+
+    @Test func nativePickerUsesRecycledRowsAndKeepsTheWorkspaceTargetExplicit() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let destination = try #require(fixture.store.create(name: "Destination", symbol: "house", color: "blue"))
+        let controller = TerminalWorkspacePickerController(model: fixture.model)
+        let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 360, height: 450),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller
+        window.makeKeyAndOrderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        try await Task.sleep(for: .milliseconds(50))
+
+        func find<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {
+            (view as? T).map { [$0] } ?? view.subviews.flatMap { find(type, in: $0) }
+        }
+
+        let table = try #require(find(NSTableView.self, in: controller.view).first)
+        #expect(table.numberOfRows == 2)
+        #expect(find(NSSearchField.self, in: controller.view).count == 1)
+
+        let move = try #require(find(NSButton.self, in: controller.view).first {
+            $0.accessibilityIdentifier() == "workspace.move"
+        })
+        move.performClick(nil)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(fixture.model.filtered.map(\.id) == [destination])
+        #expect(table.numberOfRows == 1)
+        table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        controller.tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification, object: table))
+        #expect(fixture.model.selectedID == destination)
+        #expect(fixture.model.page == .move)
+        #expect(fixture.model.currentID == fixture.controller.workspaceID)
+        controller.view.layoutSubtreeIfNeeded()
+        let destinationRow = try #require(table.view(atColumn: 0, row: 0, makeIfNecessary: true))
+        let open = try #require(find(NSButton.self, in: destinationRow).first {
+            $0.accessibilityIdentifier() == "workspace.open.\(destination)"
+        })
+        open.performClick(nil)
+        #expect(fixture.model.isPerforming)
+        fixture.deferred?()
+        #expect(fixture.coordinator.controllers(in: destination).count == 1)
+        try await Task.sleep(for: .milliseconds(50))
+        controller.view.layoutSubtreeIfNeeded()
+        let currentIndex = try #require(fixture.model.filtered.firstIndex { $0.id == destination })
+        let currentRow = try #require(table.view(atColumn: 0, row: currentIndex, makeIfNecessary: true))
+        let currentDelete = try #require(find(NSButton.self, in: currentRow).first {
+            $0.accessibilityIdentifier() == "workspace.delete.\(destination)"
+        })
+        #expect(!currentDelete.isEnabled)
+
+        fixture.model.beginDelete(TerminalWorkspace.defaultID)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(fixture.model.page == .delete(TerminalWorkspace.defaultID))
+        #expect(fixture.model.canDelete(TerminalWorkspace.defaultID))
+        let confirm = try #require(find(NSButton.self, in: controller.view).first {
+            $0.accessibilityIdentifier() == "workspace.confirm-delete"
+        })
+        #expect(confirm.isEnabled)
+        confirm.performClick(nil)
+        #expect(fixture.model.isPerforming)
+        #expect(fixture.store.workspaces.contains(where: { $0.id == TerminalWorkspace.defaultID }))
+        fixture.deferred?()
+        #expect(!fixture.store.workspaces.contains(where: { $0.id == TerminalWorkspace.defaultID }))
+    }
+
+    @Test func nativeWorkspaceNameFieldLetsTheInputMethodFinishBeforeSubmitting() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let controller = TerminalWorkspacePickerController(model: fixture.model)
+        let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 360, height: 450),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller
+        window.makeKeyAndOrderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        fixture.model.beginCreate()
+        try await Task.sleep(for: .milliseconds(50))
+        func find<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {
+            (view as? T).map { [$0] } ?? view.subviews.flatMap { find(type, in: $0) }
+        }
+        let name = try #require(find(NSTextField.self, in: controller.view).first {
+            $0.accessibilityIdentifier() == "workspace.name"
+        })
+        #expect(find(NSButton.self, in: controller.view).filter {
+            $0.identifier?.rawValue.hasPrefix("symbol.") == true
+        }.count == TerminalWorkspace.symbols.count)
+        #expect(find(NSButton.self, in: controller.view).filter {
+            $0.identifier?.rawValue.hasPrefix("color.") == true
+        }.count == TerminalWorkspace.colors.count)
+
+        #expect(window.makeFirstResponder(name))
+        let editor = try #require(name.currentEditor() as? NSTextView)
+        editor.setMarkedText("新", selectedRange: NSRange(location: 1, length: 0),
+                             replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(!controller.control(name, textView: editor, doCommandBy: NSSelectorFromString("insertNewline:")))
+        #expect(fixture.model.page == .create)
+        editor.unmarkText()
+        #expect(controller.control(name, textView: editor, doCommandBy: NSSelectorFromString("insertNewline:")))
+        #expect(fixture.model.isPerforming)
+        #expect(fixture.store.workspaces.count == 1)
+        fixture.deferred?()
+        #expect(fixture.store.workspaces.count == 2)
     }
 
     @Test func immediateExitCancelsDeferredBorderlessEntryGeometry() async throws {

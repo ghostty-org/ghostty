@@ -25,7 +25,7 @@ struct AgentHistoryTranscriptToolbar: NSViewControllerRepresentable {
 
 @MainActor
 final class AgentHistoryTranscriptToolbarController: NSViewController, NSSearchFieldDelegate {
-    private let stack = NSStackView()
+    private let stack = AgentHistoryTranscriptToolbarStack()
     private let header = NSStackView()
     private let searchRow = NSStackView()
     private let backButton = NSButton()
@@ -48,6 +48,7 @@ final class AgentHistoryTranscriptToolbarController: NSViewController, NSSearchF
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 6
+        stack.onFind = { [weak self] in self?.snapshot?.onToggleSearch() }
         stack.edgeInsets = NSEdgeInsets(top: 8, left: InspectorContentMetrics.leadingInset,
                                         bottom: 6, right: InspectorContentMetrics.leadingInset)
         header.orientation = .horizontal
@@ -57,8 +58,7 @@ final class AgentHistoryTranscriptToolbarController: NSViewController, NSSearchF
         backButton.bezelStyle = .accessoryBar
         backButton.target = self
         backButton.action = #selector(back)
-        agentIcon.imageScaling = .scaleProportionallyDown
-        agentIcon.setContentHuggingPriority(.required, for: .horizontal)
+        agentIcon.imageScaling = .scaleProportionallyUpOrDown
         agentName.lineBreakMode = .byTruncatingTail
         agentName.font = .systemFont(ofSize: 13, weight: .semibold)
         agentName.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -112,6 +112,7 @@ final class AgentHistoryTranscriptToolbarController: NSViewController, NSSearchF
         _ = view
         snapshot = next
         agentIcon.image = NSImage(named: next.session.agent.assetName)
+        agentIcon.contentTintColor = agentIcon.image?.isTemplate == true ? .labelColor : nil
         agentName.stringValue = next.session.agent.displayName
         resumeButton.title = next.session.isActive ? next.strings.openLive : next.strings.resume
         backButton.toolTip = next.strings.back
@@ -215,12 +216,37 @@ final class AgentHistoryTranscriptSearchField: NSSearchField {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.contains(.command),
-           event.modifierFlags.isDisjoint(with: [.shift, .option, .control]),
-           event.charactersIgnoringModifiers?.lowercased() == "f" {
+        if AgentHistoryFindShortcut.accepts(event, in: self) {
             onFind?()
             return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+}
+
+private final class AgentHistoryTranscriptToolbarStack: NSStackView {
+    var onFind: (() -> Void)?
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if AgentHistoryFindShortcut.accepts(event, in: self) {
+            onFind?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
+enum AgentHistoryFindShortcut {
+    static func accepts(_ event: NSEvent, in owner: NSView) -> Bool {
+        guard !owner.isHiddenOrHasHiddenAncestor, let window = owner.window,
+              event.type == .keyDown, event.modifierFlags.contains(.command),
+              event.modifierFlags.isDisjoint(with: [.shift, .option, .control]),
+              event.charactersIgnoringModifiers?.lowercased() == "f",
+              let responder = window.firstResponder as? NSView else { return false }
+        if let editor = responder as? NSTextView, editor.hasMarkedText() { return false }
+        if responder === owner || responder.isDescendant(of: owner) { return true }
+        // A window's field editor can live outside the control's view subtree.
+        guard let editor = responder as? NSTextView, editor.isFieldEditor,
+              let control = editor.delegate as? NSView else { return false }
+        return control === owner || control.isDescendant(of: owner)
     }
 }

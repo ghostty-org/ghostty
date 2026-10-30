@@ -64,18 +64,17 @@ struct GitDiffReviewView: View {
                         ForEach(Array(layout.items.enumerated()), id: \.offset) { _, item in
                             switch item {
                             case .folded(let range):
-                                Button { expanded.insert(range.lowerBound) } label: {
-                                    HStack(spacing: 12) {
-                                        Image(systemName: range.lowerBound == 0 ? "chevron.up" : "chevron.down")
-                                        Text(GitL10n.format("{0} unmodified lines", String(range.count)))
-                                        Spacer()
-                                    }
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(Color(colors.secondary))
-                                    .padding(.horizontal, 14).frame(height: 30)
-                                    .background(Color(colors.text).opacity(0.055))
-                                    .contentShape(Rectangle())
-                                }.buttonStyle(.plain)
+                                NativeActionButton(
+                                    title: GitL10n.format("{0} unmodified lines", String(range.count)),
+                                    symbol: range.lowerBound == 0 ? "chevron.up" : "chevron.down",
+                                    help: GitL10n.text("Show unmodified lines"),
+                                    style: .plain,
+                                    height: 30,
+                                    expands: true,
+                                    action: { _ in expanded.insert(range.lowerBound) }
+                                )
+                                .padding(.horizontal, 14)
+                                .frame(height: 30)
                             case .row(let index):
                                 line(presentation.rows[index], width: columnWidth).id(index)
                             }

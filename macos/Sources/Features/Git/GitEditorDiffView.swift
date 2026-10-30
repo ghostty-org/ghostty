@@ -36,7 +36,6 @@ struct GitEditorDiffView: View {
     @AppStorage("git.diff.review") private var review = true
     @AppStorage("git.diff.wordWrap") private var wordWrap = true
     @State private var reviewRow: Int?
-    @State private var fileMenuHovered = false
     @State private var scroll = GitDiffScrollLink()
     @State private var linkedScrolling = true
     @State private var navigator = GitDiffReviewNavigator()
@@ -92,11 +91,11 @@ struct GitEditorDiffView: View {
                         .foregroundStyle(Color(colors.added)).font(.system(size: 11).monospacedDigit()).fixedSize()
                 }
                 Spacer()
-                HStack(spacing: 0) {
-                    reviewButton("Review", selected: true)
-                    reviewButton("Full Source", selected: false)
+                GitDiffReviewSwitcher(review: review) { next in
+                    clearHint()
+                    review = next
                 }
-                .modifier(GitToolbarSegmentedStyle(colors: colors))
+                .frame(width: 132, height: 26)
                 if mode == GitL10n.text("Side by Side") {
                     toolbarButton("link",
                                   help: linkedScrolling ? GitL10n.text("Disable linked scrolling") : GitL10n.text("Enable linked scrolling"),
@@ -112,17 +111,11 @@ struct GitEditorDiffView: View {
                     }
                 }
                 fileMenu
-                HStack(spacing: 0) {
-                    toolbarButton("rectangle.split.2x1", help: GitL10n.text("Side-by-side Diff"),
-                                  selected: mode == GitL10n.text("Side by Side"), width: 24) {
-                        clearHint(); mode = GitL10n.text("Side by Side")
-                    }
-                    toolbarButton("text.alignleft", help: GitL10n.text("Unified / Inline Diff"),
-                                  selected: mode == GitL10n.text("Inline"), width: 24) {
-                        clearHint(); mode = GitL10n.text("Inline")
-                    }
+                GitDiffModeSwitcher(mode: mode) { next in
+                    clearHint()
+                    mode = next
                 }
-                .modifier(GitToolbarSegmentedStyle(colors: colors))
+                .frame(width: 54, height: 26)
                 toolbarButton("pencil", help: GitL10n.text("Open in Editor"),
                               disabled: model.selected == nil || model.selected?.kind == .deleted) {
                     clearHint()
@@ -296,28 +289,16 @@ struct GitEditorDiffView: View {
                                accessibilityValue: String = "",
                                width: CGFloat = 28,
                                action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: image)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(selected ? colors.accent : colors.secondary))
-                .frame(width: width, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(GitToolbarButtonStyle(colors: colors, selected: selected))
-        .help(help)
-        .accessibilityLabel(help)
-        .accessibilityValue(accessibilityValue)
-        .disabled(disabled)
-    }
-
-    private func reviewButton(_ title: String, selected: Bool) -> some View {
-        Button { clearHint(); review = selected } label: {
-            Text(GitL10n.text(title)).font(.system(size: 11, weight: .medium))
-                .padding(.horizontal, 9).frame(height: 24)
-        }
-        .foregroundStyle(Color(review == selected ? colors.accent : colors.secondary))
-        .buttonStyle(GitToolbarButtonStyle(colors: colors, selected: review == selected))
-        .accessibilityValue(review == selected ? GitL10n.text("Selected") : "")
+        NativeActionButton(
+            symbol: image,
+            help: help,
+            enabled: !disabled,
+            style: selected ? .bordered : .plain,
+            height: 24,
+            accessibilityValue: accessibilityValue.isEmpty ? nil : accessibilityValue,
+            action: { _ in action() }
+        )
+        .frame(width: width, height: 24)
     }
 
     private var toolbarDivider: some View {
@@ -325,50 +306,41 @@ struct GitEditorDiffView: View {
     }
 
     private var fileMenu: some View {
-        Menu {
-            ForEach(model.files) { file in
-                Button {
-                    pendingLanding = nil
-                    navigator.reset()
-                    clearHint()
-                    model.select(file)
-                } label: {
-                    if file == model.selected {
-                        Label(file.displayPath, systemImage: "checkmark")
-                    } else {
-                        Text(file.displayPath)
-                    }
-                }
+        let fileEntries = model.files.map { file in
+            NativeMenuEntry.action(
+                file.displayPath,
+                checked: file == model.selected
+            ) {
+                pendingLanding = nil
+                navigator.reset()
+                clearHint()
+                model.select(file)
             }
-            if let file = model.selected {
-                Divider()
-                Button(GitL10n.text("Open Folder in New Tab")) { actions.openFile(file, true) }
-                Button(GitL10n.text("Copy Path")) {
+        }
+        let operationEntries: [NativeMenuEntry] = model.selected.map { file in
+            [
+                .separator,
+                .action(GitL10n.text("Open Folder in New Tab")) { actions.openFile(file, true) },
+                .action(GitL10n.text("Copy Path")) {
                     if let path = try? GitFileActions.absolutePath(file, repository: request.repository) {
                         InspectorCopyMenu.copy(path, to: .general)
                     }
-                }
-                Button(GitL10n.text("Copy Relative Path")) { InspectorCopyMenu.copy(file.path, to: .general) }
-            }
-        } label: {
-            Image(systemName: "list.bullet")
-                .font(.system(size: 12, weight: .medium))
-        }
-        .menuStyle(.borderlessButton)
-        .buttonStyle(GitToolbarButtonStyle(colors: colors, selected: false))
-        .menuIndicator(.hidden)
-        .fixedSize()
+                },
+                .action(GitL10n.text("Copy Relative Path")) {
+                    InspectorCopyMenu.copy(file.path, to: .general)
+                },
+            ]
+        } ?? []
+        return NativeMenuButton(
+            symbol: "list.bullet",
+            help: GitL10n.text("Select file"),
+            enabled: !model.files.isEmpty,
+            style: .plain,
+            height: 24,
+            identifier: "git.diff.fileMenu",
+            entries: fileEntries + operationEntries
+        )
         .frame(width: 28, height: 24)
-        .foregroundStyle(Color(fileMenuHovered ? colors.text : colors.secondary))
-        .background(Color(colors.text).opacity(fileMenuHovered && !model.files.isEmpty ? 0.09 : 0),
-                    in: RoundedRectangle(cornerRadius: 4))
-        .overlay(RoundedRectangle(cornerRadius: 4)
-            .stroke(Color(colors.text).opacity(fileMenuHovered && !model.files.isEmpty ? 0.4 : 0), lineWidth: 0.75))
-        .contentShape(Rectangle())
-        .onHover { fileMenuHovered = $0 }
-        .help(GitL10n.text("Select file"))
-        .accessibilityLabel(GitL10n.text("Select file"))
-        .disabled(model.files.isEmpty)
     }
 
     private func sourcePane(_ title: String, text: String, path: String, highlights: [Int: Bool], side: Int) -> some View {
@@ -384,6 +356,101 @@ struct GitEditorDiffView: View {
                                 isActive: isActive, theme: theme, link: scroll, side: side, actions: actions, close: close)
                 .id("\(model.selected?.id ?? "")-\(side)")
         }.frame(minWidth: 120)
+    }
+}
+
+struct GitDiffModeSwitcher: NSViewRepresentable {
+    let mode: String
+    let select: (String) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(select: select) }
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let labels = [GitL10n.text("Side by Side"), GitL10n.text("Inline")]
+        let control = NSSegmentedControl(labels: labels, trackingMode: .selectOne,
+                                         target: context.coordinator, action: #selector(Coordinator.activate(_:)))
+        for index in labels.indices {
+            control.setLabel("", forSegment: index)
+            control.setImage(NSImage(
+                systemSymbolName: index == 0 ? "rectangle.split.2x1" : "text.alignleft",
+                accessibilityDescription: labels[index]
+            ), forSegment: index)
+            control.setToolTip(GitL10n.format("{0} Diff", labels[index]), forSegment: index)
+            control.setWidth(26, forSegment: index)
+        }
+        control.segmentStyle = .texturedRounded
+        control.controlSize = .small
+        control.setAccessibilityLabel(GitL10n.text("Git diff view mode"))
+        update(control, context: context)
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        update(control, context: context)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSSegmentedControl, context: Context) -> CGSize? {
+        CGSize(width: 54, height: 26)
+    }
+
+    private func update(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.select = select
+        control.selectedSegment = mode == GitL10n.text("Side by Side") ? 0 : 1
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var select: (String) -> Void
+        init(select: @escaping (String) -> Void) { self.select = select }
+
+        @objc func activate(_ sender: NSSegmentedControl) {
+            let modes = [GitL10n.text("Side by Side"), GitL10n.text("Inline")]
+            guard modes.indices.contains(sender.selectedSegment) else { return }
+            select(modes[sender.selectedSegment])
+        }
+    }
+}
+
+struct GitDiffReviewSwitcher: NSViewRepresentable {
+    let review: Bool
+    let select: (Bool) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(select: select) }
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let labels = [GitL10n.text("Review"), GitL10n.text("Full Source")]
+        let control = NSSegmentedControl(labels: labels, trackingMode: .selectOne,
+                                         target: context.coordinator, action: #selector(Coordinator.activate(_:)))
+        control.segmentStyle = .rounded
+        control.controlSize = .small
+        labels.enumerated().forEach { index, label in control.setToolTip(label, forSegment: index) }
+        control.setAccessibilityLabel(GitL10n.text("Git diff presentation"))
+        update(control, context: context)
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        update(control, context: context)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSSegmentedControl, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 132, height: 26)
+    }
+
+    private func update(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.select = select
+        control.selectedSegment = review ? 0 : 1
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var select: (Bool) -> Void
+        init(select: @escaping (Bool) -> Void) { self.select = select }
+
+        @objc func activate(_ sender: NSSegmentedControl) {
+            guard (0..<2).contains(sender.selectedSegment) else { return }
+            select(sender.selectedSegment == 0)
+        }
     }
 }
 

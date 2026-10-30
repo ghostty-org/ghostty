@@ -1126,24 +1126,19 @@ private struct InspectorAgentHistoryView: View {
                         highlightText: needle,
                         onFork: {
                             perform(.forkAgentHistorySession(id: session.id))
-                        }
+                        },
+                        onFind: toggleTranscriptSearch
                     )
 
                     if needle.isEmpty && visibleMessageCount < matchingMessages.count {
                         Divider()
-                        Button {
+                        NativeActionButton(
+                            title: strings.loadMoreMessages(matchingMessages.count - visibleMessageCount),
+                            symbol: "arrow.down.circle",
+                            expands: true
+                        ) { _ in
                             visibleMessageCount += 50
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.down.circle")
-                                Text(strings.loadMoreMessages(
-                                    matchingMessages.count - visibleMessageCount
-                                ))
-                            }
-                            .font(.caption)
-                            .padding(.vertical, 7)
                         }
-                        .buttonStyle(.borderless)
                     }
 
                     if transcript.wasTruncated && needle.isEmpty {
@@ -1157,13 +1152,6 @@ private struct InspectorAgentHistoryView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(
-            Button("") {
-                toggleTranscriptSearch()
-            }
-            .keyboardShortcut("f", modifiers: .command)
-            .opacity(0)
-        )
     }
 }
 

@@ -40,15 +40,15 @@ struct GitInspectorUsabilityTests {
         #expect(board.string(forType: .string) == value)
 
         let ref = GitRefDecoration(name: "release/" + String(repeating: "long-reference-", count: 16), kind: .tag)
-        let list = GitRefListView()
-        list.configure([ref])
-        list.frame = NSRect(origin: .zero, size: GitRefPopoverStyle.size)
+        let list = GitReferenceListPopoverController(
+            refs: [ref], selected: ref, state: GitCollectionState(), colors: .init(),
+            pasteboard: board, close: {}
+        )
+        host.contentViewController = list
         host.setContentSize(GitRefPopoverStyle.size)
-        host.contentView = list
-        list.layoutSubtreeIfNeeded()
-        list.pasteboard = board
         try await Task.sleep(for: .milliseconds(100))
-        let detail = try #require(find(GitCollectionTableView.self, in: list).first)
+        list.view.layoutSubtreeIfNeeded()
+        let detail = try #require(find(GitCollectionTableView.self, in: list.view).first)
         host.makeFirstResponder(detail)
         #expect(EditorCommandRouter.shared.handle(try key("c", in: host)))
         #expect(board.string(forType: .string) == ref.name)
@@ -148,18 +148,24 @@ struct GitInspectorUsabilityTests {
         #expect(git.children.map(\.item.title) == ["diff", "history"])
         #expect(git.children.last?.item.id == GitCollectionBuilder.referenceID(refs[2]))
         #expect(roots[2].children.first?.item.title == "origin")
-        let list = GitRefListView()
         let board = NSPasteboard.withUniqueName()
-        list.pasteboard = board
         InspectorCopyMenu.copy("unchanged", to: board)
-        list.configure(refs, selected: refs[2])
-        let host = window(list, height: 380)
+        let list = GitReferenceListPopoverController(
+            refs: refs, selected: refs[2], state: GitCollectionState(), colors: .init(),
+            pasteboard: board, close: {}
+        )
+        let host = NSWindow(contentRect: NSRect(x: 0, y: 0, width: GitRefPopoverStyle.size.width,
+                                                height: GitRefPopoverStyle.size.height),
+                            styleMask: [.titled], backing: .buffered, defer: false)
+        host.isReleasedWhenClosed = false
+        host.contentViewController = list
+        host.makeKeyAndOrderFront(nil)
         host.setContentSize(GitRefPopoverStyle.size)
-        defer { host.contentView = nil; host.close() }
+        defer { host.contentViewController = nil; host.close() }
         try await Task.sleep(for: .milliseconds(150))
-        list.layoutSubtreeIfNeeded()
+        list.view.layoutSubtreeIfNeeded()
         host.displayIfNeeded()
-        let tree = try #require(find(GitCollectionTableView.self, in: list).first)
+        let tree = try #require(find(GitCollectionTableView.self, in: list.view).first)
         let coordinator = try #require(tree.target as? GitCollectionView.Coordinator)
         #expect(tree.frame.width > 300 && tree.visibleRect.height > 200)
         let visibleRows = tree.rows(in: tree.visibleRect)
@@ -170,16 +176,16 @@ struct GitInspectorUsabilityTests {
             #expect(find(NSTextField.self, in: cell).first?.bounds.width ?? 0 > 100)
         }
         #expect(board.string(forType: .string) == "unchanged")
-        #expect(find(InspectorMetadataText.self, in: list).isEmpty)
-        #expect(find(NSButton.self, in: list).allSatisfy { $0.toolTip?.hasPrefix("Copy") != true })
+        #expect(find(InspectorMetadataText.self, in: list.view).isEmpty)
+        #expect(find(NSButton.self, in: list.view).allSatisfy { $0.toolTip?.hasPrefix("Copy") != true })
         coordinator.activateSelected()
         #expect(board.string(forType: .string) == "feature/git/history")
         host.makeFirstResponder(tree)
         #expect(EditorCommandRouter.shared.handle(try key("c", in: host)))
         #expect(board.string(forType: .string) == "feature/git/history")
         if FileManager.default.fileExists(atPath: "/tmp/omg-git-render") {
-            let bitmap = try #require(list.bitmapImageRepForCachingDisplay(in: list.bounds))
-            list.cacheDisplay(in: list.bounds, to: bitmap)
+            let bitmap = try #require(list.view.bitmapImageRepForCachingDisplay(in: list.view.bounds))
+            list.view.cacheDisplay(in: list.view.bounds, to: bitmap)
             let data = try #require(bitmap.representation(using: .png, properties: [:]))
             try data.write(to: URL(fileURLWithPath: "/tmp/omg-git-reference-tree.png"))
         }

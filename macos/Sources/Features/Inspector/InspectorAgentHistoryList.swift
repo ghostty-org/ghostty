@@ -260,6 +260,10 @@ private final class InspectorAgentSessionCell: NSTableCellView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         [icon, heading, metadata, detail, status].forEach(addSubview)
+        // Vector catalog assets can have a tiny intrinsic size (for example 1em).
+        // Match SwiftUI's former resizable/fit behavior, including upscaling.
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        icon.imageAlignment = .alignCenter
         heading.maximumNumberOfLines = 2
         heading.lineBreakMode = .byTruncatingTail
         metadata.font = .systemFont(ofSize: 11)
@@ -299,6 +303,7 @@ private final class InspectorAgentSessionCell: NSTableCellView {
         case let .session(session, snippet):
             isSession = true
             icon.image = NSImage(named: session.agent.assetName)
+            icon.contentTintColor = icon.image?.isTemplate == true ? .labelColor : nil
             heading.attributedStringValue = highlighted(session.title, query: query, size: 12.5, color: .labelColor)
             metadata.stringValue = "\(session.agent.displayName) · \(strings.relativeTime(from: session.updatedAt))"
             status.stringValue = strings.live
@@ -317,6 +322,7 @@ private final class InspectorAgentSessionCell: NSTableCellView {
             heading.font = .systemFont(ofSize: 11.5, weight: .semibold)
             metadata.stringValue = String(count)
             icon.image = NSImage(systemSymbolName: collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)
+            icon.contentTintColor = .secondaryLabelColor
             toolTip = title
         case let .more(remaining):
             isSession = false
@@ -324,6 +330,7 @@ private final class InspectorAgentSessionCell: NSTableCellView {
             heading.stringValue = strings.loadMoreSessions(remaining)
             metadata.isHidden = true
             icon.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
+            icon.contentTintColor = .secondaryLabelColor
             toolTip = nil
         }
         setAccessibilityElement(true)

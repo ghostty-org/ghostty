@@ -1,40 +1,52 @@
+import AppKit
 import SwiftUI
 
-struct GitSidebarNavigation: View {
+struct GitSidebarNavigation: NSViewRepresentable {
     let selected: InspectorGitContent.ActiveTab
     let select: (InspectorGitContent.ActiveTab) -> Void
 
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(InspectorGitContent.ActiveTab.allCases, id: \.self) { tab in
-                Item(tab: tab, selected: selected == tab) { select(tab) }
-            }
-        }
-        .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 4))
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.14), lineWidth: 0.5))
+    func makeCoordinator() -> Coordinator { Coordinator(select: select) }
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl(
+            labels: InspectorGitContent.ActiveTab.allCases.map { GitL10n.text($0.rawValue) },
+            trackingMode: .selectOne,
+            target: context.coordinator,
+            action: #selector(Coordinator.activate(_:))
+        )
+        control.segmentStyle = .rounded
+        control.controlSize = .small
+        control.setAccessibilityLabel(GitL10n.text("Git sections"))
+        update(control, context: context)
+        return control
     }
 
-    private struct Item: View {
-        let tab: InspectorGitContent.ActiveTab
-        let selected: Bool
-        let action: () -> Void
-        @State private var hovered = false
-        var body: some View {
-            Button(action: action) {
-                Text(GitL10n.text(tab.rawValue))
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(selected ? Color.primary : Color.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 28)
-                    .contentShape(Rectangle())
-                    .background(Color.primary.opacity(hovered ? 0.05 : 0))
-                    .overlay(alignment: .bottom) {
-                        Rectangle().fill(selected ? Color.accentColor : .clear)
-                            .frame(height: 1.5).padding(.horizontal, 12)
-                    }
-            }
-            .buttonStyle(.plain)
-            .onHover { hovered = $0 }
-            .accessibilityValue(selected ? GitL10n.text("Selected") : "")
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        update(control, context: context)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSSegmentedControl, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 240, height: 28)
+    }
+
+    private func update(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.select = select
+        control.selectedSegment = InspectorGitContent.ActiveTab.allCases.firstIndex(of: selected) ?? 0
+        control.setAccessibilityValue(GitL10n.text(selected.rawValue))
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var select: (InspectorGitContent.ActiveTab) -> Void
+
+        init(select: @escaping (InspectorGitContent.ActiveTab) -> Void) {
+            self.select = select
+        }
+
+        @objc func activate(_ sender: NSSegmentedControl) {
+            let tabs = InspectorGitContent.ActiveTab.allCases
+            guard tabs.indices.contains(sender.selectedSegment) else { return }
+            select(tabs[sender.selectedSegment])
         }
     }
 }

@@ -24,6 +24,8 @@ struct TerminalWorkspacePresentationTests {
         controller.workspaceSwitcherIsPresented = true
         try await Task.sleep(for: .milliseconds(150))
         #expect(controller.workspacePopover.isShown)
+        #expect(controller.workspacePopover.contentView?.accessibilityIdentifier() == "workspace.picker")
+        #expect(controller.workspacePopover.contentController is TerminalWorkspacePickerController)
         let creations = controller.workspacePopover.contentCreationCount
         coordinator.store.update(id: coordinator.store.defaultID, name: "Renamed", symbol: "house", color: "blue")
         host.layoutSubtreeIfNeeded()

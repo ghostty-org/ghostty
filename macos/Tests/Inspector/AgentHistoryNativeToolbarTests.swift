@@ -4,6 +4,34 @@ import Testing
 
 @MainActor
 struct AgentHistoryNativeToolbarTests {
+    @Test func transcriptFindShortcutOnlyHandlesItsFocusedContent() throws {
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        let transcript = AgentHistoryTranscriptScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 400))
+        let messages = NSTextView(frame: transcript.bounds)
+        let otherInput = NSTextView(frame: NSRect(x: 300, y: 0, width: 300, height: 400))
+        transcript.documentView = messages
+        content.addSubview(transcript)
+        content.addSubview(otherInput)
+        let window = NSWindow(contentRect: content.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = content
+        defer { window.contentView = nil; window.close() }
+        var requests = 0
+        transcript.onFind = { requests += 1 }
+        let findEvent = try key(3, modifiers: .command, characters: "f")
+        #expect(window.makeFirstResponder(otherInput))
+        #expect(!AgentHistoryFindShortcut.accepts(findEvent, in: transcript))
+        #expect(window.makeFirstResponder(messages))
+        #expect(transcript.performKeyEquivalent(with: findEvent))
+        #expect(requests == 1)
+        messages.setMarkedText("查", selectedRange: NSRange(location: 1, length: 0),
+                               replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(!AgentHistoryFindShortcut.accepts(findEvent, in: transcript))
+        messages.unmarkText()
+        transcript.isHidden = true
+        #expect(!AgentHistoryFindShortcut.accepts(findEvent, in: transcript))
+    }
+
     @Test func searchFieldRetainsMarkedTextAndPublishesCommittedInput() throws {
         let controller = AgentHistoryToolbarController()
         var changed: [String] = []

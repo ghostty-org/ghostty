@@ -1,7 +1,7 @@
 import AppKit
 
 /// One fixed-height row. Every badge opens the complete, copyable ref list.
-final class GitRefBadgesView: NSView {
+final class GitRefBadgesView: NSView, NSPopoverDelegate {
     static let maximumBadgeWidth: CGFloat = 104
     static let badgeHeight: CGFloat = 17
 
@@ -16,6 +16,8 @@ final class GitRefBadgesView: NSView {
     private var layoutWidth: CGFloat?
     private var buttons: [NSButton] = []
     private(set) var popover: NSPopover?
+    private var referenceController: GitReferenceListPopoverController?
+    private let popoverState = GitCollectionState()
     var colors = GitCollectionColors()
     private var languageCode = GitL10n.current.languageCode
     override var isFlipped: Bool { true }
@@ -171,21 +173,32 @@ final class GitRefBadgesView: NSView {
     }
 
     @objc private func showRefs(_ sender: NSButton) {
-        popover?.close()
-        let view = GitRefListView()
-        view.colors = colors
+        popover?.performClose(nil)
         let selected = buttons.firstIndex(where: { $0 === sender }).flatMap { rendered[$0].refs.first }
-        view.frame = NSRect(origin: .zero, size: GitRefPopoverStyle.size)
-        view.configure(refs, selected: selected)
-        let controller = NSViewController()
-        controller.view = view
         let popover = NSPopover()
+        let controller = GitReferenceListPopoverController(
+            refs: refs,
+            selected: selected,
+            state: popoverState,
+            colors: colors,
+            pasteboard: .general,
+            close: { [weak popover] in popover?.performClose(nil) }
+        )
         popover.behavior = .transient
         popover.animates = false
+        popover.delegate = self
         popover.contentViewController = controller
-        popover.contentSize = view.frame.size
+        popover.contentSize = GitRefPopoverStyle.size
+        referenceController = controller
         self.popover = popover
         popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minX)
     }
 
+    func popoverDidClose(_ notification: Notification) {
+        guard let closedPopover = notification.object as? NSPopover,
+              closedPopover === popover else { return }
+        referenceController?.saveAnchor()
+        referenceController = nil
+        popover = nil
+    }
 }

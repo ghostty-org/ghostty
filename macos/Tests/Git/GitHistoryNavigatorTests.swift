@@ -102,8 +102,11 @@ struct GitHistoryNavigatorTests {
             badge.performClick(nil)
             let popover = try #require(foldedBadges.popover)
             #expect(popover.isShown)
-            let fullList = try #require(find(GitRefListView.self, in: popover.contentViewController?.view))
-            #expect(first.refDecorations.allSatisfy { fullList.refs.contains($0) })
+            let fullList = try #require(
+                popover.contentViewController as? GitReferenceListPopoverController
+            )
+            #expect(first.refDecorations.allSatisfy { fullList.refsForTesting.contains($0) })
+            #expect(find(GitCollectionTableView.self, in: fullList.view) != nil)
             try await capture(popover.contentViewController!.view, path: "/tmp/omg-git-refs-popover-\(Int(width)).png")
             popover.close()
             root.expandedCommits = [first.id: detail]
@@ -132,7 +135,6 @@ struct GitHistoryNavigatorTests {
             }
             let badges = try #require(find(GitRefBadgesView.self, in: main))
             #expect(badges.bounds.height == 17)
-            #expect(find(GitRefListView.self, in: main) == nil)
             let message = try cell(5)
             let control = try #require(find(NSButton.self, in: message))
             let controlFrame = control.frame

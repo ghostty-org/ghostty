@@ -35,11 +35,15 @@ struct GitRefBrowser: View {
                 GitCollectionToolbar(query: $query, mode: $mode, placeholder: decorations == nil ? GitL10n.text("Search branches…") : GitL10n.text("Search references…"), autofocus: isPicker || decorations != nil,
                                      controller: controller, cancel: cancel)
                 if !isPicker && decorations == nil {
-                    Button { perform(.createWorktree(nil)) } label: {
-                        Image(systemName: "plus").font(.system(size: 11)).frame(width: 28, height: 28).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain).help(GitL10n.text("New Worktree"))
-                    .disabled(isBusy || worktreesError != nil)
+                    NativeActionButton(
+                        symbol: "plus",
+                        help: GitL10n.text("New Worktree"),
+                        enabled: !isBusy && worktreesError == nil,
+                        height: 28,
+                        identifier: "git.refbrowser.newWorktree",
+                        action: { _ in perform(.createWorktree(nil)) }
+                    )
+                    .frame(width: 28)
                 }
             }.padding(.horizontal, 10)
             }

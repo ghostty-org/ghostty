@@ -34,6 +34,17 @@ struct GitHistoryPickerTests {
             let view = try #require(popover.contentViewController?.view)
             let search = try #require(find(NSSearchField.self, in: view).first)
             let table = try #require(find(GitCollectionTableView.self, in: view).first)
+            let owner = try #require(popover.contentViewController as? GitHistoryScopePopoverController)
+            #expect(search.cell is GitSearchFieldCell)
+            #expect(search.focusRingType == .none)
+            #expect(view.layer?.backgroundColor != nil)
+            #expect(owner.scopeControlForTesting.bounds.width == 320)
+            #expect(owner.scopeControlForTesting.buttonsForTesting.map(\.title) == GitHistoryScope.allCases.map(\.displayName))
+            #expect(owner.scopeControlForTesting.bounds.height == 26)
+            for button in owner.modeControlForTesting.buttonsForTesting {
+                #expect(!button.isBordered)
+                #expect(abs(button.bounds.height - 24) < 1)
+            }
             #expect(table.visibleRect.height > 120 && search.bounds.width > 150)
             #expect(popover.contentSize.height <= 340 && popover.contentSize.width == 340)
             #expect(table.visibleRect.minY <= 1, "Initial branch rows must not be clipped")
@@ -41,11 +52,19 @@ struct GitHistoryPickerTests {
             let textRect = search.convert(editor.bounds, from: editor)
             #expect(textRect.minX + editor.textContainerInset.width + (editor.textContainer?.lineFragmentPadding ?? 0) >= 16,
                     "Focused search text must leave room for the search icon")
-            if FileManager.default.fileExists(atPath: "/tmp/omg-git-render") {
-                let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
-                view.cacheDisplay(in: view.bounds, to: bitmap)
-                try #require(bitmap.representation(using: .png, properties: [:]))
-                    .write(to: URL(fileURLWithPath: "/tmp/omg-git-history-picker.png"))
+            if FileManager.default.fileExists(atPath: "/tmp/omg-native-visual-review") {
+                for (suffix, name) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+                    let appearance = try #require(NSAppearance(named: name))
+                    popover.contentViewController?.view.appearance = appearance
+                    view.layoutSubtreeIfNeeded()
+                    view.displayIfNeeded()
+                    let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+                    appearance.performAsCurrentDrawingAppearance {
+                        view.cacheDisplay(in: view.bounds, to: bitmap)
+                    }
+                    try #require(bitmap.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: "/tmp/omg-git-history-picker-\(suffix).png"))
+                }
             }
             return (popover, search, table)
         }

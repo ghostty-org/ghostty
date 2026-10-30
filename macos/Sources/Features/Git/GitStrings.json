@@ -1,5 +1,8 @@
 {
   "Git collection view mode": { "en": "Git collection view mode", "zh-Hans": "Git 列表显示方式" },
+  "Git diff view mode": { "en": "Git diff view mode", "zh-Hans": "Git 差异视图" },
+  "Git diff presentation": { "en": "Git diff presentation", "zh-Hans": "Git 差异显示模式" },
+  "Show unmodified lines": { "en": "Show unmodified lines", "zh-Hans": "显示未修改行" },
   "History branch scope": { "en": "History branch scope", "zh-Hans": "历史分支范围" },
   "Wrap diff lines": { "en": "Wrap diff lines", "zh-Hans": "Diff 自动换行" },
   "Commit Staged": { "en": "Commit Staged", "zh-Hans": "提交暂存" },
