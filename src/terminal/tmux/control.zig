@@ -559,6 +559,55 @@ fn parseDecimalId(text: []const u8) ?usize {
     return std.fmt.parseInt(usize, text, 10) catch null;
 }
 
+/// Decode tmux control mode octal escaping in place. tmux encodes
+/// bytes less than ASCII 32 and `\` itself as `\ooo` (backslash +
+/// three octal digits). Invalid escapes are replaced with '?'.
+///
+/// The decoded output is always <= the input length, so we write back
+/// into the same buffer and return the slice containing the decoded bytes.
+///
+/// This should only be called once for a buffer. Otherwise, a decoded
+/// backslash may be interpreted as another escape.
+pub fn unescape(data: []u8) []const u8 {
+    var read_idx = std.mem.findScalar(u8, data, '\\') orelse return data;
+    var write_idx = read_idx;
+
+    while (read_idx < data.len) {
+        // Pass through non escape bytes as is.
+        if (data[read_idx] != '\\') {
+            data[write_idx] = data[read_idx];
+            read_idx += 1;
+            write_idx += 1;
+            continue;
+        }
+
+        read_idx += 1; // consume '\'
+
+        // Try to decode three octal digits following the backslash.
+        // We use u16 so we can reject values above 255 without overflowing.
+        var value: u16 = 0;
+        var ok = false;
+
+        if (read_idx + 2 < data.len) {
+            var i: usize = 0;
+            while (i < 3) : (i += 1) {
+                const digit = data[read_idx];
+                if (digit < '0' or digit > '7') break;
+
+                value = value * 8 + (digit - '0');
+                read_idx += 1;
+            }
+
+            ok = i == 3 and value <= std.math.maxInt(u8);
+        }
+
+        data[write_idx] = if (ok) @intCast(value) else '?';
+        write_idx += 1;
+    }
+
+    return data[0..write_idx];
+}
+
 /// Possible notification types from tmux control mode. These are documented
 /// in tmux(1). A lot of the simple documentation was copied from that man
 /// page here.
@@ -583,11 +632,8 @@ pub const Notification = union(enum) {
     block_end: []const u8,
     block_err: []const u8,
 
-    /// Raw output from a pane.
-    output: struct {
-        pane_id: usize,
-        data: []const u8, // unescaped
-    },
+    /// Escaped output from a pane.
+    output: Output,
 
     /// The client is now attached to the session with ID session-id, which is
     /// named name.
@@ -648,6 +694,16 @@ pub const Notification = union(enum) {
         session_id: usize,
         name: []const u8,
     },
+
+    pub const Output = struct {
+        pane_id: usize,
+
+        /// Escaped output from tmux. Use `unescape` to decode it.
+        ///
+        /// This points into the parser buffer and is only valid until
+        /// the parser receives more input.
+        data: []u8,
+    };
 
     pub fn format(self: Notification, writer: *std.Io.Writer) !void {
         const T = Notification;
@@ -843,6 +899,63 @@ test "tmux output" {
     try testing.expect(n == .output);
     try testing.expectEqual(42, n.output.pane_id);
     try testing.expectEqualStrings("foo bar baz", n.output.data);
+}
+
+test "tmux unescape octal escape" {
+    const testing = std.testing;
+
+    var input = [_]u8{ '\\', '0', '3', '3', '[', '?', '2', '0', '0', '4', 'h' };
+    const got = unescape(input[0..]);
+    const expected = [_]u8{ 0x1b, '[', '?', '2', '0', '0', '4', 'h' };
+
+    try testing.expectEqualSlices(u8, expected[0..], got);
+}
+
+test "tmux unescape malformed escape" {
+    const testing = std.testing;
+
+    var input = [_]u8{ '\\', '0', 'x', '3' };
+    const got = unescape(input[0..]);
+    const expected = [_]u8{ '?', 'x', '3' };
+
+    try testing.expectEqualSlices(u8, expected[0..], got);
+}
+
+test "tmux unescape preserves prefix" {
+    const testing = std.testing;
+
+    var input = "prefix\\015\\012suffix".*;
+    try testing.expectEqualStrings("prefix\r\nsuffix", unescape(&input));
+}
+
+test "tmux unescape byte range" {
+    const testing = std.testing;
+
+    var input = "\\000\\377\\400\\777".*;
+    try testing.expectEqualSlices(u8, &.{ 0, 255, '?', '?' }, unescape(&input));
+}
+
+test "tmux output remains escaped until consumed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%output %42 \\033ktitle\\033\\134") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    const expected = [_]u8{ 0x1b, 'k', 't', 'i', 't', 'l', 'e', 0x1b, '\\' };
+
+    try testing.expect(n == .output);
+    try testing.expectEqual(42, n.output.pane_id);
+    try testing.expectEqualStrings("\\033ktitle\\033\\134", n.output.data);
+    try testing.expectEqualSlices(u8, expected[0..], unescape(n.output.data));
+}
+
+test "tmux unescape preserves literal backslash followed by octal digits" {
+    const testing = std.testing;
+
+    var input = "\\134033".*;
+    try testing.expectEqualStrings("\\033", unescape(&input));
 }
 
 test "tmux session-changed" {

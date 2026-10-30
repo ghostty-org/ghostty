@@ -492,10 +492,7 @@ pub const Viewer = struct {
                 command_consumed = true;
             },
 
-            .output => |out| self.receivedOutput(
-                out.pane_id,
-                out.data,
-            ) catch |err| {
+            .output => |out| self.receivedOutput(out) catch |err| {
                 log.warn(
                     "failed to process output for pane id={}: {}",
                     .{ out.pane_id, err },
@@ -1186,15 +1183,15 @@ pub const Viewer = struct {
 
     fn receivedOutput(
         self: *Viewer,
-        id: usize,
-        data: []const u8,
+        out: control.Notification.Output,
     ) !void {
-        const entry = self.panes.getEntry(id) orelse {
-            log.info("received output for untracked pane id={}", .{id});
+        const entry = self.panes.getEntry(out.pane_id) orelse {
+            log.info("received output for untracked pane id={}", .{out.pane_id});
             return;
         };
         const pane: *Pane = entry.value_ptr;
         const stream = try pane.outputStream(self.alloc);
+        const data = control.unescape(out.data);
         stream.nextSlice(data);
     }
 
@@ -1725,6 +1722,9 @@ test "initial flow" {
     var viewer = try Viewer.init(testing.io, testing.allocator);
     defer viewer.deinit();
 
+    var new_output = "new\\134output".*;
+    var ignored_output = "ignored\\134output".*;
+
     try testViewer(&viewer, &.{
         .{ .input = .{ .tmux = .{ .block_end = "" } } },
         .{
@@ -1872,7 +1872,7 @@ test "initial flow" {
             .input = .{ .tmux = .{ .block_end = "" } },
         },
         .{
-            .input = .{ .tmux = .{ .output = .{ .pane_id = 0, .data = "new output" } } },
+            .input = .{ .tmux = .{ .output = .{ .pane_id = 0, .data = new_output[0..] } } },
             .check = (struct {
                 fn check(v: *Viewer, actions: []const Viewer.Action) anyerror!void {
                     try testing.expectEqual(0, actions.len);
@@ -1883,12 +1883,12 @@ test "initial flow" {
                         .{ .active = .{} },
                     );
                     defer testing.allocator.free(str);
-                    try testing.expect(std.mem.containsAtLeast(u8, str, 1, "new output"));
+                    try testing.expect(std.mem.containsAtLeast(u8, str, 1, "new\\output"));
                 }
             }).check,
         },
         .{
-            .input = .{ .tmux = .{ .output = .{ .pane_id = 999, .data = "ignored" } } },
+            .input = .{ .tmux = .{ .output = .{ .pane_id = 999, .data = ignored_output[0..] } } },
             .check = (struct {
                 fn check(_: *Viewer, actions: []const Viewer.Action) anyerror!void {
                     try testing.expectEqual(0, actions.len);
@@ -1900,6 +1900,7 @@ test "initial flow" {
             .contains_tags = &.{.exit},
         },
     });
+    try testing.expectEqualStrings("ignored\\134output", &ignored_output);
 }
 
 test "layout change" {
@@ -2683,7 +2684,8 @@ test "tmux output state unsplit CSI" {
         return err;
     };
 
-    try viewer.receivedOutput(42, "\x1b[32mX");
+    var data = "\x1b[32mX".*;
+    try viewer.receivedOutput(.{ .pane_id = 42, .data = &data });
 
     const entry = viewer.panes.getEntry(42) orelse return error.ExpectedPane42;
     const screen = entry.value_ptr.terminal.screens.active;
@@ -2708,8 +2710,10 @@ test "tmux output state split CSI" {
         return err;
     };
 
-    try viewer.receivedOutput(42, "\x1b[32");
-    try viewer.receivedOutput(42, "mX");
+    var first = "\x1b[32".*;
+    var second = "mX".*;
+    try viewer.receivedOutput(.{ .pane_id = 42, .data = &first });
+    try viewer.receivedOutput(.{ .pane_id = 42, .data = &second });
 
     const entry = viewer.panes.getEntry(42) orelse return error.ExpectedPane42;
     const screen = entry.value_ptr.terminal.screens.active;
@@ -2721,6 +2725,8 @@ test "tmux output state split CSI" {
 test "pane state ignores out of bounds scroll region" {
     var viewer = try Viewer.init(testing.io, testing.allocator);
     defer viewer.deinit();
+
+    var linefeeds: [30]u8 = @splat('\x0b');
 
     try testViewer(&viewer, &.{
         .{ .input = .{ .tmux = .{ .block_end = "" } } },
@@ -2766,7 +2772,7 @@ test "pane state ignores out of bounds scroll region" {
         .{
             .input = .{ .tmux = .{ .output = .{
                 .pane_id = 0,
-                .data = &@as([30]u8, @splat('\x0b')),
+                .data = &linefeeds,
             } } },
             .check = (struct {
                 fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
