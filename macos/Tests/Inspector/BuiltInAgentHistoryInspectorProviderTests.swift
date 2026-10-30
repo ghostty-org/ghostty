@@ -129,7 +129,7 @@ struct AgentHistoryInspectorTests {
         #expect(state.isDefault)
     }
 
-    @Test func filterPopoverLaysOutWithManyAgents() throws {
+    @Test func nativeFilterControllerBuildsSelectionsAndPublishesChanges() throws {
         let sessions = SupportedAgent.allCases.flatMap { agent in
             (0..<2).map { index in
                 AgentHistorySession(
@@ -147,18 +147,21 @@ struct AgentHistoryInspectorTests {
         filter.agent = .pi
         filter.directory = .currentTree
         filter.time = .quarter
-        let view = AgentHistoryFilterPopover(
+        let controller = AgentHistoryFilterController()
+        var published: [AgentHistoryFilterState] = []
+        controller.onChange = { published.append($0) }
+        controller.update(
             sessions: sessions,
             agents: SupportedAgent.allCases,
-            strings: .current,
-            filter: .constant(filter),
+            filter: filter,
+            strings: .init(language: .english),
             currentDirectory: "/repo"
         )
-        let host = NSHostingView(rootView: view)
-        host.frame = NSRect(x: 0, y: 0, width: 420, height: 640)
-        host.layoutSubtreeIfNeeded()
-        #expect(host.fittingSize.width <= 340)
-        #expect(host.fittingSize.height < 640)
+        #expect(controller.preferredContentSize.width == 320)
+        controller.apply("claude", to: .agent)
+        #expect(published.last?.agent == .claude)
+        controller.apply("month", to: .time)
+        #expect(published.last?.time == .month)
     }
 
     @Test func refreshKeepsRowsAndPublishesLoadingState() async throws {

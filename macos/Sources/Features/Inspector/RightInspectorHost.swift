@@ -729,11 +729,10 @@ private struct InspectorAgentHistoryView: View {
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
     @State private var filter = AgentHistoryFilterState()
-    @State private var isFilterPopoverPresented = false
     @State private var collapsedGroupIDs: Set<String> = []
     @State private var transcriptSearch = ""
     @State private var isTranscriptSearchVisible = false
-    @FocusState private var isTranscriptSearchFocused: Bool
+    @State private var transcriptSearchFocusRequestID = 0
 
     private var strings: AgentHistoryStrings {
         .init(language: settings.language)
@@ -856,59 +855,30 @@ private struct InspectorAgentHistoryView: View {
 
     private var sessionList: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: history.hostLabel == nil ? "clock.arrow.circlepath" : "cloud")
-                    .foregroundStyle(.secondary)
-                if let host = history.hostLabel {
-                    Text(strings.remoteSessionCount(filteredAndOrderedSessions.count, host: host))
-                        .font(.headline)
-                        .lineLimit(1)
-                } else {
-                    Text(strings.sessionCount(filteredAndOrderedSessions.count))
-                        .font(.headline)
-                }
-                Spacer(minLength: 8)
-                Button {
-                    perform(.refreshAgentHistory)
-                } label: {
-                    if history.isLoadingSessions {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
-                .buttonStyle(.borderless)
-                .disabled(history.isLoadingSessions)
-                .help(strings.refresh)
-                .accessibilityLabel(strings.refresh)
-            }
+            AgentHistorySessionListHeader(
+                title: history.hostLabel.map {
+                    strings.remoteSessionCount(filteredAndOrderedSessions.count, host: $0)
+                } ?? strings.sessionCount(filteredAndOrderedSessions.count),
+                isRemote: history.hostLabel != nil,
+                isLoading: history.isLoadingSessions,
+                strings: strings,
+                refresh: { perform(.refreshAgentHistory) }
+            )
+            .frame(height: 40)
             .padding(.horizontal, InspectorContentMetrics.leadingInset)
-            .padding(.vertical, 10)
 
-            HStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField(strings.searchPlaceholder, text: $query)
-                        .textFieldStyle(.plain)
-                        .foregroundStyle(.primary)
-                    if isSearching {
-                        ProgressView().controlSize(.mini)
-                    }
-                }
-                .padding(.horizontal, 8)
-                .frame(height: 28)
-                .background(
-                    Color.primary.opacity(0.12),
-                    in: RoundedRectangle(cornerRadius: 6)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.primary.opacity(0.18), lineWidth: 1)
-                }
-
-                filterAndOrganizeMenu
-            }
+            AgentHistoryToolbar(
+                query: query,
+                isSearching: isSearching,
+                filter: filter,
+                sessions: scopedSessions,
+                agents: availableAgents,
+                strings: strings,
+                currentDirectory: currentDirectory,
+                searchChanged: { query = $0 },
+                filterChanged: { filter = $0 }
+            )
+            .frame(height: 28)
             .padding(.horizontal, InspectorContentMetrics.leadingInset)
             .padding(.bottom, 8)
 
@@ -968,28 +938,6 @@ private struct InspectorAgentHistoryView: View {
         .onDisappear { searchTask?.cancel() }
     }
 
-    private var filterAndOrganizeMenu: some View {
-        AgentHistoryFilterTrigger(
-            selectedAgent: filter.agent,
-            isActive: !filter.isDefault,
-            isPresented: isFilterPopoverPresented
-        ) {
-            isFilterPopoverPresented.toggle()
-        }
-        .popover(isPresented: $isFilterPopoverPresented, arrowEdge: .top) {
-            AgentHistoryFilterPopover(
-                sessions: scopedSessions,
-                agents: availableAgents,
-                strings: strings,
-                filter: $filter,
-                currentDirectory: currentDirectory
-            )
-        }
-        .help(strings.organize)
-        .accessibilityLabel(strings.organize)
-        .accessibilityValue(filter.isDefault ? "" : strings.filterActive)
-    }
-
     private var nativeSessionRows: [InspectorAgentHistoryListRow] {
         let needle = committedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         func row(_ session: AgentHistorySession) -> InspectorAgentHistoryListRow {
@@ -1019,7 +967,22 @@ private struct InspectorAgentHistoryView: View {
         visibleMessageCount = 30
         transcriptSearch = needle
         isTranscriptSearchVisible = !needle.isEmpty
+        if !needle.isEmpty { transcriptSearchFocusRequestID &+= 1 }
         perform(.selectAgentHistorySession(id: session.id))
+    }
+
+    private func toggleTranscriptSearch() {
+        isTranscriptSearchVisible.toggle()
+        if isTranscriptSearchVisible {
+            transcriptSearchFocusRequestID &+= 1
+        } else {
+            transcriptSearch = ""
+        }
+    }
+
+    private func closeTranscriptSearch() {
+        isTranscriptSearchVisible = false
+        transcriptSearch = ""
     }
 
     private func scheduleSessionSearch(
@@ -1091,82 +1054,23 @@ private struct InspectorAgentHistoryView: View {
         )
 
         return VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Button {
-                    transcriptSearch = ""
-                    isTranscriptSearchVisible = false
+            AgentHistoryTranscriptToolbar(
+                session: session,
+                strings: strings,
+                query: transcriptSearch,
+                isSearchVisible: isTranscriptSearchVisible,
+                focusRequestID: transcriptSearchFocusRequestID,
+                matchCount: matchCount,
+                onQueryChange: { transcriptSearch = $0 },
+                onToggleSearch: toggleTranscriptSearch,
+                onEscape: closeTranscriptSearch,
+                onBack: {
+                    closeTranscriptSearch()
                     perform(.clearAgentHistorySelection)
-                } label: {
-                    Image(systemName: "chevron.left")
-                }
-                .buttonStyle(.borderless)
-                .help(strings.back)
-                .accessibilityLabel(strings.back)
-
-                Image(session.agent.assetName)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 18, height: 18)
-                Text(session.agent.displayName)
-                    .font(.headline)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isTranscriptSearchVisible.toggle()
-                        if isTranscriptSearchVisible {
-                            isTranscriptSearchFocused = true
-                        } else {
-                            transcriptSearch = ""
-                        }
-                    }
-                } label: {
-                    Image(systemName: isTranscriptSearchVisible ? "magnifyingglass.circle.fill" : "magnifyingglass")
-                        .font(.system(size: 13))
-                }
-                .buttonStyle(.borderless)
-                .help("⌘F")
-
-                Button(session.isActive ? strings.openLive : strings.resume) {
-                    perform(.resumeAgentHistorySession(id: session.id))
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            }
-            .padding(.horizontal, InspectorContentMetrics.leadingInset)
-            .padding(.vertical, 9)
-
-            if isTranscriptSearchVisible {
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField(strings.searchTranscriptPlaceholder, text: $transcriptSearch)
-                        .textFieldStyle(.plain)
-                        .focused($isTranscriptSearchFocused)
-                    if !transcriptSearch.isEmpty {
-                        Text("\(matchCount) \(strings.matchesCount)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Button {
-                            transcriptSearch = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                }
-                .padding(.horizontal, 8)
-                .frame(height: 28)
-                .background(
-                    Color.primary.opacity(0.07),
-                    in: RoundedRectangle(cornerRadius: 6)
-                )
-                .padding(.horizontal, InspectorContentMetrics.leadingInset)
-                .padding(.bottom, 6)
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
+                },
+                onResume: { perform(.resumeAgentHistorySession(id: session.id)) }
+            )
+            .frame(height: isTranscriptSearchVisible ? 72 : 38)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(session.title)
@@ -1255,14 +1159,7 @@ private struct InspectorAgentHistoryView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(
             Button("") {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isTranscriptSearchVisible.toggle()
-                    if isTranscriptSearchVisible {
-                        isTranscriptSearchFocused = true
-                    } else {
-                        transcriptSearch = ""
-                    }
-                }
+                toggleTranscriptSearch()
             }
             .keyboardShortcut("f", modifiers: .command)
             .opacity(0)
@@ -1717,330 +1614,6 @@ struct InspectorPluginContextHeader: View {
             .padding(.horizontal, InspectorContentMetrics.leadingInset)
             .padding(.top, 10)
             .padding(.bottom, 6)
-    }
-}
-
-/// Trigger for the Agent History filter popover. The active-filter badge is an
-/// overlay so the glyph itself stays centered in the button.
-struct AgentHistoryFilterTrigger: View {
-    let selectedAgent: SupportedAgent?
-    let isActive: Bool
-    let isPresented: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                if let selectedAgent {
-                    Image(selectedAgent.assetName)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 15, height: 15)
-                } else {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 13, weight: .semibold))
-                }
-            }
-            .frame(width: 28, height: 28)
-            .overlay(alignment: .topTrailing) {
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 6, height: 6)
-                    .offset(x: -3, y: 3)
-                    .opacity(isActive ? 1 : 0)
-                    .accessibilityHidden(true)
-            }
-            .background(
-                Color.primary.opacity(isPresented ? 0.2 : 0.12),
-                in: RoundedRectangle(cornerRadius: 6)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(
-                        isPresented || isActive
-                            ? Color.accentColor.opacity(0.7)
-                            : Color.primary.opacity(0.18),
-                        lineWidth: 1
-                    )
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .fixedSize()
-    }
-}
-
-/// Stays open while adjusting. Filter, scope, grouping and ordering are
-/// independent settings, so dismissing the surface after each choice was pure
-/// friction. Short enumerations use chips; longer lists use aligned rows.
-struct AgentHistoryFilterPopover: View {
-    let sessions: [AgentHistorySession]
-    let agents: [SupportedAgent]
-    let strings: AgentHistoryStrings
-    @Binding var filter: AgentHistoryFilterState
-    let currentDirectory: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            sectionLabel(strings.filterSection)
-            AgentHistoryFilterRow(
-                title: strings.allAgents,
-                icon: .symbol("square.grid.2x2"),
-                count: sessions.count,
-                isSelected: filter.agent == nil
-            ) { filter.agent = nil }
-
-            if agents.count > 6 {
-                // Only scroll when the list would otherwise dominate the
-                // popover; a greedy ScrollView leaves a large empty gap.
-                ScrollView {
-                    agentRows
-                }
-                .frame(height: 198)
-            } else {
-                agentRows
-            }
-
-            Divider().padding(.vertical, 6)
-
-            sectionLabel(strings.directorySection)
-            chips(
-                AgentHistoryDirectoryFilter.allCases,
-                selected: filter.directory,
-                title: directoryTitle,
-                isEnabled: { $0 == .any || directoryScope != nil },
-                select: { filter.directory = $0 }
-            )
-            if filter.directory == .currentTree {
-                Text(directoryScopeDescription)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .padding(.horizontal, 6)
-                    .help(directoryScopeDescription)
-            }
-
-            Divider().padding(.vertical, 6)
-
-            sectionLabel(strings.timeSection)
-            chips(
-                AgentHistoryTimeFilter.allCases,
-                selected: filter.time,
-                title: timeTitle,
-                select: { filter.time = $0 }
-            )
-
-            Divider().padding(.vertical, 6)
-
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 1) {
-                    sectionLabel(strings.groupSection)
-                    AgentHistoryFilterRow(
-                        title: strings.groupNone, icon: .symbol("list.bullet"), count: nil,
-                        isSelected: filter.grouping == .none
-                    ) { filter.grouping = .none }
-                    AgentHistoryFilterRow(
-                        title: strings.groupProject, icon: .symbol("folder"), count: nil,
-                        isSelected: filter.grouping == .project
-                    ) { filter.grouping = .project }
-                    AgentHistoryFilterRow(
-                        title: strings.groupAgent, icon: .symbol("person.2"), count: nil,
-                        isSelected: filter.grouping == .agent
-                    ) { filter.grouping = .agent }
-                    AgentHistoryFilterRow(
-                        title: strings.groupDate, icon: .symbol("calendar"), count: nil,
-                        isSelected: filter.grouping == .date
-                    ) { filter.grouping = .date }
-                }
-                .frame(width: 148, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    sectionLabel(strings.orderSection)
-                    AgentHistoryFilterRow(
-                        title: strings.orderRecentlyUpdated, icon: .symbol("clock"), count: nil,
-                        isSelected: filter.ordering == .recentlyUpdated
-                    ) { filter.ordering = .recentlyUpdated }
-                    AgentHistoryFilterRow(
-                        title: strings.orderTitle, icon: .symbol("textformat"), count: nil,
-                        isSelected: filter.ordering == .title
-                    ) { filter.ordering = .title }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            Divider().padding(.vertical, 6)
-
-            Button {
-                filter.reset()
-            } label: {
-                Label(strings.reset, systemImage: "arrow.counterclockwise")
-                    .font(.system(size: 11))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(filter.isDefault ? Color.secondary : Color.accentColor)
-            .disabled(filter.isDefault)
-            .help(strings.reset)
-        }
-        .padding(10)
-        .frame(width: 320)
-    }
-
-    private var agentRows: some View {
-        LazyVStack(alignment: .leading, spacing: 1) {
-            ForEach(agents) { agent in
-                AgentHistoryFilterRow(
-                    title: agent.displayName,
-                    icon: .agent(agent),
-                    count: sessions.count { $0.agent == agent },
-                    isSelected: filter.agent == agent
-                ) { filter.agent = agent }
-            }
-        }
-    }
-
-    private var directoryScope: String? {
-        AgentHistoryFilterState.normalizedPath(currentDirectory)
-    }
-
-    private var directoryScopeDescription: String {
-        guard let name = directoryScope else { return strings.directoryUnavailable }
-        return name == "/" ? "/" : WorkspacePathPresentation.folderName(name)
-    }
-
-    private func directoryTitle(_ value: AgentHistoryDirectoryFilter) -> String {
-        switch value {
-        case .any: strings.anyOption
-        case .currentTree: strings.directoryCurrent
-        }
-    }
-
-    private func timeTitle(_ value: AgentHistoryTimeFilter) -> String {
-        switch value {
-        case .any: strings.anyOption
-        case .day: strings.timeDay
-        case .week: strings.timeWeek
-        case .month: strings.timeMonth
-        case .quarter: strings.timeQuarter
-        case .year: strings.timeYear
-        }
-    }
-
-    private func chips<Value: Hashable>(
-        _ values: [Value],
-        selected: Value,
-        title: @escaping (Value) -> String,
-        isEnabled: @escaping (Value) -> Bool = { _ in true },
-        select: @escaping (Value) -> Void
-    ) -> some View {
-        HStack(spacing: 4) {
-            ForEach(values, id: \.self) { value in
-                let isSelected = value == selected
-                Button {
-                    select(value)
-                } label: {
-                    Text(title(value))
-                        .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-                        .lineLimit(1)
-                        .padding(.horizontal, 8)
-                        .frame(height: 22)
-                        .foregroundStyle(isSelected ? Color.primary : Color.primary.opacity(0.85))
-                        .background(
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(isSelected
-                                      ? Color.accentColor.opacity(0.22)
-                                      : Color.primary.opacity(0.07))
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 5)
-                                .stroke(
-                                    isSelected
-                                        ? Color.accentColor.opacity(0.6)
-                                        : Color.clear,
-                                    lineWidth: 1
-                                )
-                        }
-                }
-                .buttonStyle(.plain)
-                .disabled(!isEnabled(value))
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
-            }
-        }
-        .padding(.horizontal, 6)
-    }
-
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 6)
-            .padding(.bottom, 2)
-    }
-}
-
-/// Leading glyph of a filter row. Every row in a section uses the same icon
-/// column, so an entry without an Agent still lines up with the ones below.
-enum AgentHistoryFilterIcon {
-    case none
-    case agent(SupportedAgent)
-    case symbol(String)
-}
-
-/// One option row. The leading columns keep a fixed width so selection never
-/// shifts text, which is what made the previous menu look ragged.
-struct AgentHistoryFilterRow: View {
-    let title: String
-    var icon: AgentHistoryFilterIcon = .none
-    let count: Int?
-    let isSelected: Bool
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .frame(width: 11)
-                    .opacity(isSelected ? 1 : 0)
-                switch icon {
-                case .none:
-                    Color.clear.frame(width: 13, height: 13)
-                case .agent(let agent):
-                    Image(agent.assetName)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 13, height: 13)
-                case .symbol(let name):
-                    Image(systemName: name)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 13, height: 13)
-                }
-                Text(title)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 8)
-                if let count {
-                    Text("\(count)")
-                        .font(.system(size: 11))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .font(.system(size: 12))
-            .padding(.horizontal, 6)
-            .frame(height: 24)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.primary.opacity(isHovered ? 0.08 : 0))
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
