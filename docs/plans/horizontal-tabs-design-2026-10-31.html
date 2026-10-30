@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OMG 水平布局设计预览</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; background: #ecebe7; color: #24252a; font: 14px -apple-system, BlinkMacSystemFont, sans-serif; }
+main { max-width: 1240px; margin: auto; }
+h1 { font-size: 23px; margin: 0 0 8px; }
+p { color: #62636a; line-height: 1.6; margin: 0 0 18px; }
+.tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.tools button { padding: 7px 13px; border: 1px solid #c7c7c4; border-radius: 7px; background: #fff; cursor: pointer; }
+.tools button[aria-pressed="true"] { border-color: #376785; background: #e2eef4; }
+.tools span { margin-left: auto; color: #666; font-size: 12px; }
+.window { --bg: #20202e; --fg: #d2d4e2; --muted: #9195a8; --line: #ffffff16; --hover: #ffffff0a; --selected: #a4badc22; --accent: #a4badc;
+  color: var(--fg); background: var(--bg); border: 1px solid #72727c; border-radius: 12px; box-shadow: 0 14px 40px #12162526; overflow: hidden;
+  width: 100%; margin: auto; position: relative; }
+.window.narrow { max-width: 760px; }
+.window.light { --bg: #f2f1ed; --fg: #31353a; --muted: #747b82; --line: #00000019; --hover: #00000007; --selected: #4b779f22; --accent: #386a93; }
+.window button { font: inherit; color: inherit; border: 0; background: transparent; cursor: pointer; border-radius: 5px; }
+.window button:hover { background: var(--hover); }
+.window button:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.titlebar { height: 35px; display: flex; align-items: center; padding: 0 10px; gap: 16px; border-bottom: 1px solid var(--line); }
+.traffic { display: flex; gap: 8px; padding: 0 1px; }
+.traffic i { width: 11px; height: 11px; border-radius: 50%; background: #fd6058; }
+.traffic i:nth-child(2) { background: #febc2e; } .traffic i:nth-child(3) { background: #28c840; }
+.workspace { display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 7px; font-size: 12px !important; font-weight: 550 !important; }
+.workspace .home { color: var(--accent); }
+.titlebar .spacer { flex: 1; }
+.icon-button { width: 26px; height: 26px; display: grid; place-items: center; }
+svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.tabbar { display: flex; height: 34px; padding: 3px 8px; gap: 4px; border-bottom: 1px solid var(--line); }
+.tab { display: flex; align-items: center; flex: 1; min-width: 0; padding: 0 8px; gap: 9px; font-size: 12px !important; text-align: left; }
+.tab.active { background: var(--selected); }
+.tab .name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
+.mark { display: inline-grid; place-items: center; width: 18px; height: 18px; color: var(--accent); font-weight: 700; font-size: 13px; flex: 0 0 auto; }
+.working { animation: breathe 1.8s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .35; } }
+.done { color: #94ba98; } .attention { color: #dbb27d; }
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
+.split i { width: 100%; height: 13px; border: 1px solid currentColor; border-radius: 2px; }
+.split i:last-child { border-color: #dbb27d; }
+.shortcut { color: var(--muted); font-size: 10px; width: 20px; text-align: right; }
+.body { display: grid; grid-template-columns: minmax(0,1fr) 290px; height: 490px; }
+.window.narrow .body { grid-template-columns: minmax(0,1fr) 252px; }
+.terminal { padding: 16px 16px; min-width: 0; overflow: hidden; position: relative; font: 12px/1.85 ui-monospace, Menlo, monospace; }
+.terminal .dim { color: var(--muted); } .prompt { color: #b3c8b7; white-space: nowrap; }
+.window.light .prompt { color: #477650; }
+.cursor { display: inline-block; height: 15px; width: 6px; background: var(--fg); vertical-align: middle; opacity: .7; }
+.terminal pre { margin: 10px 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg); font: inherit; }
+.terminal .bottom-label { position: absolute; bottom: 14px; left: 16px; color: var(--muted); font: 11px -apple-system, sans-serif; }
+.inspector { min-width: 0; border-left: 1px solid var(--line); }
+.inspector-nav { display: flex; align-items: center; gap: 4px; height: 34px; padding: 3px 10px; border-bottom: 1px solid var(--line); }
+.inspector-nav button { height: 26px; padding: 0 7px; display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.inspector-nav .active { background: var(--selected); }
+.inspector-nav button:not(.active) span { display: none; }
+.inspector-nav .spacer { flex: 1; }
+.inspector-content { padding: 13px 12px; font-size: 11px; }
+.repo { font-weight: 600; font-size: 12px; display: flex; gap: 8px; align-items: center; }
+.repo span { flex: 1; }
+.path { margin: 9px 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.branch { display: inline-block; background: var(--selected); color: var(--accent); padding: 2px 6px; border-radius: 4px; }
+.segments { margin-top: 16px; display: flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 6px; }
+.segments span { flex: 1; text-align: center; padding: 4px; }
+.segments span:first-child { border-radius: 4px; background: var(--selected); }
+.search { margin-top: 10px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); }
+.commit { border-left: 1px solid var(--accent); padding: 0 0 16px 10px; margin-left: 3px; }
+.commit strong { font-weight: 500; display: block; line-height: 1.5; }
+.commit small { color: var(--muted); display: block; margin-top: 3px; }
+.timeline { margin-top: 17px; }
+.sidebar { display: none; border-right: 1px solid var(--line); padding: 0 7px; }
+.sidebar-header { display: flex; align-items: center; height: 34px; justify-content: space-between; }
+.side-tab { display: flex; width: 100%; height: 32px; align-items: center; gap: 7px; padding: 0 7px; font-size: 12px !important; margin: 2px 0; }
+.side-tab.active { background: var(--selected); }
+.side-tab .name { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vertical .tabbar, .vertical .top-workspace { display: none; }
+.vertical .sidebar { display: block; }
+.vertical .body { grid-template-columns: 196px minmax(0,1fr) 290px; height: 524px; }
+.vertical.narrow .body { grid-template-columns: 160px minmax(0,1fr) 252px; }
+.window.hide-inspector .inspector { display: none; }
+.window.hide-inspector .body { grid-template-columns: minmax(0,1fr); }
+.window.vertical.hide-inspector .body { grid-template-columns: 196px minmax(0,1fr); }
+.caption { margin-top: 14px; font-size: 13px; line-height: 1.7; color: #62636a; }
+.workspace-menu { position: absolute; left: 75px; top: 35px; z-index: 4; width: 170px; padding: 6px; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; box-shadow: 0 8px 20px #0005; }
+.workspace-menu button { width: 100%; text-align: left; padding: 8px; font-size: 12px; }
+.vertical .workspace-menu { left: 8px; top: 67px; }
+[hidden] { display: none !important; }
+@media(prefers-reduced-motion: reduce) { .working { animation: none; } }
+@media(max-width: 650px) {
+  body { padding: 14px; } .window .body { grid-template-columns: minmax(0,1fr) 188px; }
+  .window.vertical .body { grid-template-columns: 130px minmax(0,1fr); }
+  .window.vertical .inspector { display: none; } .tools span { margin-left: 0; width: 100%; }
+}
+</style>
+<main>
+  <h1>水平布局：把空间还给终端</h1>
+  <p>布局设计稿，不是运行中的 AppKit 界面。可切换方向、宽度、Inspector 和主题检查空间分配；图标是示意，产品沿用 OMG 的资源。</p>
+  <div class="tools">
+    <button id="orientation" aria-pressed="false">切到垂直</button>
+    <button id="width" aria-pressed="false">紧凑窗口</button>
+    <button id="inspector" aria-pressed="true">Inspector</button>
+    <button id="theme" aria-pressed="false">浅色主题</button>
+    <span>同一窗口 · 同一组 tab · 状态保持</span>
+  </div>
+  <div class="window" id="window">
+    <div class="titlebar">
+      <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+      <button class="workspace top-workspace" aria-label="切换工作区"><span class="home">⌂</span>Personal <span>⌄</span></button>
+      <div class="spacer"></div>
+      <button class="icon-button inspector-toggle" title="显示或隐藏 Inspector" aria-label="显示或隐藏 Inspector"><svg viewBox="0 0 20 20"><rect x="2" y="3" width="16" height="14" rx="2"/><path d="M13 3v14"/></svg></button>
+    </div>
+    <div class="tabbar">
+      <button class="tab active" data-tab="0"><span class="name">oh-my-ghostty</span><span class="mark working" title="Codex · 工作中">C</span><span class="shortcut">⌘1</span></button>
+      <button class="tab" data-tab="1"><span class="name">inference</span><span class="mark done" title="Pi · 已完成">π</span><span class="shortcut">⌘2</span></button>
+      <button class="tab" data-tab="2"><span class="name">scratch</span><span class="mark split" title="2 panes · 一项等待确认"><i></i><i></i></span><span class="shortcut">⌘3</span></button>
+      <button class="icon-button" title="新建 tab（示意）" aria-label="新建 tab（示意）">+</button>
+    </div>
+    <div class="body">
+      <div class="sidebar">
+        <div class="sidebar-header"><button class="workspace"><span class="home">⌂</span>Personal ⌄</button><span>···</span></div>
+        <button class="side-tab active" data-tab="0"><span class="mark working">C</span><span class="name">oh-my-ghostty</span><span class="shortcut">⌘1</span></button>
+        <button class="side-tab" data-tab="1"><span class="mark done">π</span><span class="name">inference</span><span class="shortcut">⌘2</span></button>
+        <button class="side-tab" data-tab="2"><span class="mark split"><i></i><i></i></span><span class="name">scratch</span><span class="shortcut">⌘3</span></button>
+      </div>
+      <div class="terminal">
+        <div class="dim">Last login: Sat Oct 31 04:02:41 on ttys046</div>
+        <div class="prompt">chengjisheng ❯ <span id="directory">~/code/oh-my-ghostty</span> · main</div>
+        <pre id="terminal-copy">❯ codex
+
+Reviewing native window presentation…
+
+• Keep the current window and its running sessions.
+• Move workspace navigation into the titlebar.
+• Share Agent and split presentation across layouts.</pre>
+        <span class="cursor"></span>
+      </div>
+      <aside class="inspector">
+        <div class="inspector-nav">
+          <button data-pane="Files" title="Files"><svg viewBox="0 0 20 20"><path d="M2 5h6l2 2h8v10H2z"/><path d="M2 7V3h6l2 2h8v2"/></svg><span>Files</span></button>
+          <button data-pane="Agent 历史" title="Agent 历史"><svg viewBox="0 0 20 20"><path d="M3 7a7 7 0 1 1 0 6M3 3v4h4M10 6v5l3 2"/></svg><span>历史</span></button>
+          <button data-pane="Git" class="active" title="Git"><svg viewBox="0 0 20 20"><path d="M6 4v12M14 4v3c0 4-8 2-8 6"/><circle cx="6" cy="3" r="2"/><circle cx="14" cy="3" r="2"/><circle cx="6" cy="17" r="2"/></svg><span>Git</span></button>
+          <button data-pane="信息" title="信息"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="8"/><path d="M10 9v6M10 5v1"/></svg><span>信息</span></button>
+        </div>
+        <div class="inspector-content" id="git-content">
+          <div class="repo"><span id="repo-name">⑂ oh-my-ghostty</span><button class="icon-button" title="拉取或推送">⇅</button><button class="icon-button" title="刷新">↻</button></div>
+          <div class="path" id="repo-path">~/code/oh-my-ghostty</div><span class="branch">⑂ main</span>
+          <div class="segments"><span>历史</span><span>更改</span><span>分支</span></div>
+          <div class="search">⌕ 搜索提交…</div>
+          <div class="timeline">
+            <div class="commit"><strong>macos: retain native window identity</strong><small>chengjisheng · 刚刚</small></div>
+            <div class="commit"><strong>macos: share tab status presentation</strong><small>chengjisheng · 12 分钟前</small></div>
+            <div class="commit"><strong>macos: align inspector navigation</strong><small>chengjisheng · 28 分钟前</small></div>
+          </div>
+        </div>
+        <div class="inspector-content" id="other-content" hidden></div>
+      </aside>
+    </div>
+    <div class="workspace-menu" hidden><button>✓ Personal</button><button>Work</button><button>新建工作区…（示意）</button></div>
+  </div>
+  <div class="caption" id="caption">推荐：水平 tab 保持原生整窗宽度；Agent / split 放在 tab 内固定状态区。Inspector 的导航位于自己的内容区，标题栏仅保留开关。</div>
+</main>
+<script>
+(() => {
+  const frame = document.getElementById('window');
+  const orientation = document.getElementById('orientation');
+  const width = document.getElementById('width');
+  const inspector = document.getElementById('inspector');
+  const theme = document.getElementById('theme');
+  function toggle(control, name) {
+    const state = frame.classList.toggle(name);
+    control.setAttribute('aria-pressed', String(state));
+    return state;
+  }
+  orientation.onclick = () => {
+    const vertical = toggle(orientation, 'vertical');
+    orientation.textContent = vertical ? '切到水平' : '切到垂直';
+  };
+  width.onclick = () => toggle(width, 'narrow');
+  theme.onclick = () => toggle(theme, 'light');
+  function toggleInspector() {
+    const hidden = frame.classList.toggle('hide-inspector');
+    inspector.setAttribute('aria-pressed', String(!hidden));
+  }
+  inspector.onclick = toggleInspector;
+  frame.querySelector('.inspector-toggle').onclick = toggleInspector;
+  const names = ['oh-my-ghostty', 'inference', 'scratch'];
+  frame.querySelectorAll('[data-tab]').forEach(button => {
+    button.onclick = () => {
+      frame.querySelectorAll('[data-tab]').forEach(tab => tab.classList.toggle('active', tab.dataset.tab === button.dataset.tab));
+      const index = Number(button.dataset.tab);
+      document.getElementById('directory').textContent = '~/code/' + names[index];
+      document.getElementById('repo-name').textContent = '⑂ ' + names[index];
+      document.getElementById('repo-path').textContent = '~/code/' + names[index];
+      document.getElementById('terminal-copy').textContent = [
+        '❯ codex\n\nReviewing native window presentation…\n\n• Keep the current window and its running sessions.\n• Move workspace navigation into the titlebar.\n• Share Agent and split presentation across layouts.',
+        '❯ pi\n\nTask complete.\n\nThe native tab keeps its completed status visible.',
+        '❯ 2 panes\n\nCodex: awaiting approval\nShell: idle\n\nSplit composition and per-pane status remain visible.'
+      ][index];
+    };
+  });
+  const menu = frame.querySelector('.workspace-menu');
+  frame.querySelectorAll('.workspace').forEach(button => button.onclick = () => { menu.hidden = !menu.hidden; });
+  menu.querySelectorAll('button').forEach(button => button.onclick = () => { menu.hidden = true; });
+  frame.querySelectorAll('[data-pane]').forEach(button => button.onclick = () => {
+    frame.querySelectorAll('[data-pane]').forEach(item => item.classList.toggle('active', item === button));
+    const isGit = button.dataset.pane === 'Git';
+    document.getElementById('git-content').hidden = !isGit;
+    const other = document.getElementById('other-content');
+    other.hidden = isGit;
+    other.textContent = {Files: '▸ Sources　▸ Tests　README.md', 'Agent 历史': 'Codex · oh-my-ghostty　　工作中', '信息': '当前目录、运行环境与会话信息'}[button.dataset.pane] || '';
+  });
+})();
+</script>
+</html>
