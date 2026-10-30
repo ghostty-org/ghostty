@@ -6,6 +6,10 @@ chrome remains a separate integration task. There are no changes to the
 Ghostty Surface/PTY, SplitTree model, filesystem services, history storage,
 editor text engine, or plugin wire protocol.
 
+The subsequent OMG-owned controls migration and its validation are recorded in
+`appkit-native-controls-2026-10-30.md`. That follow-up retains Ghostty terminal
+search and excludes workspace/tab integration.
+
 ## Implemented boundaries
 
 | Review | Implementation | Preserved leaf content |
