@@ -630,8 +630,9 @@ jobs:
             aarch64-freebsd,
             x86_64-freebsd,
             x86_64-windows-gnu,
-            # doesn't work yet, we need a way to find msvc libc/c++ headers
-            # x86_64-windows-msvc
+            # x86_64-windows-msvc is built natively in
+            # build-libghostty-vt-windows since it needs the MSVC toolchain
+            # and Windows SDK to be installed.
           ]
     runs-on: namespace-profile-ghostty-sm
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
@@ -969,6 +970,13 @@ jobs:
 
       - name: Build libghostty-vt
         run: zig build -Demit-lib-vt
+
+      - name: Build libghostty-vt (x86_64-windows-msvc)
+        run: zig build -Demit-lib-vt -Dtarget=x86_64-windows-msvc
+
+      # Duplicate symbols (e.g. memset) can show up without SIMD.
+      - name: Build libghostty-vt (x86_64-windows-msvc, no SIMD)
+        run: zig build -Demit-lib-vt -Dtarget=x86_64-windows-msvc -Dsimd=false
 
       - name: Test static linking
         working-directory: example/c-vt-static

@@ -289,30 +289,36 @@ fn initLib(
             // ucrt.lib is in the Windows SDK 'ucrt' dir. Detect the SDK
             // installation and add the UCRT library path.
             const arch = target.result.cpu.arch;
+            const arch_str: []const u8 = switch (arch) {
+                .x86_64 => "x64",
+                .x86 => "x86",
+                .aarch64 => "arm64",
+                else => {
+                    std.log.err(
+                        "unsupported architecture for the Windows UCRT: {t}",
+                        .{arch},
+                    );
+                    return error.UnsupportedTarget;
+                },
+            };
             const sdk = std.zig.WindowsSdk.find(
                 b.allocator,
                 b.graph.io,
                 arch,
                 &b.graph.environ_map,
-            ) catch null;
-            if (sdk) |s| {
-                if (s.windows10sdk) |w10| {
-                    const arch_str: []const u8 = switch (arch) {
-                        .x86_64 => "x64",
-                        .x86 => "x86",
-                        .aarch64 => "arm64",
-                        else => "x64",
-                    };
-                    const ucrt_lib_path = std.fmt.allocPrint(
-                        b.allocator,
-                        "{s}\\Lib\\{s}\\ucrt\\{s}",
-                        .{ w10.path, w10.version, arch_str },
-                    ) catch null;
-                    if (ucrt_lib_path) |path| {
-                        lib.root_module.addLibraryPath(.{ .cwd_relative = path });
-                    }
-                }
-            }
+            ) catch |err| {
+                std.log.err("unable to find the Windows SDK: {t}", .{err});
+                return error.WindowsSdkNotFound;
+            };
+            const w10 = sdk.windows10sdk orelse {
+                std.log.err("the Windows 10/11 SDK (which provides ucrt.lib) was not found", .{});
+                return error.WindowsSdkNotFound;
+            };
+            const ucrt_lib_path = try b.allocator.print(
+                "{s}\\Lib\\{s}\\ucrt\\{s}",
+                .{ w10.path, w10.version, arch_str },
+            );
+            lib.root_module.addLibraryPath(.{ .cwd_relative = ucrt_lib_path });
             lib.root_module.linkSystemLibrary("libucrt", dynamic_link_opts);
         }
     }
