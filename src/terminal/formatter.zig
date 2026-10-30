@@ -411,13 +411,25 @@ pub const TerminalFormatter = struct {
         // simplicity we just emit them all before. If we make this more complex
         // later we should add test cases for it.
         if (self.opts.emit == .vt and self.extra.modes) {
-            inline for (@typeInfo(modespkg.Mode).@"enum".field_names, @typeInfo(modespkg.Mode).@"enum".field_values) |field, field_value| {
-                const mode: modespkg.Mode = @fromBackingInt(field_value);
-                const current = self.terminal.modes.get(mode);
-                const default_val = @field(self.terminal.modes.default, field);
+            inline for (std.enums.values(modespkg.Mode)) |mode| {
+                comptime switch (mode) {
+                    // Below, mode 47 is used to restore the active screen.
+                    // We need a single screen switch without side effects.
+                    .alt_screen,
+                    .alt_screen_save_cursor_clear_enter,
 
-                if (current != default_val) {
-                    const tag: modespkg.ModeTag = @bitCast(@backingInt(mode));
+                    // It would save the replay's cursor, not the saved one.
+                    .save_cursor,
+                    => continue,
+
+                    else => {},
+                };
+
+                const current = self.terminal.getMode(mode);
+                const default = self.terminal.modes.getDefault(mode);
+
+                if (current != default) {
+                    const tag: modespkg.ModeTag = comptime .fromMode(mode);
                     const prefix = if (tag.ansi) "" else "?";
                     const suffix = if (current) "h" else "l";
                     try writer.print("\x1b[{s}{d}{s}", .{ prefix, tag.value, suffix });
@@ -6711,6 +6723,79 @@ test "Terminal vt with modes" {
     try testing.expectEqual(t.modes.get(.bracketed_paste), t2.modes.get(.bracketed_paste));
     try testing.expectEqual(t.modes.get(.mouse_event_normal), t2.modes.get(.mouse_event_normal));
     try testing.expectEqual(t.modes.get(.wraparound), t2.modes.get(.wraparound));
+}
+
+test "Terminal vt with modes restores the alternate screen" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(io, alloc, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    s.nextSlice("\x1b[?1049h");
+    s.nextSlice("hello");
+
+    var formatter: TerminalFormatter = .init(&t, .vt);
+    formatter.extra.modes = true;
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // We use mode 47 to switch screens while skipping the other ones.
+    try testing.expect(std.mem.find(u8, output, "\x1b[?47h") != null);
+    try testing.expect(std.mem.find(u8, output, "\x1b[?1047h") == null);
+    try testing.expect(std.mem.find(u8, output, "\x1b[?1049h") == null);
+
+    // Create a second terminal and apply the output.
+    var t2 = try Terminal.init(io, alloc, .{ .cols = 80, .rows = 24 });
+    defer t2.deinit(alloc);
+
+    var s2 = t2.vtStream();
+    defer s2.deinit();
+
+    s2.nextSlice(output);
+    try testing.expectEqual(.alternate, t2.screens.active_key);
+
+    const contents = try t.screens.active.dumpStringAlloc(alloc, .{ .screen = .{} });
+    defer alloc.free(contents);
+
+    const contents2 = try t2.screens.active.dumpStringAlloc(alloc, .{ .screen = .{} });
+    defer alloc.free(contents2);
+
+    try testing.expectEqualStrings(contents, contents2);
+}
+
+test "Terminal vt with modes skips mode 1048 for a saved cursor" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(io, alloc, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    s.nextSlice("\x1b7"); // DECSC
+    try testing.expect(t.getMode(.save_cursor));
+
+    var formatter: TerminalFormatter = .init(&t, .vt);
+    formatter.extra.modes = true;
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    try testing.expect(std.mem.find(u8, output, "\x1b[?1048h") == null);
 }
 
 test "Terminal vt with tabstops" {

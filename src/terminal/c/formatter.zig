@@ -8,6 +8,7 @@ const grid_ref = @import("grid_ref.zig");
 const selection_c = @import("selection.zig");
 const ZigTerminal = @import("../Terminal.zig");
 const formatterpkg = @import("../formatter.zig");
+const modespkg = @import("../modes.zig");
 const Result = @import("result.zig").Result;
 
 /// Wrapper around formatter that tracks the allocator for C API usage.
@@ -567,6 +568,49 @@ test "format vt" {
     try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
     try testing.expect(written > 0);
     try testing.expect(std.mem.indexOf(u8, buf[0..written], "Test") != null);
+}
+
+test "format vt with modes follows the active screen" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    // Set bracketed paste to verify that modes are emitted at all.
+    terminal_c.vt_write(t, "\x1b[?2004h", 8);
+
+    // The mode setter only writes the bit, so the primary screen stays active.
+    var config: terminal_c.ModeConfig = .{
+        .mode = @bitCast(modespkg.ModeTag{ .value = 47, .ansi = false }),
+        .value = true,
+    };
+    try testing.expectEqual(Result.success, terminal_c.set(t, .mode, @ptrCast(&config)));
+
+    var screen: terminal_c.TerminalScreen = undefined;
+    try testing.expectEqual(Result.success, terminal_c.get(t, .active_screen, @ptrCast(&screen)));
+    try testing.expectEqual(.primary, screen);
+
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+        .{ .emit = .vt, .unwrap = false, .trim = true, .extra = .{ .palette = true, .modes = true, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = true, .hyperlink = true, .protection = false, .kitty_keyboard = false, .charsets = false } } },
+    ));
+    defer free(f);
+
+    var buf: [65536]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    try testing.expect(std.mem.find(u8, buf[0..written], "\x1b[?2004h") != null);
+
+    // Relying on the plain bit would emit DECSET 47, and the replay would
+    // land on the alternate screen while the source is on the primary one.
+    try testing.expect(std.mem.find(u8, buf[0..written], "\x1b[?47h") == null);
 }
 
 test "format plain with selection" {
