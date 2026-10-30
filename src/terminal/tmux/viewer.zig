@@ -1991,9 +1991,7 @@ test "layout change with zero width pane becomes defunct" {
         // Receive initial window layout with one pane
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -2052,9 +2050,7 @@ test "layout change with oversized pane becomes defunct" {
         // Receive initial window layout with one pane
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -2407,10 +2403,7 @@ test "list-windows parse failure frees earlier windows" {
         // stops after the first layout arena has been allocated.
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                \\not a window
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA\nnot a window",
             } },
             .contains_tags = &.{.exit},
         },
@@ -2723,7 +2716,7 @@ test "pane state ignores out of bounds scroll region" {
         },
         .{
             .input = .{ .tmux = .{
-                .block_end = "$0 @0 80 24 b25d,80x24,0,0,0",
+                .block_end = "$0\t@0\t80\t24\tb25d,80x24,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
         },
@@ -2794,7 +2787,7 @@ fn testRawStartupScreen(comptime alternate_on: bool) !void {
 
         // Window and pane layout.
         "%begin 3 3 0\n" ++
-        "$42 @0 80 24 d962,80x24,0,0,42\n" ++
+        "$42\t@0\t80\t24\td962,80x24,0,0,42\tA\n" ++
         "%end 3 3 0\n" ++
 
         // Primary screen history.
