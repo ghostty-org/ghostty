@@ -53,4 +53,3 @@ struct SplitTabPane: Identifiable {
     let focused: Bool
 
 }
-
