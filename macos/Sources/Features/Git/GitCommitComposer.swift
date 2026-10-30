@@ -77,13 +77,9 @@ struct GitCommitComposer: View {
                         identifier: "git.commit.staged"
                     ) { _ in commit() }
                     Color.clear.frame(width: 4, height: 28)
-                    NativeMenuButton(
-                        symbol: "chevron.down",
-                        help: GitL10n.text("Commit options"),
+                    GitCommitOptionsButton(
                         enabled: menuEnabled,
-                        style: .bordered,
-                        height: 28,
-                        identifier: "git.commit.options",
+                        repository: repository,
                         entries: commitMenuEntries
                     )
                 }

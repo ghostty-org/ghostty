@@ -39,7 +39,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
     private let footer = NSTextField(labelWithString: "")
     private let moveButton = NativeActionControl()
     private let previewIcon = NSImageView()
-    private let nameField = NSTextField()
+    private let nameField = OMGNativeTextField()
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
     private let noticeLabel = NSTextField(wrappingLabelWithString: "")
     private let deleteTitleLabel = NSTextField(labelWithString: "")
@@ -99,8 +99,10 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         header.orientation = .horizontal
         header.alignment = .centerY
         header.spacing = 8
-        backButton.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: nil)
-        backButton.bezelStyle = .toolbar
+        backButton.configure(title: "", symbol: "chevron.left", help: WorkspaceL10n.text("Back", "返回"),
+                             enabled: true, style: .plain, identifier: "workspace.back")
+        backButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        backButton.heightAnchor.constraint(equalToConstant: 28).isActive = true
         backButton.target = self
         backButton.action = #selector(goBack)
         backButton.setAccessibilityLabel(WorkspaceL10n.text("Back", "返回"))
@@ -163,7 +165,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         moveButton.title = WorkspaceL10n.text("Move current tab…", "移动当前标签…")
         moveButton.image = NSImage(systemSymbolName: "arrow.right.square", accessibilityDescription: nil)
         moveButton.imagePosition = .imageLeading
-        moveButton.controlStyle = .bordered
+        moveButton.controlStyle = .plain
         moveButton.controlSize = .small
         moveButton.alignment = .left
         moveButton.target = self
@@ -187,6 +189,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         confirmButton.target = self
 
         stack.orientation = .vertical
+        stack.distribution = .fill
         stack.alignment = .leading
         stack.spacing = 0
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -224,7 +227,8 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         case .move:
             height = 180 + listHeight
         case .create, .edit:
-            height = isViewLoaded ? max(380, root.fittingSize.height) : 400
+            // Do not inherit the previous list page's height through its expanding spacer.
+            height = 400 + (isViewLoaded && !footer.isHidden ? 30 : 0)
         case .delete:
             height = 230
         }
@@ -325,6 +329,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         content.subviews.forEach { $0.removeFromSuperview() }
         let pageStack = NSStackView()
         pageStack.orientation = .vertical
+        pageStack.distribution = .fill
         pageStack.alignment = .leading
         pageStack.spacing = 10
         pageStack.translatesAutoresizingMaskIntoConstraints = false
@@ -335,6 +340,10 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
             pageStack.addArrangedSubview(queryField)
             pageStack.addArrangedSubview(scroll)
             if model.page == .switcher {
+                let divider = NSBox()
+                divider.boxType = .separator
+                pageStack.addArrangedSubview(divider)
+                divider.widthAnchor.constraint(equalTo: pageStack.widthAnchor).isActive = true
                 pageStack.addArrangedSubview(moveButton)
                 moveButton.widthAnchor.constraint(equalTo: pageStack.widthAnchor).isActive = true
             }
@@ -395,6 +404,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         NSLayoutConstraint.activate([
             identity.widthAnchor.constraint(equalTo: pageStack.widthAnchor),
             nameField.widthAnchor.constraint(equalTo: pageStack.widthAnchor, constant: -46),
+            nameField.heightAnchor.constraint(equalToConstant: 30),
         ])
         addSection(WorkspaceL10n.text("Icon", "图标"), into: pageStack)
         symbolButtons = makeSymbolButtons()
@@ -405,9 +415,15 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         pageStack.addArrangedSubview(footer)
         footer.widthAnchor.constraint(equalTo: pageStack.widthAnchor).isActive = true
 
-        let buttons = NSStackView(views: [cancelButton, NSView(), confirmButton])
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .vertical)
+        pageStack.addArrangedSubview(spacer)
+        spacer.heightAnchor.constraint(greaterThanOrEqualToConstant: 8).isActive = true
+        let buttons = NSStackView(views: [NSView(), cancelButton, confirmButton])
         buttons.orientation = .horizontal
+        buttons.distribution = .fill
         buttons.alignment = .centerY
+        buttons.spacing = 8
         pageStack.addArrangedSubview(buttons)
         buttons.widthAnchor.constraint(equalTo: pageStack.widthAnchor).isActive = true
     }
@@ -717,8 +733,29 @@ private final class TerminalWorkspaceTableView: NSTableView {
     }
 }
 
-private final class TerminalWorkspaceSelectionRow: NSTableRowView {
+final class TerminalWorkspaceSelectionRow: NSTableRowView {
+    private var hoverTracking: NSTrackingArea?
+    private(set) var isHovered = false
     override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self)
+        hoverTracking = area
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) { isHovered = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { isHovered = false; needsDisplay = true }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        guard isHovered, !isSelected else { return }
+        OMGNativeTheme.resolve(for: self).hoverFill.setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: 6, yRadius: 6).fill()
+    }
 
     override func drawSelection(in dirtyRect: NSRect) {
         OMGNativeTheme.resolve(for: self).selectedFill.setFill()
@@ -757,7 +794,11 @@ private final class TerminalWorkspaceRowCell: NSTableCellView, OMGNativeThemeApp
         subtitle.textColor = .secondaryLabelColor
         subtitle.lineBreakMode = .byTruncatingTail
         trailing.font = .systemFont(ofSize: 10)
+        trailing.setContentCompressionResistancePriority(.required, for: .horizontal)
+        trailing.setContentHuggingPriority(.required, for: .horizontal)
         trailing.textColor = .secondaryLabelColor
+        editButton.title = ""
+        deleteButton.title = ""
         editButton.image = NSImage(systemSymbolName: "pencil", accessibilityDescription: nil)
         deleteButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
         [editButton, deleteButton].forEach {
@@ -768,30 +809,34 @@ private final class TerminalWorkspaceRowCell: NSTableCellView, OMGNativeThemeApp
         labels.orientation = .vertical
         labels.alignment = .leading
         labels.spacing = 2
-        let content = NSStackView(views: [symbol, labels, NSView(), trailing])
+        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        subtitle.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let content = NSStackView(views: [symbol, labels, NSView()])
         content.orientation = .horizontal
+        content.distribution = .fill
         content.alignment = .centerY
         content.spacing = 8
         content.translatesAutoresizingMaskIntoConstraints = false
-        let actions = NSStackView(views: [editButton, deleteButton])
+        let actions = NSStackView(views: [trailing, editButton, deleteButton])
         actions.orientation = .horizontal
-        actions.spacing = 2
-        let row = NSStackView(views: [openButton, actions])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 4
-        row.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(row)
+        actions.spacing = 4
+        actions.distribution = .fill
+        actions.translatesAutoresizingMaskIntoConstraints = false
+        openButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(openButton)
+        addSubview(actions)
         openButton.addSubview(content)
         NSLayoutConstraint.activate([
             symbol.widthAnchor.constraint(equalToConstant: 28),
             symbol.heightAnchor.constraint(equalToConstant: 28),
             editButton.widthAnchor.constraint(equalToConstant: 24),
             deleteButton.widthAnchor.constraint(equalToConstant: 24),
-            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
-            row.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+            openButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            openButton.trailingAnchor.constraint(equalTo: actions.leadingAnchor, constant: -4),
+            openButton.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            openButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+            actions.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            actions.centerYAnchor.constraint(equalTo: centerYAnchor),
             content.leadingAnchor.constraint(equalTo: openButton.leadingAnchor, constant: 6),
             content.trailingAnchor.constraint(equalTo: openButton.trailingAnchor, constant: -4),
             content.topAnchor.constraint(equalTo: openButton.topAnchor),

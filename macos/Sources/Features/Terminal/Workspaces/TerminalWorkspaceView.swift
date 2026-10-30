@@ -138,11 +138,19 @@ final class TerminalWorkspaceHeaderButton: NativeActionControl {
         if let controller, window != nil { controller.workspacePopover.update(anchor: self) }
     }
 
-    func fittingSize(proposedWidth _: CGFloat?) -> CGSize {
+    override func applyTheme(_ theme: OMGNativeTheme) {
+        super.applyTheme(theme)
+        titleLabel.textColor = theme.foreground
+        chevronView.contentTintColor = theme.secondary
+    }
+
+    func fittingSize(proposedWidth: CGFloat?) -> CGSize {
         let textWidth = ceil((titleLabel.stringValue as NSString).size(
             withAttributes: [.font: titleLabel.font ?? .systemFont(ofSize: 12)]
         ).width)
-        return CGSize(width: textWidth + 16 + 12 + 5 + 28 + 21, height: 28)
+        let chromeWidth: CGFloat = 16 + 12 + 14 + 14 + (attentionView.isHidden ? 0 : 12)
+        return CGSize(width: min(textWidth + chromeWidth, max(chromeWidth, proposedWidth ?? .greatestFiniteMagnitude)),
+                      height: 28)
     }
 
     @objc private func activateWorkspace() { activate?() }
