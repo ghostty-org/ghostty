@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Testing
 @testable import Ghostty
 
@@ -70,6 +70,87 @@ struct EditorFilePickerTests {
         model.navigate(to: "/tmp/a.swift") { openedPath = $0 }
         await waitUntil { openedPath != nil }
         #expect(openedPath == "/tmp/a.swift")
+    }
+
+    @Test @MainActor func nativePickerUsesTableSelectionAndOpensSelectedFile() async {
+        let filesystem = ControlledEditorFilePickerFilesystem()
+        let model = EditorFilePickerModel(filesystem: filesystem)
+        let document = Self.file("/readme.md")
+        var openedPath: String?
+        let controller = EditorFilePickerController(
+            model: model,
+            onCancel: {},
+            onOpen: { openedPath = $0 }
+        )
+        _ = controller.view
+        #expect(controller.tableView.dataSource === controller)
+        #expect(controller.tableView.numberOfColumns == 1)
+
+        await filesystem.waitUntilListStarts(at: "/")
+        await filesystem.finishList(at: "/", with: [document])
+        await waitUntil { controller.tableView.numberOfRows == 1 }
+
+        controller.tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        controller.tableViewSelectionDidChange(Notification(
+            name: NSTableView.selectionDidChangeNotification,
+            object: controller.tableView
+        ))
+        controller.openSelection()
+        #expect(openedPath == document.path)
+    }
+
+    @Test @MainActor func nativePickerSubmitsTypedPathAndKeepsSelectionAcrossModelUpdates() async {
+        let filesystem = ControlledEditorFilePickerFilesystem()
+        let model = EditorFilePickerModel(filesystem: filesystem)
+        let controller = EditorFilePickerController(model: model, onCancel: {}, onOpen: { _ in })
+        _ = controller.view
+        await filesystem.waitUntilListStarts(at: "/")
+        await filesystem.finishList(at: "/", with: [Self.file("/first.md"), Self.file("/second.md")])
+        await waitUntil { controller.tableView.numberOfRows == 2 }
+
+        controller.tableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        controller.tableViewSelectionDidChange(Notification(
+            name: NSTableView.selectionDidChangeNotification,
+            object: controller.tableView
+        ))
+        model.pathInput = "/typed/directory"
+        await waitUntil { controller.pathField.stringValue == "/typed/directory" }
+        #expect(controller.tableView.selectedRow == 1)
+        #expect(model.selection == "/second.md")
+        #expect(controller.pathField.stringValue == "/typed/directory")
+
+        controller.pathField.stringValue = "/typed/directory"
+        controller.controlTextDidEndEditing(Notification(
+            name: NSText.didEndEditingNotification,
+            object: controller.pathField,
+            userInfo: ["NSTextMovement": NSReturnTextMovement]
+        ))
+        await filesystem.waitUntilListStarts(at: "/typed/directory")
+        #expect(model.directory == "/typed/directory")
+        await filesystem.finishList(at: "/typed/directory", with: [])
+    }
+
+    @Test @MainActor func nativePickerDoesNotReplaceMarkedPathWhileDirectoryFinishesLoading() async throws {
+        let filesystem = ControlledEditorFilePickerFilesystem()
+        let model = EditorFilePickerModel(filesystem: filesystem)
+        let controller = EditorFilePickerController(model: model, onCancel: {}, onOpen: { _ in })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 460),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller
+        defer { window.contentViewController = nil; window.close() }
+        controller.view.layoutSubtreeIfNeeded()
+        #expect(controller.pathField.frame.width > 300)
+        #expect(window.makeFirstResponder(controller.pathField))
+        let editor = try #require(controller.pathField.currentEditor() as? NSTextView)
+        editor.setMarkedText("路径", selectedRange: NSRange(location: 2, length: 0),
+                             replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+        await filesystem.waitUntilListStarts(at: "/")
+        await filesystem.finishList(at: "/", with: [Self.file("/readme.md")])
+        await waitUntil { controller.tableView.numberOfRows == 1 }
+        #expect(editor.hasMarkedText())
+        #expect(editor.string == "路径")
+        editor.unmarkText()
     }
 
     private static func directory(_ path: String) -> WorkspaceFileEntry {
