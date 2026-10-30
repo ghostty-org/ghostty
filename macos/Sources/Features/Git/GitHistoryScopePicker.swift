@@ -31,8 +31,8 @@ struct GitHistoryScopePicker: NSViewRepresentable {
             isBordered = false
             imagePosition = .imageLeft
             cell?.lineBreakMode = .byTruncatingMiddle
-            chevron.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: 8, weight: .medium))
+            chevron.image = NSImage(systemSymbolName: "line.3.horizontal.decrease", accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 11, weight: .medium))
             addSubview(chevron)
             wantsLayer = true
             layer?.cornerRadius = 4
@@ -43,6 +43,8 @@ struct GitHistoryScopePicker: NSViewRepresentable {
         @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         func configure(_ content: GitHistoryScopePicker) {
             self.content = content
+            isEnabled = content.enabled && !content.isBusy
+            if !isEnabled { popover?.performClose(nil) }
             if title != content.title { title = content.title }
             toolTip = content.title
             contentTintColor = content.colors.text
@@ -63,7 +65,7 @@ struct GitHistoryScopePicker: NSViewRepresentable {
             }
         }
         @objc func showPicker() {
-            guard window != nil, let snapshot = content else { return }
+            guard isEnabled, window != nil, let snapshot = content else { return }
             if popover?.isShown == true { popover?.performClose(nil); return }
             responderBeforePopover = window?.firstResponder
             let host = browser(snapshot)

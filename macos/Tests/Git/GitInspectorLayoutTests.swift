@@ -304,11 +304,14 @@ struct GitInspectorLayoutTests {
         let defaults = UserDefaults.standard
         let savedReview = defaults.object(forKey: "git.diff.review")
         let savedMode = defaults.object(forKey: "git.diff.viewMode")
+        let savedWrap = defaults.object(forKey: "git.diff.wordWrap")
+        defaults.set(true, forKey: "git.diff.wordWrap")
         defaults.set(false, forKey: "git.diff.review")
         defaults.set(GitL10n.text("Side by Side"), forKey: "git.diff.viewMode")
         defer {
             defaults.set(savedReview, forKey: "git.diff.review")
             defaults.set(savedMode, forKey: "git.diff.viewMode")
+            defaults.set(savedWrap, forKey: "git.diff.wordWrap")
         }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("git-deleted-view-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -348,6 +351,28 @@ struct GitInspectorLayoutTests {
         #expect(sources.contains { $0.string == source })
         #expect(sources.contains { $0.string.isEmpty })
         #expect(sources.allSatisfy { !$0.isEditable })
+        #expect(sources.allSatisfy { $0.wrapLines })
+        func buttons(in root: NSView) -> [NativeActionControl] {
+            (root as? NativeActionControl).map { [$0] } ?? root.subviews.flatMap { buttons(in: $0) }
+        }
+        let wrap = try #require(buttons(in: view).first { $0.toolTip == GitL10n.text("Wrap diff lines") })
+        let refresh = try #require(buttons(in: view).first { $0.toolTip == GitL10n.text("Refresh diff") })
+        let refreshX = refresh.convert(refresh.bounds, to: view).minX
+        wrap.performClick(nil)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(editors(in: view).allSatisfy { !$0.wrapLines })
+        for review in [true, false] {
+            defaults.set(review, forKey: "git.diff.review")
+            for mode in [GitL10n.text("Inline"), GitL10n.text("Side by Side")] {
+                defaults.set(mode, forKey: "git.diff.viewMode")
+                try await Task.sleep(for: .milliseconds(100))
+                view.layoutSubtreeIfNeeded()
+                let visibleWrap = try #require(buttons(in: view).first { $0.toolTip == GitL10n.text("Wrap diff lines") })
+                #expect(!visibleWrap.isHiddenOrHasHiddenAncestor)
+                let currentRefresh = try #require(buttons(in: view).first { $0.toolTip == GitL10n.text("Refresh diff") })
+                #expect(abs(currentRefresh.convert(currentRefresh.bounds, to: view).minX - refreshX) < 1)
+            }
+        }
         if FileManager.default.fileExists(atPath: "/tmp/omg-git-render") {
             let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
             view.cacheDisplay(in: view.bounds, to: bitmap)

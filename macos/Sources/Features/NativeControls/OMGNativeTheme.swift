@@ -1,4 +1,5 @@
 import AppKit
+import GhosttyKit
 
 @MainActor
 protocol OMGNativeThemeApplying: AnyObject {
@@ -10,6 +11,8 @@ struct OMGNativeTheme: Equatable {
     let background: NSColor
     let foreground: NSColor
     let accent: NSColor
+    var opacity: Double = 1
+    var blur: Ghostty.Config.BackgroundBlur = .disabled
 
     init(background: NSColor, foreground: NSColor, accent: NSColor = .controlAccentColor) {
         self.background = background.withAlphaComponent(1)
@@ -41,7 +44,14 @@ struct OMGNativeTheme: Equatable {
         }
         let palette = OMGThemeBackground.palette(for: origin, config: config)
         let editor = config.editorTheme(background: palette.background)
-        return .init(background: palette.background, foreground: palette.foreground, accent: editor.commands.color)
+        var theme = OMGNativeTheme(background: palette.background, foreground: palette.foreground, accent: editor.commands.color)
+        let forceOpaque = origin?.styleMask.contains(.fullScreen) == true ||
+            (origin?.windowController as? TerminalController)?.isBackgroundOpaque == true
+        if !forceOpaque {
+            theme.opacity = config.backgroundOpacity.clamped(to: 0...1)
+            theme.blur = config.backgroundBlur
+        }
+        return theme
     }
 
     @MainActor
@@ -85,11 +95,15 @@ class OMGNativeSurfaceView: NSView {
     private(set) var theme = OMGNativeTheme(background: .windowBackgroundColor, foreground: .labelColor)
     var onThemeChange: ((OMGNativeTheme) -> Void)?
     private var hasExplicitSource = false
+    private var backdrop: NSView?
+    private var backdropBlur: Ghostty.Config.BackgroundBlur?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         themeObserver.onChange = { [weak self] in self?.applyTheme($0) }
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(accessibilityChanged),
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -105,8 +119,10 @@ class OMGNativeSurfaceView: NSView {
         self.theme = theme
         appearance = theme.appearance
         needsDisplay = true
+        updateBackdrop()
         func update(_ parent: NSView) {
             for child in parent.subviews {
+                if child === backdrop { continue }
                 if let customized = child as? OMGNativeThemeApplying {
                     customized.applyTheme(theme)
                     continue
@@ -138,7 +154,49 @@ class OMGNativeSurfaceView: NSView {
         themeObserver.refresh()
     }
 
-    override func updateLayer() { layer?.backgroundColor = theme.background.cgColor }
+    @objc private func accessibilityChanged() { updateBackdrop(); needsDisplay = true }
+
+    var effectiveOpacity: Double { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ? 1 : theme.opacity }
+
+    private func updateBackdrop() {
+        let blur: Ghostty.Config.BackgroundBlur = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ||
+            (effectiveOpacity >= 1 && !theme.blur.isGlassStyle) ? .disabled : theme.blur
+        if backdropBlur != blur {
+            backdrop?.removeFromSuperview()
+            backdrop = nil
+            backdropBlur = blur
+#if compiler(>=6.2)
+            if #available(macOS 26.0, *), blur.isGlassStyle {
+                backdrop = TerminalGlassView(topOffset: 0)
+            }
+#endif
+            if let backdrop {
+                backdrop.frame = bounds
+                backdrop.autoresizingMask = [.width, .height]
+                addSubview(backdrop, positioned: .below, relativeTo: nil)
+            }
+        }
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *), let glass = backdrop as? TerminalGlassView {
+            glass.configure(style: blur == .macosGlassClear ? .clear : .regular,
+                            backgroundColor: theme.background, backgroundOpacity: effectiveOpacity,
+                            cornerRadius: 0, isKeyWindow: window?.isKeyWindow ?? true)
+        }
+#endif
+        // Only configure an auxiliary window owned by this surface, never its terminal origin.
+        if let window, window.contentViewController?.view === self ||
+            (hasExplicitSource && window !== themeObserver.sourceWindow) {
+            window.isOpaque = effectiveOpacity >= 1
+            window.backgroundColor = effectiveOpacity >= 1 ? theme.background : .clear
+            if !blur.isGlassStyle, let app = (NSApp.delegate as? AppDelegate)?.ghostty.app {
+                ghostty_set_window_background_blur(app, Unmanaged.passUnretained(window).toOpaque())
+            }
+        }
+    }
+
+    override func updateLayer() {
+        layer?.backgroundColor = (backdrop == nil ? theme.background.withAlphaComponent(effectiveOpacity) : .clear).cgColor
+    }
 }
 
 class OMGNativeSearchField: NSSearchField {

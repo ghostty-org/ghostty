@@ -87,7 +87,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
 
     override func loadView() {
         root.onThemeChange = { [weak self] theme in
-            self?.table.backgroundColor = theme.background
+            self?.table.backgroundColor = .clear
             self?.table.needsDisplay = true
             self?.table.enumerateAvailableRowViews { row, _ in row.needsDisplay = true }
             self?.footer.textColor = theme.secondary
@@ -99,6 +99,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         header.orientation = .horizontal
         header.alignment = .centerY
         header.spacing = 8
+        header.heightAnchor.constraint(equalToConstant: 28).isActive = true
         backButton.configure(title: "", symbol: "chevron.left", help: WorkspaceL10n.text("Back", "返回"),
                              enabled: true, style: .plain, identifier: "workspace.back")
         backButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
@@ -131,7 +132,8 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         queryField.action = #selector(searchChanged(_:))
         queryField.setAccessibilityIdentifier("workspace.search")
         queryField.heightAnchor.constraint(equalToConstant: 28).isActive = true
-        moveTitle.maximumNumberOfLines = 2
+        moveTitle.maximumNumberOfLines = 1
+        moveTitle.heightAnchor.constraint(equalToConstant: 18).isActive = true
         moveTitle.textColor = .secondaryLabelColor
         moveTitle.font = .systemFont(ofSize: 11)
 
@@ -140,6 +142,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         table.addTableColumn(column)
         table.headerView = nil
         table.rowHeight = 54
+        table.postsFrameChangedNotifications = true
         table.intercellSpacing = .zero
         table.style = .plain
         table.selectionHighlightStyle = .regular
@@ -201,10 +204,10 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         stack.setCustomSpacing(5, after: errorLabel)
         root.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
-            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 8),
-            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -8),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 14),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -14),
             header.widthAnchor.constraint(equalTo: stack.widthAnchor),
             content.widthAnchor.constraint(equalTo: stack.widthAnchor),
             errorLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
@@ -220,21 +223,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
     }
 
     func fittingSize(proposedWidth _: CGFloat?) -> CGSize {
-        let height: CGFloat
-        switch model.page {
-        case .switcher:
-            height = 170 + listHeight
-        case .move:
-            height = 180 + listHeight
-        case .create, .edit:
-            // Do not inherit the previous list page's height through its expanding spacer.
-            height = 400 + (isViewLoaded && !footer.isHidden ? 30 : 0)
-        case .delete:
-            height = 230
-        }
-        let statusHeight: CGFloat = model.error != nil || model.store.saveError != nil ? 36 :
-            model.notice != nil ? 24 : 0
-        return CGSize(width: 360, height: min(height + statusHeight, 560))
+        CGSize(width: 360, height: 500)
     }
 
     private var listHeight: CGFloat { min(330, 54 * CGFloat(max(1, model.filtered.count))) }
@@ -352,6 +341,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
             scroll.widthAnchor.constraint(equalTo: pageStack.widthAnchor).isActive = true
             footer.widthAnchor.constraint(equalTo: pageStack.widthAnchor).isActive = true
             let height = scroll.heightAnchor.constraint(equalToConstant: listHeight)
+            height.priority = .defaultLow
             height.isActive = true
             scrollHeightConstraint = height
         case .create, .edit:
@@ -471,14 +461,14 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
             equalToConstant: CGFloat(rows.count) * buttonSize + CGFloat(max(0, rows.count - 1)) * 5
         ).isActive = true
         for index in 0..<result.numberOfColumns {
-            result.column(at: index).width = (340 - CGFloat(columns - 1) * 5) / CGFloat(columns)
+            result.column(at: index).width = (328 - CGFloat(columns - 1) * 5) / CGFloat(columns)
         }
         return result
     }
 
     private func makeSymbolButtons() -> [NSButton] {
         TerminalWorkspace.symbols.map { symbol in
-            let button = NSButton()
+            let button = WorkspaceChoiceButton()
             button.title = ""
             button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: symbol)
             button.imagePosition = .imageOnly
@@ -494,7 +484,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
 
     private func makeColorButtons() -> [NSButton] {
         TerminalWorkspace.colors.map { color in
-            let button = NSButton()
+            let button = WorkspaceChoiceButton()
             button.title = ""
             button.isBordered = false
             button.imagePosition = .imageOnly
@@ -506,7 +496,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
             button.setAccessibilityLabel(color)
             button.wantsLayer = true
             button.layer?.cornerRadius = 15
-            button.layer?.backgroundColor = nsColor(for: color).cgColor
+            button.swatch = nsColor(for: color)
             return button
         }
     }
@@ -717,7 +707,37 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
 }
 
 @MainActor
-private final class TerminalWorkspaceTableView: NSTableView {
+final class TerminalWorkspaceTableView: NSTableView {
+    private var hoverTracking: NSTrackingArea?
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        hoverTracking = area
+        addTrackingArea(area)
+        refreshHover()
+    }
+    override func mouseMoved(with event: NSEvent) { refreshHover() }
+    override func mouseEntered(with event: NSEvent) { refreshHover() }
+    override func mouseExited(with event: NSEvent) { setHoveredRow(-1) }
+    override func layout() { super.layout(); refreshHover() }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: nil)
+        enclosingScrollView?.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(refreshHover), name: NSView.boundsDidChangeNotification,
+                                               object: enclosingScrollView?.contentView)
+    }
+    @objc private func refreshHover() {
+        guard let window, window.isKeyWindow else { setHoveredRow(-1); return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        setHoveredRow(visibleRect.contains(point) ? row(at: point) : -1)
+    }
+    func setHoveredRow(_ index: Int) {
+        enumerateAvailableRowViews { row, rowIndex in
+            (row as? TerminalWorkspaceSelectionRow)?.isHovered = rowIndex == index
+        }
+    }
     var onEscape: (() -> Void)?
     var onMove: ((Int) -> Void)?
     var onActivate: (() -> Void)?
@@ -734,21 +754,9 @@ private final class TerminalWorkspaceTableView: NSTableView {
 }
 
 final class TerminalWorkspaceSelectionRow: NSTableRowView {
-    private var hoverTracking: NSTrackingArea?
-    private(set) var isHovered = false
+    var isHovered = false { didSet { if oldValue != isHovered { needsDisplay = true } } }
+    override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); isHovered = false }
     override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTracking { removeTrackingArea(hoverTracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-                                  owner: self)
-        hoverTracking = area
-        addTrackingArea(area)
-    }
-
-    override func mouseEntered(with event: NSEvent) { isHovered = true; needsDisplay = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false; needsDisplay = true }
 
     override func drawBackground(in dirtyRect: NSRect) {
         super.drawBackground(in: dirtyRect)
@@ -903,4 +911,35 @@ private final class TerminalWorkspaceRowCell: NSTableCellView, OMGNativeThemeApp
     @objc private func openRow() { open?() }
     @objc private func editRow() { edit?() }
     @objc private func deleteRow() { delete?() }
+}
+
+/// Native button interaction with explicit selection and an unstretched circular swatch.
+private final class WorkspaceChoiceButton: NativeActionControl {
+    var swatch: NSColor?
+    override var state: NSControl.StateValue {
+        didSet { setPresentationActive(swatch == nil && state == .on); needsDisplay = true }
+    }
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        controlStyle = .bordered
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func draw(_ dirtyRect: NSRect) {
+        if let swatch {
+            let circle = NSRect(x: bounds.midX - 11, y: bounds.midY - 11, width: 22, height: 22)
+            swatch.setFill()
+            NSBezierPath(ovalIn: circle).fill()
+            if state == .on || isHovered {
+                (state == .on ? theme.foreground : theme.secondary).setStroke()
+                let ring = NSBezierPath(ovalIn: circle.insetBy(dx: -3, dy: -3))
+                ring.lineWidth = state == .on ? 2 : 1
+                ring.stroke()
+            }
+        } else {
+            super.draw(dirtyRect)
+        }
+    }
+    override var effectiveFill: NSColor {
+        state == .on ? theme.selectedFill : super.effectiveFill
+    }
 }

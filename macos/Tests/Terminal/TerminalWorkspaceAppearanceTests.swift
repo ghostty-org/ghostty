@@ -32,11 +32,21 @@ struct TerminalWorkspaceAppearanceTests {
             #expect(delete.title.isEmpty && edit.title.isEmpty)
             let row = try #require(table.rowView(atRow: index, makeIfNecessary: true) as? TerminalWorkspaceSelectionRow)
             let selected = fixture.model.selectedID
-            row.mouseEntered(with: NSEvent())
+            row.isHovered = true
             #expect(row.isHovered)
             #expect(fixture.model.selectedID == selected)
-            row.mouseExited(with: NSEvent())
+            row.isHovered = false
             #expect(!row.isHovered)
+        }
+        let nativeTable = try #require(table as? TerminalWorkspaceTableView)
+        let selected = fixture.model.selectedID
+        for hovered in [0, 1, 2, -1] {
+            nativeTable.setHoveredRow(hovered)
+            for index in 0..<table.numberOfRows {
+                let row = try #require(table.rowView(atRow: index, makeIfNecessary: true) as? TerminalWorkspaceSelectionRow)
+                #expect(row.isHovered == (index == hovered))
+            }
+            #expect(fixture.model.selectedID == selected)
         }
         let move = try #require(find(NativeActionControl.self, in: picker.view).first {
             $0.accessibilityIdentifier() == "workspace.move"
@@ -71,6 +81,7 @@ struct TerminalWorkspaceAppearanceTests {
             if editing { fixture.model.beginEdit(fixture.controller.workspaceID) } else { fixture.model.beginCreate() }
             try await Task.sleep(for: .milliseconds(50))
             window.setContentSize(picker.fittingSize(proposedWidth: nil))
+            #expect(picker.fittingSize(proposedWidth: nil) == NSSize(width: 360, height: 500))
             picker.view.layoutSubtreeIfNeeded()
             let buttons = find(NSButton.self, in: picker.view)
             let back = try #require(buttons.first { $0.accessibilityIdentifier() == "workspace.back" })
@@ -78,9 +89,15 @@ struct TerminalWorkspaceAppearanceTests {
             #expect(back.bounds.width == 28)
             let save = try #require(buttons.first { $0.accessibilityIdentifier() == "workspace.save" })
             let rect = save.convert(save.bounds, to: picker.view)
-            #expect(abs(rect.minY - 8) < 2)
-            #expect(abs(rect.maxX - (picker.view.bounds.maxX - 10)) < 2)
+            #expect(abs(rect.minY - 14) < 2)
+            #expect(abs(rect.maxX - (picker.view.bounds.maxX - 16)) < 2)
             #expect(find(OMGNativeTextField.self, in: picker.view).count == 1)
+            let symbols = buttons.filter { $0.identifier?.rawValue.hasPrefix("symbol.") == true }
+            #expect(symbols.count == 40)
+            #expect(symbols.filter { $0.state == .on }.count == 1)
+            #expect(symbols.allSatisfy { $0 is NativeActionControl })
+            let selectedSymbol = try #require(symbols.first { $0.state == .on } as? NativeActionControl)
+            #expect(selectedSymbol.isMenuOpen)
             let surface = try #require(picker.view as? OMGNativeSurfaceView)
             for (name, theme) in [
                 ("dark", OMGNativeTheme(background: NSColor(srgbRed: 0.12, green: 0.12, blue: 0.19, alpha: 1),

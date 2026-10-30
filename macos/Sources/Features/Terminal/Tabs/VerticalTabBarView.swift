@@ -1567,51 +1567,20 @@ private struct VerticalTabInsertionIndicator: View {
 private struct TabOrganizationMenu: View {
     @ObservedObject var controller: TerminalController
     @ObservedObject var layoutState: VerticalTabWindowLayoutState
-    @State private var hovered = false
-
     var body: some View {
-        Menu {
-            Section("GROUP") {
-                ForEach(GhosttyTabGroupingMode.allCases, id: \.self) { mode in
-                    Button {
-                        controller.setTabGroupingMode(mode)
-                    } label: {
-                        menuLabel(mode.title, selected: layoutState.groupingMode == mode)
-                    }
-                }
-            }
-            Section("ORDER") {
-                ForEach(GhosttyTabOrderingMode.allCases, id: \.self) { mode in
-                    Button {
-                        controller.setTabOrderingMode(mode)
-                    } label: {
-                        menuLabel(mode.title, selected: layoutState.orderingMode == mode)
-                    }
-                }
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-                .frame(width: 16, height: 16)
-                .frame(width: 24, height: 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.primary.opacity(hovered ? 0.07 : 0))
-                )
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .onHover { hovered = $0 }
-        .help("Organize Tabs")
-        .accessibilityLabel("Organize Tabs")
+        NativeOptionsButton(title: "", symbol: "ellipsis", help: "Organize Tabs", entries: entries)
+            .frame(width: 24, height: 24)
     }
 
-    @ViewBuilder
-    private func menuLabel(_ title: String, selected: Bool) -> some View {
-        if selected {
-            Label(title, systemImage: "checkmark")
-        } else {
-            Text(title)
+    private var entries: [NativeMenuEntry] {
+        [.action("GROUP", enabled: false) {}] + GhosttyTabGroupingMode.allCases.map { mode in
+            .action(mode.title, checked: layoutState.groupingMode == mode) {
+                controller.setTabGroupingMode(mode)
+            }
+        } + [.separator, .action("ORDER", enabled: false) {}] + GhosttyTabOrderingMode.allCases.map { mode in
+            .action(mode.title, checked: layoutState.orderingMode == mode) {
+                controller.setTabOrderingMode(mode)
+            }
         }
     }
 }

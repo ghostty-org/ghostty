@@ -15,6 +15,8 @@ struct TerminalWorkspace: Codable, Equatable, Identifiable {
         "sparkles", "star", "heart", "book", "graduationcap", "globe",
         "airplane", "leaf", "cup.and.saucer", "gamecontroller", "music.note", "camera",
         "paintbrush", "lightbulb", "bolt", "server.rack", "cloud", "shippingbox",
+        "ladybug", "cpu", "network", "externaldrive", "lock.shield", "wrench.and.screwdriver", "flask", "chart.bar",
+        "doc.text", "pencil.and.outline", "film", "headphones", "mountain.2", "sun.max", "moon", "pawprint",
     ]
     static let colors = ["accent", "sage", "green", "mint", "teal", "blue", "indigo", "purple", "rose", "red", "orange", "amber", "gray"]
     static let initial = TerminalWorkspace(id: defaultID, name: "Personal", symbol: "house", color: "accent")

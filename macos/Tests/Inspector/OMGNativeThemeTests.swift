@@ -4,6 +4,67 @@ import Testing
 
 @MainActor
 struct OMGNativeThemeTests {
+    @Test func nativeChoicePopupUsesSharedSurfaceAndPreservesSelectionContract() throws {
+        let picker = OMGNativePopUpButton(frame: .init(x: 20, y: 100, width: 260, height: 28))
+        picker.addItems(withTitles: ["New branch", "Detached HEAD"])
+        picker.selectItem(at: 0)
+        let window = NSWindow(contentRect: .init(x: 200, y: 200, width: 320, height: 220),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(picker)
+        window.orderFront(nil)
+        defer { picker.options?.close(); window.close() }
+        picker.performClick(nil)
+        let popup = try #require(picker.options)
+        #expect(popup.isShown)
+        let controller = try #require(popup.contentViewController as? NativeActionPopoverController)
+        func buttons(in view: NSView) -> [NativeActionControl] {
+            (view as? NativeActionControl).map { [$0] } ?? view.subviews.flatMap { buttons(in: $0) }
+        }
+        let options = buttons(in: controller.view)
+        #expect(options.count == 2)
+        #expect(controller.view is OMGNativeSurfaceView)
+        options[1].performClick(nil)
+        #expect(picker.indexOfSelectedItem == 1)
+        #expect(!popup.isShown)
+        picker.isEnabled = false
+        #expect(!picker.accessibilityPerformPress())
+        #expect(!popup.isShown)
+    }
+
+    @Test func auxiliarySurfaceTracksOpacityAndBlurWithoutDimmingControls() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try "background = 123456\nforeground = abcdef\nbackground-opacity = 0.65\nbackground-blur = 20\n"
+            .write(to: file, atomically: true, encoding: .utf8)
+        let theme = OMGNativeTheme.resolve(for: nil, config: Ghostty.Config(at: file.path))
+        #expect(abs(theme.opacity - 0.65) < 0.001)
+        #expect(theme.blur == .radius(20))
+        let controller = NSViewController()
+        let surface = OMGNativeSurfaceView(frame: .init(x: 0, y: 0, width: 300, height: 150))
+        controller.view = surface
+        let window = NSWindow(contentRect: surface.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller
+        defer { window.contentViewController = nil; window.close() }
+        let button = NativeActionControl(frame: .init(x: 20, y: 20, width: 80, height: 28))
+        button.title = "Action"
+        surface.addSubview(button)
+        surface.applyTheme(theme)
+        surface.updateLayer()
+        #expect(button.alphaValue == 1)
+        #expect(button.theme.foreground.alphaComponent == 1)
+        #expect(abs(Double(surface.layer?.backgroundColor?.alpha ?? 0) - surface.effectiveOpacity) < 0.001)
+        #expect(window.isOpaque == (surface.effectiveOpacity == 1))
+        var opaque = theme
+        opaque.opacity = 1
+        opaque.blur = .disabled
+        surface.applyTheme(opaque)
+        surface.updateLayer()
+        #expect(window.isOpaque)
+        #expect(surface.layer?.backgroundColor?.alpha == 1)
+    }
+
     @Test func attachedNativeControlsFollowTwoDarkThemesAndOneLightThemeWithoutRemounting() throws {
         let surface = OMGNativeSurfaceView(frame: NSRect(x: 0, y: 0, width: 360, height: 120))
         let button = NativeActionControl(frame: NSRect(x: 10, y: 10, width: 120, height: 28))

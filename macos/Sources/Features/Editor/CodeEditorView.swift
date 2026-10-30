@@ -24,6 +24,7 @@ struct CodeEditorView: View {
     var terminalBackgroundOpacity: Double = 1.0
     var terminalForeground: NSColor = .textColor
     var terminalTheme: EditorTheme?
+    var wordWrapOverride: Bool?
     var onFocus: () -> Void = {}
     var onSave: () -> Void = {}
     var onClose: () -> Void = {}
@@ -59,6 +60,7 @@ struct CodeEditorView: View {
         terminalBackgroundOpacity: Double = 1.0,
         terminalForeground: NSColor = .textColor,
         terminalTheme: EditorTheme? = nil,
+        wordWrapOverride: Bool? = nil,
         onFocus: @escaping () -> Void = {},
         onSave: @escaping () -> Void = {},
         onClose: @escaping () -> Void = {},
@@ -80,6 +82,7 @@ struct CodeEditorView: View {
         self.terminalBackgroundOpacity = terminalBackgroundOpacity
         self.terminalForeground = terminalForeground
         self.terminalTheme = terminalTheme
+        self.wordWrapOverride = wordWrapOverride
         self.onFocus = onFocus
         self.onSave = onSave
         self.onClose = onClose
@@ -306,7 +309,7 @@ struct CodeEditorView: View {
                 font: resolvedFont,
                 lineHeightMultiple: 1.2,
                 letterSpacing: 1.0,
-                wrapLines: editorSettings.wordWrap,
+                wrapLines: wordWrapOverride ?? editorSettings.wordWrap,
                 useSystemCursor: true,
                 tabWidth: editorSettings.tabWidth,
                 bracketPairEmphasis: .flash

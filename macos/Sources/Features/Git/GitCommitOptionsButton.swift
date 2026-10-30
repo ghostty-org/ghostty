@@ -29,7 +29,7 @@ final class GitCommitOptionsControl: NativeActionControl, NSPopoverDelegate {
     private weak var previousResponder: NSResponder?
     private var restoreFocus = false
     var isExpanded: Bool { popover.isShown }
-    var optionsController: GitCommitOptionsController? { popover.contentViewController as? GitCommitOptionsController }
+    var optionsController: NativeActionPopoverController? { popover.contentViewController as? NativeActionPopoverController }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -87,7 +87,7 @@ final class GitCommitOptionsControl: NativeActionControl, NSPopoverDelegate {
         if isExpanded { close(restoringFocus: true); return }
         guard isEnabled, let window, !isHiddenOrHasHiddenAncestor else { return }
         previousResponder = window.firstResponder
-        let controller = GitCommitOptionsController(entries: entries)
+        let controller = NativeActionPopoverController(entries: entries)
         controller.onCancel = { [weak self] in self?.close(restoringFocus: true) }
         controller.onSelect = { [weak self] index in self?.select(index) }
         controller.surface.bindTheme(to: window)
@@ -146,106 +146,5 @@ final class GitCommitOptionsControl: NativeActionControl, NSPopoverDelegate {
             animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             chevron.add(animation, forKey: "disclosure")
         }
-    }
-}
-
-final class GitCommitOptionsController: NSViewController {
-    let surface = OMGNativeSurfaceView()
-    private let stack = NSStackView()
-    private var buttons: [(index: Int, button: GitCommitOptionControl)] = []
-    var onSelect: ((Int) -> Void)?
-    var onCancel: (() -> Void)?
-
-    init(entries: [NativeMenuEntry]) {
-        super.init(nibName: nil, bundle: nil)
-        _ = view
-        update(entries)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func loadView() {
-        view = surface
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 3
-        stack.distribution = .fill
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        surface.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 7),
-            stack.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -7),
-            stack.topAnchor.constraint(equalTo: surface.topAnchor, constant: 7),
-            stack.bottomAnchor.constraint(equalTo: surface.bottomAnchor, constant: -7),
-        ])
-        surface.setAccessibilityIdentifier("git.commit.options.popup")
-    }
-
-    func update(_ entries: [NativeMenuEntry]) {
-        // Keep existing controls and keyboard focus alive while status/draft updates arrive.
-        let indices = entries.indices.filter { if case .action = entries[$0] { return true }; return false }
-        if buttons.map(\.index) != indices {
-            stack.arrangedSubviews.forEach { stack.removeArrangedSubview($0); $0.removeFromSuperview() }
-            buttons = []
-            for (index, entry) in entries.enumerated() {
-                if case .separator = entry {
-                    let line = NSBox()
-                    line.boxType = .separator
-                    stack.addArrangedSubview(line)
-                    line.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-                } else if case .action = entry {
-                    let button = GitCommitOptionControl()
-                    button.alignment = .left
-                    button.onPress = { [weak self] in self?.onSelect?(index) }
-                    button.onNavigation = { [weak self] event in self?.navigate(event) ?? false }
-                    stack.addArrangedSubview(button)
-                    NSLayoutConstraint.activate([
-                        button.widthAnchor.constraint(equalTo: stack.widthAnchor),
-                        button.heightAnchor.constraint(equalToConstant: 29),
-                    ])
-                    buttons.append((index, button))
-                }
-            }
-        }
-        for (index, button) in buttons {
-            guard case let .action(title, symbol, enabled, _, _) = entries[index] else { continue }
-            button.configure(title: title, symbol: symbol, help: nil, enabled: enabled,
-                             style: .plain, identifier: "git.commit.option.\(index)")
-            button.applyTheme(surface.theme)
-        }
-        let width = max(220, (buttons.map { $0.button.intrinsicContentSize.width }.max() ?? 0) + 14)
-        preferredContentSize = NSSize(width: width, height: CGFloat(buttons.count) * 29 +
-                                     CGFloat(stack.arrangedSubviews.count - buttons.count) +
-                                     CGFloat(max(0, stack.arrangedSubviews.count - 1)) * 3 + 14)
-        if let focused = view.window?.firstResponder as? GitCommitOptionControl, !focused.isEnabled {
-            focusFirstOption()
-        }
-    }
-
-    func focusFirstOption() {
-        if let button = buttons.first(where: { $0.button.isEnabled })?.button {
-            view.window?.makeFirstResponder(button)
-        }
-    }
-
-    private func navigate(_ event: NSEvent) -> Bool {
-        if event.keyCode == 53 { onCancel?(); return true }
-        guard event.keyCode == 125 || event.keyCode == 126 else { return false }
-        let enabled = buttons.map(\.button).filter(\.isEnabled)
-        guard !enabled.isEmpty else { return true }
-        let current = enabled.firstIndex { $0 === view.window?.firstResponder } ?? 0
-        let next = (current + (event.keyCode == 125 ? 1 : enabled.count - 1)) % enabled.count
-        view.window?.makeFirstResponder(enabled[next])
-        return true
-    }
-}
-
-private final class GitCommitOptionControl: NativeActionControl {
-    var onNavigation: ((NSEvent) -> Bool)?
-
-    override func keyDown(with event: NSEvent) {
-        if onNavigation?(event) == true { return }
-        if event.keyCode == 36 || event.keyCode == 76 { performClick(nil); return }
-        super.keyDown(with: event)
     }
 }

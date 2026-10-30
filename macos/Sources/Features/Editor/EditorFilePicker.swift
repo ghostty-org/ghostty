@@ -40,11 +40,13 @@ final class EditorFilePicker: NSWindowController {
         )
         panel.title = "Open File — \(filesystem.descriptor.displayName)"
         super.init(window: panel)
-        panel.contentViewController = EditorFilePickerController(
+        let content = EditorFilePickerController(
                 model: model,
                 onCancel: { [weak self] in self?.finish() },
                 onOpen: { [weak self] path in self?.finish(opening: path) }
         )
+        panel.contentViewController = content
+        (content.view as? OMGNativeSurfaceView)?.bindTheme(to: parentWindow)
     }
 
     @available(*, unavailable)
@@ -177,14 +179,14 @@ final class EditorFilePickerController: NSViewController, NSTableViewDataSource,
     private let model: EditorFilePickerModel
     let onCancel: () -> Void
     let onOpen: (String) -> Void
-    let pathField = NSTextField()
+    let pathField = OMGNativeTextField()
     let tableView = NSTableView()
     private let scrollView = NSScrollView()
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
     private let spinner = NSProgressIndicator()
-    private let goUpButton = NSButton()
-    private let retryButton = NSButton(title: "Retry", target: nil, action: nil)
-    private let openButton = NSButton(title: "Open", target: nil, action: nil)
+    private let goUpButton = NativeActionControl()
+    private let retryButton = NativeActionControl()
+    private let openButton = NativeActionControl()
     private var cancellables = Set<AnyCancellable>()
     private var isSynchronizingSelection = false
     private var renderedEntries: [WorkspaceFileEntry] = []
@@ -201,7 +203,7 @@ final class EditorFilePickerController: NSViewController, NSTableViewDataSource,
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func loadView() {
-        let root = NSView()
+        let root = OMGNativeSurfaceView()
         root.translatesAutoresizingMaskIntoConstraints = false
         root.setFrameSize(NSSize(width: 640, height: 460))
         view = root
@@ -210,6 +212,11 @@ final class EditorFilePickerController: NSViewController, NSTableViewDataSource,
         pathBar.orientation = .horizontal
         pathBar.spacing = 8
         pathBar.translatesAutoresizingMaskIntoConstraints = false
+        goUpButton.title = ""
+        retryButton.title = "Retry"
+        retryButton.controlStyle = .bordered
+        openButton.title = "Open"
+        openButton.controlStyle = .prominent
         goUpButton.image = NSImage(systemSymbolName: "chevron.up", accessibilityDescription: "Parent Directory")
         goUpButton.bezelStyle = .toolbar
         goUpButton.target = self
@@ -233,7 +240,9 @@ final class EditorFilePickerController: NSViewController, NSTableViewDataSource,
         tableView.headerView = nil
         tableView.rowHeight = 24
         tableView.intercellSpacing = .zero
-        tableView.usesAlternatingRowBackgroundColors = true
+        tableView.usesAlternatingRowBackgroundColors = false
+        tableView.backgroundColor = .clear
+        scrollView.drawsBackground = false
         tableView.dataSource = self
         tableView.delegate = self
         tableView.target = self
@@ -253,7 +262,11 @@ final class EditorFilePickerController: NSViewController, NSTableViewDataSource,
         retryButton.action = #selector(retry)
         retryButton.isHidden = true
 
-        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancel))
+        let cancelButton = NativeActionControl()
+        cancelButton.title = "Cancel"
+        cancelButton.target = self
+        cancelButton.action = #selector(cancel)
+        cancelButton.controlStyle = .bordered
         cancelButton.keyEquivalent = "\u{1b}"
         cancelButton.keyEquivalentModifierMask = []
         cancelButton.bezelStyle = .rounded

@@ -121,7 +121,7 @@ final class TerminalWorkspaceHeaderButton: NativeActionControl {
         symbolView.image = NSImage(systemSymbolName: state.symbol, accessibilityDescription: nil)
         symbolView.contentTintColor = state.tint
         attentionView.isHidden = !state.needsAttention
-        setPresentationActive(state.isPresented)
+        setPresentationActive(false)
         let base = WorkspaceL10n.text("Switch workspace", "切换工作区")
         toolTip = state.shortcut.isEmpty ? base : "\(base) · \(state.shortcut)"
         setAccessibilityLabel(WorkspaceL10n.text("Workspace: ", "工作区：") + state.name)

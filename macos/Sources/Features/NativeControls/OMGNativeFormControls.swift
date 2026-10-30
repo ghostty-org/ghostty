@@ -53,6 +53,7 @@ final class OMGNativePopUpButton: NSPopUpButton, OMGNativeThemeApplying {
     private(set) var theme = OMGNativeTheme(background: .windowBackgroundColor, foreground: .labelColor)
     private var hovered = false
     private var tracking: NSTrackingArea?
+    private(set) var options: NSPopover?
     override var isFlipped: Bool { true }
     override var alignmentRectInsets: NSEdgeInsets { .init(top: 0, left: 0, bottom: 0, right: 0) }
 
@@ -60,7 +61,44 @@ final class OMGNativePopUpButton: NSPopUpButton, OMGNativeThemeApplying {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window == nil { options?.close(); options = nil }
         applyTheme(.resolve(for: self))
+    }
+
+    override func mouseDown(with event: NSEvent) { showOptions() }
+    override func performClick(_ sender: Any?) { showOptions() }
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        showOptions()
+        return true
+    }
+    override func keyDown(with event: NSEvent) {
+        if [36, 49, 125, 126].contains(event.keyCode) { showOptions() } else { super.keyDown(with: event) }
+    }
+    private func showOptions() {
+        guard isEnabled, let window else { return }
+        if options?.isShown == true { options?.close(); return }
+        let entries: [NativeMenuEntry] = itemArray.enumerated().map { index, item in
+            .action(item.title, enabled: item.isEnabled, checked: index == indexOfSelectedItem) {}
+        }
+        let controller = NativeActionPopoverController(entries: entries)
+        let popup = NSPopover()
+        popup.behavior = .transient
+        popup.animates = false
+        controller.surface.bindTheme(to: window)
+        controller.onCancel = { [weak popup] in popup?.close() }
+        controller.onSelect = { [weak self, weak popup] index in
+            guard let self, self.isEnabled, self.itemArray.indices.contains(index), self.itemArray[index].isEnabled else { return }
+            popup?.close()
+            self.selectItem(at: index)
+            self.needsDisplay = true
+            if let action = self.action { self.sendAction(action, to: self.target) }
+        }
+        popup.contentViewController = controller
+        popup.contentSize = controller.preferredContentSize
+        options = popup
+        popup.show(relativeTo: bounds, of: self, preferredEdge: .maxY)
+        controller.focusFirstOption()
     }
 
     override func updateTrackingAreas() {

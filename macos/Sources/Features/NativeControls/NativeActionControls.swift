@@ -151,6 +151,13 @@ class NativeActionControl: NSButton, NSMenuDelegate {
                                   owner: self)
         tracking = area
         addTrackingArea(area)
+        if let window {
+            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            isHovered = window.isKeyWindow && visibleRect.contains(point)
+        } else {
+            isHovered = false
+        }
+        needsDisplay = true
     }
 
     override func mouseEntered(with event: NSEvent) { isHovered = true; needsDisplay = true }

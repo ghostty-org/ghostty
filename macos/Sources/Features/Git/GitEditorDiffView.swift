@@ -77,7 +77,7 @@ struct GitEditorDiffView: View {
                 toolbarButton("arrow.down", help: GitL10n.text("Next change"), disabled: changeAnchors.isEmpty) {
                     selectChange(.next)
                 }
-                Spacer()
+                HStack(spacing: 4) {
                 Text(model.selected?.displayPath ?? GitL10n.text("Select file"))
                     .font(.system(size: 11))
                     .lineLimit(1)
@@ -90,13 +90,10 @@ struct GitEditorDiffView: View {
                     Text("+\(presentation.rows.filter { $0.added == true }.count)")
                         .foregroundStyle(Color(colors.added)).font(.system(size: 11).monospacedDigit()).fixedSize()
                 }
-                Spacer()
-                GitDiffReviewSwitcher(review: review) { next in
-                    clearHint()
-                    review = next
                 }
-                .frame(width: 132, height: 26)
-                if mode == GitL10n.text("Side by Side") {
+                // Reserve both toolbar clusters, so mode changes never displace the file summary.
+                .frame(width: max(160, toolbarGeometry.size.width - 620))
+                Group {
                     toolbarButton("link",
                                   help: linkedScrolling ? GitL10n.text("Disable linked scrolling") : GitL10n.text("Enable linked scrolling"),
                                   selected: linkedScrolling,
@@ -104,8 +101,16 @@ struct GitEditorDiffView: View {
                         clearHint()
                         linkedScrolling.toggle()
                     }
+                    .opacity(mode == GitL10n.text("Side by Side") ? 1 : 0)
+                    .allowsHitTesting(mode == GitL10n.text("Side by Side"))
+                    .accessibilityHidden(mode != GitL10n.text("Side by Side"))
                 }
-                if review {
+                GitDiffReviewSwitcher(review: review) { next in
+                    clearHint()
+                    review = next
+                }
+                .frame(width: 132, height: 26)
+                Group {
                     toolbarButton("arrow.turn.down.left", help: GitL10n.text("Wrap diff lines"), selected: wordWrap) {
                         wordWrap.toggle()
                     }
@@ -161,7 +166,7 @@ struct GitEditorDiffView: View {
                     } else {
                         GitDiffLinkedEditor(text: presentation.text, path: document.file.path,
                                             highlights: presentation.highlights, isActive: isActive,
-                                            theme: theme, link: scroll, side: 2, actions: actions, close: close)
+                                            theme: theme, wordWrap: wordWrap, link: scroll, side: 2, actions: actions, close: close)
                             .id("inline-\(model.selected?.id ?? "")")
                     }
                 }
@@ -353,7 +358,7 @@ struct GitEditorDiffView: View {
                 .background(toolbarSurface)
                 .overlay(alignment: .bottom) { Divider() }
             GitDiffLinkedEditor(text: text, path: path, highlights: highlights,
-                                isActive: isActive, theme: theme, link: scroll, side: side, actions: actions, close: close)
+                                isActive: isActive, theme: theme, wordWrap: wordWrap, link: scroll, side: side, actions: actions, close: close)
                 .id("\(model.selected?.id ?? "")-\(side)")
         }.frame(minWidth: 120)
     }

@@ -21,7 +21,7 @@ struct GitCommitOptionsTests {
             .separator,
             .action("Amend Last Commit", symbol: "arrow.uturn.backward") {},
         ]
-        let controller = GitCommitOptionsController(entries: entries)
+        let controller = NativeActionPopoverController(entries: entries)
         let window = NSWindow(contentRect: .init(origin: .zero, size: controller.preferredContentSize),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
