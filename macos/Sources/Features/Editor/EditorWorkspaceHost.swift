@@ -43,25 +43,22 @@ struct EditorWorkspaceHost<Terminal: View>: View {
     }
 
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
+        NativeEditorContentDeck(items: [
+            .init(id: .terminal, content: AnyView(VStack(spacing: 0) {
                 SessionRuntimeRecoveryBanner(controller: controller, surface: surfaceView)
                 SSHRecoveryBanner(controller: controller, surface: surfaceView)
                 terminal
-            }
-                .opacity(workspace.isVisible ? 0 : 1)
-                .allowsHitTesting(!workspace.isVisible)
-                .accessibilityHidden(workspace.isVisible)
-            if !workspace.documents.isEmpty || !workspace.gitDiffs.isEmpty || workspace.isVisible {
-                EditorVisibilityHost(isVisible: workspace.isVisible) {
-                    editor
-                        .accessibilityHidden(!workspace.isVisible)
-                        .simultaneousGesture(TapGesture().onEnded {
-                            if controller.focusedSurface !== surfaceView {
-                                controller.focusedSurface = surfaceView
-                            }
-                        })
-                }
+            })),
+            .init(id: .workspace, content: AnyView(editor
+                .simultaneousGesture(TapGesture().onEnded {
+                    if controller.focusedSurface !== surfaceView {
+                        controller.focusedSurface = surfaceView
+                    }
+                })))
+        ], selectedID: workspace.isVisible ? .workspace : .terminal) { selected in
+            if selected == .terminal, controller.focusedSurface === surfaceView,
+               surfaceView.window?.isKeyWindow == true {
+                Ghostty.moveFocus(to: surfaceView)
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -79,8 +76,6 @@ struct EditorWorkspaceHost<Terminal: View>: View {
                 if controller.focusedSurface !== surfaceView {
                     controller.focusedSurface = surfaceView
                 }
-            } else if controller.focusedSurface === surfaceView, controller.window?.isVisible == true {
-                controller.focusSurface(surfaceView)
             }
         }
     }
@@ -150,73 +145,76 @@ struct EditorWorkspaceHost<Terminal: View>: View {
             if workspace.isLoading {
                 ProgressView("Opening file…").padding(8)
             }
-            ZStack {
-                // Every open document keeps its native editor while another
-                // document or a diff is selected, preserving undo and view state.
-                if !workspace.documents.isEmpty {
-                    ForEach(workspace.documents, id: \.id) { document in
-                        let selected = workspace.gitDiff == nil && workspace.selectedID == document.id
-                        EditorDocumentView(
-                            document: document,
-                            isActive: selected && workspace.isVisible,
-                            isSurfaceFocused: {
-                                (controller.focusedSurface ?? controller.surfaceTree.first) === surfaceView
-                            },
-                            terminalBackground: appearanceTheme.background,
-                            terminalBackgroundOpacity: appearanceOpacity,
-                            terminalTheme: appearanceTheme,
-                            onFocus: {
-                                if controller.focusedSurface !== surfaceView {
-                                    controller.focusedSurface = surfaceView
-                                }
-                            },
-                            save: { Task { await workspace.save(document) } },
-                            close: { close(document) },
-                            open: openFile,
-                            nextDocument: { workspace.selectAdjacentDocument(offset: 1) },
-                            previousDocument: { workspace.selectAdjacentDocument(offset: -1) },
-                            saveAll: { Task { await workspace.saveAll() } },
-                            onHide: { workspace.isVisible = false }
-                        )
-                        .opacity(selected ? 1 : 0)
-                        .allowsHitTesting(selected)
-                        .accessibilityHidden(!selected)
-                    }
-                }
-                ForEach(workspace.gitDiffs) { request in
-                    let selected = workspace.gitDiff?.id == request.id
-                    GitEditorDiffView(request: request, theme: appearanceTheme, isActive: selected && workspace.isVisible,
-                        actions: GitDiffEditorActions(
-                            openFile: { file, directory in openGitFile(file, repository: request.repository, directory: directory) },
-                            hide: { workspace.isVisible = false },
-                            open: openFile,
-                            nextDocument: { workspace.selectAdjacentDocument(offset: 1) },
-                            previousDocument: { workspace.selectAdjacentDocument(offset: -1) },
-                            saveAll: { Task { await workspace.saveAll() } },
-                            focus: { controller.focusedSurface = surfaceView },
-                            isSurfaceFocused: { (controller.focusedSurface ?? controller.surfaceTree.first) === surfaceView }
-                        )) {
-                        workspace.closeGitDiff(request)
-                    }.id(request.id)
-                        .opacity(selected ? 1 : 0)
-                        .allowsHitTesting(selected)
-                        .accessibilityHidden(!selected)
-                }
-                if workspace.gitDiffs.isEmpty && workspace.documents.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "doc.text").font(.largeTitle)
-                        Text("Open a file from Files or choose Open File.")
-                        Button("Open File", action: openFile)
-                    }
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
+            NativeEditorContentDeck(items: documentItems, selectedID: selectedContentID)
         }
         .background(EditorBackdrop(color: appearanceTheme.background, opacity: appearanceOpacity, blur: appearanceBlur,
                                    usesWindowBlur: settings.editorSettings.followsOMG))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Code Editor")
+    }
+
+    private var selectedContentID: EditorContentKey {
+        if let request = workspace.gitDiff { return .diff(request.id) }
+        if let id = workspace.selectedID { return .document(id) }
+        return .empty
+    }
+
+    private var documentItems: [EditorContentItem] {
+        var items = workspace.documents.map { document in
+            let selected = workspace.gitDiff == nil && workspace.selectedID == document.id
+            return EditorContentItem(id: .document(document.id), content: AnyView(
+                EditorDocumentView(
+                    document: document,
+                    isActive: selected && workspace.isVisible,
+                    isSurfaceFocused: {
+                        (controller.focusedSurface ?? controller.surfaceTree.first) === surfaceView
+                    },
+                    terminalBackground: appearanceTheme.background,
+                    terminalBackgroundOpacity: appearanceOpacity,
+                    terminalTheme: appearanceTheme,
+                    onFocus: {
+                        if controller.focusedSurface !== surfaceView {
+                            controller.focusedSurface = surfaceView
+                        }
+                    },
+                    save: { Task { await workspace.save(document) } },
+                    close: { close(document) },
+                    open: openFile,
+                    nextDocument: { workspace.selectAdjacentDocument(offset: 1) },
+                    previousDocument: { workspace.selectAdjacentDocument(offset: -1) },
+                    saveAll: { Task { await workspace.saveAll() } },
+                    onHide: { workspace.isVisible = false }
+                )
+            ))
+        }
+        items += workspace.gitDiffs.map { request in
+            let selected = workspace.gitDiff?.id == request.id
+            return EditorContentItem(id: .diff(request.id), content: AnyView(
+                GitEditorDiffView(request: request, theme: appearanceTheme, isActive: selected && workspace.isVisible,
+                    actions: GitDiffEditorActions(
+                        openFile: { file, directory in openGitFile(file, repository: request.repository, directory: directory) },
+                        hide: { workspace.isVisible = false },
+                        open: openFile,
+                        nextDocument: { workspace.selectAdjacentDocument(offset: 1) },
+                        previousDocument: { workspace.selectAdjacentDocument(offset: -1) },
+                        saveAll: { Task { await workspace.saveAll() } },
+                        focus: { controller.focusedSurface = surfaceView },
+                        isSurfaceFocused: { (controller.focusedSurface ?? controller.surfaceTree.first) === surfaceView }
+                    )) {
+                    workspace.closeGitDiff(request)
+                }
+            ))
+        }
+        if workspace.documents.isEmpty && workspace.gitDiffs.isEmpty {
+            items.append(.init(id: .empty, content: AnyView(VStack(spacing: 12) {
+                Image(systemName: "doc.text").font(.largeTitle)
+                Text("Open a file from Files or choose Open File.")
+                Button("Open File", action: openFile)
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity))))
+        }
+        return items
     }
 
     private func openGitFile(_ file: GitDiffFile, repository: GitRepositoryIdentity, directory: Bool) {
@@ -508,58 +506,5 @@ struct EditorBackdrop: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
     final class Coordinator {
         var blur: OhMyGhosttyBackgroundBlur?
-    }
-}
-
-/// Keeps the hidden editor's native hierarchy mounted (undo stacks, scroll
-/// positions and the markdown WebView survive hide/show) while marking its
-/// root NSView hidden. Opacity-only hiding left the views "visible" to
-/// AppKit, so WebKit kept foreground assertions and occlusion churn running
-/// and terminal scrolling stuttered. Same host model as `InspectorPaneDeck`.
-struct EditorVisibilityHost<Content: View>: NSViewControllerRepresentable {
-    let isVisible: Bool
-    let content: Content
-
-    init(isVisible: Bool, @ViewBuilder content: () -> Content) {
-        self.isVisible = isVisible
-        self.content = content()
-    }
-
-    final class Host: NSHostingController<Content> {
-        // The host owns its children exclusively; size them with the
-        // surrounding SwiftUI layout instead of AppKit constraints.
-        // NSHostingController re-enables self-sizing when the view enters a
-        // window (see unit test), so reassert after every layout pass.
-        override func viewDidLayout() {
-            super.viewDidLayout()
-            if #available(macOS 13.0, *), !sizingOptions.isEmpty {
-                sizingOptions = []
-            }
-        }
-    }
-
-    static func apply(isVisible: Bool, to host: Host) {
-        host.view.isHidden = !isVisible
-    }
-
-    func makeNSViewController(context: Context) -> Host {
-        let host = Host(rootView: content)
-        Self.apply(isVisible: isVisible, to: host)
-        return host
-    }
-
-    func updateNSViewController(_ host: Host, context: Context) {
-        host.rootView = content
-        Self.apply(isVisible: isVisible, to: host)
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsViewController host: Host, context: Context) -> CGSize? {
-        if #available(macOS 13.0, *) {
-            return host.sizeThatFits(in: CGSize(
-                width: proposal.width ?? NSView.noIntrinsicMetric,
-                height: proposal.height ?? NSView.noIntrinsicMetric
-            ))
-        }
-        return nil
     }
 }

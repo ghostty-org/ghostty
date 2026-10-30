@@ -498,6 +498,15 @@ in-tree provider
   -> RightInspectorHost (host rendering)
 ```
 
+`RightInspectorHost` is a thin adapter into the Core-owned
+`InspectorHostController`. The native controller coalesces model notifications,
+reads committed tab/pane context, and publishes presentation only while attached
+to a window and explicitly visible. Hiding or detaching stops presentation;
+visited content remains cached by tab and provider ID, and removed providers are
+evicted even while hidden. SwiftUI appearance callbacks do not own provider
+lifecycle. Providers still receive typed snapshots/actions and never receive
+`NSView`, `NSViewController`, or `NSWindow` references.
+
 `BuiltInFilesInspectorProvider` uses `.plugin("builtin.files")` to dogfood
 owner checks and typed content. It is still trusted application code, not an
 out-of-process plugin and not proof of public plugin loading.

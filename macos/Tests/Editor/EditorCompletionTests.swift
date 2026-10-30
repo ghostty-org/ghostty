@@ -56,9 +56,7 @@ struct EditorCompletionTests {
         let view = EditorTestSupport.editor(
             text: .constant(source), language: .python,
             coordinators: [coordinator, capture]
-        ).overlay(alignment: .topLeading) {
-            EditorCompletionOverlay(state: state, onCommit: coordinator.commit)
-        }
+        )
         let host = NSHostingController(rootView: view)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -116,6 +114,44 @@ struct EditorCompletionTests {
         for _ in 0..<100 { state.dismiss() }
         #expect(updates == settledUpdates)
         withExtendedLifetime(subscription) {}
+    }
+
+    @Test @MainActor func nativePresenterTracksCaretRowsAndSelectionWithoutTakingFocus() async throws {
+        let state = CompletionState()
+        state.update(
+            candidates: [
+                CompletionItem(label: "alpha", detail: "value"),
+                CompletionItem(label: "alpine", detail: "function")
+            ],
+            prefix: "al",
+            prefixRange: NSRange(location: 0, length: 2),
+            at: CGPoint(x: 72, y: 130)
+        )
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        let window = NSWindow(contentRect: scroll.frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scroll
+        defer { window.contentView = nil; window.close() }
+        let presenter = EditorCompletionPresenter(state: state) { _ in }
+        presenter.attach(to: scroll)
+        #expect(presenter.isMounted)
+        #expect(presenter.isVisible)
+        #expect(presenter.rowCount == 2)
+        #expect(presenter.popupFrame.origin == CGPoint(x: 72, y: 130))
+        #expect(presenter.selectedRow == 0)
+        let responder = window.firstResponder
+        state.selectedIndex = 1
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(presenter.selectedRow == 1)
+        #expect(window.firstResponder === responder)
+        state.dismiss()
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(presenter.isMounted)
+        #expect(!presenter.isVisible)
+        presenter.detach()
+        #expect(!presenter.isMounted)
+        #expect(!presenter.isVisible)
     }
 
     @Test @MainActor func xmlMarkupProducesNativeHighlights() async throws {

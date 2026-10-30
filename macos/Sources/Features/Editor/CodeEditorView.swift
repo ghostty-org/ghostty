@@ -44,7 +44,7 @@ struct CodeEditorView: View {
     @State private var caseSensitive = false
     @State private var barMode: BarMode = .find
     @State private var cachedSearchMatches: [NSRange] = []
-    @FocusState private var isFindFocused: Bool
+    @State private var isFindFocused = false
 
     init(
         text: Binding<String>,
@@ -91,21 +91,15 @@ struct CodeEditorView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            SourceEditor(
-                $text,
-                language: editorCoordinator.language(fileURL: fileURL, text: text),
-                configuration: editorConfiguration,
-                state: $editorState,
-                highlightProviders: editorCoordinator.highlightProviders,
-                coordinators: [editorCoordinator] + additionalCoordinators
-            )
-            .clipped()
-
-            EditorCompletionOverlay(state: completionState) { item in
-                editorCoordinator.commit(completion: item)
-            }
-        }
+        SourceEditor(
+            $text,
+            language: editorCoordinator.language(fileURL: fileURL, text: text),
+            configuration: editorConfiguration,
+            state: $editorState,
+            highlightProviders: editorCoordinator.highlightProviders,
+            coordinators: [editorCoordinator] + additionalCoordinators
+        )
+        .clipped()
         .overlay(alignment: .topTrailing) {
             if isActive, isFindVisible {
                 findBar
@@ -121,7 +115,7 @@ struct CodeEditorView: View {
             configureCommands()
             editorCoordinator.setActive(isActive)
         }
-.onChange(of: diffLines) { editorCoordinator.setDiffLines($0) }
+        .onChange(of: diffLines) { editorCoordinator.setDiffLines($0) }
         .onChange(of: isActive) { isActive in
             configureCommands()
             editorCoordinator.setActive(isActive)
@@ -150,51 +144,26 @@ struct CodeEditorView: View {
     }
 
     private var findBar: some View {
-        VStack(alignment: .trailing, spacing: 4) {
-            HStack(spacing: 4) {
-                TextField(barMode == .goToLine ? "Line:Column" : "Find", text: $findText)
-                .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 90, idealWidth: 150, maxWidth: 180)
-                .focused($isFindFocused)
-                .onSubmit(barMode == .goToLine ? goToLine : findNext)
-                .onExitCommand(perform: leaveFindBar)
-
-                if barMode != .goToLine {
-                    Text(matchSummary)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(minWidth: 28)
-                    Button(action: findPrevious) { Image(systemName: "chevron.up") }
-                        .help("Previous Match")
-                    Button(action: findNext) { Image(systemName: "chevron.down") }
-                        .help("Next Match")
-                    Toggle("Aa", isOn: $caseSensitive)
-                        .toggleStyle(.button)
-                        .help("Match Case")
-                }
-
-                Button(action: leaveFindBar) {
-                    Image(systemName: "xmark")
-                }
-                .help("Close")
-            }
-
-            if barMode == .replace {
-                HStack(spacing: 4) {
-                    TextField("Replace", text: $replaceText)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(minWidth: 90, idealWidth: 150, maxWidth: 180)
-                        .onSubmit(replaceCurrent)
-                    Button("Replace", action: replaceCurrent)
-                    Button("All", action: replaceAll)
-                }
-                .controlSize(.small)
-            }
-        }
-        .buttonStyle(.borderless)
-        .padding(6)
-        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
-        .shadow(radius: 3, y: 1)
+        NativeEditorFindBar(
+            state: .init(
+                query: findText, replacement: replaceText, summary: matchSummary,
+                isReplace: barMode == .replace, isGoToLine: barMode == .goToLine,
+                isCaseSensitive: caseSensitive, shouldFocus: isFindFocused
+            ),
+            actions: .init(
+                queryChanged: { findText = $0 },
+                replacementChanged: { replaceText = $0 },
+                caseChanged: { caseSensitive = $0 },
+                focusChanged: { isFindFocused = $0 },
+                submit: barMode == .goToLine ? goToLine : findNext,
+                findPrevious: findPrevious,
+                findNext: findNext,
+                replaceCurrent: replaceCurrent,
+                replaceAll: replaceAll,
+                close: leaveFindBar
+            )
+        )
+        .fixedSize()
     }
 
     private func presentFind() {
@@ -412,6 +381,7 @@ final class EditorCoordinator: @preconcurrency TextViewCoordinator, @preconcurre
     private var layoutDelegate: EditorLayoutDelegate?
     private var diffLines: [Int: Bool] = [:]
     private weak var completionState: CompletionState?
+    private var completionPresenter: EditorCompletionPresenter?
     private var completionTask: Task<Void, Never>?
     private var completionCursor: Int?
     private var mouseMonitor: Any?
@@ -435,6 +405,16 @@ final class EditorCoordinator: @preconcurrency TextViewCoordinator, @preconcurre
 
     func setCompletionState(_ state: CompletionState) {
         self.completionState = state
+        completionPresenter?.detach()
+        completionPresenter = EditorCompletionPresenter(state: state) { [weak self] item in
+            self?.commit(completion: item)
+        }
+        attachCompletionPresenter()
+    }
+
+    private func attachCompletionPresenter() {
+        guard let scroll = controller?.textView.enclosingScrollView else { return }
+        completionPresenter?.attach(to: scroll)
     }
 
     func setFileURL(_ fileURL: URL?) {
@@ -693,6 +673,7 @@ final class EditorCoordinator: @preconcurrency TextViewCoordinator, @preconcurre
         DispatchQueue.main.async { [weak self, weak controller] in
             guard let self, let controller, self.controller === controller,
                   let scroll = controller.textView.enclosingScrollView else { return }
+            attachCompletionPresenter()
             // prepareCoordinator precedes the editor's scroll-view creation.
             // Register only after mounting, otherwise long-document scrolling
             // never invalidates the diff overlay at all.
@@ -739,6 +720,10 @@ final class EditorCoordinator: @preconcurrency TextViewCoordinator, @preconcurre
 
             switch event.type {
             case .leftMouseDown:
+                // Completion rows are native children of the editor scroll view,
+                // but must not trigger column selection or dismiss before commit.
+                if self.completionPresenter?.contains(event) == true { return event }
+                self.dismissCompletion()
                 if event.modifierFlags.contains(.option), textView.bounds.contains(locInTextView) {
                     self.columnDragStart = locInTextView
                     self.handleColumnSelection(at: locInTextView, start: locInTextView)
@@ -1165,6 +1150,8 @@ final class EditorCoordinator: @preconcurrency TextViewCoordinator, @preconcurre
             self.mouseMonitor = nil
         }
         dismissCompletion()
+        completionPresenter?.detach()
+        completionPresenter = nil
         completionState = nil
         EditorCommandRouter.shared.unregister(owner: self)
         controller = nil
@@ -1195,7 +1182,7 @@ final class EditorCoordinator: @preconcurrency TextViewCoordinator, @preconcurre
         }
         if editingField {
             dismissCompletion()
-            guard findFieldFocused() else { return false }
+            guard findFieldFocused(), (responder as? NSTextView)?.hasMarkedText() != true else { return false }
         }
         if isTextViewOrChild, textView.hasMarkedText() {
             dismissCompletion()

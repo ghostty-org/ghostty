@@ -5,62 +5,6 @@ import Testing
 
 @MainActor
 struct InspectorPaneDeckTests {
-    private struct MountProbe: NSViewRepresentable {
-        let create: () -> NSView
-        func makeNSView(context: Context) -> NSView { create() }
-        func updateNSView(_ view: NSView, context: Context) {}
-    }
-
-    @Test func sidebarReopeningRetainsItsLazilyMountedNativeContent() async throws {
-        var mounts = 0
-        func root(_ visible: Bool) -> some View {
-            HStack {
-                Spacer()
-                TerminalSidebarTransitionContainer(isVisible: visible, width: 280, edge: .right,
-                    retainsContent: true, background: .clear) {
-                    MountProbe { mounts += 1; return NSView() }
-                }
-            }
-        }
-        let host = NSHostingView(rootView: root(false))
-        host.sizingOptions = []
-        let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 600, height: 300),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        window.orderFront(nil)
-        defer { window.contentView = nil; window.close() }
-        try await Task.sleep(for: .milliseconds(60))
-        #expect(mounts == 0)
-        for visible in [true, false, true, false, true] {
-            host.rootView = root(visible)
-            // Content must already be available before the former 180ms
-            // slide-out/reveal interval, and must stay mounted across toggles.
-            try await Task.sleep(for: .milliseconds(60))
-            host.layoutSubtreeIfNeeded()
-            #expect(mounts == 1)
-        }
-    }
-    @Test func sidebarLayoutUpdatesImmediatelyForBothEdges() {
-        for edge in [TerminalSidebarTransitionContainer<Color>.Edge.left, .right] {
-            func root(_ visible: Bool) -> some View {
-                TerminalSidebarTransitionContainer(isVisible: visible, width: 280, edge: edge,
-                    retainsContent: true, background: .clear) { Color.red }
-            }
-            let host = NSHostingView(rootView: root(false))
-            #expect(host.fittingSize.width == 0)
-            host.rootView = root(true)
-            host.layoutSubtreeIfNeeded()
-            #expect(host.fittingSize.width == 280)
-            host.rootView = root(false)
-            host.layoutSubtreeIfNeeded()
-            #expect(host.fittingSize.width == 0)
-            host.rootView = root(true)
-            host.layoutSubtreeIfNeeded()
-            #expect(host.fittingSize.width == 280)
-        }
-    }
-
     @Test func switchingVisitedPanesRetainsNativeViewsAndBoundsTheCacheToItsTab() async throws {
         let registry = InspectorRegistry()
         let context = InspectorPaneContext(tabID: UUID(), surfaceID: UUID(), title: "Test", workingDirectory: "/repo")

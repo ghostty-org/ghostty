@@ -112,65 +112,6 @@ struct TerminalResizeBoundary: View {
     }
 }
 
-struct TerminalSidebarTransitionContainer<Content: View>: View {
-    enum Edge {
-        case left
-        case right
-
-        var alignment: Alignment { self == .left ? .leading : .trailing }
-    }
-
-    let isVisible: Bool
-    let width: CGFloat
-    let edge: Edge
-    let retainsContent: Bool
-    let background: Color
-    let content: Content
-    @State private var hasMounted: Bool
-
-    init(
-        isVisible: Bool,
-        width: CGFloat,
-        edge: Edge,
-        retainsContent: Bool = false,
-        background: Color,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.isVisible = isVisible
-        self.width = width
-        self.edge = edge
-        self.retainsContent = retainsContent
-        self.background = background
-        self.content = content()
-        self._hasMounted = State(initialValue: isVisible)
-    }
-
-    var body: some View {
-        ZStack(alignment: edge.alignment) {
-            if isVisible || (retainsContent && hasMounted) {
-                content
-                    .frame(width: width, alignment: edge.alignment)
-                    .opacity(isVisible ? 1 : 0)
-                    .allowsHitTesting(isVisible)
-                    .accessibilityHidden(!isVisible)
-            }
-        }
-        .frame(
-            width: isVisible ? width : 0,
-            alignment: edge.alignment
-        )
-        .background(background)
-        .clipped()
-        // Match Quick Input: layout and visibility change together, without
-        // retaining a slide-out width or inheriting unrelated parent animations.
-        .transaction { $0.animation = nil }
-        .onAppear { if isVisible { hasMounted = true } }
-        .onChange(of: isVisible) { visible in
-            if visible { hasMounted = true }
-        }
-    }
-}
-
 final class InspectorTitlebarPresentation: ObservableObject {
     @Published private(set) var width = TerminalTitlebarMetrics.inspectorCollapsedWidth
     @Published private(set) var isVisible = false
@@ -494,90 +435,56 @@ struct TerminalShellLayoutContainer<Content: View>: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            let leftVisible = showsTabSidebar && layoutState.isSidebarVisible
-            let leftWidth = presentedSidebarWidth + TerminalShellStyle.dividerWidth
-            let inspectorWidth = presentedInspectorWidth(totalWidth: geometry.size.width)
-            let rightVisible = layoutState.isInspectorVisible && !inspectorRegistry.isEmpty
-            let rightWidth = inspectorWidth + TerminalShellStyle.dividerWidth
-
-            HStack(spacing: 0) {
-                TerminalSidebarTransitionContainer(
-                    isVisible: leftVisible,
-                    width: leftWidth,
-                    edge: .left,
-                    background: chromeBackground
-                ) {
-                    HStack(spacing: 0) {
-                        SharedTerminalTabSidebar(
-                            controller: controller,
-                            layoutState: layoutState,
-                            statusStore: statusStore,
-                            backgroundColor: backgroundColor,
-                            backgroundOpacity: 0
-                        )
-                        .frame(width: presentedSidebarWidth)
-                        VerticalTabSidebarDivider(
-                            controller: controller,
-                            layoutState: layoutState,
-                            color: controller.sidebarDividerColor,
-                            background: .clear
-                        )
-                    }
-                }
-
-                AgentQuickInputDock(
-                    controller: controller,
-                    model: controller.quickInputModel,
-                    backgroundColor: backgroundColor,
-                    backgroundOpacity: backgroundOpacity
-                ) {
-                    VStack(spacing: 0) {
-                        if !showsTabSidebar {
-                            HStack {
-                                TerminalWorkspaceButton(controller: controller)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 8)
-                            .frame(height: 32)
-                            .background(chromeBackground)
+        let leftVisible = showsTabSidebar && layoutState.isSidebarVisible
+        let rightVisible = layoutState.isInspectorVisible && !inspectorRegistry.isEmpty
+        NativeTerminalShell(
+            leadingWidth: presentedSidebarWidth + TerminalShellStyle.dividerWidth,
+            trailingWidth: preferredInspectorWidth,
+            leadingVisible: leftVisible,
+            trailingVisible: rightVisible,
+            leading: AnyView(HStack(spacing: 0) {
+                SharedTerminalTabSidebar(
+                    controller: controller, layoutState: layoutState,
+                    statusStore: statusStore, backgroundColor: backgroundColor,
+                    backgroundOpacity: 0
+                )
+                VerticalTabSidebarDivider(
+                    controller: controller, layoutState: layoutState,
+                    color: controller.sidebarDividerColor, background: .clear
+                )
+            }.background(chromeBackground)),
+            center: AnyView(AgentQuickInputDock(
+                controller: controller, model: controller.quickInputModel,
+                backgroundColor: backgroundColor, backgroundOpacity: backgroundOpacity
+            ) {
+                VStack(spacing: 0) {
+                    if !showsTabSidebar {
+                        HStack {
+                            TerminalWorkspaceButton(controller: controller)
+                            Spacer()
                         }
-                        SSHAgentHookOnboardingBanner(controller: controller)
-                        content
+                        .padding(.horizontal, 8)
+                        .frame(height: 32)
+                        .background(chromeBackground)
                     }
+                    SSHAgentHookOnboardingBanner(controller: controller)
+                    content
                 }
-
-                TerminalSidebarTransitionContainer(
-                    isVisible: rightVisible,
-                    width: rightWidth,
-                    edge: .right,
-                    retainsContent: true,
-                    background: chromeBackground
-                ) {
-                    HStack(spacing: 0) {
-                        RightInspectorResizeHandle(
-                            color: controller.sidebarDividerColor,
-                            background: .clear,
-                            currentWidth: { layoutState.inspectorWidth },
-                            resize: controller.updateInspectorWidth
-                        )
-                        // The 8pt resize hit target overlaps Inspector content.
-                        // Keep it above native scroll/table views so they cannot
-                        // steal the initial mouseDown at the divider boundary.
-                        .zIndex(10)
-                        RightInspectorHost(
-                            controller: controller,
-                            layoutState: layoutState,
-                            registry: inspectorRegistry,
-                            isPresented: rightVisible,
-                            backgroundColor: backgroundColor,
-                            backgroundOpacity: 0
-                        )
-                        .frame(width: inspectorWidth)
-                    }
-                }
-            }
-        }
+            }),
+            trailing: AnyView(HStack(spacing: 0) {
+                RightInspectorResizeHandle(
+                    color: controller.sidebarDividerColor, background: .clear,
+                    currentWidth: { layoutState.inspectorWidth },
+                    resize: controller.updateInspectorWidth
+                )
+                .zIndex(10)
+                RightInspectorHost(
+                    controller: controller, layoutState: layoutState,
+                    registry: inspectorRegistry, isPresented: rightVisible,
+                    backgroundColor: backgroundColor, backgroundOpacity: 0
+                )
+            }.background(chromeBackground))
+        )
     }
 
     private var presentedSidebarWidth: CGFloat {
@@ -586,132 +493,39 @@ struct TerminalShellLayoutContainer<Content: View>: View {
             : layoutState.committedSidebarWidth
     }
 
-    private func presentedInspectorWidth(totalWidth: CGFloat) -> CGFloat {
-        let preferred = controller.selectedTabID == ObjectIdentifier(controller)
+    private var preferredInspectorWidth: CGFloat {
+        controller.selectedTabID == ObjectIdentifier(controller)
             ? layoutState.inspectorWidth
             : layoutState.committedInspectorWidth
-        let leadingWidth = showsTabSidebar
-            ? presentedSidebarWidth + TerminalShellStyle.dividerWidth
-            : 0
-        return TerminalShellStyle.presentedInspectorWidth(
-            preferred: preferred,
-            totalWidth: totalWidth,
-            leadingWidth: leadingWidth
-        )
     }
 }
 
-struct RightInspectorHost: View {
-    @ObservedObject var controller: TerminalController
-    @ObservedObject var layoutState: VerticalTabWindowLayoutState
-    @ObservedObject var registry: InspectorRegistry
+/// A SwiftUI adapter only; observation, pane caching and provider presentation
+/// belong to the native controller rather than SwiftUI appearance callbacks.
+struct RightInspectorHost: NSViewControllerRepresentable {
+    let controller: TerminalController
+    let layoutState: VerticalTabWindowLayoutState
+    let registry: InspectorRegistry
     var isPresented = true
     let backgroundColor: Color
     let backgroundOpacity: Double
-    @State private var contextRevision: UInt64 = 0
 
-    private var context: InspectorPaneContext {
-        _ = contextRevision
-        let surface = controller.focusedSurface ?? controller.surfaceTree.first
-        let session = controller.paneSessionContext(for: surface) ?? .init(
-            workingDirectory: surface?.pwd,
-            terminalTitle: surface?.title ?? "Terminal"
-        )
-        return .init(
-            tabID: controller.tabSessionID,
-            surfaceID: surface?.id,
-            title: controller.titleOverride ?? session.presentationTitle,
-            workingDirectory: session.workingDirectory,
-            workspace: session.workspace,
-            session: session
-        )
+    func makeNSViewController(context: Context) -> InspectorHostController {
+        InspectorHostController(controller: controller, layoutState: layoutState, registry: registry)
     }
 
-    private var contextChanges: AnyPublisher<Void, Never> {
-        guard let surface = controller.focusedSurface ?? controller.surfaceTree.first else {
-            return Empty().eraseToAnyPublisher()
-        }
-        let metadata: AnyPublisher<Void, Never>
-        if selectedPaneID == BuiltInGitInspectorProvider.paneID {
-            metadata = surface.$pwd.removeDuplicates().dropFirst()
-                .map { _ in () }.eraseToAnyPublisher()
-        } else {
-            metadata = Publishers.CombineLatest(surface.$pwd, surface.$title)
-                .dropFirst().map { _ in () }.eraseToAnyPublisher()
-        }
-        let session = surface.$contextSignal
-            .dropFirst()
-            .map { _ in () }
-        return Publishers.Merge(metadata, session).eraseToAnyPublisher()
+    func updateNSViewController(_ host: InspectorHostController, context: Context) {
+        host.configure(isPresented: isPresented, backgroundColor: backgroundColor,
+                       backgroundOpacity: backgroundOpacity, environment: context.environment)
     }
 
-    private var selectedPaneID: String? {
-        let paneID = layoutState.selectedInspectorPaneID
-        if let paneID, registry.descriptor(id: paneID) != nil { return paneID }
-        return registry.entries.first?.id
+    static func dismantleNSViewController(_ host: InspectorHostController, coordinator: ()) {
+        host.stop()
     }
 
-    private var presentedPaneID: String? { isPresented ? selectedPaneID : nil }
-
-    var body: some View {
-        Group {
-            if let paneID = selectedPaneID,
-               let content = registry.content(for: paneID, context: context) {
-                InspectorPaneDeck(paneID: paneID, tabID: context.tabID,
-                    availableIDs: Set(registry.entries.map(\.id)),
-                    content: AnyView(InspectorPaneContentView(
-                        content: content,
-                        paneID: paneID,
-                        context: context,
-                        dividerColor: controller.sidebarDividerColor,
-                        registry: registry
-                    )), updatesEnabled: isPresented)
-            }
-        }
-        .background(backgroundColor.opacity(backgroundOpacity))
-        .environment(\.gitCollectionColors, GitCollectionColors(config: controller.ghostty.config, background: NSColor(backgroundColor)))
-        .onAppear {
-            reconcileSelection()
-            registry.presentationDidChange(to: presentedPaneID, context: context)
-        }
-        .onChange(of: registry.entries.map(\.id)) { _ in
-            reconcileSelection()
-            registry.presentationDidChange(to: presentedPaneID, context: context)
-        }
-        .onChange(of: layoutState.selectedInspectorPaneID) { _ in
-            registry.presentationDidChange(to: presentedPaneID, context: context)
-        }
-        .onChange(of: isPresented) { _ in
-            registry.presentationDidChange(to: presentedPaneID, context: context)
-        }
-        .onReceive(contextChanges) { _ in
-            guard isPresented else { return }
-            // @Published emits before its property storage is updated. Defer
-            // one main-queue turn so the Inspector context reads the committed
-            // Surface cwd/title, then notify the provider directly rather than
-            // relying only on a SwiftUI body diff.
-            DispatchQueue.main.async {
-                contextRevision &+= 1
-                registry.presentationDidChange(
-                    to: presentedPaneID,
-                    context: context
-                )
-            }
-        }
-        .onChange(of: context) { nextContext in
-            registry.presentationDidChange(to: presentedPaneID, context: nextContext)
-        }
-        .onDisappear {
-            registry.presentationDidChange(to: nil, context: context)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Inspector")
-    }
-
-    private func reconcileSelection() {
-        if selectedPaneID != layoutState.selectedInspectorPaneID {
-            layoutState.selectInspectorPane(selectedPaneID)
-        }
+    func sizeThatFits(_ proposal: ProposedViewSize, nsViewController: InspectorHostController,
+                      context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
     }
 }
 
@@ -1125,55 +939,21 @@ private struct InspectorAgentHistoryView: View {
                     message: strings.noMatchesMessage
                 )
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        if filter.grouping == .none {
-                            let total = filteredAndOrderedSessions.count
-                            let displayed = Array(filteredAndOrderedSessions.prefix(visibleSessionCount))
-                            ForEach(displayed) { session in
-                                sessionRow(
-                                    session,
-                                    matchSnippet: searchMatches[session.id]
-                                )
-                                Divider().padding(.leading, 44)
-                            }
-                            if visibleSessionCount < total {
-                                HStack {
-                                    Spacer()
-                                    Button {
-                                        visibleSessionCount += 60
-                                    } label: {
-                                        HStack(spacing: 4) {
-                                            Image(systemName: "arrow.down.circle")
-                                            Text(strings.loadMoreSessions(total - visibleSessionCount))
-                                        }
-                                        .font(.caption)
-                                        .padding(.vertical, 8)
-                                    }
-                                    .buttonStyle(.borderless)
-                                    Spacer()
-                                }
-                                .padding(.vertical, 6)
-                                .onAppear {
-                                    visibleSessionCount += 60
-                                }
-                            }
+                InspectorAgentHistoryList(
+                    rows: nativeSessionRows,
+                    query: committedQuery.trimmingCharacters(in: .whitespacesAndNewlines),
+                    strings: strings,
+                    select: selectSession,
+                    toggleGroup: { id in
+                        if collapsedGroupIDs.contains(id) {
+                            collapsedGroupIDs.remove(id)
                         } else {
-                            ForEach(groupedSections) { section in
-                                sectionHeader(section)
-                                if !collapsedGroupIDs.contains(section.id) {
-                                    ForEach(section.sessions) { session in
-                                        sessionRow(
-                                            session,
-                                            matchSnippet: searchMatches[session.id]
-                                        )
-                                        Divider().padding(.leading, 44)
-                                    }
-                                }
-                            }
+                            collapsedGroupIDs.insert(id)
                         }
-                    }
-                }
+                    },
+                    loadMore: { visibleSessionCount += 60 },
+                    perform: perform
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -1210,110 +990,36 @@ private struct InspectorAgentHistoryView: View {
         .accessibilityValue(filter.isDefault ? "" : strings.filterActive)
     }
 
-    private func sectionHeader(_ section: GroupedSection) -> some View {
-        let isCollapsed = collapsedGroupIDs.contains(section.id)
-        return Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                if isCollapsed {
-                    collapsedGroupIDs.remove(section.id)
-                } else {
-                    collapsedGroupIDs.insert(section.id)
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .frame(width: 10)
-                Text(section.title)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Text(String(section.sessions.count))
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, InspectorContentMetrics.leadingInset)
-            .frame(height: 26)
-            .contentShape(Rectangle())
+    private var nativeSessionRows: [InspectorAgentHistoryListRow] {
+        let needle = committedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        func row(_ session: AgentHistorySession) -> InspectorAgentHistoryListRow {
+            let snippet = searchMatches[session.id]
+            return .session(session, snippet: !needle.isEmpty && snippet != session.title ? snippet : nil)
         }
-        .buttonStyle(.plain)
+        if filter.grouping == .none {
+            let sessions = filteredAndOrderedSessions
+            var rows = sessions.prefix(visibleSessionCount).map(row)
+            if visibleSessionCount < sessions.count {
+                rows.append(.more(remaining: sessions.count - visibleSessionCount))
+            }
+            return rows
+        }
+        return groupedSections.flatMap { section in
+            let collapsed = collapsedGroupIDs.contains(section.id)
+            var rows: [InspectorAgentHistoryListRow] = [
+                .group(id: section.id, title: section.title, count: section.sessions.count, collapsed: collapsed),
+            ]
+            if !collapsed { rows.append(contentsOf: section.sessions.map(row)) }
+            return rows
+        }
     }
 
-    private func sessionRow(
-        _ session: AgentHistorySession,
-        matchSnippet: String?
-    ) -> some View {
+    private func selectSession(_ session: AgentHistorySession) {
         let needle = committedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        return Button {
-            visibleMessageCount = 30
-            transcriptSearch = needle
-            isTranscriptSearchVisible = !needle.isEmpty
-            perform(.selectAgentHistorySession(id: session.id))
-        } label: {
-            HStack(alignment: .top, spacing: 9) {
-                Image(session.agent.assetName)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 20, height: 20)
-                    .padding(.top, 1)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(highlightedText(session.title, query: needle))
-                            .font(.system(size: 12.5, weight: .medium))
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                        Spacer(minLength: 4)
-                        if session.isActive {
-                            Text(strings.live)
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.green)
-                        }
-                    }
-                    HStack(spacing: 5) {
-                        Text(session.agent.displayName)
-                        Text("·")
-                        Text(strings.relativeTime(from: session.updatedAt))
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    if !needle.isEmpty,
-                       let matchSnippet,
-                       matchSnippet != session.title {
-                        Text(highlightedText(matchSnippet, query: needle))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                    } else if let workingDirectory = session.workingDirectory {
-                        Text(workingDirectory)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                }
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-                    .padding(.top, 5)
-            }
-            .padding(.horizontal, InspectorContentMetrics.leadingInset)
-            .padding(.vertical, 9)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button(session.isActive ? strings.openLive : strings.resume) {
-                perform(.resumeAgentHistorySession(id: session.id))
-            }
-            if session.remoteHost == nil {
-                Button(strings.forkSession) {
-                    perform(.forkAgentHistorySession(id: session.id))
-                }
-            }
-        }
+        visibleMessageCount = 30
+        transcriptSearch = needle
+        isTranscriptSearchVisible = !needle.isEmpty
+        perform(.selectAgentHistorySession(id: session.id))
     }
 
     private func scheduleSessionSearch(
@@ -1348,24 +1054,6 @@ private struct InspectorAgentHistoryView: View {
             isSearching = false
             searchTask = nil
         }
-    }
-
-    private func highlightedText(
-        _ text: String,
-        query: String
-    ) -> AttributedString {
-        var result = AttributedString(text)
-        guard !query.isEmpty else { return result }
-        var searchRange = result.startIndex..<result.endIndex
-        while let range = result[searchRange].range(
-            of: query,
-            options: .caseInsensitive
-        ) {
-            result[range].backgroundColor = Color.yellow.opacity(0.45)
-            result[range].font = .system(size: 12.5, weight: .semibold)
-            searchRange = range.upperBound..<result.endIndex
-        }
-        return result
     }
 
     private func transcriptMessages(
@@ -2029,181 +1717,6 @@ struct InspectorPluginContextHeader: View {
             .padding(.horizontal, InspectorContentMetrics.leadingInset)
             .padding(.top, 10)
             .padding(.bottom, 6)
-    }
-}
-
-struct InspectorFileTreeView: View {
-    let tree: InspectorFileTree
-    let perform: (InspectorPaneActionKind) -> Void
-    @State private var selectedNodeID: String?
-
-    var body: some View {
-        VStack(spacing: 0) {
-            InspectorPluginContextHeader(title: tree.rootName)
-                .help(tree.rootPath)
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(tree.nodes) { node in
-                        InspectorFileTreeNodeView(
-                            node: node,
-                            depth: 0,
-                            selectedNodeID: $selectedNodeID,
-                            perform: perform
-                        )
-                    }
-                }
-                .padding(.top, 2)
-                .padding(.bottom, 4)
-            }
-        }
-        .onChange(of: tree.rootPath) { _ in
-            selectedNodeID = nil
-        }
-    }
-}
-
-private struct InspectorFileTreeNodeView: View {
-    let node: InspectorFileNode
-    let depth: Int
-    @Binding var selectedNodeID: String?
-    let perform: (InspectorPaneActionKind) -> Void
-    @State private var hovered = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Button {
-                selectedNodeID = node.id
-                guard node.isDirectory else { return }
-                withAnimation(.easeInOut(duration: 0.16)) {
-                    perform(.toggleNode(id: node.id, expanded: !node.isExpanded))
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Group {
-                        if node.isDirectory {
-                            Image(systemName: node.isExpanded ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 9, weight: .semibold))
-                        } else {
-                            Color.clear
-                        }
-                    }
-                    .frame(width: InspectorTreeLayout.disclosureWidth - 6, height: 14)
-
-                    InspectorFileIconView(node: node)
-                    Text(node.name)
-                        .font(.system(size: 12.5))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 4)
-                    if node.isLoading {
-                        ProgressView().controlSize(.mini)
-                    }
-                }
-                .padding(
-                    .leading,
-                    CGFloat(depth) * InspectorTreeLayout.indent + InspectorTreeLayout.leading
-                )
-                .padding(.trailing, 8)
-                .frame(height: 27)
-                .contentShape(Rectangle())
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.primary.opacity(
-                            selectedNodeID == node.id ? 0.12 : hovered ? 0.07 : 0
-                        ))
-                )
-            }
-            .buttonStyle(.plain)
-            .onHover { hovered = $0 }
-            .help(node.id)
-            .onTapGesture(count: 2) {
-                selectedNodeID = node.id
-                if node.isDirectory {
-                    withAnimation(.easeInOut(duration: 0.16)) {
-                        perform(.toggleNode(id: node.id, expanded: !node.isExpanded))
-                    }
-                } else {
-                    perform(.openFile(path: node.id))
-                }
-            }
-            .contextMenu {
-                Button("Copy Path") { perform(.copyFilePath(path: node.id, relative: false)) }
-                Button("Copy Relative Path") { perform(.copyFilePath(path: node.id, relative: true)) }
-                Button("Rename…") { perform(.renameFile(path: node.id)) }
-                Button("Open in…") { perform(.openFileExternally(path: node.id)) }
-                Divider()
-                if !node.isDirectory {
-                    Button("Open in Editor") {
-                        selectedNodeID = node.id
-                        perform(.openFile(path: node.id, destination: .currentPane))
-                    }
-                    Menu("Open to the Side") {
-                        ForEach(EditorOpenDestination.allCases, id: \.rawValue) { destination in
-                            Button(destination.title) {
-                                selectedNodeID = node.id
-                                perform(.openFile(path: node.id, destination: destination))
-                            }
-                        }
-                    }
-                }
-            }
-
-            if node.isExpanded, let children = node.children {
-                VStack(spacing: 0) {
-                    ForEach(children) { child in
-                        InspectorFileTreeNodeView(
-                            node: child,
-                            depth: depth + 1,
-                            selectedNodeID: $selectedNodeID,
-                            perform: perform
-                        )
-                    }
-                }
-                .transition(.opacity)
-                .clipped()
-            }
-        }
-        .animation(.easeInOut(duration: 0.16), value: node.isExpanded)
-        .animation(
-            .easeInOut(duration: 0.16),
-            value: node.children?.map(\.id) ?? []
-        )
-    }
-}
-
-private struct InspectorFileIconView: View {
-    let node: InspectorFileNode
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        Group {
-            if let name = MaterialFileIcons.assetName(
-                for: node.name,
-                isDirectory: node.isDirectory,
-                isExpanded: node.isExpanded,
-                isLight: colorScheme == .light
-            ), let image = NSImage(named: name) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-            } else {
-                Image(systemName: node.icon.systemImage)
-                    .foregroundStyle(color)
-            }
-        }
-        .frame(width: InspectorTreeLayout.iconWidth, height: InspectorTreeLayout.iconWidth)
-    }
-
-    private var color: Color {
-        switch node.icon.tint {
-        case .secondary: .secondary
-        case .blue: .blue
-        case .green: .green
-        case .orange: .orange
-        case .yellow: .yellow
-        case .purple: .purple
-        case .red: .red
-        }
     }
 }
 

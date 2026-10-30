@@ -813,80 +813,56 @@ struct AgentQuickInputDock<Content: View>: View {
     }
 
     var body: some View {
+        AgentQuickInputDockContainer(
+            content: AnyView(content),
+            composer: AnyView(composer),
+            queue: AnyView(queue),
+            composerHeight: model.isPresented
+                ? model.dockHeight + TerminalShellStyle.dividerWidth : 0,
+            queueHeight: presentedQueueIDs.isEmpty
+                ? 0 : AgentQuickInputMetrics.queueLaneHeight + TerminalShellStyle.dividerWidth
+        )
+    }
+
+    private var composer: some View {
         VStack(spacing: 0) {
-            content
-
-            // Reserve the final accessory height immediately. Animating this
-            // layout value resizes the PTY and terminal grid on every spring
-            // frame, which becomes visibly expensive with deep scrollback.
-            Color.clear
-                .frame(height: reservedAccessoryHeight)
-                .accessibilityHidden(true)
+            AgentQuickInputResizeHandle(
+                controller: controller,
+                model: model,
+                color: controller.sidebarDividerColor
+            )
+            // The hit area overlaps the native editor below.
+            .zIndex(1)
+            AgentQuickInputComposer(
+                controller: controller,
+                model: model,
+                backgroundColor: backgroundColor,
+                backgroundOpacity: backgroundOpacity
+            )
+            .frame(height: model.dockHeight)
         }
-        .overlay(alignment: .bottom) {
-            // The dock opens immediately; only queue presentation animates.
-            // The costly terminal resize above still happens once.
-            VStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    AgentQuickInputResizeHandle(
-                        controller: controller,
-                        model: model,
-                        color: controller.sidebarDividerColor
-                    )
-                    // The hit area overlaps the composer below; keep it on top
-                    // so mouseDown reaches the drag view, not the editor.
-                    .zIndex(1)
-                    AgentQuickInputComposer(
-                        controller: controller,
-                        model: model,
-                        backgroundColor: backgroundColor,
-                        backgroundOpacity: backgroundOpacity
-                    )
-                    .frame(height: model.dockHeight)
-                }
-                .frame(
-                    height: model.dockHeight + TerminalShellStyle.dividerWidth,
-                    alignment: .top
-                )
-                .opacity(model.isPresented ? 1 : 0)
-                .allowsHitTesting(model.isPresented)
-                .accessibilityHidden(!model.isPresented)
-                // Queue changes can coincide with dock dismissal. Do not
-                // inherit the queue's spring for the composer in that case.
-                .transaction { $0.animation = nil }
+        .frame(height: model.dockHeight + TerminalShellStyle.dividerWidth, alignment: .top)
+        .transaction { $0.animation = nil }
+    }
 
-                if let surfaceID = presentedQueueSurfaceID,
-                   let queue = model.state(for: surfaceID)?.queue,
-                   !queue.isEmpty {
-                    AgentQuickInputQueueLane(
-                        items: queue,
-                        surfaceID: surfaceID,
-                        model: model,
-                        send: {
-                            controller.sendQueuedQuickInput($0, from: surfaceID)
-                        },
-                        edit: {
-                            controller.editQueuedQuickInput($0, from: surfaceID)
-                        },
-                        remove: {
-                            controller.removeQueuedQuickInput($0, from: surfaceID)
-                        },
-                        dividerColor: controller.sidebarDividerColor,
-                        backgroundColor: backgroundColor,
-                        backgroundOpacity: backgroundOpacity,
-                        chromeBackground: controller.terminalChromeBackground
-                    )
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .animation(AgentQuickInputMotion.queue, value: presentedQueueIDs)
+    @ViewBuilder
+    private var queue: some View {
+        if let surfaceID = presentedQueueSurfaceID,
+           let queue = model.state(for: surfaceID)?.queue,
+           !queue.isEmpty {
+            AgentQuickInputQueueLane(
+                items: queue,
+                surfaceID: surfaceID,
+                model: model,
+                send: { controller.sendQueuedQuickInput($0, from: surfaceID) },
+                edit: { controller.editQueuedQuickInput($0, from: surfaceID) },
+                remove: { controller.removeQueuedQuickInput($0, from: surfaceID) },
+                dividerColor: controller.sidebarDividerColor,
+                backgroundColor: backgroundColor,
+                backgroundOpacity: backgroundOpacity,
+                chromeBackground: controller.terminalChromeBackground
+            )
         }
-        .clipped()
-        // Keep the reservation and overlay in the same non-animated layout
-        // transaction. Otherwise a parent animation can move the bottom edge
-        // while the composer itself is already visible at its final height.
-        .animation(nil, value: model.isPresented)
     }
 
     private var presentedQueueSurfaceID: UUID? {
@@ -897,14 +873,6 @@ struct AgentQuickInputDock<Content: View>: View {
     private var presentedQueueIDs: [UUID] {
         guard let surfaceID = presentedQueueSurfaceID else { return [] }
         return model.state(for: surfaceID)?.queue.map(\.id) ?? []
-    }
-
-    private var reservedAccessoryHeight: CGFloat {
-        AgentQuickInputMetrics.reservedAccessoryHeight(
-            dockHeight: model.dockHeight,
-            isDockPresented: model.isPresented,
-            hasQueue: !presentedQueueIDs.isEmpty
-        )
     }
 
 }

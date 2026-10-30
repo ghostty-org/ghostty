@@ -16,7 +16,7 @@ final class GhosttyCommandPaletteTests: GhosttyCustomConfigCase {
 
         app.menuItems["Command Palette"].firstMatch.click()
 
-        let clearScreenButton = app.buttons
+        let clearScreenButton = app.cells
             .containing(NSPredicate(format: "label CONTAINS[c] 'Clear Screen'"))
             .firstMatch
 
@@ -70,7 +70,7 @@ final class GhosttyCommandPaletteTests: GhosttyCustomConfigCase {
 
         app.menuItems["Command Palette"].firstMatch.click()
 
-        app.buttons
+        app.cells
             .containing(NSPredicate(format: "label CONTAINS[c] 'Close All Windows'"))
             .firstMatch.click()
 

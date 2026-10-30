@@ -69,3 +69,62 @@ struct CommandPaletteFilterTests {
         #expect(forward == reverse)
     }
 }
+
+@MainActor
+struct CommandPaletteNativeTests {
+    @Test func filteringClampsSelectionAndNavigationWraps() {
+        let controller = CommandPaletteController()
+        controller.update(options: [CommandOption(title: "New Window") {}, CommandOption(title: "Quit") {}]) { _ in }
+        _ = controller.view
+        #expect(controller.tableView.selectedRow == -1)
+        controller.moveSelection(by: -1)
+        #expect(controller.tableView.selectedRow == 1)
+        controller.moveSelection(by: 1)
+        #expect(controller.tableView.selectedRow == 0)
+        controller.searchField.stringValue = "quit"
+        controller.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+        #expect(controller.results.map(\.title) == ["Quit"])
+        #expect(controller.tableView.selectedRow == 0)
+        controller.searchField.stringValue = "no match"
+        controller.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+        controller.moveSelection(by: 1)
+        #expect(controller.tableView.selectedRow == -1)
+    }
+
+    @Test func compositionOwnsReturnEscapeAndArrows() {
+        let controller = CommandPaletteController()
+        var completions = 0
+        controller.update(options: [CommandOption(title: "Quit") {}]) { _ in completions += 1 }
+        _ = controller.view
+        let editor = PaletteMarkedTextView()
+        for selector in [#selector(NSResponder.insertNewline(_:)), #selector(NSResponder.cancelOperation(_:)),
+                         #selector(NSResponder.moveDown(_:))] {
+            #expect(!controller.control(controller.searchField, textView: editor, doCommandBy: selector))
+        }
+        #expect(completions == 0)
+        #expect(controller.tableView.selectedRow == -1)
+    }
+
+    @Test func updateReplacesActionWithoutResettingSelection() {
+        let controller = CommandPaletteController()
+        var actionVersion = 0
+        var completions = 0
+        let finish: (CommandOption?) -> Void = { option in completions += 1; option?.action() }
+        controller.update(options: [CommandOption(title: "Open") { actionVersion = 1 }], finish: finish)
+        _ = controller.view
+        controller.moveSelection(by: 1)
+        controller.update(options: [CommandOption(title: "Open") { actionVersion = 2 }], finish: finish)
+        #expect(controller.tableView.selectedRow == 0)
+        let editor = NSTextView()
+        for _ in 0..<2 {
+            #expect(controller.control(controller.searchField, textView: editor,
+                                       doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        }
+        #expect(actionVersion == 2)
+        #expect(completions == 1)
+    }
+}
+
+private final class PaletteMarkedTextView: NSTextView {
+    override func hasMarkedText() -> Bool { true }
+}

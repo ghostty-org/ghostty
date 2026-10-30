@@ -10,42 +10,60 @@ import Testing
 /// terminal underneath is scrolled.
 @MainActor
 struct EditorVisibilityHostTests {
-    private typealias Host = EditorVisibilityHost<Text>.Host
-
-    private func makeHost(isVisible: Bool) -> Host {
-        let host = Host(rootView: Text("editor"))
-        EditorVisibilityHost<Text>.apply(isVisible: isVisible, to: host)
-        return host
+    private var items: [EditorContentItem] {
+        [.init(id: .terminal, content: AnyView(Text("terminal"))),
+         .init(id: .workspace, content: AnyView(Text("editor")))]
     }
 
-    @Test func hiddenWorkspaceMarksRootViewHidden() {
-        #expect(makeHost(isVisible: false).view.isHidden)
+    @Test func restoredVisibleEditorStillMountsTheTerminal() throws {
+        let deck = EditorContentDeckController()
+        deck.update(items: items, selectedID: .workspace)
+        #expect(try #require(deck.hosts[.terminal]).isHidden)
+        #expect(try #require(deck.hosts[.workspace]).isHidden == false)
     }
 
-    @Test func visibleWorkspaceKeepsRootViewVisible() {
-        #expect(!makeHost(isVisible: true).view.isHidden)
+    @Test func retogglingVisibilityKeepsSameNativeHierarchy() throws {
+        let deck = EditorContentDeckController()
+        deck.update(items: items, selectedID: .workspace)
+        let editor = try #require(deck.hosts[.workspace])
+        let terminal = try #require(deck.hosts[.terminal])
+        deck.update(items: items, selectedID: .terminal)
+        #expect(editor.isHidden)
+        #expect(!terminal.isHidden)
+        deck.update(items: items, selectedID: .workspace)
+        #expect(!editor.isHidden)
+        #expect(terminal.isHidden)
+        #expect(deck.hosts[.workspace] === editor)
+        #expect(deck.hosts[.terminal] === terminal)
     }
 
-    @Test func retogglingVisibilityKeepsSameNativeHierarchy() {
-        let host = makeHost(isVisible: true)
-        let hostedView = host.view
-        #expect(!hostedView.isHidden)
-
-        EditorVisibilityHost<Text>.apply(isVisible: false, to: host)
-        #expect(hostedView.isHidden)
-        #expect(host.view === hostedView)
-
-        EditorVisibilityHost<Text>.apply(isVisible: true, to: host)
-        #expect(!hostedView.isHidden)
-        #expect(host.view === hostedView)
+    @Test func closingDocumentsBoundsTheCacheAndPreservesVisitedSelection() throws {
+        let deck = EditorContentDeckController()
+        let first = EditorContentKey.diff(UUID()), second = EditorContentKey.diff(UUID())
+        let documents = [EditorContentItem(id: first, content: AnyView(Text("first"))),
+                         EditorContentItem(id: second, content: AnyView(Text("second")))]
+        deck.update(items: documents, selectedID: first)
+        #expect(deck.hosts[second] == nil)
+        let original = try #require(deck.hosts[first])
+        deck.update(items: documents, selectedID: second)
+        #expect(original.isHidden)
+        deck.update(items: documents, selectedID: first)
+        #expect(deck.hosts[first] === original)
+        deck.update(items: [documents[1]], selectedID: second)
+        #expect(deck.hosts[first] == nil)
+        #expect(original.superview == nil)
     }
 
-    @Test func hostDoesNotSelfSizeFromAppKitConstraints() {
-        let host = makeHost(isVisible: true)
-        host.view.setFrameSize(CGSize(width: 640, height: 480))
-        host.view.layoutSubtreeIfNeeded()
-        if #available(macOS 13.0, *) {
-            #expect(host.sizingOptions.isEmpty)
-        }
+    @Test func hostDoesNotSelfSizeFromAppKitConstraints() throws {
+        let deck = EditorContentDeckController()
+        deck.view.setFrameSize(CGSize(width: 640, height: 480))
+        deck.update(items: items, selectedID: .workspace)
+        deck.view.layoutSubtreeIfNeeded()
+        let editor = try #require(deck.hosts[.workspace])
+        #expect(editor.sizingOptions.isEmpty)
+        #expect(editor.frame == deck.view.bounds)
+        deck.view.setFrameSize(CGSize(width: 800, height: 600))
+        deck.view.layoutSubtreeIfNeeded()
+        #expect(editor.frame == deck.view.bounds)
     }
 }

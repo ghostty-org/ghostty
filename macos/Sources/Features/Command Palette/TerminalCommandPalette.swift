@@ -52,9 +52,6 @@ struct TerminalCommandPaletteView: View {
                     VStack {
                         Spacer().frame(height: geometry.size.height * 0.05)
 
-                        ResponderChainInjector(responder: surfaceView)
-                            .frame(width: 0, height: 0)
-
                         CommandPaletteView(
                             isPresented: $isPresented,
                             backgroundColor: ghosttyConfig.backgroundColor,
@@ -65,18 +62,6 @@ struct TerminalCommandPaletteView: View {
                         Spacer()
                     }
                     .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
-                }
-            }
-        }
-        .onChange(of: isPresented) { newValue in
-            // When the command palette disappears we need to send focus back to the
-            // surface view we were overlaid on top of. There's probably a better way
-            // to handle the first responder state here but I don't know it.
-            if !newValue {
-                // Has to be on queue because onChange happens on a user-interactive
-                // thread and Xcode is mad about this call on that.
-                DispatchQueue.main.async {
-                    surfaceView.window?.makeFirstResponder(surfaceView)
                 }
             }
         }
@@ -217,19 +202,4 @@ struct TerminalCommandPaletteView: View {
         }
     }
 
-}
-
-/// This is done to ensure that the given view is in the responder chain.
-private struct ResponderChainInjector: NSViewRepresentable {
-    let responder: NSResponder
-
-    func makeNSView(context: Context) -> NSView {
-        let dummy = NSView()
-        DispatchQueue.main.async {
-            dummy.nextResponder = responder
-        }
-        return dummy
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
 }
