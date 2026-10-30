@@ -6,6 +6,7 @@ struct GitCollectionToolbar: View {
     @Binding var mode: GitCollectionMode
     var placeholder = GitL10n.text("Search branches…")
     var autofocus = false
+    var showsMode = true
     let controller: GitCollectionController
     var cancel: () -> Void = {}
     @Environment(\.gitCollectionColors) private var colors
@@ -14,7 +15,7 @@ struct GitCollectionToolbar: View {
             GitCollectionSearchField(query: $query, placeholder: placeholder, autofocus: autofocus,
                                      colors: colors, controller: controller, cancel: cancel)
                 .frame(height: 28)
-            GitCollectionModePicker(mode: $mode)
+            if showsMode { GitCollectionModePicker(mode: $mode) }
         }
     }
 }

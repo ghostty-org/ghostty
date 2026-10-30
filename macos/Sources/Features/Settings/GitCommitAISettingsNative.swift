@@ -251,6 +251,7 @@ enum GitCommitAISettingsPanel {
         panel.titlebarAppearsTransparent = true
         panel.isOpaque = true
         panel.contentViewController = controller
+        (controller.view as? OMGNativeSurfaceView)?.bindTheme(to: parent)
         parent.beginSheet(panel) { _ in controller.sheetEnded() }
     }
 }
@@ -311,7 +312,7 @@ final class GitCommitAIPromptController: GitCommitSettingsPanelController, NSTex
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func loadView() {
-        let root = NSView()
+        let root = OMGNativeSurfaceView()
         let title = NSTextField(labelWithString: GitL10n.text("Custom commit prompt"))
         title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
         let scroll = NSScrollView()
@@ -424,7 +425,7 @@ final class GitCommitAIAddModelsController: GitCommitSettingsPanelController,
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func loadView() {
-        let root = NSView()
+        let root = OMGNativeSurfaceView()
         let title = NSTextField(labelWithString: GitL10n.text("Add Agent Models…"))
         title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
         agentPicker.removeAllItems()

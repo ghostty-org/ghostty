@@ -29,6 +29,12 @@ struct GitCollectionColors: Equatable {
     var hover: NSColor { text.gitOpacity(0.055) }
 
     init() {}
+    init(nativeTheme: OMGNativeTheme) {
+        text = nativeTheme.foreground
+        background = nativeTheme.background
+        accent = nativeTheme.accent
+        selection = nativeTheme.selectedFill
+    }
     init(config: Ghostty.Config, background: NSColor) {
         let theme = config.editorTheme(background: background)
         text = theme.text.color
@@ -67,36 +73,16 @@ extension EnvironmentValues {
 /// One compact mode control is used in Changes, Branches and the History picker.
 struct GitCollectionModePicker: NSViewRepresentable {
     @Binding var mode: GitCollectionMode
-    func makeCoordinator() -> Coordinator { Coordinator(mode: $mode) }
-    func makeNSView(context: Context) -> NSSegmentedControl {
-        let control = NSSegmentedControl(labels: GitCollectionMode.allCases.map(\.title),
-                                         trackingMode: .selectOne, target: context.coordinator,
-                                         action: #selector(Coordinator.changed(_:)))
-        for (index, value) in GitCollectionMode.allCases.enumerated() {
-            control.setLabel("", forSegment: index)
-            control.setImage(NSImage(systemSymbolName: value.symbol, accessibilityDescription: value.title), forSegment: index)
-            control.setWidth(26, forSegment: index)
-            control.setToolTip(GitL10n.format("{0} view", value.title), forSegment: index)
-        }
-        control.segmentStyle = .texturedRounded
-        control.controlSize = .small
-        control.setAccessibilityLabel(GitL10n.text("Git collection view mode"))
-        return control
+    func makeNSView(context: Context) -> GitPopoverSegments { GitPopoverSegments() }
+    func updateNSView(_ control: GitPopoverSegments, context: Context) {
+        control.setAccessibilityIdentifier("git.collection.mode")
+        control.configure(segments: GitCollectionMode.allCases.map {
+            GitPopoverSegment(id: $0.rawValue, title: "", symbol: $0.symbol, accessibilityLabel: $0.title)
+        }, selectedID: mode.rawValue, colors: .init(nativeTheme: .resolve(for: control)), widths: [26, 26])
+        control.onSelect = { if let next = GitCollectionMode(rawValue: $0) { mode = next } }
     }
-    func updateNSView(_ control: NSSegmentedControl, context: Context) {
-        context.coordinator.mode = $mode
-        control.selectedSegment = GitCollectionMode.allCases.firstIndex(of: mode) ?? 0
-    }
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSSegmentedControl, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: GitPopoverSegments, context: Context) -> CGSize? {
         CGSize(width: 54, height: 26)
-    }
-    final class Coordinator: NSObject {
-        var mode: Binding<GitCollectionMode>
-        init(mode: Binding<GitCollectionMode>) { self.mode = mode }
-        @objc func changed(_ sender: NSSegmentedControl) {
-            guard GitCollectionMode.allCases.indices.contains(sender.selectedSegment) else { return }
-            mode.wrappedValue = GitCollectionMode.allCases[sender.selectedSegment]
-        }
     }
 }
 

@@ -23,6 +23,7 @@ enum GitTagDialog {
                 continuation.resume(returning: mutation)
             }
             panel.contentViewController = controller
+            (controller.view as? OMGNativeSurfaceView)?.bindTheme(to: window)
             if let window { window.beginSheet(panel) } else { panel.makeKeyAndOrderFront(nil) }
         }
     }
@@ -54,7 +55,7 @@ final class GitTagDialogController: NSViewController, NSWindowDelegate, NSTextFi
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func loadView() {
-        let root = NSView()
+        let root = OMGNativeSurfaceView()
         root.translatesAutoresizingMaskIntoConstraints = false
         let title = NSTextField(labelWithString: GitL10n.text("New Tag…"))
         title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)

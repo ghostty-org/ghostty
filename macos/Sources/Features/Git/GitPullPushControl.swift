@@ -19,7 +19,7 @@ struct GitPullPushControl: NSViewRepresentable {
         view.configure(self)
     }
 
-    final class Control: NSButton {
+    final class Control: NativeActionControl {
         private var content: GitPullPushControl?
 
         override init(frame frameRect: NSRect) {
@@ -40,19 +40,15 @@ struct GitPullPushControl: NSViewRepresentable {
 
         func configure(_ content: GitPullPushControl) {
             self.content = content
-            isEnabled = content.canPull || content.canPush || content.canPushTo || content.canMerge
-            if content.isBusy {
-                title = ""
-                image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: GitL10n.text("Pull or Push"))
-            } else {
-                title = ""
-                image = NSImage(systemSymbolName: "arrow.up.arrow.down", accessibilityDescription: GitL10n.text("Pull or Push"))
-            }
+            super.configure(title: "", symbol: content.isBusy ? "arrow.triangle.2.circlepath" : "arrow.up.arrow.down",
+                            help: GitL10n.text("Pull or Push"),
+                            enabled: content.canPull || content.canPush || content.canPushTo || content.canMerge,
+                            style: .plain, identifier: "git.pull-push")
         }
 
         @objc private func toggleMenu() {
-            guard let content, window != nil else { return }
-            makeMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.minY), in: self)
+            guard content != nil, window != nil else { return }
+            showMenu(makeMenu())
         }
 
         func makeMenu() -> NSMenu {

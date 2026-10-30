@@ -61,7 +61,7 @@ struct AgentHistoryNativeToolbarTests {
         #expect(changed.last == "project")
     }
 
-    @Test func filterContentFitsAndKeepsCurrentDirectoryHint() throws {
+    @Test func filterContentFitsWithoutRedundantDirectorySubtitle() throws {
         let controller = AgentHistoryFilterController()
         var filter = AgentHistoryFilterState()
         filter.directory = .currentTree
@@ -73,7 +73,7 @@ struct AgentHistoryNativeToolbarTests {
         #expect(controller.preferredContentSize.width == 320)
         #expect(controller.preferredContentSize.height >= controller.view.fittingSize.height)
         #expect(controller.directoryHintForTesting.stringValue == "repo")
-        #expect(controller.directoryHintForTesting.isHidden == false)
+        #expect(controller.directoryHintForTesting.isHidden == true)
         for control in controller.filterControlsForTesting.values {
             #expect(control.frame.width > 0)
             #expect(control.frame.minX >= 0)

@@ -56,7 +56,7 @@ struct TerminalWorkspaceButton: NSViewRepresentable {
 }
 
 @MainActor
-final class TerminalWorkspaceHeaderButton: NSButton {
+final class TerminalWorkspaceHeaderButton: NativeActionControl {
     private let symbolView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let chevronView = NSImageView()
@@ -121,9 +121,7 @@ final class TerminalWorkspaceHeaderButton: NSButton {
         symbolView.image = NSImage(systemSymbolName: state.symbol, accessibilityDescription: nil)
         symbolView.contentTintColor = state.tint
         attentionView.isHidden = !state.needsAttention
-        layer?.backgroundColor = state.isPresented
-            ? NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
-            : nil
+        setPresentationActive(state.isPresented)
         let base = WorkspaceL10n.text("Switch workspace", "切换工作区")
         toolTip = state.shortcut.isEmpty ? base : "\(base) · \(state.shortcut)"
         setAccessibilityLabel(WorkspaceL10n.text("Workspace: ", "工作区：") + state.name)
@@ -206,6 +204,7 @@ final class WorkspacePopoverPresentation: NSObject, NSPopoverDelegate {
         picker.onPreferredSizeChange = { [weak popover] size in
             popover?.contentSize = size
         }
+        picker.bindTheme(to: window)
         popover.contentViewController = picker
         popover.contentSize = picker.fittingSize(proposedWidth: nil)
         contentCreationCount += 1

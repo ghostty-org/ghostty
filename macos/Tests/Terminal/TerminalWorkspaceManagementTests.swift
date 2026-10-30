@@ -5,6 +5,40 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct TerminalWorkspaceManagementTests {
+    @Test func nativeWorkspacePopupUsesOneOpaqueThemeForHeaderRowsAndFooter() throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        _ = fixture.store.create(name: "Work", symbol: "briefcase", color: "blue")
+        let picker = TerminalWorkspacePickerController(model: fixture.model)
+        let root = try #require(picker.view as? OMGNativeSurfaceView)
+        let window = NSWindow(contentRect: .init(origin: .zero, size: picker.fittingSize(proposedWidth: nil)),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = picker
+        window.setContentSize(picker.fittingSize(proposedWidth: nil))
+        window.orderFront(nil)
+        defer { window.contentViewController = nil; window.close() }
+        root.layoutSubtreeIfNeeded()
+        let themes: [(String, OMGNativeTheme)] = [
+            ("dark", .init(background: NSColor(srgbRed: 0.12, green: 0.12, blue: 0.19, alpha: 1),
+                           foreground: NSColor(white: 0.85, alpha: 1))),
+            ("light", .init(background: NSColor(white: 0.96, alpha: 1), foreground: NSColor(white: 0.15, alpha: 1))),
+        ]
+        for (name, theme) in themes {
+            root.applyTheme(theme)
+            root.updateLayer()
+            #expect(root.layer?.backgroundColor == theme.background.cgColor)
+            if FileManager.default.fileExists(atPath: "/tmp/omg-unified-theme-preview") {
+                let bitmap = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+                root.effectiveAppearance.performAsCurrentDrawingAppearance {
+                    root.cacheDisplay(in: root.bounds, to: bitmap)
+                }
+                try #require(bitmap.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: "/tmp/omg-workspace-unified-\(name).png"))
+            }
+        }
+    }
+
     @MainActor final class Fixture {
         let store = TerminalWorkspaceStore(fileURL: nil)
         let coordinator: TerminalWorkspaceCoordinator

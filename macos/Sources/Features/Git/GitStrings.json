@@ -1,4 +1,8 @@
 {
+  "Choose a new absolute directory and enter a branch name when creating a branch.": {
+    "en": "Choose a new absolute directory and enter a branch name when creating a branch.",
+    "zh-Hans": "填写新的绝对目录路径；创建新分支时还需填写分支名。"
+  },
   "Git collection view mode": { "en": "Git collection view mode", "zh-Hans": "Git 列表显示方式" },
   "Git diff view mode": { "en": "Git diff view mode", "zh-Hans": "Git 差异视图" },
   "Git diff presentation": { "en": "Git diff presentation", "zh-Hans": "Git 差异显示模式" },

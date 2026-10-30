@@ -6,6 +6,49 @@ import Testing
 
 @MainActor
 struct GitInspectorLayoutTests {
+    @Test func historyOmitsModeAndBranchAddPrecedesModes() async throws {
+        let repository = GitRepositoryIdentity(worktreePath: "/repo/oh-my-ghostty", gitDirPath: "/repo/.git",
+                                               commonGitDirPath: "/repo/.git")
+        let content = InspectorGitContent(repository: repository, branch: "main",
+            status: .ready(repository: repository, branch: "main", headCommitID: nil), activeTab: .history)
+        let theme = OMGNativeTheme(background: NSColor(srgbRed: 0.12, green: 0.12, blue: 0.19, alpha: 1),
+                                   foreground: NSColor(white: 0.85, alpha: 1))
+        func presentation(_ value: InspectorGitContent) -> some View {
+            InspectorGitView(content: value, perform: { _ in })
+                .environment(\.gitCollectionColors, GitCollectionColors(nativeTheme: theme))
+                .background(Color(theme.background))
+        }
+        let host = NSHostingView(rootView: presentation(content))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 340, height: 540),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        try await Task.sleep(for: .milliseconds(80))
+        host.layoutSubtreeIfNeeded()
+        #expect(!all(host).contains { $0.accessibilityIdentifier() == "git.collection.mode" })
+        let branches = InspectorGitContent(repository: repository, branch: "main",
+            status: .ready(repository: repository, branch: "main", headCommitID: nil), activeTab: .branches)
+        host.rootView = presentation(branches)
+        try await Task.sleep(for: .milliseconds(80))
+        host.layoutSubtreeIfNeeded()
+        let add = try #require(all(host).first { $0.accessibilityIdentifier() == "git.new-worktree" })
+        let modes = try #require(all(host).first { $0.accessibilityIdentifier() == "git.collection.mode" })
+        #expect(add.convert(add.bounds, to: host).maxX <= modes.convert(modes.bounds, to: host).minX)
+        if FileManager.default.fileExists(atPath: "/tmp/omg-unified-theme-preview") {
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.effectiveAppearance.performAsCurrentDrawingAppearance {
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+            }
+            try #require(bitmap.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: "/tmp/omg-git-unified.png"))
+        }
+    }
+
     @Test func historyFitsMinimumInspectorWidthWithLongRefs() async throws {
         let repository = GitRepositoryIdentity(worktreePath: "/repo", gitDirPath: "/repo/.git", commonGitDirPath: "/repo/.git")
         let commit = GitHistoryCommit(id: GitCommitID("1234567890"), parentIDs: [], authorName: "Contributor",

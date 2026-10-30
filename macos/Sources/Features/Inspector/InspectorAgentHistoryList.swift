@@ -15,13 +15,26 @@ enum InspectorAgentHistoryListRow: Equatable {
         }
     }
 
-    var height: CGFloat {
+    var height: CGFloat { height(for: 320) }
+
+    func height(for width: CGFloat) -> CGFloat {
         switch self {
         case .group: return 28
         case .more: return 38
         case let .session(session, snippet):
-            return snippet != nil ? 104 : (session.workingDirectory != nil ? 88 : 70)
+            let titleHeight = Self.titleHeight(session.title, width: width, active: session.isActive)
+            return 8 + titleHeight + 3 + 14 +
+                (snippet != nil ? 30 : session.workingDirectory != nil ? 17 : 0) + 9
         }
+    }
+
+    static func titleHeight(_ title: String, width: CGFloat, active: Bool) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: 12.5, weight: .medium)
+        let available = max(30, width - 53 - (active ? 36 : 0))
+        let height = (title as NSString).boundingRect(
+            with: NSSize(width: available, height: 1000), options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]).height
+        return min(32, max(16, ceil(height)))
     }
 }
 
@@ -51,6 +64,22 @@ final class InspectorAgentHistoryListController: NSViewController, NSTableViewDa
     private var scrollObserver: NSObjectProtocol?
     private var pendingPage = false
     private var revision = 0
+    private var layoutWidth: CGFloat = 0
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        let width = scroll.contentSize.width
+        guard abs(width - layoutWidth) > 1 else { return }
+        let origin = scroll.contentView.bounds.origin
+        let first = table.row(at: origin)
+        let offset = first >= 0 ? origin.y - table.rect(ofRow: first).minY : 0
+        layoutWidth = width
+        table.noteHeightOfRows(withIndexesChanged: IndexSet(rows.indices))
+        if rows.indices.contains(first) {
+            scroll.contentView.scroll(to: NSPoint(x: origin.x, y: table.rect(ofRow: first).minY + offset))
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
+    }
 
     override func loadView() {
         view = scroll
@@ -63,6 +92,8 @@ final class InspectorAgentHistoryListController: NSViewController, NSTableViewDa
         table.addTableColumn(column)
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.headerView = nil
+        table.style = .plain
+        table.usesAutomaticRowHeights = false
         table.backgroundColor = .clear
         table.intercellSpacing = .zero
         table.dataSource = self
@@ -207,7 +238,9 @@ final class InspectorAgentHistoryListController: NSViewController, NSTableViewDa
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { rows[row].height }
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        rows[row].height(for: max(1, scroll.contentSize.width))
+    }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let snapshot else { return nil }
@@ -248,7 +281,7 @@ private final class InspectorAgentSessionTable: NSTableView {
     }
 }
 
-private final class InspectorAgentSessionCell: NSTableCellView {
+private final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
     private let icon = NSImageView()
     private let heading = NSTextField(wrappingLabelWithString: "")
     private let metadata = NSTextField(labelWithString: "")
@@ -279,14 +312,31 @@ private final class InspectorAgentSessionCell: NSTableCellView {
     override var isFlipped: Bool { true }
     override func accessibilityPerformPress() -> Bool { onActivate?(); return onActivate != nil }
 
+    func applyTheme(_ theme: OMGNativeTheme) {
+        let title = NSMutableAttributedString(attributedString: heading.attributedStringValue)
+        title.addAttribute(.foregroundColor, value: theme.foreground, range: NSRange(location: 0, length: title.length))
+        heading.attributedStringValue = title
+        metadata.textColor = theme.secondary
+        detail.textColor = theme.foreground.withAlphaComponent(0.42)
+        if icon.image?.isTemplate == true { icon.contentTintColor = theme.foreground }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyTheme(.resolve(for: self))
+    }
+
     override func layout() {
         super.layout()
         if isSession {
-            icon.frame = NSRect(x: 12, y: 10, width: 20, height: 20)
-            heading.frame = NSRect(x: 41, y: 9, width: max(0, bounds.width - 53 - (status.isHidden ? 0 : 36)), height: 32)
-            status.frame = NSRect(x: bounds.width - 47, y: 10, width: 35, height: 15)
-            metadata.frame = NSRect(x: 41, y: 43, width: max(0, bounds.width - 53), height: 16)
-            detail.frame = NSRect(x: 41, y: 62, width: max(0, bounds.width - 53), height: max(0, bounds.height - 70))
+            icon.frame = NSRect(x: 12, y: 8, width: 20, height: 20)
+            let titleHeight = InspectorAgentHistoryListRow.titleHeight(heading.stringValue, width: bounds.width,
+                                                                       active: !status.isHidden)
+            heading.frame = NSRect(x: 41, y: 8, width: max(0, bounds.width - 53 - (status.isHidden ? 0 : 36)), height: titleHeight)
+            status.frame = NSRect(x: bounds.width - 47, y: 8, width: 35, height: 15)
+            metadata.frame = NSRect(x: 41, y: heading.frame.maxY + 3, width: max(0, bounds.width - 53), height: 14)
+            detail.frame = NSRect(x: 41, y: metadata.frame.maxY + 3, width: max(0, bounds.width - 53),
+                                  height: max(0, bounds.height - metadata.frame.maxY - 9))
         } else {
             icon.frame = NSRect(x: 12, y: 8, width: 10, height: 12)
             heading.frame = NSRect(x: 28, y: 6, width: max(0, bounds.width - 72), height: bounds.height - 10)
@@ -336,6 +386,7 @@ private final class InspectorAgentSessionCell: NSTableCellView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(heading.stringValue + ", " + metadata.stringValue)
+        applyTheme(.resolve(for: self))
         needsLayout = true
     }
 

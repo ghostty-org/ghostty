@@ -187,6 +187,7 @@ final class GitRefBadgesView: NSView, NSPopoverDelegate {
         popover.behavior = .transient
         popover.animates = false
         popover.delegate = self
+        controller.bindTheme(to: window)
         popover.contentViewController = controller
         popover.contentSize = GitRefPopoverStyle.size
         referenceController = controller

@@ -15,6 +15,10 @@ final class GitPopoverSegments: NSView {
     private var segments: [GitPopoverSegment] = []
     private var colors = GitCollectionColors()
     private var widths: [CGFloat] = []
+    private var selectedID: String?
+    private let themeObserver = OMGNativeThemeObserver()
+    private var widthConstraints: [NSLayoutConstraint] = []
+    var stretchesToWidth = false
     var buttonsForTesting: [NSButton] { buttons }
     var onSelect: ((String) -> Void)?
 
@@ -33,6 +37,7 @@ final class GitPopoverSegments: NSView {
         ])
         setAccessibilityElement(true)
         setAccessibilityRole(.radioGroup)
+        themeObserver.onChange = { [weak self] in self?.applyTheme($0) }
     }
 
     @available(*, unavailable)
@@ -45,10 +50,11 @@ final class GitPopoverSegments: NSView {
         widths: [CGFloat]
     ) {
         guard widths.count == segments.count else { return }
-        if self.segments != segments || self.widths != widths {
+        if self.segments != segments {
             buttons.forEach { $0.removeFromSuperview() }
             self.segments = segments
             self.widths = widths
+            widthConstraints = []
             buttons = segments.indices.map { _ in
                 let button = GitPopoverSegmentButton()
                 button.target = self
@@ -57,21 +63,37 @@ final class GitPopoverSegments: NSView {
                 return button
             }
             for (button, width) in zip(buttons, widths) {
-                button.widthAnchor.constraint(equalToConstant: width).isActive = true
+                let constraint = stretchesToWidth
+                    ? button.widthAnchor.constraint(equalTo: widthAnchor,
+                                                    multiplier: 1 / CGFloat(buttons.count),
+                                                    constant: -2 / CGFloat(buttons.count))
+                    : button.widthAnchor.constraint(equalToConstant: width)
+                constraint.isActive = true
+                if !stretchesToWidth { widthConstraints.append(constraint) }
                 button.heightAnchor.constraint(equalToConstant: 24).isActive = true
             }
         }
+        self.widths = widths
+        for (constraint, width) in zip(widthConstraints, widths) { constraint.constant = width }
         self.colors = colors
+        self.selectedID = selectedID
         for (index, segment) in segments.enumerated() {
             buttons[index].configure(segment: segment, selected: segment.id == selectedID,
                                      colors: colors)
         }
         setAccessibilityLabel(segments.map(\.accessibilityLabel).joined(separator: ", "))
         needsDisplay = true
+        needsLayout = true
     }
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: widths.reduce(0, +) + 2, height: 26)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        themeObserver.sourceWindow = window?.sheetParent ?? window
+        applyTheme(.resolve(for: self))
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -85,8 +107,14 @@ final class GitPopoverSegments: NSView {
 
     @objc private func activate(_ sender: GitPopoverSegmentButton) {
         guard let id = sender.segmentID else { return }
+        selectedID = id
         for button in buttons { button.setSelected(button.segmentID == id) }
         onSelect?(id)
+    }
+
+    func applyTheme(_ theme: OMGNativeTheme) {
+        configure(segments: segments, selectedID: selectedID,
+                  colors: GitCollectionColors(nativeTheme: theme), widths: widths)
     }
 }
 

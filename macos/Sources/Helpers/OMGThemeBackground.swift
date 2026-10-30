@@ -119,25 +119,8 @@ enum OMGThemeDialog {
                 panel.contentViewController = nil
                 continuation.resume(returning: response)
             }
-            let content = VStack(alignment: .leading, spacing: 16) {
-                Text(alert.messageText).font(.headline)
-                Text(alert.informativeText).fixedSize(horizontal: false, vertical: true)
-                if let accessory = alert.accessoryView {
-                    OMGDialogAccessory(view: accessory)
-                        .frame(width: max(320, accessory.frame.width), height: max(26, accessory.frame.height))
-                }
-                HStack {
-                    Button(alert.buttons[1].title) { finish(.alertSecondButtonReturn) }
-                        .keyboardShortcut(.cancelAction)
-                    Spacer()
-                    Button(alert.buttons[0].title) { finish(.alertFirstButtonReturn) }
-                        .keyboardShortcut(.defaultAction)
-                }
-            }
-            .padding(24)
-            .frame(width: 440)
-            .omgThemedSurface(palette: palette)
-            let host = NSHostingController(rootView: content)
+            let host = OMGNativeDialogController(alert: alert, finish: finish)
+            host.bindTheme(to: window)
             panel.contentViewController = host
             panel.setContentSize(host.view.fittingSize)
             if let window {
@@ -156,12 +139,6 @@ enum OMGThemeDialog {
         }
         view.subviews.forEach { themeControls($0, palette: palette) }
     }
-}
-
-private struct OMGDialogAccessory: NSViewRepresentable {
-    let view: NSView
-    func makeNSView(context: Context) -> NSView { view }
-    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 /// The native grouped Form paints its own opaque system-gray canvas and cards.

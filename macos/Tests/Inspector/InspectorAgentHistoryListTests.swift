@@ -4,6 +4,19 @@ import Testing
 
 @MainActor
 struct InspectorAgentHistoryListTests {
+    @Test func compactRowsMeasureTitleInsteadOfReservingABlankSecondLine() throws {
+        let short = try session(1)
+        let long = AgentHistorySession(agent: short.agent, conversationID: short.conversationID,
+                                       title: String(repeating: "A longer session title ", count: 10),
+                                       workingDirectory: short.workingDirectory, updatedAt: short.updatedAt,
+                                       sourcePath: short.sourcePath, isActive: false)
+        let shortRow = InspectorAgentHistoryListRow.session(short, snippet: nil)
+        let longRow = InspectorAgentHistoryListRow.session(long, snippet: nil)
+        #expect(shortRow.height(for: 320) < longRow.height(for: 320))
+        #expect(shortRow.height(for: 320) < 72)
+        #expect(longRow.height(for: 320) <= 84)
+        #expect(longRow.height(for: 200) >= longRow.height(for: 500))
+    }
     @Test func vectorAgentLogosFillTheirNativeSlotsInBothAppearances() throws {
         let agents: [SupportedAgent] = [.codex, .pi, .claude]
         let sessions = try agents.enumerated().map { index, agent in

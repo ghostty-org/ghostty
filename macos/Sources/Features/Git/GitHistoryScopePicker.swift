@@ -71,6 +71,7 @@ struct GitHistoryScopePicker: NSViewRepresentable {
             popover.behavior = .transient
             popover.animates = false
             popover.delegate = self
+            host.bindTheme(to: window)
             popover.contentViewController = host
             popover.contentSize = host.preferredContentSize
             self.host = host

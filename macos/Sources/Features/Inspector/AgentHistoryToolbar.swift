@@ -23,9 +23,9 @@ struct AgentHistoryToolbar: NSViewControllerRepresentable {
 
 @MainActor
 final class AgentHistoryToolbarController: NSViewController, NSSearchFieldDelegate {
-    private let searchField = NSSearchField()
+    private let searchField = OMGNativeSearchField()
     private let progress = NSProgressIndicator()
-    private let filterButton = NSButton()
+    private let filterButton = NativeActionControl()
     private let row = NSStackView()
     private let popover = NSPopover()
     private let popoverDelegate = AgentHistoryPopoverDelegate()
@@ -63,10 +63,20 @@ final class AgentHistoryToolbarController: NSViewController, NSSearchFieldDelega
             filterButton.widthAnchor.constraint(equalToConstant: 30),
             filterButton.heightAnchor.constraint(equalToConstant: 28),
         ])
-        view = row
+        let surface = OMGNativeSurfaceView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        surface.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: surface.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: surface.trailingAnchor),
+            row.topAnchor.constraint(equalTo: surface.topAnchor),
+            row.bottomAnchor.constraint(equalTo: surface.bottomAnchor),
+        ])
+        view = surface
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = popoverDelegate
+        popoverDelegate.onClose = { [weak self] in self?.filterButton.setPresentationActive(false) }
         popover.contentViewController = filterController
         filterController.onChange = { [weak self] filter in
             self?.snapshot?.filterChanged(filter)
@@ -85,13 +95,12 @@ final class AgentHistoryToolbarController: NSViewController, NSSearchFieldDelega
         if searchField.stringValue != next.query, !hasMarkedText {
             searchField.stringValue = next.query
         }
+        progress.isHidden = !next.isSearching
         if next.isSearching { progress.startAnimation(nil) } else { progress.stopAnimation(nil) }
         let active = !next.filter.isDefault
-        filterButton.image = NSImage(
-            systemSymbolName: active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease",
-            accessibilityDescription: next.strings.organize
-        )
-        filterButton.contentTintColor = active ? .controlAccentColor : nil
+        filterButton.configure(title: "", symbol: "line.3.horizontal.decrease",
+                               help: next.strings.organize, enabled: true, style: active ? .bordered : .plain,
+                               identifier: "history.filter")
         filterButton.toolTip = next.strings.organize
         filterButton.setAccessibilityLabel(next.strings.organize)
         filterButton.setAccessibilityValue(active ? next.strings.filterActive : "")
@@ -129,14 +138,10 @@ final class AgentHistoryToolbarController: NSViewController, NSSearchFieldDelega
                                     filter: snapshot.filter, strings: snapshot.strings,
                                     currentDirectory: snapshot.currentDirectory)
             let window = view.window
-            let palette = OMGThemeBackground.palette(for: window)
-            filterController.configurePopoverAppearance(
-                NSAppearance(named: palette.background.isLightColor ? .aqua : .darkAqua)
-                    ?? window?.effectiveAppearance ?? NSApp.effectiveAppearance,
-                background: palette.background
-            )
+            filterController.bindTheme(to: window)
             popover.contentSize = filterController.preferredContentSize
             popover.show(relativeTo: filterButton.bounds, of: filterButton, preferredEdge: .maxY)
+            filterButton.setPresentationActive(popover.isShown)
         }
     }
 
@@ -148,11 +153,13 @@ final class AgentHistoryToolbarController: NSViewController, NSSearchFieldDelega
 }
 
 private final class AgentHistoryPopoverDelegate: NSObject, NSPopoverDelegate {
+    var onClose: (() -> Void)?
     weak var parentWindow: NSWindow?
     weak var previousResponder: NSView?
 
     func popoverDidClose(_ notification: Notification) {
         guard notification.object is NSPopover else { return }
+        onClose?()
         if let window = parentWindow, let previousResponder,
            previousResponder.window === window {
             window.makeFirstResponder(previousResponder)
@@ -164,7 +171,7 @@ private final class AgentHistoryPopoverDelegate: NSObject, NSPopoverDelegate {
 
 @MainActor
 final class AgentHistoryFilterController: NSViewController {
-    private let root = AgentHistoryFilterPopoverRootView()
+    private let root = OMGNativeSurfaceView()
     private let stack = NSStackView()
     private let agentScroll = NSScrollView()
     private let agentRows = AgentHistoryFilterAgentRows()
@@ -172,7 +179,7 @@ final class AgentHistoryFilterController: NSViewController {
     private let directoryChips = NSStackView()
     private let timeChips = NSStackView()
     private var groupingGrid = NSGridView()
-    private let resetButton = NSButton()
+    private let resetButton = NativeActionControl()
     private let directoryHint = NSTextField(labelWithString: "")
     private var directoryButtons: [String: AgentHistoryFilterOptionButton] = [:]
     private var timeButtons: [String: AgentHistoryFilterOptionButton] = [:]
@@ -189,8 +196,10 @@ final class AgentHistoryFilterController: NSViewController {
     var onPreferredContentSizeChange: ((NSSize) -> Void)?
 
     func configurePopoverAppearance(_ appearance: NSAppearance, background: NSColor) {
-        root.configure(appearance: appearance, background: background)
+        root.applyTheme(.init(background: background, foreground: background.isLightColor ? .black : .white))
     }
+
+    func bindTheme(to window: NSWindow?) { root.bindTheme(to: window) }
 
     override func loadView() {
         root.wantsLayer = true
@@ -344,15 +353,9 @@ final class AgentHistoryFilterController: NSViewController {
             .map { $0 == "/" ? "/" : WorkspacePathPresentation.folderName($0) }
             ?? strings.directoryUnavailable
         directoryHint.toolTip = currentDirectory
-        directoryHint.isHidden = filter.directory != .currentTree
-        resetButton.title = strings.reset
-        resetButton.image = NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: nil)
-        resetButton.isEnabled = !filter.isDefault
-        resetButton.contentTintColor = filter.isDefault ? .secondaryLabelColor : .controlAccentColor
-        resetButton.attributedTitle = NSAttributedString(string: strings.reset, attributes: [
-            .font: NSFont.systemFont(ofSize: 11),
-            .foregroundColor: filter.isDefault ? NSColor.secondaryLabelColor : .controlAccentColor,
-        ])
+        directoryHint.isHidden = true
+        resetButton.configure(title: strings.reset, symbol: "arrow.counterclockwise", help: strings.reset,
+                              enabled: !filter.isDefault, style: .plain, identifier: "agent-history-filter.reset")
         resetButton.setAccessibilityValue(filter.isDefault ? "" : strings.filterActive)
         agentRows.layoutSubtreeIfNeeded()
         stack.layoutSubtreeIfNeeded()
@@ -545,28 +548,6 @@ private final class AgentHistoryFilterAgentRows: NSStackView {
     override var isFlipped: Bool { true }
 }
 
-private final class AgentHistoryFilterPopoverRootView: NSView {
-    private var popoverBackground = NSColor.windowBackgroundColor
-
-    func configure(appearance: NSAppearance, background: NSColor) {
-        self.appearance = appearance
-        popoverBackground = background
-        needsDisplay = true
-    }
-
-    override var wantsUpdateLayer: Bool { true }
-    override func updateLayer() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = popoverBackground.cgColor
-        }
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
-    }
-}
-
 private final class AgentHistoryFilterOptionButton: NSButton {
     private let checkIcon = NSImageView()
     private let leadingIcon = NSImageView()
@@ -683,10 +664,15 @@ private final class AgentHistoryFilterOptionButton: NSButton {
     override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
     override func updateLayer() {
+        let theme = OMGNativeTheme.resolve(for: self)
         let color = selectedOption
-            ? NSColor.controlAccentColor.withAlphaComponent(0.14)
-            : (hovered || isHighlighted) && isEnabled ? NSColor.labelColor.withAlphaComponent(0.08) : .clear
+            ? theme.selectedFill
+            : (hovered || isHighlighted) && isEnabled ? theme.hoverFill : .clear
         layer?.backgroundColor = color.cgColor
+        titleField.textColor = isEnabled ? theme.foreground : theme.disabled
+        countField.textColor = theme.secondary
+        checkIcon.contentTintColor = theme.accent
+        leadingIcon.contentTintColor = leadingIcon.image?.isTemplate == true ? theme.foreground : nil
         layer?.cornerRadius = compact ? 5 : 5
     }
 }

@@ -143,7 +143,6 @@ struct InspectorGitView: View {
                     title: content.repository?.repositoryName ?? "Git",
                     help: content.repository?.worktreePath ?? "",
                     height: 20,
-                    expands: true,
                     menu: [
                         .action(GitL10n.text("Copy repository name"), symbol: "doc.on.doc") {
                             InspectorCopyMenu.copy(content.repository?.repositoryName ?? "Git")
@@ -151,7 +150,7 @@ struct InspectorGitView: View {
                     ],
                     action: { _ in }
                 )
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
 
                 Spacer(minLength: 4)
 
@@ -297,16 +296,18 @@ struct InspectorGitView: View {
         GitSidebarNavigation(selected: content.activeTab) { perform(.gitAction(.selectTab($0))) }
         HStack(spacing: 4) {
             GitCollectionToolbar(query: activeQuery, mode: $changesMode, placeholder: searchPlaceholder,
-                                 controller: activeController, cancel: { activeQuery.wrappedValue = "" })
+                                 showsMode: false, controller: activeController, cancel: { activeQuery.wrappedValue = "" })
             if content.activeTab == .branches {
                 NativeActionButton(
                     symbol: "plus",
                     help: GitL10n.text("New Worktree"),
                     enabled: content.operation == nil && content.workingTree.worktreesError == nil,
                     height: 24,
+                    identifier: "git.new-worktree",
                     action: { _ in perform(.gitAction(.createWorktree(nil))) }
                 )
             }
+            if content.activeTab != .history { GitCollectionModePicker(mode: $changesMode) }
         }
         }
         .task(id: collectionKey + "\n" + historyQuery) {

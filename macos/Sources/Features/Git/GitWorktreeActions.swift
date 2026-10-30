@@ -5,34 +5,25 @@ enum GitWorktreeActions {
     struct Creation { let mutation: GitMutation; let openAfterCreation: Bool }
     static func creation(start: String?, repository: GitRepositoryIdentity, window: NSWindow?,
                          detached: Bool = false) async -> Creation? {
-        let alert = NSAlert()
-        alert.messageText = GitL10n.text("Create Worktree")
-        alert.informativeText = GitL10n.format("Choose a directory and how to check out {0}.", String(describing: start ?? "HEAD"))
-        let path = NSTextField(string: (repository.worktreePath as NSString).deletingLastPathComponent + "/")
-        path.placeholderString = GitL10n.text("Absolute worktree directory")
-        let branch = NSTextField(string: "")
-        branch.placeholderString = GitL10n.text("New branch name")
-        let mode = NSPopUpButton()
-        mode.addItems(withTitles: [GitL10n.text("New branch"), "Detached HEAD"])
-        if start?.hasPrefix("refs/heads/") == true { mode.addItem(withTitle: GitL10n.text("Existing branch")) }
-        if detached { mode.selectItem(at: 1); mode.isEnabled = false; branch.isEnabled = false }
-        let open = NSButton(checkboxWithTitle: GitL10n.text("Open in a new tab after creation"), target: nil, action: nil)
-        open.state = .on
-        let stack = NSStackView(views: [NSTextField(labelWithString: "Directory"), path,
-                                       NSTextField(labelWithString: GitL10n.text("Checkout")), mode,
-                                       NSTextField(labelWithString: GitL10n.text("Branch name (for New branch)")), branch, open])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 6
-        stack.frame = NSRect(x: 0, y: 0, width: 340, height: 196)
-        for field in [path, branch] { field.widthAnchor.constraint(equalToConstant: 340).isActive = true }
-        alert.accessoryView = stack
-        alert.addButton(withTitle: GitL10n.text("Create"))
-        alert.addButton(withTitle: GitL10n.text("Cancel"))
-        guard await response(alert, window: window) == .alertFirstButtonReturn else { return nil }
-        return Creation(mutation: .addWorktree(path: path.stringValue, start: start ?? "HEAD",
-                            branch: mode.indexOfSelectedItem == 0 ? branch.stringValue : nil,
-                            detached: mode.indexOfSelectedItem == 1), openAfterCreation: open.state == .on)
+        await withCheckedContinuation { continuation in
+            let panel = NSPanel(contentRect: .init(x: 0, y: 0, width: 470, height: 340),
+                                styleMask: [.titled], backing: .buffered, defer: false)
+            panel.title = GitL10n.text("Create Worktree")
+            panel.isReleasedWhenClosed = false
+            var finished = false
+            let controller = GitWorktreeCreationController(start: start, repository: repository, detached: detached) { result in
+                guard !finished else { return }
+                finished = true
+                if let window { window.endSheet(panel) } else { NSApp.stopModal() }
+                panel.orderOut(nil)
+                panel.contentViewController = nil
+                continuation.resume(returning: result)
+            }
+            controller.bindTheme(to: window)
+            panel.contentViewController = controller
+            panel.setContentSize(controller.view.fittingSize)
+            if let window { window.beginSheet(panel) } else { panel.center(); NSApp.runModal(for: panel) }
+        }
     }
 
     static func removal(_ worktree: GitWorktreeInfo, window: NSWindow?) async -> Bool {

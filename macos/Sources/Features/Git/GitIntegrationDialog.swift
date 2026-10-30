@@ -26,6 +26,7 @@ enum GitIntegrationDialog {
                 continuation.resume(returning: plan)
             }
             panel.contentViewController = controller
+            (controller.view as? OMGNativeSurfaceView)?.bindTheme(to: window)
             if let window { window.beginSheet(panel) } else { panel.makeKeyAndOrderFront(nil) }
         }
     }
@@ -74,7 +75,7 @@ final class GitIntegrationDialogController: NSViewController, NSTextViewDelegate
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func loadView() {
-        let root = NSView()
+        let root = OMGNativeSurfaceView()
         let title = NSTextField(labelWithString: kind.title)
         title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
         statusField.textColor = .systemRed

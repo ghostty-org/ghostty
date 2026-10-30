@@ -6,7 +6,7 @@ final class GitReferenceListPopoverController: NSViewController, NSSearchFieldDe
     private let refs: [GitRefDecoration]
     private let initialSelection: GitRefDecoration?
     private let state: GitCollectionState
-    private let colors: GitCollectionColors
+    private var colors: GitCollectionColors
     private let pasteboard: NSPasteboard
     private let close: () -> Void
     private let searchField = GitCollectionSearchField.Field()
@@ -39,7 +39,7 @@ final class GitReferenceListPopoverController: NSViewController, NSSearchFieldDe
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func loadView() {
-        let root = GitPopoverBackgroundView(backgroundColor: colors.background)
+        let root = OMGNativeSurfaceView()
         let searchRow = NSStackView(views: [searchField, modeControl])
         searchRow.orientation = .horizontal
         searchRow.spacing = 5
@@ -103,6 +103,25 @@ final class GitReferenceListPopoverController: NSViewController, NSSearchFieldDe
             copiedLabel.heightAnchor.constraint(equalToConstant: 14),
         ])
         view = root
+        root.onThemeChange = { [weak self] theme in self?.applyTheme(theme) }
+    }
+
+    func bindTheme(to window: NSWindow?) {
+        _ = view
+        (view as? OMGNativeSurfaceView)?.bindTheme(to: window)
+    }
+
+    private func applyTheme(_ theme: OMGNativeTheme) {
+        colors = GitCollectionColors(nativeTheme: theme)
+        searchField.colors = colors
+        searchField.textColor = colors.text
+        searchField.placeholderAttributedString = NSAttributedString(string: GitL10n.text("Search references…"),
+            attributes: [.foregroundColor: colors.secondary, .font: NSFont.systemFont(ofSize: 11)])
+        (searchField.currentEditor() as? NSTextView)?.textColor = colors.text
+        searchField.needsDisplay = true
+        modeControl.applyTheme(theme)
+        copiedLabel.textColor = theme.secondary
+        collectionCoordinator.update(makeCollection())
     }
 
     override func viewDidAppear() {

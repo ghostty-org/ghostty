@@ -40,7 +40,7 @@ struct AgentHistoryFilterVisualTests {
         let firstAgent = try #require(controller.agentButtonForTesting(agents[0]))
         #expect(scroll.documentVisibleRect.intersects(firstAgent.frame))
         #expect(controller.directoryHintForTesting.stringValue == "project")
-        #expect(!controller.directoryHintForTesting.isHidden)
+        #expect(controller.directoryHintForTesting.isHidden)
 
         let directory = try #require(controller.choiceButtonForTesting(.directory, "currentTree"))
         directory.performClick(nil)

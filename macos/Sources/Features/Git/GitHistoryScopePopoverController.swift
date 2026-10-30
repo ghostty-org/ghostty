@@ -5,6 +5,7 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
     private let content: GitHistoryScopePicker
     private let closePopover: () -> Void
     private let searchField = GitCollectionSearchField.Field()
+    private var colors: GitCollectionColors
     private let scopeControl = GitPopoverSegments()
     private let modeControl = GitPopoverSegments()
     private let collectionCoordinator = GitCollectionView.Coordinator()
@@ -17,6 +18,7 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
 
     init(content: GitHistoryScopePicker, close: @escaping () -> Void) {
         self.content = content
+        self.colors = content.nativeColors
         self.closePopover = close
         super.init(nibName: nil, bundle: nil)
         preferredContentSize = GitRefPopoverStyle.pickerSize(
@@ -30,7 +32,7 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func loadView() {
-        let root = GitPopoverBackgroundView(backgroundColor: content.nativeColors.background)
+        let root = OMGNativeSurfaceView()
         let searchRow = NSStackView(views: [searchField, modeControl])
         searchRow.spacing = 5
         searchRow.translatesAutoresizingMaskIntoConstraints = false
@@ -38,7 +40,7 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
         searchField.cell = GitSearchFieldCell(textCell: "")
         searchField.placeholderAttributedString = NSAttributedString(
             string: GitL10n.text("Search branches…"),
-            attributes: [.foregroundColor: content.nativeColors.secondary, .font: NSFont.systemFont(ofSize: 11)]
+            attributes: [.foregroundColor: colors.secondary, .font: NSFont.systemFont(ofSize: 11)]
         )
         searchField.controlSize = .small
         searchField.font = .systemFont(ofSize: 11)
@@ -47,8 +49,8 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
         searchField.isBezeled = true
         searchField.drawsBackground = false
         searchField.focusRingType = .none
-        searchField.colors = content.nativeColors
-        searchField.textColor = content.nativeColors.text
+        searchField.colors = colors
+        searchField.textColor = colors.text
         searchField.delegate = self
         searchField.identifier = .init("git-collection-search")
         searchField.sendsSearchStringImmediately = true
@@ -61,7 +63,7 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
                                   accessibilityLabel: GitL10n.format("{0} view", $0.title))
             },
             selectedID: mode.rawValue,
-            colors: content.nativeColors,
+            colors: colors,
             widths: Array(repeating: 26, count: GitCollectionMode.allCases.count)
         )
         modeControl.onSelect = { [weak self] id in self?.selectMode(id) }
@@ -75,13 +77,13 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
                                   accessibilityLabel: $0.displayName)
             },
             selectedID: selectedScope,
-            colors: content.nativeColors,
+            colors: colors,
             widths: Array(repeating: (preferredContentSize.width - 22) / 2, count: GitHistoryScope.allCases.count)
         )
         scopeControl.onSelect = { [weak self] id in self?.selectScope(id) }
 
         let collection = makeCollection()
-        let scroll = collection.makeNativeView(coordinator: collectionCoordinator, colors: content.nativeColors)
+        let scroll = collection.makeNativeView(coordinator: collectionCoordinator, colors: colors)
 
         let stack = NSStackView(views: [searchRow, scopeControl, scroll])
         stack.orientation = .vertical
@@ -105,6 +107,28 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
             scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 100)
         ])
         view = root
+        root.onThemeChange = { [weak self] theme in self?.applyTheme(theme) }
+    }
+
+    func bindTheme(to window: NSWindow?) {
+        _ = view
+        (view as? OMGNativeSurfaceView)?.bindTheme(to: window)
+        if let screen = window?.screen {
+            preferredContentSize.height = min(preferredContentSize.height, max(220, screen.visibleFrame.height - 100))
+        }
+    }
+
+    private func applyTheme(_ theme: OMGNativeTheme) {
+        colors = GitCollectionColors(nativeTheme: theme)
+        searchField.colors = colors
+        searchField.textColor = colors.text
+        searchField.placeholderAttributedString = NSAttributedString(string: GitL10n.text("Search branches…"),
+            attributes: [.foregroundColor: colors.secondary, .font: NSFont.systemFont(ofSize: 11)])
+        (searchField.currentEditor() as? NSTextView)?.textColor = colors.text
+        searchField.needsDisplay = true
+        modeControl.applyTheme(theme)
+        scopeControl.applyTheme(theme)
+        collectionCoordinator.update(makeCollection())
     }
 
     override func viewDidAppear() {
@@ -182,7 +206,7 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
                 closePopover()
                 content.perform(action)
             },
-            explicitColors: content.nativeColors
+            explicitColors: colors
         )
     }
 }

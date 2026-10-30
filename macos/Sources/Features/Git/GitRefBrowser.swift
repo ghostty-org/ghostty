@@ -33,7 +33,7 @@ struct GitRefBrowser: View {
             if showsToolbar {
             HStack(spacing: 5) {
                 GitCollectionToolbar(query: $query, mode: $mode, placeholder: decorations == nil ? GitL10n.text("Search branches…") : GitL10n.text("Search references…"), autofocus: isPicker || decorations != nil,
-                                     controller: controller, cancel: cancel)
+                                     showsMode: false, controller: controller, cancel: cancel)
                 if !isPicker && decorations == nil {
                     NativeActionButton(
                         symbol: "plus",
@@ -45,6 +45,7 @@ struct GitRefBrowser: View {
                     )
                     .frame(width: 28)
                 }
+                GitCollectionModePicker(mode: $mode)
             }.padding(.horizontal, 10)
             }
             if isPicker {

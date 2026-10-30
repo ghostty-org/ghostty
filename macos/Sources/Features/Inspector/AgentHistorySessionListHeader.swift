@@ -22,7 +22,7 @@ final class AgentHistorySessionListHeaderController: NSViewController {
     private let row = NSStackView()
     private let icon = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
-    private let refreshButton = NSButton()
+    private let refreshButton = NativeActionControl()
     private let progress = NSProgressIndicator()
     private var snapshot: AgentHistorySessionListHeader?
     var refreshButtonForTesting: NSButton { refreshButton }
@@ -46,6 +46,9 @@ final class AgentHistorySessionListHeaderController: NSViewController {
         progress.isDisplayedWhenStopped = false
         row.addArrangedSubview(icon)
         row.addArrangedSubview(titleField)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        row.addArrangedSubview(spacer)
         row.addArrangedSubview(progress)
         row.addArrangedSubview(refreshButton)
         NSLayoutConstraint.activate([
@@ -56,7 +59,20 @@ final class AgentHistorySessionListHeaderController: NSViewController {
             refreshButton.widthAnchor.constraint(equalToConstant: 28),
             refreshButton.heightAnchor.constraint(equalToConstant: 28),
         ])
-        view = row
+        let surface = OMGNativeSurfaceView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        surface.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: surface.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: surface.trailingAnchor),
+            row.topAnchor.constraint(equalTo: surface.topAnchor),
+            row.bottomAnchor.constraint(equalTo: surface.bottomAnchor),
+        ])
+        surface.onThemeChange = { [weak self] theme in
+            self?.titleField.textColor = theme.foreground
+            self?.icon.contentTintColor = theme.secondary
+        }
+        view = surface
     }
 
     func update(_ next: AgentHistorySessionListHeader) {
@@ -69,7 +85,8 @@ final class AgentHistorySessionListHeaderController: NSViewController {
         titleField.stringValue = next.title
         progress.isHidden = !next.isLoading
         if next.isLoading { progress.startAnimation(nil) } else { progress.stopAnimation(nil) }
-        refreshButton.isEnabled = !next.isLoading
+        refreshButton.configure(title: "", symbol: "arrow.clockwise", help: next.strings.refresh,
+                                enabled: !next.isLoading, style: .plain, identifier: "history.refresh")
         refreshButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: next.strings.refresh)
         refreshButton.toolTip = next.strings.refresh
         refreshButton.setAccessibilityLabel(next.strings.refresh)

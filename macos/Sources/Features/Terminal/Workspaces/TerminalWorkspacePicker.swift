@@ -25,27 +25,27 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
                                                NSTableViewDataSource, NSTableViewDelegate {
     private let model: TerminalWorkspacePickerModel
     private var cancellables = Set<AnyCancellable>()
-    private let root = NSView()
+    private let root = OMGNativeSurfaceView()
     private let stack = NSStackView()
     private let header = NSStackView()
-    private let backButton = NSButton()
+    private let backButton = NativeActionControl()
     private let titleLabel = NSTextField(labelWithString: "")
-    private let createButton = NSButton()
+    private let createButton = NativeActionControl()
     private let content = NSView()
-    private let queryField = NSSearchField()
+    private let queryField = OMGNativeSearchField()
     private let moveTitle = NSTextField(wrappingLabelWithString: "")
     private let table = TerminalWorkspaceTableView()
     private let scroll = NSScrollView()
     private let footer = NSTextField(labelWithString: "")
-    private let moveButton = NSButton()
+    private let moveButton = NativeActionControl()
     private let previewIcon = NSImageView()
     private let nameField = NSTextField()
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
     private let noticeLabel = NSTextField(wrappingLabelWithString: "")
     private let deleteTitleLabel = NSTextField(labelWithString: "")
     private let deleteDescriptionLabel = NSTextField(wrappingLabelWithString: "")
-    private let cancelButton = NSButton()
-    private let confirmButton = NSButton()
+    private let cancelButton = NativeActionControl()
+    private let confirmButton = NativeActionControl()
     private var symbolButtons: [NSButton] = []
     private var colorButtons: [NSButton] = []
     private var lastPage: TerminalWorkspacePickerModel.Page?
@@ -80,7 +80,19 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    func bindTheme(to window: NSWindow?) {
+        _ = view
+        root.bindTheme(to: window)
+    }
+
     override func loadView() {
+        root.onThemeChange = { [weak self] theme in
+            self?.table.backgroundColor = theme.background
+            self?.table.needsDisplay = true
+            self?.table.enumerateAvailableRowViews { row, _ in row.needsDisplay = true }
+            self?.footer.textColor = theme.secondary
+            self?.moveTitle.textColor = theme.secondary
+        }
         root.wantsLayer = true
         root.setAccessibilityIdentifier("workspace.picker")
 
@@ -99,7 +111,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         createButton.title = WorkspaceL10n.text("New", "新建")
         createButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
         createButton.imagePosition = .imageLeading
-        createButton.bezelStyle = .rounded
+        createButton.controlStyle = .bordered
         createButton.controlSize = .small
         createButton.target = self
         createButton.action = #selector(beginCreate)
@@ -116,6 +128,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         queryField.target = self
         queryField.action = #selector(searchChanged(_:))
         queryField.setAccessibilityIdentifier("workspace.search")
+        queryField.heightAnchor.constraint(equalToConstant: 28).isActive = true
         moveTitle.maximumNumberOfLines = 2
         moveTitle.textColor = .secondaryLabelColor
         moveTitle.font = .systemFont(ofSize: 11)
@@ -136,6 +149,8 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         table.onMove = { [weak self] delta in self?.model.step(delta) }
         table.onActivate = { [weak self] in self?.model.activateSelected() }
         table.setAccessibilityIdentifier("workspace.list")
+        table.backgroundColor = .clear
+        scroll.drawsBackground = false
         scroll.documentView = table
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
@@ -148,7 +163,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         moveButton.title = WorkspaceL10n.text("Move current tab…", "移动当前标签…")
         moveButton.image = NSImage(systemSymbolName: "arrow.right.square", accessibilityDescription: nil)
         moveButton.imagePosition = .imageLeading
-        moveButton.bezelStyle = .rounded
+        moveButton.controlStyle = .bordered
         moveButton.controlSize = .small
         moveButton.alignment = .left
         moveButton.target = self
@@ -163,12 +178,12 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         noticeLabel.textColor = .secondaryLabelColor
         noticeLabel.maximumNumberOfLines = 2
         cancelButton.title = WorkspaceL10n.text("Cancel", "取消")
-        cancelButton.bezelStyle = .rounded
+        cancelButton.controlStyle = .bordered
         cancelButton.keyEquivalent = "\u{1b}"
         cancelButton.keyEquivalentModifierMask = []
         cancelButton.target = self
         cancelButton.action = #selector(cancelPage)
-        confirmButton.bezelStyle = .rounded
+        confirmButton.controlStyle = .prominent
         confirmButton.target = self
 
         stack.orientation = .vertical
@@ -299,6 +314,12 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
     }
 
     private func rebuildPage() {
+        if let window = view.window, let responder = window.firstResponder as? NSView {
+            let editedControl = (responder as? NSTextView)?.delegate as? NSView
+            if responder.isDescendant(of: content) || editedControl?.isDescendant(of: content) == true {
+                window.makeFirstResponder(nil)
+            }
+        }
         scrollHeightConstraint?.isActive = false
         scrollHeightConstraint = nil
         content.subviews.forEach { $0.removeFromSuperview() }
@@ -339,7 +360,11 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         content.setAccessibilityIdentifier("workspace.page.\(pageIdentifier)")
         lastRows = []
         render()
-        DispatchQueue.main.async { [weak self] in self?.focusPage() }
+        let page = model.page
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.model.page == page, self.lastPage == page else { return }
+            self.focusPage()
+        }
     }
 
     private var pageIdentifier: String {
@@ -663,11 +688,15 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
     }
 
     private func focusPage() {
+        guard let window = view.window, !view.isHiddenOrHasHiddenAncestor, !model.isPerforming else { return }
+        let target: NSView
         switch model.page {
-        case .switcher, .move: view.window?.makeFirstResponder(queryField)
-        case .create, .edit: view.window?.makeFirstResponder(nameField)
-        case .delete: view.window?.makeFirstResponder(cancelButton)
+        case .switcher, .move: target = queryField
+        case .create, .edit: target = nameField
+        case .delete: target = cancelButton
         }
+        guard target.window === window, target.isDescendant(of: view), !target.isHiddenOrHasHiddenAncestor else { return }
+        window.makeFirstResponder(target)
     }
 }
 
@@ -692,7 +721,7 @@ private final class TerminalWorkspaceSelectionRow: NSTableRowView {
     override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
 
     override func drawSelection(in dirtyRect: NSRect) {
-        NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
+        OMGNativeTheme.resolve(for: self).selectedFill.setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: 6, yRadius: 6).fill()
     }
 }
@@ -706,14 +735,14 @@ private final class TerminalWorkspaceHitTargetButton: NSButton {
 }
 
 @MainActor
-private final class TerminalWorkspaceRowCell: NSTableCellView {
+private final class TerminalWorkspaceRowCell: NSTableCellView, OMGNativeThemeApplying {
     private let openButton = TerminalWorkspaceHitTargetButton()
     private let symbol = NSImageView()
     private let title = NSTextField(labelWithString: "")
     private let subtitle = NSTextField(labelWithString: "")
     private let trailing = NSTextField(labelWithString: "")
-    private let editButton = NSButton()
-    private let deleteButton = NSButton()
+    private let editButton = NativeActionControl()
+    private let deleteButton = NativeActionControl()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -773,6 +802,14 @@ private final class TerminalWorkspaceRowCell: NSTableCellView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    func applyTheme(_ theme: OMGNativeTheme) {
+        title.textColor = theme.foreground
+        subtitle.textColor = theme.secondary
+        trailing.textColor = theme.secondary
+        editButton.applyTheme(theme)
+        deleteButton.applyTheme(theme)
+    }
+
     func configure(
         workspace: TerminalWorkspace,
         snapshot: TerminalWorkspaceRowSnapshot,
@@ -781,6 +818,10 @@ private final class TerminalWorkspaceRowCell: NSTableCellView {
     ) {
         symbol.image = NSImage(systemSymbolName: workspace.symbol, accessibilityDescription: nil)
         symbol.contentTintColor = NSColor(workspace.tint)
+        let theme = OMGNativeTheme.resolve(for: self)
+        title.textColor = theme.foreground
+        subtitle.textColor = theme.secondary
+        trailing.textColor = theme.secondary
         title.stringValue = workspace.name
         subtitle.stringValue = snapshot.tabCount == 0
             ? WorkspaceL10n.text("Not open in this window", "当前窗口未打开")
