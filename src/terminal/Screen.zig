@@ -12418,6 +12418,40 @@ test "Screen: promptClickMove ignores click on prompt-only line" {
     try testing.expectEqual(PromptClickMove.zero, blank_result);
 }
 
+test "Screen: promptClickMove starship-style two-line prompt" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 30, .rows = 5, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // user ~/workspace/ghostty
+    // > ls -lah
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("user ~/workspace/ghostty\n");
+    s.cursorSetSemanticContent(.{ .prompt = .continuation });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("ls -lah");
+
+    // Clicking anywhere on the prompt-only line must not move the cursor.
+    const click_prompt_text = s.pages.pin(.{ .active = .{ .x = 5, .y = 0 } }).?;
+    try testing.expectEqual(PromptClickMove.zero, s.promptClickMove(click_prompt_text));
+
+    const click_prompt_blank = s.pages.pin(.{ .active = .{ .x = 28, .y = 0 } }).?;
+    try testing.expectEqual(PromptClickMove.zero, s.promptClickMove(click_prompt_blank));
+
+    // Clicking the prompt character on the line with input still moves to the
+    // start of the input.
+    const click_prompt_char = s.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?;
+    const result = s.promptClickMove(click_prompt_char);
+    try testing.expectEqual(@as(usize, 7), result.left);
+    try testing.expectEqual(@as(usize, 0), result.right);
+}
+
 test "Screen: promptClickMove click on wrapped multi-line prompt moves to input start" {
     const testing = std.testing;
     const alloc = testing.allocator;
