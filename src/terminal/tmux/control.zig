@@ -569,8 +569,8 @@ fn parseDecimalId(text: []const u8) ?usize {
 /// This should only be called once for a buffer. Otherwise, a decoded
 /// backslash may be interpreted as another escape.
 pub fn unescape(data: []u8) []const u8 {
-    var read_idx: usize = 0;
-    var write_idx: usize = 0;
+    var read_idx = std.mem.findScalar(u8, data, '\\') orelse return data;
+    var write_idx = read_idx;
 
     while (read_idx < data.len) {
         // Pass through non escape bytes as is.
@@ -919,6 +919,13 @@ test "tmux unescape malformed escape" {
     const expected = [_]u8{ '?', 'x', '3' };
 
     try testing.expectEqualSlices(u8, expected[0..], got);
+}
+
+test "tmux unescape preserves prefix" {
+    const testing = std.testing;
+
+    var input = "prefix\\015\\012suffix".*;
+    try testing.expectEqualStrings("prefix\r\nsuffix", unescape(&input));
 }
 
 test "tmux unescape byte range" {
