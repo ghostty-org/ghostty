@@ -46,7 +46,9 @@ struct EditorWorkspaceHost<Terminal: View>: View {
         NativeEditorContentDeck(items: [
             .init(id: .terminal, content: AnyView(VStack(spacing: 0) {
                 SessionRuntimeRecoveryBanner(controller: controller, surface: surfaceView)
-                SSHRecoveryBanner(controller: controller, surface: surfaceView)
+                if surfaceView.runtimeDescriptor == nil {
+                    SSHRecoveryBanner(controller: controller, surface: surfaceView)
+                }
                 terminal
             })),
             .init(id: .workspace, content: AnyView(editor
