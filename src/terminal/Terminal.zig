@@ -17009,6 +17009,39 @@ test "Terminal: softReset palette" {
     try testing.expectEqual(color.default[200], t.colors.palette.current[200]);
 }
 
+test "Terminal: resize redraws full-width OSC 133 prompt without accumulating rows" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .cols = 20, .rows = 10 });
+    defer t.deinit(alloc);
+    var stream = t.vtStream();
+    defer stream.deinit();
+
+    stream.nextSlice("keep output\r\n");
+    // Powerlevel10k emits the prompt-start mark before its leading blank
+    // line, then prints a full-width ruler and a second line for input.
+    const prompt = struct {
+        fn write(s: *Stream, cols: usize) void {
+            s.nextSlice("\x1b]133;A\x07\r\n\r\n\x1b[A~");
+            for (1..cols) |_| s.nextSlice("─");
+            s.nextSlice("\r\n> \x1b]133;B\x07");
+        }
+    }.write;
+    prompt(&stream, t.cols);
+    for (0..5) |_| {
+        for ([_]size.CellCountInt{ 12, 30, 16, 20 }) |cols| {
+            try t.resize(alloc, .{ .cols = cols, .rows = 10 });
+            // Zsh's redraw uses its previous physical prompt height.
+            stream.nextSlice("\r\x1b[A\x1b[A\x1b[J");
+            prompt(&stream, cols);
+            const contents = try t.plainString(alloc);
+            defer alloc.free(contents);
+            try testing.expectEqual(@as(usize, 1), std.mem.count(u8, contents, "~"));
+            try testing.expectEqual(@as(usize, 1), std.mem.count(u8, contents, "keep output"));
+            try testing.expectEqual(3, t.screens.active.cursor.y);
+        }
+    }
+}
+
 // https://github.com/mitchellh/ghostty/issues/272
 // This is also tested in depth in screen resize tests but I want to keep
 // this test around to ensure we don't regress at multiple layers.
