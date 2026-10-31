@@ -364,10 +364,20 @@ pub const Action = union(Key) {
     pub const DeviceStatus = struct {
         request: device_status.Request,
 
-        pub const C = u16;
+        /// The id that a DECCKSR (memory_checksum) request asks to have
+        /// echoed in its reply. Zero for every other request.
+        id: u16 = 0,
+
+        pub const C = extern struct {
+            request: u16,
+            id: u16,
+        };
 
         pub fn cval(self: DeviceStatus) DeviceStatus.C {
-            return @bitCast(self.request);
+            return .{
+                .request = @bitCast(self.request),
+                .id = self.id,
+            };
         }
     };
 
@@ -2304,7 +2314,7 @@ pub fn Stream(comptime H: type) type {
                     if (input.intermediates.len == 0 or
                         input.intermediates[0] == '?')
                     {
-                        if (input.params.len != 1) {
+                        if (input.params.len == 0 or input.params.len > 2) {
                             log.warn("invalid device status report command: {f}", .{input});
                             return;
                         }
@@ -2323,7 +2333,16 @@ pub fn Stream(comptime H: type) type {
                             return;
                         };
 
-                        self.handler.vt(.device_status, .{ .request = req });
+                        // Only DECCKSR takes a second parameter.
+                        if (input.params.len == 2 and req != .memory_checksum) {
+                            log.warn("invalid device status report command: {f}", .{input});
+                            return;
+                        }
+
+                        self.handler.vt(.device_status, .{
+                            .request = req,
+                            .id = if (input.params.len == 2) input.params[1] else 0,
+                        });
                         return;
                     }
 
@@ -4042,6 +4061,46 @@ test "stream: DECSTR dispatch" {
         var s: Stream(H) = .init(.{ .handler = .{} });
         s.nextSlice(case.input);
         try testing.expectEqual(case.calls, s.handler.calls);
+    }
+}
+
+test "stream: device status dispatch" {
+    const H = struct {
+        calls: usize = 0,
+        value: ?Action.DeviceStatus = null,
+
+        pub fn vt(self: *@This(), comptime action: Action.Tag, value: Action.Value(action)) void {
+            switch (action) {
+                .device_status => {
+                    self.calls += 1;
+                    self.value = value;
+                },
+                else => {},
+            }
+        }
+    };
+
+    const cases = [_]struct {
+        input: []const u8,
+        value: ?Action.DeviceStatus = null,
+    }{
+        .{ .input = "\x1b[5n", .value = .{ .request = .operating_status } },
+        .{ .input = "\x1b[?26n", .value = .{ .request = .keyboard_status } },
+        .{ .input = "\x1b[?63;123n", .value = .{ .request = .memory_checksum, .id = 123 } },
+        .{ .input = "\x1b[?63n", .value = .{ .request = .memory_checksum } },
+        // Only DECCKSR takes an id.
+        .{ .input = "\x1b[?26;1n" },
+        .{ .input = "\x1b[?63;1;2n" },
+        .{ .input = "\x1b[n" },
+        // Unknown requests are ignored.
+        .{ .input = "\x1b[?64n" },
+    };
+
+    for (cases) |case| {
+        var s: Stream(H) = .init(.{ .handler = .{} });
+        s.nextSlice(case.input);
+        try testing.expectEqual(@intFromBool(case.value != null), s.handler.calls);
+        try testing.expectEqual(case.value, s.handler.value);
     }
 }
 

@@ -779,7 +779,7 @@ pub const Handler = struct {
             .bell => self.bell(),
             .show_desktop_notification => self.desktopNotification(value),
             .device_attributes => self.reportDeviceAttributes(value),
-            .device_status => self.deviceStatus(value.request),
+            .device_status => self.deviceStatus(value),
             .enquiry => self.reportEnquiry(),
             .kitty_keyboard_query => self.queryKittyKeyboard(),
             .request_mode => self.requestMode(value.mode),
@@ -1734,9 +1734,41 @@ pub const Handler = struct {
         };
     }
 
-    fn deviceStatus(self: *Handler, req: device_status.Request) void {
-        switch (req) {
+    fn deviceStatus(self: *Handler, value: Action.DeviceStatus) void {
+        switch (value.request) {
             .operating_status => self.writePty("\x1B[0n"),
+
+            .printer_status,
+            .udk_status,
+            .locator_status,
+            .locator_type,
+            .macro_space,
+            .data_integrity,
+            .multiple_sessions,
+            => self.writePty(device_status.fixedReport(value.request).?),
+
+            .keyboard_status => {
+                // Without a device attributes callback the terminal reports
+                // no attributes at all, so assume the default conformance.
+                const level = if (self.effects.device_attributes) |func|
+                    func(self).primary.conformance_level
+                else
+                    (device_attributes.Primary{}).conformance_level;
+
+                var buf: [device_status.max_keyboard_report_encode_size + 1]u8 = undefined;
+                var writer: std.Io.Writer = .fixed(buf[0..device_status.max_keyboard_report_encode_size]);
+                device_status.encodeKeyboardReport(&writer, level) catch return;
+                buf[writer.end] = 0;
+                self.writePty(buf[0..writer.end :0]);
+            },
+
+            .memory_checksum => {
+                var buf: [device_status.max_memory_checksum_report_encode_size + 1]u8 = undefined;
+                var writer: std.Io.Writer = .fixed(buf[0..device_status.max_memory_checksum_report_encode_size]);
+                device_status.encodeMemoryChecksumReport(&writer, value.id) catch return;
+                buf[writer.end] = 0;
+                self.writePty(buf[0..writer.end :0]);
+            },
 
             .cursor_position => {
                 const pos = self.cursorReportPos();
@@ -6436,6 +6468,80 @@ test "device status: extended cursor position with origin mode" {
     try testing.expectEqualStrings("\x1B[?3;5;1R", S.written.?);
 }
 
+test "device status: hardware Ghostty doesn't have" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var written: ?[]const u8 = null;
+        fn writePty(_: *Handler, data: []const u8) void {
+            if (written) |old| testing.allocator.free(old);
+            written = testing.allocator.dupe(u8, data) catch @panic("OOM");
+        }
+    };
+    S.written = null;
+    defer if (S.written) |old| testing.allocator.free(old);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    const cases = [_]struct { input: []const u8, expected: []const u8 }{
+        .{ .input = "\x1B[?15n", .expected = "\x1B[?13n" },
+        .{ .input = "\x1B[?25n", .expected = "\x1B[?21n" },
+        .{ .input = "\x1B[?55n", .expected = "\x1B[?50n" },
+        .{ .input = "\x1B[?56n", .expected = "\x1B[?57;0n" },
+        .{ .input = "\x1B[?62n", .expected = "\x1B[0*{" },
+        .{ .input = "\x1B[?63;123n", .expected = "\x1BP123!~0000\x1B\\" },
+        .{ .input = "\x1B[?75n", .expected = "\x1B[?70n" },
+        .{ .input = "\x1B[?85n", .expected = "\x1B[?83n" },
+    };
+    for (cases) |case| {
+        s.nextSlice(case.input);
+        try testing.expectEqualStrings(case.expected, S.written.?);
+    }
+}
+
+test "device status: keyboard follows conformance level" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var written: ?[]const u8 = null;
+        var level: device_attributes.ConformanceLevel = .vt220;
+        fn writePty(_: *Handler, data: []const u8) void {
+            if (written) |old| testing.allocator.free(old);
+            written = testing.allocator.dupe(u8, data) catch @panic("OOM");
+        }
+        fn da(_: *Handler) device_attributes.Attributes {
+            return .{ .primary = .{ .conformance_level = level } };
+        }
+    };
+    S.written = null;
+    defer if (S.written) |old| testing.allocator.free(old);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // Without a device attributes callback, the default level.
+    s.nextSlice("\x1B[?26n");
+    try testing.expectEqualStrings("\x1B[?27;0n", S.written.?);
+
+    s.handler.effects.device_attributes = &S.da;
+    S.level = .vt420;
+    s.nextSlice("\x1B[?26n");
+    try testing.expectEqualStrings("\x1B[?27;0;0;0n", S.written.?);
+
+    S.level = .vt320;
+    s.nextSlice("\x1B[?26n");
+    try testing.expectEqualStrings("\x1B[?27;0;0n", S.written.?);
+}
+
 test "device status: color scheme dark" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
@@ -6582,6 +6688,8 @@ test "device status: readonly ignores all" {
     s.nextSlice("\x1B[6n");
     s.nextSlice("\x1B[?996n");
     s.nextSlice("\x1B[?998n");
+    s.nextSlice("\x1B[?26n");
+    s.nextSlice("\x1B[?63;1n");
 
     // Terminal should still be functional
     s.nextSlice("Test");
