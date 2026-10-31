@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-28 20:24+0200\n"
+"POT-Creation-Date: 2026-10-31 13:33-0400\n"
 "PO-Revision-Date: 2026-09-16 15:45+0200\n"
 "Last-Translator: derVedro <dervedro@googlemail.com>\n"
 "Language-Team: Russian\n"
@@ -133,7 +133,7 @@ msgid "New Tab"
 msgstr "Новая вкладка"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:391 src/apprt/gtk/ui/1.4/window.blp:244
-#: src/input/command.zig:613
+#: src/input/command.zig:636
 msgid "Close Tab"
 msgstr "Закрыть вкладку"
 
@@ -151,7 +151,7 @@ msgid "New Window"
 msgstr "Новое окно"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:411 src/apprt/gtk/ui/1.4/window.blp:227
-#: src/input/command.zig:630
+#: src/input/command.zig:653
 msgid "Close Window"
 msgstr "Закрыть окно"
 
@@ -207,7 +207,7 @@ msgstr "Инспектор терминала"
 msgid "About Ghostty"
 msgstr "О Ghostty"
 
-#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:725
 msgid "Quit"
 msgstr "Выход"
 
@@ -235,7 +235,7 @@ msgstr "Перезагрузите конфигурацию, чтобы снов
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2152
+#: src/apprt/gtk/class/application.zig:2168
 msgid "Cancel"
 msgstr "Отмена"
 
@@ -267,27 +267,27 @@ msgstr "Оставьте поле пустым, чтобы вернуть заг
 msgid "OK"
 msgstr "ОК"
 
-#: src/apprt/gtk/class/application.zig:1736
+#: src/apprt/gtk/class/application.zig:1752
 msgid "The keybind was revoked by the system."
 msgstr "Сочетание клавиш было отозвано системой."
 
-#: src/apprt/gtk/class/application.zig:1738
+#: src/apprt/gtk/class/application.zig:1754
 msgid "The keybind was denied by the system."
 msgstr "Сочетание клавиш было отклонено системой."
 
-#: src/apprt/gtk/class/application.zig:1750
+#: src/apprt/gtk/class/application.zig:1766
 msgid "Global keybind unavailable"
 msgstr "Глобальное сочетание клавиш недоступно"
 
-#: src/apprt/gtk/class/application.zig:2148
+#: src/apprt/gtk/class/application.zig:2164
 msgid "Export Terminal IO Events"
 msgstr "Экспортировать события ввода-вывода терминала"
 
-#: src/apprt/gtk/class/application.zig:2151
+#: src/apprt/gtk/class/application.zig:2167
 msgid "Export"
 msgstr "Экспортировать"
 
-#: src/apprt/gtk/class/application.zig:2649
+#: src/apprt/gtk/class/application.zig:2668
 msgid "Editing configuration file"
 msgstr "Редактирование файла конфигурации"
 
@@ -1007,131 +1007,163 @@ msgstr "Перезагрузить конфигурацию"
 msgid "Reload the config file."
 msgstr "Перезагрузить файл конфигурации."
 
-#: src/input/command.zig:606
+#: src/input/command.zig:607
+msgid "Switch to Configured Appearance"
+msgstr ""
+
+#: src/input/command.zig:608
+msgid "Use the application appearance from the configuration."
+msgstr ""
+
+#: src/input/command.zig:612
+msgid "Switch to System Appearance"
+msgstr ""
+
+#: src/input/command.zig:613
+msgid "Use the system application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:617
+msgid "Switch to Dark Appearance"
+msgstr ""
+
+#: src/input/command.zig:618
+msgid "Use a dark application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:622
+msgid "Switch to Light Appearance"
+msgstr ""
+
+#: src/input/command.zig:623
+msgid "Use a light application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:629
 msgid "Close Terminal"
 msgstr "Закрыть терминал"
 
-#: src/input/command.zig:607
+#: src/input/command.zig:630
 msgid "Close the current terminal."
 msgstr "Закрыть текущий терминал."
 
-#: src/input/command.zig:614
+#: src/input/command.zig:637
 msgid "Close the current tab."
 msgstr "Закрыть текущую вкладку."
 
-#: src/input/command.zig:618
+#: src/input/command.zig:641
 msgid "Close Other Tabs"
 msgstr "Закрыть другие вкладки"
 
-#: src/input/command.zig:619
+#: src/input/command.zig:642
 msgid "Close all tabs in this window except the current one."
 msgstr "Закрыть все остальные вкладки в этом окне."
 
-#: src/input/command.zig:623
+#: src/input/command.zig:646
 msgid "Close Tabs to the Right"
 msgstr "Закрыть вкладки справа"
 
-#: src/input/command.zig:624
+#: src/input/command.zig:647
 msgid "Close all tabs to the right of the current one."
 msgstr "Закрыть все вкладки справа от текущей."
 
-#: src/input/command.zig:631
+#: src/input/command.zig:654
 msgid "Close the current window."
 msgstr "Закрыть текущее окно."
 
-#: src/input/command.zig:636
+#: src/input/command.zig:659
 msgid "Close All Windows"
 msgstr "Закрыть все окна"
 
-#: src/input/command.zig:637
+#: src/input/command.zig:660
 msgid "Close all windows."
 msgstr "Закрыть все окна."
 
-#: src/input/command.zig:642
+#: src/input/command.zig:665
 msgid "Toggle Maximize"
 msgstr "Переключить развёрнутый режим окна"
 
-#: src/input/command.zig:643
+#: src/input/command.zig:666
 msgid "Toggle the maximized state of the current window."
 msgstr "Развернуть текущее окно или вернуть прежний размер."
 
-#: src/input/command.zig:648
+#: src/input/command.zig:671
 msgid "Toggle Fullscreen"
 msgstr "Переключить полноэкранный режим"
 
-#: src/input/command.zig:649
+#: src/input/command.zig:672
 msgid "Toggle the fullscreen state of the current window."
 msgstr "Показать текущее окно во весь экран или вернуть прежний размер."
 
-#: src/input/command.zig:654
+#: src/input/command.zig:677
 msgid "Toggle Window Decorations"
 msgstr "Переключить оформление окна"
 
-#: src/input/command.zig:655
+#: src/input/command.zig:678
 msgid "Toggle the window decorations."
 msgstr "Показать или скрыть оформление окна."
 
-#: src/input/command.zig:660
+#: src/input/command.zig:683
 msgid "Toggle Float on Top"
 msgstr "Переключить режим поверх всех окон"
 
-#: src/input/command.zig:661
+#: src/input/command.zig:684
 msgid "Toggle the float on top state of the current window."
 msgstr "Закрепить окно поверх остальных или снять закрепление."
 
-#: src/input/command.zig:666
+#: src/input/command.zig:689
 msgid "Toggle Secure Input"
 msgstr "Переключить защищённый ввод"
 
-#: src/input/command.zig:667
+#: src/input/command.zig:690
 msgid "Toggle secure input mode."
 msgstr "Включить или отключить режим защищённого ввода."
 
-#: src/input/command.zig:672
+#: src/input/command.zig:695
 msgid "Toggle Mouse Reporting"
 msgstr "Переключить передачу событий мыши"
 
-#: src/input/command.zig:673
+#: src/input/command.zig:696
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr ""
 "Разрешить или запретить передачу событий мыши терминальным приложениям."
 
-#: src/input/command.zig:678
+#: src/input/command.zig:701
 msgid "Toggle Background Opacity"
 msgstr "Переключить прозрачность фона"
 
-#: src/input/command.zig:679
+#: src/input/command.zig:702
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr "Изменить прозрачность у изначально прозрачного окна."
 
-#: src/input/command.zig:684
+#: src/input/command.zig:707
 msgid "Check for Updates"
 msgstr "Проверить обновления"
 
-#: src/input/command.zig:685
+#: src/input/command.zig:708
 msgid "Check for updates to the application."
 msgstr "Проверить наличие обновлений приложения."
 
-#: src/input/command.zig:690
+#: src/input/command.zig:713
 msgid "Undo"
 msgstr "Отменить"
 
-#: src/input/command.zig:691
+#: src/input/command.zig:714
 msgid "Undo the last action."
 msgstr "Отменить последнее действие."
 
-#: src/input/command.zig:696
+#: src/input/command.zig:719
 msgid "Redo"
 msgstr "Повторить"
 
-#: src/input/command.zig:697
+#: src/input/command.zig:720
 msgid "Redo the last undone action."
 msgstr "Повторить последнее отменённое действие."
 
-#: src/input/command.zig:703
+#: src/input/command.zig:726
 msgid "Quit the application."
 msgstr "Выйти из приложения."
 
-#: src/input/command.zig:709
+#: src/input/command.zig:732
 msgid "Put a little Ghostty in your terminal."
 msgstr "Вставить в терминал маленького Ghostty."

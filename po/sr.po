@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-28 20:24+0200\n"
+"POT-Creation-Date: 2026-10-31 13:33-0400\n"
 "PO-Revision-Date: 2026-08-31 21:45+0200\n"
 "Last-Translator: Марко Костић <marko.m.kostic@gmail.com>\n"
 "Language-Team: Language SR\n"
@@ -127,7 +127,7 @@ msgid "New Tab"
 msgstr "Нови језичак"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:391 src/apprt/gtk/ui/1.4/window.blp:244
-#: src/input/command.zig:613
+#: src/input/command.zig:636
 msgid "Close Tab"
 msgstr "Затвори језичак"
 
@@ -145,7 +145,7 @@ msgid "New Window"
 msgstr "Нови прозор"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:411 src/apprt/gtk/ui/1.4/window.blp:227
-#: src/input/command.zig:630
+#: src/input/command.zig:653
 msgid "Close Window"
 msgstr "Затвори прозор"
 
@@ -200,7 +200,7 @@ msgstr "Инспектор терминала"
 msgid "About Ghostty"
 msgstr "О програму Ghostty"
 
-#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:725
 msgid "Quit"
 msgstr "Изађи"
 
@@ -228,7 +228,7 @@ msgstr "Поново учитај подешавања да би се овај �
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2152
+#: src/apprt/gtk/class/application.zig:2168
 msgid "Cancel"
 msgstr "Откажи"
 
@@ -260,27 +260,27 @@ msgstr "Остави празно да вратиш подразумевани �
 msgid "OK"
 msgstr "У реду"
 
-#: src/apprt/gtk/class/application.zig:1736
+#: src/apprt/gtk/class/application.zig:1752
 msgid "The keybind was revoked by the system."
 msgstr "Систем је опозвао пречицу."
 
-#: src/apprt/gtk/class/application.zig:1738
+#: src/apprt/gtk/class/application.zig:1754
 msgid "The keybind was denied by the system."
 msgstr "Систем је одбио пречицу."
 
-#: src/apprt/gtk/class/application.zig:1750
+#: src/apprt/gtk/class/application.zig:1766
 msgid "Global keybind unavailable"
 msgstr "Глобална пречица није доступна"
 
-#: src/apprt/gtk/class/application.zig:2148
+#: src/apprt/gtk/class/application.zig:2164
 msgid "Export Terminal IO Events"
 msgstr "Извези догађаје улаза/излаза терминала"
 
-#: src/apprt/gtk/class/application.zig:2151
+#: src/apprt/gtk/class/application.zig:2167
 msgid "Export"
 msgstr "Извези"
 
-#: src/apprt/gtk/class/application.zig:2649
+#: src/apprt/gtk/class/application.zig:2668
 msgid "Editing configuration file"
 msgstr "Уређивање датотеке са подешавањима"
 
@@ -999,130 +999,162 @@ msgstr "Поново учитај подешавања"
 msgid "Reload the config file."
 msgstr "Поново учитај датотеку подешавања."
 
-#: src/input/command.zig:606
+#: src/input/command.zig:607
+msgid "Switch to Configured Appearance"
+msgstr ""
+
+#: src/input/command.zig:608
+msgid "Use the application appearance from the configuration."
+msgstr ""
+
+#: src/input/command.zig:612
+msgid "Switch to System Appearance"
+msgstr ""
+
+#: src/input/command.zig:613
+msgid "Use the system application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:617
+msgid "Switch to Dark Appearance"
+msgstr ""
+
+#: src/input/command.zig:618
+msgid "Use a dark application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:622
+msgid "Switch to Light Appearance"
+msgstr ""
+
+#: src/input/command.zig:623
+msgid "Use a light application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:629
 msgid "Close Terminal"
 msgstr "Затвори терминал"
 
-#: src/input/command.zig:607
+#: src/input/command.zig:630
 msgid "Close the current terminal."
 msgstr "Затвори тренутни терминал."
 
-#: src/input/command.zig:614
+#: src/input/command.zig:637
 msgid "Close the current tab."
 msgstr "Затвори тренутни језичак."
 
-#: src/input/command.zig:618
+#: src/input/command.zig:641
 msgid "Close Other Tabs"
 msgstr "Затвори друге језичке"
 
-#: src/input/command.zig:619
+#: src/input/command.zig:642
 msgid "Close all tabs in this window except the current one."
 msgstr "Затвори све језичке у овом прозору изузев тренутног."
 
-#: src/input/command.zig:623
+#: src/input/command.zig:646
 msgid "Close Tabs to the Right"
 msgstr "Затвори језичке удесно"
 
-#: src/input/command.zig:624
+#: src/input/command.zig:647
 msgid "Close all tabs to the right of the current one."
 msgstr "Затвори све језичке десно од тренутног."
 
-#: src/input/command.zig:631
+#: src/input/command.zig:654
 msgid "Close the current window."
 msgstr "Затвори тренутни прозор."
 
-#: src/input/command.zig:636
+#: src/input/command.zig:659
 msgid "Close All Windows"
 msgstr "Затвори све прозоре"
 
-#: src/input/command.zig:637
+#: src/input/command.zig:660
 msgid "Close all windows."
 msgstr "Затвори све прозоре."
 
-#: src/input/command.zig:642
+#: src/input/command.zig:665
 msgid "Toggle Maximize"
 msgstr "Окини увећање"
 
-#: src/input/command.zig:643
+#: src/input/command.zig:666
 msgid "Toggle the maximized state of the current window."
 msgstr "Промени стање увећања тренутног прозора."
 
-#: src/input/command.zig:648
+#: src/input/command.zig:671
 msgid "Toggle Fullscreen"
 msgstr "Пребаци преко целог екрана"
 
-#: src/input/command.zig:649
+#: src/input/command.zig:672
 msgid "Toggle the fullscreen state of the current window."
 msgstr "Промени стање приказивања тренутног прозора преко целог екрана."
 
-#: src/input/command.zig:654
+#: src/input/command.zig:677
 msgid "Toggle Window Decorations"
 msgstr "Окини декорације прозора"
 
-#: src/input/command.zig:655
+#: src/input/command.zig:678
 msgid "Toggle the window decorations."
 msgstr "Промени стање декорације прозора."
 
-#: src/input/command.zig:660
+#: src/input/command.zig:683
 msgid "Toggle Float on Top"
 msgstr "Окини плутајуће на врху"
 
-#: src/input/command.zig:661
+#: src/input/command.zig:684
 msgid "Toggle the float on top state of the current window."
 msgstr "Промени стање плутања на врху тренутног прозора."
 
-#: src/input/command.zig:666
+#: src/input/command.zig:689
 msgid "Toggle Secure Input"
 msgstr "Окини безбедан унос"
 
-#: src/input/command.zig:667
+#: src/input/command.zig:690
 msgid "Toggle secure input mode."
 msgstr "Промени режим безбедног уноса."
 
-#: src/input/command.zig:672
+#: src/input/command.zig:695
 msgid "Toggle Mouse Reporting"
 msgstr "Окини прослеђивање догађаја миша"
 
-#: src/input/command.zig:673
+#: src/input/command.zig:696
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr "Пребаци да ли се догађаји миша пријављују терминалним програмима."
 
-#: src/input/command.zig:678
+#: src/input/command.zig:701
 msgid "Toggle Background Opacity"
 msgstr "Окини непровидност позадине"
 
-#: src/input/command.zig:679
+#: src/input/command.zig:702
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr "Пребаци непровидност позадине прозора који је првобитно био провидан."
 
-#: src/input/command.zig:684
+#: src/input/command.zig:707
 msgid "Check for Updates"
 msgstr "Провери ажурирања"
 
-#: src/input/command.zig:685
+#: src/input/command.zig:708
 msgid "Check for updates to the application."
 msgstr "Провери ажурирања за програм."
 
-#: src/input/command.zig:690
+#: src/input/command.zig:713
 msgid "Undo"
 msgstr "Опозови"
 
-#: src/input/command.zig:691
+#: src/input/command.zig:714
 msgid "Undo the last action."
 msgstr "Опозови последњу радњу."
 
-#: src/input/command.zig:696
+#: src/input/command.zig:719
 msgid "Redo"
 msgstr "Понови"
 
-#: src/input/command.zig:697
+#: src/input/command.zig:720
 msgid "Redo the last undone action."
 msgstr "Понови последњу опозвану радњу."
 
-#: src/input/command.zig:703
+#: src/input/command.zig:726
 msgid "Quit the application."
 msgstr "Изађи из програма."
 
-#: src/input/command.zig:709
+#: src/input/command.zig:732
 msgid "Put a little Ghostty in your terminal."
 msgstr "Убаци мало Ghostty-ја у свој терминал."
