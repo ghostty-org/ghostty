@@ -257,6 +257,8 @@ pub const Viewer = struct {
         id: usize,
         width: usize,
         height: usize,
+        /// iTerm2-compatible native window grouping from `@affinities`.
+        affinities: []const u8,
         layout_arena: ArenaAllocator.State,
         layout: Layout,
 
@@ -962,6 +964,7 @@ pub const Viewer = struct {
                 .id = data.window_id,
                 .width = data.window_width,
                 .height = data.window_height,
+                .affinities = try window_alloc.dupe(u8, data.affinities),
                 .layout_arena = arena.state,
                 .layout = layout,
             });
@@ -1496,13 +1499,14 @@ const Format = struct {
     };
 
     const list_windows: Format = .{
-        .delim = ' ',
+        .delim = '\t',
         .vars = &.{
             .session_id,
             .window_id,
             .window_width,
             .window_height,
             .window_layout,
+            .affinities,
         },
     };
 
@@ -1639,9 +1643,7 @@ test "session changed resets state" {
         // Receive window layout with two panes (same format as "initial flow" test)
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$1 @0 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
-                ,
+                .block_end = "$1\t@0\t83\t44\t027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -1699,9 +1701,7 @@ test "session changed resets state" {
         // Uses same pane IDs 0,1 - they should be re-created since old panes were cleared
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$2 @1 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
-                ,
+                .block_end = "$2\t@1\t83\t44\t027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -1751,9 +1751,7 @@ test "initial flow" {
         },
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
-                ,
+                .block_end = "$0\t@0\t83\t44\t027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .contains_command = "capture-pane",
@@ -1924,9 +1922,7 @@ test "layout change" {
         // Receive initial window layout with one pane
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -1995,9 +1991,7 @@ test "layout change with zero width pane becomes defunct" {
         // Receive initial window layout with one pane
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -2056,9 +2050,7 @@ test "layout change with oversized pane becomes defunct" {
         // Receive initial window layout with one pane
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -2118,9 +2110,7 @@ test "layout_change does not return command when queue not empty" {
         // Receive initial window layout with one pane
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -2179,9 +2169,7 @@ test "layout_change returns command when queue was empty" {
         // Receive initial window layout with one pane
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
         },
@@ -2246,9 +2234,7 @@ test "window_add queues list_windows when queue empty" {
         // Receive initial window layout with one pane
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
         },
@@ -2417,10 +2403,7 @@ test "list-windows parse failure frees earlier windows" {
         // stops after the first layout arena has been allocated.
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                \\not a window
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA\nnot a window",
             } },
             .contains_tags = &.{.exit},
         },
@@ -2449,9 +2432,7 @@ test "window_add queues list_windows when queue not empty" {
         // Receive initial window layout with one pane
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 83 44 b7dd,83x44,0,0,0
-                ,
+                .block_end = "$0\t@0\t83\t44\tb7dd,83x44,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -2511,9 +2492,7 @@ test "two pane flow with pane state" {
         // list-windows output with 2 panes in a vertical split
         .{
             .input = .{ .tmux = .{
-                .block_end =
-                \\$0 @0 165 79 ca97,165x79,0,0[165x40,0,0,0,165x38,0,41,4]
-                ,
+                .block_end = "$0\t@0\t165\t79\tca97,165x79,0,0[165x40,0,0,0,165x38,0,41,4]\tA",
             } },
             .contains_tags = &.{ .windows, .command },
             .check = (struct {
@@ -2737,7 +2716,7 @@ test "pane state ignores out of bounds scroll region" {
         },
         .{
             .input = .{ .tmux = .{
-                .block_end = "$0 @0 80 24 b25d,80x24,0,0,0",
+                .block_end = "$0\t@0\t80\t24\tb25d,80x24,0,0,0\tA",
             } },
             .contains_tags = &.{ .windows, .command },
         },
@@ -2808,7 +2787,7 @@ fn testRawStartupScreen(comptime alternate_on: bool) !void {
 
         // Window and pane layout.
         "%begin 3 3 0\n" ++
-        "$42 @0 80 24 d962,80x24,0,0,42\n" ++
+        "$42\t@0\t80\t24\td962,80x24,0,0,42\tA\n" ++
         "%end 3 3 0\n" ++
 
         // Primary screen history.
