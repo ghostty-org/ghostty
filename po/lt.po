@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-28 20:24+0200\n"
+"POT-Creation-Date: 2026-11-01 10:35-0500\n"
 "PO-Revision-Date: 2026-08-13 08:25+0200\n"
 "Last-Translator: Tadas Lotuzas <tdslot@gmail.com>\n"
 "Language-Team: Language LT\n"
@@ -130,7 +130,7 @@ msgid "New Tab"
 msgstr "Nauja kortelė"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:391 src/apprt/gtk/ui/1.4/window.blp:244
-#: src/input/command.zig:613
+#: src/input/command.zig:631
 msgid "Close Tab"
 msgstr "Uždaryti kortelę"
 
@@ -148,7 +148,7 @@ msgid "New Window"
 msgstr "Naujas langas"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:411 src/apprt/gtk/ui/1.4/window.blp:227
-#: src/input/command.zig:630
+#: src/input/command.zig:648
 msgid "Close Window"
 msgstr "Uždaryti langą"
 
@@ -202,7 +202,7 @@ msgstr "Terminalo inspektorius"
 msgid "About Ghostty"
 msgstr "Apie Ghostty"
 
-#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:720
 msgid "Quit"
 msgstr "Išeiti"
 
@@ -230,7 +230,7 @@ msgstr "Iš naujo įkelkite konfigūraciją, kad vėl būtų rodoma ši užuomin
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2152
+#: src/apprt/gtk/class/application.zig:2163
 msgid "Cancel"
 msgstr "Atšaukti"
 
@@ -263,27 +263,27 @@ msgstr "Palikite tuščią, kad atkurtumėte numatytąjį pavadinimą."
 msgid "OK"
 msgstr "Gerai"
 
-#: src/apprt/gtk/class/application.zig:1736
+#: src/apprt/gtk/class/application.zig:1747
 msgid "The keybind was revoked by the system."
 msgstr "Sistema atšaukė spartųjį klavišą."
 
-#: src/apprt/gtk/class/application.zig:1738
+#: src/apprt/gtk/class/application.zig:1749
 msgid "The keybind was denied by the system."
 msgstr "Sistema neleido naudoti sparčiojo klavišo."
 
-#: src/apprt/gtk/class/application.zig:1750
+#: src/apprt/gtk/class/application.zig:1761
 msgid "Global keybind unavailable"
 msgstr "Visuotinis spartusis klavišas nepasiekiamas"
 
-#: src/apprt/gtk/class/application.zig:2148
+#: src/apprt/gtk/class/application.zig:2159
 msgid "Export Terminal IO Events"
 msgstr "Eksportuoti terminalo įvesties ir išvesties įvykius"
 
-#: src/apprt/gtk/class/application.zig:2151
+#: src/apprt/gtk/class/application.zig:2162
 msgid "Export"
 msgstr "Eksportuoti"
 
-#: src/apprt/gtk/class/application.zig:2649
+#: src/apprt/gtk/class/application.zig:2665
 msgid "Editing configuration file"
 msgstr "Redaguojamas konfigūracijos failas"
 
@@ -1008,132 +1008,156 @@ msgstr "Iš naujo įkelti konfigūraciją"
 msgid "Reload the config file."
 msgstr "Iš naujo įkelti konfigūracijos failą."
 
-#: src/input/command.zig:606
+#: src/input/command.zig:607
+msgid "Switch to System Appearance"
+msgstr ""
+
+#: src/input/command.zig:608
+msgid "Use the system application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:612
+msgid "Switch to Light Appearance"
+msgstr ""
+
+#: src/input/command.zig:613
+msgid "Use a light application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:617
+msgid "Switch to Dark Appearance"
+msgstr ""
+
+#: src/input/command.zig:618
+msgid "Use a dark application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:624
 msgid "Close Terminal"
 msgstr "Uždaryti terminalą"
 
-#: src/input/command.zig:607
+#: src/input/command.zig:625
 msgid "Close the current terminal."
 msgstr "Uždaryti dabartinį terminalą."
 
-#: src/input/command.zig:614
+#: src/input/command.zig:632
 msgid "Close the current tab."
 msgstr "Uždaryti dabartinę kortelę."
 
-#: src/input/command.zig:618
+#: src/input/command.zig:636
 msgid "Close Other Tabs"
 msgstr "Uždaryti kitas korteles"
 
-#: src/input/command.zig:619
+#: src/input/command.zig:637
 msgid "Close all tabs in this window except the current one."
 msgstr "Uždaryti visas šio lango korteles, išskyrus dabartinę."
 
-#: src/input/command.zig:623
+#: src/input/command.zig:641
 msgid "Close Tabs to the Right"
 msgstr "Uždaryti korteles dešinėje"
 
-#: src/input/command.zig:624
+#: src/input/command.zig:642
 msgid "Close all tabs to the right of the current one."
 msgstr "Uždaryti visas korteles dabartinės kortelės dešinėje."
 
-#: src/input/command.zig:631
+#: src/input/command.zig:649
 msgid "Close the current window."
 msgstr "Uždaryti dabartinį langą."
 
-#: src/input/command.zig:636
+#: src/input/command.zig:654
 msgid "Close All Windows"
 msgstr "Uždaryti visus langus"
 
-#: src/input/command.zig:637
+#: src/input/command.zig:655
 msgid "Close all windows."
 msgstr "Uždaryti visus langus."
 
-#: src/input/command.zig:642
+#: src/input/command.zig:660
 msgid "Toggle Maximize"
 msgstr "Išdidinti arba atkurti langą"
 
-#: src/input/command.zig:643
+#: src/input/command.zig:661
 msgid "Toggle the maximized state of the current window."
 msgstr "Išdidinti dabartinį langą arba atkurti jo dydį."
 
-#: src/input/command.zig:648
+#: src/input/command.zig:666
 msgid "Toggle Fullscreen"
 msgstr "Įjungti arba išjungti viso ekrano režimą"
 
-#: src/input/command.zig:649
+#: src/input/command.zig:667
 msgid "Toggle the fullscreen state of the current window."
 msgstr "Įjungti arba išjungti dabartinio lango viso ekrano režimą."
 
-#: src/input/command.zig:654
+#: src/input/command.zig:672
 msgid "Toggle Window Decorations"
 msgstr "Rodyti arba slėpti lango dekoracijas"
 
-#: src/input/command.zig:655
+#: src/input/command.zig:673
 msgid "Toggle the window decorations."
 msgstr "Rodyti arba slėpti konkretaus lango dekoracijas."
 
-#: src/input/command.zig:660
+#: src/input/command.zig:678
 msgid "Toggle Float on Top"
 msgstr "Įjungti arba išjungti lango rodymą virš kitų"
 
-#: src/input/command.zig:661
+#: src/input/command.zig:679
 msgid "Toggle the float on top state of the current window."
 msgstr "Įjungti arba išjungti dabartinio lango rodymą virš kitų."
 
-#: src/input/command.zig:666
+#: src/input/command.zig:684
 msgid "Toggle Secure Input"
 msgstr "Įjungti arba išjungti saugios įvesties režimą"
 
-#: src/input/command.zig:667
+#: src/input/command.zig:685
 msgid "Toggle secure input mode."
 msgstr "Įjungti arba išjungti saugios įvesties režimą."
 
-#: src/input/command.zig:672
+#: src/input/command.zig:690
 msgid "Toggle Mouse Reporting"
 msgstr "Įjungti arba išjungti pelės įvykių perdavimą"
 
-#: src/input/command.zig:673
+#: src/input/command.zig:691
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr ""
 "Įjungti arba išjungti pelės įvykių perdavimą terminale veikiančioms "
 "programoms."
 
-#: src/input/command.zig:678
+#: src/input/command.zig:696
 msgid "Toggle Background Opacity"
 msgstr "Perjungti fono nepermatomumą"
 
-#: src/input/command.zig:679
+#: src/input/command.zig:697
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr "Perjungti lango, kuris buvo paleistas permatomas, fono nepermatomumą."
 
-#: src/input/command.zig:684
+#: src/input/command.zig:702
 msgid "Check for Updates"
 msgstr "Tikrinti, ar yra naujinimų"
 
-#: src/input/command.zig:685
+#: src/input/command.zig:703
 msgid "Check for updates to the application."
 msgstr "Tikrinti, ar yra programos naujinimų."
 
-#: src/input/command.zig:690
+#: src/input/command.zig:708
 msgid "Undo"
 msgstr "Atšaukti"
 
-#: src/input/command.zig:691
+#: src/input/command.zig:709
 msgid "Undo the last action."
 msgstr "Atšaukti paskutinį veiksmą."
 
-#: src/input/command.zig:696
+#: src/input/command.zig:714
 msgid "Redo"
 msgstr "Pakartoti"
 
-#: src/input/command.zig:697
+#: src/input/command.zig:715
 msgid "Redo the last undone action."
 msgstr "Pakartoti paskutinį atšauktą veiksmą."
 
-#: src/input/command.zig:703
+#: src/input/command.zig:721
 msgid "Quit the application."
 msgstr "Išeiti iš programos."
 
-#: src/input/command.zig:709
+#: src/input/command.zig:727
 msgid "Put a little Ghostty in your terminal."
 msgstr "Įleiskite truputį Ghostty į savo terminalą."
