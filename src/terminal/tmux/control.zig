@@ -260,11 +260,10 @@ pub const Parser = struct {
             const starts = region.starts();
             const ends = region.ends();
 
-            const id = std.fmt.parseInt(
-                usize,
-                line[@intCast(starts[1])..@intCast(ends[1])],
-                10,
-            ) catch unreachable;
+            const id = parseDecimalId(line[@intCast(starts[1])..@intCast(ends[1])]) orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            };
             const name = line[@intCast(starts[2])..@intCast(ends[2])];
 
             // Important: do not clear buffer here since name points to it
@@ -300,11 +299,10 @@ pub const Parser = struct {
             const starts = region.starts();
             const ends = region.ends();
 
-            const id = std.fmt.parseInt(
-                usize,
-                line[@intCast(starts[1])..@intCast(ends[1])],
-                10,
-            ) catch unreachable;
+            const id = parseDecimalId(line[@intCast(starts[1])..@intCast(ends[1])]) orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            };
             const layout = line[@intCast(starts[2])..@intCast(ends[2])];
             const visible_layout = line[@intCast(starts[3])..@intCast(ends[3])];
             const raw_flags = line[@intCast(starts[4])..@intCast(ends[4])];
@@ -338,11 +336,10 @@ pub const Parser = struct {
             const starts = region.starts();
             const ends = region.ends();
 
-            const id = std.fmt.parseInt(
-                usize,
-                line[@intCast(starts[1])..@intCast(ends[1])],
-                10,
-            ) catch unreachable;
+            const id = parseDecimalId(line[@intCast(starts[1])..@intCast(ends[1])]) orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            };
 
             self.buffer.clearRetainingCapacity();
             self.state = .idle;
@@ -391,11 +388,10 @@ pub const Parser = struct {
             const starts = region.starts();
             const ends = region.ends();
 
-            const id = std.fmt.parseInt(
-                usize,
-                line[@intCast(starts[1])..@intCast(ends[1])],
-                10,
-            ) catch unreachable;
+            const id = parseDecimalId(line[@intCast(starts[1])..@intCast(ends[1])]) orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            };
             const name = line[@intCast(starts[2])..@intCast(ends[2])];
 
             // Important: do not clear buffer here since name points to it
@@ -422,16 +418,14 @@ pub const Parser = struct {
             const starts = region.starts();
             const ends = region.ends();
 
-            const window_id = std.fmt.parseInt(
-                usize,
-                line[@intCast(starts[1])..@intCast(ends[1])],
-                10,
-            ) catch unreachable;
-            const pane_id = std.fmt.parseInt(
-                usize,
-                line[@intCast(starts[2])..@intCast(ends[2])],
-                10,
-            ) catch unreachable;
+            const window_id = parseDecimalId(line[@intCast(starts[1])..@intCast(ends[1])]) orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            };
+            const pane_id = parseDecimalId(line[@intCast(starts[2])..@intCast(ends[2])]) orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            };
 
             self.buffer.clearRetainingCapacity();
             self.state = .idle;
@@ -518,11 +512,10 @@ pub const Parser = struct {
             const ends = region.ends();
 
             const client = line[@intCast(starts[1])..@intCast(ends[1])];
-            const session_id = std.fmt.parseInt(
-                usize,
-                line[@intCast(starts[2])..@intCast(ends[2])],
-                10,
-            ) catch unreachable;
+            const session_id = parseDecimalId(line[@intCast(starts[2])..@intCast(ends[2])]) orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            };
             const name = line[@intCast(starts[3])..@intCast(ends[3])];
 
             // Important: do not clear buffer here since client/name point to it
@@ -867,6 +860,36 @@ test "tmux output with empty data" {
     try testing.expect(n == .output);
     try testing.expectEqual(42, n.output.pane_id);
     try testing.expectEqualStrings("", n.output.data);
+}
+
+test "tmux notifications with overlong ids are dropped" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // Any program can print these; an id that doesn't fit is ignored
+    // rather than trusted, in every place a notification has one.
+    const lines = [_][]const u8{
+        "%session-changed $99999999999999999999999 name\n",
+        "%layout-change @99999999999999999999999 b25d,80x24,0,0,0 b25d,80x24,0,0,0 *\n",
+        "%window-add @99999999999999999999999\n",
+        "%window-renamed @99999999999999999999999 name\n",
+        "%window-pane-changed @99999999999999999999999 %1\n",
+        "%window-pane-changed @1 %99999999999999999999999\n",
+        "%client-session-changed client $99999999999999999999999 name\n",
+    };
+    for (lines) |line| {
+        for (line) |byte| try testing.expect(try c.put(byte) == null);
+        try testing.expect(c.state == .idle);
+    }
+
+    // The parser keeps working.
+    for ("%window-add @3") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .window_add);
+    try testing.expectEqual(3, n.window_add.id);
 }
 
 test "tmux output rejects an oversized id" {
