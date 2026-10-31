@@ -1114,7 +1114,7 @@ pub fn Stream(comptime H: type) type {
                     // param_acc is zero (cleared on escape entry)
                     // so accumulating is just the digit value.
                     self.parser.param_acc = c - '0';
-                    self.parser.param_acc_idx = 1;
+                    self.parser.param_acc_set = true;
                 },
                 // An empty first parameter.
                 ';' => {
@@ -1147,39 +1147,44 @@ pub fn Stream(comptime H: type) type {
 
             // Accumulate parser state in locals for the hot loop.
             var acc = p.param_acc;
-            var acc_idx = p.param_acc_idx;
+            var acc_set = p.param_acc_set;
             var idx = p.params_idx;
 
             var offset: usize = 0;
             while (offset < input.len) {
                 const c = input[offset];
                 switch (c) {
-                    // A parameter digit.
+                    // A parameter digit. Past the last parameter it's
+                    // never stored, and the CSI is dropped anyway.
                     '0'...'9' => {
-                        if (idx < Parser.MAX_PARAMS) {
-                            acc *|= 10;
-                            acc +|= c - '0';
-                            acc_idx |= 1;
-                        }
+                        acc *|= 10;
+                        acc +|= c - '0';
+                        acc_set = true;
                         offset += 1;
                     },
 
                     // A parameter separator.
                     ':', ';' => {
+                        // Mirrors Parser.pushParam: past the limit the
+                        // value is dropped and the count pins one past
+                        // it, so it stays exact or stays "too many".
                         if (idx < Parser.MAX_PARAMS) {
                             p.params[idx] = acc;
-                            if (c == ':') p.params_sep.set(idx);
+                            if (c == ':') p.setColon(idx);
                             idx += 1;
-                            acc = 0;
-                            acc_idx = 0;
+                        } else {
+                            @branchHint(.cold);
+                            idx = Parser.MAX_PARAMS + 1;
                         }
+                        acc = 0;
+                        acc_set = false;
                         offset += 1;
                     },
 
                     // A final byte: dispatch the CSI.
                     0x40...0x7E => {
                         p.param_acc = acc;
-                        p.param_acc_idx = acc_idx;
+                        p.param_acc_set = acc_set;
                         p.params_idx = idx;
                         self.csiDispatchFinal(c);
                         return offset + 1;
@@ -1192,7 +1197,7 @@ pub fn Stream(comptime H: type) type {
             }
 
             p.param_acc = acc;
-            p.param_acc_idx = acc_idx;
+            p.param_acc_set = acc_set;
             p.params_idx = idx;
             return offset;
         }
@@ -1411,25 +1416,8 @@ pub fn Stream(comptime H: type) type {
                     // 0x18 or 0x1A, but they should still move
                     // the parser state to ground.
                     0x18, 0x1A => self.parser.state = .ground,
-                    // A parameter digit:
-                    '0'...'9' => if (self.parser.params_idx < Parser.MAX_PARAMS) {
-                        self.parser.param_acc *|= 10;
-                        self.parser.param_acc +|= c - '0';
-                        // The parser's CSI param action uses param_acc_idx
-                        // to decide if there's a final param that needs to
-                        // be consumed or not, but it doesn't matter really
-                        // what it is as long as it's not 0.
-                        self.parser.param_acc_idx |= 1;
-                    },
-                    // A parameter separator:
-                    ':', ';' => if (self.parser.params_idx < Parser.MAX_PARAMS) {
-                        self.parser.params[self.parser.params_idx] = self.parser.param_acc;
-                        if (c == ':') self.parser.params_sep.set(self.parser.params_idx);
-                        self.parser.params_idx += 1;
-
-                        self.parser.param_acc = 0;
-                        self.parser.param_acc_idx = 0;
-                    },
+                    // A parameter digit or separator:
+                    '0'...'9', ':', ';' => self.parser.param(c),
                     // A final byte: dispatch the CSI directly.
                     0x40...0x7E => if (comptime !has_vt_raw) {
                         self.csiDispatchFinal(c);
@@ -1505,44 +1493,11 @@ pub fn Stream(comptime H: type) type {
             }
         }
 
-        /// Finalize and dispatch a CSI directly from parser state for
-        /// the fast paths in nextNonUtf8, without going through
-        /// Parser.next. This must match the behavior of the parser's
-        /// csi_dispatch action.
+        /// Dispatch a CSI directly from parser state for the fast paths
+        /// in nextNonUtf8, without going through Parser.next.
         fn csiDispatchFinal(self: *Self, c: u8) void {
-            const p = &self.parser;
-            p.state = .ground;
-
-            // Ignore sequences with too many parameters, matching the
-            // parser's behavior of dropping the dispatch entirely.
-            if (p.params_idx >= Parser.MAX_PARAMS) {
-                @branchHint(.unlikely);
-                return;
-            }
-
-            // Finalize the last parameter if we have one.
-            if (p.param_acc_idx > 0) {
-                p.params[p.params_idx] = p.param_acc;
-                p.params_idx += 1;
-            }
-
-            const action: Parser.Action.CSI = .{
-                .intermediates = p.intermediates[0..p.intermediates_idx],
-                .params = p.params[0..p.params_idx],
-                .params_sep = p.params_sep,
-                .final = c,
-            };
-
-            // We only allow colon or mixed separators for the 'm' command.
-            if (c != 'm' and p.params_sep.count() > 0) {
-                @branchHint(.cold);
-                log.warn(
-                    "CSI colon or mixed separators only allowed for 'm' command, got: {f}",
-                    .{action},
-                );
-                return;
-            }
-
+            self.parser.state = .ground;
+            const action = self.parser.csiDispatch(c) orelse return;
             if (comptime debug) log.info("action: {f}", .{Parser.Action{ .csi_dispatch = action }});
             self.csiDispatch(action);
         }
@@ -2470,7 +2425,7 @@ pub fn Stream(comptime H: type) type {
                     },
 
                     else => log.warn(
-                        "ignoring unimplemented CSI p with intermediates: {s}",
+                        "ignoring unimplemented CSI q with intermediates: {s}",
                         .{input.intermediates},
                     ),
                 },
@@ -6817,6 +6772,146 @@ fn logsErr(input: []const u8) bool {
     defer probe.deinit();
     probe.nextSlice(input);
     return probe.handler.csi_t_no_params;
+}
+
+test "stream: CSI subparameters across parsing paths and continuation replay" {
+    const input = "\x1b[4:3m\x1b[38:2:1:2:3:m\x1b[48:2::4:5:6m" ++
+        "\x1b[1:2H\x1b[1:2 q\x1b[>2:1:2 q\x1b[4;3mx";
+    const Raw = struct {
+        output: DifferentialHandler = .{},
+        kitty: usize = 0,
+
+        pub fn deinit(_: *@This()) void {}
+
+        pub fn vtRaw(self: *@This(), action: Parser.Action) !bool {
+            if (action == .csi_dispatch) {
+                const csi_action = action.csi_dispatch;
+                if (csi_action.final == 'q') {
+                    // The ordinary colon-bearing cursor style command
+                    // must have been rejected before it reaches vtRaw.
+                    try testing.expectEqualStrings(
+                        "> ",
+                        csi_action.intermediates,
+                    );
+                    try testing.expectEqualSlices(u16, &.{ 2, 1, 2 }, csi_action.params);
+                    const seps = csi_action.params_sep.?;
+                    try testing.expect(seps.isSet(0) and seps.isSet(1));
+                    try testing.expect(!seps.isSet(2));
+                    self.kitty += 1;
+                }
+            }
+            return false;
+        }
+
+        pub fn vt(self: *@This(), comptime tag: Action.Tag, value: Action.Value(tag)) void {
+            self.output.vt(tag, value);
+        }
+    };
+
+    var expected: DifferentialHandler = .{};
+    for ([_]sgr.Attribute{
+        .{ .underline = .curly },
+        .{ .direct_color_fg = .{ .r = 1, .g = 2, .b = 3 } },
+        .{ .direct_color_bg = .{ .r = 4, .g = 5, .b = 6 } },
+        .{ .underline = .single },
+        .italic,
+    }) |attr| expected.record(.set_attribute, attr);
+    expected.record(.print, @as(u32, 'x'));
+
+    // Check nextSliceUntil's stops as well as ordinary nextSlice.
+    try differential(input);
+    for (0..input.len + 1) |cut| {
+        var bulk: Stream(DifferentialHandler) = .init(.{
+            .handler = .{},
+            .allocator = testing.allocator,
+            .continuation_max_bytes = 4096,
+        });
+        defer bulk.deinit();
+        bulk.nextSlice(input[0..cut]);
+
+        var buf: [4096]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        try bulk.writeContinuation(&writer);
+        var restored: Stream(DifferentialHandler) = .init(.{ .handler = .{} });
+        defer restored.deinit();
+        restored.nextSlice(writer.buffered());
+        try testing.expectEqual(@as(usize, 0), restored.handler.actions);
+        var suffix: Stream(DifferentialHandler) = .init(.{ .handler = .{} });
+        defer suffix.deinit();
+        suffix.nextSlice(input[0..cut]);
+        suffix.handler = .{};
+        suffix.nextSlice(input[cut..]);
+        restored.nextSlice(input[cut..]);
+        try testing.expectEqual(suffix.handler.final(), restored.handler.final());
+
+        bulk.nextSlice(input[cut..]);
+        try testing.expectEqual(expected.actions, bulk.handler.actions);
+        try testing.expectEqual(expected.final(), bulk.handler.final());
+        try testing.expect(bulk.ground());
+
+        var raw: Stream(Raw) = .init(.{ .handler = .{} });
+        defer raw.deinit();
+        raw.nextSlice(input[0..cut]);
+        raw.nextSlice(input[cut..]);
+        try testing.expectEqual(@as(usize, 1), raw.handler.kitty);
+        try testing.expectEqual(expected.final(), raw.handler.output.final());
+    }
+
+    var scalar: Stream(DifferentialHandler) = .init(.{ .handler = .{} });
+    defer scalar.deinit();
+    for (input) |c| scalar.next(c);
+    try testing.expectEqual(expected.final(), scalar.handler.final());
+}
+
+test "stream: CSI parameter limit and separator reset across parsing paths" {
+    const H = struct {
+        bold: usize = 0,
+        prints: usize = 0,
+
+        pub fn deinit(_: *@This()) void {}
+
+        pub fn vt(self: *@This(), comptime tag: Action.Tag, value: Action.Value(tag)) void {
+            switch (tag) {
+                .set_attribute => if (value == .bold) {
+                    self.bold += 1;
+                },
+                .print => self.prints += 1,
+                .print_slice => self.prints += value.cps.len,
+                else => {},
+            }
+        }
+    };
+
+    for ([_]usize{ Parser.MAX_PARAMS - 1, Parser.MAX_PARAMS, Parser.MAX_PARAMS + 1 }) |count| {
+        for ([_]u8{ ';', ':' }) |sep| {
+            for ([_]bool{ false, true }) |trailing| {
+                var input: std.ArrayList(u8) = .empty;
+                defer input.deinit(testing.allocator);
+                try input.appendSlice(testing.allocator, "\x1b[");
+                for (0..count) |i| {
+                    try input.append(testing.allocator, '1');
+                    if (i + 1 < count or trailing) try input.append(testing.allocator, sep);
+                }
+                // The next ordinary SGR must forget all separator and
+                // overflow state, even after a rejected sequence.
+                try input.appendSlice(testing.allocator, "m\x1b[1mx");
+                const expected: usize = if (count > Parser.MAX_PARAMS) 1 else if (sep == ':') 1 else count + 1;
+
+                var bulk: Stream(H) = .init(.{ .handler = .{} });
+                defer bulk.deinit();
+                bulk.nextSlice(input.items);
+                try testing.expectEqual(expected, bulk.handler.bold);
+                try testing.expectEqual(@as(usize, 1), bulk.handler.prints);
+                try testing.expect(bulk.ground());
+
+                var scalar: Stream(H) = .init(.{ .handler = .{} });
+                defer scalar.deinit();
+                for (input.items) |c| scalar.next(c);
+                try testing.expectEqualDeep(bulk.handler, scalar.handler);
+                try differential(input.items);
+            }
+        }
+    }
 }
 
 test "stream: nextSliceUntil differential on generated streams" {
