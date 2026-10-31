@@ -4,6 +4,62 @@ import Testing
 
 @MainActor
 struct VerticalNativeTabOutlineTests {
+    @Test func nativeRowsAndCloseButtonsShareTheDeliveredHoverState() throws {
+        final class Window: NSWindow {
+            override var isKeyWindow: Bool { true }
+            override var isVisible: Bool { true }
+        }
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let first = try fixture.tab()
+        let second = try fixture.tab(parent: first)
+        let config = NativeTabOutlineConfiguration(
+            groups: GhosttyTabOrganizationModel().groups(tabs: [first, second], grouping: .none, ordering: .manual),
+            selectedID: ObjectIdentifier(first), layoutState: first.tabLayoutState, controller: first, rowHeight: 32,
+            presentation: { tab in
+                .init(title: "Tab \(tab.actualIndex)", remoteBreadcrumb: nil, shortcut: "\(tab.actualIndex)",
+                      icon: .systemSymbol("terminal"), activity: nil, selected: tab.controller === first, hovered: false)
+            })
+        let controller = NativeTabOutlineController(config)
+        let window = Window(contentRect: .init(x: 0, y: 0, width: 320, height: 160),
+                            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = controller.view
+        defer { window.contentView = nil; window.close() }
+        controller.update(config)
+        controller.view.layoutSubtreeIfNeeded()
+        let outline = controller.outline
+        outline.updateTrackingAreas()
+        let owner = try #require(outline.trackingAreas.first { $0.owner is NativeTableHover }?.owner as? NativeTableHover)
+        let rows = try (0..<2).map { try #require(outline.rowView(atRow: $0, makeIfNecessary: true) as? NativeHoverRowView) }
+        func closeButton(in view: NSView) -> NativeActionControl? {
+            if let button = view as? NativeActionControl, button.accessibilityLabel() == "Close Tab" { return button }
+            return view.subviews.lazy.compactMap(closeButton).first
+        }
+        let buttons = try (0..<2).map { index in
+            let cell = try #require(outline.view(atColumn: 0, row: index, makeIfNecessary: true) as? NativeTabCell)
+            #expect(cell.superview === rows[index])
+            return try #require(closeButton(in: cell))
+        }
+        let selection = outline.selectedRowIndexes
+        for index in [1, 0, 1, 0] {
+            let rect = outline.rect(ofRow: index)
+            let event = try #require(NSEvent.mouseEvent(with: .mouseMoved,
+                location: outline.convert(.init(x: 80, y: rect.midY), to: nil), modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: index, clickCount: 0, pressure: 0))
+            #expect(NSApp.sendAction(#selector(NSResponder.mouseMoved(with:)), to: owner, from: event))
+            for row in 0..<2 {
+                #expect(rows[row].isHovered == (row == index))
+                #expect(buttons[row].isHidden == (row != index))
+            }
+            #expect(outline.selectedRowIndexes == selection)
+        }
+        #expect(NSApp.sendAction(#selector(NSResponder.mouseExited(with:)), to: owner, from: NSEvent()))
+        #expect(rows.allSatisfy { !$0.isHovered })
+        #expect(buttons.allSatisfy { $0.isHidden })
+    }
+
     private func descendantLabel(_ view: NSView, matching value: String) -> NSTextField? {
         if let field = view as? NSTextField, field.stringValue == value { return field }
         for child in view.subviews {

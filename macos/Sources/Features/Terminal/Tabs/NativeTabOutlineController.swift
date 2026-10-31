@@ -515,6 +515,9 @@ final class NativeTabOutline: NSOutlineView {
     var contextMenu: ((Int) -> NSMenu?)?
     private lazy var hover = NativeTableHover(table: self)
     override func updateTrackingAreas() { super.updateTrackingAreas(); hover.update() }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); hover.update() }
+    override func viewDidHide() { super.viewDidHide(); hover.clear() }
+    override func viewDidUnhide() { super.viewDidUnhide(); hover.didUnhide() }
     override func menu(for event: NSEvent) -> NSMenu? { contextMenu?(row(at: convert(event.locationInWindow, from: nil))) }
 
     override func mouseDown(with event: NSEvent) {
@@ -548,6 +551,10 @@ final class NativeTabOutline: NSOutlineView {
 }
 
 private final class NativeTabRowView: NativeHoverRowView {
+    override func hoverStateDidChange(_ hovered: Bool) {
+        guard numberOfColumns > 0 else { return }
+        (view(atColumn: 0) as? NativeTabCell)?.updateHoverAppearance()
+    }
     override var isSelected: Bool {
         didSet {
             guard oldValue != isSelected, numberOfColumns > 0 else { return }
@@ -578,28 +585,10 @@ final class NativeTabCell: NSTableCellView {
     private var selectAction: (() -> Void)?
     private var refreshScheduled = false
     private var canClose = false
-    private var hovering = false
-    private var tracking: NSTrackingArea?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if tracking == nil {
-            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self)
-            addTrackingArea(area)
-            tracking = area
-        }
-        hovering = NativePointerLocation.contains(self)
-        updateTrailing()
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        updateHoverAppearance()
     }
-
-    override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
-    override func mouseMoved(with event: NSEvent) {
-        let next = NativePointerLocation.contains(self, event: event)
-        guard hovering != next else { return }
-        hovering = next
-        updateTrailing()
-    }
-    override func mouseExited(with event: NSEvent) { hovering = false; updateTrailing() }
 
     func updateSelection(_ selected: Bool) {
         guard self.selected != selected else { return }
@@ -607,9 +596,11 @@ final class NativeTabCell: NSTableCellView {
         icon.updateSelection(selected)
     }
 
-    private func updateTrailing() {
-        closeButton.isHidden = !(hovering && canClose)
-        shortcut.isHidden = hovering && canClose
+    func updateHoverAppearance() {
+        let hovered = (superview as? NativeHoverRowView)?.isHovered == true
+        let showsClose = hovered && canClose
+        if closeButton.isHidden != !showsClose { closeButton.isHidden = !showsClose }
+        if shortcut.isHidden != showsClose { shortcut.isHidden = showsClose }
     }
 
     override init(frame: NSRect) {
@@ -682,7 +673,7 @@ final class NativeTabCell: NSTableCellView {
         selectAction = select
         closeAction = close
         self.canClose = tab != nil && canClose
-        updateTrailing()
+        updateHoverAppearance()
         guard let tab else {
             configuredTab = nil
             self.presentation = nil

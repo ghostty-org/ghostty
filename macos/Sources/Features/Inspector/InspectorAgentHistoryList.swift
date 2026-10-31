@@ -263,6 +263,9 @@ final class InspectorAgentHistoryListController: NSViewController, NSTableViewDa
 private final class InspectorAgentSessionTable: NSTableView {
     private lazy var hover = NativeTableHover(table: self)
     override func updateTrackingAreas() { super.updateTrackingAreas(); hover.update() }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); hover.update() }
+    override func viewDidHide() { super.viewDidHide(); hover.clear() }
+    override func viewDidUnhide() { super.viewDidUnhide(); hover.didUnhide() }
     var onActivate: (() -> Void)?
     var onDisclosure: ((Bool) -> Void)?
     var contextMenu: ((Int) -> NSMenu?)?

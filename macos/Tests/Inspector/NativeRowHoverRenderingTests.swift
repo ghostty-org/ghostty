@@ -54,5 +54,12 @@ struct NativeRowHoverRenderingTests {
         second.isSelected = true
         #expect(try pixel(second) == idle)
         #expect(second.layer?.sublayers?.allSatisfy { $0.animationKeys()?.isEmpty != false } == true)
+        let layer = try #require(first.layer?.sublayers?.first { $0.name == "omg.row.hover" } as? CAShapeLayer)
+        let path = try #require(layer.path)
+        for _ in 0..<100 {
+            first.isHovered.toggle()
+            first.layout()
+        }
+        #expect(layer.path === path, "Hover and unchanged layout must reuse the existing shape.")
     }
 }

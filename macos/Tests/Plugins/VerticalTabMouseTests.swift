@@ -35,7 +35,7 @@ struct VerticalTabMouseTests {
         try String(ProcessInfo.processInfo.processIdentifier).write(
             toFile: "/tmp/omg-sidebar-desktop-test.pid", atomically: true, encoding: .utf8
         )
-        for _ in 0..<100 {
+        for _ in 0..<400 {
             if NSApp.isActive && window.isKeyWindow { break }
             if NSApp.isActive { window.makeKeyAndOrderFront(nil) }
             try await Task.sleep(for: .milliseconds(50))
@@ -63,35 +63,128 @@ struct VerticalTabMouseTests {
         let selectedWindow = try #require(group.selectedWindow)
         #expect(selectedWindow === last.window)
         #expect(first.tabLayoutState.sidebarHost.mountCount == 1)
-        let live = try #require(first.tabLayoutState.sidebarHost.liveView)
-        func scrollView(_ view: NSView) -> NSScrollView? {
-            if let scroll = view as? NSScrollView { return scroll }
-            return view.subviews.lazy.compactMap(scrollView).first
+        let contentWidth = selectedWindow.contentView?.bounds.width ?? 900
+        selectedWindow.setContentSize(NSSize(width: contentWidth, height: 360))
+        try await Task.sleep(for: .milliseconds(50))
+        let host = try #require(first.tabLayoutState.sidebarHost.liveView as? NativeTabSidebarHostingView)
+        let outlineController = try #require(host.sidebar.list)
+        let outline = outlineController.outline
+        func closeButton(in view: NSView) -> NativeActionControl? {
+            if let button = view as? NativeActionControl, button.accessibilityLabel() == "Close Tab" {
+                return button
+            }
+            return view.subviews.lazy.compactMap(closeButton).first
         }
-        let scroll = try #require(scrollView(live))
-        let document = try #require(scroll.documentView)
-        let rowHeight = settings.tabRowDensity.rowHeight
-        // Use the visible rows after auto-scrolling to the selected tab.
-        let firstVisibleRow = Int(ceil(scroll.contentView.bounds.minY / (rowHeight + 2)))
+        func tabRow(for controller: TerminalController) throws -> Int {
+            let item = try #require(outlineController.nodes.values.first { $0.tab?.controller === controller })
+            let row = outline.row(forItem: item)
+            try #require(row >= 0, "Every created tab must have a native outline row")
+            return row
+        }
+        func nativeRow(_ index: Int) throws -> NativeHoverRowView {
+            try #require(outline.rowView(atRow: index, makeIfNecessary: true) as? NativeHoverRowView)
+        }
+        func closeButton(_ index: Int) throws -> NativeActionControl {
+            let cell = try #require(outline.view(atColumn: 0, row: index, makeIfNecessary: true))
+            return try #require(closeButton(in: cell))
+        }
+        func hoveredRows() -> [Int] {
+            var result: [Int] = []
+            outline.enumerateAvailableRowViews { view, row in
+                if (view as? NativeHoverRowView)?.isHovered == true { result.append(row) }
+            }
+            return result
+        }
+        func postPointerMove(to pointInWindow: NSPoint) throws {
+            let screenPoint = selectedWindow.convertPoint(toScreen: pointInWindow)
+            let quartzPoint = CGPoint(
+                x: screenPoint.x,
+                y: (NSScreen.screens.first?.frame.maxY ?? 0) - screenPoint.y
+            )
+            let event = try #require(CGEvent(
+                mouseEventSource: nil, mouseType: .mouseMoved,
+                mouseCursorPosition: quartzPoint, mouseButton: .left
+            ))
+            event.post(tap: .cghidEventTap)
+        }
+
+        for _ in 0..<40 {
+            if controllers.allSatisfy({ controller in
+                outlineController.nodes.values.contains { $0.tab?.controller === controller }
+            }) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(controllers.allSatisfy { controller in
+            outlineController.nodes.values.contains { $0.tab?.controller === controller }
+        }, "The native outline must publish all newly created tabs before pointer checks")
+        outline.layoutSubtreeIfNeeded()
+        let visible = outline.rows(in: outline.visibleRect)
+        try #require(visible.location != NSNotFound && visible.length > 0)
+        let visibleTabRows = (visible.location..<NSMaxRange(visible)).filter {
+            (outline.item(atRow: $0) as? NativeTabNode)?.tab != nil
+        }
+        let traversalRows = Array(visibleTabRows.prefix(8))
+        try #require(traversalRows.count >= 2, "At least two native tab rows must be visible")
+        let selectedRow = try tabRow(for: last)
+        var zigzagRows: [Int] = []
+        for index in 0..<traversalRows.count {
+            zigzagRows.append(index.isMultiple(of: 2)
+                ? traversalRows[index / 2]
+                : traversalRows[traversalRows.count - 1 - index / 2])
+        }
         var latencies: [Double] = []
         for index in 0..<24 {
-            let row = firstVisibleRow + index % 8
-            let point = document.convert(NSPoint(x: 80, y: 2 + CGFloat(row) * (rowHeight + 2) + rowHeight / 2), to: nil)
-            let screen = selectedWindow.convertPoint(toScreen: point)
-            let cgPoint = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - screen.y)
-            let event = try #require(CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: cgPoint, mouseButton: .left))
+            let row = zigzagRows[index % zigzagRows.count]
+            let rect = outline.rect(ofRow: row)
+            let point = outline.convert(NSPoint(x: min(80, rect.midX), y: rect.midY), to: nil)
+            let expectedRow = try nativeRow(row)
+            let expectedCloseButton = try closeButton(row)
             let start = ContinuousClock.now
-            event.post(tap: .cghidEventTap)
-            let target = ObjectIdentifier(controllers[row])
-            for _ in 0..<40 {
-                if last.hoveredTabID == target { break }
+            try postPointerMove(to: point)
+            for _ in 0..<40 where !expectedRow.isHovered || expectedCloseButton.isHidden {
                 try await Task.sleep(for: .milliseconds(5))
             }
             let duration = start.duration(to: .now).components
             latencies.append(Double(duration.seconds) + Double(duration.attoseconds) / 1e18)
-            #expect(last.hoveredTabID == target, "Pointer movement \(index) must reach row \(row)")
+            #expect(expectedRow.isHovered, "Pointer movement \(index) must hover native row \(row)")
+            #expect(!expectedCloseButton.isHidden, "The hovered row must reveal its actual close button")
+            #expect(hoveredRows() == [row], "Pointer movement \(index) must leave only row \(row) hovered")
+            #expect(outline.selectedRowIndexes == IndexSet(integer: selectedRow),
+                    "Hover movement must preserve native tab selection")
         }
         print("TAB_POINTER max=\(latencies.max() ?? 0) count=\(latencies.count)")
+
+        // Keep the system pointer still while scrolling different rows beneath
+        // it. The clip-view bounds notification must reconcile the actual row.
+        let stationaryPoint = outline.convert(
+            NSPoint(x: min(80, outline.visibleRect.midX), y: outline.visibleRect.midY), to: nil
+        )
+        try postPointerMove(to: stationaryPoint)
+        let rowBeforeScroll = outline.row(at: outline.convert(stationaryPoint, from: nil))
+        try #require(rowBeforeScroll >= 0, "The stationary pointer must be inside a native tab row")
+        let beforeScrollView = try nativeRow(rowBeforeScroll)
+        for _ in 0..<40 where !beforeScrollView.isHovered {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(beforeScrollView.isHovered)
+
+        let destinationRow = rowBeforeScroll > 3 ? 0 : outline.numberOfRows - 1
+        outline.scrollRowToVisible(destinationRow)
+        outline.layoutSubtreeIfNeeded()
+        let rowAfterScroll = outline.row(at: outline.convert(stationaryPoint, from: nil))
+        try #require(rowAfterScroll >= 0 && rowAfterScroll != rowBeforeScroll,
+                    "Scrolling must move a different row beneath the stationary pointer")
+        let afterScrollView = try nativeRow(rowAfterScroll)
+        let afterScrollCloseButton = try closeButton(rowAfterScroll)
+        for _ in 0..<40 where !afterScrollView.isHovered || afterScrollCloseButton.isHidden {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(afterScrollView.isHovered, "Scrolling beneath a stationary pointer must re-hit the actual row")
+        #expect(!afterScrollCloseButton.isHidden, "The row under the stationary pointer must reveal its close button")
+        #expect(hoveredRows() == [rowAfterScroll])
+        #expect(outline.selectedRowIndexes == IndexSet(integer: selectedRow))
     }
     @Test func mouseSelectionKeepsWorkingAcrossNativeWindows() async throws {
         let app = try #require(NSApp.delegate as? AppDelegate)

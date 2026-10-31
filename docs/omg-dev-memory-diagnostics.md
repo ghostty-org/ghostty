@@ -9,9 +9,12 @@ or scrollback byte counts.
 
 Run a **Debug** OMG Dev bundle (`com.jischeng.omg.debug`) with
 `OMG_DEV_MEMORY_DIAGNOSTICS=1` **at process launch**. It is off by default; an
-already-running process cannot be enabled by changing your shell environment.
-Do not quit/reinstall an existing app simply to enable it without arranging
-that explicitly. For a Dev app not already running:
+already-running process cannot be enabled by changing its shell environment.
+For an authorized OMG Dev diagnosis or repair, a required Dev-only relaunch is
+within task scope; preserve open terminal sessions through the normal
+restoration path. Do not relaunch solely to enable this logger when a restart
+is not otherwise part of the requested diagnosis. For a Dev app not already
+running:
 
 ```sh
 OMG_DEV_MEMORY_DIAGNOSTICS=1 '/Applications/OMG Dev.app/Contents/MacOS/omg'

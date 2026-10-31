@@ -245,6 +245,9 @@ final class InspectorFileTreeController: NSViewController, NSOutlineViewDataSour
 final class InspectorFilesOutlineView: NSOutlineView {
     private lazy var hover = NativeTableHover(table: self)
     override func updateTrackingAreas() { super.updateTrackingAreas(); hover.update() }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); hover.update() }
+    override func viewDidHide() { super.viewDidHide(); hover.clear() }
+    override func viewDidUnhide() { super.viewDidUnhide(); hover.didUnhide() }
     var openSelection: (() -> Void)?
     var renameSelection: (() -> Void)?
     var menuForItem: ((InspectorFileTreeController.Item) -> NSMenu?)?
