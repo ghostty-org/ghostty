@@ -10,6 +10,7 @@
 const std = @import("std");
 const testing = std.testing;
 const ComptimeIntSet = @import("../datastruct/main.zig").ComptimeIntSet;
+const checkGhosttyVtHMacroExists = @import("../lib/enum.zig").checkGhosttyVtHMacroExists;
 
 /// A struct that maintains the state of all the settable modes.
 pub const ModeState = struct {
@@ -182,6 +183,10 @@ pub const Mode = mode_enum: {
 
     break :mode_enum @Enum(ModeTag.Backing, .exhaustive, &names, &values);
 };
+
+test "ghostty/vt.h Mode" {
+    try checkGhosttyVtHMacroExists(Mode, "GHOSTTY_MODE_");
+}
 
 /// The tag type for our enum is a u16 but we use a packed struct
 /// in order to pack the ansi bit into the tag.
