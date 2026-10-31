@@ -5760,7 +5760,15 @@ pub fn pinIsValid(self: *const PageList, p: Pin) bool {
     // This is very slow so we want to ensure we only ever
     // call this during slow runtime safety builds.
     comptime assert(build_options.slow_runtime_safety);
+    return self.containsPin(p);
+}
 
+/// Returns whether a pin points at a cell of a page in this pagelist. Like
+/// pinIsValid this traverses the linked list, but it is available in every
+/// build: it is for checking a pin that came from outside, such as one
+/// handed to the C API, before using it. The pin's node pointer is only
+/// compared, so it is safe even if the node has been destroyed.
+pub fn containsPin(self: *const PageList, p: Pin) bool {
     var it = self.pages.first;
     while (it) |node| : (it = node.next) {
         if (node != p.node) continue;
