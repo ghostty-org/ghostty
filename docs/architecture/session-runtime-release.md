@@ -24,8 +24,30 @@ or process-wide `chdir`. Existing-session attach ignores this creation hint;
 Agent resume still uses its recorded directory. New splits use current bundled
 artifacts to support this request field; already running panes stay on their
 pinned versions. The native remote terminal's history remains separate from the
-retained local terminal; handoff does not create a new GUI window, and normal
-remote exit returns to the original local surface.
+local terminal. Handoff opens a sibling native tab in the same workspace, leaves
+the original local Surface in place and returns its helper to the local prompt.
+The settings connection entry follows the same native tab path when a terminal
+window is available.
+
+The relay keeps local pane sockets open across SSH loss, with one retry supervisor
+per exact connection/revision. The existing Surface applies a fresh snapshot on
+reattach. Transient failures retry with bounded backoff; authentication/configuration
+failures wait for user attention. Automatic attempts never repeatedly invoke
+askpass. A manual retry does not tear down healthy panes on that host. Generation
+fencing discards stale input, resize, writer and snapshot-acknowledgement frames.
+No disconnected keystrokes are queued for replay.
+
+Before opening streams, the relay requires the host's `strict-open/1` capability.
+Older cached runtimes may support the same snapshot format but implicitly resume
+retired Agents on an attach request. Those versions receive a compatibility
+error, with their processes preserved; use the matching earlier app to access
+them. They are not silently replaced or upgraded while holding sessions.
+
+The local background-session entry uses the same descriptor, relay and host
+protocol over a Unix socket. Its versioned daemon state is private and isolated
+by application channel. This does not migrate already running ordinary local PTYs.
+New tabs/splits from a local runtime session use its local runtime; SSH context
+and remote filesystem routing are never inferred merely from having a runtime.
 
 Initial artifact targets: Linux x86_64/aarch64 with documented libc baseline;
 macOS arm64/x86_64 via native build runners. Unsupported platforms fail explicitly.

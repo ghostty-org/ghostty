@@ -7,9 +7,9 @@ const MessageData = @import("../datastruct/main.zig").MessageData;
 
 /// The messages that can be sent to an IO thread.
 ///
-/// This is not a tiny structure (~40 bytes at the time of writing this comment),
+/// This is not a tiny structure (~56 bytes at the time of writing this comment),
 /// but the number of messages we send to the IO thread is also very small.
-/// At the current size we can queue 26,000 messages before consuming a MB of RAM.
+/// At the current size we can queue 18,000 messages before consuming a MB of RAM.
 pub const Message = union(enum) {
     /// Represents a write request. Magic number comes from the largest
     /// other union value. It can be upped if we add a larger union member
@@ -100,6 +100,41 @@ pub const Message = union(enum) {
     /// Write where the data is allocated and must be freed.
     write_alloc: WriteReq.Alloc,
 
+    /// User input captured for a specific durable-session connection generation.
+    /// The generation must not be refreshed when the IO thread consumes this.
+    omg_session_write: struct {
+        generation: u64,
+        data: WriteReq,
+    },
+
+    /// Returns true for the three untagged write messages.
+    pub fn isWriteRequest(self: *const Message) bool {
+        return switch (self.*) {
+            .write_small, .write_stable, .write_alloc => true,
+            else => false,
+        };
+    }
+
+    /// Tags a write with the generation observed when it entered the IO mailbox.
+    /// The payload ownership transfers to the returned message.
+    pub fn withOmgSessionGeneration(self: Message, generation: u64) ?Message {
+        return switch (self) {
+            .write_small => |data| .{ .omg_session_write = .{
+                .generation = generation,
+                .data = .{ .small = data },
+            } },
+            .write_stable => |data| .{ .omg_session_write = .{
+                .generation = generation,
+                .data = .{ .stable = data },
+            } },
+            .write_alloc => |data| .{ .omg_session_write = .{
+                .generation = generation,
+                .data = .{ .alloc = data },
+            } },
+            else => null,
+        };
+    }
+
     /// Return a write request for the given data. This will use
     /// write_small if it fits or write_alloc otherwise. This should NOT
     /// be used for stable pointers which can be manually set to write_stable.
@@ -120,6 +155,7 @@ pub const Message = union(enum) {
                 v.alloc.destroy(v.ptr);
             },
             .write_alloc => |v| v.alloc.free(v.data),
+            .omg_session_write => |v| v.data.deinit(),
             else => {},
         }
     }
@@ -135,5 +171,33 @@ test {
 test {
     // Ensure we don't grow our IO message size without explicitly wanting to.
     const testing = std.testing;
-    try testing.expectEqual(@as(usize, 40), @sizeOf(Message));
+    try testing.expectEqual(@as(usize, 56), @sizeOf(Message));
+}
+
+test "generation-tagged runtime writes preserve payload and ownership" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const stable: []const u8 = "\x1b[A";
+    const stable_message = Message{ .write_stable = stable };
+    const tagged_stable = stable_message.withOmgSessionGeneration(7).?;
+    try testing.expectEqual(@as(u64, 7), tagged_stable.omg_session_write.generation);
+    try testing.expectEqualStrings(stable, tagged_stable.omg_session_write.data.slice());
+
+    const allocated = try alloc.dupe(u8, "a user paste larger than the inline write buffer");
+    const allocated_message = Message{ .write_alloc = .{
+        .alloc = alloc,
+        .data = allocated,
+    } };
+    var tagged_allocated = allocated_message.withOmgSessionGeneration(9).?;
+    try testing.expectEqual(@as(u64, 9), tagged_allocated.omg_session_write.generation);
+    try testing.expectEqualStrings(
+        "a user paste larger than the inline write buffer",
+        tagged_allocated.omg_session_write.data.slice(),
+    );
+    tagged_allocated.deinit();
+
+    try testing.expect(stable_message.withOmgSessionGeneration(10) != null);
+    const non_write = Message{ .focused = true };
+    try testing.expect(non_write.withOmgSessionGeneration(10) == null);
 }

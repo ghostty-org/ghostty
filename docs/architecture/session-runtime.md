@@ -1,6 +1,6 @@
 # OMG 原生 Session Runtime 设计提案
 
-状态：设计提案；已增加实验性单会话原型（`session-runtime/` 与 `src/omg/session/SessionBackend.zig`），尚未交付 SSH 产品功能。目标：保留完整 Ghostty macOS host，SSH-first 交付，本地与远程共享会话模型和协议，不依赖 tmux 或嵌套终端代理 PTY。
+状态：内部实现与验收契约；`session-runtime/` 已提供多会话 daemon、SSH relay 和原生 snapshot backend。2026-11-01 的客户端重构增加稳定 relay、自动重连、并列本地/SSH tabs 与本地后台会话入口，具体验证记录见 `docs/plans/ssh-session-runtime-2026-11-01.md`。公开发布仍需真实 SSH、Agent 与跨平台验收。目标：保留完整 Ghostty macOS host，本地与远程共享会话模型和协议，不依赖 tmux 或嵌套终端代理 PTY。
 
 ## 源码依据
 
@@ -23,7 +23,7 @@ Ghostty macOS host
   └─ Ghostty Termio: OmgSession backend
        └─ 每 host/account 一条逻辑连接，多 session stream
             ├─ SSH pipes → omgd bridge → Unix socket
-            └─ Unix socket（内部验证；后续本地产品入口）
+            └─ Unix socket（本地后台会话）
                           ↓
                  omgd
                    ├─ Session registry / attach ownership
@@ -37,9 +37,11 @@ SSH 子进程使用普通管道与 `ssh -T`，它不持有 Agent PTY。Bridge �
 
 ## OMG 接入
 
-现有 `src/termio/backend.zig` 仅有 `exec`；`src/Surface.zig` 构建 `Exec`。新增 fork-owned `OmgSession` backend 与 session coordinator，并在 backend union、surface 初始化、配置/API 边界增加最小适配。保留原有键盘、IME、鼠标、选区、渲染路径。
+`src/termio/backend.zig` 的 `exec` 和 fork-owned `OmgSession` backend 共用完整 Ghostty host；backend union、surface 初始化、配置/API 边界只做适配。保留原有键盘、IME、鼠标、选区、渲染路径。
 
-`macos/Sources/Features/Terminal/SSHRecovery.swift` 当前通过新 PTY 和重执行命令恢复连接；不把这条路径当作 durable session attach。普通本地 session 首期继续现有 Exec；进入新 runtime 的 session，其 PTY 从第一天起仅归 daemon 所有。
+`macos/Sources/Features/Terminal/SSHRecovery.swift` 为普通 system SSH 保留新 PTY/重执行命令的恢复路径；不把这条路径当作 durable session attach。既有普通本地 session 继续 Exec；显式新建的本地后台会话和原生 SSH 会话使用同一 runtime，其 PTY 从第一天起仅归 daemon 所有。
+
+SSH handoff 使用当前窗口/工作区的原生 sibling tab，保留发起连接的本地 Surface 和 shell；helper 得到接受确认后立即返回本地 prompt。连接掉线只更新 pane 状态，relay 保持客户端 socket，自动重新建立传输并 attach 原 UUID。snapshot 恢复和 writer 确认完成前不接受输入；连接 generation 拒绝旧输入、resize、writer 与 snapshot ACK。失败信息走原生状态呈现，不写入终端输出污染保留的画面。用户手动重试只唤醒既有 relay，不替换 Surface 或中断健康 sibling panes。
 
 重点审计 surface deinit、关闭 tab、退出 App、进程退出展示和 restorable state。关闭视图默认 Detach；结束会话是独立的 CloseSession 操作。元数据记录 host/account 身份、session ID 和 daemon instance epoch。重连找不到 session 时显示明确状态，不自动创建同名进程冒充恢复。
 

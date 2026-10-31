@@ -1239,7 +1239,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 terminalTitle: surface.title
             )
             if let runtime = surface.runtimeDescriptor {
-                paneSessionContexts[surface.id]?.applyRuntimeConnection(runtime, workingDirectory: surface.pwd)
+                paneSessionContexts[surface.id]?.applyRuntimeConnection(
+                    runtime,
+                    workingDirectory: surface.pwd,
+                    state: surface.runtimeConnectionState
+                )
             }
             // Establish the local epoch before any SSH transition, even if
             // Info has never been opened and no title/PWD event was emitted.
@@ -1261,7 +1265,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                         terminalTitle: title
                     )
                     if let runtime = surface.runtimeDescriptor {
-                        context.applyRuntimeConnection(runtime, workingDirectory: pwd)
+                        context.applyRuntimeConnection(
+                            runtime,
+                            workingDirectory: pwd,
+                            state: surface.runtimeConnectionState
+                        )
                     } else {
                         context.updateLocalMetadata(workingDirectory: pwd, terminalTitle: title)
                     }
@@ -1275,8 +1283,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 .sink { [weak self, weak surface] signal in
                     guard let self, let surface else { return }
                     if SessionRuntimeHandoff.shared.accept(signal, source: surface, controller: self) { return }
-                    if signal.id == "omg-runtime-disconnected", surface.runtimeDescriptor != nil {
-                        surface.runtimeDisconnected = true
+                    if signal.id == "omg-runtime-state", let runtime = surface.runtimeDescriptor {
+                        guard let state = SessionRuntimeConnectionState.decode(signal.metadata) else { return }
+                        surface.runtimeConnectionState = state
+                        var context = paneSessionContexts[surface.id] ?? .init(
+                            workingDirectory: surface.pwd,
+                            terminalTitle: surface.title
+                        )
+                        context.applyRuntimeConnection(
+                            runtime,
+                            workingDirectory: surface.pwd,
+                            state: state
+                        )
+                        updatePaneSessionContext(context, for: surface.id)
                         return
                     }
                     var context = paneSessionContexts[surface.id] ?? .init(
@@ -2211,11 +2230,27 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         from source: Ghostty.SurfaceView
     ) -> Ghostty.SurfaceConfiguration? {
         if let runtime = source.runtimeDescriptor {
+            if runtime.isLocal {
+                var next = runtime
+                next.initialWorkingDirectory = SessionRuntimeDescriptor.validWorkingDirectory(
+                    source.pwd ?? runtime.launchWorkingDirectory
+                )
+                var result = config ?? .init()
+                do { try next.configure(&result) } catch { return nil }
+                result.environmentVariables.removeValue(forKey: "OMG_RUNTIME_SOCKET")
+                result.environmentVariables.removeValue(forKey: "OMG_RUNTIME_PANE_ID")
+                result.workingDirectory = nil
+                result.command = nil
+                result.initialInput = nil
+                result.waitAfterCommand = false
+                return result
+            }
+            guard let connection = runtime.connection else { return config }
             var result = config ?? .init()
             result.environmentVariables.removeValue(forKey: SessionRuntimeDescriptor.environmentKey)
             result.environmentVariables.removeValue(forKey: "OMG_RUNTIME_SOCKET")
             result.environmentVariables.removeValue(forKey: "OMG_RUNTIME_PANE_ID")
-            result.workingDirectory = runtime.connection.localWorkingDirectory
+            result.workingDirectory = connection.localWorkingDirectory
             result.command = nil
             return result
         }
@@ -2272,9 +2307,20 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         if let runtime = source.runtimeDescriptor {
             // A split creates a new PTY on this host. Use the current bundled
             // protocol; the existing pane remains pinned to its own revision.
-            var next = try runtimeRevision.map {
-                SessionRuntimeDescriptor(connection: runtime.connection, revision: $0, policy: runtime.policy)
-            } ?? SessionRuntimeConnections.descriptor(connection: runtime.connection, policy: runtime.policy)
+            var next: SessionRuntimeDescriptor
+            if let connection = runtime.connection {
+                next = try runtimeRevision.map {
+                    SessionRuntimeDescriptor(connection: connection, revision: $0, policy: runtime.policy)
+                } ?? SessionRuntimeConnections.descriptor(connection: connection, policy: runtime.policy)
+            } else {
+                next = try runtimeRevision.map {
+                    SessionRuntimeDescriptor(connection: nil, revision: $0, policy: runtime.policy,
+                                             localWorkingDirectory: runtime.launchWorkingDirectory)
+                } ?? SessionRuntimeConnections.localDescriptor(
+                    workingDirectory: runtime.launchWorkingDirectory,
+                    policy: runtime.policy
+                )
+            }
             next.initialWorkingDirectory = SessionRuntimeDescriptor.validWorkingDirectory(source.pwd)
             var result = config ?? .init()
             try next.configure(&result)

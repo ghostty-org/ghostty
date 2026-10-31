@@ -29,8 +29,9 @@ class CloseRelayTests(unittest.TestCase):
                 import shlex
                 ssh.write_text('#!/bin/sh\nprintf R\nexec ' + shlex.quote(str(BINARY)) + ' bridge ' + shlex.quote(str(root / 'host.sock')) + '\n')
                 ssh.chmod(0o700)
-                config = dict(executable=str(ssh), arguments=['fake-host'], cwd=directory,
-                              bundle=directory, policy=policy, revision='fixture', hooks=None)
+                config = dict(transport='ssh', executable=str(ssh), arguments=['fake-host'], cwd=directory,
+                              bundle=directory, policy=policy, revision='fixture',
+                              local_state_directory=None, local_shell=None, hooks=None)
                 (root / 'config.json').write_text(json.dumps(config))
                 relay = subprocess.Popen([str(BINARY), 'connect', str(root / 'relay.sock'), str(root / 'config.json')])
                 for _ in range(100):
@@ -40,10 +41,19 @@ class CloseRelayTests(unittest.TestCase):
                 with socket.socket(socket.AF_UNIX) as s:
                     s.settimeout(5)
                     s.connect(str(root / 'relay.sock'))
-                    s.sendall(encode(b'H', 0, identity))
-                    kind, _, data = frame(s)
-                    self.assertEqual(kind, b'J')
-                    pid = json.loads(data)['pid']
+                    request = json.dumps({
+                        'id': identity.decode(),
+                        'policy': policy,
+                        'create': True,
+                        'cwd': None,
+                    }).encode()
+                    s.sendall(encode(b'H', 0, request))
+                    while True:
+                        kind, _, data = frame(s)
+                        if kind == b'J':
+                            pid = json.loads(data)['pid']
+                            break
+                        self.assertEqual(kind, b'T')
                 deadline = time.monotonic() + 10
                 while True:
                     result = subprocess.run([str(BINARY), 'close-local', str(root / 'relay.sock'), identity.decode()],

@@ -2,22 +2,30 @@ import AppKit
 import SwiftUI
 
 extension TerminalController {
-    /// Recreate only the SSH relay and attach the same remote Session ID.
-    /// A fresh local PTY is never used as a tmux/attach wrapper.
-    func reconnectRuntimeHere(for surface: Ghostty.SurfaceView) {
-        guard let descriptor = surface.runtimeDescriptor,
-              let app = ghostty.app,
-              let node = surfaceTree.find(id: surface.id) else { return }
-        SessionRuntimeConnections.shared.invalidate(descriptor)
-        var config = Ghostty.SurfaceConfiguration()
-        do { try descriptor.configure(&config) } catch { return }
-        let replacement = Ghostty.SurfaceView(app, baseConfig: config, uuid: surface.id)
-        replacement.runtimeLocalSurface = surface.runtimeLocalSurface
-        replacement.runtimeLocalCompletion = surface.runtimeLocalCompletion
-        guard let tree = try? surfaceTree.replacing(node: node, with: .leaf(view: replacement)) else { return }
-        replaceSurfaceTree(tree, moveFocusTo: replacement, moveFocusFrom: surface, undoAction: nil)
-        focusedSurface = replacement
-        invalidateRestorableState()
+    /// Ask the host-scoped relay to retry transport and reattach this same UUID.
+    func retryRuntimeConnection(
+        for surface: Ghostty.SurfaceView,
+        using retryer: SessionRuntimeRetrying = SessionRuntimeConnections.shared
+    ) {
+        guard surface.surface != nil, let descriptor = surface.runtimeDescriptor,
+              surfaceTree.contains(where: { $0 === surface }),
+              surface.runtimeConnectionState?.canRetry != false else { return }
+        let attempt = (surface.runtimeConnectionState?.attempt ?? 0) + 1
+        let requestedState = SessionRuntimeConnectionState.reconnecting(
+            attempt: attempt,
+            retryInMilliseconds: nil
+        )
+        surface.runtimeConnectionState = requestedState
+        do {
+            try retryer.retry(descriptor) { [weak surface] message in
+                guard let surface,
+                      surface.runtimeDescriptor == descriptor,
+                      surface.runtimeConnectionState == requestedState else { return }
+                surface.runtimeConnectionState = .failed(message: message)
+            }
+        } catch {
+            surface.runtimeConnectionState = .failed(message: error.localizedDescription)
+        }
     }
 }
 
@@ -27,16 +35,18 @@ struct SessionRuntimeRecoveryBanner: View {
     @ObservedObject var surface: Ghostty.SurfaceView
 
     var body: some View {
-        if surface.runtimeDisconnected, let descriptor = surface.runtimeDescriptor {
+        if surface.surface != nil, let descriptor = surface.runtimeDescriptor,
+           let state = surface.runtimeConnectionState,
+           state != .ready {
             NativeSessionRuntimeRecoveryBanner(
-                endpoint: descriptor.connection.displayEndpoint,
+                endpoint: descriptor.displayEndpoint,
+                state: state,
                 strings: SettingsStrings(language: settings.language)
             ) { [weak controller, weak surface] in
                 guard let controller, let surface,
-                      surface.runtimeDisconnected,
                       surface.runtimeDescriptor == descriptor,
                       controller.surfaceTree.contains(where: { $0 === surface }) else { return }
-                controller.reconnectRuntimeHere(for: surface)
+                controller.retryRuntimeConnection(for: surface)
             }
         }
     }
@@ -44,15 +54,16 @@ struct SessionRuntimeRecoveryBanner: View {
 
 private struct NativeSessionRuntimeRecoveryBanner: NSViewRepresentable {
     let endpoint: String
+    let state: SessionRuntimeConnectionState
     let strings: SettingsStrings
-    let reconnect: () -> Void
+    let retry: () -> Void
 
     func makeNSView(context: Context) -> SessionRuntimeRecoveryView {
         SessionRuntimeRecoveryView()
     }
 
     func updateNSView(_ view: SessionRuntimeRecoveryView, context: Context) {
-        view.update(endpoint: endpoint, strings: strings, reconnect: reconnect)
+        view.update(endpoint: endpoint, state: state, strings: strings, retry: retry)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: SessionRuntimeRecoveryView,
@@ -62,14 +73,14 @@ private struct NativeSessionRuntimeRecoveryBanner: NSViewRepresentable {
     }
 }
 
-/// Native controls stay attached to their pane; the adapter only supplies recovery state.
+/// Native status and retry controls stay attached to the session's pane.
 final class SessionRuntimeRecoveryView: NSVisualEffectView {
     let titleLabel = NSTextField(labelWithString: "")
     let detailLabel = NSTextField(wrappingLabelWithString: "")
     let reconnectButton = NSButton(title: "", target: nil, action: nil)
     private let icon = NSImageView()
     private let separator = NSBox()
-    private var reconnect: (() -> Void)?
+    private var retry: (() -> Void)?
 
     override var isFlipped: Bool { true }
 
@@ -84,14 +95,13 @@ final class SessionRuntimeRecoveryView: NSVisualEffectView {
         detailLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         detailLabel.textColor = .secondaryLabelColor
         detailLabel.maximumNumberOfLines = 0
-        icon.image = NSImage(systemSymbolName: "network.slash", accessibilityDescription: nil)
         icon.contentTintColor = .secondaryLabelColor
         reconnectButton.bezelStyle = .rounded
         reconnectButton.controlSize = .small
         reconnectButton.target = self
-        reconnectButton.action = #selector(performReconnect)
+        reconnectButton.action = #selector(performRetry)
         reconnectButton.setAccessibilityIdentifier("sessionRuntimeReconnect")
-        // No Return key equivalent: a passive banner must not intercept terminal input.
+        // No Return key equivalent: this passive banner must not intercept terminal input.
         separator.boxType = .separator
         for child in [icon, titleLabel, detailLabel, reconnectButton, separator] {
             addSubview(child)
@@ -100,20 +110,26 @@ final class SessionRuntimeRecoveryView: NSVisualEffectView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func update(endpoint: String, strings: SettingsStrings, reconnect: @escaping () -> Void) {
-        titleLabel.stringValue = strings.sshRecoveryTitle + " · " + endpoint
+    func update(endpoint: String, state: SessionRuntimeConnectionState,
+                strings: SettingsStrings, retry: @escaping () -> Void) {
+        titleLabel.stringValue = strings.runtimeStatusTitle(state) + " · " + endpoint
         titleLabel.toolTip = endpoint
-        detailLabel.stringValue = strings.runtimeRecoveryHelp
-        reconnectButton.title = strings.runtimeRecoveryReconnect
-        reconnectButton.toolTip = strings.runtimeRecoveryHelp
-        self.reconnect = reconnect
+        detailLabel.stringValue = strings.runtimeStatusDetail(state)
+        reconnectButton.title = strings.runtimeRetryNow
+        reconnectButton.toolTip = strings.runtimeRetryHelp
+        reconnectButton.isHidden = !state.canRetry
+        icon.image = NSImage(
+            systemSymbolName: state.isInProgress ? "arrow.triangle.2.circlepath" : "network.slash",
+            accessibilityDescription: nil
+        )
+        self.retry = retry
         invalidateIntrinsicContentSize()
         needsLayout = true
     }
 
     func height(for width: CGFloat) -> CGFloat {
         20 + titleLabel.intrinsicContentSize.height + 6 + detailHeight(for: width) +
-            6 + reconnectButton.intrinsicContentSize.height + 1
+            (reconnectButton.isHidden ? 1 : 6 + reconnectButton.intrinsicContentSize.height + 1)
     }
 
     override var intrinsicContentSize: NSSize {
@@ -129,8 +145,12 @@ final class SessionRuntimeRecoveryView: NSVisualEffectView {
         let textHeight = detailHeight(for: bounds.width)
         detailLabel.frame = NSRect(x: 36, y: titleLabel.frame.maxY + 6, width: width, height: textHeight)
         let buttonSize = reconnectButton.intrinsicContentSize
-        reconnectButton.frame = NSRect(x: 36, y: detailLabel.frame.maxY + 6,
-                                      width: min(width, buttonSize.width), height: buttonSize.height)
+        reconnectButton.frame = NSRect(
+            x: 36,
+            y: detailLabel.frame.maxY + 6,
+            width: min(width, buttonSize.width),
+            height: buttonSize.height
+        )
         separator.frame = NSRect(x: 0, y: max(0, bounds.height - 1), width: bounds.width, height: 1)
     }
 
@@ -143,7 +163,51 @@ final class SessionRuntimeRecoveryView: NSVisualEffectView {
         ).height)
     }
 
-    @objc private func performReconnect() {
-        reconnect?()
+    @objc private func performRetry() {
+        retry?()
+    }
+}
+
+private extension SessionRuntimeConnectionState {
+    var isInProgress: Bool {
+        switch self {
+        case .connecting, .reconnecting: true
+        case .attention, .ready, .failed, .exited: false
+        }
+    }
+}
+
+private extension SettingsStrings {
+    func runtimeStatusTitle(_ state: SessionRuntimeConnectionState) -> String {
+        switch state {
+        case .connecting: t("Connecting", "正在连接")
+        case .reconnecting: t("Reconnecting", "正在重连")
+        case .attention: t("Connection needs attention", "连接需要处理")
+        case .ready: t("Connected", "已连接")
+        case .failed: t("Session connection failed", "会话连接失败")
+        case .exited: t("Session ended", "会话已结束")
+        }
+    }
+
+    func runtimeStatusDetail(_ state: SessionRuntimeConnectionState) -> String {
+        switch state {
+        case .connecting:
+            return t("Starting the session runtime.", "正在启动会话运行时。")
+        case .reconnecting(let attempt, let retryInMilliseconds):
+            let attemptText = t("Attempt \(attempt)", "第 \(attempt) 次尝试")
+            guard let retryInMilliseconds else { return attemptText }
+            let seconds = max(1, (retryInMilliseconds + 999) / 1_000)
+            return attemptText + " · " + t("retry in \(seconds)s", "\(seconds) 秒后重试")
+        case .attention(let attempt, let message):
+            let fallback = t("Automatic retries stopped. Retry when the host is reachable.", "自动重试已暂停；主机恢复后可手动重试。")
+            let reason = message?.isEmpty == false ? message! : fallback
+            return attempt > 0 ? t("Attempt \(attempt) · \(reason)", "第 \(attempt) 次尝试 · \(reason)") : reason
+        case .ready:
+            return t("The original session is attached.", "已连接到原会话。")
+        case .failed(let message, _):
+            return message?.isEmpty == false ? message! : t("The session could not be attached.", "无法连接到原会话。")
+        case .exited(let exitCode):
+            return t("The session process exited with code \(exitCode).", "会话进程以退出码 \(exitCode) 结束。")
+        }
     }
 }

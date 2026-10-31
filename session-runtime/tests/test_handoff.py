@@ -11,6 +11,35 @@ import unittest
 
 
 class HandoffTests(unittest.TestCase):
+    def test_accepted_sibling_tab_releases_local_shell_without_waiting_for_remote_exit(self):
+        binary = Path(__file__).resolve().parents[1] / "target/debug/omgd"
+        with tempfile.TemporaryDirectory() as directory:
+            master, slave = pty.openpty()
+            env = dict(os.environ, OMG_SSH_HANDOFF_DIRECTORY=directory, OMG_SSH_HANDOFF_TOKEN="test-capability")
+            process = subprocess.Popen([str(binary), "handoff", "/usr/bin/ssh", "host"],
+                                       stdin=slave, stdout=slave, stderr=subprocess.PIPE, env=env)
+            os.close(slave)
+            try:
+                deadline = time.monotonic() + 3
+                requests = []
+                while not requests and time.monotonic() < deadline:
+                    requests = list(Path(directory).glob("*.json"))
+                    if not requests:
+                        time.sleep(.02)
+                self.assertEqual(len(requests), 1)
+                request = requests[0]
+                request.with_suffix(".accepted").write_bytes(b"")
+                _, stderr = process.communicate(timeout=3)
+                self.assertEqual(process.returncode, 0, stderr)
+                self.assertFalse(request.exists())
+                self.assertFalse(request.with_suffix(".accepted").exists())
+                self.assertFalse(request.with_suffix(".done").exists())
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    process.communicate(timeout=3)
+                os.close(master)
+
     def test_authenticated_failure_returns_without_timeout(self):
         binary = Path(__file__).resolve().parents[1] / "target/debug/omgd"
         self.assertTrue(binary.is_file(), "build the runtime before testing")

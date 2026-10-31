@@ -6,18 +6,37 @@ use std::{
     io::{self, Read},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::mpsc,
+    sync::{mpsc, Arc, Mutex},
     time::{Duration, Instant},
 };
+#[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TransportKind {
+    Ssh,
+    Local,
+}
+
+impl Default for TransportKind {
+    fn default() -> Self {
+        Self::Ssh
+    }
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Connection {
+    #[serde(default)]
+    pub transport: TransportKind,
     pub executable: String,
     pub arguments: Vec<String>,
     pub cwd: String,
     pub bundle: PathBuf,
     pub policy: Policy,
     pub revision: Option<String>,
+    #[serde(default)]
+    pub local_state_directory: Option<PathBuf>,
+    #[serde(default)]
+    pub local_shell: Option<String>,
     #[serde(default)]
     pub hooks: Option<String>,
 }
@@ -41,7 +60,7 @@ fn valid_component(s: &str) -> bool {
 pub fn quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
-fn ssh(config: &Connection, script: &str) -> io::Result<Command> {
+fn ssh(config: &Connection, script: &str, interactive: bool) -> io::Result<Command> {
     if !config.executable.starts_with('/')
         || config.arguments.is_empty()
         || config.arguments.iter().any(|s| s.contains('\0'))
@@ -54,17 +73,72 @@ fn ssh(config: &Connection, script: &str) -> io::Result<Command> {
         .arg(format!("exec /bin/sh -c {}", quote(script)))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
+        .stderr(Stdio::piped())
+        .env(
+            "SSH_ASKPASS_REQUIRE",
+            if interactive { "force" } else { "never" },
+        );
     Ok(c)
 }
-fn run(config: &Connection, script: &str, input: Option<&[u8]>) -> io::Result<Vec<u8>> {
+fn run(
+    config: &Connection,
+    script: &str,
+    input: Option<&[u8]>,
+    interactive: bool,
+) -> io::Result<Vec<u8>> {
     execute(
-        ssh(config, script)?,
+        ssh(config, script, interactive)?,
         std::io::Cursor::new(input.unwrap_or_default().to_vec()),
     )
 }
+
+fn capture_stderr(
+    child: &mut std::process::Child,
+) -> io::Result<(Arc<Mutex<Vec<u8>>>, std::thread::JoinHandle<()>)> {
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| io::Error::other("SSH stderr unavailable"))?;
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    let output = captured.clone();
+    let reader = std::thread::spawn(move || {
+        let mut buffer = [0; 1024];
+        loop {
+            let n = match stderr.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => n,
+            };
+            if let Ok(mut current) = output.lock() {
+                let remaining = 4096usize.saturating_sub(current.len());
+                current.extend_from_slice(&buffer[..n.min(remaining)]);
+            }
+        }
+    });
+    Ok((captured, reader))
+}
+
+fn stderr_text(captured: &Arc<Mutex<Vec<u8>>>) -> String {
+    let bytes = captured
+        .lock()
+        .map(|value| value.clone())
+        .unwrap_or_default();
+    bytes
+        .into_iter()
+        .map(|b| {
+            if b.is_ascii_graphic() || b == b' ' {
+                b as char
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
 fn execute(mut command: Command, mut input: impl Read + Send + 'static) -> io::Result<Vec<u8>> {
     let mut child = command.spawn()?;
+    let (stderr, stderr_reader) = capture_stderr(&mut child)?;
     let mut stdin = child.stdin.take().unwrap();
     let mut stdout = child.stdout.take().unwrap();
     let (tx, rx) = mpsc::channel();
@@ -92,7 +166,7 @@ fn execute(mut command: Command, mut input: impl Read + Send + 'static) -> io::R
         }
         if let Some(status) = child.try_wait()? {
             if !status.success() {
-                break Err(io::Error::other("SSH runtime setup failed; check authentication, platform and remote permissions"));
+                break Err(io::Error::other("SSH runtime setup failed"));
             }
             if let Some(bytes) = output.take() {
                 break Ok(bytes);
@@ -114,15 +188,23 @@ fn execute(mut command: Command, mut input: impl Read + Send + 'static) -> io::R
         .join()
         .map_err(|_| io::Error::other("SSH upload thread failed"))?;
     let _ = reader.join();
-    let bytes = result?;
+    let _ = stderr_reader.join();
+    let bytes = result.map_err(|error| {
+        let detail = stderr_text(&stderr);
+        if detail.is_empty() {
+            error
+        } else {
+            io::Error::other(format!("{error}: {detail}"))
+        }
+    })?;
     write_result?;
     Ok(bytes)
 }
 /// Probe has no writes. Hosts without a conventional shell/tar/sha256 tool fail
 /// explicitly; there is never a fallback pretending to be a durable session.
-pub fn prepare(config: &Connection) -> io::Result<(String, String)> {
+pub fn prepare(config: &Connection, interactive: bool) -> io::Result<(String, String)> {
     config.policy.validate()?;
-    let probe=run(config,"printf '\\nOMG_RUNTIME_PROBE\\n'; uname -s; uname -m; printf '%s\\n' \"$HOME\"; command -v tar >/dev/null",None)?;
+    let probe=run(config,"printf '\\nOMG_RUNTIME_PROBE\\n'; uname -s; uname -m; printf '%s\\n' \"$HOME\"; command -v tar >/dev/null",None,interactive)?;
     let text = String::from_utf8(probe).map_err(io::Error::other)?;
     let mut lines = text
         .split("OMG_RUNTIME_PROBE\n")
@@ -196,6 +278,7 @@ pub fn prepare(config: &Connection) -> io::Result<(String, String)> {
             v = quote(&version)
         ),
         None,
+        interactive,
     )?;
     if !exists.ends_with(b"OMG_PRESENT") {
         let nonce = crate::record::nonce()?;
@@ -252,7 +335,10 @@ if [ ! -d "$version" ]; then mv "$staging" "$version"; fi
         if !tar.status()?.success() {
             return Err(io::Error::other("cannot package runtime"));
         }
-        let result = execute(ssh(config, &script)?, fs::File::open(&archive)?);
+        let result = execute(
+            ssh(config, &script, interactive)?,
+            fs::File::open(&archive)?,
+        );
         let _ = fs::remove_file(archive);
         result?;
     }
@@ -264,9 +350,15 @@ if [ ! -d "$version" ]; then mv "$staging" "$version"; fi
             config,
             "if command -v python3 >/dev/null 2>&1; then printf PYTHON; fi",
             None,
+            interactive,
         )?;
         if available.ends_with(b"PYTHON") {
-            run(config, "exec python3 -", Some(hooks.as_bytes()))?;
+            run(
+                config,
+                "exec python3 -",
+                Some(hooks.as_bytes()),
+                interactive,
+            )?;
         } else if config.policy.close_on_agent_done {
             return Err(io::Error::other(
                 "Agent completion cleanup requires remote Python 3 for hooks",
@@ -292,13 +384,18 @@ printf '\nOMG_RUNTIME_READY\n'
         policy = quote(&policy),
         binary = quote(&format!("{version}/omgd"))
     );
-    let out = run(config, &setup, None)?;
+    let out = run(config, &setup, None, interactive)?;
     if !out.ends_with(b"OMG_RUNTIME_READY\n") {
         return Err(io::Error::other("remote daemon not ready"));
     }
     Ok((format!("{version}/omgd"), state))
 }
-pub fn command(config: &Connection, binary: &str, state: &str) -> io::Result<Command> {
+pub fn command(
+    config: &Connection,
+    binary: &str,
+    state: &str,
+    interactive: bool,
+) -> io::Result<Command> {
     ssh(
         config,
         &format!(
@@ -306,11 +403,12 @@ pub fn command(config: &Connection, binary: &str, state: &str) -> io::Result<Com
             quote(binary),
             quote(&format!("{state}/host.sock"))
         ),
+        interactive,
     )
 }
 /// Warm restore reuses the exact requested revision. Readiness is emitted before
 /// bridge bytes; stdout remains untouched after the fixed one-byte handshake.
-pub fn fast_connect(config: &Connection) -> io::Result<std::process::Child> {
+pub fn fast_connect(config: &Connection, interactive: bool) -> io::Result<std::process::Child> {
     use sha2::{Digest, Sha256};
     let revision = config
         .revision
@@ -332,7 +430,8 @@ exec "$binary" bridge "$state/host.sock"
         revision = revision,
         key = &key[..12]
     );
-    let mut child = ssh(config, &script)?.spawn()?;
+    let mut child = ssh(config, &script, interactive)?.spawn()?;
+    let (stderr, stderr_reader) = capture_stderr(&mut child)?;
     let mut output = child.stdout.take().unwrap();
     let (tx, rx) = mpsc::channel();
     let reader = std::thread::spawn(move || {
@@ -351,6 +450,8 @@ exec "$binary" bridge "$state/host.sock"
             let _ = child.kill();
             let _ = child.wait();
             let _ = reader.join();
+            let _ = stderr_reader.join();
+            let detail = stderr_text(&stderr);
             match other {
                 Ok((Ok(b'M'), _)) => Err(io::Error::new(
                     io::ErrorKind::NotFound,
@@ -360,9 +461,10 @@ exec "$binary" bridge "$state/host.sock"
                     io::ErrorKind::TimedOut,
                     "SSH runtime reconnect timed out",
                 )),
-                _ => Err(io::Error::other(
-                    "SSH runtime reconnect failed; verify authentication and remote startup output",
-                )),
+                _ if !detail.is_empty() => Err(io::Error::other(format!(
+                    "SSH runtime reconnect failed: {detail}"
+                ))),
+                _ => Err(io::Error::other("SSH runtime reconnect failed")),
             }
         }
     }
@@ -388,12 +490,15 @@ mod fast_tests {
         fs::write(&exe, format!("#!/bin/sh\nprintf '{reply}'\n")).unwrap();
         fs::set_permissions(&exe, fs::Permissions::from_mode(0o700)).unwrap();
         let config = Connection {
+            transport: TransportKind::Ssh,
             executable: exe.to_str().unwrap().into(),
             arguments: vec!["host".into()],
             cwd: "/".into(),
             bundle: root.join("missing-artifacts"),
             policy: Policy::default(),
             revision: Some("test123".into()),
+            local_state_directory: None,
+            local_shell: None,
             hooks: Some("must not execute".into()),
         };
         (root, config)
@@ -401,7 +506,7 @@ mod fast_tests {
     #[test]
     fn warm_restore_preserves_protocol_bytes_without_deployment() {
         let (root, config) = fixture("Rpayload");
-        let mut child = fast_connect(&config).unwrap();
+        let mut child = fast_connect(&config, true).unwrap();
         let mut bytes = String::new();
         child
             .stdout
@@ -417,9 +522,29 @@ mod fast_tests {
     fn only_explicit_missing_response_enables_deployment() {
         for (response, missing) in [("M", true), ("", false), ("banner", false)] {
             let (root, config) = fixture(response);
-            let error = fast_connect(&config).unwrap_err();
+            let error = fast_connect(&config, true).unwrap_err();
             assert_eq!(error.kind() == io::ErrorKind::NotFound, missing);
             fs::remove_dir_all(root).unwrap();
         }
+    }
+
+    #[test]
+    fn retry_interaction_overrides_inherited_askpass_policy() {
+        let (root, mut config) = fixture("R");
+        config.arguments = vec!["host".into(), "BatchMode=yes".into()];
+        let manual = ssh(&config, "true", true).unwrap();
+        let manual_policy = manual
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new("SSH_ASKPASS_REQUIRE"))
+            .and_then(|(_, value)| value);
+        assert_eq!(manual_policy, Some(std::ffi::OsStr::new("force")));
+
+        let automatic = ssh(&config, "true", false).unwrap();
+        let automatic_policy = automatic
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new("SSH_ASKPASS_REQUIRE"))
+            .and_then(|(_, value)| value);
+        assert_eq!(automatic_policy, Some(std::ffi::OsStr::new("never")));
+        fs::remove_dir_all(root).unwrap();
     }
 }

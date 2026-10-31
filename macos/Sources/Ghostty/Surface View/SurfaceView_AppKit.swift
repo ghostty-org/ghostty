@@ -20,11 +20,7 @@ extension Ghostty {
         }
 
         var runtimeDescriptor: SessionRuntimeDescriptor?
-        @Published var runtimeDisconnected = false
-        // Only retained while this app stays open. On relaunch a local shell is
-        // recreated at the saved original cwd after the remote process exits.
-        var runtimeLocalSurface: Ghostty.SurfaceView?
-        var runtimeLocalCompletion: URL?
+        @Published var runtimeConnectionState: SessionRuntimeConnectionState?
         @Published var runtimeConnectionError: String?
 
         // The progress report (if any)
@@ -408,11 +404,13 @@ extension Ghostty {
                 do {
                     let descriptor = try JSONDecoder().decode(SessionRuntimeDescriptor.self, from: Data(encoded.utf8))
                     runtimeDescriptor = descriptor
+                    runtimeConnectionState = .connecting(attempt: 0)
                     let socket = try SessionRuntimeConnections.shared.prepare(descriptor)
                     surface_cfg.environmentVariables["OMG_RUNTIME_SOCKET"] = socket.path
                     surface_cfg.environmentVariables["OMG_RUNTIME_PANE_ID"] = try descriptor.openRequest(pane: id, restoring: uuid != nil)
                 } catch {
                     self.runtimeConnectionError = error.localizedDescription
+                    self.runtimeConnectionState = .failed(message: error.localizedDescription)
                     self.error = Ghostty.Error.apiFailed
                     Ghostty.logger.error("Session runtime connection setup failed: \(error.localizedDescription, privacy: .public)")
                     return

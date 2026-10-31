@@ -3,6 +3,7 @@ import SwiftUI
 struct SessionRuntimeSettingsView: View {
     @ObservedObject var settings: OhMyGhosttySettings
     @State private var host = ""
+    @State private var localWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
     @ObservedObject private var closes = SessionRuntimeCloseQueue.shared
     let strings: SettingsStrings
     @State private var error: String?
@@ -16,6 +17,13 @@ struct SessionRuntimeSettingsView: View {
                 Button(strings.runtimeConnect) { connect() }.disabled(host.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             Text(strings.runtimeConnectCaption)
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                TextField(strings.runtimeLocalDirectory, text: $localWorkingDirectory)
+                Button(strings.runtimeLocalOpen) { connectLocal() }
+                    .disabled(localWorkingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            Text(strings.runtimeLocalCaption)
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Text(strings.runtimeDetachedHours)
@@ -56,6 +64,18 @@ struct SessionRuntimeSettingsView: View {
             }
             let connection = try GitSSHConnection(destination: host.trimmingCharacters(in: .whitespacesAndNewlines))
             try SessionRuntimeConnections.shared.open(connection: connection, policy: settings.runtimePolicy)
+            error = nil
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private func connectLocal() {
+        do {
+            if !settings.runtimeExpiration.isEmpty && settings.runtimePolicy.expiresAt == nil {
+                error = strings.runtimeInvalidDeadline
+                return
+            }
+            let directory = localWorkingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            try SessionRuntimeConnections.shared.openLocal(workingDirectory: directory, policy: settings.runtimePolicy)
             error = nil
         } catch { self.error = error.localizedDescription }
     }

@@ -4,7 +4,8 @@ use std::{
     net::Shutdown,
     os::unix::net::UnixStream,
     path::Path,
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
+    sync::Arc,
 };
 fn copy(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
     let mut buffer = [0; 65536];
@@ -30,19 +31,46 @@ fn bridge(path: &str) -> io::Result<()> {
     }
     copy(&socket, unsafe { std::fs::File::from_raw_fd(fd) })
 }
-fn relay_command(local: &str, mut command: Command, lease: bool) -> io::Result<()> {
-    let mut ssh = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()?;
-    relay_child(local, &mut ssh, lease)
+struct TunnelGuard {
+    child: Child,
+    writer: Option<std::thread::JoinHandle<()>>,
+    reader: Option<std::thread::JoinHandle<()>>,
+    diagnostics: Option<std::thread::JoinHandle<()>>,
 }
-fn relay_child(local: &str, ssh: &mut std::process::Child, lease: bool) -> io::Result<()> {
+impl Drop for TunnelGuard {
+    fn drop(&mut self) {
+        if self.child.try_wait().ok().flatten().is_none() {
+            let _ = self.child.kill();
+        }
+        let _ = self.child.wait();
+        if let Some(thread) = self.writer.take() {
+            let _ = thread.join();
+        }
+        if let Some(thread) = self.reader.take() {
+            let _ = thread.join();
+        }
+        if let Some(thread) = self.diagnostics.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+fn tunnel(mut command: Command) -> io::Result<omg_session_runtime::client::RelayTransport> {
+    tunnel_child(command.spawn()?)
+}
+
+fn tunnel_child(mut child: Child) -> io::Result<omg_session_runtime::client::RelayTransport> {
+    let input = child
+        .stdin
+        .take()
+        .ok_or_else(|| io::Error::other("SSH stdin unavailable"))?;
+    let output = child
+        .stdout
+        .take()
+        .ok_or_else(|| io::Error::other("SSH stdout unavailable"))?;
+    let diagnostics = child.stderr.take();
     let (socket, pipe) = UnixStream::pair()?;
     let upload = pipe.try_clone()?;
-    let input = ssh.stdin.take().unwrap();
-    let output = ssh.stdout.take().unwrap();
     let writer = std::thread::spawn(move || {
         let _ = copy(&upload, input);
         let _ = upload.shutdown(Shutdown::Both);
@@ -51,19 +79,114 @@ fn relay_child(local: &str, ssh: &mut std::process::Child, lease: bool) -> io::R
         let _ = copy(output, &pipe);
         let _ = pipe.shutdown(Shutdown::Both);
     });
-    let result = omg_session_runtime::host::relay(Path::new(local), socket, lease);
-    let _ = ssh.kill();
-    let _ = ssh.wait();
-    let _ = writer.join();
-    let _ = reader.join();
-    let _ = std::fs::remove_file(local);
-    result
+    let diagnostics = diagnostics.map(|input| {
+        std::thread::spawn(move || {
+            let _ = io::copy(&mut input.take(64 * 1024), &mut io::stderr());
+        })
+    });
+    Ok(omg_session_runtime::client::RelayTransport {
+        socket,
+        guard: Box::new(TunnelGuard {
+            child,
+            writer: Some(writer),
+            reader: Some(reader),
+            diagnostics,
+        }),
+    })
 }
-fn ensure_host(directory: &str) -> io::Result<()> {
+
+fn batch_mode(config: &mut omg_session_runtime::deploy::Connection, interactive: bool) {
+    let value = format!("BatchMode={}", if interactive { "no" } else { "yes" });
+    let mut replaced = false;
+    let mut index = 0;
+    while index < config.arguments.len() {
+        if config.arguments[index].starts_with("BatchMode=") {
+            config.arguments[index] = value.clone();
+            replaced = true;
+        } else if config.arguments[index] == "-o"
+            && config
+                .arguments
+                .get(index + 1)
+                .is_some_and(|option| option.starts_with("BatchMode="))
+        {
+            config.arguments[index + 1] = value.clone();
+            replaced = true;
+            index += 1;
+        }
+        index += 1;
+    }
+    if !replaced {
+        config.arguments.splice(0..0, ["-o".to_string(), value]);
+    }
+}
+
+fn relay_connector(
+    config: omg_session_runtime::deploy::Connection,
+) -> omg_session_runtime::client::Connector {
+    use omg_session_runtime::deploy::TransportKind;
+    match config.transport {
+        TransportKind::Ssh => Arc::new(move |interactive| {
+            let mut attempt = config.clone();
+            batch_mode(&mut attempt, interactive);
+            match omg_session_runtime::deploy::fast_connect(&attempt, interactive) {
+                Ok(child) => tunnel_child(child),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    let (binary, state) =
+                        omg_session_runtime::deploy::prepare(&attempt, interactive)?;
+                    tunnel(omg_session_runtime::deploy::command(
+                        &attempt,
+                        &binary,
+                        &state,
+                        interactive,
+                    )?)
+                }
+                Err(error) => Err(error),
+            }
+        }),
+        TransportKind::Local => {
+            let root = config.local_state_directory.clone();
+            let shell = config.local_shell.clone();
+            Arc::new(move |_| {
+                let root = root
+                    .as_ref()
+                    .ok_or_else(|| io::Error::other("local runtime state directory is missing"))?;
+                if !root.is_absolute() || root.as_os_str().to_string_lossy().contains('\0') {
+                    return Err(io::Error::other("invalid local runtime state directory"));
+                }
+                let shell = shell
+                    .clone()
+                    .or_else(|| env::var("SHELL").ok())
+                    .unwrap_or_else(|| "/bin/sh".into());
+                ensure_host(&root.to_string_lossy(), Some(&shell))?;
+                let path = root.join("host.sock");
+                if path.as_os_str().as_encoded_bytes().len() >= 104 {
+                    return Err(io::Error::other("local runtime socket path is too long"));
+                }
+                Ok(omg_session_runtime::client::RelayTransport {
+                    socket: UnixStream::connect(path)?,
+                    guard: Box::new(()),
+                })
+            })
+        }
+    }
+}
+
+fn ensure_host(directory: &str, shell_override: Option<&str>) -> io::Result<()> {
     use std::os::unix::{fs::PermissionsExt, process::CommandExt};
     let root = Path::new(directory);
     std::fs::create_dir_all(root)?;
     std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700))?;
+    if let Some(shell) = shell_override {
+        let metadata = std::fs::metadata(shell)?;
+        if !Path::new(shell).is_absolute()
+            || metadata.is_dir()
+            || metadata.permissions().mode() & 0o111 == 0
+        {
+            return Err(io::Error::other(
+                "local shell must be an executable absolute path",
+            ));
+        }
+    }
     let socket = root.join("host.sock");
     if UnixStream::connect(&socket).is_ok() {
         return Ok(());
@@ -72,7 +195,10 @@ fn ensure_host(directory: &str) -> io::Result<()> {
         .create(true)
         .append(true)
         .open(root.join("host.log"))?;
-    let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+    let shell = shell_override
+        .map(str::to_string)
+        .or_else(|| env::var("SHELL").ok())
+        .unwrap_or_else(|| "/bin/sh".into());
     if omg_session_runtime::supervision::start(root, &shell)? {
         for _ in 0..100 {
             if UnixStream::connect(&socket).is_ok() {
@@ -148,29 +274,6 @@ fn report(agent: &str, state: &str, conversation: &str, cwd: &str) -> io::Result
     let _ = std::fs::remove_file(local);
     result
 }
-fn show_error(local: &str, error: &dyn std::fmt::Display) -> io::Result<()> {
-    // Give native surfaces a framed, bounded failure instead of a blank pane.
-    let listener = std::os::unix::net::UnixListener::bind(local)?;
-    listener.set_nonblocking(true)?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
-    while std::time::Instant::now() < deadline {
-        match listener.accept() {
-            Ok((mut s, _)) => {
-                s.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
-                s.set_write_timeout(Some(std::time::Duration::from_secs(2)))?;
-                let _ = omg_session_runtime::Frame::read(&mut s);
-                let _ = omg_session_runtime::Frame::new(b'E', 0, error.to_string().as_bytes())
-                    .send(&mut s);
-            }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                std::thread::sleep(std::time::Duration::from_millis(20))
-            }
-            Err(e) => return Err(e),
-        }
-    }
-    let _ = std::fs::remove_file(local);
-    Ok(())
-}
 fn main() -> io::Result<()> {
     let a: Vec<String> = env::args().collect();
     match a.get(1).map(String::as_str) {
@@ -183,42 +286,42 @@ fn main() -> io::Result<()> {
         Some("bridge") if a.len() == 3 => bridge(&a[2]),
         Some("connect") if a.len() == 4 => {
             let config = omg_session_runtime::deploy::load(Path::new(&a[3]))?;
-            // One authenticated SSH connection handles warm restore. Only a
-            // positive missing-installation response authorizes deployment.
-            match omg_session_runtime::deploy::fast_connect(&config) {
-                Ok(mut ssh) => return relay_child(&a[2], &mut ssh, true),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => {
-                    let _ = show_error(&a[2], &error);
-                    return Err(error);
-                }
-            }
-            let (binary, state) = match omg_session_runtime::deploy::prepare(&config) {
-                Ok(result) => result,
-                Err(error) => {
-                    let _ = show_error(&a[2], &error);
-                    return Err(error);
-                }
-            };
-            relay_command(
-                &a[2],
-                omg_session_runtime::deploy::command(&config, &binary, &state)?,
-                true,
+            let interactive_first = config.transport
+                == omg_session_runtime::deploy::TransportKind::Ssh
+                && config.arguments.iter().any(|arg| arg == "BatchMode=no");
+            omg_session_runtime::client::supervise(
+                Path::new(&a[2]),
+                relay_connector(config),
+                interactive_first,
             )
+        }
+        Some("retry-local") if a.len() >= 3 => {
+            let interactive = a.iter().skip(2).any(|arg| arg == "--interactive");
+            let socket = a
+                .iter()
+                .skip(2)
+                .find(|arg| arg.as_str() != "--interactive")
+                .ok_or_else(|| io::Error::other("missing local socket"))?;
+            omg_session_runtime::client::retry_local(Path::new(socket), interactive)
         }
         Some("close-local") if a.len() == 4 => {
             let mut socket = UnixStream::connect(&a[2])?;
             socket.set_read_timeout(Some(std::time::Duration::from_secs(15)))?;
             socket.set_write_timeout(Some(std::time::Duration::from_secs(2)))?;
             omg_session_runtime::Frame::new(b'K', 0, a[3].as_bytes()).send(&mut socket)?;
-            let response = omg_session_runtime::Frame::read(&mut socket)?;
+            let response = loop {
+                let response = omg_session_runtime::Frame::read(&mut socket)?;
+                if response.kind != b'T' {
+                    break response;
+                }
+            };
             if response.kind == b'K' && response.data == b"closed" {
                 Ok(())
             } else {
                 Err(io::Error::other("remote close pending or unavailable"))
             }
         }
-        Some("ensure-host") if a.len() == 3 => ensure_host(&a[2]),
+        Some("ensure-host") if a.len() == 3 => ensure_host(&a[2], None),
         Some("report") if a.len() == 6 => report(&a[2], &a[3], &a[4], &a[5]),
         Some("handoff-check") if a.len() >= 3 => {
             if unsafe { libc::isatty(libc::STDIN_FILENO) } == 1
@@ -236,7 +339,7 @@ fn main() -> io::Result<()> {
             Ok(())
         }
         _ => {
-            eprintln!("usage: omgd host DIRECTORY -- SHELL... | serve SOCKET -- COMMAND... | bridge SOCKET | connect LOCAL_SOCKET CONNECTION_JSON");
+            eprintln!("usage: omgd host DIRECTORY -- SHELL... | serve SOCKET -- COMMAND... | bridge SOCKET | connect LOCAL_SOCKET CONNECTION_JSON | retry-local SOCKET [--interactive]");
             std::process::exit(2)
         }
     }

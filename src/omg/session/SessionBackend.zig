@@ -1,4 +1,4 @@
-//! Experimental native daemon transport. No local PTY or attach subprocess.
+//! Native daemon transport. The relay owns reconnection; the surface stays alive.
 const Self = @This();
 const std = @import("std");
 const global = @import("../../global.zig");
@@ -20,6 +20,7 @@ pane_id: ?[]u8 = null,
 fd: c_int = -1,
 write_mutex: std.Io.Mutex = .init,
 ready: std.atomic.Value(bool) = .init(false),
+generation: std.atomic.Value(u64) = .init(0),
 stopping: std.atomic.Value(bool) = .init(false),
 close_requested: std.atomic.Value(bool) = .init(false),
 requested_size: std.atomic.Value(u32) = .init((80 << 16) | 24),
@@ -39,36 +40,45 @@ pub const ThreadData = struct {
     pub fn deinit(_: *ThreadData, _: std.mem.Allocator) void {}
 };
 pub fn threadEnter(self: *Self, _: std.mem.Allocator, io: *HostIO, td: *HostIO.ThreadData) !void {
-    var address: c.struct_sockaddr_un = std.mem.zeroes(c.struct_sockaddr_un);
+    const address: c.struct_sockaddr_un = undefined;
     if (self.path.len >= address.sun_path.len) return error.SocketPathTooLong;
-    address.sun_family = c.AF_UNIX;
-    @memcpy(@as([*]u8, @ptrCast(&address.sun_path))[0..self.path.len], self.path);
+    const grid = io.size.grid();
+    self.requested_size.store((@as(u32, grid.columns) << 16) | grid.rows, .release);
+    td.backend = .{ .omg_session = .{ .thread = try std.Thread.spawn(.{}, reader, .{ self, io }) } };
+}
+fn openSocket(self: *Self) !void {
+    self.write_mutex.lockUncancelable(global.io());
+    defer self.write_mutex.unlock(global.io());
+    if (self.stopping.load(.acquire)) return error.Disconnected;
     self.fd = c.socket(c.AF_UNIX, c.SOCK_STREAM, 0);
     if (self.fd < 0) return error.SocketFailed;
-    errdefer {
-        _ = c.close(self.fd);
-        self.fd = -1;
-    }
     if (@hasDecl(c, "SO_NOSIGPIPE")) {
         var enabled: c_int = 1;
         _ = c.setsockopt(self.fd, c.SOL_SOCKET, c.SO_NOSIGPIPE, &enabled, @sizeOf(c_int));
     }
     var timeout = c.struct_timeval{ .tv_sec = 1, .tv_usec = 0 };
     _ = c.setsockopt(self.fd, c.SOL_SOCKET, c.SO_SNDTIMEO, &timeout, @sizeOf(@TypeOf(timeout)));
-    const grid = io.size.grid();
-    self.requested_size.store((@as(u32, grid.columns) << 16) | grid.rows, .release);
-    td.backend = .{ .omg_session = .{ .thread = try std.Thread.spawn(.{}, reader, .{ self, io }) } };
+}
+fn closeSocket(self: *Self) void {
+    self.write_mutex.lockUncancelable(global.io());
+    defer self.write_mutex.unlock(global.io());
+    self.ready.store(false, .release);
+    if (self.fd >= 0) {
+        _ = c.shutdown(self.fd, c.SHUT_RDWR);
+        _ = c.close(self.fd);
+        self.fd = -1;
+    }
 }
 pub fn threadExit(self: *Self, td: *HostIO.ThreadData) void {
+    self.write_mutex.lockUncancelable(global.io());
     self.stopping.store(true, .release);
-    _ = c.shutdown(self.fd, c.SHUT_RDWR);
+    if (self.fd >= 0) _ = c.shutdown(self.fd, c.SHUT_RDWR);
+    self.write_mutex.unlock(global.io());
     td.backend.omg_session.thread.join();
-    _ = c.close(self.fd);
-    self.fd = -1;
 }
 pub fn closeSession(self: *Self) void {
     self.close_requested.store(true, .release);
-    if (self.ready.load(.acquire)) self.send('K', 0, &.{}) catch {};
+    if (self.ready.load(.acquire)) self.send('K', self.generation.load(.acquire), &.{}) catch {};
 }
 pub fn focusGained(_: *Self, _: *HostIO.ThreadData, _: bool) !void {}
 pub fn resize(self: *Self, grid: renderer.GridSize, _: renderer.ScreenSize) !void {
@@ -77,11 +87,20 @@ pub fn resize(self: *Self, grid: renderer.GridSize, _: renderer.ScreenSize) !voi
     var bytes: [4]u8 = undefined;
     std.mem.writeInt(u16, bytes[0..2], grid.columns, .big);
     std.mem.writeInt(u16, bytes[2..4], grid.rows, .big);
-    try self.send('R', 0, &bytes);
+    try self.send('R', self.generation.load(.acquire), &bytes);
 }
 pub fn queueWrite(self: *Self, _: std.mem.Allocator, _: *HostIO.ThreadData, data: []const u8, _: bool) !void {
+    const generation = self.inputGeneration() orelse return error.SessionNotReady;
+    try self.queueWriteGeneration(generation, data);
+}
+pub fn inputGeneration(self: *Self) ?u64 {
+    const generation = self.generation.load(.acquire);
+    if (!self.ready.load(.acquire) or generation != self.generation.load(.acquire)) return null;
+    return generation;
+}
+pub fn queueWriteGeneration(self: *Self, generation: u64, data: []const u8) !void {
     if (!self.ready.load(.acquire)) return error.SessionNotReady;
-    try self.send('I', 0, data);
+    try self.send('I', generation, data);
 }
 pub fn getProcessInfo(_: *Self, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
     return null;
@@ -89,6 +108,8 @@ pub fn getProcessInfo(_: *Self, comptime info: ProcessInfo) ?ProcessInfo.Type(in
 fn send(self: *Self, kind: u8, seq: u64, data: []const u8) !void {
     self.write_mutex.lockUncancelable(global.io());
     defer self.write_mutex.unlock(global.io());
+    if ((kind == 'I' or kind == 'R') and
+        (!self.ready.load(.acquire) or seq != self.generation.load(.acquire))) return error.SessionNotReady;
     // A partially written frame cannot be retried on this connection.
     errdefer {
         self.ready.store(false, .release);
@@ -116,23 +137,54 @@ fn readExact(self: *Self, bytes: []u8) !void {
     }
 }
 fn reader(self: *Self, io: *HostIO) void {
-    defer {
-        self.ready.store(false, .release);
-        _ = c.shutdown(self.fd, c.SHUT_RDWR);
+    defer self.closeSocket();
+    var attached = false;
+    while (!self.stopping.load(.acquire)) {
+        self.openSocket() catch {
+            self.publishFailure(io, "Could not open the local runtime connection. The session process is preserved.", false) catch {};
+            return;
+        };
+        self.readLoop(io, &attached) catch |err| {
+            self.closeSocket();
+            if (self.stopping.load(.acquire)) return;
+            std.log.warn("OMG session disconnected: {s}", .{@errorName(err)});
+            const recoverable = err == error.Disconnected or err == error.ConnectFailed or err == error.OutputGap;
+            self.publishFailure(io, if (recoverable)
+                "The session connection ended. Retry to reconnect to the existing session."
+            else
+                "The terminal protocol could not be restored. The session process is preserved; use a compatible app.", recoverable) catch {};
+            // The GUI may restart a failed relay at the same socket path.
+            // Keep this Surface and its last frame while waiting for it.
+            if (recoverable) {
+                _ = c.usleep(100_000);
+                continue;
+            }
+            return;
+        };
+        return; // A real session exit is not a transport reconnect.
     }
-    self.readLoop(io) catch |err| {
-        std.log.warn("OMG session disconnected: {s}", .{@errorName(err)});
-        if (!self.stopping.load(.acquire)) {
-            const signal = apprt.surface.Message.ContextSignal.init(self.alloc, .{
-                .action = .start,
-                .id = "omg-runtime-disconnected",
-                .metadata = "",
-            }) catch return;
-            _ = io.surface_mailbox.push(.{ .context_signal = signal }, .{ .forever = {} });
-        }
-    };
 }
-fn readLoop(self: *Self, io: *HostIO) !void {
+
+fn publishState(self: *Self, io: *HostIO, metadata: []const u8) !void {
+    const signal = try apprt.surface.Message.ContextSignal.init(self.alloc, .{
+        .action = .start,
+        .id = "omg-runtime-state",
+        .metadata = metadata,
+    });
+    _ = io.surface_mailbox.push(.{ .context_signal = signal }, .{ .forever = {} });
+}
+
+fn publishFailure(self: *Self, io: *HostIO, message: []const u8, retryable: bool) !void {
+    const metadata = try std.json.Stringify.valueAlloc(self.alloc, .{
+        .state = "failed",
+        .attempt = @as(u32, 0),
+        .message = message,
+        .retryable = retryable,
+    }, .{});
+    defer self.alloc.free(metadata);
+    try self.publishState(io, metadata);
+}
+fn readLoop(self: *Self, io: *HostIO, attached: *bool) !void {
     var address: c.struct_sockaddr_un = std.mem.zeroes(c.struct_sockaddr_un);
     address.sun_family = c.AF_UNIX;
     @memcpy(@as([*]u8, @ptrCast(&address.sun_path))[0..self.path.len], self.path);
@@ -145,7 +197,15 @@ fn readLoop(self: *Self, io: *HostIO) !void {
         if (attempts >= 600) return error.ConnectFailed;
         _ = c.usleep(100_000);
     }
-    if (self.pane_id) |id| try self.send('H', 0, id);
+    if (self.pane_id) |id| {
+        if (attached.*) {
+            const request = try reattachRequest(self.alloc, id);
+            defer self.alloc.free(request);
+            try self.send('H', 0, request);
+        } else {
+            try self.send('H', 0, id);
+        }
+    }
     var sequence: ?u64 = null;
     while (true) {
         var h: [13]u8 = undefined;
@@ -157,6 +217,21 @@ fn readLoop(self: *Self, io: *HostIO) !void {
         defer self.alloc.free(bytes);
         try self.readExact(bytes);
         switch (h[0]) {
+            'T' => {
+                if (bytes.len > 8192) return error.InvalidMetadata;
+                const Status = struct {
+                    state: enum { connecting, reconnecting, attention },
+                    attempt: u32,
+                    retry_in_ms: ?u64 = null,
+                    message: ?[]const u8 = null,
+                };
+                const status = try std.json.parseFromSlice(Status, self.alloc, bytes, .{ .ignore_unknown_fields = true });
+                defer status.deinit();
+                self.ready.store(false, .release);
+                self.generation.store(seq, .release);
+                sequence = null;
+                try self.publishState(io, bytes);
+            },
             'J' => {
                 const Metadata = struct { version: u32 };
                 const metadata = try std.json.parseFromSlice(Metadata, self.alloc, bytes, .{ .ignore_unknown_fields = true });
@@ -164,10 +239,14 @@ fn readLoop(self: *Self, io: *HostIO) !void {
                 if (metadata.value.version != 1) return error.UnsupportedProtocol;
             },
             'S' => {
+                self.ready.store(false, .release);
                 try self.restore(io, bytes);
+                attached.* = true;
                 sequence = seq;
-                try self.send('A', seq, &.{});
-                try self.send('W', 0, &.{});
+                var acknowledgement: [8]u8 = undefined;
+                std.mem.writeInt(u64, &acknowledgement, self.generation.load(.acquire), .big);
+                try self.send('A', seq, &acknowledgement);
+                try self.send('W', self.generation.load(.acquire), &.{});
             },
             'O' => {
                 const previous = sequence orelse return error.MissingSnapshot;
@@ -176,14 +255,18 @@ fn readLoop(self: *Self, io: *HostIO) !void {
                 sequence = seq;
             },
             'W' => {
+                const generation = self.generation.load(.acquire);
+                if (generation != 0 and seq != generation) continue;
+                if (sequence == null) return error.MissingSnapshot;
                 self.ready.store(true, .release);
                 if (self.close_requested.load(.acquire)) {
-                    try self.send('K', 0, &.{});
+                    try self.send('K', self.generation.load(.acquire), &.{});
                     continue;
                 }
                 var dimensions: [4]u8 = undefined;
                 std.mem.writeInt(u32, &dimensions, self.requested_size.load(.acquire), .big);
-                try self.send('R', 0, &dimensions);
+                try self.send('R', self.generation.load(.acquire), &dimensions);
+                try self.publishState(io, "{\"state\":\"ready\",\"attempt\":0}");
             },
             'R' => {
                 if (bytes.len != 4) return error.InvalidResize;
@@ -202,21 +285,27 @@ fn readLoop(self: *Self, io: *HostIO) !void {
                 const req = try Message.WriteReq.init(self.alloc, path);
                 _ = io.surface_mailbox.push(.{ .pwd_change = req }, .{ .forever = {} });
             },
-            'B' => {}, // Writer is occupied; remain attached as an observer.
+            'B' => {
+                self.ready.store(false, .release);
+                try self.publishState(io, "{\"state\":\"attention\",\"attempt\":0,\"message\":\"This session is attached in another terminal. It is available here as read-only.\"}");
+            },
             'E' => {
-                io.processOutput("\r\n[OMG Session] ");
-                // Error text is presentation only, never interpret it as VT.
-                for (bytes) |byte| {
-                    if (byte >= 0x20 and byte != 0x7f) io.processOutput(&.{byte});
-                }
-                io.processOutput("\r\n");
-                // Remote/setup rejection must use the same GUI recovery path
-                // as transport failure. Retrying preserves the UUID and cannot
-                // recreate a retired session; keep the server's reason visible.
-                return error.RemoteRejected;
+                self.ready.store(false, .release);
+                if (bytes.len > 8192 or !std.unicode.utf8ValidateSlice(bytes)) return error.InvalidMetadata;
+                // A connection failure must not overwrite the retained terminal.
+                try self.publishFailure(io, bytes, true);
+                sequence = null;
             },
             'X' => {
                 const code = std.fmt.parseInt(i32, bytes, 10) catch -1;
+                self.ready.store(false, .release);
+                const metadata = try std.json.Stringify.valueAlloc(self.alloc, .{
+                    .state = "exited",
+                    .attempt = @as(u32, 0),
+                    .exit_code = code,
+                }, .{});
+                defer self.alloc.free(metadata);
+                try self.publishState(io, metadata);
                 _ = io.surface_mailbox.push(.{ .child_exited = .{
                     .exit_code = if (code < 0) 1 else @intCast(code),
                     .runtime_ms = 1,
@@ -226,6 +315,49 @@ fn readLoop(self: *Self, io: *HostIO) !void {
             else => return error.InvalidFrame,
         }
     }
+}
+
+fn reattachRequest(alloc: std.mem.Allocator, original: []const u8) ![]u8 {
+    var parsed = try std.json.parseFromSlice(std.json.Value, alloc, original, .{});
+    defer parsed.deinit();
+    if (parsed.value != .object) return error.InvalidOpenRequest;
+    const create = parsed.value.object.getPtr("create") orelse return error.InvalidOpenRequest;
+    create.* = .{ .bool = false };
+    return std.json.Stringify.valueAlloc(alloc, parsed.value, .{});
+}
+
+test "session relay restart only reattaches the confirmed UUID" {
+    const alloc = std.testing.allocator;
+    const request = try reattachRequest(alloc, "{\"id\":\"same-pane\",\"create\":true,\"cwd\":\"/tmp\"}");
+    defer alloc.free(request);
+    const parsed = try std.json.parseFromSlice(std.json.Value, alloc, request, .{});
+    defer parsed.deinit();
+    try std.testing.expectEqualStrings("same-pane", parsed.value.object.get("id").?.string);
+    try std.testing.expect(!parsed.value.object.get("create").?.bool);
+    // Legacy handshakes cannot safely infer attach-only semantics.
+    try std.testing.expectError(error.SyntaxError, reattachRequest(alloc, "old-pane"));
+}
+
+test "session input generation rejects delayed writes after recovery" {
+    var backend = try Self.init(std.testing.allocator, "/unused", null);
+    defer backend.deinit();
+    var sockets: [2]c_int = undefined;
+    try std.testing.expectEqual(@as(c_int, 0), c.socketpair(c.AF_UNIX, c.SOCK_STREAM, 0, &sockets));
+    defer _ = c.close(sockets[0]);
+    defer _ = c.close(sockets[1]);
+    backend.fd = sockets[0];
+    backend.generation.store(3, .release);
+    backend.ready.store(true, .release);
+    try std.testing.expectError(error.SessionNotReady, backend.queueWriteGeneration(2, "old"));
+    try backend.queueWriteGeneration(3, "x");
+    var frame: [14]u8 = undefined;
+    try std.testing.expectEqual(@as(isize, 14), c.read(sockets[1], &frame, frame.len));
+    try std.testing.expectEqual(@as(u8, 'I'), frame[0]);
+    try std.testing.expectEqual(@as(u64, 3), std.mem.readInt(u64, frame[1..9], .big));
+    try std.testing.expectEqual(@as(u8, 'x'), frame[13]);
+    backend.ready.store(false, .release);
+    try std.testing.expect(backend.inputGeneration() == null);
+    try std.testing.expectError(error.SessionNotReady, backend.queueWriteGeneration(3, "offline"));
 }
 fn restore(self: *Self, io: *HostIO, bytes: []const u8) !void {
     var input: std.Io.Reader = .fixed(bytes);
@@ -237,9 +369,15 @@ fn restore(self: *Self, io: *HostIO, bytes: []const u8) !void {
     // Reset parser-owned allocations while retaining host routing pointers.
     handler.apc = .{};
     handler.dcs = .{};
+    if (comptime @TypeOf(handler).tmux_enabled) handler.tmux_viewer = null;
+    handler.termio_messaged = false;
+    @import("SnapshotPresentation.zig").prepare(&io.terminal, &decoded.terminal.?);
     io.terminal_stream.deinit();
     io.terminal.deinit(self.alloc);
     io.terminal = decoded.toOwned();
+    io.renderer_state.terminal_generation +%= 1;
+    io.renderer_state.scroll = .{};
+    io.renderer_state.visual_offset_y.store(0, .monotonic);
     io.terminal_stream = .init(.{ .allocator = self.alloc, .handler = handler });
     switch (decoded.continuation) {
         .ground => {},

@@ -15,7 +15,7 @@ use std::{
 };
 const MAX_RUNNING: usize = 64;
 const MAX_RECORDS: usize = 2048;
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct OpenRequest {
     pub id: String,
@@ -164,27 +164,13 @@ impl Registry {
     }
     pub fn open(&mut self, request: &OpenRequest) -> io::Result<UnixStream> {
         request.policy.validate()?;
-        let first = self.connect_with(
+        self.connect_with(
             &request.id,
             None,
             Some(request.policy.clone()),
             request.create,
             request.cwd.as_deref(),
-        );
-        if first.is_err() && valid_id(&request.id) {
-            if let Ok(record) = Record::load(&self.root.join(format!("{}.json", request.id))) {
-                if record.ended.is_some_and(EndReason::resumable) && record.resume.is_some() {
-                    return self.connect_with(
-                        &request.id,
-                        Some(&record.generation),
-                        None,
-                        false,
-                        None,
-                    );
-                }
-            }
-        }
-        first
+        )
     }
     fn connect_with(
         &mut self,

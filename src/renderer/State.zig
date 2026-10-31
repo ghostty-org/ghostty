@@ -19,6 +19,9 @@ mutex: *std.Io.Mutex,
 /// The terminal data.
 terminal: *terminalpkg.Terminal,
 
+/// Changed when a session snapshot replaces terminal storage under the mutex.
+terminal_generation: u64 = 0,
+
 /// Host-scrollback physics. Mutated under `mutex` by the surface (impulses)
 /// and the renderer (integration). Unused when `smooth-scroll` is off.
 scroll: ScrollPhysics = .{},

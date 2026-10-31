@@ -3,6 +3,17 @@ import Foundation
 import Testing
 @testable import Ghostty
 
+@MainActor
+private final class SessionRuntimeRetryRecorder: SessionRuntimeRetrying {
+    private(set) var descriptor: SessionRuntimeDescriptor?
+    private(set) var onFailure: (@MainActor @Sendable (String) -> Void)?
+
+    func retry(_ descriptor: SessionRuntimeDescriptor, onFailure: @escaping @MainActor @Sendable (String) -> Void) throws {
+        self.descriptor = descriptor
+        self.onFailure = onFailure
+    }
+}
+
 struct SessionRuntimeConnectionTests {
     @MainActor
     @Test func missingRuntimeClearsInheritedHandoffCapability() {
@@ -91,7 +102,7 @@ struct SessionRuntimeConnectionTests {
     }
 
     @MainActor
-    @Test func reconnectReplacesViewButPreservesPaneIdentityAndRestoreOnlyRequest() throws {
+    @Test func retryTargetsTheExistingSessionWithoutReplacingItsPane() throws {
         let app = try #require(NSApp.delegate as? AppDelegate).ghostty
         let native = try #require(app.app)
         var config = Ghostty.SurfaceConfiguration()
@@ -102,23 +113,38 @@ struct SessionRuntimeConnectionTests {
         let descriptor = SessionRuntimeDescriptor(connection: try GitSSHConnection(destination: "host"),
                                                    revision: "unavailable-test-revision", policy: .init())
         original.runtimeDescriptor = descriptor
-        original.runtimeDisconnected = true
+        original.runtimeConnectionState = .attention(attempt: 4, message: "offline")
         let controller = TerminalController(app, withSurfaceTree: .init(view: original))
         defer { controller.window?.delegate = nil; controller.window?.close() }
-        controller.reconnectRuntimeHere(for: original)
-        let replacement = try #require(controller.surfaceTree.first)
-        #expect(replacement !== original)
-        #expect(replacement.id == original.id)
-        #expect(replacement.runtimeDescriptor == descriptor)
-        #expect(controller.focusedSurface === replacement)
+        let originalID = original.id
+        let retryer = SessionRuntimeRetryRecorder()
+        controller.retryRuntimeConnection(for: original, using: retryer)
+        #expect(retryer.descriptor == descriptor)
+        #expect(original.runtimeConnectionState == .reconnecting(attempt: 5, retryInMilliseconds: nil))
+        #expect(controller.surfaceTree.first === original)
+        retryer.onFailure?("relay offline")
+        #expect(original.runtimeConnectionState == .failed(message: "relay offline"))
+        controller.retryRuntimeConnection(for: original, using: retryer)
+        let lateFailure = try #require(retryer.onFailure)
+        original.runtimeConnectionState = .ready
+        lateFailure("stale relay failure")
+        #expect(original.runtimeConnectionState == .ready)
         let request = try #require(try JSONSerialization.jsonObject(with:
-            Data(descriptor.openRequest(pane: replacement.id, restoring: true).utf8)) as? [String: Any])
+            Data(descriptor.openRequest(pane: originalID, restoring: true).utf8)) as? [String: Any])
+        let socket = URL(fileURLWithPath: "/tmp/runtime.sock")
+        #expect(SessionRuntimeRetryCommand.arguments(socket: socket, interactive: true) ==
+                ["retry-local", socket.path, "--interactive"])
+        #expect(SessionRuntimeRetryCommand.arguments(socket: socket, interactive: false) ==
+                ["retry-local", socket.path])
+        #expect(controller.surfaceTree.first === original)
+        #expect(original.id == originalID)
+        #expect(original.runtimeDescriptor == descriptor)
         #expect(request["id"] as? String == original.id.uuidString.lowercased())
         #expect(request["create"] as? Bool == false)
     }
 
     @MainActor
-    @Test func protocolErrorPublishesReconnectState() async throws {
+    @Test func runtimeStatusAndFailedAttachKeepTheSameSurfaceAndOutput() async throws {
         let root = URL(fileURLWithPath: "/tmp/omg-error-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let socket = root.appendingPathComponent("s")
@@ -126,10 +152,15 @@ struct SessionRuntimeConnectionTests {
         server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         server.arguments = ["-c", """
         import socket,struct,sys
+        import time
         s=socket.socket(socket.AF_UNIX);s.bind(sys.argv[1]);s.listen(1)
         c,_=s.accept();c.recv(65536)
+        status=b'{"state":"reconnecting","attempt":2,"retry_in_ms":1500}'
+        c.sendall(struct.pack('>cQI',b'T',1,len(status))+status)
+        time.sleep(.3)
         message=b'authentication failed'
-        c.sendall(struct.pack('>cQI',b'E',0,len(message))+message)
+        c.sendall(struct.pack('>cQI',b'E',1,len(message))+message)
+        time.sleep(.4)
         c.close();s.close()
         """, socket.path]
         try server.run()
@@ -148,13 +179,33 @@ struct SessionRuntimeConnectionTests {
         config.environmentVariables["OMG_RUNTIME_PANE_ID"] = UUID().uuidString.lowercased()
         let view = Ghostty.SurfaceView(native, baseConfig: config)
         view.runtimeDescriptor = .init(connection: try GitSSHConnection(destination: "host"), revision: "test", policy: .init())
+        view.runtimeConnectionState = .connecting(attempt: 0)
         let controller = TerminalController(app, withSurfaceTree: .init(view: view))
         defer { controller.window?.delegate = nil; controller.window?.close() }
-        for _ in 0..<150 where !view.runtimeDisconnected {
+        for _ in 0..<150 where view.runtimeConnectionState != .reconnecting(attempt: 2, retryInMilliseconds: 1_500) {
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(view.runtimeDisconnected)
-        #expect(view.contextSignal?.id == "omg-runtime-disconnected")
+        #expect(view.runtimeConnectionState == .reconnecting(attempt: 2, retryInMilliseconds: 1_500))
+        for _ in 0..<150 where view.runtimeConnectionState != .failed(message: "authentication failed") {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(view.runtimeConnectionState == .failed(message: "authentication failed"))
+        #expect(controller.surfaceTree.first === view)
+        #expect(view.contextSignal?.id == "omg-runtime-state")
+    }
+
+    @MainActor
+    @Test func inMemoryCloseQueueKeepsTestIntentWithoutStartingUserConnections() throws {
+        let queue = SessionRuntimeCloseQueue(url: nil)
+        let descriptor = SessionRuntimeDescriptor(connection: try GitSSHConnection(destination: "test-only-host"),
+                                                   revision: "test", policy: .init())
+        let request = SessionRuntimeCloseRequest(pane: UUID(), descriptor: descriptor)
+        try queue.enqueue([request])
+        queue.start()
+        queue.retry()
+        #expect(queue.requests == [request])
+        try queue.acknowledge(request)
+        #expect(queue.requests.isEmpty)
     }
 
     @MainActor
@@ -178,29 +229,30 @@ struct SessionRuntimeConnectionTests {
     }
 
     @MainActor
-    @Test func remoteExitRestoresRetainedLocalSurfaceAndClearsDescriptor() throws {
+    @Test func sshHandoffOpensSiblingTabAndLeavesLocalSurfaceVisible() throws {
         let app = try #require(NSApp.delegate as? AppDelegate).ghostty
-        let native = try #require(app.app)
         var config = Ghostty.SurfaceConfiguration()
         config.command = "/bin/sleep 60"
-        let local = Ghostty.SurfaceView(native, baseConfig: config)
-        let remote = Ghostty.SurfaceView(native, baseConfig: config)
-        remote.runtimeDescriptor = .init(connection: try GitSSHConnection(destination: "host", localWorkingDirectory: "/tmp"), revision: "test", policy: .init())
-        remote.runtimeLocalSurface = local
-        let completion = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        remote.runtimeLocalCompletion = completion
-        let controller = TerminalController(app, withSurfaceTree: .init(view: remote))
+        let controller = TerminalController(app, withBaseConfig: config)
         _ = controller.window
-        controller.focusedSurface = remote
-        defer { controller.window?.delegate = nil; controller.window?.close(); try? FileManager.default.removeItem(at: completion) }
-        SessionRuntimeHandoff.shared.returnToLocal(from: remote)
+        let local = try #require(controller.surfaceTree.first)
+        let descriptor = SessionRuntimeDescriptor(
+            connection: try GitSSHConnection(destination: "host", localWorkingDirectory: "/tmp"),
+            revision: "unavailable-test-revision",
+            policy: .init()
+        )
+        let remoteController = try SessionRuntimeHandoff().openRemoteTab(descriptor, in: controller)
+        defer {
+            remoteController.window?.delegate = nil
+            remoteController.window?.close()
+            controller.window?.delegate = nil
+            controller.window?.close()
+        }
+        let remote = try #require(remoteController.surfaceTree.first)
         #expect(controller.surfaceTree.first === local)
-        #expect(controller.focusedSurface === local)
-        #expect(remote.runtimeDescriptor == nil)
-        #expect(remote.runtimeLocalSurface == nil)
-        #expect(FileManager.default.fileExists(atPath: completion.path))
-        let data = try JSONEncoder().encode(TerminalRestorableState(from: controller))
-        #expect(!(String(data: data, encoding: .utf8) ?? "").contains("runtimeDescriptor"))
+        #expect(remoteController !== controller)
+        #expect(remote.runtimeDescriptor == descriptor)
+        #expect(remoteController.workspaceID == controller.workspaceID)
     }
 
     @MainActor
@@ -239,12 +291,107 @@ struct SessionRuntimeConnectionTests {
     }
 
     @MainActor
+    @Test func localRuntimeStaysLocalAndNewTabsInheritItsDurableBackend() throws {
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        let view = Ghostty.SurfaceView(try #require(app.app), baseConfig: config)
+        var descriptor = SessionRuntimeDescriptor(
+            connection: nil,
+            revision: "local-test",
+            policy: .init(),
+            localWorkingDirectory: "/tmp"
+        )
+        descriptor.initialWorkingDirectory = "/tmp"
+        view.runtimeDescriptor = descriptor
+        view.pwd = "/tmp/project"
+        let controller = TerminalController(app, withSurfaceTree: .init(view: view))
+        defer { controller.window?.delegate = nil; controller.window?.close() }
+
+        var context = PaneSessionContext(workingDirectory: "/tmp", terminalTitle: "local")
+        context.applyRuntimeConnection(descriptor, workingDirectory: "/tmp/project", state: .ready)
+        #expect(!context.isSSHSession)
+        #expect(context.workingDirectory == "/tmp/project")
+        #expect(context.workspace == nil)
+
+        let tab = try #require(controller.tabConfiguration(inherited: config, from: view))
+        let tabEncoded = try #require(tab.environmentVariables[SessionRuntimeDescriptor.environmentKey])
+        let tabDescriptor = try JSONDecoder().decode(SessionRuntimeDescriptor.self, from: Data(tabEncoded.utf8))
+        #expect(tabDescriptor.isLocal)
+        #expect(tabDescriptor.initialWorkingDirectory == "/tmp/project")
+
+        let split = try #require(try controller.splitConfiguration(inherited: config, from: view, runtimeRevision: "local-next"))
+        let splitEncoded = try #require(split.environmentVariables[SessionRuntimeDescriptor.environmentKey])
+        let splitDescriptor = try JSONDecoder().decode(SessionRuntimeDescriptor.self, from: Data(splitEncoded.utf8))
+        #expect(splitDescriptor.isLocal)
+        #expect(splitDescriptor.revision == "local-next")
+        #expect(splitDescriptor.initialWorkingDirectory == "/tmp/project")
+    }
+
+    @Test func runtimeDescriptorsReadLegacySSHArchivesAndLocalRequests() throws {
+        let remote = SessionRuntimeDescriptor(
+            connection: try GitSSHConnection(destination: "devbox"),
+            revision: "old",
+            policy: .init()
+        )
+        var legacyObject = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(remote)) as? [String: Any])
+        legacyObject.removeValue(forKey: "localWorkingDirectory")
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+        let restored = try JSONDecoder().decode(SessionRuntimeDescriptor.self, from: legacyData)
+        #expect(restored.connection?.destination == "devbox")
+
+        let local = SessionRuntimeDescriptor(
+            connection: nil,
+            revision: "new",
+            policy: .init(),
+            localWorkingDirectory: "/tmp/project",
+            initialWorkingDirectory: "/tmp/project"
+        )
+        let id = UUID()
+        let fresh = try #require(try JSONSerialization.jsonObject(with:
+            Data(local.openRequest(pane: id, restoring: false).utf8)) as? [String: Any])
+        let restoredRequest = try #require(try JSONSerialization.jsonObject(with:
+            Data(local.openRequest(pane: id, restoring: true).utf8)) as? [String: Any])
+        #expect(fresh["cwd"] as? String == "/tmp/project")
+        #expect(fresh["create"] as? Bool == true)
+        #expect(restoredRequest["cwd"] == nil)
+        #expect(restoredRequest["create"] as? Bool == false)
+    }
+
+    @Test func runtimeStatusFramesDecodeRetryStateAndBoundUntrustedDetails() throws {
+        #expect(SessionRuntimeConnectionState.decode(
+            #"{"state":"reconnecting","attempt":3,"retry_in_ms":1200,"message":"network offline"}"#
+        ) == .reconnecting(attempt: 3, retryInMilliseconds: 1_200))
+        #expect(SessionRuntimeConnectionState.decode(
+            #"{"state":"attention","attempt":5,"message":"credential expired"}"#
+        ) == .attention(attempt: 5, message: "credential expired"))
+        #expect(SessionRuntimeConnectionState.decode(#"{"state":"ready","attempt":0}"#) == .ready)
+        #expect(SessionRuntimeConnectionState.decode(
+            #"{"state":"exited","attempt":0,"exit_code":17}"#
+        ) == .exited(exitCode: 17))
+        #expect(SessionRuntimeConnectionState.decode(#"{"state":"exited","attempt":0}"#) == nil)
+        #expect(SessionRuntimeConnectionState.decode(#"{"state":"other","attempt":0}"#) == nil)
+        #expect(SessionRuntimeConnectionState.decode(String(repeating: "x", count: 9_000)) == nil)
+        #expect(SessionRuntimeConnectionState.failed(message: nil).canRetry)
+        #expect(SessionRuntimeConnectionState.decode(
+            #"{"state":"failed","retryable":false,"message":"incompatible"}"#
+        ) == .failed(message: "incompatible", retryable: false))
+        #expect(!SessionRuntimeConnectionState.failed(message: "incompatible", retryable: false).canRetry)
+        #expect(!SessionRuntimeConnectionState.ready.canRetry)
+        #expect(!SessionRuntimeConnectionState.exited(exitCode: 17).canRetry)
+        #expect(SessionRuntimeConnectionState.reconnecting(attempt: 2, retryInMilliseconds: 1_000).canRetry)
+        #expect(!SessionRuntimeConnectionState.reconnecting(attempt: 2, retryInMilliseconds: nil).canRetry)
+    }
+
+    @MainActor
     @Test func runtimeSettingsStringsFollowLanguageAndSearch() {
         let en = SettingsStrings(language: .english)
         let zh = SettingsStrings(language: .simplifiedChinese)
-        #expect(en.runtimeTitle == "Persistent SSH sessions")
-        #expect(zh.runtimeTitle == "SSH 后台会话")
+        #expect(en.runtimeTitle == "Persistent terminal sessions")
+        #expect(zh.runtimeTitle == "持久终端会话")
         #expect(en.runtimeTitle != zh.runtimeTitle)
+        #expect(en.runtimeLocalOpen == "New Local Session")
+        #expect(zh.runtimeLocalOpen == "新建本地会话")
         #expect(en.runtimeCloseOnDone.contains("[Beta]"))
         #expect(zh.runtimeCloseOnDone.contains("【Beta】"))
         #expect(SettingsStrings(language: .system, preferredLanguages: ["zh-CN"]).runtimeTitle == zh.runtimeTitle)
@@ -326,7 +473,7 @@ struct SessionRuntimeConnectionTests {
         context.applyRuntimeConnection(descriptor, workingDirectory: nil)
         #expect(context.isSSHSession)
         #expect(context.presentationTitle == "user@devbox")
-        context.applyRuntimeConnection(descriptor, workingDirectory: "/srv/project")
+        context.applyRuntimeConnection(descriptor, workingDirectory: "/srv/project", state: .ready)
         #expect(context.workingDirectory == "/srv/project")
         #expect(context.remoteTabBreadcrumb?.host == "user@devbox")
         #expect(context.remoteTabBreadcrumb?.directory == "project")

@@ -14,10 +14,9 @@ Implemented in this change:
   private token/generation-bound local socket and wait for acknowledgment while the
   reporting process can be validated. Completion cleanup requires a conversation
   file; reattach resumes with a new PID and the same conversation identity.
-- Per-pane host/revision/policy descriptors and restoration. New tabs/splits inherit
-  the host, with a new pane UUID; restored panes cannot silently create missing
-  sessions. Ended eligible Agent sessions can resume; explicit close/lost/no-record
-  sessions return an error.
+- Per-pane host/revision/policy descriptors and restoration. Splits inherit the
+  host with a new pane UUID; restored panes cannot silently create missing sessions.
+  Explicit eligible Agent resume is distinct from automatic reattachment.
 - Settings connection entry and policy controls. System SSH uses exact routing,
   keys/config and askpass for interactive authentication. Runtime deployment is
   automatic from bundled artifacts, not from a remote toolchain or arbitrary URL.
@@ -50,12 +49,18 @@ Release gaps (do not advertise these as completed):
 - Real Codex/Claude/Pi task completion and resume acceptance, Linux arm64/macOS remote
   execution and password/host-key UI still need acceptance.
 - Runtime revisions are cached independently from the snapshot compatibility hash.
-  Old runtime descriptors work while the terminal core hash matches; incompatible
-  snapshot cores are rejected visibly with the process retained. A production
+  Cached runtime descriptors require both a matching terminal core hash and the
+  host's `strict-open/1` capability. Older hosts and incompatible snapshot cores
+  are rejected visibly with their processes retained. A production
   upgrade/migration UI is still needed.
-- Explicit pane close sends CLOSE and terminates that remote session; app quit
-  detaches. Transport loss shows a reconnect banner which recreates the relay and
-  attaches the original session. Automatic reconnect remains pending.
+- Explicit pane close sends CLOSE and terminates that session; app quit detaches.
+  The 2026-11-01 relay refactor adds automatic transport recovery while preserving
+  local sockets and native Surfaces, generation-fenced input, and an attention/
+  retry state for authentication and session rejection. Real network sleep/wake
+  and password-dialog acceptance are still separate gates.
+- Local background sessions share the SSH runtime's descriptor, daemon, snapshot
+  and close lifecycle. SSH handoff opens a sibling native tab and releases the
+  source local prompt. Ordinary existing local PTYs are not migrated.
 - Metadata/status list and explicit restore protocol exist, but full session manager
   UI and local process death reconciliation are still pending.
 - Existing terminal side effects and capabilities need parity checks. Arbitrary

@@ -36,29 +36,25 @@ final class SessionRuntimeHandoff {
         } catch { Ghostty.logger.error("Could not prepare native SSH handoff") }
     }
 
-    func returnToLocal(from remote: Ghostty.SurfaceView) {
-        guard let descriptor = remote.runtimeDescriptor,
-              let controller = TerminalController.all.first(where: { $0.surfaceTree.contains(where: { $0 === remote }) }),
-              let node = controller.surfaceTree.find(id: remote.id),
-              let app = controller.ghostty.app else { return }
-        let local: Ghostty.SurfaceView
-        if let retained = remote.runtimeLocalSurface {
-            local = retained
-        } else {
-            var config = Ghostty.SurfaceConfiguration()
-            config.workingDirectory = descriptor.connection.localWorkingDirectory
-            local = Ghostty.SurfaceView(app, baseConfig: config)
+    @discardableResult
+    func openRemoteTab(_ descriptor: SessionRuntimeDescriptor, in controller: TerminalController) throws -> TerminalController {
+        guard let connection = descriptor.connection,
+              controller.ghostty.app != nil,
+              let parent = controller.window else {
+            throw CocoaError(.coderInvalidValue)
         }
-        guard let tree = try? controller.surfaceTree.replacing(node: node, with: .leaf(view: local)) else { return }
-        let wasFocused = controller.focusedSurface === remote
-        controller.replaceSurfaceTree(tree, moveFocusTo: wasFocused ? local : controller.focusedSurface,
-                                      moveFocusFrom: remote, undoAction: nil)
-        if wasFocused { controller.focusedSurface = local }
-        if let completion = remote.runtimeLocalCompletion { try? Data().write(to: completion, options: .atomic) }
-        remote.runtimeLocalSurface = nil
-        remote.runtimeDescriptor = nil
-        controller.invalidateRestorableState()
-        controller.workspaceCoordinator.sessions.capture()
+        var config = Ghostty.SurfaceConfiguration()
+        try descriptor.configure(&config)
+        config.workingDirectory = connection.localWorkingDirectory
+        guard let destination = TerminalController.newTab(
+            controller.ghostty,
+            from: parent,
+            withBaseConfig: config
+        ), destination.surfaceTree.first != nil else {
+            throw NSError(domain: "OMGSessionRuntime", code: 3, userInfo: [NSLocalizedDescriptionKey:
+                "Could not create the native SSH terminal tab."])
+        }
+        return destination
     }
 
     func accept(_ signal: Ghostty.ContextSignal, source: Ghostty.SurfaceView, controller: TerminalController) -> Bool {
@@ -86,23 +82,8 @@ final class SessionRuntimeHandoff {
             let connection = try GitSSHConnection(destination: destination, options: parsed.options.flatMap(\.arguments),
                 executablePath: executable, localWorkingDirectory: request.cwd)
             let descriptor = try SessionRuntimeConnections.descriptor(connection: connection, policy: OhMyGhosttySettings.shared.runtimePolicy)
-            guard let app = controller.ghostty.app, let node = controller.surfaceTree.find(id: source.id) else {
-                throw CocoaError(.coderInvalidValue)
-            }
-            var config = Ghostty.SurfaceConfiguration()
-            try descriptor.configure(&config)
-            let replacement = Ghostty.SurfaceView(app, baseConfig: config)
-            guard replacement.surface != nil else {
-                throw NSError(domain: "OMGSessionRuntime", code: 3, userInfo: [NSLocalizedDescriptionKey:
-                    replacement.runtimeConnectionError ?? "Could not create the native SSH terminal."])
-            }
-            replacement.runtimeLocalSurface = source
-            replacement.runtimeLocalCompletion = directory.appendingPathComponent(name + ".done")
-            let tree = try controller.surfaceTree.replacing(node: node, with: .leaf(view: replacement))
+            try openRemoteTab(descriptor, in: controller)
             try Data().write(to: directory.appendingPathComponent(name + ".accepted"), options: .atomic)
-            controller.replaceSurfaceTree(tree, moveFocusTo: replacement, moveFocusFrom: source, undoAction: nil)
-            controller.focusedSurface = replacement
-            controller.invalidateRestorableState()
         } catch {
             if authenticated {
                 try? Data(error.localizedDescription.utf8).write(

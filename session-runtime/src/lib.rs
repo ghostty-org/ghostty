@@ -19,6 +19,7 @@ pub mod supervision;
 pub const CLOSE: u8 = b'K';
 pub const EXIT: u8 = b'X';
 pub const CLAIM: u8 = b'W';
+pub mod client;
 unsafe extern "C" {
     fn omg_vt_new(
         cols: u16,
@@ -204,9 +205,6 @@ impl Peer {
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
             Err(e) => return Err(e),
         }
-        if self.incoming.len() > MAX_FRAME + 13 {
-            return Err(io::Error::other("input too large"));
-        }
         let mut out = vec![];
         while self.incoming.len() >= 13 {
             let len = u32::from_be_bytes(self.incoming[9..13].try_into().unwrap()) as usize;
@@ -218,6 +216,9 @@ impl Peer {
             }
             out.push(Frame::read(&mut &self.incoming[..13 + len])?);
             self.incoming.drain(..13 + len);
+        }
+        if self.incoming.len() > MAX_FRAME + 12 {
+            return Err(io::Error::other("input too large"));
         }
         Ok(out)
     }
@@ -259,5 +260,37 @@ mod tests {
         }
         assert!(peer.dead);
         assert!(peer.queued <= MAX_QUEUE);
+    }
+
+    #[test]
+    fn read_accepts_maximum_frame_followed_by_another_frame() {
+        let (socket, mut remote) = UnixStream::pair().unwrap();
+        let mut peer = Peer::new(socket, 1).unwrap();
+        let large = Frame::new(b'X', 1, &vec![b'x'; MAX_FRAME]).encode();
+        let small = Frame::new(b'Y', 2, b"next").encode();
+        let split = large.len() - 8;
+        peer.incoming.extend_from_slice(&large[..split]);
+        assert!(peer.read().unwrap().is_empty());
+        remote.write_all(&large[split..]).unwrap();
+        remote.write_all(&small).unwrap();
+
+        let frames = peer.read().unwrap();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0].data.len(), MAX_FRAME);
+        assert_eq!(frames[1].data, b"next");
+    }
+
+    #[test]
+    fn read_rejects_a_frame_above_the_limit_before_reading_its_body() {
+        let (socket, mut remote) = UnixStream::pair().unwrap();
+        let mut peer = Peer::new(socket, 1).unwrap();
+        let header = [b'X']
+            .into_iter()
+            .chain(0u64.to_be_bytes())
+            .chain(((MAX_FRAME + 1) as u32).to_be_bytes())
+            .collect::<Vec<_>>();
+        remote.write_all(&header).unwrap();
+
+        assert!(peer.read().is_err());
     }
 }

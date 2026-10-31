@@ -147,7 +147,7 @@ CLI remains a separate non-daemon command interface.
 
 ## Native Session Runtime hooks (Experimental)
 
-The SSH runtime is an independent PTY owner, not a third-party plugin loader.
+The local/SSH session runtime is an independent PTY owner, not a third-party plugin loader.
 Managed hook generation version 11 additionally reports Codex/Claude/Pi activity
 through `OMG_RUNTIME_BIN report` when that variable is present. The runtime injects
 `OMG_RUNTIME_EVENT_SOCKET`, `OMG_RUNTIME_EVENT_TOKEN` and `OMG_RUNTIME_GENERATION`
@@ -164,10 +164,40 @@ UTC deadline decisions are made remotely even while the Mac App is closed.
 Recovery launches allowlisted manifest-equivalent arguments for the original
 conversation ID and project directory; it does not replay arbitrary hook commands.
 Closing a pane/tab explicitly sends the session CLOSE frame and retires only that
-owned process group; App termination and detach do not send it. Transport failure
-emits an internal disconnected context event, leaves the remote session running,
-and presents a clickable reconnect action that rebuilds the relay before attach.
-Remote shell exit returns to the retained local shell and is distinct from loss.
+owned process group; App termination and detach do not send it. The client relay
+retains its local pane connections across transport loss and retries the host with
+bounded backoff. Authentication/configuration failures require attention; automatic
+attempts use noninteractive SSH. Retry Now requests one explicit retry without
+replacing a native Surface or restarting healthy sibling panes.
+
+The local relay's `T` frame carries a pane attachment generation and bounded JSON
+connection state (`connecting`, `reconnecting`, `attention`). The backend projects
+this as the host-owned `omg-runtime-state` context, with `ready` only after snapshot
+restore and writer acquisition, `failed` for session-level rejection, and
+`exited` with an exit code when the session actually ends. Exit remains visible
+even when the pane is parked, and does not offer transport retry.
+An unrecoverable local protocol/snapshot error marks `failed` as non-retryable;
+an output gap instead reconnects the existing UUID for a fresh snapshot.
+These internal lifecycle messages are not a plugin control API. Input, resize,
+writer requests and snapshot ACKs are fenced by generation; disconnected input
+is discarded, never replayed. Once creation is confirmed, reconnect only attaches
+the saved session UUID. A missing session is not replaced by a fresh shell.
+The host must advertise `strict-open/1` before streams open; an older runtime
+without that guarantee receives a compatibility error while its processes remain
+untouched. Snapshot-format compatibility alone does not authorize implicit resume.
+
+SSH handoff opens a sibling native tab in the same workspace and acknowledges the
+local helper immediately. The original local Surface/shell remains visible and
+interactive; remote exit does not replace it. Explicit local background sessions
+share the descriptor, relay, daemon and snapshot protocol while bypassing SSH;
+their context remains local for Git, files and Agent/history providers. Existing
+ordinary Ghostty Exec sessions retain their current process ownership. Restored
+SSH descriptors without local transport fields remain supported.
+Local background sessions use already enabled local Agent integrations; opening
+one does not install hooks or edit local dotfiles. Without those integrations,
+completion cleanup does not activate, while detached TTL/deadline rules still apply.
+App-hosted tests use an in-memory shared close queue; they never read or retry
+the user's pending remote-close requests. Persistence fixtures supply private URLs.
 
 The new process gets a new generation and PID. No-ID or unsupported Agents do not
 qualify for completion-driven cleanup; process TTL can still end their session.

@@ -230,6 +230,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// The render state we update per loop.
         terminal_state: terminal.RenderState = .empty,
 
+        terminal_generation: u64 = 0,
+
         /// The number of frames since the last terminal state reset.
         /// We reset the terminal state after ~100,000 frames (about 10 to
         /// 15 minutes at 120Hz) to prevent wasted memory buildup from
@@ -1230,6 +1232,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 state.lockDemand(global.io());
                 defer state.unlockDemand(global.io());
+
+                if (self.terminal_generation != state.terminal_generation) {
+                    self.terminal_generation = state.terminal_generation;
+                    self.terminal_state.deinit(self.alloc);
+                    self.terminal_state = .empty;
+                    self.smooth_scroll_applied_row = null;
+                    self.smooth_scroll_last_total = null;
+                    self.smooth_scroll_last_tick = null;
+                    self.smooth_scroll_moving = false;
+                    self.smooth_visual_offset_rows = 0;
+                    if (state.terminal.screens.active.pages.getBottomRight(.screen)) |br| {
+                        self.last_bottom_node = @intFromPtr(br.node);
+                        self.last_bottom_y = br.y;
+                    }
+                }
 
                 // If we're in a synchronized output state, we pause all rendering.
                 if (state.terminal.modes.get(.synchronized_output)) {

@@ -890,12 +890,29 @@ fn queueIo(
             .write_small,
             .write_stable,
             .write_alloc,
+            .omg_session_write,
             => {
                 msg.deinit();
                 return;
             },
 
             else => {},
+        }
+    }
+
+    // Durable-session input belongs to the connection generation that was
+    // current when the user event entered the mailbox. If the session is
+    // offline, drop the write now instead of replaying it after reconnect.
+    if (self.io.backend == .omg_session) {
+        const session = &self.io.backend.omg_session;
+        if (session.inputGeneration()) |generation| {
+            if (msg.withOmgSessionGeneration(generation)) |tagged| {
+                self.io.queueMessage(tagged, mutex);
+                return;
+            }
+        } else if (msg.isWriteRequest()) {
+            msg.deinit();
+            return;
         }
     }
 
