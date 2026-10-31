@@ -256,11 +256,17 @@ private final class EditorCompletionPopup: NSView {
         scroll.documentView = table
         scroll.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scroll)
+        // The editor creates this hidden popup at zero size before its first query.
+        // Keep inset preferences without forcing the scroll view to negative size.
+        let trailing = scroll.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -3)
+        let bottom = scroll.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2)
+        trailing.priority = .defaultHigh
+        bottom.priority = .defaultHigh
         NSLayoutConstraint.activate([
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3),
-            scroll.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -3),
+            trailing,
             scroll.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            scroll.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2)
+            bottom
         ])
     }
 

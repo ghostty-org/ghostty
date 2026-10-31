@@ -417,7 +417,7 @@
     "tabs.layout": {
       "apply": "new-window",
       "category": "tabs",
-      "description": "Tab presentation used by newly created windows.",
+      "description": "Tab presentation for the current window host and the default for new windows.",
       "enum": ["horizontal", "vertical"],
       "fallback": "ghostty:macos-tab-layout",
       "type": "string"

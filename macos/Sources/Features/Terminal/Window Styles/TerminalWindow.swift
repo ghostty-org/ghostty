@@ -31,6 +31,7 @@ class TerminalWindow: NSWindow {
     var inspectorToggleCancellable: AnyCancellable?
     var inspectorAppearanceWorkItem: DispatchWorkItem?
     let inspectorTitlebarPresentation = InspectorTitlebarPresentation()
+    var omgTabChrome: TerminalTabChromeController?
 
     /// Visual indicator that mirrors the selected tab color.
     private lazy var tabColorIndicator: NSHostingView<TabColorIndicatorView> = {
@@ -260,6 +261,7 @@ class TerminalWindow: NSWindow {
     }
 
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
+        guard !(terminalController?.supportsSidebar == true && isTabBar(childViewController)) else { return }
         super.addTitlebarAccessoryViewController(childViewController)
 
         // Tab bar is attached as a titlebar accessory view controller (layout bottom). We
@@ -401,7 +403,7 @@ class TerminalWindow: NSWindow {
 
     /// Sidebar tabs provide their own labels; native title decorations are
     /// useful only for window styles that actually display them.
-    var usesNativeTitleDecorations: Bool { true }
+    var usesNativeTitleDecorations: Bool { terminalController?.tabLayout != .vertical }
 
     override var title: String {
         didSet {
@@ -450,7 +452,8 @@ class TerminalWindow: NSWindow {
             .font: titlebarFont,
             .foregroundColor: isKeyWindow ? NSColor.labelColor : NSColor.secondaryLabelColor,
         ]
-        return NSAttributedString(string: title, attributes: attributes)
+        let text = terminalController?.tabLayout == .horizontal && omgTabChrome != nil ? (tab.title ?? title) : title
+        return NSAttributedString(string: text, attributes: attributes)
     }
 
     var titlebarContainer: NSView? {
@@ -837,7 +840,9 @@ extension TerminalWindow: TabTitleEditorDelegate {
             return targetWindow.title
         }
 
-        return targetController.titleOverride ?? targetWindow.title
+        let displayedTitle = (targetController as? TerminalController)?.tabLayout == .horizontal
+            ? (targetWindow.tab.title ?? targetWindow.title) : targetWindow.title
+        return targetController.titleOverride ?? displayedTitle
     }
 
     func tabTitleEditor(

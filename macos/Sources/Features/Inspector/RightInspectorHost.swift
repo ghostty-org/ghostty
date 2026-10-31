@@ -115,6 +115,7 @@ struct TerminalResizeBoundary: View {
 final class InspectorTitlebarPresentation: ObservableObject {
     @Published private(set) var width = TerminalTitlebarMetrics.inspectorCollapsedWidth
     @Published private(set) var isVisible = false
+    @Published var navigationInPane = false
 
     func setWidth(_ width: CGFloat) {
         guard self.width != width else { return }
@@ -188,6 +189,7 @@ extension TerminalWindow {
         controller: TerminalController,
         registry: InspectorRegistry
     ) {
+        guard styleMask.contains(.titled) else { return }
         let installed = titlebarAccessoryViewControllers.contains(inspectorToggleAccessory)
         inspectorToggleAccessory.layoutAttribute = .right
         inspectorToggleAccessory.view = AlignedTerminalTitlebarControlsView(
@@ -209,6 +211,7 @@ extension TerminalWindow {
         if !installed {
             addTitlebarAccessoryViewController(inspectorToggleAccessory)
         }
+        inspectorTitlebarPresentation.navigationInPane = controller.tabLayout == .horizontal
         let state = controller.tabLayoutState
         inspectorTitlebarPresentation.setVisible(false)
         inspectorTitlebarPresentation.setWidth(
@@ -241,7 +244,7 @@ extension TerminalWindow {
                 totalWidth: totalWidth,
                 leadingWidth: leadingWidth
             )
-            let targetWidth = isVisible
+            let targetWidth = isVisible && controller.supportsSidebar
                 ? presentedWidth
                 : TerminalTitlebarMetrics.inspectorCollapsedWidth
             // Resize the native accessory and its controls in the same turn
@@ -320,7 +323,7 @@ private struct InspectorTitlebarControls: View {
 
     var body: some View {
         let inspectorVisible = presentation.isVisible
-        let descriptors = inspectorVisible
+        let descriptors = inspectorVisible && !presentation.navigationInPane
             ? registry.entries.map(\.descriptor)
             : []
         let pluginWidth = InspectorTitlebarLayout.pluginWidth(
@@ -335,7 +338,7 @@ private struct InspectorTitlebarControls: View {
             firstItemHasTitle: layout.visibleIDs.first == selectedPaneID
         )
         HStack(spacing: 0) {
-            if inspectorVisible {
+            if inspectorVisible && !presentation.navigationInPane {
                 HStack(spacing: TerminalTitlebarControlStyle.itemSpacing) {
                     ForEach(layout.visibleIDs, id: \.self) { id in
                         if let descriptor = registry.descriptor(id: id) {
@@ -458,7 +461,7 @@ struct TerminalShellLayoutContainer<Content: View>: View {
                 backgroundColor: backgroundColor, backgroundOpacity: backgroundOpacity
             ) {
                 VStack(spacing: 0) {
-                    if !showsTabSidebar {
+                    if !showsTabSidebar && !controller.horizontalWorkspaceInTitlebar {
                         HStack {
                             TerminalWorkspaceButton(controller: controller)
                             Spacer()

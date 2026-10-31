@@ -1,0 +1,149 @@
+import AppKit
+import SwiftUI
+import Testing
+@testable import Ghostty
+
+@Suite(.serialized) @MainActor
+struct TerminalLiveTabLayoutTests {
+    @Test func horizontalTabsUseNativeAgentStatusAndSharedPresentation() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let source = try fixture.tab()
+        source.showWindow(nil)
+        fixture.coordinator.requestTabLayout(.horizontal, from: source)
+        let activities = try #require(NSApp.delegate as? AppDelegate).tabActivities
+        defer { activities.removeSession(source.tabSessionID) }
+        let window = try #require(source.window as? TerminalWindow)
+        let accessory = try #require(window.tab.accessoryView as? NSStackView)
+        let badge = try #require(accessory.arrangedSubviews.compactMap { $0 as? NSImageView }.first)
+        for (index, state) in [PluginSessionStatus.State.running, .waiting, .completed, .failed].enumerated() {
+            #expect(activities.set(.init(sessionID: source.tabSessionID, revision: UInt64(index + 1),
+                status: .init(agent: "codex", title: nil, state: state, icon: .init(kind: .systemSymbol, name: "terminal")),
+                ttlMilliseconds: nil), pluginID: "test.layout", sessionExists: { $0 == source.tabSessionID }) == nil)
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(badge.isHidden == (state == .running))
+            if state != .running { #expect(badge.image != nil) }
+            let value = try #require(TerminalTabPresentationResolver.resolve(source, index: 1, selected: true, activities: activities))
+            #expect(window.tab.title == (value.remoteBreadcrumb?.title ?? value.title))
+            #expect(window.tab.toolTip.contains("codex"))
+        }
+    }
+
+    @Test func changingLayoutKeepsWindowsSurfacesAndParkedWorkspaceModes() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let first = try fixture.tab()
+        let second = try fixture.tab(parent: first)
+        first.showWindow(nil)
+        let other = try #require(fixture.coordinator.createWorkspace(name: "Other", symbol: "briefcase", color: "blue", from: first))
+        let controllers = [first, second, other]
+        let windows = try controllers.map { try #require($0.window) }
+        let surfaces = controllers.map { Array($0.surfaceTree).map(ObjectIdentifier.init) }
+        let host = first.windowSessionID
+        for mode in [Ghostty.Config.MacOSTabLayout.horizontal, .vertical, .horizontal] {
+            fixture.coordinator.requestTabLayout(mode, from: other)
+            try await Task.sleep(for: .milliseconds(100))
+            for (index, controller) in controllers.enumerated() {
+                #expect(controller.tabLayout == mode)
+                #expect(controller.window === windows[index])
+                #expect(Array(controller.surfaceTree).map(ObjectIdentifier.init) == surfaces[index])
+                #expect(controller.windowSessionID == host)
+            }
+            #expect(fixture.store.snapshot.windows?[host]?.currentWorkspace == other.workspaceID)
+            #expect(fixture.store.snapshot.windows?[host]?.tabLayout == mode.rawValue)
+        }
+        #expect(other.horizontalWorkspaceInTitlebar)
+        let window = try #require(other.window as? TerminalWindow)
+        func containsWorkspace(_ view: NSView) -> Bool {
+            view is TerminalWorkspaceHeaderButton || view.subviews.contains(where: containsWorkspace)
+        }
+        let workspaceAccessory = try #require(window.titlebarAccessoryViewControllers.first { containsWorkspace($0.view) })
+        #expect(workspaceAccessory.view.frame.width > 30)
+        #expect(window.inspectorTitlebarPresentation.navigationInPane)
+        #expect(window.inspectorControlsWidth == TerminalTitlebarMetrics.inspectorCollapsedWidth)
+        let accessory = try #require(window.tab.accessoryView as? NSStackView)
+        #expect(accessory.arrangedSubviews.contains { $0 is NativeTabIconView && !$0.isHidden })
+        var newConfig = Ghostty.SurfaceConfiguration()
+        newConfig.command = "/bin/sleep 60"
+        let added = try #require(TerminalController.newTab(fixture.app, from: window, withBaseConfig: newConfig))
+        fixture.controllers.append(added)
+        #expect(added.tabLayout == .horizontal)
+        let addedWindow = try #require(added.window)
+        #expect(ObjectIdentifier(type(of: addedWindow)) == ObjectIdentifier(type(of: window)))
+    }
+
+    @Test func originallyHorizontalWindowCanUseTheNativeVerticalSidebar() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        let controller = TerminalController(fixture.app, withBaseConfig: config, tabLayout: .horizontal,
+                                            workspaceCoordinator: fixture.coordinator)
+        fixture.controllers.append(controller)
+        let window = try #require(controller.window)
+        let content = window.contentView
+        controller.showWindow(nil)
+        fixture.coordinator.requestTabLayout(.vertical, from: controller)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(controller.supportsSidebar)
+        #expect(controller.sidebarIsShowing)
+        #expect(controller.window === window && window.contentView === content)
+        #expect(window.tabGroup?.isTabBarVisible != true)
+        #expect(!controller.horizontalWorkspaceInTitlebar)
+        fixture.coordinator.requestTabLayout(.horizontal, from: controller)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(!controller.supportsSidebar)
+        #expect(controller.horizontalWorkspaceInTitlebar)
+        #expect(controller.window === window && window.contentView === content)
+        #expect(window.tabGroup?.isTabBarVisible == true)
+    }
+
+    @Test func latestLayoutRequestWaitsForNativeFullscreenCompletion() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let source = try fixture.tab()
+        let window = try #require(source.window)
+        NotificationCenter.default.post(name: NSWindow.willEnterFullScreenNotification, object: window)
+        fixture.coordinator.requestTabLayout(.horizontal, from: source)
+        #expect(source.tabLayout == .vertical)
+        fixture.coordinator.requestTabLayout(.vertical, from: source)
+        NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: window)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(source.tabLayout == .vertical)
+    }
+
+    @Test(arguments: [VerticalTabDropPolicy.Placement.before, .after])
+    func joiningAnotherNativeGroupAdoptsItsHostDirection(placement: VerticalTabDropPolicy.Placement) async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let target = try fixture.tab()
+        let source = try fixture.tab()
+        target.showWindow(nil)
+        fixture.coordinator.requestTabLayout(.horizontal, from: target)
+        #expect(source.tabLayout == .vertical)
+        #expect(target.attachNativeTab(source, relativeTo: target, placement: placement))
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(source.windowSessionID == target.windowSessionID)
+        #expect(source.tabLayout == .horizontal)
+    }
+
+    @Test func settingChangesOnlyTheLastMainHostAndPersistsItsDirection() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let source = try fixture.tab()
+        let independent = try fixture.tab()
+        let settings = OhMyGhosttySettings.shared
+        let saved = settings.tabLayout
+        defer { settings.tabLayout = saved }
+        source.windowDidBecomeMain(Notification(name: NSWindow.didBecomeMainNotification, object: source.window))
+        settings.tabLayout = .vertical
+        settings.tabLayout = .horizontal
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(source.tabLayout == .horizontal)
+        #expect(independent.tabLayout == .vertical)
+        let encoded = try JSONEncoder().encode(fixture.store.snapshot)
+        let decoded = try JSONDecoder().decode(TerminalWorkspaceState.self, from: encoded)
+        #expect(decoded.windows?[source.windowSessionID]?.tabLayout == "horizontal")
+        #expect(fixture.coordinator.tabLayout(in: source.windowSessionID, fallback: .vertical) == .horizontal)
+    }
+}

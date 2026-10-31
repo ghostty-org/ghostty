@@ -4,7 +4,7 @@ import SwiftUI
 /// A terminal window that keeps AppKit tab grouping but renders tabs in the content sidebar.
 final class VerticalTabsTerminalWindow: TransparentTitlebarTerminalWindow {
     override var supportsUpdateAccessory: Bool { false }
-    override var usesNativeTitleDecorations: Bool { false }
+    override var usesNativeTitleDecorations: Bool { terminalController?.tabLayout == .horizontal }
 
     private let sidebarToggleAccessory = NSTitlebarAccessoryViewController()
     private var sidebarToggleWidthConstraint: NSLayoutConstraint?
@@ -31,6 +31,8 @@ final class VerticalTabsTerminalWindow: TransparentTitlebarTerminalWindow {
     }
 
     func installSidebarToggle(controller: TerminalController) {
+        guard styleMask.contains(.titled) else { return }
+        guard controller.supportsSidebar else { removeSidebarToggle(); return }
         let isInstalled = titlebarAccessoryViewControllers.contains(sidebarToggleAccessory)
         sidebarToggleAccessory.layoutAttribute = .left
         sidebarToggleAccessory.view = AlignedTerminalTitlebarControlsView(
@@ -53,12 +55,19 @@ final class VerticalTabsTerminalWindow: TransparentTitlebarTerminalWindow {
         }
     }
 
+    func removeSidebarToggle() {
+        guard styleMask.contains(.titled) else { return }
+        if let index = titlebarAccessoryViewControllers.firstIndex(of: sidebarToggleAccessory) {
+            removeTitlebarAccessoryViewController(at: index)
+        }
+    }
+
     override func addTitlebarAccessoryViewController(
         _ childViewController: NSTitlebarAccessoryViewController
     ) {
         // AppKit creates this controller before displaying its horizontal tab strip.
         // Keep the NSWindowTabGroup, but never let the strip enter our view hierarchy.
-        guard !isTabBar(childViewController) else {
+        guard terminalController?.tabLayout == .horizontal || !isTabBar(childViewController) else {
             nativeTabBarRejectionCount += 1
             return
         }

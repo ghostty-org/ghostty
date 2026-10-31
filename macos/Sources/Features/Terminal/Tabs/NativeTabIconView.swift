@@ -2,6 +2,7 @@ import AppKit
 
 /// Native split composition. Source images are never resized in the shared catalog.
 final class NativeTabIconView: NSView {
+    var previewEdge: NSRectEdge = .maxX
     private weak var controller: TerminalController?
     private var marks: [NSImageView] = []
     private var slots: [CGRect] = []
@@ -40,6 +41,9 @@ final class NativeTabIconView: NSView {
     }
 
     func configure(controller: TerminalController?, icon: GhosttyTabIcon, selected: Bool, activity: TabActivity?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         if self.controller !== controller { preview.close(); previewTask?.cancel() }
         self.controller = controller
         lastIcon = icon
@@ -147,7 +151,7 @@ final class NativeTabIconView: NSView {
             }
             self.preview.contentViewController = panel
             self.preview.contentSize = panel.preferredContentSize
-            self.preview.show(relativeTo: self.bounds, of: self, preferredEdge: .maxX)
+            self.preview.show(relativeTo: self.bounds, of: self, preferredEdge: self.previewEdge)
         }
     }
     override func mouseExited(with event: NSEvent) { previewTask?.cancel() }
@@ -168,7 +172,12 @@ final class NativeTabIconView: NSView {
             refreshPresentation()
         }
     }
-    override func viewDidHide() { super.viewDidHide(); refreshPresentation() }
+    override func viewDidHide() {
+        super.viewDidHide()
+        previewTask?.cancel()
+        preview.close()
+        refreshPresentation()
+    }
     override func viewDidUnhide() { super.viewDidUnhide(); refreshPresentation() }
 }
 

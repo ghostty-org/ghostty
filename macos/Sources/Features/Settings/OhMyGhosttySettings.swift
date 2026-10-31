@@ -271,7 +271,7 @@ final class OhMyGhosttySettings: ObservableObject {
         .init(
             id: "tabs.layout", type: .enumeration, defaultValue: "ghostty-config",
             allowedValues: ["horizontal", "vertical"], minimum: nil, maximum: nil,
-            description: "Tab presentation used by newly created windows.",
+            description: "Tab presentation for the current window host and the default for new windows.",
             requiresNewWindow: true, category: "tabs"),
         .init(
             id: "tabs.sidebarWidth", type: .number, defaultValue: "240",

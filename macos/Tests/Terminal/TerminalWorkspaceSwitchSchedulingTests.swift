@@ -4,6 +4,41 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct TerminalWorkspaceSwitchSchedulingTests {
+    @Test func pickerWaitsForQueuedSwitchWithoutShowingAFailure() async throws {
+        let fixture = try TerminalWorkspaceManagementTests.Fixture()
+        defer { fixture.close() }
+        let source = fixture.controller
+        let target = try #require(fixture.store.create(name: "Target", symbol: "house", color: "blue"))
+        let window = try #require(source.window)
+        NotificationCenter.default.post(name: NSWindow.willEnterFullScreenNotification, object: window)
+        fixture.model.activate(target)
+        fixture.deferred?()
+        #expect(fixture.model.isPerforming)
+        #expect(fixture.model.error == nil)
+        #expect(fixture.reopenCount == 0)
+        NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: window)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(!fixture.model.isPerforming)
+        #expect(fixture.reopenCount == 0)
+        #expect(fixture.store.snapshot.windows?[source.windowSessionID]?.currentWorkspace == target)
+    }
+
+    @Test func queuedFailureReturnsToTheManagementSession() async throws {
+        let fixture = try TerminalWorkspaceManagementTests.Fixture()
+        defer { fixture.close() }
+        let target = try #require(fixture.store.create(name: "Target", symbol: "house", color: "blue"))
+        let window = try #require(fixture.controller.window)
+        NotificationCenter.default.post(name: NSWindow.willEnterFullScreenNotification, object: window)
+        fixture.model.activate(target)
+        fixture.deferred?()
+        fixture.coordinator.native.show = { _ in false }
+        NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: window)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(!fixture.model.isPerforming)
+        #expect(fixture.model.error != nil)
+        #expect(fixture.reopenCount == 1)
+    }
+
     @Test func latestQueuedTargetStillAppliesWhenTransitionFinishes() async throws {
         let fixture = try TerminalWorkspaceManagementTests.Fixture()
         defer { fixture.close() }

@@ -168,17 +168,7 @@ final class NativeTabSidebarController: NSViewController {
         observeMetadata()
         let config = configuration
         view.layer?.backgroundColor = config.backgroundColor.withAlphaComponent(config.backgroundOpacity).cgColor
-        let workspace = config.controller.workspaceCoordinator.presentationWorkspace(config.controller.workspaceID)
-        let shortcut = OMGKeyboardShortcut(storageValue: config.controller.workspaceCoordinator.store.shortcut(slot: 0))?.displayValue ?? ""
-        let attention = config.controller.workspaceCoordinator.liveControllers.contains { other in
-            other.workspaceID != config.controller.workspaceID && other.surfaceTree.contains {
-                let state = config.statusStore.activity(for: $0.id)?.state
-                return state == .needsAttention || state == .error
-            }
-        }
-        workspaceButton.configure(.init(name: workspace?.name ?? "Workspace", symbol: workspace?.symbol ?? "square.grid.2x2",
-                                        tint: NSColor(workspace?.tint ?? .secondary), needsAttention: attention,
-                                        isPresented: config.controller.workspaceSwitcherIsPresented, shortcut: shortcut),
+        workspaceButton.configure(.resolve(controller: config.controller, activities: config.statusStore),
                                   controller: config.controller) { [weak controller = config.controller] in
             controller?.workspaceSwitcherIsPresented.toggle()
         }
@@ -207,19 +197,8 @@ final class NativeTabSidebarController: NSViewController {
     }
 
     private func presentation(for tab: GhosttyOrganizedTab) -> GhosttyTabPresentation? {
-        guard let surface = tab.controller.focusedSurface ?? tab.controller.surfaceTree.first else { return nil }
-        let settings = OhMyGhosttySettings.shared
-        let session = tab.controller.paneSessionContext(for: surface) ?? .init(workingDirectory: surface.pwd, terminalTitle: surface.title)
-        let activity = tab.controller.focusedAgentActivity() ?? configuration.statusStore.activity(for: tab.controller.tabSessionID)
-        let agent = activity.flatMap { SupportedAgent(rawValue: $0.source) }
-        let base = tab.controller.titleOverride ?? (agent == nil ? session.presentationTitle(pathDisplay: settings.tabPathDisplay)
-            : session.agentPathTitle(pathDisplay: settings.tabPathDisplay))
-        let title = agent?.normalizedTitle(base) ?? base
-        let context = GhosttyTabIconContext(tabID: tab.controller.tabSessionID, title: title, activity: activity,
-                                           defaultIcon: session.workspace?.icon ?? .systemSymbol(session.tabIconSystemName))
-        return .init(title: title, remoteBreadcrumb: tab.controller.titleOverride == nil ? session.remoteTabBreadcrumb : nil,
-                     shortcut: settings.showShortcutLabels ? tab.controller.tabShortcutLabel(for: tab.actualIndex) : nil,
-                     icon: configuration.iconProvider.icon(for: context) ?? .systemSymbol("terminal"), activity: activity,
-                     selected: tab.id == configuration.layoutState.tabSnapshot.selectedID, hovered: false)
+        TerminalTabPresentationResolver.resolve(tab.controller, index: tab.actualIndex,
+            selected: tab.id == configuration.layoutState.tabSnapshot.selectedID,
+            activities: configuration.statusStore, icons: configuration.iconProvider)
     }
 }

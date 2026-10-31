@@ -5,11 +5,12 @@ import Testing
 
 @MainActor
 struct InspectorHostControllerTests {
-    @Test func nativeOwnerCoalescesUpdatesAndStopsPresentationOnHideAndDetach() async throws {
+    @Test(arguments: [Ghostty.Config.MacOSTabLayout.vertical, .horizontal])
+    func nativeOwnerCoalescesUpdatesAndStopsPresentationOnHideAndDetach(mode: Ghostty.Config.MacOSTabLayout) async throws {
         let app = try #require(NSApp.delegate as? AppDelegate)
         var configuration = Ghostty.SurfaceConfiguration()
         configuration.command = "sleep 30"
-        let terminal = TerminalController(app.ghostty, withBaseConfig: configuration)
+        let terminal = TerminalController(app.ghostty, withBaseConfig: configuration, tabLayout: mode)
         let terminalWindow = try #require(terminal.window)
         defer { terminalWindow.delegate = nil; terminalWindow.close() }
         let suite = "InspectorHostTests.\(UUID().uuidString)"
@@ -44,6 +45,14 @@ struct InspectorHostControllerTests {
         try await Task.sleep(for: .milliseconds(60))
         #expect(events.count == 1)
         #expect(state.selectedInspectorPaneID == paneID)
+        host.view.layoutSubtreeIfNeeded()
+        host.viewDidLayout()
+        let navigation = try #require(host.view.subviews.first { $0.accessibilityIdentifier() == "inspector.navigation" })
+        #expect(navigation.isHidden == (mode == .vertical))
+        if mode == .horizontal {
+            #expect(host.deck.frame.maxY <= navigation.frame.minY)
+            #expect(navigation.subviews.contains { ($0 as? NativeActionControl)?.title == "Test" })
+        }
         let original = try #require(host.deck.hosts[paneID])
         for _ in 0..<10 { configure(true) }
         try await Task.sleep(for: .milliseconds(60))

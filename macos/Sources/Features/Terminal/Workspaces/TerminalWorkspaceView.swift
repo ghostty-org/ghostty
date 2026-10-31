@@ -8,6 +8,22 @@ struct TerminalWorkspaceHeaderState {
     let needsAttention: Bool
     let isPresented: Bool
     let shortcut: String
+
+    @MainActor
+    static func resolve(controller: TerminalController, activities: TabActivityStore?) -> Self {
+        let coordinator = controller.workspaceCoordinator
+        let workspace = coordinator.presentationWorkspace(controller.workspaceID)
+        let attention = coordinator.liveControllers.contains { other in
+            guard other.workspaceID != controller.workspaceID else { return false }
+            let states = other.surfaceTree.map { activities?.activity(for: $0.id)?.state }
+                + [activities?.activity(for: other.tabSessionID)?.state]
+            return states.contains { $0 == .needsAttention || $0 == .error }
+        }
+        return .init(name: workspace?.name ?? WorkspaceL10n.text("Workspace", "工作区"),
+                     symbol: workspace?.symbol ?? "square.grid.2x2", tint: NSColor(workspace?.tint ?? .secondary),
+                     needsAttention: attention, isPresented: controller.workspaceSwitcherIsPresented,
+                     shortcut: OMGKeyboardShortcut(storageValue: coordinator.store.shortcut(slot: 0))?.displayValue ?? "")
+    }
 }
 
 struct TerminalWorkspaceButton: NSViewRepresentable {
@@ -28,23 +44,7 @@ struct TerminalWorkspaceButton: NSViewRepresentable {
     }
 
     func updateNSView(_ button: TerminalWorkspaceHeaderButton, context: Context) {
-        let workspace = controller.workspaceCoordinator.presentationWorkspace(controller.workspaceID)
-        let needsAttention = coordinator.liveControllers.contains { other in
-            guard other.workspaceID != controller.workspaceID else { return false }
-            return other.surfaceTree.contains { surface in
-                let state = activities.activity(for: surface.id)?.state
-                return state == .needsAttention || state == .error
-            } || activities.activity(for: other.tabSessionID)?.state == .needsAttention
-        }
-        let shortcut = OMGKeyboardShortcut(storageValue: store.shortcut(slot: 0))?.displayValue ?? ""
-        let state = TerminalWorkspaceHeaderState(
-            name: workspace?.name ?? WorkspaceL10n.text("Workspace", "工作区"),
-            symbol: workspace?.symbol ?? "square.grid.2x2",
-            tint: NSColor(workspace?.tint ?? .secondary),
-            needsAttention: needsAttention,
-            isPresented: controller.workspaceSwitcherIsPresented,
-            shortcut: shortcut
-        )
+        let state = TerminalWorkspaceHeaderState.resolve(controller: controller, activities: activities)
         button.configure(state, controller: controller) { [weak controller] in
             controller?.workspaceSwitcherIsPresented.toggle()
         }

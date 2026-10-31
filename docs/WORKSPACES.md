@@ -57,6 +57,13 @@ targets remain attached to their original panes. Quick Input changes do not
 republish sidebar/Inspector geometry. Theme, fonts and keyboard shortcuts remain
 global.
 
+Tab orientation belongs to the logical window host, not to the workspace's shared
+panel preferences. Changing horizontal/vertical layout in Settings updates the
+last-main terminal host in place, including its parked workspace tabs, and sets
+the default for new windows. Window and Surface identities remain intact. In
+horizontal layout the workspace control lives in the titlebar when available,
+and Inspector navigation lives inside the panel.
+
 ## Multiple windows
 
 Each window switches workspaces independently. A stable window identity owns one

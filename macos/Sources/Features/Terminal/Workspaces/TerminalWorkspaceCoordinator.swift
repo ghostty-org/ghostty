@@ -24,6 +24,9 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     private var quitting = false
     private var applying = false
     private var deferredSwitches: [UUID: UUID] = [:]
+    enum SwitchOutcome: Equatable { case committed, superseded, failed }
+    private var deferredSwitchCompletions: [UUID: (SwitchOutcome) -> Void] = [:]
+    private var deferredTabLayouts: [UUID: Ghostty.Config.MacOSTabLayout] = [:]
     let store: TerminalWorkspaceStore
     let native: TerminalWorkspaceNativeAdapter
     private var suppliedSessions: TerminalWorkspaceSessionStore?
@@ -51,11 +54,19 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         sessions?.coordinator = self
         self.native.transitionCompleted = { [weak self] host in
             guard let self else { return }
+            let completion = self.deferredSwitchCompletions.removeValue(forKey: host)
             if let target = self.deferredSwitches.removeValue(forKey: host),
                let record = self.store.snapshot.windows?[host],
                let selected = record.groups[record.currentWorkspace]?.selected,
                let source = self.liveControllers.first(where: { $0.tabSessionID == selected }) {
-                self.switchWorkspace(to: target, from: source)
+                let targetController = self.switchWorkspace(to: target, from: source)
+                completion?(targetController == nil ? .failed : .committed)
+            } else {
+                completion?(.superseded)
+            }
+            if let mode = self.deferredTabLayouts.removeValue(forKey: host),
+               let source = self.liveControllers.first(where: { $0.windowSessionID == host }) {
+                self.requestTabLayout(mode, from: source)
             }
             for controller in self.liveControllers where controller.windowSessionID == host &&
                 !controller.workspacePresentationIsParked { controller.finishWorkspacePresentation() }
@@ -66,6 +77,38 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     func useSessions(_ sessions: TerminalWorkspaceSessionStore) {
         suppliedSessions = sessions
         sessions.coordinator = self
+    }
+
+    func requestTabLayout(_ mode: Ghostty.Config.MacOSTabLayout, from source: TerminalController) {
+        let host = source.windowSessionID
+        guard source.isAvailableForWorkspace, !quitting else { return }
+        if applying || native.transitioningWindows.contains(host) {
+            deferredTabLayouts[host] = mode
+            return
+        }
+        deferredTabLayouts.removeValue(forKey: host)
+        store.transaction { $0.windows?[host]?.tabLayout = mode.rawValue }
+        let members = liveControllers.filter { $0.windowSessionID == host }
+        guard members.contains(where: { $0.tabLayout != mode }) else { sessions.capture(); return }
+        for member in members where member.tabLayout != mode {
+            if member.workspaceSwitcherIsPresented { member.workspacePopover.close() }
+            member.adoptTabLayout(mode)
+        }
+        var states = Set<ObjectIdentifier>()
+        for member in members {
+            if mode == .vertical, states.insert(ObjectIdentifier(member.tabLayoutState)).inserted {
+                member.tabLayoutState.setSidebarVisible(true)
+            }
+            (member.window as? TerminalWindow)?.installOMGTabChrome(controller: member)
+            member.window?.contentView?.needsLayout = true
+            member.window?.invalidateRestorableState()
+        }
+        source.finishWorkspacePresentation()
+        sessions.capture()
+    }
+
+    func tabLayout(in host: UUID, fallback: Ghostty.Config.MacOSTabLayout) -> Ghostty.Config.MacOSTabLayout {
+        store.snapshot.windows?[host]?.tabLayout.flatMap(Ghostty.Config.MacOSTabLayout.init(rawValue:)) ?? fallback
     }
 
     func controllers(in id: UUID) -> [TerminalController] {
@@ -82,6 +125,9 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         } else {
             store.transaction {
                 if $0.owner(of: controller.tabSessionID) == nil { $0.register(controller.tabSessionID, owner: owner) }
+                if $0.windows?[owner.window]?.tabLayout == nil {
+                    $0.windows?[owner.window]?.tabLayout = controller.tabLayout.rawValue
+                }
             }
         }
     }
@@ -163,6 +209,11 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
             state.updateLegacyPresentation()
         }
         projectIdentities(store.snapshot, controllers: members)
+        let mode = tabLayout(in: host, fallback: anchor.tabLayout)
+        for member in members where member.tabLayout != mode {
+            member.adoptTabLayout(mode)
+            (member.window as? TerminalWindow)?.installOMGTabChrome(controller: member)
+        }
     }
 
     func didActivate(_ controller: TerminalController) {
@@ -199,6 +250,12 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         guard !quitting, !applying else { return }
         registry.removeValue(forKey: controller.tabSessionID)
         retainedParked.removeValue(forKey: controller.tabSessionID)
+        let host = controller.windowSessionID
+        if !liveControllers.contains(where: { $0.windowSessionID == host && !$0.workspacePresentationIsParked }) {
+            deferredSwitches.removeValue(forKey: host)
+            deferredTabLayouts.removeValue(forKey: host)
+            deferredSwitchCompletions.removeValue(forKey: host)?(.superseded)
+        }
         revision &+= 1
         if !restoring { sessions.capture() }
     }
@@ -240,6 +297,21 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         switchWorkspace(to: id, from: source, creating: nil)
     }
 
+    /// Management UI waits for the committed result rather than treating a queued request as failure.
+    func requestWorkspaceSwitch(to id: UUID, from source: TerminalController,
+                                completion: @escaping (SwitchOutcome) -> Void) {
+        if switchWorkspace(to: id, from: source) != nil {
+            completion(.committed)
+        } else if source.isAvailableForWorkspace,
+                  native.transitioningWindows.contains(source.windowSessionID),
+                  deferredSwitches[source.windowSessionID] == id {
+            deferredSwitchCompletions[source.windowSessionID] = completion
+            operationError = nil
+        } else {
+            completion(.failed)
+        }
+    }
+
     private func switchWorkspace(to id: UUID, from source: TerminalController,
                                  creating: TerminalWorkspace?) -> TerminalController? {
         guard creating != nil || store.workspaces.contains(where: { $0.id == id }), !quitting, !applying,
@@ -253,6 +325,7 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         // Every new valid request supersedes the older intent for this host,
         // including "stay here" and requests arriving before a queued drain.
         deferredSwitches.removeValue(forKey: source.windowSessionID)
+        deferredSwitchCompletions.removeValue(forKey: source.windowSessionID)?(.superseded)
         if source.workspaceID == id {
             operationError = nil
             return source
@@ -396,6 +469,12 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         updateRetention()
         revision &+= 1
         sessions.capture()
+        for host in hosts where !native.transitioningWindows.contains(host) {
+            if let mode = deferredTabLayouts.removeValue(forKey: host),
+               let source = liveControllers.first(where: { $0.windowSessionID == host && !$0.workspacePresentationIsParked }) {
+                requestTabLayout(mode, from: source)
+            }
+        }
         return succeeded
     }
 
@@ -537,7 +616,16 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         }
     }
 
-    func prepareToQuit() { guard !quitting else { return }; savePresentation(); quitting = true }
+    func prepareToQuit() {
+        guard !quitting else { return }
+        savePresentation()
+        quitting = true
+        let completions = Array(deferredSwitchCompletions.values)
+        deferredSwitches.removeAll()
+        deferredTabLayouts.removeAll()
+        deferredSwitchCompletions.removeAll()
+        completions.forEach { $0(.superseded) }
+    }
     func cancelQuit() { quitting = false; savePresentation() }
 
     /// Presentation sampling updates geometry only. Ownership/order enter via

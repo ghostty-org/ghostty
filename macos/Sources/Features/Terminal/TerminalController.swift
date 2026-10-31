@@ -215,7 +215,15 @@ struct VerticalTabWindowGroupSnapshot {
 
 /// A classic, tabbed terminal experience.
 class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
-    let tabLayout: Ghostty.Config.MacOSTabLayout
+    @Published private(set) var tabLayout: Ghostty.Config.MacOSTabLayout
+    private let creationTabLayout: Ghostty.Config.MacOSTabLayout
+    @Published var horizontalWorkspaceInTitlebar = false
+
+    func adoptTabLayout(_ mode: Ghostty.Config.MacOSTabLayout) {
+        guard tabLayout != mode else { return }
+        workspacePresentationGeneration &+= 1
+        tabLayout = mode
+    }
 
     override var supportsSidebar: Bool {
         tabLayout == .vertical
@@ -230,7 +238,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return "Terminal" }
         let config = appDelegate.ghostty.config
         guard config.windowDecorations else { return "Terminal" }
-        guard tabLayout == .horizontal else { return "TerminalVerticalTabs" }
+        guard creationTabLayout == .horizontal else { return "TerminalVerticalTabs" }
 
         return switch config.macosTitlebarStyle {
         case .native: "Terminal"
@@ -900,7 +908,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         self.sidebarDividerColor = ghostty.config.splitDividerColor(
             for: initialBackgroundColor
         )
-        self.tabLayout = tabLayout ?? OhMyGhosttySettings.shared.tabLayout
+        let initialTabLayout = tabLayout ?? OhMyGhosttySettings.shared.tabLayout
         self.tabSessionID = tabSessionID ?? UUID()
         let workspaceCoordinator = workspaceCoordinator ?? (parent?.windowController as? TerminalController)?.workspaceCoordinator ?? .shared
         self.workspaceCoordinator = workspaceCoordinator
@@ -911,6 +919,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         self.workspaceID = resolvedWorkspaceID
         let parentController = parent?.windowController as? TerminalController
         self.windowSessionID = windowSessionID ?? parentController?.windowSessionID ?? UUID()
+        let effectiveTabLayout = workspaceCoordinator.tabLayout(in: self.windowSessionID, fallback: initialTabLayout)
+        self.tabLayout = effectiveTabLayout
+        self.creationTabLayout = parentController?.creationTabLayout ?? effectiveTabLayout
         let inheritedGroup = parentController?.workspaceID == resolvedWorkspaceID ? parentController?.workspaceGroupID : nil
         self.workspaceGroupID = workspaceGroupID ?? inheritedGroup ?? UUID()
         let now = Date()
@@ -923,7 +934,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         initialTabParent = parent
         let parentLayout = parentController?.workspaceID == resolvedWorkspaceID ? parentController?.tabLayoutState : nil
         let initialLayoutState = parentLayout ?? VerticalTabWindowLayoutState(
-            isSidebarVisible: self.tabLayout == .vertical &&
+            isSidebarVisible: effectiveTabLayout == .vertical &&
                 OhMyGhosttySettings.shared.sidebarVisible,
             isInspectorVisible: false
         )
@@ -4400,6 +4411,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         (window as? VerticalTabsTerminalWindow)?.installSidebarToggle(controller: self)
+        (window as? TerminalWindow)?.installOMGTabChrome(controller: self)
         if let appDelegate = NSApp.delegate as? AppDelegate {
             (window as? TerminalWindow)?.installInspectorToggle(
                 controller: self,
@@ -4800,6 +4812,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let changedKey = notification.userInfo?[
             OhMyGhosttySettings.changedKeyUserInfoKey
         ] as? String
+        if changedKey == "tabs.layout", Self.lastMain === self {
+            workspaceCoordinator.requestTabLayout(settings.tabLayout, from: self)
+        }
         if changedKey == nil || changedKey == "agents.statusHooks" {
             if !settings.agentStatusHooksEnabled {
                 agentActivities = [:]

@@ -431,6 +431,12 @@ windows. A split icon resolves activity per Surface. Remote project grouping use
 the connection and remote directory, never a local filesystem probe of that
 remote path. See `macos/NATIVE_SIDEBAR.md` for ownership and validation boundaries.
 
+Horizontal native tabs use the same tab presentation resolver and native
+Agent/split icon view through `NSWindowTab.accessoryView`. Providers do not receive
+new lifecycle or wire messages when layout orientation changes. Horizontal
+Inspector navigation moves inside the panel while the registry remains the sole
+owner of pane selection/presentation lifecycle delivery.
+
 ### Experimental protocol components
 
 These compile and have unit tests, but no production transport connects them:

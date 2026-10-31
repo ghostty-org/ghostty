@@ -9,6 +9,9 @@ final class InspectorHostController: NSViewController {
     private let layoutState: VerticalTabWindowLayoutState
     private let registry: InspectorRegistry
     let deck = InspectorPaneDeck.Container()
+    private let navigation = NSStackView()
+    private let navigationDivider = NSView()
+    private var navigationKey = ""
     private var observations: [AnyCancellable] = []
     private var surfaceObservation: AnyCancellable?
     private weak var observedSurface: Ghostty.SurfaceView?
@@ -41,7 +44,64 @@ final class InspectorHostController: NSViewController {
         deck.autoresizingMask = [.width, .height]
         deck.frame = root.bounds
         root.addSubview(deck)
+        navigation.orientation = .horizontal
+        navigation.distribution = .fill
+        navigation.alignment = .centerY
+        navigation.spacing = 4
+        navigation.frame = .init(x: 0, y: 0, width: 300, height: 32)
+        navigation.setAccessibilityIdentifier("inspector.navigation")
+        root.addSubview(navigation)
+        navigationDivider.wantsLayer = true
+        root.addSubview(navigationDivider)
         view = root
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        let height: CGFloat = terminal.tabLayout == .horizontal ? 32 : 0
+        navigation.isHidden = height == 0
+        navigationDivider.isHidden = height == 0
+        navigation.frame = .init(x: 8, y: view.bounds.height - height, width: max(0, view.bounds.width - 16), height: 32)
+        deck.frame = .init(x: 0, y: 0, width: view.bounds.width, height: max(0, view.bounds.height - height))
+        navigationDivider.frame = .init(x: 0, y: view.bounds.height - height, width: view.bounds.width, height: 0.5)
+        navigationDivider.layer?.backgroundColor = OMGNativeTheme.resolve(for: view).border.cgColor
+        updateNavigation()
+    }
+
+    private func updateNavigation() {
+        guard terminal.tabLayout == .horizontal else { return }
+        let selected = layoutState.selectedInspectorPaneID ?? registry.entries.first?.id
+        let descriptors = registry.entries.map(\.descriptor)
+        let arrangement = InspectorPluginBarLayout.resolve(descriptors: descriptors, selectedID: selected,
+                                                           availableWidth: max(0, view.bounds.width - 16))
+        let key = "\(selected ?? "")|\(descriptors)|\(arrangement.visibleIDs)|\(arrangement.overflowIDs)"
+        guard key != navigationKey else { return }
+        navigationKey = key
+        navigation.arrangedSubviews.forEach { navigation.removeArrangedSubview($0); $0.removeFromSuperview() }
+        for id in arrangement.visibleIDs {
+            guard let item = registry.descriptor(id: id) else { continue }
+            let button = NativeActionControl()
+            button.configure(title: id == selected ? item.title : "", symbol: item.systemImage, help: item.title,
+                             enabled: true, style: id == selected ? .bordered : .plain, identifier: "inspector.select.\(id)")
+            button.setAccessibilityValue(id == selected ? "selected" : "")
+            button.onPress = { [weak self] in self?.layoutState.selectInspectorPane(id) }
+            button.heightAnchor.constraint(equalToConstant: 26).isActive = true
+            navigation.addArrangedSubview(button)
+        }
+        if !arrangement.overflowIDs.isEmpty {
+            let more = NativeOptionsControl()
+            more.configure(title: "", symbol: "ellipsis", help: "More panes", enabled: true, style: .plain, identifier: nil)
+            more.entries = arrangement.overflowIDs.compactMap { id in
+                guard let item = registry.descriptor(id: id) else { return nil }
+                return .action(item.title, symbol: item.systemImage, checked: id == selected) { [weak self] in
+                    self?.layoutState.selectInspectorPane(id)
+                }
+            }
+            navigation.addArrangedSubview(more)
+        }
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        navigation.addArrangedSubview(spacer)
     }
 
     func configure(isPresented: Bool, backgroundColor: Color, backgroundOpacity: Double,
@@ -100,6 +160,8 @@ final class InspectorHostController: NSViewController {
         registry.presentationDidChange(to: visible ? paneID : nil, context: context)
         deck.reconcile(tabID: context.tabID, availableIDs: Set(registry.entries.map(\.id)))
         view.layer?.backgroundColor = NSColor(backgroundColor.opacity(backgroundOpacity)).cgColor
+        updateNavigation()
+        view.needsLayout = true
         guard visible, let paneID, let content = registry.content(for: paneID, context: context) else { return }
         let root = InspectorPaneContentView(content: content, paneID: paneID, context: context,
                                             dividerColor: terminal.sidebarDividerColor, registry: registry)

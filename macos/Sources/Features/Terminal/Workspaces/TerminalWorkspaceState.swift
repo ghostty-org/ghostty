@@ -12,6 +12,7 @@ struct TerminalWorkspaceState: Codable, Equatable {
 
     struct Window: Codable, Equatable {
         var currentWorkspace: UUID
+        var tabLayout: String?
         var previousWorkspace: UUID?
         var groups: [UUID: Group] = [:]
         var frame: CGRect?

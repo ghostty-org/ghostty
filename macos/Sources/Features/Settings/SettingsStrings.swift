@@ -260,8 +260,8 @@ struct SettingsStrings: Equatable, Sendable {
     var verticalOption: String { t("Vertical", "垂直") }
     var tabLayoutCaption: String {
         t(
-            "Applies to newly created windows; existing terminals are not rebuilt.",
-            "仅对新创建的窗口生效；已有终端不会重建。"
+            "Switches the current window in place and sets the default for new windows.",
+            "在当前窗口直接切换，并设为新窗口的默认布局；运行中的会话保持不变。"
         )
     }
     var showSidebarLabel: String { t("Show Sidebar", "显示侧边栏") }
