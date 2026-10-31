@@ -315,10 +315,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     @Published private(set) var tabLastActivatedAt: Date
 
     /// The real AppKit tabs in this controller's tab group, in display order.
-    @Published private(set) var tabControllers: [TerminalController] = []
+    private(set) var tabControllers: [TerminalController] = []
 
     /// The selected tab controller identity.
-    @Published private(set) var selectedTabID: ObjectIdentifier?
+    private(set) var selectedTabID: ObjectIdentifier? {
+        willSet {
+            // Lists observe tabLayoutState.tabPresentation. Only the outgoing
+            // and incoming terminal shells need their selected geometry updated.
+            let ownID = ObjectIdentifier(self)
+            if (selectedTabID == ownID) != (newValue == ownID) { objectWillChange.send() }
+        }
+    }
 
     /// The tab currently under the pointer. This is independent from selection.
     var hoveredTabID: ObjectIdentifier? { tabLayoutState.hoveredTabID }
@@ -1084,6 +1091,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let workItem = scheduledWorkItem!
         pendingInitialPresentation = workItem
         DispatchQueue.main.async(execute: workItem)
+    }
+
+    private func performInitialPresentationNow() {
+        guard let work = pendingInitialPresentation else { return }
+        work.perform()
+        // The same item is already queued; do not let it run a second time.
+        work.cancel()
+        (window as? TerminalWindow)?.omgTabChrome?.refresh()
     }
 
     static func injectingSessionID(
@@ -3488,7 +3503,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             parent: parent,
             tabLayout: parentController.tabLayout
         )
-        defer { controller.finishWorkspaceTabAttachment() }
+        defer {
+            controller.finishWorkspaceTabAttachment()
+            // Prime first-frame chrome only after this insertion is complete.
+            // The shared attachment hook also runs inside workspace mutations.
+            (controller.window as? TerminalWindow)?.omgTabChrome?.refresh()
+        }
         controller.isBackgroundOpaque = parentController.isBackgroundOpaque
         controller.tabLayoutState = parentController.tabLayoutState
         guard let window = controller.window else { return nil }
@@ -4356,6 +4376,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             focusedSurface = view
         }
 
+        // Give a new tab its final frame before installing the SwiftUI root;
+        // resizing an attached root forces an unnecessary initial layout.
+        if let initialTabParent {
+            window.setFrame(initialTabParent.frame, display: false)
+        }
+
         // Initialize our content view to the SwiftUI root
         let container = TerminalViewContainer {
             TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
@@ -4371,9 +4397,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // A tab must join at the group's current frame. Applying a fresh
         // window's default size makes AppKit resize every inactive tab on attach.
-        if let initialTabParent {
-            window.setFrame(initialTabParent.frame, display: false)
-        } else if let defaultSize {
+        if initialTabParent == nil, let defaultSize {
             defaultSize.apply(to: window)
 
             if case .contentIntrinsicSize = defaultSize {
@@ -4472,9 +4496,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     // Shows the "+" button in the tab bar, responds to that click.
     override func newWindowForTab(_ sender: Any?) {
-        // Trigger the ghostty core event logic for a new tab.
-        guard let surface = self.focusedSurface?.surface else { return }
-        ghostty.newTab(surface: surface)
+        // Finish native selection before AppKit's "+" action returns, keeping
+        // its selected tab item and fully configured window in sync.
+        guard let controller = Self.newTab(ghostty, from: window) else { return }
+        controller.performInitialPresentationNow()
     }
 
     // MARK: NSWindowDelegate

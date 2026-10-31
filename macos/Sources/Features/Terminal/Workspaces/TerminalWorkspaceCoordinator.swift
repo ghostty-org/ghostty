@@ -576,8 +576,12 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
             guard let owner = state.owner(of: controller.tabSessionID) else { continue }
             controller.windowSessionID = owner.window
             controller.workspaceGroupID = owner.group
-            controller.workspaceID = owner.workspace
-            controller.window?.tabbingIdentifier = "omg.window.\(owner.window).workspace.\(owner.workspace)"
+            // @Published emits before didSet, even for an identical UUID.
+            // Reconciliation runs for every native tab; unchanged assignments
+            // must not rebuild every hidden terminal during an AppKit flush.
+            if controller.workspaceID != owner.workspace { controller.workspaceID = owner.workspace }
+            let identifier = "omg.window.\(owner.window).workspace.\(owner.workspace)"
+            if controller.window?.tabbingIdentifier != identifier { controller.window?.tabbingIdentifier = identifier }
         }
     }
 

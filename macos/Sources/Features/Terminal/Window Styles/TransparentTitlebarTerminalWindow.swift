@@ -12,6 +12,8 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
     private weak var observedTabGroup: NSWindowTabGroup?
     private var tabGroupWindowsObservation: NSKeyValueObservation?
     private var tabBarVisibleObservation: NSKeyValueObservation?
+    private var appearanceRefreshPending = false
+    private var observationRefreshPending = false
 
     deinit {
         tabGroupWindowsObservation?.invalidate()
@@ -133,8 +135,11 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // This can run from one of the observation callbacks below. Replacing
         // an observation before its callback returns leaves the window retained
         // by AppKit, so always rebind on the next main-queue turn.
+        guard !observationRefreshPending else { return }
+        observationRefreshPending = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            self.observationRefreshPending = false
 
             // Recheck because the tab group and observation state may have changed
             // while this work was waiting on the main queue.
@@ -150,6 +155,20 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
             self.observedTabGroup = currentTabGroup
             self.setupTabGroupObservation()
             self.setupTabBarVisibleObservation()
+        }
+    }
+
+    private func scheduleTabAppearanceRefresh() {
+        guard !appearanceRefreshPending else { return }
+        appearanceRefreshPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.appearanceRefreshPending = false
+            // Group mutations notify every tab. Only the displayed window has
+            // titlebar pixels to repair, after AppKit finishes changing the group.
+            guard self.isVisible, (self.tabGroup?.selectedWindow ?? self) === self,
+                  let config = self.lastSurfaceConfig else { return }
+            self.syncAppearance(config)
         }
     }
 
@@ -169,17 +188,11 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // tab bar.
         tabGroupWindowsObservation = tabGroup.observe(
             \.windows,
-             options: [.new]
+             options: []
         ) { [weak self] _, _ in
-            // NOTE: At one point, I guarded this on only if we went from 0 to N
-            // or N to 0 under the assumption that the tab bar would only get
-            // replaced on those cases. This turned out to be false (Tahoe).
-            // It's cheap enough to always redraw this so we should just do it
-            // unconditionally.
-
-            guard let self else { return }
-            guard let lastSurfaceConfig else { return }
-            self.syncAppearance(lastSurfaceConfig)
+            // Tahoe can replace the bar without a 0/N transition. Preserve
+            // that repair, but coalesce it outside the native mutation.
+            self?.scheduleTabAppearanceRefresh()
         }
     }
 
@@ -193,11 +206,9 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // Set up KVO observation for isTabBarVisible
         tabBarVisibleObservation = tabGroup?.observe(
             \.isTabBarVisible,
-             options: [.new]
+             options: []
         ) { [weak self] _, _ in
-            guard let self else { return }
-            guard let lastSurfaceConfig else { return }
-            self.syncAppearance(lastSurfaceConfig)
+            self?.scheduleTabAppearanceRefresh()
         }
     }
 

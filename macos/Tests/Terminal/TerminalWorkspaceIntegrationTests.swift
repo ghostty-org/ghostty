@@ -395,20 +395,12 @@ struct TerminalWorkspaceIntegrationTests {
     }
 
     @Test func quitKeepsManualOrderAndCancelResumesLayoutChanges() throws {
-        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let url = directory.appendingPathComponent("sessions.json")
-        defer { try? FileManager.default.removeItem(at: directory) }
-        var config = Ghostty.SurfaceConfiguration()
-        config.command = "/bin/sleep 60"
-        let controllers = (0..<4).map { _ in TerminalController(app, withBaseConfig: config) }
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.sessions.cancelQuit(); fixture.close() }
+        let app = fixture.app
+        let url = fixture.directory.appendingPathComponent("state.json")
+        let controllers = try (0..<4).map { _ in try fixture.tab() }
         let windows = try controllers.map { try #require($0.window) }
-        defer {
-            for window in windows {
-                window.delegate = nil
-                window.close()
-            }
-        }
         for index in 1..<windows.count {
             #expect(windows[index - 1].addTabbedWindowSafely(windows[index], ordered: .above))
         }
@@ -429,7 +421,7 @@ struct TerminalWorkspaceIntegrationTests {
             return snapshot.tabs.filter { ids.contains($0.id) }.map(\.id)
         }
         let expected = manual.compactMap { ($0.windowController as? TerminalController)?.tabSessionID }
-        let store = TerminalWorkspaceSessionStore(url: url, testing: true)
+        let store = fixture.sessions
         store.start(app)
         store.prepareToQuit()
         #expect(try savedOrder() == expected)

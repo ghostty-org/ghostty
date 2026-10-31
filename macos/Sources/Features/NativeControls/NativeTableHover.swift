@@ -65,13 +65,41 @@ final class NativeTableHover: NSObject {
 
 class NativeHoverRowView: NSTableRowView {
     override var wantsUpdateLayer: Bool { false }
-    var isHovered = false { didSet { if oldValue != isHovered { needsDisplay = true } } }
-    override init(frame frameRect: NSRect) { super.init(frame: frameRect); wantsLayer = true }
+    private let hoverBackground = CAShapeLayer()
+    private let themeObserver = OMGNativeThemeObserver()
+    var isHovered = false { didSet { if oldValue != isHovered { updateHoverBackground() } } }
+    override var isSelected: Bool { didSet { updateHoverBackground() } }
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        hoverBackground.name = "omg.row.hover"
+        layer?.insertSublayer(hoverBackground, at: 0)
+        themeObserver.onChange = { [weak self] _ in self?.updateHoverBackground() }
+        updateHoverBackground()
+    }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); isHovered = false }
-    override func drawBackground(in dirtyRect: NSRect) {
-        guard isHovered, !isSelected else { return }
-        OMGNativeTheme.resolve(for: self).hoverFill.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 1), xRadius: 5, yRadius: 5).fill()
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        themeObserver.sourceWindow = window
+        updateHoverBackground()
+    }
+    override func layout() {
+        super.layout()
+        updateHoverBackground()
+    }
+    override func drawBackground(in dirtyRect: NSRect) {}
+
+    private func updateHoverBackground() {
+        // NSTableView can cache row backgrounds without calling drawBackground
+        // for needsDisplay on the row. Commit hover pixels independently of it.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        hoverBackground.frame = bounds
+        hoverBackground.path = CGPath(roundedRect: bounds.insetBy(dx: 2, dy: 1),
+                                      cornerWidth: 5, cornerHeight: 5, transform: nil)
+        hoverBackground.fillColor = OMGNativeTheme.resolve(for: self).hoverFill.cgColor
+        hoverBackground.isHidden = !isHovered || isSelected
     }
 }

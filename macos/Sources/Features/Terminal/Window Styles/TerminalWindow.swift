@@ -358,17 +358,16 @@ class TerminalWindow: NSWindow {
     var keyEquivalent: String? {
         didSet {
             // When our key equivalent is set, we must update the tab label.
-            guard let keyEquivalent else {
-                keyEquivalentLabel.attributedStringValue = NSAttributedString()
-                return
-            }
-
-            keyEquivalentLabel.attributedStringValue = NSAttributedString(
+            let keyEquivalent = keyEquivalent ?? ""
+            let value = keyEquivalent.isEmpty ? NSAttributedString() : NSAttributedString(
                 string: "\(keyEquivalent) ",
                 attributes: [
                     .font: NSFont.systemFont(ofSize: GhosttyTabStyle.shortcutFontSize),
                     .foregroundColor: isKeyWindow ? NSColor.labelColor : NSColor.secondaryLabelColor,
                 ])
+            if !keyEquivalentLabel.attributedStringValue.isEqual(to: value) {
+                keyEquivalentLabel.attributedStringValue = value
+            }
         }
     }
 
