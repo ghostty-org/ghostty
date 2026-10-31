@@ -520,6 +520,17 @@ evicted even while hidden. SwiftUI appearance callbacks do not own provider
 lifecycle. Providers still receive typed snapshots/actions and never receive
 `NSView`, `NSViewController`, or `NSWindow` references.
 
+The registry's observable catalog publishes descriptor changes only. Typed
+content updates use `contentChanges` after the snapshot has been stored, scoped
+to the pane and optional tab ID (a nil tab ID denotes the plugin-wide fallback).
+Hosts refresh only their selected pane; unrelated updates must not rebuild the
+terminal shell or titlebar. A hidden host reads the latest snapshot when shown.
+In-process consumers of pane content must subscribe to this stream rather than
+the catalog's `objectWillChange`.
+Native loading indicators retain loading intent across cached-pane switches,
+but stop animating when hidden, occluded, detached or closed. They use AppKit's
+timer mode rather than reserving a worker thread for each loading row.
+
 `BuiltInFilesInspectorProvider` uses `.plugin("builtin.files")` to dogfood
 owner checks and typed content. It is still trusted application code, not an
 out-of-process plugin and not proof of public plugin loading.

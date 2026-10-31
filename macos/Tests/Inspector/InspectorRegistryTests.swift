@@ -1,9 +1,48 @@
+import Combine
 import Foundation
 import Testing
 @testable import Ghostty
 
 @MainActor
 struct InspectorRegistryTests {
+    @Test func contentNotificationsAreCommittedAndScopedWithoutInvalidatingTheCatalog() throws {
+        let registry = InspectorRegistry()
+        try registry.registerPluginPane(paneDescriptor(id: "files", source: .plugin("test")))
+        try registry.registerCorePane(paneDescriptor(id: "git", source: .coreFeature("test")))
+        let tab = UUID(), otherTab = UUID()
+        let context = InspectorPaneContext(tabID: tab, surfaceID: nil, title: "Test", workingDirectory: nil)
+        var catalogChanges = 0
+        var changes: [InspectorRegistry.ContentChange] = []
+        var committed: [InspectorPaneContent?] = []
+        let catalog = registry.objectWillChange.sink { catalogChanges += 1 }
+        let content = registry.contentChanges.sink { change in
+            changes.append(change)
+            committed.append(change.paneID.flatMap { registry.content(for: $0, context: context) })
+        }
+        defer { catalog.cancel(); content.cancel() }
+        let snapshot = InspectorPaneContent.fields([.init(id: "status", label: "Status", value: "Ready")])
+        for _ in 0..<20 {
+            try registry.updatePluginContent(paneID: "files", pluginID: "test", tabID: tab, content: snapshot)
+        }
+        #expect(changes == [.init(paneID: "files", tabID: tab)])
+        #expect(committed == [snapshot])
+        #expect(changes[0].affects(paneID: "files", tabID: tab))
+        #expect(!changes[0].affects(paneID: "git", tabID: tab))
+        #expect(!changes[0].affects(paneID: "files", tabID: otherTab))
+        try registry.updateCoreContent(paneID: "git", featureID: "test", tabID: tab, content: snapshot)
+        #expect(changes.last == .init(paneID: "git", tabID: tab))
+        try registry.updatePluginContent(paneID: "files", pluginID: "test", content: snapshot)
+        #expect(changes.last?.affects(paneID: "files", tabID: otherTab) == true)
+        registry.closeTab(tab)
+        #expect(changes.last == .init(paneID: nil, tabID: tab))
+        #expect(catalogChanges == 0)
+        let title = try #require(registry.descriptor(id: "files")?.title)
+        try registry.updatePluginPaneTitle(paneID: "files", pluginID: "test", title: title)
+        #expect(catalogChanges == 0)
+        try registry.updatePluginPaneTitle(paneID: "files", pluginID: "test", title: "Renamed")
+        #expect(catalogChanges == 1)
+    }
+
     @Test(arguments: ["builtin.git", "custom.title-pane"])
     func titleChangesOnlyRestartTitleDependentPanes(paneID: String) throws {
         let registry = InspectorRegistry()

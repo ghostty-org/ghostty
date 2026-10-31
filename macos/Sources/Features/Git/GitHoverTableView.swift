@@ -28,17 +28,23 @@ class GitHoverTableView: InspectorCopyTableView {
     }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .inVisibleRect, .activeInKeyWindow], owner: self)
-        addTrackingArea(area); tracking = area
+        if tracking == nil {
+            let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .inVisibleRect, .activeInKeyWindow], owner: self)
+            addTrackingArea(area); tracking = area
+        }
         updateHoverFromPointer()
     }
-    override func mouseMoved(with event: NSEvent) { updateHoverFromPointer() }
+    override func mouseMoved(with event: NSEvent) {
+        guard NativePointerLocation.contains(self, event: event) else { clearHover(); return }
+        setHover(at: convert(event.locationInWindow, from: nil), onlyIfChanged: true)
+    }
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     override func mouseExited(with event: NSEvent) { clearHover() }
-    func setHover(at point: NSPoint?) {
+    func setHover(at point: NSPoint?, onlyIfChanged: Bool = false) {
         let row = point.flatMap { visibleRect.contains($0) ? self.row(at: $0) : nil } ?? -1
-        hoveredRowID = row >= 0 ? rowIdentity(row) : nil
+        let next = row >= 0 ? rowIdentity(row) : nil
+        guard !onlyIfChanged || next != hoveredRowID else { return }
+        hoveredRowID = next
         refreshRowBackgrounds()
     }
     func clearHover() { setHover(at: nil) }

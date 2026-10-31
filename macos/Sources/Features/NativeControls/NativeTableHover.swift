@@ -54,8 +54,12 @@ final class NativeTableHover: NSObject {
         hoveredView = row
         row?.isHovered = true
     }
-    @objc func mouseEntered(with event: NSEvent) { refresh() }
-    @objc func mouseMoved(with event: NSEvent) { refresh() }
+    @objc func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
+    @objc func mouseMoved(with event: NSEvent) {
+        guard let table, NativePointerLocation.contains(table, event: event) else { setRow(nil); return }
+        let index = table.row(at: table.convert(event.locationInWindow, from: nil))
+        setRow(index >= 0 ? table.rowView(atRow: index, makeIfNecessary: true) as? NativeHoverRowView : nil)
+    }
     @objc func mouseExited(with event: NSEvent) { setRow(nil) }
 }
 

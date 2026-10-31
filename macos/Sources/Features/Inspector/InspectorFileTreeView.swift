@@ -268,7 +268,7 @@ final class InspectorFilesOutlineView: NSOutlineView {
 private final class InspectorFileTreeCell: NSTableCellView {
     private let icon = NSImageView()
     private let name = NSTextField(labelWithString: "")
-    private let progress = NSProgressIndicator()
+    private let progress = NativeProgressIndicator()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -320,6 +320,6 @@ private final class InspectorFileTreeCell: NSTableCellView {
             case .red: icon.contentTintColor = .systemRed
             }
         }
-        if node.isLoading { progress.startAnimation(nil) } else { progress.stopAnimation(nil) }
+        if node.isLoading { progress.setAnimating(true) } else { progress.setAnimating(false) }
     }
 }

@@ -544,7 +544,7 @@ private final class GitHistoryContextMenu: InspectorCopyMenu {
 /// Pagination participates in the scrollable document, never the pinned chrome.
 final class GitHistoryPaginationCell: NSTableCellView {
     private let button = NSButton()
-    private let progress = NSProgressIndicator()
+    private let progress = NativeProgressIndicator()
     private var action: () -> Void = {}
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -561,7 +561,7 @@ final class GitHistoryPaginationCell: NSTableCellView {
         self.action = action
         button.title = GitL10n.text("Load more history")
         button.isEnabled = !loading
-        if loading { progress.startAnimation(nil) } else { progress.stopAnimation(nil) }
+        if loading { progress.setAnimating(true) } else { progress.setAnimating(false) }
     }
     override func layout() {
         super.layout()

@@ -4,6 +4,82 @@ import Testing
 
 @MainActor
 struct NativeActionControlsTests {
+    @Test func hoverUsesDeliveredCoordinatesAndRecoversWithoutAnotherEnter() throws {
+        // Model key-window eligibility without taking focus from the desktop.
+        final class Window: NSWindow {
+            override var isKeyWindow: Bool { true }
+            override var isVisible: Bool { true }
+        }
+        let window = Window(contentRect: .init(x: 0, y: 0, width: 300, height: 200),
+                            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let root = NSView(frame: window.contentLayoutRect)
+        window.contentView = root
+        defer { window.contentView = nil; window.close() }
+        let button = NativeActionControl(frame: .init(x: 20, y: 20, width: 80, height: 28))
+        root.addSubview(button)
+        button.updateTrackingAreas()
+        #expect(button.trackingAreas.contains { $0.options.contains(.mouseMoved) })
+        func event(at point: NSPoint, number: Int? = nil) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: number ?? window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        }
+        let inside = try event(at: button.convert(.init(x: 10, y: 10), to: nil))
+        button.mouseMoved(with: inside)
+        #expect(button.isHovered)
+        button.setHovered(false)
+        button.mouseMoved(with: inside)
+        #expect(button.isHovered, "Movement must recover hover after reuse or activation, without a new enter event.")
+        button.mouseMoved(with: try event(at: .init(x: 200, y: 150)))
+        #expect(!button.isHovered)
+        button.mouseMoved(with: try event(at: inside.locationInWindow, number: 0))
+        #expect(!button.isHovered)
+        button.isHidden = true
+        button.mouseMoved(with: inside)
+        #expect(!button.isHovered)
+        button.isHidden = false
+        button.removeFromSuperview()
+        button.mouseMoved(with: inside)
+        #expect(!button.isHovered)
+    }
+
+    @Test func firstPointerMovementHighlightsNativeRowsWithoutScrollingOrClicking() throws {
+        final class Window: NSWindow {
+            override var isKeyWindow: Bool { true }
+            override var isVisible: Bool { true }
+        }
+        let controller = InspectorFileTreeController()
+        let nodes = (0..<20).map {
+            InspectorFileNode(id: "/repo/\($0)", name: "file-\($0)", isDirectory: false,
+                icon: .init(systemImage: "doc", tint: .secondary), isExpanded: false, isLoading: false, children: nil)
+        }
+        controller.update(.init(rootName: "repo", rootPath: "/repo", nodes: nodes), isLight: false, perform: { _ in })
+        let window = Window(contentRect: .init(x: 0, y: 0, width: 300, height: 200),
+                            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = controller.view
+        defer { window.contentView = nil; window.close() }
+        controller.view.layoutSubtreeIfNeeded()
+        let outline = controller.outline
+        outline.updateTrackingAreas()
+        let hover = try #require(outline.trackingAreas.compactMap { $0.owner as? NativeTableHover }.first)
+        for index in [0, 1, 2, 0] {
+            let rect = outline.rect(ofRow: index)
+            let event = try #require(NSEvent.mouseEvent(with: .mouseMoved,
+                location: outline.convert(.init(x: rect.midX, y: rect.midY), to: nil),
+                modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: index, clickCount: 0, pressure: 0))
+            hover.mouseMoved(with: event)
+            let row = try #require(outline.rowView(atRow: index, makeIfNecessary: false) as? NativeHoverRowView)
+            #expect(row.isHovered)
+            outline.enumerateAvailableRowViews { row, rowIndex in
+                #expect((row as? NativeHoverRowView)?.isHovered == (rowIndex == index))
+            }
+        }
+        #expect(outline.selectedRow == -1)
+    }
+
     @Test func unchangedConfigurationPreservesImageAndTrackingIdentity() throws {
         let button = NativeActionControl(frame: .init(x: 0, y: 0, width: 28, height: 28))
         func configure() {

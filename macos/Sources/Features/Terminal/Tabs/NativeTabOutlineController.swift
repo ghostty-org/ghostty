@@ -584,7 +584,7 @@ final class NativeTabCell: NSTableCellView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if tracking == nil {
-            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self)
             addTrackingArea(area)
             tracking = area
         }
@@ -592,7 +592,13 @@ final class NativeTabCell: NSTableCellView {
         updateTrailing()
     }
 
-    override func mouseEntered(with event: NSEvent) { hovering = NativePointerLocation.contains(self); updateTrailing() }
+    override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
+    override func mouseMoved(with event: NSEvent) {
+        let next = NativePointerLocation.contains(self, event: event)
+        guard hovering != next else { return }
+        hovering = next
+        updateTrailing()
+    }
     override func mouseExited(with event: NSEvent) { hovering = false; updateTrailing() }
 
     func updateSelection(_ selected: Bool) {

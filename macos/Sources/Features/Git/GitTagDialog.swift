@@ -37,7 +37,7 @@ final class GitTagDialogController: NSViewController, NSWindowDelegate, NSTextFi
     private let nameField = NSTextField()
     private let messageField = NSTextField()
     private let statusField = NSTextField(wrappingLabelWithString: "")
-    private let progress = NSProgressIndicator()
+    private let progress = NativeProgressIndicator()
     private let createButton = NSButton(title: GitL10n.text("Create Tag"), target: nil, action: nil)
     private let suggestButton = NSButton(title: GitL10n.text("Generate"), target: nil, action: nil)
     private var task: Task<Void, Never>?
@@ -224,7 +224,7 @@ final class GitTagDialogController: NSViewController, NSWindowDelegate, NSTextFi
 
     private func setBusy(_ busy: Bool) {
         isBusy = busy
-        if busy { progress.startAnimation(nil) } else { progress.stopAnimation(nil) }
+        if busy { progress.setAnimating(true) } else { progress.setAnimating(false) }
         nameField.isEnabled = !busy
         messageField.isEnabled = !busy
         suggestButton.isEnabled = !busy

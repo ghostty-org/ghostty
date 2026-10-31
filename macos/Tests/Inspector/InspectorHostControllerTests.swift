@@ -76,9 +76,12 @@ struct InspectorHostControllerTests {
         // The spawned command can finish setting its title during this test.
         // Git's location-only lifecycle isolates attachment from that metadata.
         let paneID = BuiltInGitInspectorProvider.paneID
+        var contentReads = 0
         try registry.registerCorePane(.init(id: paneID, title: "Test", systemImage: "doc",
             source: .coreFeature("test"), preferredWidth: 320, minimumWidth: 176),
-            content: { _ in .fields([]) }, lifecycle: { events.append($0) })
+            content: { _ in contentReads += 1; return .fields([]) }, lifecycle: { events.append($0) })
+        try registry.registerPluginPane(.init(id: "other", title: "Other", systemImage: "doc",
+            source: .plugin("test"), preferredWidth: 320, minimumWidth: 176))
         let host = InspectorHostController(controller: terminal, layoutState: state, registry: registry)
         let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 320, height: 500),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -108,6 +111,17 @@ struct InspectorHostControllerTests {
             #expect(navigation.subviews.contains { ($0 as? NativeActionControl)?.title == "Test" })
         }
         let original = try #require(host.deck.hosts[paneID])
+        let readsBeforeUnrelatedChanges = contentReads
+        for index in 0..<20 {
+            let content = InspectorPaneContent.fields([.init(id: "value", label: "Value", value: "\(index)")])
+            try registry.updatePluginContent(paneID: "other", pluginID: "test", tabID: terminal.tabSessionID, content: content)
+            try registry.updateCoreContent(paneID: paneID, featureID: "test", tabID: UUID(), content: content)
+        }
+        try await Task.sleep(for: .milliseconds(60))
+        #expect(contentReads == readsBeforeUnrelatedChanges)
+        try registry.updateCoreContent(paneID: paneID, featureID: "test", tabID: terminal.tabSessionID, content: .fields([]))
+        try await Task.sleep(for: .milliseconds(60))
+        #expect(contentReads == readsBeforeUnrelatedChanges + 1)
         for _ in 0..<10 { configure(true) }
         try await Task.sleep(for: .milliseconds(60))
         #expect(events.count == 1)

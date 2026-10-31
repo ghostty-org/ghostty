@@ -51,7 +51,7 @@ struct GitIndexQueueTests {
         defer { fixture.close() }
         let initial = fixture.content
         var stagedCounts: [Int] = []
-        let observation = fixture.registry.objectWillChange.sink { _ in stagedCounts.append(fixture.content.workingTree.staged.count) }
+        let observation = fixture.registry.contentChanges.sink { _ in stagedCounts.append(fixture.content.workingTree.staged.count) }
         defer { observation.cancel() }
         fixture.send(.setFilesStaged(initial.workingTree.unstaged, true))
         let staged = try await fixture.wait { $0.operation == nil && $0.workingTree.staged.count == names.count }
@@ -169,7 +169,7 @@ struct GitIndexQueueTests {
         let initial = fixture.content
         let selected = Array(initial.workingTree.unstaged.prefix(3))
         var counts: [(Int, Int)] = []
-        let observation = fixture.registry.objectWillChange.sink { _ in
+        let observation = fixture.registry.contentChanges.sink { _ in
             let content = fixture.content
             counts.append((content.workingTree.staged.count, content.workingTree.unstaged.count))
         }

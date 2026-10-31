@@ -123,9 +123,9 @@ final class TerminalTabChromeController {
             observedGroup = group
             if let group {
                 groupObservations = [
-                    group.observe(\.selectedWindow) { [weak self] _, _ in self?.schedule() },
-                    group.observe(\.windows) { [weak self] _, _ in self?.schedule() },
-                    group.observe(\.isTabBarVisible) { [weak self] _, _ in self?.schedule() },
+                    group.observe(\.selectedWindow, options: []) { [weak self] _, _ in self?.schedule() },
+                    group.observe(\.windows, options: []) { [weak self] _, _ in self?.schedule() },
+                    group.observe(\.isTabBarVisible, options: []) { [weak self] _, _ in self?.schedule() },
                 ]
             }
         }

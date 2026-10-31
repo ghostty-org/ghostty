@@ -45,7 +45,7 @@ final class GitIntegrationDialogController: NSViewController, NSTextViewDelegate
     private let mainlinePicker = NSPopUpButton()
     private let messageView = NSTextView()
     private let statusField = NSTextField(wrappingLabelWithString: "")
-    private let progress = NSProgressIndicator()
+    private let progress = NativeProgressIndicator()
     private var generateButton: NSButton?
     private var proceedButton: NSButton?
     private var task: Task<Void, Never>?
@@ -350,7 +350,7 @@ final class GitIntegrationDialogController: NSViewController, NSTextViewDelegate
     private func setBusy(_ busy: Bool) {
         isBusy = busy
         progress.isHidden = !busy
-        if busy { progress.startAnimation(nil) } else { progress.stopAnimation(nil) }
+        if busy { progress.setAnimating(true) } else { progress.setAnimating(false) }
         sourcePicker.isEnabled = !busy
         targetPicker.isEnabled = !busy
         mainlinePicker.isEnabled = !busy

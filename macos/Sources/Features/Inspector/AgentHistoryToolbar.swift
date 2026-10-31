@@ -24,7 +24,7 @@ struct AgentHistoryToolbar: NSViewControllerRepresentable {
 @MainActor
 final class AgentHistoryToolbarController: NSViewController, NSSearchFieldDelegate {
     private let searchField = OMGNativeSearchField()
-    private let progress = NSProgressIndicator()
+    private let progress = NativeProgressIndicator()
     private let filterButton = NativeActionControl()
     private let row = NSStackView()
     private let popover = NSPopover()
@@ -97,7 +97,7 @@ final class AgentHistoryToolbarController: NSViewController, NSSearchFieldDelega
             searchField.stringValue = next.query
         }
         progress.isHidden = !next.isSearching
-        if next.isSearching { progress.startAnimation(nil) } else { progress.stopAnimation(nil) }
+        if next.isSearching { progress.setAnimating(true) } else { progress.setAnimating(false) }
         let active = !next.filter.isDefault
         filterButton.configure(title: "", symbol: "line.3.horizontal.decrease",
                                help: next.strings.organize, enabled: true, style: active ? .bordered : .plain,

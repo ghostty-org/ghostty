@@ -183,7 +183,7 @@ final class EditorFilePickerController: NSViewController, NSTableViewDataSource,
     let tableView = NSTableView()
     private let scrollView = NSScrollView()
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
-    private let spinner = NSProgressIndicator()
+    private let spinner = NativeProgressIndicator()
     private let goUpButton = NativeActionControl()
     private let retryButton = NativeActionControl()
     private let openButton = NativeActionControl()
@@ -362,7 +362,7 @@ final class EditorFilePickerController: NSViewController, NSTableViewDataSource,
             pathField.stringValue = model.pathInput
         }
         goUpButton.isEnabled = model.canGoUp && !model.isLoading
-        if model.isLoading { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
+        if model.isLoading { spinner.setAnimating(true) } else { spinner.setAnimating(false) }
         let entriesChanged = renderedEntries != model.entries
         isSynchronizingSelection = true
         if entriesChanged {

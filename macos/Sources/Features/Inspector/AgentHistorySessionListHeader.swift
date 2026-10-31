@@ -23,7 +23,7 @@ final class AgentHistorySessionListHeaderController: NSViewController {
     private let icon = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let refreshButton = NativeActionControl()
-    private let progress = NSProgressIndicator()
+    private let progress = NativeProgressIndicator()
     private var snapshot: AgentHistorySessionListHeader?
     var refreshButtonForTesting: NSButton { refreshButton }
     var titleFieldForTesting: NSTextField { titleField }
@@ -85,7 +85,7 @@ final class AgentHistorySessionListHeaderController: NSViewController {
         )
         titleField.stringValue = next.title
         progress.isHidden = !next.isLoading
-        if next.isLoading { progress.startAnimation(nil) } else { progress.stopAnimation(nil) }
+        if next.isLoading { progress.setAnimating(true) } else { progress.setAnimating(false) }
         refreshButton.configure(title: "", symbol: "arrow.clockwise", help: next.strings.refresh,
                                 enabled: !next.isLoading, style: .plain, identifier: "history.refresh")
         refreshButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: next.strings.refresh)

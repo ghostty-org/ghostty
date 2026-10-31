@@ -8,12 +8,26 @@ struct GitChangesSynchronizationTests {
     private struct LiveChanges: View {
         @ObservedObject var registry: InspectorRegistry
         let context: InspectorPaneContext
+        @State private var content: InspectorGitContent?
         var body: some View {
-            if case .git(let content) = registry.content(for: BuiltInGitInspectorProvider.paneID, context: context) {
-                InspectorGitView(content: content) { action in
-                    registry.performAction(paneID: BuiltInGitInspectorProvider.paneID,
-                        action: .init(context: context, kind: action))
+            Group {
+                if let content {
+                    InspectorGitView(content: content) { action in
+                        registry.performAction(paneID: BuiltInGitInspectorProvider.paneID,
+                            action: .init(context: context, kind: action))
+                    }
                 }
+            }
+            .onAppear(perform: refresh)
+            .onReceive(registry.contentChanges) { change in
+                if change.affects(paneID: BuiltInGitInspectorProvider.paneID, tabID: context.tabID) { refresh() }
+            }
+        }
+        private func refresh() {
+            if case .git(let value) = registry.content(for: BuiltInGitInspectorProvider.paneID, context: context) {
+                content = value
+            } else {
+                content = nil
             }
         }
     }

@@ -60,7 +60,7 @@ struct TerminalWorkspaceIntegrationTests {
         #expect(host.liveView?.window === window)
     }
 
-    @Test func deletingLiveWorkspacePreservesItsSurface() throws {
+    @Test func deletingInactiveLiveWorkspacePreservesItsSurface() throws {
         let app = try #require(NSApp.delegate as? AppDelegate).ghostty
         let store = TerminalWorkspaceStore(fileURL: nil)
         let id = try #require(store.create(name: "Delete live", symbol: "house", color: "blue"))
@@ -70,9 +70,13 @@ struct TerminalWorkspaceIntegrationTests {
         config.command = "/bin/sleep 60"
         let controller = TerminalController(app, withBaseConfig: config, workspaceID: id, workspaceCoordinator: coordinator)
         controller.window?.makeKeyAndOrderFront(nil)
+        let active = TerminalController(app, withBaseConfig: config, workspaceID: store.defaultID, workspaceCoordinator: coordinator)
+        active.window?.makeKeyAndOrderFront(nil)
         let surface = try #require(controller.surfaceTree.first)
-        defer { controller.window?.delegate = nil; controller.window?.close() }
-        #expect(coordinator.deleteWorkspace(id))
+        defer {
+            for tab in [controller, active] { tab.window?.delegate = nil; tab.window?.close() }
+        }
+        #expect(coordinator.deleteWorkspace(id, from: active))
         #expect(controller.workspaceID == store.defaultID)
         #expect(controller.surfaceTree.first === surface)
         #expect(controller.window?.contentView != nil)

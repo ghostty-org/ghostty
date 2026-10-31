@@ -31,7 +31,14 @@ final class InspectorHostController: NSViewController {
         super.init(nibName: nil, bundle: nil)
         observations = [controller.objectWillChange.sink { [weak self] _ in self?.scheduleRefresh() },
                         layoutState.objectWillChange.sink { [weak self] _ in self?.scheduleRefresh() },
-                        registry.objectWillChange.sink { [weak self] _ in self?.scheduleRefresh() }]
+                        registry.objectWillChange.sink { [weak self] _ in self?.scheduleRefresh() },
+                        registry.contentChanges.sink { [weak self] change in
+                            guard let self, self.requestedPresentation, self.layoutState.isInspectorVisible else { return }
+                            let paneID = self.layoutState.selectedInspectorPaneID ?? self.registry.entries.first?.id
+                            if change.affects(paneID: paneID, tabID: self.terminal.tabSessionID) {
+                                self.scheduleRefresh()
+                            }
+                        }]
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

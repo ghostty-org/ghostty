@@ -32,6 +32,7 @@ struct VerticalNativeTabSidebarTests {
         defer { fixture.close() }
         let first = try fixture.tab()
         let second = try fixture.tab(parent: first)
+        first.tabLayoutState.applyPreferences(grouping: .none, ordering: .manual)
         first.tabLayoutState.updateTabs([first, second], selectedID: ObjectIdentifier(first))
         let status = try #require(NSApp.delegate as? AppDelegate).tabActivities
         let config = NativeTabSidebarConfiguration(controller: first, layoutState: first.tabLayoutState,

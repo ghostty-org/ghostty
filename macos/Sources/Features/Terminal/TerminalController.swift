@@ -3077,15 +3077,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
 
+        // Only request invalidation. Asking KVO for .new forces AppKit's
+        // selectedWindow getter while a style change is dismantling its stack,
+        // before the deferred refresh can wait for a consistent native group.
         verticalTabWindowsObservation = currentGroup.observe(
             \.windows,
-            options: [.new]
+            options: []
         ) { [weak currentGroup] _, _ in
             Self.scheduleTabRefresh(in: currentGroup)
         }
         verticalTabSelectionObservation = currentGroup.observe(
             \.selectedWindow,
-            options: [.new]
+            options: []
         ) { [weak currentGroup] _, _ in
             Self.scheduleTabRefresh(in: currentGroup)
         }

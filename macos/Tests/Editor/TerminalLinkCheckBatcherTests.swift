@@ -45,7 +45,7 @@ struct TerminalLinkCheckBatcherTests {
         #expect(await filesystem.calls.count == 3)
     }
 
-    @Test func cachedLinksDoNotWaitForUnrelatedColdPaths() async throws {
+    @Test(.timeLimit(.minutes(1))) func cachedLinksDoNotWaitForUnrelatedColdPaths() async throws {
         let filesystem = CountingLinkFilesystem()
         let batcher = TerminalLinkCheckBatcher()
         let scope = TerminalLinkCheckBatcher.Scope(revision: 0, filesystemID: "ssh:test", directory: "/repo")
@@ -54,10 +54,15 @@ struct TerminalLinkCheckBatcherTests {
         await filesystem.delayNext()
         var warmAnswered = false
         var coldAnswered = false
+        let completion = AsyncStream<Bool>.makeStream()
         batcher.enqueue(path: "/repo/f0", scope: scope, filesystem: filesystem,
                         reply: { warmAnswered = $0 }, refresh: {})
         batcher.enqueue(path: "/repo/f1", scope: scope, filesystem: filesystem,
-                        reply: { coldAnswered = $0 }, refresh: {})
+                        reply: {
+                            coldAnswered = $0
+                            completion.continuation.yield($0)
+                            completion.continuation.finish()
+                        }, refresh: {})
         let flushing = Task { await batcher.flush() }
         for _ in 0..<100 {
             if await filesystem.calls.count == 2 { break }
@@ -66,6 +71,10 @@ struct TerminalLinkCheckBatcherTests {
         #expect(warmAnswered)
         #expect(!coldAnswered)
         await flushing.value
+        // enqueue's scheduled flush can win the race; the explicit flush then
+        // returns while that owner is still draining. Await the actual reply.
+        var replies = completion.stream.makeAsyncIterator()
+        #expect(await replies.next() == true)
         #expect(coldAnswered)
         #expect(await filesystem.calls.last == ["/repo/f1"])
     }

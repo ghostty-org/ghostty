@@ -497,7 +497,11 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     /// logical group remains complete and continues to drive the sidebar.
     @discardableResult
     func projectNonNativeTabs(for controller: TerminalController) -> Bool {
-        guard hasNonNativeFullscreen(in: controller.windowSessionID),
+        // exit() restores key status before fullscreenDidChange reattaches the
+        // native group. Keep its complete logical membership during that gap;
+        // otherwise windowDidBecomeKey commits the temporary singleton.
+        guard hasNonNativeFullscreen(in: controller.windowSessionID) ||
+                native.nonNativeProjectionWindows.contains(controller.windowSessionID),
               let group = store.group(window: controller.windowSessionID, workspace: controller.workspaceID) else { return false }
         let members = members(host: controller.windowSessionID, workspace: controller.workspaceID, state: store.snapshot)
         let selected = members.first { $0.tabSessionID == group.selected } ?? controller

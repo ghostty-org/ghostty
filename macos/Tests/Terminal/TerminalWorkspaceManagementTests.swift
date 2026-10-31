@@ -411,6 +411,30 @@ struct TerminalWorkspaceManagementTests {
         #expect(window.frame == restored)
     }
 
+    @Test func nativeTabObservationSurvivesRepeatedBorderlessStyleChanges() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        let window = try #require(fixture.controller.window)
+        let sibling = try #require(TerminalController.newTab(app, from: window, withBaseConfig: config))
+        try await Task.sleep(for: .milliseconds(80))
+        fixture.controller.selectVerticalTab(fixture.controller)
+        let pane = try #require(fixture.controller.surfaceTree.first)
+        for _ in 0..<8 {
+            fixture.controller.toggleFullscreen(mode: .nonNative)
+            try await Task.sleep(for: .milliseconds(60))
+            #expect(!window.styleMask.contains(.titled))
+            #expect(fixture.controller.surfaceTree.first === pane)
+            fixture.controller.toggleFullscreen(mode: .nonNative)
+            try await Task.sleep(for: .milliseconds(60))
+            #expect(window.styleMask.contains(.titled))
+            #expect(window.tabGroup?.windows.contains(sibling.window!) == true)
+            #expect(window.isVisible)
+        }
+    }
+
     @Test func nonNativeFullscreenSupportsWorkspaceCreationAndReturn() async throws {
         let fixture = try Fixture()
         defer { fixture.close() }

@@ -203,6 +203,20 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // be a nicer way than this.
         let firstResponder = window.firstResponder
 
+        // OMG: detach while the native stack still has its titled windows.
+        // Removing .titled from the selected tab lets AppKit tear down the
+        // stack and select a replacement at once, which can assert in
+        // _selectedWindow. Keep a valid selection throughout that handoff.
+        NSDisableScreenUpdates()
+        defer { NSEnableScreenUpdates() }
+        if let group = window.tabGroup, group.windows.count > 1 {
+            if group.selectedWindow === window,
+               let replacement = group.windows.first(where: { $0 !== window }) {
+                group.selectedWindow = replacement
+            }
+            group.removeWindow(window)
+        }
+
         // We hide the dock if the window is on a screen with the dock.
         // We must hide the dock FIRST then hide the menu:
         // If you specify autoHideMenuBar, it must be accompanied by either hideDock or autoHideDock.

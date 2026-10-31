@@ -3,7 +3,7 @@ import AppKit
 /// Reused native cells keep file identity and checkbox state explicit.
 final class GitCollectionCell: NSTableCellView {
     let checkbox = GitStageCheckbox()
-    private let progress = NSProgressIndicator()
+    private let progress = NativeProgressIndicator()
     private let disclosure = NSButton()
     private let icon = NSImageView()
     private let name = NSTextField(labelWithString: "")
@@ -44,7 +44,7 @@ final class GitCollectionCell: NSTableCellView {
         self.toggle = toggle
         let item = row.item
         [checkbox, progress, disclosure, icon, subtitle, status, badge, rule].forEach { $0.isHidden = true }
-        progress.stopAnimation(nil)
+        progress.setAnimating(false)
         name.stringValue = item.title
         name.font = .systemFont(ofSize: 11, weight: item.isCategory ? .medium : .regular)
         name.textColor = item.isCategory ? colors.secondary : colors.text
@@ -76,7 +76,7 @@ final class GitCollectionCell: NSTableCellView {
             checkbox.setAccessibilityLabel(actionTitle)
             checkbox.toolTip = item.pending ? GitL10n.text("Updating index…") : actionTitle
             checkbox.isHidden = item.pending
-            if item.pending { progress.isHidden = false; progress.startAnimation(nil) }
+            if item.pending { progress.isHidden = false; progress.setAnimating(true) }
         }
         switch item.kind {
         case .ref(let ref):
@@ -100,7 +100,7 @@ final class GitCollectionCell: NSTableCellView {
             if item.pending {
                 progress.isHidden = false
                 progress.setAccessibilityLabel(GitL10n.text("Updating index for ") + file.path)
-                progress.startAnimation(nil)
+                progress.setAnimating(true)
             }
             status.stringValue = file.isUntracked ? "?" : String(file.status.prefix(1))
             status.textColor = colors.status(file)

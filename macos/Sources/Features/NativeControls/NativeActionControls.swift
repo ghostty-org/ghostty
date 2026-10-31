@@ -80,7 +80,7 @@ struct NativeMenuButton: NSViewRepresentable {
 
 class NativeActionControl: NSButton, NSMenuDelegate {
     private static weak var hoveredControl: NativeActionControl?
-    var showsHover = true { didSet { needsDisplay = true } }
+    var showsHover = true { didSet { if oldValue != showsHover { needsDisplay = true } } }
     var showsKeyboardFocusBorder = true
     var onPress: (() -> Void)?
     var contextEntries: [NativeMenuEntry] = []
@@ -171,7 +171,7 @@ class NativeActionControl: NSButton, NSMenuDelegate {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if tracking == nil {
-            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect],
                                       owner: self)
             tracking = area
             addTrackingArea(area)
@@ -200,7 +200,8 @@ class NativeActionControl: NSButton, NSMenuDelegate {
         isHovered = hovered
         needsDisplay = true
     }
-    override func mouseEntered(with event: NSEvent) { refreshHover() }
+    override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
+    override func mouseMoved(with event: NSEvent) { setHovered(NativePointerLocation.contains(self, event: event)) }
     override func mouseExited(with event: NSEvent) { setHovered(false) }
     override func highlight(_ flag: Bool) { super.highlight(flag); needsDisplay = true }
     override func becomeFirstResponder() -> Bool {
@@ -299,6 +300,14 @@ class NativeActionControl: NSButton, NSMenuDelegate {
 }
 
 enum NativePointerLocation {
+    /// AppKit already routed this event to its window. Do not synchronously ask
+    /// WindowServer again, or replace its position with a newer global pointer.
+    static func contains(_ view: NSView, event: NSEvent) -> Bool {
+        guard let window = view.window, event.window === window,
+              window.isKeyWindow, window.isVisible, !view.isHiddenOrHasHiddenAncestor else { return false }
+        return view.visibleRect.contains(view.convert(event.locationInWindow, from: nil))
+    }
+
     static func contains(_ view: NSView) -> Bool {
         guard let window = view.window, window.isKeyWindow, window.isVisible,
               !view.isHiddenOrHasHiddenAncestor else { return false }

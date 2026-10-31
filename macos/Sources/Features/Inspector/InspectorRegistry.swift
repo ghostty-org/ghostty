@@ -330,7 +330,20 @@ final class InspectorRegistry: ObservableObject {
     typealias ActionHandler = (InspectorPaneAction) -> Void
 
     @Published private(set) var entries: [Entry] = []
-    @Published private var contentRevision: UInt64 = 0
+
+    struct ContentChange: Equatable {
+        let paneID: String?
+        let tabID: UUID?
+
+        func affects(paneID: String?, tabID: UUID) -> Bool {
+            (self.paneID == nil || self.paneID == paneID) &&
+                (self.tabID == nil || self.tabID == tabID)
+        }
+    }
+
+    /// Content is delivered after storage commits, without invalidating every
+    /// terminal shell and titlebar that observes the pane catalog.
+    let contentChanges = PassthroughSubject<ContentChange, Never>()
 
     private struct PresentedPane: Equatable {
         let paneID: String
@@ -386,7 +399,7 @@ final class InspectorRegistry: ObservableObject {
         let key = PluginContentKey(paneID: paneID, tabID: tabID)
         guard pluginContent[key] != content else { return }
         pluginContent[key] = content
-        contentRevision &+= 1
+        contentChanges.send(.init(paneID: paneID, tabID: tabID))
     }
 
     func updateCorePaneTitle(paneID: String, featureID: String, title: String) throws {
@@ -438,6 +451,7 @@ final class InspectorRegistry: ObservableObject {
         guard descriptor.source == source else {
             throw RegistryError.ownerMismatch
         }
+        guard descriptor.title != title else { return }
         let updated = InspectorPaneDescriptor(
             id: descriptor.id,
             title: title,
@@ -466,7 +480,7 @@ final class InspectorRegistry: ObservableObject {
         let key = PluginContentKey(paneID: paneID, tabID: tabID)
         guard pluginContent[key] != content else { return }
         pluginContent[key] = content
-        contentRevision &+= 1
+        contentChanges.send(.init(paneID: paneID, tabID: tabID))
     }
 
     func performAction(paneID: String, action: InspectorPaneAction) {
@@ -508,7 +522,7 @@ final class InspectorRegistry: ObservableObject {
             lifecycleHandlers[previous.paneID]?(.disappeared(previous.context))
         }
         pluginContent = pluginContent.filter { $0.key.tabID != tabID }
-        contentRevision &+= 1
+        contentChanges.send(.init(paneID: nil, tabID: tabID))
     }
 
     func disconnectPlugin(_ pluginID: String) {
@@ -516,7 +530,6 @@ final class InspectorRegistry: ObservableObject {
     }
 
     func content(for paneID: String, context: InspectorPaneContext) -> InspectorPaneContent? {
-        _ = contentRevision
         return contentProviders[paneID]?(context)
     }
 

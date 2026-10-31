@@ -397,7 +397,7 @@ final class GitCommitAIAddModelsController: GitCommitSettingsPanelController,
     private let searchField = NSSearchField()
     private let modelTable = NSTableView()
     private let tableScroll = NSScrollView()
-    private let spinner = NSProgressIndicator()
+    private let spinner = NativeProgressIndicator()
     private let reloadButton = NSButton()
     private let updateButton = NSButton()
     private let updateStatus = NSTextField(wrappingLabelWithString: "")
@@ -619,13 +619,13 @@ final class GitCommitAIAddModelsController: GitCommitSettingsPanelController,
         loading = true
         checkingUpdate = false
         errorField.stringValue = ""
-        spinner.startAnimation(nil)
+        spinner.setAnimating(true)
         updateButtons()
         reloadTask = Task { @MainActor in
             defer {
                 if loadingID == id {
                     loading = false
-                    spinner.stopAnimation(nil)
+                    spinner.setAnimating(false)
                     reloadTask = nil
                     updateButtons()
                 }
@@ -692,12 +692,12 @@ final class GitCommitAIAddModelsController: GitCommitSettingsPanelController,
         updating = true
         loading = true
         errorField.stringValue = ""
-        spinner.startAnimation(nil)
+        spinner.setAnimating(true)
         updateButtons()
         defer {
             updating = false
             loading = false
-            spinner.stopAnimation(nil)
+            spinner.setAnimating(false)
             updateButtons()
         }
         do {
