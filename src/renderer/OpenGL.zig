@@ -415,7 +415,11 @@ pub fn initAtlasTexture(
     const format: gl.Texture.Format, const internal_format: gl.Texture.InternalFormat =
         switch (atlas.format) {
             .grayscale => .{ .red, .red },
-            .bgra => .{ .bgra, .srgba },
+            // `src/font/face/freetype.zig` uses FT_PIXEL_MODE_BGRA
+            // https://freetype.org/freetype2/docs/reference/ft2-basic_types.html#ft_pixel_mode
+            // This is a premultiplied-alpha sRGB format that cannot use the
+            // graphics API srgba decoding which expects straight-alpha
+            .bgra => .{ .bgra, .rgba },
             else => @panic("unsupported atlas format for OpenGL texture"),
         };
 
