@@ -12,6 +12,7 @@ const Response = command.Response;
 const LoadingImage = image.LoadingImage;
 const Image = image.Image;
 const ImageStorage = @import("graphics_storage.zig").ImageStorage;
+const sys = @import("../sys.zig");
 
 const log = std.log.scoped(.kitty_gfx);
 
@@ -68,6 +69,7 @@ pub fn execute(
 
     const resp_: ?Response = switch (cmd.control) {
         .query => query(io, alloc, terminal, cmd),
+        .feature_query => featureQuery(terminal, cmd),
         .display => display(io, alloc, terminal, cmd),
         .delete => delete(io, alloc, terminal, cmd),
 
@@ -192,6 +194,36 @@ fn query(
     img.deinit(alloc);
 
     return result;
+}
+
+/// Execute a feature query (a=q with e).
+///
+/// This reports which of the query's keys are supported for the action it
+/// asks about. Nothing is loaded, and a chunked load in progress is left
+/// alone.
+/// https://sw.kovidgoyal.net/kitty/graphics-protocol/#querying-support-for-protocol-features
+fn featureQuery(
+    terminal: *const Terminal,
+    cmd: *const Command,
+) Response {
+    const q = cmd.control.feature_query;
+
+    // Like any other query, a feature query requires an image ID.
+    if (q.image_id == 0) {
+        return .{ .message = "EINVAL: image ID required" };
+    }
+
+    const limits = terminal.screens.active.kitty_images.image_limits;
+    return .{
+        .id = q.image_id,
+        .supported = q.supported(.{
+            .file = limits.file,
+            .temporary_file = limits.temporary_file != .disabled,
+            .shared_memory = limits.shared_memory and image.shared_memory_available,
+            .png = sys.decode_png != null,
+            .max_dimension = image.max_dimension,
+        }),
+    };
 }
 
 /// Transmit image data.
@@ -3757,4 +3789,195 @@ test "kittygfx animation: control negative gap makes frame gapless" {
 
     const anim = storage.imagePtrByIdOrNumber(1, 0).?.animation.?;
     try testing.expectEqual(@as(u32, 0), anim.frames.items[0].gap_ms);
+}
+
+/// Execute a command string and return its encoded reply in `buf`, or
+/// null if there is no reply.
+fn testReply(
+    io: std.Io,
+    alloc: Allocator,
+    t: *Terminal,
+    input: []const u8,
+    buf: []u8,
+) !?[]const u8 {
+    const cmd = try command.Parser.parseString(alloc, input);
+    defer cmd.deinit(alloc);
+    const resp = execute(io, alloc, t, &cmd) orelse return null;
+    var writer: std.Io.Writer = .fixed(buf);
+    try resp.encode(&writer);
+    return writer.buffered();
+}
+
+test "kittygfx feature query reports supported keys" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    const cases = [_]struct { []const u8, []const u8 }{
+        // Unicode placeholders, the case that motivated feature queries.
+        .{ "a=q,i=31,e=T,U=1", ",e=T,U=1" },
+        .{ "a=q,i=31,e=T,s=1,v=1,f=24,U=1", ",e=T,f=24,s=1,v=1,U=1" },
+        .{
+            "a=q,i=31,e=T,s=1,v=1,f=24,t=d,C=1,z=-3,N=1",
+            ",e=T,f=24,s=1,t=d,v=1,z=-3,C=1,N=1",
+        },
+        .{ "a=q,i=31,e=T,P=1,Q=2,H=-1,V=4", ",e=T,H=-1,P=1,Q=2,V=4" },
+        .{ "a=q,i=31,e=t,o=z,S=10,O=2", ",e=t,o=z,O=2,S=10" },
+
+        // Keys are interpreted according to the action being queried.
+        .{ "a=q,i=31,e=t,s=1,v=1,f=8,c=2", ",e=t,s=1,v=1" },
+        .{ "a=q,i=31,e=p,c=2,r=3,U=1,C=1,s=1", ",e=p,c=2,r=3,C=1,U=1" },
+        .{ "a=q,i=31,e=f,c=2,r=3,z=40,X=1,f=8,s=1", ",e=f,c=2,r=3,s=1,z=40,X=1" },
+        .{ "a=q,i=31,e=a,s=3,v=1,r=2,c=1,z=-1", ",e=a,c=1,r=2,s=3,v=1,z=-1" },
+        .{ "a=q,i=31,e=c,r=1,c=2,w=3,X=1,C=1,U=1", ",e=c,c=2,r=1,w=3,C=1,X=1" },
+        .{ "a=q,i=31,e=d,d=F,p=2,r=1,s=1", ",e=d,d=F,p=2,r=1" },
+        .{ "a=q,i=31,e=d,d=a,r=1", ",e=d,d=a" },
+
+        // Unsupported values are not reported.
+        .{ "a=q,i=31,e=T,s=1,v=1,f=24,C=7,N=6,U=2", ",e=T,f=24,s=1,v=1" },
+        .{ "a=q,i=31,e=t,f=42,s=100000", ",e=t" },
+        .{ "a=q,i=31,e=a,s=4", ",e=a" },
+        .{ "a=q,i=31,e=d,d=w", ",e=d" },
+
+        // The default limits only allow direct transmission.
+        .{ "a=q,i=31,e=t,t=f", ",e=t" },
+        .{ "a=q,i=31,e=t,t=t", ",e=t" },
+        .{ "a=q,i=31,e=t,t=s", ",e=t" },
+
+        // An unknown action is not reported at all.
+        .{ "a=q,i=31,e=x,s=1,v=1,f=24,U=1", "" },
+    };
+
+    for (cases) |case| {
+        const input, const keys = case;
+        var buf: [256]u8 = undefined;
+        var expected: [256]u8 = undefined;
+        try testing.expectEqualStrings(
+            try std.fmt.bufPrint(&expected, "\x1b_Gi=31{s};OK\x1b\\", .{keys}),
+            (try testReply(io, alloc, &t, input, &buf)).?,
+        );
+    }
+
+    // A feature query loads nothing.
+    try testing.expectEqual(@as(usize, 0), t.screens.active.kitty_images.images.count());
+}
+
+test "kittygfx feature query follows image limits" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+    t.screens.active.kitty_images.image_limits = .allWithTempDir("/tmp");
+
+    var buf: [256]u8 = undefined;
+    try testing.expectEqualStrings(
+        "\x1b_Gi=31,e=t,t=f;OK\x1b\\",
+        (try testReply(io, alloc, &t, "a=q,i=31,e=t,t=f", &buf)).?,
+    );
+    try testing.expectEqualStrings(
+        "\x1b_Gi=31,e=t,t=t;OK\x1b\\",
+        (try testReply(io, alloc, &t, "a=q,i=31,e=t,t=t", &buf)).?,
+    );
+    try testing.expectEqualStrings(
+        if (image.shared_memory_available)
+            "\x1b_Gi=31,e=t,t=s;OK\x1b\\"
+        else
+            "\x1b_Gi=31,e=t;OK\x1b\\",
+        (try testReply(io, alloc, &t, "a=q,i=31,e=t,t=s", &buf)).?,
+    );
+}
+
+test "kittygfx feature query reports png only with a decoder" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    const decode_png = sys.decode_png;
+    defer sys.decode_png = decode_png;
+
+    var buf: [256]u8 = undefined;
+    sys.decode_png = null;
+    try testing.expectEqualStrings(
+        "\x1b_Gi=31,e=T;OK\x1b\\",
+        (try testReply(io, alloc, &t, "a=q,i=31,e=T,f=100", &buf)).?,
+    );
+
+    sys.decode_png = &struct {
+        fn decode(_: Allocator, _: []const u8) sys.DecodeError!sys.Image {
+            return error.InvalidData;
+        }
+    }.decode;
+    try testing.expectEqualStrings(
+        "\x1b_Gi=31,e=T,f=100;OK\x1b\\",
+        (try testReply(io, alloc, &t, "a=q,i=31,e=T,f=100", &buf)).?,
+    );
+}
+
+test "kittygfx feature query does not disturb a chunked load" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    var buf: [256]u8 = undefined;
+
+    // The first two of the three bytes of a 1x1 RGB image.
+    try testing.expect(try testReply(
+        io,
+        alloc,
+        &t,
+        "a=t,i=99,f=24,s=1,v=1,m=1;AAA=",
+        &buf,
+    ) == null);
+
+    try testing.expectEqualStrings(
+        "\x1b_Gi=31,e=T,U=1;OK\x1b\\",
+        (try testReply(io, alloc, &t, "a=q,i=31,e=T,U=1", &buf)).?,
+    );
+
+    try testing.expectEqualStrings(
+        "\x1b_Gi=99;OK\x1b\\",
+        (try testReply(io, alloc, &t, "m=0;AA==", &buf)).?,
+    );
+    try testing.expectEqual(@as(usize, 1), t.screens.active.kitty_images.images.count());
+}
+
+test "kittygfx feature query replies like any other query" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    var buf: [256]u8 = undefined;
+
+    // The payload is ignored, even when it isn't valid base64.
+    try testing.expectEqualStrings(
+        "\x1b_Gi=31,e=T,U=1;OK\x1b\\",
+        (try testReply(io, alloc, &t, "a=q,i=31,e=T,U=1;!!!!", &buf)).?,
+    );
+
+    // Quiet suppresses the reply.
+    try testing.expect(try testReply(io, alloc, &t, "a=q,i=31,e=T,U=1,q=1", &buf) == null);
+    try testing.expect(try testReply(io, alloc, &t, "a=q,i=31,e=T,U=1,q=2", &buf) == null);
+
+    // There is no reply without an image ID to send it to.
+    try testing.expect(try testReply(io, alloc, &t, "a=q,e=T,U=1", &buf) == null);
+
+    // The image ID and number are still mutually exclusive.
+    try testing.expectEqualStrings(
+        "\x1b_Gi=31,I=2;EINVAL: image ID and number are mutually exclusive\x1b\\",
+        (try testReply(io, alloc, &t, "a=q,i=31,I=2,e=T,U=1", &buf)).?,
+    );
 }

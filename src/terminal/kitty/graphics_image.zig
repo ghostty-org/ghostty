@@ -17,7 +17,14 @@ const LimitedAllocator = @import("../../datastruct/main.zig").LimitedAllocator;
 const log = std.log.scoped(.kitty_gfx);
 
 /// Maximum width or height of an image. Taken directly from Kitty.
-const max_dimension = 10000;
+pub const max_dimension = 10000;
+
+/// Whether this target can load images from shared memory at all,
+/// whatever the limits allow. Android does not support POSIX shared
+/// memory, Windows is currently unsupported, and shm_open needs libc.
+pub const shared_memory_available = !builtin.target.abi.isAndroid() and
+    builtin.target.os.tag != .windows and
+    builtin.link_libc;
 
 /// Maximum size in bytes, taken from Kitty.
 const max_size = 400 * 1024 * 1024; // 400MB
@@ -201,14 +208,7 @@ pub const LoadingImage = struct {
         t: command.Transmission,
         path: []const u8,
     ) !void {
-        // android does not support POSIX shared memory.
-        // windows is currently unsupported, does it support shm?
-        if (comptime builtin.target.abi.isAndroid() or builtin.target.os.tag == .windows) {
-            return error.UnsupportedMedium;
-        }
-
-        // libc is required for shm_open
-        if (comptime !builtin.link_libc) {
+        if (comptime !shared_memory_available) {
             return error.UnsupportedMedium;
         }
 
