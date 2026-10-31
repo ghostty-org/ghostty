@@ -76,6 +76,7 @@ pub const Parser = struct {
     action: Action,
     flags: Flags = .{},
     chain: bool,
+    @"else": bool,
 
     pub const Elem = union(enum) {
         /// A leader trigger in a sequence.
@@ -89,6 +90,11 @@ pub const Parser = struct {
         /// invalid actions for chains such as `unbind`. We expect downstream
         /// consumers to validate that the action is valid for chaining.
         chain: Action,
+
+        /// A fallback action `else=<action>` for the previous binding,
+        /// taken when that binding is performable and could not be
+        /// performed. Like chain, downstream consumers validate the action.
+        @"else": Action,
     };
 
     pub fn init(raw_input: []const u8) Error!Parser {
@@ -125,9 +131,10 @@ pub const Parser = struct {
             return Error.InvalidFormat;
         };
 
-        // Detect chains. Chains must not have flags.
+        // Detect chains and else. Neither can have flags.
         const chain = std.mem.eql(u8, input[0..eql_idx], "chain");
-        if (chain and start_idx > 0) return Error.InvalidFormat;
+        const @"else" = std.mem.eql(u8, input[0..eql_idx], "else");
+        if ((chain or @"else") and start_idx > 0) return Error.InvalidFormat;
 
         // Sequence iterator goes up to the equal, action is after. We can
         // parse the action now.
@@ -137,11 +144,12 @@ pub const Parser = struct {
                 // for chained inputs. The `next` will never yield this
                 // because we have chain set. When we find a nicer way to
                 // do this we can remove it, the e2e is tested.
-                .input = if (chain) "a" else input[0..eql_idx],
+                .input = if (chain or @"else") "a" else input[0..eql_idx],
             },
             .action = try .parse(input[eql_idx + 1 ..]),
             .flags = flags,
             .chain = chain,
+            .@"else" = @"else",
         };
     }
 
@@ -197,8 +205,9 @@ pub const Parser = struct {
             return .{ .leader = trigger };
         }
 
-        // If we're a chain then return it as-is.
+        // If we're a chain or else then return it as-is.
         if (self.chain) return .{ .chain = self.action };
+        if (self.@"else") return .{ .@"else" = self.action };
 
         // Out of triggers, yield the final action.
         return .{ .binding = .{
@@ -254,7 +263,7 @@ fn parseSingle(raw_input: []const u8) (Error || error{
     return switch (elem) {
         .leader => error.UnexpectedSequence,
         .binding => elem.binding,
-        .chain => error.UnexpectedChain,
+        .chain, .@"else" => error.UnexpectedChain,
     };
 }
 
@@ -2236,6 +2245,10 @@ pub const Set = struct {
         action: Action,
         flags: Flags,
 
+        /// The action to take instead if this is a performable binding
+        /// and `action` could not be performed. Set with `else=`.
+        else_action: ?Action = null,
+
         pub fn clone(
             self: Leaf,
             alloc: Allocator,
@@ -2243,6 +2256,7 @@ pub const Set = struct {
             return .{
                 .action = try self.action.clone(alloc),
                 .flags = self.flags,
+                .else_action = if (self.else_action) |a| try a.clone(alloc) else null,
             };
         }
 
@@ -2257,6 +2271,7 @@ pub const Set = struct {
             return .{
                 .flags = self.flags,
                 .actions = .{ .single = .{self.action} },
+                .else_action = self.else_action,
             };
         }
     };
@@ -2301,6 +2316,7 @@ pub const Set = struct {
             single: [1]Action,
             many: []const Action,
         },
+        else_action: ?Action = null,
 
         pub fn actionsSlice(self: *const GenericLeaf) []const Action {
             return switch (self.actions) {
@@ -2367,7 +2383,8 @@ pub const Set = struct {
                 // is invalid because we handle all valid cases.
                 error.UnexpectedEndOfInput => return error.InvalidFormat,
 
-                // If we had a chain without a parent then the format is wrong.
+                // If we had a chain or else without a valid parent then
+                // the format is wrong.
                 error.NoChainParent => return error.InvalidFormat,
 
                 // If we had an invalid action for a chain (e.g. unbind).
@@ -2403,7 +2420,8 @@ pub const Set = struct {
     };
 
     /// Returns the set that was ultimately updated if a binding was
-    /// added. Unbind does not return a set since nothing was added.
+    /// added. Unbind does not return a set since nothing was added, and
+    /// else does not return a set since nothing can be chained after it.
     fn parseAndPutRecurse(
         root: *Set,
         set: *Set,
@@ -2467,12 +2485,15 @@ pub const Set = struct {
                         set.remove(alloc, t);
                         if (old) |entry| switch (entry) {
                             .leader => unreachable, // Handled above
-                            .leaf => |leaf| set.putFlags(
-                                alloc,
-                                t,
-                                leaf.action,
-                                leaf.flags,
-                            ) catch {},
+                            .leaf => |leaf| leaf: {
+                                set.putFlags(
+                                    alloc,
+                                    t,
+                                    leaf.action,
+                                    leaf.flags,
+                                ) catch break :leaf;
+                                set.chain_parent.?.value_ptr.leaf.else_action = leaf.else_action;
+                            },
 
                             .leaf_chained => |leaf| chain: {
                                 // Rebuild our chain
@@ -2529,6 +2550,15 @@ pub const Set = struct {
                 if (action == .unbind) return error.InvalidChainAction;
                 try set.appendChain(alloc, action);
                 return set;
+            },
+
+            .@"else" => |action| {
+                // Else can only happen on the root.
+                assert(set == root);
+                // Unbind is not valid for else.
+                if (action == .unbind) return error.InvalidChainAction;
+                try set.setElse(action);
+                return null;
             },
         }
     }
@@ -2675,6 +2705,35 @@ pub const Set = struct {
                 );
             },
         }
+    }
+
+    /// Set the else action of the prior set action. The prior action must
+    /// be a performable binding that is not chained. Nothing can be chained
+    /// after an else, so this clears the chain parent.
+    ///
+    /// It is an error if there is no valid prior chain parent.
+    pub fn setElse(
+        self: *Set,
+        action: Action,
+    ) error{NoChainParent}!void {
+        // Unbind is not a valid else action; callers must check this.
+        assert(action != .unbind);
+
+        const parent = self.chain_parent orelse return error.NoChainParent;
+        switch (parent.value_ptr.*) {
+            // Leader can never be a chain parent.
+            .leader => unreachable,
+
+            // Else can't be combined with chain.
+            .leaf_chained => return error.NoChainParent,
+
+            .leaf => |*leaf| {
+                if (!leaf.flags.performable) return error.NoChainParent;
+                leaf.else_action = action;
+            },
+        }
+
+        self.chain_parent = null;
     }
 
     /// Get a binding for a given trigger.
@@ -3484,6 +3543,29 @@ test "parse: chain" {
     // Chain can't be part of a sequence
     {
         var p = try Parser.init("a>chain=ignore");
+        _ = try p.next();
+        try testing.expectError(error.InvalidFormat, p.next());
+    }
+}
+
+test "parse: else" {
+    const testing = std.testing;
+
+    // Valid
+    {
+        var p = try Parser.init("else=new_tab");
+        try testing.expectEqual(Parser.Elem{
+            .@"else" = .new_tab,
+        }, try p.next());
+        try testing.expect(try p.next() == null);
+    }
+
+    // Else can't have flags
+    try testing.expectError(error.InvalidFormat, Parser.init("performable:else=ignore"));
+
+    // Else can't be part of a sequence
+    {
+        var p = try Parser.init("a>else=ignore");
         _ = try p.next();
         try testing.expectError(error.InvalidFormat, p.next());
     }
@@ -4918,6 +5000,167 @@ test "set: formatEntries leaf_chained with text action" {
     const expected =
         \\keybind = a=text:hello
         \\keybind = chain=text:world
+        \\
+    ;
+    try testing.expectEqualStrings(expected, output.written());
+}
+
+test "set: parseAndPut else" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+    try testing.expect(entry == .leaf);
+    try testing.expect(entry.leaf.action == .new_window);
+    try testing.expect(entry.leaf.flags.performable);
+    try testing.expect(entry.leaf.else_action.? == .new_tab);
+}
+
+test "set: parseAndPut else on sequence" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a>b=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+
+    const a_entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+    try testing.expect(a_entry == .leader);
+    const b_entry = a_entry.leader.get(.{ .key = .{ .unicode = 'b' } }).?.value_ptr.*;
+    try testing.expect(b_entry == .leaf);
+    try testing.expect(b_entry.leaf.else_action.? == .new_tab);
+}
+
+test "set: parseAndPut else errors" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // No prior binding
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "else=new_tab"));
+
+    // Prior binding is not performable; it is left unchanged.
+    try s.parseAndPut(alloc, "a=new_window");
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "else=new_tab"));
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf);
+        try testing.expect(entry.leaf.else_action == null);
+    }
+
+    // Unbind is not a valid else action
+    try s.parseAndPut(alloc, "performable:b=new_window");
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "else=unbind"));
+
+    // Else can't follow a chain
+    try s.parseAndPut(alloc, "performable:c=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "else=new_tab"));
+
+    // Nothing can follow an else: not a chain, not another else.
+    try s.parseAndPut(alloc, "performable:d=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "chain=close_surface"));
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "else=close_surface"));
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'd' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf);
+        try testing.expect(entry.leaf.else_action.? == .new_tab);
+    }
+}
+
+test "set: parseAndPut rebinding clears else" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+    try s.parseAndPut(alloc, "performable:a=close_surface");
+
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+    try testing.expect(entry.leaf.else_action == null);
+}
+
+test "set: sequence unbind restores leaf with else" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+
+    // Unbinding a sequence under 'a' restores the original 'a' leaf.
+    try s.parseAndPut(alloc, "a>b=unbind");
+
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+    try testing.expect(entry == .leaf);
+    try testing.expect(entry.leaf.flags.performable);
+    try testing.expect(entry.leaf.else_action.? == .new_tab);
+}
+
+test "set: clone with else containing allocated data" {
+    const testing = std.testing;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var s: Set = .{};
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "else=text:hello");
+
+    const cloned = try s.clone(alloc);
+
+    // Verify the cloned set has an independent copy of the text
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    const cloned_entry = cloned.get(.{ .key = .{ .unicode = 'a' } }).?;
+    const cloned_else = cloned_entry.value_ptr.leaf.else_action.?;
+    try testing.expectEqualStrings("hello", cloned_else.text);
+    try testing.expect(entry.value_ptr.leaf.else_action.?.text.ptr != cloned_else.text.ptr);
+}
+
+test "set: formatEntries leaf with else omits else" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const formatterpkg = @import("../config/formatter.zig");
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+
+    var output: std.Io.Writer.Allocating = .init(alloc);
+    defer output.deinit();
+
+    var buf: [1024]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+
+    // Write the trigger first (as formatEntry in Config.zig does)
+    try entry.key_ptr.format(&writer);
+    try entry.value_ptr.formatEntries(&writer, formatterpkg.entryFormatter("keybind", &output.writer));
+
+    // Flags aren't formatted, so an else line would follow a binding that
+    // reads back as non-performable and fail to parse. Else is omitted
+    // until flags are formatted.
+    const expected =
+        \\keybind = a=new_window
         \\
     ;
     try testing.expectEqualStrings(expected, output.written());
