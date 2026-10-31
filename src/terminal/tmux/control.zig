@@ -29,6 +29,14 @@ pub const Parser = struct {
     /// exited and future data dropped).
     max_bytes: usize = 1024 * 1024,
 
+    /// The time, command number and flags of the `%begin` line of the
+    /// block we're in. tmux repeats them on the `%end`/`%error` line, and
+    /// a line in the block (such as pane contents captured with
+    /// `capture-pane`) can have the same shape, so only a line with these
+    /// exact fields ends the block. Null when the `%begin` line didn't
+    /// carry them.
+    block_guard: ?Guard = null,
+
     const State = enum {
         /// Outside of any active notifications. This should drop any output
         /// unless it is '%' on the first byte of a line. The buffer will be
@@ -111,7 +119,7 @@ pub const Parser = struct {
                 )) |v| v + 1 else 0;
                 const line = written[idx..];
 
-                if (parseBlockTerminator(line)) |terminator| {
+                if (parseBlockTerminator(line, self.block_guard)) |terminator| {
                     const output = std.mem.trimEnd(
                         u8,
                         written[0..idx],
@@ -152,15 +160,44 @@ pub const Parser = struct {
 
     const BlockTerminator = enum { end, err };
 
+    /// The fields that pair a `%begin` line with its `%end`/`%error`.
+    const Guard = struct {
+        time: usize,
+        number: usize,
+        flags: usize,
+
+        /// Read the three fields that follow the command on a guard line.
+        /// Returns null unless there are exactly three numbers, each after
+        /// a single space.
+        fn parse(fields: *std.mem.SplitIterator(u8, .scalar)) ?Guard {
+            const guard: Guard = .{
+                .time = parseField(fields) orelse return null,
+                .number = parseField(fields) orelse return null,
+                .flags = parseField(fields) orelse return null,
+            };
+            if (fields.next() != null) return null;
+            return guard;
+        }
+
+        /// A number written the way tmux writes one, so with no leading
+        /// zeros either.
+        fn parseField(fields: *std.mem.SplitIterator(u8, .scalar)) ?usize {
+            const field = fields.next() orelse return null;
+            if (field.len > 1 and field[0] == '0') return null;
+            return parseDecimalId(field);
+        }
+    };
+
     /// Block payload is raw data, so a line only terminates a block if it
-    /// exactly matches tmux's `%end`/`%error` guard-line shape.
-    fn parseBlockTerminator(line_raw: []const u8) ?BlockTerminator {
+    /// exactly matches tmux's `%end`/`%error` guard-line shape and repeats
+    /// the fields of the block's `%begin` line (`begin`, if known).
+    fn parseBlockTerminator(line_raw: []const u8, begin: ?Guard) ?BlockTerminator {
         var line = line_raw;
         if (line.len > 0 and line[line.len - 1] == '\r') {
             line = line[0 .. line.len - 1];
         }
 
-        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        var fields = std.mem.splitScalar(u8, line, ' ');
         const cmd = fields.next() orelse return null;
         const terminator: BlockTerminator = if (std.mem.eql(u8, cmd, "%end"))
             .end
@@ -169,19 +206,8 @@ pub const Parser = struct {
         else
             return null;
 
-        const time = fields.next() orelse return null;
-        const command_id = fields.next() orelse return null;
-        const flags = fields.next() orelse return null;
-        const extra = fields.next();
-
-        // In the future, we should compare these to the %begin block
-        // because the tmux source guarantees that these always match and
-        // that is a more robust way to match.
-        _ = std.fmt.parseInt(usize, time, 10) catch return null;
-        _ = std.fmt.parseInt(usize, command_id, 10) catch return null;
-        _ = std.fmt.parseInt(usize, flags, 10) catch return null;
-        if (extra != null) return null;
-
+        const guard = Guard.parse(&fields) orelse return null;
+        if (begin) |b| if (!std.meta.eql(guard, b)) return null;
         return terminator;
     }
 
@@ -201,11 +227,14 @@ pub const Parser = struct {
         // The notification MUST exist because we guard entering the notification
         // state on seeing at least a '%'.
         if (std.mem.eql(u8, cmd, "%begin")) {
-            // We don't use the rest of the tokens for now because tmux
-            // claims to guarantee that begin/end are always in order and
-            // never intermixed. In the future, we should probably validate
-            // this.
-            // TODO(tmuxcc): do this before merge?
+            // tmux guarantees that begin/end are always in order and never
+            // intermixed; the guard fields tell the block's own end line
+            // apart from data that looks like one.
+            self.block_guard = guard: {
+                var fields = std.mem.splitScalar(u8, line, ' ');
+                _ = fields.next(); // %begin
+                break :guard Guard.parse(&fields);
+            };
 
             // Move to block state because we expect a corresponding end/error
             // and want to accumulate the data.
@@ -860,6 +889,53 @@ test "tmux output with empty data" {
     try testing.expect(n == .output);
     try testing.expectEqual(42, n.output.pane_id);
     try testing.expectEqualStrings("", n.output.data);
+}
+
+test "tmux block ends only on the guard line of its begin" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // A line with the shape of a guard line, such as captured pane
+    // contents, is data unless it repeats the %begin fields exactly.
+    const data = [_][]const u8{
+        "%end 1578922740 270 1",
+        "%error 1 2 3",
+        "%end +1578922740 269 1",
+        "%end 1578922740 0269 1",
+        "%end 1578922740  269 1",
+        "%end 1578922740 269 1 ",
+        " %end 1578922740 269 1",
+    };
+    for ("%begin 1578922740 269 1\n") |byte| try testing.expect(try c.put(byte) == null);
+    for (data) |line| {
+        for (line) |byte| try testing.expect(try c.put(byte) == null);
+        try testing.expect(try c.put('\n') == null);
+    }
+    for ("%end 1578922740 269 1") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .block_end);
+    const expected = try std.mem.join(alloc, "\n", &data);
+    defer alloc.free(expected);
+    try testing.expectEqualStrings(expected, n.block_end);
+}
+
+test "tmux block without begin fields ends on any guard line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // Nothing to compare against, so any well-formed guard line ends it.
+    for ("%begin\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("data\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("%end 1 2 3") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .block_end);
+    try testing.expectEqualStrings("data", n.block_end);
 }
 
 test "tmux notifications with overlong ids are dropped" {
